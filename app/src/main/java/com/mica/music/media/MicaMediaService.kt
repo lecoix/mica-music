@@ -8,7 +8,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -47,7 +46,7 @@ class MicaMediaService : MediaSessionService() {
             }
         })
         val dataSourceFactory = DefaultDataSource.Factory(this)
-        val renderersFactory = DefaultRenderersFactory(this).apply {
+        val renderersFactory = MicaRenderersFactory(this).apply {
             setEnableDecoderFallback(true)
         }
         val exoPlayer = ExoPlayer.Builder(this)
@@ -65,6 +64,17 @@ class MicaMediaService : MediaSessionService() {
         val player = MicaCompositePlayer(exoPlayer)
         compositePlayer = player
         AlacPlaybackCoordinator.compositePlayer = player
+        AlacPlaybackCoordinator.appContext = applicationContext
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (player.alacState == null) {
+                    MicaEqualizerManager.attach(this@MicaMediaService, audioSessionId)
+                }
+            }
+        })
+        if (exoPlayer.audioSessionId != 0) {
+            MicaEqualizerManager.attach(this, exoPlayer.audioSessionId)
+        }
         mediaSession = MediaSession.Builder(this, player).build()
         AlacPlaybackCoordinator.engine = AlacAudioTrackEngine(this)
     }
@@ -90,6 +100,8 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        MicaEqualizerManager.release()
+        AlacPlaybackCoordinator.appContext = null
         AlacPlaybackCoordinator.engine?.release()
         AlacPlaybackCoordinator.engine = null
         AlacPlaybackCoordinator.compositePlayer = null

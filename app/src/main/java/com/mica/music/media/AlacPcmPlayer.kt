@@ -14,9 +14,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 将 FFmpeg 输出的裸 PCM 文件写入 [AudioTrack] 播放。
+ *
+ * 进度仅按「已提交帧 − 缓冲延迟」估算，单调递增，避免 head/timestamp 混用导致前后乱跳。
  */
 internal class AlacPcmPlayer(
     private val scope: CoroutineScope,
@@ -37,6 +40,7 @@ internal class AlacPcmPlayer(
     private var paused = false
 
     private var sampleRateHz = 44_100
+    private val framesSubmitted = AtomicLong(0L)
 
     fun play(
         pcmFile: File,
@@ -44,8 +48,12 @@ internal class AlacPcmPlayer(
         durationSec: Int,
         stopRequested: () -> Boolean,
         listener: Listener,
+        startOffsetMs: Int = 0,
+        autoStart: Boolean = true,
     ) {
         stop()
+        framesSubmitted.set(0L)
+        paused = !autoStart
         val channelMask = if (format.channelCount == 1) {
             AudioFormat.CHANNEL_OUT_MONO
         } else {
@@ -54,12 +62,14 @@ internal class AlacPcmPlayer(
         val encoding = format.audioTrackEncoding
         val sampleRate = format.sampleRateHz
         sampleRateHz = sampleRate
+        val bytesPerFrame = format.bytesPerFrame.coerceAtLeast(1)
         val minBuf = AudioTrack.getMinBufferSize(sampleRate, channelMask, encoding)
         if (minBuf <= 0) {
             listener.onError("不支持的 PCM 格式 (${format.bitsPerSample}bit)")
             return
         }
 
+        val bufferBytes = minBuf * 4
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -75,19 +85,38 @@ internal class AlacPcmPlayer(
                     .build(),
             )
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .setBufferSizeInBytes(minBuf * 4)
+            .setBufferSizeInBytes(bufferBytes)
             .build()
 
         audioTrack = track
-        paused = false
-        val totalSec = durationSec.coerceAtLeast(1)
-        listener.onPrepared(totalSec)
-        track.play()
-        listener.onPlayingChanged(true)
+        AlacPlaybackCoordinator.appContext?.let { ctx ->
+            MicaEqualizerManager.attach(ctx, track.audioSessionId)
+        }
+        val maxMs = durationSec.coerceAtLeast(1) * 1000
+        listener.onPrepared(durationSec.coerceAtLeast(1))
+        if (autoStart) {
+            track.play()
+            listener.onPlayingChanged(true)
+        } else {
+            val parkedMs = startOffsetMs.coerceIn(0, maxMs)
+            listener.onPositionMs(parkedMs)
+        }
 
         writeJob = scope.launch(Dispatchers.IO) {
             try {
+                val startByte = format.byteOffsetForMs(startOffsetMs)
+                val fileFrames = pcmFile.length() / bytesPerFrame
+                val startFrame = format.framesForMs(startOffsetMs)
+                val framesToPlay = (fileFrames - startFrame).coerceAtLeast(0)
                 FileInputStream(pcmFile).use { input ->
+                    if (startByte > 0) {
+                        var remaining = startByte
+                        while (remaining > 0) {
+                            val skipped = input.skip(remaining)
+                            if (skipped <= 0) break
+                            remaining -= skipped
+                        }
+                    }
                     val buffer = ByteArray(minBuf)
                     while (isActive && !stopRequested()) {
                         while (paused && isActive && !stopRequested()) {
@@ -96,6 +125,14 @@ internal class AlacPcmPlayer(
                         if (stopRequested()) break
                         val read = input.read(buffer)
                         if (read <= 0) break
+                        MicaEqualizerManager.processPcmBuffer(
+                            buffer = buffer,
+                            offset = 0,
+                            length = read,
+                            encoding = encoding,
+                            sampleRateHz = sampleRate,
+                            channelCount = format.channelCount,
+                        )
                         var offset = 0
                         while (offset < read && isActive && !stopRequested()) {
                             while (paused && isActive && !stopRequested()) {
@@ -105,12 +142,12 @@ internal class AlacPcmPlayer(
                             val written = track.write(buffer, offset, read - offset)
                             if (written <= 0) break
                             offset += written
+                            framesSubmitted.addAndGet((written / bytesPerFrame).toLong())
                         }
                     }
                 }
                 if (!stopRequested()) {
-                    val totalFrames = pcmFile.length() / format.bytesPerFrame.coerceAtLeast(1)
-                    waitForDrain(track, totalFrames, stopRequested)
+                    waitForDrain(track, framesToPlay, stopRequested)
                 }
             } catch (e: Exception) {
                 if (!stopRequested()) {
@@ -130,12 +167,11 @@ internal class AlacPcmPlayer(
 
         progressJob = scope.launch {
             while (isActive && !stopRequested() && audioTrack === track) {
-                if (!paused && track.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                    val positionMs = (
-                        (track.playbackHeadPosition.toLong() * 1000L) / sampleRateHz
-                        ).toInt()
-                    listener.onPositionMs(positionMs.coerceAtLeast(0))
-                }
+                // 用 playbackHeadPosition（已播放帧），不用 framesSubmitted（含缓冲未播帧，seek 后会超前右跳）
+                val playedFrames = track.playbackHeadPosition.coerceAtLeast(0)
+                val absoluteMs = (startOffsetMs + playedFrames * 1000L / sampleRate).toInt()
+                    .coerceIn(0, maxMs)
+                listener.onPositionMs(absoluteMs)
                 delay(50)
             }
         }
@@ -143,11 +179,12 @@ internal class AlacPcmPlayer(
 
     private suspend fun waitForDrain(
         track: AudioTrack,
-        totalFrames: Long,
+        framesToPlay: Long,
         stopRequested: () -> Boolean,
     ) {
+        if (framesToPlay <= 0) return
         while (currentCoroutineContext().isActive && !stopRequested()) {
-            if (track.playbackHeadPosition >= totalFrames - 512) break
+            if (track.playbackHeadPosition >= framesToPlay - 512) break
             delay(80)
         }
         delay(150)
@@ -172,6 +209,7 @@ internal class AlacPcmPlayer(
         writeJob = null
         progressJob?.cancel()
         progressJob = null
+        framesSubmitted.set(0L)
         runCatching {
             audioTrack?.pause()
             audioTrack?.flush()

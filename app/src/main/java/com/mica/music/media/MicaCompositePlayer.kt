@@ -57,6 +57,14 @@ class MicaCompositePlayer(
         notifySessionPlaybackState()
     }
 
+    /** 停止 ALAC 音频但保留 Exo 队列；清除 session 元数据快照，避免误路由 seek/切歌。 */
+    fun dropAlacSessionState() {
+        alacState = null
+        sessionMediaItems = emptyList()
+        sessionCurrentIndex = 0
+        sessionTimeline = Timeline.EMPTY
+    }
+
     /**
      * 从 ALAC 切到 Exo 的原子操作：不清空队列、不广播 IDLE，避免锁屏/通知消失且 Exo 无法恢复。
      */
@@ -109,6 +117,7 @@ class MicaCompositePlayer(
             sessionTimeline = Timeline.EMPTY
         } else if (sessionMediaItems.isNotEmpty()) {
             sessionTimeline = buildSessionTimeline()
+            notifySessionTimelineChanged()
             notifySessionMetadataChanged()
         }
         notifyAlacPlaybackListeners()
@@ -123,6 +132,16 @@ class MicaCompositePlayer(
         sessionTimeline = buildSessionTimeline()
         if (alacState == null) return
         notifySessionMetadataChanged()
+    }
+
+    /** ALAC 切歌时更新 session 当前索引（不重载音频）。 */
+    fun setAlacSessionIndex(index: Int) {
+        if (sessionMediaItems.isEmpty()) return
+        sessionCurrentIndex = index.coerceIn(0, sessionMediaItems.lastIndex)
+        sessionTimeline = buildSessionTimeline()
+        if (alacState != null) {
+            notifySessionMetadataChanged()
+        }
     }
 
     private fun buildSessionTimeline(): Timeline {
@@ -146,7 +165,16 @@ class MicaCompositePlayer(
         }
     }
 
-    /** 仅更新进度快照；锁屏/通知会轮询 [getCurrentPosition]。 */
+    private fun notifySessionTimelineChanged() {
+        sessionListeners.forEach { listener ->
+            listener.onTimelineChanged(
+                sessionTimeline,
+                Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED,
+            )
+        }
+    }
+
+    /** 仅更新进度快照；时间轴仅在 [publishAlacState] 时刷新，避免通知/锁屏条随轮询乱跳。 */
     fun publishAlacPosition(positionMs: Long, durationMs: Long) {
         val current = alacState ?: return
         alacState = current.copy(
@@ -159,37 +187,42 @@ class MicaCompositePlayer(
     }
 
     val isAlacActive: Boolean
-        get() = alacState != null
+        get() = useAlacSnapshot
+
+    private val useAlacSnapshot: Boolean
+        get() = alacState != null && AlacPlaybackCoordinator.alacStreamActive
 
     override fun getCurrentTimeline(): Timeline =
-        if (alacState != null) sessionTimeline else super.getCurrentTimeline()
+        if (useAlacSnapshot) sessionTimeline else super.getCurrentTimeline()
 
     override fun getMediaItemCount(): Int =
-        if (alacState != null) sessionMediaItems.size else super.getMediaItemCount()
+        if (useAlacSnapshot) sessionMediaItems.size else super.getMediaItemCount()
 
     override fun getMediaItemAt(index: Int): MediaItem =
-        if (alacState != null) sessionMediaItems[index] else super.getMediaItemAt(index)
+        if (useAlacSnapshot) sessionMediaItems[index] else super.getMediaItemAt(index)
 
     override fun getCurrentMediaItemIndex(): Int =
-        if (alacState != null) sessionCurrentIndex else super.getCurrentMediaItemIndex()
+        if (useAlacSnapshot) sessionCurrentIndex else super.getCurrentMediaItemIndex()
 
     override fun getCurrentMediaItem(): MediaItem? =
-        if (alacState != null) sessionMediaItems.getOrNull(sessionCurrentIndex) else super.getCurrentMediaItem()
+        if (useAlacSnapshot) sessionMediaItems.getOrNull(sessionCurrentIndex) else super.getCurrentMediaItem()
 
     override fun getMediaMetadata(): MediaMetadata {
-        if (alacState != null) {
+        if (useAlacSnapshot) {
             return sessionMediaItems.getOrNull(sessionCurrentIndex)?.mediaMetadata
                 ?: MediaMetadata.EMPTY
         }
         return super.getMediaMetadata()
     }
 
-    override fun isPlaying(): Boolean = alacState?.isPlaying ?: super.isPlaying()
+    override fun isPlaying(): Boolean = if (useAlacSnapshot) alacState!!.isPlaying else super.isPlaying()
 
-    override fun getPlayWhenReady(): Boolean = alacState?.playWhenReady ?: super.getPlayWhenReady()
+    override fun getPlayWhenReady(): Boolean =
+        if (useAlacSnapshot) alacState!!.playWhenReady else super.getPlayWhenReady()
 
     override fun getPlaybackState(): Int {
-        alacState?.let { state ->
+        if (useAlacSnapshot) {
+            val state = alacState!!
             return when {
                 state.buffering -> Player.STATE_BUFFERING
                 else -> Player.STATE_READY
@@ -198,44 +231,74 @@ class MicaCompositePlayer(
         return super.getPlaybackState()
     }
 
-    override fun isLoading(): Boolean = alacState?.buffering ?: super.isLoading()
+    override fun isLoading(): Boolean = if (useAlacSnapshot) alacState!!.buffering else super.isLoading()
 
-    override fun getCurrentPosition(): Long = alacState?.positionMs ?: super.getCurrentPosition()
+    override fun getCurrentPosition(): Long =
+        if (useAlacSnapshot) alacState!!.positionMs else super.getCurrentPosition()
 
     override fun getDuration(): Long {
-        alacState?.durationMs?.takeIf { it > 0 }?.let { return it }
+        if (useAlacSnapshot) {
+            alacState!!.durationMs.takeIf { it > 0 }?.let { return it }
+        }
         return super.getDuration()
     }
 
     override fun getBufferedPosition(): Long {
-        alacState?.let { return it.durationMs.coerceAtLeast(it.positionMs) }
+        if (useAlacSnapshot) {
+            val state = alacState!!
+            return state.durationMs.coerceAtLeast(state.positionMs)
+        }
         return super.getBufferedPosition()
     }
 
     override fun getPlayerError(): PlaybackException? =
-        if (alacState != null) null else super.getPlayerError()
+        if (useAlacSnapshot) null else super.getPlayerError()
 
     override fun getAvailableCommands(): Player.Commands {
-        alacState?.let {
-            return Player.Commands.Builder()
+        if (useAlacSnapshot) {
+            val it = alacState!!
+            val builder = Player.Commands.Builder()
                 .add(Player.COMMAND_PLAY_PAUSE)
                 .add(Player.COMMAND_PREPARE)
                 .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_NEXT)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                 .add(Player.COMMAND_GET_TIMELINE)
                 .add(Player.COMMAND_GET_METADATA)
                 .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
                 .add(Player.COMMAND_GET_AUDIO_ATTRIBUTES)
-                .build()
+            if (hasNextMediaItem()) {
+                builder.add(Player.COMMAND_SEEK_TO_NEXT)
+                builder.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            }
+            if (hasPreviousMediaItem()) {
+                builder.add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                builder.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            }
+            return builder.build()
         }
         return super.getAvailableCommands()
     }
 
+    override fun hasNextMediaItem(): Boolean {
+        if (useAlacSnapshot) {
+            if (sessionMediaItems.isEmpty()) return false
+            return sessionCurrentIndex < sessionMediaItems.lastIndex
+        }
+        return super.hasNextMediaItem()
+    }
+
+    override fun hasPreviousMediaItem(): Boolean {
+        if (useAlacSnapshot) {
+            if (sessionMediaItems.isEmpty()) return false
+            return sessionCurrentIndex > 0
+        }
+        return super.hasPreviousMediaItem()
+    }
+
+    private val routeToAlacHandler: Boolean
+        get() = useAlacSnapshot
+
     override fun setPlayWhenReady(playWhenReady: Boolean) {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             if (playWhenReady) {
                 AlacPlaybackCoordinator.sessionHandler?.onPlay()
             } else {
@@ -247,7 +310,7 @@ class MicaCompositePlayer(
     }
 
     override fun play() {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             AlacPlaybackCoordinator.sessionHandler?.onPlay()
         } else {
             super.play()
@@ -255,7 +318,7 @@ class MicaCompositePlayer(
     }
 
     override fun pause() {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             AlacPlaybackCoordinator.sessionHandler?.onPause()
         } else {
             super.pause()
@@ -263,7 +326,7 @@ class MicaCompositePlayer(
     }
 
     override fun seekTo(positionMs: Long) {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             AlacPlaybackCoordinator.sessionHandler?.onSeekTo(positionMs)
         } else {
             super.seekTo(positionMs)
@@ -271,7 +334,7 @@ class MicaCompositePlayer(
     }
 
     override fun seekToNextMediaItem() {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             AlacPlaybackCoordinator.sessionHandler?.onSkipToNext()
         } else {
             super.seekToNextMediaItem()
@@ -279,7 +342,7 @@ class MicaCompositePlayer(
     }
 
     override fun seekToPreviousMediaItem() {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             AlacPlaybackCoordinator.sessionHandler?.onSkipToPrevious()
         } else {
             super.seekToPreviousMediaItem()
@@ -287,7 +350,7 @@ class MicaCompositePlayer(
     }
 
     override fun seekToPrevious() {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             AlacPlaybackCoordinator.sessionHandler?.onSkipToPrevious()
         } else {
             super.seekToPrevious()
@@ -295,7 +358,7 @@ class MicaCompositePlayer(
     }
 
     override fun seekToNext() {
-        if (alacState != null) {
+        if (routeToAlacHandler) {
             AlacPlaybackCoordinator.sessionHandler?.onSkipToNext()
         } else {
             super.seekToNext()
@@ -314,7 +377,7 @@ class MicaCompositePlayer(
     ) : Player.Listener {
 
         private val allowExoPlaybackEvents: Boolean
-            get() = alacState == null
+            get() = !useAlacSnapshot
 
         override fun onEvents(player: Player, events: Player.Events) {
             if (allowExoPlaybackEvents) delegate.onEvents(player, events)

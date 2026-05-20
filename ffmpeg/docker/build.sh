@@ -68,7 +68,7 @@ fi
 cd "ffmpeg-${FFMPEG_VERSION}"
 make distclean 2>/dev/null || true
 
-echo ">> configure (arm64 static ffmpeg, audio decoders only)..."
+echo ">> configure (arm64 static ffmpeg, common audio decoders)..."
 ./configure \
   --prefix="$BUILD_DIR/prefix-cli" \
   --enable-cross-compile \
@@ -88,17 +88,20 @@ echo ">> configure (arm64 static ffmpeg, audio decoders only)..."
   --enable-avutil \
   --enable-swresample \
   --enable-avfilter \
-  --enable-filter=aformat,anull,aresample,asetpts,atrim,format,null,transpose,abuffer,abuffersink \
+  --enable-filter=aformat,anull,aresample,asetpts,atrim,format,null,abuffer,abuffersink \
   --enable-static \
   --disable-shared \
   --disable-doc \
   --disable-debug \
   --enable-protocol=file \
-  --enable-demuxer=mov,mp3,flac,ogg,wav \
-  --enable-muxer=s16le,s24le,wav,flac \
-  --enable-decoder=alac,aac,flac,mp3,opus,vorbis,pcm_s16le,pcm_s24le \
-  --enable-encoder=pcm_s16le,pcm_s24le,flac \
-  --enable-parser=aac,flac,mpegaudio,opus,vorbis \
+  --enable-demuxer=mov,mp3,flac,ogg,wav,matroska,ape,wv,caf,aiff,asf,avi,mpc,mpc8,m4v \
+  --enable-muxer=pcm_s16le \
+  --enable-muxer=pcm_s24le \
+  --enable-muxer=pcm_s32le \
+  --enable-muxer=flac \
+  --enable-decoder=alac,aac,aac_latm,flac,mp3,opus,vorbis,ape,wavpack,mpc7,mpc8,tta,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
+  --enable-encoder=pcm_s16le,pcm_s24le,pcm_s32le,flac \
+  --enable-parser=aac,alac,flac,mpegaudio,opus,vorbis,ac3 \
   --disable-ffprobe \
   --disable-ffplay
 
@@ -109,5 +112,22 @@ make -j"$(nproc)" ffmpeg
 cp -f ffmpeg "$OUT_DIR/ffmpeg"
 chmod +x "$OUT_DIR/ffmpeg"
 
+# 交叉编译产物是 Android ELF，在 x86 Docker 里跑 ./ffmpeg -muxers 会误报失败；改查 config.mak。
+echo ">> Verify PCM muxers (config.mak)..."
+MISSING=""
+for m in PCM_S16LE PCM_S24LE PCM_S32LE; do
+  if ! grep -q "CONFIG_${m}_MUXER=yes" ffbuild/config.mak; then
+    MISSING="${MISSING} ${m}"
+  fi
+done
+if [ -n "$MISSING" ]; then
+  echo "ERROR: missing muxer(s):$MISSING"
+  echo "       configure 须用 --enable-muxer=pcm_s16le（不是 s16le）；CLI 输出仍用 -f s16le"
+  exit 1
+fi
+echo ">> PCM muxers OK (pcm_s16le / pcm_s24le / pcm_s32le → -f s16le / s24le / s32le)"
+
 SIZE="$(du -h "$OUT_DIR/ffmpeg" | cut -f1)"
 echo ">> Done: $OUT_DIR/ffmpeg ($SIZE)"
+echo ">> Enabled demuxers: mov(m4a/mp4) flac mp3 ogg wav matroska ape wv aiff caf asf avi mpc ..."
+echo ">> Rebuild and reinstall APK after this step."

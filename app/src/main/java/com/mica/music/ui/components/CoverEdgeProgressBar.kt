@@ -51,13 +51,13 @@ fun CoverEdgeProgressBar(
             .fillMaxWidth()
             .height(touchHeight)
             .onSizeChanged { barWidthPx = it.width.toFloat() }
-            .pointerInput(min, max) {
+            .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     onValueChange(positionToValue(offset.x))
                     onValueChangeFinished()
                 }
             }
-            .pointerInput(min, max) {
+            .pointerInput(Unit) {
                 detectDragGestures(
                     onDragEnd = { onValueChangeFinished() },
                     onDragCancel = { onValueChangeFinished() },

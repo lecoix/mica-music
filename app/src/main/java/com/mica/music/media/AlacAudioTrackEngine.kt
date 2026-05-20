@@ -1,8 +1,6 @@
 package com.mica.music.media
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.net.Uri
 import com.mica.music.data.Song
 import kotlinx.coroutines.CoroutineScope
@@ -10,14 +8,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * ALAC：FFmpeg 解码为裸 PCM（优先）或 WAV/FLAC 兜底，PCM 走 [AudioTrack]。
+ * 统一软件播放：FFmpeg 解码为裸 PCM，由 [AlacPcmPlayer] 写入 [android.media.AudioTrack]。
+ *
+ * 同曲播放期间会缓存整首解码结果；跳转进度时直接跳过 PCM 字节，避免重复 FFmpeg 解码。
  */
 class AlacAudioTrackEngine(private val context: Context) {
 
@@ -32,19 +30,19 @@ class AlacAudioTrackEngine(private val context: Context) {
 
     private val appCtx = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var mediaPlayer: MediaPlayer? = null
     private val pcmPlayer = AlacPcmPlayer(scope)
     private var playJob: Job? = null
-    private var progressJob: Job? = null
     private var decodedFile: File? = null
     private var tempInput: File? = null
     private var callback: Callback? = null
     private var currentSong: Song? = null
     private var pcmFormat: AlacPcmFormat? = null
+    private var sessionSongId: String? = null
+    private var sessionDecode: AlacFfmpegHelper.DecodeResult? = null
     private var durationSec: Int = 0
     private var paused = false
     private var stopRequested = false
-    private var usingPcm = false
+    private var playbackEpoch = 0
 
     fun play(song: Song, listener: Callback) {
         AlacFfmpegHelper.init(appCtx)
@@ -58,7 +56,7 @@ class AlacAudioTrackEngine(private val context: Context) {
 
         playJob = scope.launch {
             val (decoded, failHint) = withContext(Dispatchers.IO) {
-                runCatching { decodeWithHint(song) }
+                runCatching { ensureSessionDecoded(song) }
                     .getOrElse { e ->
                         null to (e.message ?: e.javaClass.simpleName)
                     }
@@ -67,16 +65,15 @@ class AlacAudioTrackEngine(private val context: Context) {
                 callback?.onBuffering(false)
                 if (!stopRequested) {
                     val detail = failHint?.let { "：$it" }.orEmpty()
-                    callback?.onError("ALAC 解码失败$detail")
+                    callback?.onError("解码失败$detail")
                 }
-                cleanupTemp()
+                releaseSession()
                 return@launch
             }
             if (stopRequested || callback == null) {
-                cleanupTemp()
+                releaseSession()
                 return@launch
             }
-            decodedFile = decoded.file
             durationSec = song.durationSec
             callback?.onBuffering(false)
             startDecodedPlayback(decoded)
@@ -86,11 +83,7 @@ class AlacAudioTrackEngine(private val context: Context) {
     fun pause() {
         if (!paused) {
             paused = true
-            if (usingPcm) {
-                pcmPlayer.pause()
-            } else {
-                mediaPlayer?.pause()
-            }
+            pcmPlayer.pause()
             callback?.onPlayingChanged(false)
         }
     }
@@ -98,23 +91,39 @@ class AlacAudioTrackEngine(private val context: Context) {
     fun resume() {
         if (paused) {
             paused = false
-            if (usingPcm) {
-                pcmPlayer.resume()
-            } else {
-                mediaPlayer?.start()
-            }
+            pcmPlayer.resume()
             callback?.onPlayingChanged(true)
         }
     }
 
-    fun seekTo(seconds: Int) {
+    /** 暂停后恢复；若解码已完成但输出未启动，则重新挂载 PCM 播放。 */
+    fun resumeOrRestart() {
+        if (paused) {
+            resume()
+            return
+        }
+        if (playJob?.isActive == true) return
+        val decoded = sessionDecode ?: return
+        if (stopRequested || callback == null) return
+        startDecodedPlayback(decoded)
+    }
+
+    fun seekToMs(positionMs: Int, startPlayback: Boolean = !paused) {
         val song = currentSong ?: return
         val cb = callback ?: return
+        val maxMs = durationSec.coerceAtLeast(song.durationSec).coerceAtLeast(1) * 1000
+        val seekMs = positionMs.coerceIn(0, maxMs)
+
+        if (hasSessionFor(song)) {
+            applySeekFromSession(seekMs, startPlayback)
+            return
+        }
+
         stopPlaybackOnly()
         cb.onBuffering(true)
         playJob = scope.launch {
             val (decoded, failHint) = withContext(Dispatchers.IO) {
-                runCatching { decodeWithHint(song, seekSec = seconds) }
+                runCatching { ensureSessionDecoded(song) }
                     .getOrElse { e ->
                         null to (e.message ?: e.javaClass.simpleName)
                     }
@@ -125,19 +134,38 @@ class AlacAudioTrackEngine(private val context: Context) {
                     val detail = failHint?.let { "：$it" }.orEmpty()
                     cb.onError("跳转失败$detail")
                 }
-                cleanupTemp()
                 return@launch
             }
-            decodedFile = decoded.file
             cb.onBuffering(false)
-            startDecodedPlayback(decoded, startAtMs = seconds * 1000)
+            applySeekFromSession(seekMs, startPlayback)
         }
     }
+
+    private fun applySeekFromSession(seekMs: Int, startPlayback: Boolean) {
+        val cb = callback ?: return
+        val decoded = sessionDecode ?: return
+        if (decoded.kind != AlacFfmpegHelper.OutputKind.PCM) {
+            cb.onError("无法跳转：未生成 PCM")
+            return
+        }
+        val clampedMs = seekMs.coerceIn(0, durationSec.coerceAtLeast(1) * 1000)
+        if (!startPlayback) paused = true
+        cb.onBuffering(true)
+        stopPlaybackOnly()
+        startPcmPlayback(
+            decoded,
+            startOffsetMs = clampedMs,
+            stopBeforeStart = false,
+            startPlayback = startPlayback,
+        )
+    }
+
+    fun seekTo(seconds: Int) = seekToMs(seconds * 1000)
 
     fun stop() {
         stopRequested = true
         stopPlaybackOnly()
-        cleanupTemp()
+        releaseSession()
         callback = null
         currentSong = null
     }
@@ -147,149 +175,124 @@ class AlacAudioTrackEngine(private val context: Context) {
         scope.cancel()
     }
 
-    private fun decodeWithHint(song: Song, seekSec: Int = 0): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
-        cleanupTemp()
+    private fun hasSessionFor(song: Song): Boolean =
+        sessionSongId == song.id &&
+            sessionDecode != null &&
+            decodedFile?.exists() == true &&
+            (decodedFile?.length() ?: 0L) > 0L
+
+    private fun ensureSessionDecoded(song: Song): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
+        if (hasSessionFor(song)) {
+            return sessionDecode to null
+        }
+        releaseSession()
+        return decodeAtPosition(song).also { (result, _) ->
+            if (result != null) {
+                sessionSongId = song.id
+                sessionDecode = result
+            }
+        }
+    }
+
+    private fun decodeAtPosition(song: Song): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
         val format = pcmFormat ?: AlacPcmFormat.fromSong(song)
-        val input = copyUriToTemp(Uri.parse(song.mediaUri), song.id)
-            ?: return null to "无法读取源文件"
-        tempInput = input
-        val base = File(appCtx.cacheDir, "alac_stream/${song.id}_${System.currentTimeMillis()}")
+        if (tempInput == null || sessionSongId != song.id) {
+            tempInput?.delete()
+            tempInput = copyUriToTemp(Uri.parse(song.mediaUri), song)
+                ?: return null to "无法读取源文件"
+        }
+        val base = File(appCtx.cacheDir, "alac_stream/${song.id}_session")
         base.parentFile?.mkdirs()
         val result = AlacFfmpegHelper.decodeAlac(
-            input,
+            tempInput!!,
             base,
             format,
-            seekSec,
+            seekMs = 0,
             AlacFfmpegHelper.OutputPreference.STREAM_PCM,
         )
-        return if (result != null) {
+        return if (result != null && result.kind == AlacFfmpegHelper.OutputKind.PCM) {
+            decodedFile = result.file
             result to null
         } else {
-            null to (AlacFfmpegHelper.lastFailureHint ?: "FFmpeg 无法解码此 ALAC")
+            null to (AlacFfmpegHelper.lastFailureHint ?: "FFmpeg 无法解码此曲目")
         }
     }
 
     private fun startDecodedPlayback(
         decoded: AlacFfmpegHelper.DecodeResult,
-        startAtMs: Int = 0,
+        startOffsetMs: Int = 0,
     ) {
         if (stopRequested || callback == null) return
-        when (decoded.kind) {
-            AlacFfmpegHelper.OutputKind.PCM -> startPcmPlayback(decoded)
-            AlacFfmpegHelper.OutputKind.FLAC,
-            AlacFfmpegHelper.OutputKind.WAV,
-            -> startMediaPlayer(decoded.file, startAtMs)
+        if (decoded.kind != AlacFfmpegHelper.OutputKind.PCM) {
+            callback?.onError("仅支持 PCM 输出，请检查 FFmpeg 解码")
+            return
         }
+        startPcmPlayback(decoded, startOffsetMs)
     }
 
-    private fun startPcmPlayback(decoded: AlacFfmpegHelper.DecodeResult) {
+    private fun startPcmPlayback(
+        decoded: AlacFfmpegHelper.DecodeResult,
+        startOffsetMs: Int = 0,
+        stopBeforeStart: Boolean = true,
+        startPlayback: Boolean = true,
+    ) {
         val cb = callback ?: return
-        stopPlaybackOnly()
-        usingPcm = true
-        paused = false
+        if (stopBeforeStart) stopPlaybackOnly()
+        val epoch = playbackEpoch
+        if (!startPlayback) paused = true
         pcmPlayer.play(
             pcmFile = decoded.file,
             format = decoded.pcmFormat,
             durationSec = durationSec,
+            startOffsetMs = startOffsetMs,
+            autoStart = startPlayback,
             stopRequested = { stopRequested },
             listener = object : AlacPcmPlayer.Listener {
                 override fun onPrepared(durationSec: Int) {
+                    if (epoch != playbackEpoch) return
                     if (durationSec > 0) this@AlacAudioTrackEngine.durationSec = durationSec
                     cb.onPrepared(this@AlacAudioTrackEngine.durationSec)
+                    cb.onBuffering(false)
                 }
 
                 override fun onPositionMs(positionMs: Int) {
+                    if (epoch != playbackEpoch) return
                     cb.onPositionMs(positionMs)
                 }
 
                 override fun onPlayingChanged(playing: Boolean) {
+                    if (epoch != playbackEpoch) return
                     cb.onPlayingChanged(playing)
                 }
 
                 override fun onEnded() {
-                    if (!stopRequested) {
-                        cb.onPlayingChanged(false)
-                        cb.onEnded()
-                    }
-                    cleanupTemp()
+                    if (epoch != playbackEpoch || stopRequested) return
+                    cb.onPlayingChanged(false)
+                    cb.onEnded()
                 }
 
                 override fun onError(message: String) {
-                    if (!stopRequested) cb.onError(message)
-                    cleanupTemp()
+                    if (epoch != playbackEpoch || stopRequested) return
+                    cb.onError(message)
                 }
             },
         )
     }
 
-    private fun startMediaPlayer(file: File, startAtMs: Int = 0) {
-        val cb = callback ?: return
-        stopPlaybackOnly()
-        usingPcm = false
-        val player = MediaPlayer()
-        mediaPlayer = player
-        player.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build(),
-        )
-        player.setDataSource(file.absolutePath)
-        player.setOnPreparedListener {
-            if (stopRequested) return@setOnPreparedListener
-            durationSec = (it.duration / 1000).coerceAtLeast(1)
-            cb.onPrepared(durationSec)
-            if (startAtMs > 0) it.seekTo(startAtMs)
-            it.start()
-            cb.onPlayingChanged(true)
-            startProgressPolling(it)
-        }
-        player.setOnCompletionListener {
-            if (!stopRequested) {
-                cb.onPlayingChanged(false)
-                cb.onEnded()
-            }
-            cleanupTemp()
-        }
-        player.setOnErrorListener { _, what, extra ->
-            if (!stopRequested) {
-                cb.onError("播放失败 ($what/$extra)")
-            }
-            cleanupTemp()
-            true
-        }
-        player.prepareAsync()
-    }
-
-    private fun startProgressPolling(player: MediaPlayer) {
-        progressJob?.cancel()
-        progressJob = scope.launch {
-            while (isActive && !stopRequested && mediaPlayer != null) {
-                if (!paused && player.isPlaying) {
-                    callback?.onPositionMs(player.currentPosition.coerceAtLeast(0))
-                }
-                delay(50)
-            }
-        }
-    }
-
     private fun stopPlaybackOnly() {
+        playbackEpoch++
         playJob?.cancel()
         playJob = null
-        progressJob?.cancel()
-        progressJob = null
         pcmPlayer.stop()
-        runCatching {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
-        }
-        mediaPlayer = null
         paused = false
-        usingPcm = false
     }
 
-    private fun copyUriToTemp(uri: Uri, songId: String): File? {
-        val temp = File(appCtx.cacheDir, "alac_stream/${songId}_in.m4a")
+    private fun copyUriToTemp(uri: Uri, song: Song): File? {
+        val ext = song.fileName.substringAfterLast('.', "")
+            .lowercase()
+            .takeIf { it.length in 1..8 && it.all { c -> c.isLetterOrDigit() } }
+            ?: "audio"
+        val temp = File(appCtx.cacheDir, "alac_stream/${song.id}_in.$ext")
         temp.parentFile?.mkdirs()
         return try {
             appCtx.contentResolver.openInputStream(uri)?.use { input ->
@@ -307,10 +310,12 @@ class AlacAudioTrackEngine(private val context: Context) {
         }
     }
 
-    private fun cleanupTemp() {
+    private fun releaseSession() {
         decodedFile?.delete()
         decodedFile = null
         tempInput?.delete()
         tempInput = null
+        sessionSongId = null
+        sessionDecode = null
     }
 }

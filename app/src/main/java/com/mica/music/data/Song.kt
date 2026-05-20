@@ -14,7 +14,7 @@ data class Song(
     val albumArtUri: String?,
     val coverColorArgb: Int,
     val mediaUri: String,
-    /** ALAC 等软解路径：转码后的 WAV；为空则用 [mediaUri] */
+    /** 软解缓存 URI（如转码 FLAC）；为空则用 [mediaUri] */
     val playbackUri: String? = null,
     val fileName: String = "",
     val sizeBytes: Long = 0L,

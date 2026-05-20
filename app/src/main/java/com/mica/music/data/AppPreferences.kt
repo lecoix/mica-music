@@ -27,6 +27,12 @@ object AppPreferences {
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
+    private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
+    private const val KEY_EQUALIZER_PRESET = "equalizer_preset"
+    private const val KEY_EQUALIZER_BAND_LEVELS = "equalizer_band_levels"
+
+    /** [equalizerPresetIndex] 为自定义频段时的占位值 */
+    const val EQ_PRESET_CUSTOM = -1
 
     fun themeMode(context: Context): AppThemeMode {
         val p = prefs(context)
@@ -59,11 +65,9 @@ object AppPreferences {
     fun immersivePlayerStatusBar(context: Context): Boolean = hideStatusBar(context)
 
     /**
-     * ALAC 是否用 PCM 流式播放（临时文件、播完删除）。
-     * 关闭则首次转 FLAC 缓存后用 ExoPlayer 播放（再次播放更快）。
+     * 已统一为 FFmpeg → AudioTrack；保留键兼容旧设置，始终视为开启。
      */
-    fun alacStreamPlayback(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_ALAC_STREAM_PLAYBACK, true)
+    fun alacStreamPlayback(context: Context): Boolean = true
 
     fun setAlacStreamPlayback(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ALAC_STREAM_PLAYBACK, enabled).apply()
@@ -159,6 +163,32 @@ object AppPreferences {
 
     fun setPlayerImmersiveLower(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_PLAYER_IMMERSIVE_LOWER, enabled).apply()
+    }
+
+    fun equalizerEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_EQUALIZER_ENABLED, false)
+
+    fun setEqualizerEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_EQUALIZER_ENABLED, enabled).apply()
+    }
+
+    fun equalizerPresetIndex(context: Context): Int =
+        prefs(context).getInt(KEY_EQUALIZER_PRESET, 0)
+
+    fun setEqualizerPresetIndex(context: Context, index: Int) {
+        prefs(context).edit().putInt(KEY_EQUALIZER_PRESET, index).apply()
+    }
+
+    fun equalizerBandLevels(context: Context): List<Short> =
+        prefs(context).getString(KEY_EQUALIZER_BAND_LEVELS, null)
+            ?.split(',')
+            ?.mapNotNull { it.toShortOrNull() }
+            ?: emptyList()
+
+    fun setEqualizerBandLevels(context: Context, levels: List<Short>) {
+        prefs(context).edit()
+            .putString(KEY_EQUALIZER_BAND_LEVELS, levels.joinToString(","))
+            .apply()
     }
 
     fun scanOptions(context: Context): ScanOptions = ScanOptions(

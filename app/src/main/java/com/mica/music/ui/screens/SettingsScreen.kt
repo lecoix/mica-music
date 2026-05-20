@@ -71,13 +71,13 @@ fun SettingsScreen(
     library: MusicLibrary,
     uiSettings: AppUiSettings,
     onBack: () -> Unit,
+    onOpenEqualizer: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()
 
-    var alacStream by remember { mutableStateOf(com.mica.music.data.AppPreferences.alacStreamPlayback(context)) }
     var includeNonMusic by remember { mutableStateOf(com.mica.music.data.AppPreferences.includeNonMusicAudio(context)) }
     var deepProbe by remember { mutableStateOf(com.mica.music.data.AppPreferences.deepMetadataProbe(context)) }
     var minDurationSec by remember { mutableIntStateOf(com.mica.music.data.AppPreferences.minTrackDurationSec(context)) }
@@ -264,14 +264,10 @@ fun SettingsScreen(
 
             SettingsSectionTitle("播放")
 
-            SettingsToggleRow(
-                title = "ALAC 流式解码",
-                subtitle = "开启：FFmpeg 解为 PCM 临时播放；关闭：首次转 FLAC 缓存后用 ExoPlayer（再播更快）",
-                checked = alacStream,
-                onCheckedChange = {
-                    alacStream = it
-                    com.mica.music.data.AppPreferences.setAlacStreamPlayback(context, it)
-                },
+            SettingsActionRow(
+                title = "均衡器",
+                subtitle = "系统频段调节；播放中进入可加载预设与自定义曲线",
+                onClick = onOpenEqualizer,
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))
@@ -279,9 +275,9 @@ fun SettingsScreen(
             SettingsSectionTitle("关于")
 
             SettingsActionRow(
-                title = "FFmpeg（ALAC 软解）",
+                title = "FFmpeg（软件解码）",
                 subtitle = if (ffmpegReady) {
-                    "已打包 arm64 自编解码器"
+                    "已打包 arm64；全部曲目 FFmpeg → PCM → AudioTrack"
                 } else {
                     "未检测到二进制，请运行 scripts\\build-ffmpeg-arm64.ps1"
                 },

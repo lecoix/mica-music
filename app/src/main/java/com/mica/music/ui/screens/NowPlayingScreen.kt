@@ -29,6 +29,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Equalizer
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,6 +81,7 @@ import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.artworkEdgeFadeStops
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.ui.system.homeStatusBarTopPadding
+import com.mica.music.util.shareSong
 import kotlinx.coroutines.delay
 
 private val LyricsFocusMiniCoverSize = 56.dp
@@ -89,9 +97,11 @@ fun NowPlayingScreen(
     playerController: PlayerController,
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
+    onOpenEqualizer: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     val song = playerController.currentSong
+    val context = LocalContext.current
     if (song == null) {
         LaunchedEffect(Unit) { onClose() }
         return
@@ -154,6 +164,13 @@ fun NowPlayingScreen(
             albumArtUri = song.albumArtUri,
             mode = lowerBackground,
             modifier = Modifier.matchParentSize(),
+        )
+        NowPlayingTopBar(
+            onClose = onClose,
+            onShare = { shareSong(context, song) },
+            onOpenEqualizer = onOpenEqualizer,
+            colors = contentColors,
+            modifier = Modifier.align(Alignment.TopCenter),
         )
         Column(Modifier.fillMaxSize()) {
             val statusBarTop = homeStatusBarTopPadding()
@@ -284,7 +301,7 @@ fun NowPlayingScreen(
                                 colors = contentColors,
                                 onLineClick = { timeMs ->
                                     if (timeMs >= 0) {
-                                        playerController.seek(timeMs / 1000)
+                                        playerController.seekToMs(timeMs)
                                     }
                                 },
                                 modifier = Modifier
@@ -318,6 +335,46 @@ fun NowPlayingScreen(
                     onOpenQueue = { queueSheetOpen = true },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingTopBar(
+    onClose: () -> Unit,
+    onShare: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    colors: PlayerContentColors,
+    modifier: Modifier = Modifier,
+) {
+    val statusBarTop = homeStatusBarTopPadding()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = statusBarTop, start = HifiSpacing.sm, end = HifiSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onClose, modifier = Modifier.size(HifiSize.touchTarget)) {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = "收起",
+                tint = colors.primary,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onShare, modifier = Modifier.size(HifiSize.touchTarget)) {
+            Icon(
+                imageVector = Icons.Outlined.Share,
+                contentDescription = "分享",
+                tint = colors.secondary,
+            )
+        }
+        IconButton(onClick = onOpenEqualizer, modifier = Modifier.size(HifiSize.touchTarget)) {
+            Icon(
+                imageVector = Icons.Outlined.Equalizer,
+                contentDescription = "均衡器",
+                tint = colors.secondary,
+            )
         }
     }
 }

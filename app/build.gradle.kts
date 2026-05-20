@@ -7,10 +7,10 @@ plugins {
 
 // assets 里的 ffmpeg → jniLibs（lib*.so），安装后位于 nativeLibraryDir 才可 exec
 val ffmpegJniDir = layout.buildDirectory.dir("generated/ffmpeg-jni")
+val ffmpegAsset = file("src/main/assets/ffmpeg/arm64-v8a/ffmpeg")
 val syncFfmpegNative = tasks.register<Copy>("syncFfmpegNative") {
-    val asset = file("src/main/assets/ffmpeg/arm64-v8a/ffmpeg")
-    onlyIf { asset.exists() }
-    from(asset)
+    onlyIf { ffmpegAsset.exists() }
+    from(ffmpegAsset)
     into(ffmpegJniDir.map { it.dir("arm64-v8a") })
     rename { "libmica_ffmpeg.so" }
 }
@@ -104,4 +104,17 @@ dependencies {
 
 tasks.named("preBuild") {
     dependsOn(syncFfmpegNative)
+    doFirst {
+        if (!ffmpegAsset.exists()) {
+            logger.warn(
+                """
+                |
+                | *** FFmpeg binary missing: ${ffmpegAsset.absolutePath}
+                | *** Run: .\scripts\build-ffmpeg-arm64.ps1
+                | *** Then rebuild APK. Playback will fail until then.
+                |
+                """.trimMargin(),
+            )
+        }
+    }
 }

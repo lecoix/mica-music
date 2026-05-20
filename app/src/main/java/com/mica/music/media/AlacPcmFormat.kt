@@ -4,7 +4,7 @@ import android.media.AudioFormat
 import android.os.Build
 import com.mica.music.data.Song
 
-/** ALAC 解码 / AudioTrack 输出用的 PCM 参数（尽量与源文件一致）。 */
+/** FFmpeg 裸 PCM → AudioTrack 的格式参数。 */
 data class AlacPcmFormat(
     val sampleRateHz: Int,
     val channelCount: Int,
@@ -12,19 +12,24 @@ data class AlacPcmFormat(
 ) {
     val bytesPerFrame: Int = channelCount * (bitsPerSample / 8)
 
-    val ffmpegPcmCodec: String
-        get() = when {
-            bitsPerSample <= 16 -> "pcm_s16le"
-            bitsPerSample <= 24 -> "pcm_s24le"
-            else -> "pcm_s32le"
-        }
+    /** PCM 文件内与 [positionMs] 对齐的字节偏移（按帧对齐）。 */
+    fun byteOffsetForMs(positionMs: Int): Long {
+        if (positionMs <= 0) return 0L
+        val frameIndex = (positionMs.toLong() * sampleRateHz) / 1_000L
+        return frameIndex * bytesPerFrame.coerceAtLeast(1)
+    }
+
+    fun framesForMs(positionMs: Int): Long =
+        if (positionMs <= 0) 0L else (positionMs.toLong() * sampleRateHz) / 1_000L
 
     val audioTrackEncoding: Int
         get() = when {
+            bitsPerSample >= 32 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                AudioFormat.ENCODING_PCM_32BIT
             bitsPerSample <= 16 -> AudioFormat.ENCODING_PCM_16BIT
             bitsPerSample <= 24 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
                 AudioFormat.ENCODING_PCM_24BIT_PACKED
-            else -> AudioFormat.ENCODING_PCM_FLOAT
+            else -> AudioFormat.ENCODING_PCM_16BIT
         }
 
     companion object {

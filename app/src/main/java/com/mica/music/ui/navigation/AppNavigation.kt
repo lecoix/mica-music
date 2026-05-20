@@ -18,6 +18,7 @@ import android.net.Uri
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
+import com.mica.music.ui.screens.EqualizerScreen
 import com.mica.music.ui.screens.HomeScreen
 import com.mica.music.ui.screens.NowPlayingScreen
 import com.mica.music.ui.screens.SettingsScreen
@@ -26,6 +27,7 @@ import com.mica.music.ui.screens.SongDetailScreen
 object Routes {
     const val Home = "home"
     const val Settings = "settings"
+    const val Equalizer = "equalizer"
     const val NowPlaying = "now_playing"
     const val SongDetail = "song_detail/{songId}"
 
@@ -109,6 +111,17 @@ fun AppNavigation(
                 library = library,
                 uiSettings = uiSettings,
                 onBack = { navController.popBackStack() },
+                onOpenEqualizer = { navController.navigate(Routes.Equalizer) },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+            )
+        }
+        composable(Routes.Equalizer) {
+            val statusTop = homeStatusBarTopPadding()
+            EqualizerScreen(
+                onBack = { navController.popBackStack() },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
@@ -121,6 +134,7 @@ fun AppNavigation(
                 playerController = playerController,
                 uiSettings = uiSettings,
                 onClose = { navController.popBackStack() },
+                onOpenEqualizer = { navController.navigate(Routes.Equalizer) },
                 contentPadding = playerPadding,
             )
         }

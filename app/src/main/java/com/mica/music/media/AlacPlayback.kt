@@ -7,7 +7,7 @@ import com.mica.music.data.Song
 import java.io.File
 
 /**
- * ALAC 播放：默认 [AlacAudioTrackEngine] 流式；可选 FLAC 缓存（ExoPlayer）。
+ * 播放输出统一走 [AlacAudioTrackEngine]（FFmpeg → PCM → AudioTrack）。
  */
 object AlacPlayback {
 
@@ -17,8 +17,9 @@ object AlacPlayback {
         song.metadata.containerName == "ALAC" ||
             song.metadata.playbackMimeType.contains("alac", ignoreCase = true)
 
-    fun useStreamPlayback(context: Context): Boolean =
-        com.mica.music.data.AppPreferences.alacStreamPlayback(context)
+    /** 全部格式均使用 PCM / AudioTrack 软件解码播放。 */
+    @Suppress("UNUSED_PARAMETER")
+    fun useStreamPlayback(context: Context): Boolean = true
 
     fun cachedFlacUri(context: Context, songId: String): String? {
         val file = cachedFlacFile(context, songId)

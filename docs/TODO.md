@@ -21,8 +21,8 @@
 - [x] **歌词聚焦**：播放页内点击歌词区，封面动画缩至左上角，展开大字歌词；无独立页面；底部控制条不变
 
 ### 播放
-- [x] Media3 **ExoPlayer** + 前台 `MediaService`
-- [x] **ALAC**：FFmpeg 转 PCM（流式 AudioTrack / 转 FLAC 缓存 + ExoPlayer，可设置切换）
+- [x] Media3 **ExoPlayer** + 前台 `MediaService`（会话/元数据；出声走 FFmpeg → 裸 PCM → AudioTrack）
+- [x] **全格式软件播**：FFmpeg 裸 PCM muxer（s16le/s24le/s32le）→ 整首缓存 → AudioTrack；同曲 seek 跳字节
 - [x] 播放队列、上一首 / 下一首、拖动进度条 seek、缓冲与错误提示
 - [x] **播放模式**：顺序 / 列表循环 / 单曲循环 / 随机（单按钮切换）
 - [x] 播放页 **播放列表** 底部弹层（查看队列、点击切歌）
@@ -114,6 +114,10 @@
   - **显隐**：**歌词聚焦**时随 `lyricsFocus` 淡出或关闭；**下半屏沉浸**关闭；不遮挡五按钮触控区、不铺满封面、不嵌入歌词列表。
   - **数据**：首版 ExoPlayer `audioSessionId` + 系统 `Visualizer`（需 `RECORD_AUDIO`，API 34+ 做好不支持降级）；ALAC 流式 `AudioTrack` 路径后续再接或暂隐藏。
   - **次选（仅弱装饰）**：歌词区与底栏间 `beforePlaybackChrome` 留白极低透明度氛围带——非主方案。
+
+### 音频 · 播放架构（长期）
+- [ ] **系统/原生解码优先**：MP3/AAC/FLAC 等能用 `MediaExtractor` + `MediaCodec` 的尽量直通 `AudioTrack`（无需 Exo 出声）；**FFmpeg 仅兜底** ALAC、APE、非常见容器或机型无 codec 时
+- [ ] **内存流式解码**（可选）：减少整首 `.pcm` 落盘；seek 与进度条需单独设计（见架构讨论）
 
 ### 音频与其它
 - [ ] **EQ** 均衡器

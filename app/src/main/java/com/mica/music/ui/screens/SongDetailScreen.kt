@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -22,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
@@ -33,6 +35,7 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaBackground
+import com.mica.music.util.shareSong
 
 @Composable
 fun SongDetailScreen(
@@ -41,6 +44,7 @@ fun SongDetailScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
+    val context = LocalContext.current
     val rows = remember(song, library.songs.size, library.lastScanSource) {
         SongDetails.buildRows(song, library)
     }
@@ -70,6 +74,16 @@ fun SongDetailScreen(
                 color = MicaTheme.colors.textPrimary,
                 modifier = Modifier.weight(1f),
             )
+            IconButton(
+                onClick = { shareSong(context, song) },
+                modifier = Modifier.size(HifiSize.touchTarget),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Share,
+                    contentDescription = "分享",
+                    tint = MicaTheme.colors.textPrimary,
+                )
+            }
         }
 
         Column(
