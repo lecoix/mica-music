@@ -64,17 +64,21 @@ class AlacAudioTrackEngine(private val context: Context) {
                     }
             }
             if (decoded == null || stopRequested) {
-                listener.onBuffering(false)
+                callback?.onBuffering(false)
                 if (!stopRequested) {
                     val detail = failHint?.let { "：$it" }.orEmpty()
-                    listener.onError("ALAC 解码失败$detail")
+                    callback?.onError("ALAC 解码失败$detail")
                 }
+                cleanupTemp()
+                return@launch
+            }
+            if (stopRequested || callback == null) {
                 cleanupTemp()
                 return@launch
             }
             decodedFile = decoded.file
             durationSec = song.durationSec
-            listener.onBuffering(false)
+            callback?.onBuffering(false)
             startDecodedPlayback(decoded)
         }
     }
@@ -169,6 +173,7 @@ class AlacAudioTrackEngine(private val context: Context) {
         decoded: AlacFfmpegHelper.DecodeResult,
         startAtMs: Int = 0,
     ) {
+        if (stopRequested || callback == null) return
         when (decoded.kind) {
             AlacFfmpegHelper.OutputKind.PCM -> startPcmPlayback(decoded)
             AlacFfmpegHelper.OutputKind.FLAC,

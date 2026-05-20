@@ -19,6 +19,8 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.mica.music.media.AlacAudioTrackEngine
 import com.mica.music.media.AlacPlayback
 import com.mica.music.media.AlacPlaybackCoordinator
+import com.mica.music.media.AlacSessionCommandHandler
+import com.mica.music.media.AlacSessionState
 import com.mica.music.media.MicaMediaService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -123,6 +125,7 @@ class PlayerController(private val context: Context) {
 
     private fun onConnected(c: MediaController) {
         controller = c
+        AlacPlaybackCoordinator.sessionHandler = createAlacSessionHandler()
 
         c.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -179,7 +182,7 @@ class PlayerController(private val context: Context) {
                 }
                 val ready = prepareAlacFlacCache(song)
                 if (ready.playbackUri != null) {
-                    stopAlacStream()
+                    stopAlacEngineOnly()
                     startPlaybackAt(c, currentIndex, ready)
                     playbackError = null
                     return@launch
@@ -307,7 +310,15 @@ class PlayerController(private val context: Context) {
     fun togglePlay() {
         if (alacStreamActive) {
             val engine = alacEngine ?: return
-            if (isPlaying) engine.pause() else engine.resume()
+            if (isPlaying) {
+                alacPlayWhenReady = false
+                publishAlacSessionState(playWhenReady = false)
+                engine.pause()
+            } else {
+                alacPlayWhenReady = true
+                publishAlacSessionState(playWhenReady = true)
+                engine.resume()
+            }
             return
         }
         val c = controller ?: run {
@@ -445,64 +456,115 @@ class PlayerController(private val context: Context) {
                     return@launch
                 }
                 replaceSongAt(safe, ready)
-                stopAlacStream()
+                stopAlacEngineOnly()
                 startPlaybackAt(c, safe, ready)
             }
             return
         }
 
-        stopAlacStream()
+        stopAlacEngineOnly()
         startPlaybackAt(c, safe, song)
     }
+
+    /** 停止 ALAC 引擎并清除 ALAC 标志；不触碰 Exo / MediaSession（切歌时由 [startExoPlayback] 原子接管）。 */
+    private fun stopAlacEngineOnly() {
+        playbackGeneration++
+        alacEngine?.stop()
+        alacStreamActive = false
+        alacPlayWhenReady = false
+        isBuffering = false
+    }
+
+    /** ALAC 流式时用户「想播」意图，与 [isPlaying]（实际在播）区分，供 MediaSession。 */
+    private var alacPlayWhenReady = false
+
+    /** 每次开始/停止播放递增，用于丢弃 ALAC 异步解码的过期回调。 */
+    private var playbackGeneration = 0
+
+    private fun isAlacCallbackStale(generation: Int): Boolean =
+        generation != playbackGeneration || !alacStreamActive
 
     private fun startAlacStream(song: Song, index: Int) {
         val engine = alacEngine ?: run {
             postUserMessage("播放服务未就绪")
             return
         }
-        controller?.pause()
-        stopAlacStream()
+        val generation = ++playbackGeneration
+        val composite = AlacPlaybackCoordinator.compositePlayer
+        alacEngine?.stop()
+        if (!alacStreamActive) {
+            composite?.pauseExoForAlac()
+        }
         alacStreamActive = true
         currentIndex = index
         positionSec = 0
         positionMs = 0
         durationSec = song.durationSec
         isBuffering = true
+        isPlaying = false
+        alacPlayWhenReady = true
+        syncSessionQueueForAlac(index)
+        publishAlacSessionState(
+            playWhenReady = true,
+            buffering = true,
+            positionMs = 0,
+            durationMs = song.durationSec.coerceAtLeast(0) * 1000L,
+        )
 
-        engine.play(song, object : AlacAudioTrackEngine.Callback {
+        engine.play(song, createAlacCallback(generation))
+    }
+
+    private fun createAlacCallback(generation: Int): AlacAudioTrackEngine.Callback =
+        object : AlacAudioTrackEngine.Callback {
             override fun onPrepared(durationSec: Int) {
+                if (isAlacCallbackStale(generation)) return
                 if (durationSec > 0) this@PlayerController.durationSec = durationSec
                 isBuffering = false
+                publishAlacSessionState(buffering = false)
             }
 
             override fun onPositionMs(positionMs: Int) {
+                if (isAlacCallbackStale(generation)) return
                 this@PlayerController.positionMs = positionMs.coerceAtLeast(0)
                 this@PlayerController.positionSec = this@PlayerController.positionMs / 1000
+                AlacPlaybackCoordinator.compositePlayer?.publishAlacPosition(
+                    positionMs = this@PlayerController.positionMs.toLong(),
+                    durationMs = (if (durationSec > 0) durationSec else 0) * 1000L,
+                )
             }
 
             override fun onPlayingChanged(playing: Boolean) {
+                if (isAlacCallbackStale(generation)) return
                 isPlaying = playing
+                publishAlacSessionState()
             }
 
             override fun onBuffering(buffering: Boolean) {
+                if (isAlacCallbackStale(generation)) return
                 isBuffering = buffering
+                publishAlacSessionState(buffering = buffering)
             }
 
             override fun onEnded() {
+                if (isAlacCallbackStale(generation)) return
                 alacStreamActive = false
                 isPlaying = false
+                alacPlayWhenReady = false
+                AlacPlaybackCoordinator.compositePlayer?.endAlacSession()
                 playNextAfterStream()
             }
 
             override fun onError(message: String) {
+                if (isAlacCallbackStale(generation)) return
                 alacStreamActive = false
                 isBuffering = false
                 isPlaying = false
+                alacPlayWhenReady = false
+                AlacPlaybackCoordinator.compositePlayer?.endAlacSession()
                 playbackError = message
                 postUserMessage(message)
             }
-        })
-    }
+        }
 
     fun cyclePlaybackQueueMode() {
         playbackQueueMode = playbackQueueMode.next()
@@ -581,22 +643,92 @@ class PlayerController(private val context: Context) {
     }
 
     private fun stopAlacStream() {
-        alacEngine?.stop()
-        alacStreamActive = false
+        val wasAlac = alacStreamActive ||
+            AlacPlaybackCoordinator.compositePlayer?.isAlacActive == true
+        stopAlacEngineOnly()
+        if (wasAlac) {
+            AlacPlaybackCoordinator.compositePlayer?.endAlacSession()
+        }
     }
+
+    /** 同步 MediaSession 元数据队列（无 URI，不解码）；音频仍由 AudioTrack 输出。 */
+    private fun syncSessionQueueForAlac(index: Int) {
+        if (songQueue.isEmpty()) return
+        val safe = index.coerceIn(0, songQueue.lastIndex)
+        val items = songQueue.map { it.toSessionMediaItem() }
+        AlacPlaybackCoordinator.compositePlayer?.syncAlacSessionQueue(items, safe)
+    }
+
+    private fun publishAlacSessionState(
+        playWhenReady: Boolean = alacPlayWhenReady,
+        buffering: Boolean = this.isBuffering,
+        positionMs: Long = this.positionMs.toLong(),
+        durationMs: Long = (if (durationSec > 0) durationSec else 0) * 1000L,
+    ) {
+        if (!alacStreamActive) return
+        alacPlayWhenReady = playWhenReady
+        AlacPlaybackCoordinator.compositePlayer?.publishAlacState(
+            AlacSessionState(
+                playWhenReady = playWhenReady,
+                buffering = buffering,
+                positionMs = positionMs,
+                durationMs = durationMs,
+            ),
+        )
+    }
+
+    private fun createAlacSessionHandler(): AlacSessionCommandHandler =
+        object : AlacSessionCommandHandler {
+            override fun onPlay() {
+                if (!alacStreamActive) return
+                alacPlayWhenReady = true
+                publishAlacSessionState(playWhenReady = true)
+                if (!isPlaying) alacEngine?.resume()
+            }
+
+            override fun onPause() {
+                if (!alacStreamActive) return
+                alacPlayWhenReady = false
+                publishAlacSessionState(playWhenReady = false)
+                if (isPlaying) alacEngine?.pause()
+            }
+
+            override fun onSeekTo(positionMs: Long) {
+                if (alacStreamActive) seek((positionMs / 1000).toInt())
+            }
+
+            override fun onSkipToNext() {
+                next()
+            }
+
+            override fun onSkipToPrevious() {
+                previous()
+            }
+        }
 
     private fun startPlaybackAt(c: MediaController, index: Int, song: Song) {
         replaceSongAt(index, song)
-        val item = song.toMediaItem()
-        if (c.mediaItemCount > index) {
-            c.replaceMediaItem(index, item)
+        val safe = index.coerceIn(0, songQueue.lastIndex)
+        val items = songQueue.map { it.toMediaItem() }
+        val composite = AlacPlaybackCoordinator.compositePlayer
+        if (composite != null) {
+            composite.startExoPlayback(items, safe)
         } else {
-            c.setMediaItem(item)
+            c.setMediaItems(items, safe, 0L)
+            c.prepare()
+            c.play()
         }
-        c.seekTo(index, 0)
-        c.prepare()
-        c.play()
-        currentIndex = index
+        currentIndex = safe
+        syncExoUiFromPlayer()
+    }
+
+    private fun syncExoUiFromPlayer() {
+        val player = AlacPlaybackCoordinator.compositePlayer ?: controller ?: return
+        isPlaying = player.isPlaying
+        isBuffering = player.playbackState == Player.STATE_BUFFERING
+        positionMs = player.currentPosition.toInt().coerceAtLeast(0)
+        positionSec = positionMs / 1000
+        if (player.duration > 0) durationSec = (player.duration / 1000).toInt()
     }
 
     fun next() {
@@ -644,6 +776,7 @@ class PlayerController(private val context: Context) {
             alacEngine?.seekTo(safe)
             positionSec = safe
             positionMs = safe * 1000
+            publishAlacSessionState(positionMs = positionMs.toLong())
             return
         }
         val c = controller ?: return
@@ -693,6 +826,7 @@ class PlayerController(private val context: Context) {
     }
 
     private fun releaseConnectionOnly() {
+        AlacPlaybackCoordinator.sessionHandler = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         controller = null
@@ -701,14 +835,26 @@ class PlayerController(private val context: Context) {
     }
 }
 
-private fun Song.toMediaItem(): MediaItem {
-    val metaBuilder = MediaMetadata.Builder()
+private fun Song.toMediaMetadataBuilder(): MediaMetadata.Builder {
+    val builder = MediaMetadata.Builder()
         .setTitle(title)
         .setArtist(artist)
         .setAlbumTitle(album)
+        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
     albumArtUri?.let { uri ->
-        runCatching { metaBuilder.setArtworkUri(Uri.parse(uri)) }
+        runCatching { builder.setArtworkUri(Uri.parse(uri)) }
     }
+    return builder
+}
+
+/** 锁屏 / MediaSession 专用：仅元数据，不带 URI，避免 Exo 尝试解码 ALAC。 */
+private fun Song.toSessionMediaItem(): MediaItem =
+    MediaItem.Builder()
+        .setMediaId(id)
+        .setMediaMetadata(toMediaMetadataBuilder().build())
+        .build()
+
+private fun Song.toMediaItem(): MediaItem {
     val playUri = effectivePlaybackUri
     val mime = when {
         playUri.contains(".flac", ignoreCase = true) -> MimeTypes.AUDIO_FLAC
@@ -719,10 +865,6 @@ private fun Song.toMediaItem(): MediaItem {
         .setMediaId(id)
         .setUri(playUri)
         .setMimeType(mime)
-        .setMediaMetadata(
-            metaBuilder
-                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                .build(),
-        )
+        .setMediaMetadata(toMediaMetadataBuilder().build())
         .build()
 }

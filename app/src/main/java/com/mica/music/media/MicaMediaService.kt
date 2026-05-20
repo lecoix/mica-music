@@ -29,6 +29,7 @@ import androidx.media3.session.MediaSessionService
 class MicaMediaService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+    private var compositePlayer: MicaCompositePlayer? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -49,7 +50,7 @@ class MicaMediaService : MediaSessionService() {
         val renderersFactory = DefaultRenderersFactory(this).apply {
             setEnableDecoderFallback(true)
         }
-        val player = ExoPlayer.Builder(this)
+        val exoPlayer = ExoPlayer.Builder(this)
             .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setAudioAttributes(
@@ -61,6 +62,9 @@ class MicaMediaService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+        val player = MicaCompositePlayer(exoPlayer)
+        compositePlayer = player
+        AlacPlaybackCoordinator.compositePlayer = player
         mediaSession = MediaSession.Builder(this, player).build()
         AlacPlaybackCoordinator.engine = AlacAudioTrackEngine(this)
     }
@@ -69,13 +73,15 @@ class MicaMediaService : MediaSessionService() {
         mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val player = mediaSession?.player ?: return
+        val player = compositePlayer ?: mediaSession?.player ?: return
+        val alacSession = (player as? MicaCompositePlayer)?.alacState
+        val alacActive = alacSession?.playWhenReady == true
         // 用户滑掉任务栈：仅在以下情况停止服务
         // - 未在播放（playWhenReady=false，即暂停状态）
         // - 队列为空
         // - 已播完（STATE_ENDED）
         // 正在播放则保留服务，让用户通过通知栏继续控制
-        if (!player.playWhenReady ||
+        if ((!player.playWhenReady && !alacActive) ||
             player.mediaItemCount == 0 ||
             player.playbackState == Player.STATE_ENDED
         ) {
@@ -86,11 +92,14 @@ class MicaMediaService : MediaSessionService() {
     override fun onDestroy() {
         AlacPlaybackCoordinator.engine?.release()
         AlacPlaybackCoordinator.engine = null
+        AlacPlaybackCoordinator.compositePlayer = null
+        AlacPlaybackCoordinator.sessionHandler = null
         mediaSession?.run {
             player.release()
             release()
             mediaSession = null
         }
+        compositePlayer = null
         clearListener()
         super.onDestroy()
     }
