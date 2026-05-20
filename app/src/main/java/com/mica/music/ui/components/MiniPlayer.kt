@@ -6,91 +6,256 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.mica.music.data.ArtistNames
+import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.Song
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
+import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.bottomThemeColor
+import com.mica.music.ui.theme.micaFloatingCardBottomEdge
+
+private val FloatingCoverSize = 48.dp
+private val FloatingCardHeight = 64.dp
+private val FloatingCardBottomEdgeWidth = 2.dp
+/** 与列表单行一致：行高 + 底部分割线，便于与第 9 首下方分割线重合。 */
+private val AudiophileBarHeight = HifiSize.listRowHeight + HifiSize.dividerHairline
+
+/** 迷你栏自内容区底边向上的占用高度（不含列表缓冲）。 */
+@Composable
+fun miniPlayerOverlayHeight(style: MiniPlayerStyle): Dp {
+    val safeBottom = maxOf(
+        WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding(),
+        HifiSpacing.xs,
+    )
+    val floatGap = when (style) {
+        MiniPlayerStyle.FLOATING_ISLAND -> HifiSpacing.sm
+        MiniPlayerStyle.AUDIOPHILE -> 0.dp
+    }
+    return when (style) {
+        MiniPlayerStyle.FLOATING_ISLAND ->
+            FloatingCardHeight + floatGap + safeBottom
+        MiniPlayerStyle.AUDIOPHILE ->
+            AudiophileBarHeight + safeBottom
+    }
+}
+
+/** 歌曲列表 [LazyColumn] 底部 contentPadding；极简底栏顶线对齐末行分割线时不额外留白。 */
+@Composable
+fun miniPlayerListClearance(style: MiniPlayerStyle): Dp =
+    when (style) {
+        MiniPlayerStyle.FLOATING_ISLAND ->
+            miniPlayerOverlayHeight(style) + HifiSpacing.md
+        MiniPlayerStyle.AUDIOPHILE ->
+            miniPlayerOverlayHeight(style)
+    }
 
 @Composable
 fun MiniPlayer(
+    style: MiniPlayerStyle,
     song: Song,
     isPlaying: Boolean,
+    positionMs: Int,
+    durationMs: Int,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onExpand: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier) {
-        HorizontalDivider(
-            thickness = HifiSize.dividerHairline,
-            color = MicaTheme.colors.divider,
+    val safeBottom = maxOf(
+        WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding(),
+        HifiSpacing.xs,
+    )
+    val bottomInset = safeBottom + when (style) {
+        MiniPlayerStyle.FLOATING_ISLAND -> HifiSpacing.sm
+        MiniPlayerStyle.AUDIOPHILE -> 0.dp
+    }
+    when (style) {
+        MiniPlayerStyle.FLOATING_ISLAND -> FloatingIslandMiniPlayer(
+            song = song,
+            isPlaying = isPlaying,
+            onPlayPause = onPlayPause,
+            onExpand = onExpand,
+            bottomInset = bottomInset,
+            modifier = modifier,
         )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        MiniPlayerStyle.AUDIOPHILE -> AudiophileMiniPlayer(
+            song = song,
+            isPlaying = isPlaying,
+            onPlayPause = onPlayPause,
+            onExpand = onExpand,
+            bottomInset = bottomInset,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun FloatingIslandMiniPlayer(
+    song: Song,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+    onExpand: () -> Unit,
+    bottomInset: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MicaTheme.colors
+    val pagePreset = MicaPreset.Dawn
+    val cardSurface = pagePreset.bottomThemeColor(colors.isDark)
+    val bottomEdge = micaFloatingCardBottomEdge(cardSurface, colors.isDark)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = bottomInset),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(HifiSize.miniPlayerHeight)
-                .background(MicaTheme.colors.surfaceGlass) // glass bar behind row
-                .clickable(onClick = onExpand)
-                .padding(horizontal = HifiSpacing.md),
+                .padding(horizontal = HifiSpacing.xl)
+                .height(FloatingCardHeight)
+                .background(cardSurface)
+                .clickable(onClick = onExpand),
         ) {
-            SongCover(
-                albumArtUri = song.albumArtUri,
-                fallbackColor = song.coverColor,
-                contentDescription = song.title,
-                modifier = Modifier.size(HifiSize.coverXs),
-            )
-            Spacer(Modifier.width(HifiSpacing.md))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = song.title,
-                    style = MicaTheme.typography.bodyLg,
-                    color = MicaTheme.colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = ArtistNames.normalizeDisplay(song.artist),
-                    style = MicaTheme.typography.bodySm,
-                    color = MicaTheme.colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            SharpPlayPauseButton(
-                isPlaying = isPlaying,
-                onToggle = onPlayPause,
-                size = HifiSize.iconLg,
-                color = MicaTheme.colors.textPrimary,
-            )
-            Spacer(Modifier.width(HifiSpacing.sm))
-            IconButton(
-                onClick = onNext,
-                modifier = Modifier.size(HifiSize.touchTarget),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = HifiSpacing.md, vertical = HifiSpacing.sm),
             ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = "下一首",
-                    tint = MicaTheme.colors.textPrimary,
-                    modifier = Modifier.size(HifiSize.iconLg),
+                SongCover(
+                    albumArtUri = song.albumArtUri,
+                    fallbackColor = song.coverColor,
+                    contentDescription = song.title,
+                    modifier = Modifier.size(FloatingCoverSize),
+                )
+                Spacer(Modifier.width(HifiSpacing.md))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = song.title,
+                        style = MicaTheme.typography.bodyLg,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = ArtistNames.normalizeDisplay(song.artist),
+                        style = MicaTheme.typography.bodySm,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                SharpPlayPauseButton(
+                    isPlaying = isPlaying,
+                    onToggle = onPlayPause,
+                    size = HifiSize.iconLg,
+                    color = colors.textPrimary,
                 )
             }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(FloatingCardBottomEdgeWidth)
+                    .align(Alignment.BottomCenter)
+                    .background(bottomEdge),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudiophileMiniPlayer(
+    song: Song,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+    onExpand: () -> Unit,
+    bottomInset: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MicaTheme.colors
+    val barSurface = MicaPreset.Dawn.bottomThemeColor(colors.isDark)
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(AudiophileBarHeight)
+                .background(barSurface)
+                .clickable(onClick = onExpand),
+        ) {
+            HorizontalDivider(
+                thickness = HifiSize.dividerHairline,
+                color = colors.divider,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(HifiSize.listRowHeight)
+                    .padding(start = HifiSpacing.lg, end = HifiSpacing.xl),
+            ) {
+                SharpPlayPauseButton(
+                    isPlaying = isPlaying,
+                    onToggle = onPlayPause,
+                    size = HifiSize.iconLg,
+                    color = colors.textPrimary,
+                )
+                Spacer(Modifier.width(HifiSpacing.md))
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = HifiSpacing.sm),
+                ) {
+                    Text(
+                        text = song.title,
+                        style = MicaTheme.typography.bodyMd,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = ArtistNames.normalizeDisplay(song.artist),
+                        style = MicaTheme.typography.bodySm,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                MiniPlayerSpectrumBars(
+                    isPlaying = isPlaying,
+                    height = 38.dp,
+                )
+            }
+        }
+        if (bottomInset > 0.dp) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(bottomInset)
+                    .background(barSurface),
+            )
         }
     }
 }

@@ -37,6 +37,8 @@ data class HifiColors(
     val textTertiary: Color,
     val divider: Color,
     val surfaceGlass: Color,
+    /** 不透明浮层/卡片（迷你播放栏浮岛等） */
+    val surfaceCard: Color,
     val accent: Color = HifiPalette.PurplePrimary,
     val hiRes: Color = HifiPalette.HiResGold,
     val like: Color = HifiPalette.LikeRed,
@@ -49,6 +51,7 @@ val LightHifiColors = HifiColors(
     textTertiary = HifiPalette.NeutralGray400,
     divider = HifiPalette.NeutralBlack.copy(alpha = 0.08f),
     surfaceGlass = HifiPalette.NeutralWhite.copy(alpha = 0.60f),
+    surfaceCard = HifiPalette.NeutralWhite,
     isDark = false,
 )
 
@@ -58,5 +61,6 @@ val DarkHifiColors = HifiColors(
     textTertiary = HifiPalette.NeutralWhite.copy(alpha = 0.40f),
     divider = HifiPalette.NeutralWhite.copy(alpha = 0.12f),
     surfaceGlass = HifiPalette.NeutralBlack.copy(alpha = 0.30f),
+    surfaceCard = HifiPalette.MicaFogDarkEnd,
     isDark = true,
 )

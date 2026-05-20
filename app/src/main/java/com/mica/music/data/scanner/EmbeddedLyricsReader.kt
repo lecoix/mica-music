@@ -30,12 +30,16 @@ internal object EmbeddedLyricsReader {
         uri: Uri,
         mimeType: String?,
         displayName: String?,
+        filePath: String = "",
     ): List<LyricLine> {
         val bytes = readAudioBytes(context, uri)
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         val mime = mimeType.orEmpty().lowercase()
 
         val candidates = mutableListOf<List<LyricLine>>()
+        ExternalLyricsReader.read(context, uri, displayName, filePath)
+            .takeIf { it.isNotEmpty() }
+            ?.let { candidates += it }
         if (bytes != null) {
             scanRawLyricsTags(bytes)?.let { candidates += it }
             readFromBinary(bytes, mime, ext)?.let { candidates += it }

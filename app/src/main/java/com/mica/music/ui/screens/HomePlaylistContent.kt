@@ -6,6 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
@@ -24,6 +26,7 @@ internal fun HomePlaylistContent(
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
+    listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val playlist = playlistStore.playlists.find { it.id == playlistId }
@@ -68,6 +71,7 @@ internal fun HomePlaylistContent(
         onSongOpenMenu = onSongOpenMenu,
         onMoveSong = onMoveSong,
         emptyMessage = "歌单为空",
+        listBottomPadding = listBottomPadding,
         modifier = modifier,
     )
 }

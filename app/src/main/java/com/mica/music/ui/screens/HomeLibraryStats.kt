@@ -37,7 +37,6 @@ internal fun rememberLibraryStatsBarModel(
         playlistSortField,
         playlistSortDirection,
         songs,
-        library.favoritesRevision,
         library.totalSizeMb,
         library.lastScanAtMs,
         library.isScanning,
@@ -91,16 +90,6 @@ internal fun resolveLibraryStatsBarModel(
                 segments = listOfNotNull(
                     if (recent.isEmpty()) "暂无播放记录" else "${recent.size} 首",
                 ),
-            )
-        }
-        HomeSection.Favorites -> {
-            val favorites = library.favoriteSongs()
-            LibraryStatsBarModel(
-                segments = listOfNotNull(
-                    if (favorites.isEmpty()) "暂无收藏" else "${favorites.size} 首收藏",
-                    if (favorites.isNotEmpty()) sortSegment(library) else null,
-                ),
-                showSortAction = favorites.isNotEmpty(),
             )
         }
         HomeSection.Playlist -> {

@@ -25,6 +25,7 @@ object AppPreferences {
     private const val KEY_SONG_SORT_FIELD = "song_sort_field"
     private const val KEY_SONG_SORT_DIRECTION = "song_sort_direction"
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
+    private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
@@ -144,6 +145,13 @@ object AppPreferences {
 
     fun setPlayerLowerBackground(context: Context, mode: PlayerLowerBackgroundMode) {
         prefs(context).edit().putString(KEY_PLAYER_LOWER_BACKGROUND, mode.storageValue).apply()
+    }
+
+    fun miniPlayerStyle(context: Context): MiniPlayerStyle =
+        MiniPlayerStyle.fromStorage(prefs(context).getString(KEY_MINI_PLAYER_STYLE, null))
+
+    fun setMiniPlayerStyle(context: Context, style: MiniPlayerStyle) {
+        prefs(context).edit().putString(KEY_MINI_PLAYER_STYLE, style.storageValue).apply()
     }
 
     /**

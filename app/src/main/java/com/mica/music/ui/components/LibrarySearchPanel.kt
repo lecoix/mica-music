@@ -14,6 +14,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.ImeAction
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
@@ -29,6 +31,7 @@ fun LibrarySearchPanel(
     playerController: PlayerController,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: ((Song) -> Unit)? = null,
+    listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val results = library.searchSongs(query)
@@ -75,6 +78,7 @@ fun LibrarySearchPanel(
             onSongClick = onSongClick,
             onSongOpenMenu = onSongOpenMenu,
             emptyMessage = emptyMessage,
+            listBottomPadding = listBottomPadding,
             modifier = Modifier.weight(1f),
         )
     }

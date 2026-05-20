@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.MusicLibrary
 import com.mica.music.media.FfmpegRunner
@@ -63,6 +64,10 @@ private val ThemeChoices = listOf(
 )
 
 private val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+private val MiniPlayerStyleChoices = MiniPlayerStyle.entries.map {
     it.ordinal to it.settingsLabel
 }
 
@@ -167,6 +172,15 @@ fun SettingsScreen(
                 subtitle = "全屏显示内容；从屏幕顶部下滑可临时唤出状态栏",
                 checked = uiSettings.hideStatusBar,
                 onCheckedChange = { uiSettings.updateHideStatusBar(it) },
+            )
+
+            SettingsChoiceRow(
+                title = "迷你播放栏",
+                choices = MiniPlayerStyleChoices,
+                selectedValue = uiSettings.miniPlayerStyle.ordinal,
+                onSelect = { ordinal ->
+                    uiSettings.updateMiniPlayerStyle(MiniPlayerStyle.entries[ordinal])
+                },
             )
 
             SettingsChoiceRow(

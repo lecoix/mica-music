@@ -11,15 +11,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -46,10 +40,10 @@ fun SongRow(
     song: Song,
     isCurrent: Boolean,
     isPlaying: Boolean,
-    isFavorite: Boolean,
     onClick: () -> Unit,
-    onToggleFavorite: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    /** 为原列表右侧操作区（如收藏钮）保留空白；歌单拖拽行请设为 false。 */
+    reserveTrailingActionSpace: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -128,16 +122,8 @@ fun SongRow(
                 color = MicaTheme.colors.textTertiary,
             )
 
-            IconButton(
-                onClick = onToggleFavorite,
-                modifier = Modifier.size(HifiSize.touchTarget),
-            ) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                    contentDescription = if (isFavorite) "取消收藏" else "收藏",
-                    tint = if (isFavorite) MicaTheme.colors.like else MicaTheme.colors.textTertiary,
-                    modifier = Modifier.size(HifiSize.iconMd),
-                )
+            if (reserveTrailingActionSpace) {
+                Spacer(Modifier.width(HifiSize.touchTarget))
             }
         }
 

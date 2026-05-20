@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 
 enum class MicaPreset { Dawn, Dusk, Midnight, Aurora, Fog }
 
@@ -31,6 +32,20 @@ fun MicaPreset.gradientColors(isDark: Boolean): Pair<Color, Color> = when (this)
 
 @Deprecated("Use gradientColors(isDark) or micaBackground()", ReplaceWith("gradientColors(isDark)"))
 fun MicaPreset.colors(): Pair<Color, Color> = gradientColors(isDark = false)
+
+/** 垂直渐变在屏幕底边的主题色（终点色，与 [Modifier.micaBackground] 底边一致）。 */
+fun MicaPreset.bottomThemeColor(isDark: Boolean): Color =
+    gradientColors(isDark).second
+
+/** 浮岛卡片底边描边（略深于底面，半透明）。 */
+fun micaFloatingCardBottomEdge(bottomSurface: Color, isDark: Boolean): Color {
+    val base = if (isDark) {
+        lerp(bottomSurface, Color.Black, 0.32f)
+    } else {
+        lerp(bottomSurface, Color.Black, 0.12f)
+    }
+    return base.copy(alpha = base.alpha * 0.55f)
+}
 
 @Composable
 fun Modifier.micaBackground(preset: MicaPreset): Modifier {

@@ -1,6 +1,7 @@
 package com.mica.music.ui.screens
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -11,6 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
@@ -33,6 +36,7 @@ internal fun HomeBrowseContent(
     playerController: PlayerController,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
+    listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     // 列表滚动状态在 Root / 详情切换间保留，避免返回时回到顶部
@@ -58,6 +62,7 @@ internal fun HomeBrowseContent(
                         library = library,
                         listState = artistListState,
                         onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
+                        listBottomPadding = listBottomPadding,
                         modifier = modifier,
                     )
                 }
@@ -71,6 +76,7 @@ internal fun HomeBrowseContent(
                         onSongOpenMenu = onSongOpenMenu,
                         emptyMessage = "该歌手下暂无歌曲",
                         listState = songListState,
+                        listBottomPadding = listBottomPadding,
                         modifier = modifier,
                     )
                 }
@@ -84,6 +90,7 @@ internal fun HomeBrowseContent(
                         library = library,
                         listState = albumListState,
                         onSelect = { onDestinationChange(BrowseDestination.Album(it)) },
+                        listBottomPadding = listBottomPadding,
                         modifier = modifier,
                     )
                 }
@@ -97,6 +104,7 @@ internal fun HomeBrowseContent(
                         onSongOpenMenu = onSongOpenMenu,
                         emptyMessage = "该专辑下暂无歌曲",
                         listState = songListState,
+                        listBottomPadding = listBottomPadding,
                         modifier = modifier,
                     )
                 }
@@ -111,17 +119,7 @@ internal fun HomeBrowseContent(
                 onSongClick = onSongClick,
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "暂无播放记录",
-                modifier = modifier,
-            )
-        }
-        HomeSection.Favorites -> {
-            SongListPanel(
-                songs = library.favoriteSongs(),
-                library = library,
-                playerController = playerController,
-                onSongClick = onSongClick,
-                onSongOpenMenu = onSongOpenMenu,
-                emptyMessage = "还没有收藏的歌曲",
+                listBottomPadding = listBottomPadding,
                 modifier = modifier,
             )
         }
@@ -139,6 +137,7 @@ private fun ArtistGroupList(
     library: MusicLibrary,
     listState: LazyListState,
     onSelect: (String) -> Unit,
+    listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val groups = library.artistGroups()
@@ -146,7 +145,11 @@ private fun ArtistGroupList(
         EmptyBrowseHint("暂无歌手", modifier)
         return
     }
-    LazyColumn(state = listState, modifier = modifier.fillMaxSize()) {
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = listBottomPadding),
+    ) {
         items(groups, key = { it.title }) { group ->
             BrowseGroupRow(
                 title = group.title,
@@ -162,6 +165,7 @@ private fun AlbumGroupList(
     library: MusicLibrary,
     listState: LazyListState,
     onSelect: (String) -> Unit,
+    listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val groups = library.albumGroups()
@@ -169,7 +173,11 @@ private fun AlbumGroupList(
         EmptyBrowseHint("暂无专辑", modifier)
         return
     }
-    LazyColumn(state = listState, modifier = modifier.fillMaxSize()) {
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = listBottomPadding),
+    ) {
         items(groups, key = { it.title }) { group ->
             BrowseGroupRow(
                 title = group.title,

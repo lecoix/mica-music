@@ -42,6 +42,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,7 +61,9 @@ import com.mica.music.ui.components.HomeDrawerOverlay
 import com.mica.music.ui.components.LibrarySearchPanel
 import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.MicaTextInputDialog
+import com.mica.music.data.AppUiSettings
 import com.mica.music.ui.components.MiniPlayer
+import com.mica.music.ui.components.miniPlayerListClearance
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.SongActionMenuSheet
 import com.mica.music.ui.components.SongListPanel
@@ -84,7 +88,6 @@ enum class HomeSection {
     Artists,
     Albums,
     Recent,
-    Favorites,
     Playlist,
     LibraryAnalysis,
     Settings,
@@ -94,6 +97,7 @@ enum class HomeSection {
 fun HomeScreen(
     library: MusicLibrary,
     playerController: PlayerController,
+    uiSettings: AppUiSettings,
     onSongClick: (String) -> Unit,
     onMiniPlayerExpand: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -360,11 +364,18 @@ fun HomeScreen(
 
     val isPlaylistSort = section == HomeSection.Playlist && activePlaylistId != null
 
+    val miniPlayerStyle = uiSettings.miniPlayerStyle
+    val currentSong = playerController.currentSong
+    val listBottomPadding = if (currentSong != null) {
+        miniPlayerListClearance(miniPlayerStyle)
+    } else {
+        0.dp
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .micaBackground(MicaPreset.Dawn)
-            .padding(bottom = contentPadding.calculateBottomPadding()),
+            .micaBackground(MicaPreset.Dawn),
     ) {
         Column(
             modifier = Modifier
@@ -440,6 +451,7 @@ fun HomeScreen(
                         playerController = playerController,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
+                        listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
                     )
                     section == HomeSection.Songs -> LibraryContent(
@@ -453,6 +465,7 @@ fun HomeScreen(
                         onStartScan = onStartScan,
                         onRequestRescan = onRequestRescan,
                         onOpenSettings = { openAppSettings(context) },
+                        listBottomPadding = listBottomPadding,
                     )
                     section == HomeSection.LibraryAnalysis -> LibraryAnalysisContent(
                         library = library,
@@ -470,6 +483,7 @@ fun HomeScreen(
                             onMoveSong = { from, to ->
                                 playlistStore.moveSongInPlaylist(playlistId, from, to)
                             },
+                            listBottomPadding = listBottomPadding,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -482,21 +496,28 @@ fun HomeScreen(
                         playerController = playerController,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
+                        listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
 
-            val current = playerController.currentSong
-            if (current != null) {
-                MiniPlayer(
-                    song = current,
-                    isPlaying = playerController.isPlaying,
-                    onPlayPause = { playerController.togglePlay() },
-                    onNext = { playerController.next() },
-                    onExpand = onMiniPlayerExpand,
-                )
-            }
+        }
+
+        currentSong?.let { song ->
+            val durationMs = (playerController.durationSec.coerceAtLeast(song.durationSec) * 1000)
+                .coerceAtLeast(1)
+            MiniPlayer(
+                style = miniPlayerStyle,
+                song = song,
+                isPlaying = playerController.isPlaying,
+                positionMs = playerController.positionMs,
+                durationMs = durationMs,
+                onPlayPause = { playerController.togglePlay() },
+                onNext = { playerController.next() },
+                onExpand = onMiniPlayerExpand,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
 
         HomeDrawerOverlay(
@@ -629,7 +650,6 @@ private fun resolveTopBarTitle(
         HomeSection.Artists -> "歌手"
         HomeSection.Albums -> "专辑"
         HomeSection.Recent -> "最近播放"
-        HomeSection.Favorites -> "我喜欢"
         HomeSection.LibraryAnalysis -> "音乐库分析"
         HomeSection.Settings -> "设置"
         HomeSection.Playlist -> "歌单"
@@ -705,6 +725,7 @@ private fun LibraryContent(
     onStartScan: () -> Unit,
     onRequestRescan: () -> Unit,
     onOpenSettings: () -> Unit,
+    listBottomPadding: Dp,
 ) {
     val folderLabel = library.libraryFolderLabel
     when {
@@ -741,6 +762,7 @@ private fun LibraryContent(
                 onSongClick = onSongClick,
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "暂无歌曲",
+                listBottomPadding = listBottomPadding,
                 modifier = Modifier.fillMaxSize(),
             )
         }

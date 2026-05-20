@@ -66,6 +66,7 @@ fun AppNavigation(
             HomeScreen(
                 library = library,
                 playerController = playerController,
+                uiSettings = uiSettings,
                 onSongClick = { songId ->
                     playerController.playSongById(songId)
                     navController.navigate(Routes.NowPlaying)

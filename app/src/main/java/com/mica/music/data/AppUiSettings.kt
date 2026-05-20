@@ -29,6 +29,9 @@ class AppUiSettings(context: Context) {
     var playerImmersiveLower by mutableStateOf(AppPreferences.playerImmersiveLower(appContext))
         private set
 
+    var miniPlayerStyle by mutableStateOf(AppPreferences.miniPlayerStyle(appContext))
+        private set
+
     fun updateThemeMode(mode: AppThemeMode) {
         themeMode = mode
         AppPreferences.setThemeMode(appContext, mode)
@@ -52,6 +55,11 @@ class AppUiSettings(context: Context) {
     fun updatePlayerImmersiveLower(enabled: Boolean) {
         playerImmersiveLower = enabled
         AppPreferences.setPlayerImmersiveLower(appContext, enabled)
+    }
+
+    fun updateMiniPlayerStyle(style: MiniPlayerStyle) {
+        miniPlayerStyle = style
+        AppPreferences.setMiniPlayerStyle(appContext, style)
     }
 
     fun togglePlayerImmersiveLower() {

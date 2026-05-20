@@ -68,10 +68,6 @@ class MusicLibrary(private val context: Context) {
     var scanProgressLabel by mutableStateOf<String?>(null)
         private set
 
-    /** 收藏状态变更时递增，供 Compose 刷新列表。 */
-    var favoritesRevision by mutableIntStateOf(0)
-        private set
-
     private var scannedSongs: List<Song> = emptyList()
 
     init {
@@ -133,14 +129,6 @@ class MusicLibrary(private val context: Context) {
         }
     }
 
-    fun isFavorite(songId: String): Boolean = FavoriteStore.isFavorite(context, songId)
-
-    fun toggleFavorite(songId: String): Boolean {
-        FavoriteStore.toggle(context, songId)
-        favoritesRevision++
-        return isFavorite(songId)
-    }
-
     fun searchSongs(query: String): List<Song> = LibraryBrowse.search(songs, query)
 
     fun songById(id: String): Song? = songs.find { it.id == id }
@@ -149,8 +137,6 @@ class MusicLibrary(private val context: Context) {
     fun removeSongFromLibrary(songId: String) {
         scannedSongs = scannedSongs.filterNot { it.id == songId }
         applyCurrentSort()
-        FavoriteStore.remove(context, songId)
-        favoritesRevision++
         if (lastScanAtMs != null) {
             persistSongsAsync()
         }
@@ -158,11 +144,6 @@ class MusicLibrary(private val context: Context) {
 
     fun recentSongs(): List<Song> =
         LibraryBrowse.recentSongs(songs, PlayHistoryStore.recentSongIds(context))
-
-    fun favoriteSongs(): List<Song> {
-        val ids = FavoriteStore.getIds(context)
-        return songs.filter { it.id in ids }
-    }
 
     fun artistGroups(): List<BrowseGroup> = LibraryBrowse.groupByArtist(songs)
 

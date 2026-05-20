@@ -108,9 +108,6 @@ fun HomeDrawerOverlay(
                 DrawerItem("最近播放", selectedSection == HomeSection.Recent) {
                     onSectionSelected(HomeSection.Recent)
                 }
-                DrawerItem("我喜欢", selectedSection == HomeSection.Favorites) {
-                    onSectionSelected(HomeSection.Favorites)
-                }
 
                 Spacer(Modifier.height(HifiSpacing.md))
                 DrawerDivider()

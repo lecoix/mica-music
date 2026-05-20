@@ -1,6 +1,7 @@
 package com.mica.music.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -10,6 +11,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
@@ -24,13 +27,10 @@ fun SongListPanel(
     onSongOpenMenu: ((Song) -> Unit)? = null,
     emptyMessage: String,
     listState: LazyListState? = null,
+    listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val lazyListState = listState ?: rememberLazyListState()
-  // favoritesRevision 参与重组，收藏图标即时刷新
-    val favoritesRevision = library.favoritesRevision
-    @Suppress("UNUSED_VARIABLE")
-    val revisionKey = favoritesRevision
 
     if (songs.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -43,16 +43,18 @@ fun SongListPanel(
         return
     }
 
-    LazyColumn(state = lazyListState, modifier = modifier.fillMaxSize()) {
+    LazyColumn(
+        state = lazyListState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = listBottomPadding),
+    ) {
         items(songs, key = { it.id }) { song ->
             val isCurrent = playerController.currentSong?.id == song.id
             SongRow(
                 song = song,
                 isCurrent = isCurrent,
                 isPlaying = isCurrent && playerController.isPlaying,
-                isFavorite = library.isFavorite(song.id),
                 onClick = { onSongClick(song.id) },
-                onToggleFavorite = { library.toggleFavorite(song.id) },
                 onLongClick = onSongOpenMenu?.let { open -> { open(song) } },
             )
         }

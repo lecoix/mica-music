@@ -1,6 +1,7 @@
 package com.mica.music.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.mica.music.data.MusicLibrary
@@ -40,6 +43,7 @@ fun PlaylistSongListPanel(
     onSongOpenMenu: (Song) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
     emptyMessage: String,
+    listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     if (songs.isEmpty()) {
@@ -61,6 +65,7 @@ fun PlaylistSongListPanel(
             onSongClick = onSongClick,
             onSongOpenMenu = onSongOpenMenu,
             emptyMessage = emptyMessage,
+            listBottomPadding = listBottomPadding,
             modifier = modifier,
         )
         return
@@ -83,10 +88,11 @@ fun PlaylistSongListPanel(
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
-    @Suppress("UNUSED_VARIABLE")
-    val favoritesRevision = library.favoritesRevision
-
-    LazyColumn(state = lazyListState, modifier = modifier.fillMaxSize()) {
+    LazyColumn(
+        state = lazyListState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = listBottomPadding),
+    ) {
         itemsIndexed(items, key = { _, song -> song.id }) { index, song ->
             ReorderableItem(reorderState, key = song.id) { isDragging ->
                 val isCurrent = playerController.currentSong?.id == song.id
@@ -98,10 +104,9 @@ fun PlaylistSongListPanel(
                         song = song,
                         isCurrent = isCurrent,
                         isPlaying = isCurrent && playerController.isPlaying,
-                        isFavorite = library.isFavorite(song.id),
                         onClick = { onSongClick(song.id) },
-                        onToggleFavorite = { library.toggleFavorite(song.id) },
                         onLongClick = { onSongOpenMenu(song) },
+                        reserveTrailingActionSpace = false,
                         modifier = Modifier.weight(1f),
                     )
                     Icon(
