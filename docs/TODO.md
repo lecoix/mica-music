@@ -87,7 +87,9 @@
 - [x] **不规则封面**：设置 → 外观「封面显示」—「裁切填充」居中裁切；「原样比例」列表/歌词/迷你栏等保持正方形容器内完整显示，仅播放页未进歌词聚焦时大图可按比例排版
 
 ### 全局 · 界面动效
+- [x] **动效规范文档**（[`docs/MOTION.md`](MOTION.md)：时长 token、depth、场景映射、开发约束）
 - [x] **动效基础**（`MicaMotion`：320/400ms + `FastOutSlowIn`；系统「减少动态效果」时瞬时切换）
+- [x] **搜索动效**（主页内容区推入/顶栏 `topBarSearchTransition`/统计栏收起）
 - [x] **浅色/深色与云母背景**：`AnimatedMicaAppBackground` + `rememberAnimatedHifiColors` 交叉淡入
 - [x] **主导航内容区**：侧栏切换歌曲/歌手/专辑/最近/歌单/分析时 `AnimatedContent` 淡入+轻滑；歌手/专辑 Root↔详情同理
 - [x] **路由**：设置/播放页/详情等 NavHost 淡入+纵滑；侧栏抽屉与遮罩统一曲线

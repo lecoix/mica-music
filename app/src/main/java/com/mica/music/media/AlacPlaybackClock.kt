@@ -52,6 +52,11 @@ class AlacPlaybackClock {
         seekAnchorMs = pinned
     }
 
+    /** 恢复起播或 seek 完成后解除锚点，避免进度回报一直被丢弃。 */
+    fun releaseSeekAnchor() {
+        seekAnchorMs = null
+    }
+
     /** seek 开始：钉住目标位并丢弃此前回调。 */
     fun beginSeek(targetMs: Long, playWhenReady: Boolean): Int {
         bumpGeneration()

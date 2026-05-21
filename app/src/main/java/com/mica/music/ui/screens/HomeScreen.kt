@@ -8,15 +8,25 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,12 +34,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -43,7 +56,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
@@ -59,7 +77,10 @@ import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.ui.components.EmptyStatePresets
-import com.mica.music.ui.components.HomeDrawerOverlay
+import com.mica.music.ui.components.HomeDrawerPanel
+import com.mica.music.ui.components.HomeDrawerWidthFraction
+import com.mica.music.ui.components.homeDrawerWidth
+import com.mica.music.ui.components.miniPlayerOverlayHeight
 import com.mica.music.ui.components.LibrarySearchPanel
 import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.MicaTextInputDialog
@@ -82,6 +103,7 @@ import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import kotlinx.coroutines.delay
 import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.launch
@@ -160,6 +182,7 @@ fun HomeScreen(
     var pendingDeleteSong by remember { mutableStateOf<Song?>(null) }
     var pendingDeletePlaylistId by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(section) {
         browseDestination = BrowseDestination.Root
@@ -336,6 +359,7 @@ fun HomeScreen(
             searchOpen -> {
                 searchOpen = false
                 searchQuery = ""
+                keyboardController?.hide()
             }
             browseDestination != BrowseDestination.Root -> {
                 browseDestination = BrowseDestination.Root
@@ -418,6 +442,11 @@ fun HomeScreen(
     } else {
         null
     }
+    // 退出动画期间 AnimatedVisibility 仍会重组子项，需保留上一份 model，避免 statsBarModel!! NPE
+    var statsBarSnapshot by remember { mutableStateOf<LibraryStatsBarModel?>(null) }
+    if (statsBarModel != null) {
+        statsBarSnapshot = statsBarModel
+    }
 
     val isPlaylistSort = section == HomeSection.Playlist && activePlaylistId != null
 
@@ -429,24 +458,63 @@ fun HomeScreen(
         0.dp
     }
 
+    val motionEnabled = rememberMicaMotionEnabled()
+    val drawerWidth = homeDrawerWidth()
+    val drawerPushTween = MicaMotion.tweenDp(motionEnabled, MicaMotion.DurationMediumMs)
+    val contentOffsetX by animateDpAsState(
+        targetValue = if (drawerOpen) drawerWidth else 0.dp,
+        animationSpec = drawerPushTween,
+        label = "homeContentPush",
+    )
+    val drawerOffsetX by animateDpAsState(
+        targetValue = if (drawerOpen) 0.dp else -drawerWidth,
+        animationSpec = drawerPushTween,
+        label = "homeDrawerSlide",
+    )
+    val drawerBottomInset = if (currentSong != null) {
+        miniPlayerOverlayHeight(miniPlayerStyle)
+    } else {
+        0.dp
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .micaAppBackground(),
     ) {
+        HomeDrawerPanel(
+            selectedSection = section,
+            activePlaylistId = activePlaylistId,
+            playlists = playlistStore.playlists,
+            statusBarTop = statusBarTop,
+            bottomInset = drawerBottomInset,
+            onSectionSelected = ::onDrawerPick,
+            onPlaylistSelected = ::onDrawerPlaylistPick,
+            onCreatePlaylist = {
+                drawerOpen = false
+                showCreatePlaylistDialog = true
+            },
+            modifier = Modifier.offset(x = drawerOffsetX),
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .offset(x = contentOffsetX)
                 .padding(top = statusBarTop),
         ) {
             HomeTopBar(
                 title = topBarTitle,
                 showBack = canNavigateBack,
+                searchOpen = searchOpen,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                motionEnabled = motionEnabled,
                 onLeadingClick = {
-                    if (canNavigateBack) {
-                        navigateBack()
-                    } else {
-                        drawerOpen = true
+                    when {
+                        canNavigateBack -> navigateBack()
+                        drawerOpen -> drawerOpen = false
+                        else -> drawerOpen = true
                     }
                 },
                 onSearchClick = {
@@ -457,16 +525,26 @@ fun HomeScreen(
 
             Spacer(Modifier.height(HifiSpacing.xs))
 
-            if (statsBarModel != null) {
-                LibraryStatsRow(
-                    model = statsBarModel,
-                    onSortClick = { sortSheetOpen = true },
-                    onRescan = onRequestRescan,
-                    onDeletePlaylist = {
-                        activePlaylistId?.let { pendingDeletePlaylistId = it }
-                    },
-                )
-                Spacer(Modifier.height(HifiSpacing.md))
+            AnimatedVisibility(
+                visible = statsBarModel != null,
+                enter = fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs)) +
+                    expandVertically(MicaMotion.tweenIntSize(motionEnabled, MicaMotion.DurationShortMs)),
+                exit = fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs)) +
+                    shrinkVertically(MicaMotion.tweenIntSize(motionEnabled, MicaMotion.DurationShortMs)),
+            ) {
+                statsBarSnapshot?.let { model ->
+                    Column {
+                        LibraryStatsRow(
+                            model = model,
+                            onSortClick = { sortSheetOpen = true },
+                            onRescan = onRequestRescan,
+                            onDeletePlaylist = {
+                                activePlaylistId?.let { pendingDeletePlaylistId = it }
+                            },
+                        )
+                        Spacer(Modifier.height(HifiSpacing.md))
+                    }
+                }
             }
 
             if (sortSheetOpen) {
@@ -494,7 +572,6 @@ fun HomeScreen(
                 )
             }
 
-            val motionEnabled = rememberMicaMotionEnabled()
             val paneKey = resolveHomePaneKey(
                 searchOpen = searchOpen,
                 section = section,
@@ -504,13 +581,15 @@ fun HomeScreen(
             AnimatedContent(
                 targetState = paneKey,
                 modifier = Modifier.weight(1f),
-                transitionSpec = MicaMotion.directionalPaneTransition(motionEnabled, ::homePaneDepth),
+                transitionSpec = MicaMotion.homePaneWithSearchTransition(
+                    motionEnabled,
+                    ::homePaneDepth,
+                ) { it is HomePaneKey.Search },
                 label = "homePane",
             ) { key ->
                 when (key) {
                     HomePaneKey.Search -> LibrarySearchPanel(
                         query = searchQuery,
-                        onQueryChange = { searchQuery = it },
                         library = library,
                         playerController = playerController,
                         onSongClick = onSongClick,
@@ -581,21 +660,6 @@ fun HomeScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-
-        HomeDrawerOverlay(
-            open = drawerOpen,
-            selectedSection = section,
-            activePlaylistId = activePlaylistId,
-            playlists = playlistStore.playlists,
-            statusBarTop = statusBarTop,
-            onSectionSelected = ::onDrawerPick,
-            onPlaylistSelected = ::onDrawerPlaylistPick,
-            onCreatePlaylist = {
-                drawerOpen = false
-                showCreatePlaylistDialog = true
-            },
-            onDismiss = { drawerOpen = false },
-        )
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -722,55 +786,126 @@ private fun resolveTopBarTitle(
 private fun HomeTopBar(
     title: String,
     showBack: Boolean,
+    searchOpen: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    motionEnabled: Boolean,
     onLeadingClick: () -> Unit,
     onSearchClick: () -> Unit,
 ) {
-    Box(
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(HifiSize.topBarHeight)
             .padding(horizontal = HifiSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = onLeadingClick,
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .size(HifiSize.touchTarget),
-        ) {
-            Icon(
-                imageVector = if (showBack) {
-                    Icons.AutoMirrored.Outlined.ArrowBack
-                } else {
-                    Icons.Outlined.Menu
-                },
-                contentDescription = if (showBack) "返回" else "菜单",
-                tint = MicaTheme.colors.textPrimary,
-                modifier = Modifier.size(HifiSize.iconLg),
-            )
+        AnimatedContent(
+            targetState = showBack,
+            transitionSpec = {
+                fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs)) togetherWith
+                    fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs))
+            },
+            label = "topBarLeading",
+        ) { back ->
+            IconButton(
+                onClick = onLeadingClick,
+                modifier = Modifier.size(HifiSize.touchTarget),
+            ) {
+                Icon(
+                    imageVector = if (back) {
+                        Icons.AutoMirrored.Outlined.ArrowBack
+                    } else {
+                        Icons.Outlined.Menu
+                    },
+                    contentDescription = if (back) "返回" else "菜单",
+                    tint = MicaTheme.colors.textPrimary,
+                    modifier = Modifier.size(HifiSize.iconLg),
+                )
+            }
         }
-        Text(
-            text = title,
-            style = MicaTheme.typography.display,
-            color = MicaTheme.colors.textPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = HifiSize.touchTarget),
-            textAlign = TextAlign.Center,
-        )
-        IconButton(
-            onClick = onSearchClick,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(HifiSize.touchTarget),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Search,
-                contentDescription = "搜索",
-                tint = MicaTheme.colors.textPrimary,
-                modifier = Modifier.size(HifiSize.iconLg),
-            )
+
+        AnimatedContent(
+            targetState = searchOpen,
+            modifier = Modifier.weight(1f),
+            transitionSpec = MicaMotion.topBarSearchTransition(motionEnabled),
+            label = "topBarSearch",
+        ) { open ->
+            if (open) {
+                LaunchedEffect(Unit) {
+                    if (motionEnabled) delay(MicaMotion.DurationShortMs.toLong())
+                    searchFocusRequester.requestFocus()
+                    keyboardController?.show()
+                }
+                TextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(searchFocusRequester),
+                    placeholder = {
+                        Text(
+                            text = "搜索歌曲、艺术家、专辑",
+                            style = MicaTheme.typography.bodyMd,
+                            color = MicaTheme.colors.textTertiary,
+                        )
+                    },
+                    textStyle = MicaTheme.typography.bodyMd,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions.Default,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                    ),
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "清除",
+                                    tint = MicaTheme.colors.textSecondary,
+                                )
+                            }
+                        }
+                    },
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = title,
+                        style = MicaTheme.typography.display,
+                        color = MicaTheme.colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = HifiSpacing.xs),
+                        textAlign = TextAlign.Center,
+                    )
+                    IconButton(
+                        onClick = onSearchClick,
+                        modifier = Modifier.size(HifiSize.touchTarget),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = "搜索",
+                            tint = MicaTheme.colors.textPrimary,
+                            modifier = Modifier.size(HifiSize.iconLg),
+                        )
+                    }
+                }
+            }
         }
     }
 }

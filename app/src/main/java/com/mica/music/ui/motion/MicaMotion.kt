@@ -99,6 +99,59 @@ object MicaMotion {
     fun <T> paneTransition(enabled: Boolean): AnimatedContentTransitionScope<T>.() -> ContentTransform =
         directionalPaneTransition(enabled) { 0 }
 
+    /**
+     * 进入/退出搜索：与前进/返回同向的轻量横向推入，任意分区均可一致打开搜索。
+     */
+    fun <T> homePaneWithSearchTransition(
+        enabled: Boolean,
+        depth: (T) -> Int,
+        isSearch: (T) -> Boolean,
+    ): AnimatedContentTransitionScope<T>.() -> ContentTransform = {
+        if (!enabled) {
+            fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+        } else {
+            val enteringSearch = isSearch(targetState) && !isSearch(initialState)
+            val leavingSearch = isSearch(initialState) && !isSearch(targetState)
+            if (enteringSearch || leavingSearch) {
+                val fade = tween<Float>(DurationMediumMs, easing = Easing)
+                val slide = tweenIntOffset(enabled, DurationMediumMs)
+                val transform = if (enteringSearch) {
+                    (fadeIn(fade) + slideInHorizontally(slide) { fullWidth -> fullWidth })
+                        .togetherWith(
+                            fadeOut(fade) + slideOutHorizontally(slide) { fullWidth -> -fullWidth },
+                        )
+                } else {
+                    (fadeIn(fade) + slideInHorizontally(slide) { fullWidth -> -fullWidth })
+                        .togetherWith(
+                            fadeOut(fade) + slideOutHorizontally(slide) { fullWidth -> fullWidth },
+                        )
+                }
+                transform.using(SizeTransform(clip = false))
+            } else {
+                directionalPaneTransition(enabled, depth).invoke(this)
+            }
+        }
+    }
+
+    fun drawerPushSpec(enabled: Boolean): FiniteAnimationSpec<Float> =
+        tweenFloat(enabled, DurationMediumMs)
+
+    fun topBarSearchTransition(enabled: Boolean): AnimatedContentTransitionScope<Boolean>.() -> ContentTransform = {
+        if (!enabled) {
+            fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+        } else {
+            val fade = tween<Float>(DurationShortMs, easing = Easing)
+            val slide = tweenIntOffset(enabled, DurationShortMs)
+            if (targetState) {
+                (fadeIn(fade) + slideInHorizontally(slide) { width -> width / 4 })
+                    .togetherWith(fadeOut(fade) + slideOutHorizontally(slide) { width -> -width / 4 })
+            } else {
+                (fadeIn(fade) + slideInHorizontally(slide) { width -> -width / 4 })
+                    .togetherWith(fadeOut(fade) + slideOutHorizontally(slide) { width -> width / 4 })
+            }
+        }
+    }
+
     fun <T> verticalScreenTransition(enabled: Boolean): AnimatedContentTransitionScope<T>.() -> ContentTransform = {
         if (!enabled) {
             fadeIn(tween(0)) togetherWith fadeOut(tween(0))

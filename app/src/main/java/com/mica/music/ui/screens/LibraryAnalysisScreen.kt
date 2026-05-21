@@ -30,6 +30,7 @@ import com.mica.music.data.LabeledCount
 import com.mica.music.data.LibraryAnalysis
 import com.mica.music.data.LibraryAnalyzer
 import com.mica.music.data.MusicLibrary
+import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.components.HiResIndicator
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -39,7 +40,7 @@ import java.util.Locale
 private val OverviewCellHeight = 88.dp
 private const val WaffleGridColumns = 10
 private val WaffleCellGap = 4.dp
-private const val WaffleGridWidthFraction = 0.72f
+private const val WaffleGridWidthFraction = 0.58f
 
 private val WafflePaletteLight = listOf(
     Color(0xFF8B7AFF),
@@ -65,6 +66,20 @@ private val WafflePaletteDark = listOf(
     Color(0xFFD88FA0),
     Color(0xFF92A3B0),
     Color(0xFFC9B85A),
+)
+
+private val QualityTierColorsLight = mapOf(
+    LibraryAnalyzer.TIER_HR to HifiPalette.HiResGold,
+    LibraryAnalyzer.TIER_SQ to HifiPalette.PurplePrimary,
+    LibraryAnalyzer.TIER_HQ to Color(0xFF5B9BD5),
+    LibraryAnalyzer.TIER_OTHER to Color(0xFF5BA88C),
+)
+
+private val QualityTierColorsDark = mapOf(
+    LibraryAnalyzer.TIER_HR to Color(0xFFE0BE6A),
+    LibraryAnalyzer.TIER_SQ to Color(0xFF9D92FF),
+    LibraryAnalyzer.TIER_HQ to Color(0xFF72B0E8),
+    LibraryAnalyzer.TIER_OTHER to Color(0xFF6BBF9A),
 )
 
 @Composable
@@ -116,16 +131,15 @@ fun LibraryAnalysisContent(
             total = analysis.totalSongs,
         )
         AnalysisBreakdownBlock(
-            tag = "SAMPLE",
-            title = "采样率分布",
-            items = analysis.sampleRateBreakdown,
+            tag = "QUALITY",
+            title = "音质分级",
+            items = analysis.qualityTierBreakdown,
             total = analysis.totalSongs,
-        )
-        AnalysisBreakdownBlock(
-            tag = "BITRATE",
-            title = "码率区间",
-            items = analysis.bitrateBreakdown,
-            total = analysis.totalSongs,
+            fixedColorByLabel = if (MicaTheme.colors.isDark) {
+                QualityTierColorsDark
+            } else {
+                QualityTierColorsLight
+            },
         )
 
         Spacer(Modifier.height(HifiSpacing.md))
@@ -266,9 +280,12 @@ private fun AnalysisBreakdownBlock(
     title: String,
     items: List<LabeledCount>,
     total: Int,
+    fixedColorByLabel: Map<String, Color>? = null,
 ) {
     if (items.isEmpty()) return
-    val sortedItems = remember(items) { items.sortedByDescending { it.count } }
+    val sortedItems = remember(items, fixedColorByLabel) {
+        if (fixedColorByLabel != null) items else items.sortedByDescending { it.count }
+    }
     val colorIndexByLabel = remember(sortedItems) {
         sortedItems.withIndex().associate { (index, item) -> item.label to index }
     }
@@ -294,6 +311,7 @@ private fun AnalysisBreakdownBlock(
             items = sortedItems,
             total = total,
             colorIndexByLabel = colorIndexByLabel,
+            fixedColorByLabel = fixedColorByLabel,
         )
     }
 }
@@ -303,9 +321,11 @@ private fun DistributionWaffleChart(
     items: List<LabeledCount>,
     total: Int,
     colorIndexByLabel: Map<String, Int>,
+    fixedColorByLabel: Map<String, Color>? = null,
 ) {
     val gridCells = remember(items, total) { computeWaffleGrid(items, total) }
     if (gridCells.isEmpty()) return
+    val isDark = MicaTheme.colors.isDark
 
     Column(verticalArrangement = Arrangement.spacedBy(HifiSpacing.md)) {
         Box(
@@ -320,6 +340,8 @@ private fun DistributionWaffleChart(
                 WaffleGridLayout(
                     cells = gridCells,
                     colorIndexByLabel = colorIndexByLabel,
+                    fixedColorByLabel = fixedColorByLabel,
+                    isDark = isDark,
                 )
             }
         }
@@ -328,7 +350,12 @@ private fun DistributionWaffleChart(
                 WaffleLegendRow(
                     item = item,
                     total = total,
-                    swatchColor = waffleColorForIndex(colorIndexByLabel[item.label] ?: 0),
+                    swatchColor = swatchColorForLabel(
+                        label = item.label,
+                        colorIndex = colorIndexByLabel[item.label] ?: 0,
+                        fixedColorByLabel = fixedColorByLabel,
+                        isDark = isDark,
+                    ),
                 )
             }
         }
@@ -339,6 +366,8 @@ private fun DistributionWaffleChart(
 private fun WaffleGridLayout(
     cells: List<LabeledCount>,
     colorIndexByLabel: Map<String, Int>,
+    fixedColorByLabel: Map<String, Color>? = null,
+    isDark: Boolean,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val columns = WaffleGridColumns
@@ -363,7 +392,14 @@ private fun WaffleGridLayout(
                             Box(
                                 modifier = Modifier
                                     .size(cellSize)
-                                    .background(waffleColorForIndex(colorIndex)),
+                                    .background(
+                                        swatchColorForLabel(
+                                            label = item.label,
+                                            colorIndex = colorIndex,
+                                            fixedColorByLabel = fixedColorByLabel,
+                                            isDark = isDark,
+                                        ),
+                                    ),
                             )
                         } else {
                             Spacer(Modifier.size(cellSize))
@@ -416,6 +452,17 @@ private fun WaffleLegendRow(
 private fun waffleColorForIndex(index: Int): Color {
     val palette = if (MicaTheme.colors.isDark) WafflePaletteDark else WafflePaletteLight
     return palette[index % palette.size]
+}
+
+private fun swatchColorForLabel(
+    label: String,
+    colorIndex: Int,
+    fixedColorByLabel: Map<String, Color>?,
+    isDark: Boolean,
+): Color {
+    fixedColorByLabel?.get(label)?.let { return it }
+    val palette = if (isDark) WafflePaletteDark else WafflePaletteLight
+    return palette[colorIndex % palette.size]
 }
 
 /** 10×10 华夫格：按占比分配 100 格，余数用最大余额法补足。 */

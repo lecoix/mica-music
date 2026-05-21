@@ -225,6 +225,8 @@ class PlayerController(private val context: Context) {
     /** 冷启动恢复前 MediaSession 尚未对应该曲，避免 [onConnected] 把索引打回 0。 */
     private var persistedSessionSongId: String? = null
     private var lastSessionPersistMs: Long = 0L
+    /** 本次开播是否带会话恢复进度（与拖动 seek 的 [alacPendingSeekMs] 区分）。 */
+    private var sessionRestoreSeekPending = false
 
     private val alacEngine: AlacAudioTrackEngine?
         get() = AlacPlaybackCoordinator.engine
@@ -477,6 +479,12 @@ class PlayerController(private val context: Context) {
 
     fun syncPosition() {
         if (alacStreamActive) return
+        pendingRestorePositionMs?.let {
+            setPositionMsClamped(it)
+            return
+        }
+        // 已恢复曲目尚未走 ALAC 时，Exo 停在 0，不要用其覆盖 UI/歌词进度
+        if (persistedSessionSongId != null) return
         val c = controller ?: return
         if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
         notifyPlaybackProgress(c.currentPosition.toInt().coerceAtLeast(0))
@@ -635,6 +643,7 @@ class PlayerController(private val context: Context) {
     }
 
     private fun stopAlacEngineOnly() {
+        sessionRestoreSeekPending = false
         alacClock.bumpGeneration()
         alacEngine?.stop()
         syncAlacStreamActive(false)
@@ -705,12 +714,12 @@ class PlayerController(private val context: Context) {
         clearPendingSeek()
         val restoreMs = pendingRestorePositionMs?.takeIf { it >= 1_000 } ?: 0
         pendingRestorePositionMs = null
+        sessionRestoreSeekPending = restoreMs > 0
         val metaDurationMs = song.durationSec.coerceAtLeast(0) * 1000L
         alacClock.resetForNewTrack(metaDurationMs)
         if (restoreMs > 0) {
             alacClock.pinInitialPosition(restoreMs.toLong())
             setPositionMsClamped(restoreMs)
-            alacPendingSeekMs = restoreMs
         }
         alacPlayWhenReady = true
         applyAlacClockToUi()
@@ -729,6 +738,10 @@ class PlayerController(private val context: Context) {
                 if (isAlacCallbackStale(gen)) return
                 alacClock.applyPrepared(gen, durationSec)
                 if (durationSec > 0) this@PlayerController.durationSec = durationSec
+                if (sessionRestoreSeekPending) {
+                    sessionRestoreSeekPending = false
+                    alacClock.releaseSeekAnchor()
+                }
                 applyAlacClockToUi()
                 syncAlacFromClock(flushTimeline = true)
             }
@@ -763,10 +776,16 @@ class PlayerController(private val context: Context) {
                     alacClock.applyPlayWhenReady(false)
                     alacClock.applyPlaying(gen, false)
                 }
-                if (!buffering && alacPendingSeekMs >= 0 &&
-                    kotlin.math.abs(alacClock.positionMs - alacPendingSeekMs) <= 800
-                ) {
-                    alacPendingSeekMs = -1
+                if (!buffering) {
+                    if (sessionRestoreSeekPending) {
+                        sessionRestoreSeekPending = false
+                        alacClock.releaseSeekAnchor()
+                    }
+                    if (alacPendingSeekMs >= 0 &&
+                        kotlin.math.abs(alacClock.positionMs - alacPendingSeekMs) <= 800
+                    ) {
+                        alacPendingSeekMs = -1
+                    }
                 }
                 applyAlacClockToUi()
                 syncAlacFromClock(flushTimeline = true)

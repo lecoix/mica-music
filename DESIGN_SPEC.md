@@ -207,15 +207,19 @@ Modifier
 
 ## 九、动效
 
-| 场景 | 时长 | 缓动 |
-|------|------|------|
-| 页面切换 | 200ms | `FastOutSlowInEasing` |
-| Tab 下划线滑动 | 250ms | `FastOutSlowInEasing` |
-| 开关 / 滑块 | 150ms | `LinearOutSlowInEasing` |
-| 歌词行切换 | 400ms | `FastOutSlowInEasing`（淡入淡出 + 轻微上移） |
-| 进入播放页 | 300ms | 共享元素过渡 + 底部抽屉上滑 |
+> **权威说明见 [`docs/MOTION.md`](docs/MOTION.md)**（与 `MicaMotion.kt` 对齐）。下表为早期参考，实现以 Motion 文档为准。
+
+| 场景 | 时长（现行） | 缓动 |
+|------|--------------|------|
+| 主页/浏览分区切换 | 320ms（Medium） | `FastOutSlowInEasing` |
+| 顶栏局部（搜索框等） | 200ms（Short） | `FastOutSlowInEasing` |
+| 播放页沉浸 / 封面 lerp | 400ms（Long） | `FastOutSlowInEasing` |
+| Nav 子页（设置/播放/详情） | 320ms 淡入 + 纵滑 | `FastOutSlowInEasing` |
+| 开关 / 滑块 | 150ms | `LinearOutSlowInEasing`（控件级，待统一） |
+| 歌词行切换 | 400ms（规划） | 淡入淡出 + 轻微上移（待做） |
+| 进入播放页共享元素 | — | 待做 |
 | EQ 曲线变化 | 200ms | 跟随用户拖动，松手后弹簧回稳 |
-| 列表波形指示 | 持续循环 600ms | 3 根竖线高度交替变化 |
+| 列表波形指示 | 持续循环 600ms | 3 根竖线高度交替变化（独立周期） |
 
 ---
 

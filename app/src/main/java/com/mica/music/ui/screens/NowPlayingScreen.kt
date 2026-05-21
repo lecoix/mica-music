@@ -310,7 +310,7 @@ fun NowPlayingScreen(
                 val panelHeight = maxHeight
                 // 固定位移，避免底部控制条收起后 panel 变高导致 translationY 二次跳动
                 val titleSlideDown = 72.dp
-                val metaLayoutMode = if (useCoverEdgeProgress && !lyricsExpanded) {
+                val metaLayoutMode = if (useCoverEdgeProgress && lyricsFocus < 0.5f) {
                     PlayerLowerLayoutMode.COVER_EDGE_PROGRESS
                 } else {
                     PlayerLowerLayoutMode.STANDARD
@@ -333,65 +333,65 @@ fun NowPlayingScreen(
                                 },
                             ),
                     ) {
-                        if (!lyricsExpanded) {
-                            val metaFade = 1f - immersiveProgress
-                            Column(Modifier.fillMaxSize()) {
-                                Spacer(Modifier.height(spacing.afterCover))
-                                Box(
-                                    Modifier.graphicsLayer {
-                                        alpha = metaFade
-                                        translationY = -immersiveProgress * 12f
-                                    },
-                                ) {
-                                    HiFiBadgeSection(
-                                        song = activeSong,
-                                        colors = if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
-                                            hifiBadgeColors
-                                        } else {
-                                            contentColors
-                                        },
-                                    )
-                                }
-                                Spacer(Modifier.height(spacing.afterInfo))
-                                val titleOffsetY = lerpDp(0.dp, titleSlideDown, immersiveProgress)
-                                SongTitleSection(
-                                    title = activeSong.title,
-                                    artist = activeSong.artist,
-                                    album = activeSong.album,
-                                    isBuffering = playerController.isBuffering,
-                                    playbackError = playerController.playbackError,
-                                    colors = contentColors,
-                                    immersiveProgress = immersiveProgress,
-                                    modifier = Modifier.graphicsLayer {
-                                        translationY = titleOffsetY.toPx()
-                                    },
-                                    onLongPress = if (!immersiveLower) {
-                                        { uiSettings.togglePlayerImmersiveLower() }
+                        val metaFade = (1f - lyricsFocus) * (1f - immersiveProgress)
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = metaFade },
+                        ) {
+                            Spacer(Modifier.height(spacing.afterCover))
+                            Box(
+                                Modifier.graphicsLayer {
+                                    translationY = -immersiveProgress * 12f
+                                },
+                            ) {
+                                HiFiBadgeSection(
+                                    song = activeSong,
+                                    colors = if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
+                                        hifiBadgeColors
                                     } else {
-                                        null
+                                        contentColors
                                     },
                                 )
-                                Spacer(Modifier.height(spacing.afterSubtitle))
-                                if (!immersiveLower) {
-                                    Box(
-                                        Modifier
-                                            .weight(1f)
-                                            .fillMaxWidth()
-                                            .graphicsLayer { alpha = metaFade },
-                                    ) {
-                                        LyricsSection(
-                                            lyrics = activeSong.lyrics,
-                                            positionMs = playerController.positionMs,
-                                            colors = contentColors,
-                                            onClick = { lyricsExpanded = true },
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                } else {
-                                    Spacer(Modifier.weight(1f))
-                                }
-                                Spacer(Modifier.height(spacing.beforePlaybackChrome))
                             }
+                            Spacer(Modifier.height(spacing.afterInfo))
+                            val titleOffsetY = lerpDp(0.dp, titleSlideDown, immersiveProgress)
+                            SongTitleSection(
+                                title = activeSong.title,
+                                artist = activeSong.artist,
+                                album = activeSong.album,
+                                isBuffering = playerController.isBuffering,
+                                playbackError = playerController.playbackError,
+                                colors = contentColors,
+                                immersiveProgress = immersiveProgress,
+                                modifier = Modifier.graphicsLayer {
+                                    translationY = titleOffsetY.toPx()
+                                },
+                                onLongPress = if (!immersiveLower) {
+                                    { uiSettings.togglePlayerImmersiveLower() }
+                                } else {
+                                    null
+                                },
+                            )
+                            Spacer(Modifier.height(spacing.afterSubtitle))
+                            if (!immersiveLower) {
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                ) {
+                                    LyricsSection(
+                                        lyrics = activeSong.lyrics,
+                                        positionMs = playerController.positionMs,
+                                        colors = contentColors,
+                                        onClick = { lyricsExpanded = true },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            } else {
+                                Spacer(Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(spacing.beforePlaybackChrome))
                         }
                         if (lyricsFocus > 0.01f) {
                             ExpandedLyricsPanel(
@@ -427,7 +427,7 @@ fun NowPlayingScreen(
                     colors = contentColors,
                     seekState = seekState,
                     useCoverEdgeProgress = useCoverEdgeProgress,
-                    lyricsExpanded = lyricsExpanded,
+                    lyricsFocus = lyricsFocus,
                     onOpenQueue = { queueSheetOpen = true },
                 )
             }
@@ -482,39 +482,31 @@ private fun LyricsPlaybackChrome(
     colors: PlayerContentColors,
     seekState: PlaybackSeekState,
     useCoverEdgeProgress: Boolean,
-    lyricsExpanded: Boolean,
+    lyricsFocus: Float,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val motionEnabled = rememberMicaMotionEnabled()
+    val lyricsChromeActive = lyricsFocus > 0.01f
     val afterControls = HifiSize.iconLg + HifiSize.touchTarget / 2 +
-        if (useCoverEdgeProgress && !lyricsExpanded) HifiSpacing.sm else 0.dp
+        if (useCoverEdgeProgress && !lyricsChromeActive) HifiSpacing.sm else 0.dp
 
     val chromeSinkOffset by animateDpAsState(
-        targetValue = if (lyricsExpanded) LyricsChromeSink else 0.dp,
+        targetValue = lerpDp(0.dp, LyricsChromeSink, lyricsFocus.coerceIn(0f, 1f)),
         animationSpec = MicaMotion.tweenDp(motionEnabled, MicaMotion.DurationLongMs),
         label = "lyricsChromeSink",
     )
-
-    val chromeFade = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationLongMs)
-    val chromeSize = MicaMotion.tweenIntSize(motionEnabled, MicaMotion.DurationLongMs)
-    val progressEnter = expandVertically(animationSpec = chromeSize) + fadeIn(animationSpec = chromeFade)
-    val progressExit = shrinkVertically(animationSpec = chromeSize) + fadeOut(animationSpec = chromeFade)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .offset(y = chromeSinkOffset),
     ) {
-        if (useCoverEdgeProgress) {
-            AnimatedVisibility(
-                visible = lyricsExpanded,
-                enter = progressEnter,
-                exit = progressExit,
-            ) {
+        if (useCoverEdgeProgress && lyricsChromeActive) {
+            Box(Modifier.graphicsLayer { alpha = lyricsFocus }) {
                 LyricsChromeProgressBlock(seekState, colors)
             }
-        } else {
+        } else if (!useCoverEdgeProgress) {
             // 标准进度条始终存在，随整列 offset 下沉；勿用双 AnimatedVisibility 切换，否则会闪现
             LyricsChromeProgressBlock(seekState, colors)
         }
