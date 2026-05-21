@@ -32,9 +32,8 @@ import com.mica.music.data.SongDetails
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
-import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
-import com.mica.music.ui.theme.micaBackground
+import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.shareSong
 
 @Composable
@@ -52,7 +51,7 @@ fun SongDetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .micaBackground(MicaPreset.Dawn)
+            .micaAppBackground()
             .padding(contentPadding),
     ) {
         Row(

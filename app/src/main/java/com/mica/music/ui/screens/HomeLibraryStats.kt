@@ -67,7 +67,9 @@ internal fun resolveLibraryStatsBarModel(
     playlistSortField: SongSortField?,
     playlistSortDirection: SortDirection?,
 ): LibraryStatsBarModel? {
-    if (section == HomeSection.Settings || section == HomeSection.LibraryAnalysis) return null
+    if (section == HomeSection.Settings) {
+        return null
+    }
 
     val scanSegments = libraryScanSegments(library)
 
@@ -89,7 +91,20 @@ internal fun resolveLibraryStatsBarModel(
             LibraryStatsBarModel(
                 segments = listOfNotNull(
                     if (recent.isEmpty()) "暂无播放记录" else "${recent.size} 首",
+                    if (recent.isNotEmpty()) "按最近播放" else null,
                 ),
+            )
+        }
+        HomeSection.LibraryAnalysis -> {
+            val count = library.songs.size
+            LibraryStatsBarModel(
+                segments = when {
+                    count == 0 -> listOf("暂无曲库数据")
+                    else -> listOfNotNull(
+                        songCountLabel(count, library.lastScanAtMs),
+                        formatSize(library.totalSizeMb),
+                    ) + libraryScanSegments(library)
+                },
             )
         }
         HomeSection.Playlist -> {

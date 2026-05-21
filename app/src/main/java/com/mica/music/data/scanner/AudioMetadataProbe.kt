@@ -94,10 +94,13 @@ object AudioMetadataProbe {
                 year = tags.year,
             )
             val metadata = readMetadata(retriever, enriched, trackProbe, tags.durationSec)
+            val encoderSettings = EncoderSettingsReader.read(appCtx, uri, retriever)
             val withMeta = enriched.copy(
                 albumArtist = tags.albumArtist,
                 copyright = tags.copyright,
-                codecLabel = trackProbe?.trackMime ?: metadata.playbackMimeType,
+                codecLabel = encoderSettings.ifBlank {
+                    trackProbe?.trackMime ?: metadata.playbackMimeType
+                },
             )
             val artKey = artCacheKey(withMeta)
             val albumArtUri = resolveAlbumArt(appCtx, retriever, artKey, withMeta.albumId, uri)

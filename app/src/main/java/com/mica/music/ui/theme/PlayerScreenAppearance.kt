@@ -1,6 +1,5 @@
 package com.mica.music.ui.theme
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -23,9 +22,19 @@ fun rememberPlayerScreenAppearance(
 ): PlayerScreenAppearance {
     val coverColor = rememberCoverColor(song)
     val isDark = MicaTheme.colors.isDark
-    val themeBg = MaterialTheme.colorScheme.background
-    val accent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
-    val lowerSurface = PlayerBackgroundBlend.artworkHold(accent, themeBg, isDark)
+    val mica = rememberMicaSurfaceColors()
+    val appAccent = MicaTheme.colors.accent
+    val coverAccent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
+    val accent = when (lowerBackground) {
+        PlayerLowerBackgroundMode.THEME -> appAccent
+        else -> coverAccent
+    }
+    val lowerSurface = when (lowerBackground) {
+        PlayerLowerBackgroundMode.THEME -> mica.gradientEnd
+        PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
+            PlayerBackgroundBlend.artworkHold(coverAccent, coverAccent, isDark)
+        else -> mica.gradientEnd
+    }
     val contentColors = when (lowerBackground) {
         PlayerLowerBackgroundMode.COVER_GLOW ->
             remember { blurredCoverPlayerContentColors() }
@@ -34,7 +43,11 @@ fun rememberPlayerScreenAppearance(
         else -> rememberPlayerContentColors()
     }
     val hifiBadgeColors = rememberPlayerContentColors()
-    val artworkJunction = PlayerBackgroundBlend.artworkJunction(accent, themeBg, isDark)
+    val artworkJunction = when (lowerBackground) {
+        PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
+            PlayerBackgroundBlend.artworkJunction(coverAccent, coverAccent, isDark)
+        else -> mica.gradientEnd
+    }
     return PlayerScreenAppearance(
         coverColor = coverColor,
         accent = accent,

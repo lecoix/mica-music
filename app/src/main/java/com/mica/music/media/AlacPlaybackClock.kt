@@ -38,10 +38,18 @@ class AlacPlaybackClock {
     fun resetForNewTrack(durationMs: Long) {
         bumpGeneration()
         positionMs = 0
+        seekAnchorMs = null
         this.durationMs = durationMs.coerceAtLeast(0)
         playWhenReady = true
         isPlaying = false
         buffering = true
+    }
+
+    /** 冷启动恢复进度：不递增 generation，仅钉住 UI/Session 直至 PCM 回报接近。 */
+    fun pinInitialPosition(positionMs: Long) {
+        val pinned = positionMs.coerceAtLeast(0)
+        this.positionMs = pinned
+        seekAnchorMs = pinned
     }
 
     /** seek 开始：钉住目标位并丢弃此前回调。 */

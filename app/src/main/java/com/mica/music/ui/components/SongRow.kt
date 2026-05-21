@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.HorizontalDivider
@@ -42,8 +43,6 @@ fun SongRow(
     isPlaying: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    /** 为原列表右侧操作区（如收藏钮）保留空白；歌单拖拽行请设为 false。 */
-    reserveTrailingActionSpace: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -52,6 +51,8 @@ fun SongRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(HifiSize.listRowHeight)
+                // 与 LibraryStatsRow 右侧（排序/重载）同一内边距
+                .padding(end = HifiSpacing.lg)
                 .then(
                     if (onLongClick != null) {
                         Modifier.combinedClickable(
@@ -121,10 +122,6 @@ fun SongRow(
                 style = MicaTheme.typography.monoSm,
                 color = MicaTheme.colors.textTertiary,
             )
-
-            if (reserveTrailingActionSpace) {
-                Spacer(Modifier.width(HifiSize.touchTarget))
-            }
         }
 
         HorizontalDivider(

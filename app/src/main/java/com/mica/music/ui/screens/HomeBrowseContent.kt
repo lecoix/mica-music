@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,12 +20,18 @@ import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.ui.components.BrowseGroupRow
 import com.mica.music.ui.components.SongListPanel
+import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.theme.MicaTheme
 
 internal sealed class BrowseDestination {
     data object Root : BrowseDestination()
     data class Artist(val name: String) : BrowseDestination()
     data class Album(val title: String) : BrowseDestination()
+}
+
+private fun browseDestinationDepth(destination: BrowseDestination): Int = when (destination) {
+    BrowseDestination.Root -> 0
+    else -> 1
 }
 
 @Composable
@@ -37,6 +44,7 @@ internal fun HomeBrowseContent(
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp = 0.dp,
+    motionEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // 列表滚动状态在 Root / 详情切换间保留，避免返回时回到顶部
@@ -56,59 +64,73 @@ internal fun HomeBrowseContent(
 
     when (section) {
         HomeSection.Artists -> {
-            when (val dest = destination) {
-                is BrowseDestination.Root -> {
-                    ArtistGroupList(
-                        library = library,
-                        listState = artistListState,
-                        onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
-                        listBottomPadding = listBottomPadding,
-                        modifier = modifier,
-                    )
+            AnimatedContent(
+                targetState = destination,
+                modifier = modifier,
+                transitionSpec = MicaMotion.directionalPaneTransition(motionEnabled, ::browseDestinationDepth),
+                label = "artistBrowse",
+            ) { dest ->
+                when (dest) {
+                    is BrowseDestination.Root -> {
+                        ArtistGroupList(
+                            library = library,
+                            listState = artistListState,
+                            onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
+                            listBottomPadding = listBottomPadding,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    is BrowseDestination.Artist -> {
+                        val songListState = rememberBrowseDetailSongListState("artist:${dest.name}")
+                        SongListPanel(
+                            songs = library.songsForArtist(dest.name),
+                            library = library,
+                            playerController = playerController,
+                            onSongClick = onSongClick,
+                            onSongOpenMenu = onSongOpenMenu,
+                            emptyMessage = "该歌手下暂无歌曲",
+                            listState = songListState,
+                            listBottomPadding = listBottomPadding,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    else -> Unit
                 }
-                is BrowseDestination.Artist -> {
-                    val songListState = rememberBrowseDetailSongListState("artist:${dest.name}")
-                    SongListPanel(
-                        songs = library.songsForArtist(dest.name),
-                        library = library,
-                        playerController = playerController,
-                        onSongClick = onSongClick,
-                        onSongOpenMenu = onSongOpenMenu,
-                        emptyMessage = "该歌手下暂无歌曲",
-                        listState = songListState,
-                        listBottomPadding = listBottomPadding,
-                        modifier = modifier,
-                    )
-                }
-                else -> Unit
             }
         }
         HomeSection.Albums -> {
-            when (val dest = destination) {
-                is BrowseDestination.Root -> {
-                    AlbumGroupList(
-                        library = library,
-                        listState = albumListState,
-                        onSelect = { onDestinationChange(BrowseDestination.Album(it)) },
-                        listBottomPadding = listBottomPadding,
-                        modifier = modifier,
-                    )
+            AnimatedContent(
+                targetState = destination,
+                modifier = modifier,
+                transitionSpec = MicaMotion.directionalPaneTransition(motionEnabled, ::browseDestinationDepth),
+                label = "albumBrowse",
+            ) { dest ->
+                when (dest) {
+                    is BrowseDestination.Root -> {
+                        AlbumGroupList(
+                            library = library,
+                            listState = albumListState,
+                            onSelect = { onDestinationChange(BrowseDestination.Album(it)) },
+                            listBottomPadding = listBottomPadding,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    is BrowseDestination.Album -> {
+                        val songListState = rememberBrowseDetailSongListState("album:${dest.title}")
+                        SongListPanel(
+                            songs = library.songsForAlbum(dest.title),
+                            library = library,
+                            playerController = playerController,
+                            onSongClick = onSongClick,
+                            onSongOpenMenu = onSongOpenMenu,
+                            emptyMessage = "该专辑下暂无歌曲",
+                            listState = songListState,
+                            listBottomPadding = listBottomPadding,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    else -> Unit
                 }
-                is BrowseDestination.Album -> {
-                    val songListState = rememberBrowseDetailSongListState("album:${dest.title}")
-                    SongListPanel(
-                        songs = library.songsForAlbum(dest.title),
-                        library = library,
-                        playerController = playerController,
-                        onSongClick = onSongClick,
-                        onSongOpenMenu = onSongOpenMenu,
-                        emptyMessage = "该专辑下暂无歌曲",
-                        listState = songListState,
-                        listBottomPadding = listBottomPadding,
-                        modifier = modifier,
-                    )
-                }
-                else -> Unit
             }
         }
         HomeSection.Recent -> {

@@ -26,7 +26,10 @@ object SongDetails {
         SongDetailRow("格式", song.metadata.containerName.ifBlank { "—" }),
         SongDetailRow("路径", displayPath(song)),
         SongDetailRow("文件名", song.fileName.ifBlank { "—" }),
-        SongDetailRow("编码", song.codecLabel.ifBlank { song.metadata.playbackMimeType }.ifBlank { "—" }),
+        SongDetailRow(
+            "编码器设置",
+            song.codecLabel.ifBlank { song.metadata.playbackMimeType }.ifBlank { "—" },
+        ),
         SongDetailRow("版权", song.copyright.ifBlank { "—" }),
         SongDetailRow("添加时间", formatTimestamp(song.dateAddedMs)),
         SongDetailRow("修改时间", formatTimestamp(song.dateModifiedMs)),

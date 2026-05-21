@@ -15,8 +15,10 @@ import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.scanner.FolderScanner
 import com.mica.music.data.scanner.MediaStoreScanner
 import com.mica.music.data.scanner.ScanCacheManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -25,6 +27,7 @@ class MusicLibrary(private val context: Context) {
 
     private val libraryRepository = LibraryRepository(context)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var scanJob: Job? = null
 
     var songs by mutableStateOf<List<Song>>(emptyList())
         private set
@@ -243,6 +246,27 @@ class MusicLibrary(private val context: Context) {
 
     suspend fun scan() = rescan()
 
+    /**
+     * 在 [ioScope] 中扫描，不随界面切换（Compose scope 销毁）而取消。
+     */
+    fun launchRescan() {
+        if (isScanning) return
+        scanJob?.cancel()
+        scanJob = ioScope.launch { rescan() }
+    }
+
+    fun launchScanDeviceWide() {
+        if (isScanning) return
+        scanJob?.cancel()
+        scanJob = ioScope.launch { scanDeviceWide() }
+    }
+
+    fun launchScanLibraryFolder() {
+        if (isScanning) return
+        scanJob?.cancel()
+        scanJob = ioScope.launch { scanLibraryFolder() }
+    }
+
     suspend fun scanDeviceWide() {
         if (!hasAudioReadPermission()) return
         if (isScanning) return
@@ -285,6 +309,8 @@ class MusicLibrary(private val context: Context) {
             lastScanSource = source
             AppPreferences.setLastScanSource(context, source)
             publishSongs(result.songs)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             hasScanned = true
             lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"

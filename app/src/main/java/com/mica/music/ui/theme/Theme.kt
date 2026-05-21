@@ -5,41 +5,79 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.mica.music.data.AppAccentColor
+import com.mica.music.data.CoverDisplayMode
 
 val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
 val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
+val LocalMicaBackgroundPreset = staticCompositionLocalOf { MicaPreset.Dawn }
+val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
 
 @Composable
 fun MicaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    accentColor: AppAccentColor = AppAccentColor.PURPLE,
+    micaBackgroundPreset: MicaPreset = MicaPreset.Dawn,
+    coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     content: @Composable () -> Unit,
 ) {
-    val hifiColors = if (darkTheme) DarkHifiColors else LightHifiColors
+    val accent = rememberAppAccent(accentColor, darkTheme)
+    val baseColors = if (darkTheme) DarkHifiColors else LightHifiColors
+    val targetColors = baseColors.copy(accent = accent)
+    val hifiColors = rememberAnimatedHifiColors(targetColors)
     val typography = HifiTypography()
+    val (micaStart, _) = micaBackgroundPreset.gradientColors(darkTheme)
+    val motionEnabled = rememberMicaMotionEnabled()
+    val animatedPrimary = animateColorAsState(
+        hifiColors.accent,
+        animationSpec = if (motionEnabled) {
+            androidx.compose.animation.core.tween(
+                com.mica.music.ui.motion.MicaMotion.DurationMediumMs,
+                easing = com.mica.music.ui.motion.MicaMotion.Easing,
+            )
+        } else {
+            androidx.compose.animation.core.tween(0)
+        },
+        label = "materialPrimary",
+    ).value
+    val animatedBackground = animateColorAsState(
+        micaStart,
+        animationSpec = if (motionEnabled) {
+            androidx.compose.animation.core.tween(
+                com.mica.music.ui.motion.MicaMotion.DurationMediumMs,
+                easing = com.mica.music.ui.motion.MicaMotion.Easing,
+            )
+        } else {
+            androidx.compose.animation.core.tween(0)
+        },
+        label = "materialBackground",
+    ).value
 
     val materialColorScheme = if (darkTheme) {
         darkColorScheme(
-            primary = hifiColors.accent,
+            primary = animatedPrimary,
             onPrimary = HifiPalette.NeutralWhite,
-            background = HifiPalette.MicaAuroraStart,
+            background = animatedBackground,
             onBackground = hifiColors.textPrimary,
-            surface = HifiPalette.MicaFogDarkStart,
+            surface = hifiColors.surfaceCard,
             onSurface = hifiColors.textPrimary,
             onSurfaceVariant = hifiColors.textSecondary,
             outline = hifiColors.divider,
         )
     } else {
         lightColorScheme(
-            primary = hifiColors.accent,
+            primary = animatedPrimary,
             onPrimary = HifiPalette.NeutralWhite,
-            background = HifiPalette.MicaDawnStart,
+            background = animatedBackground,
             onBackground = hifiColors.textPrimary,
-            surface = HifiPalette.NeutralWhite,
+            surface = hifiColors.surfaceCard,
             onSurface = hifiColors.textPrimary,
             onSurfaceVariant = hifiColors.textSecondary,
             outline = hifiColors.divider,
@@ -49,6 +87,8 @@ fun MicaTheme(
     CompositionLocalProvider(
         LocalHifiColors provides hifiColors,
         LocalHifiTypography provides typography,
+        LocalMicaBackgroundPreset provides micaBackgroundPreset,
+        LocalCoverDisplayMode provides coverDisplayMode,
         LocalContentColor provides hifiColors.textPrimary,
     ) {
         MaterialTheme(

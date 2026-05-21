@@ -6,18 +6,10 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.LyricLine
 import java.io.File
-import java.nio.charset.Charset
-
 /**
  * 读取与音频同目录的外挂 `.lrc`（同名或 displayName 去扩展名）。
  */
 internal object ExternalLyricsReader {
-
-    private val lrcCharsets = listOf(
-        Charsets.UTF_8,
-        Charset.forName("GBK"),
-        Charsets.ISO_8859_1,
-    )
 
     fun read(
         context: Context,
@@ -124,14 +116,8 @@ internal object ExternalLyricsReader {
     private fun readLrcTextFromFile(file: File): String? =
         runCatching { decodeLrcBytes(file.readBytes()) }.getOrNull()
 
-    private fun decodeLrcBytes(bytes: ByteArray): String {
-        if (bytes.isEmpty()) return ""
-        for (charset in lrcCharsets) {
-            val text = bytes.toString(charset)
-            if (text.isNotBlank() && !text.contains('\uFFFD')) return text
-        }
-        return bytes.toString(Charsets.UTF_8)
-    }
+    private fun decodeLrcBytes(bytes: ByteArray): String =
+        LyricsEncoding.decodeBytes(bytes)
 
     private fun parseLrcFile(text: String): List<LyricLine>? {
         if (text.isBlank()) return null

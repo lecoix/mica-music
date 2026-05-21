@@ -6,9 +6,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.mica.music.ui.theme.MicaPreset
 
 /**
- * 界面偏好（主题、状态栏），供 [com.mica.music.MainActivity] 与设置页共享并即时刷新。
+ * 界面偏好（主题、状态栏、强调色、云母背景等），供 [com.mica.music.MainActivity] 与设置页共享并即时刷新。
  */
 class AppUiSettings(context: Context) {
 
@@ -30,6 +31,15 @@ class AppUiSettings(context: Context) {
         private set
 
     var miniPlayerStyle by mutableStateOf(AppPreferences.miniPlayerStyle(appContext))
+        private set
+
+    var coverDisplayMode by mutableStateOf(AppPreferences.coverDisplayMode(appContext))
+        private set
+
+    var accentColor by mutableStateOf(AppPreferences.appAccentColor(appContext))
+        private set
+
+    var micaBackgroundPreset by mutableStateOf(AppPreferences.micaBackgroundPreset(appContext))
         private set
 
     fun updateThemeMode(mode: AppThemeMode) {
@@ -60,6 +70,21 @@ class AppUiSettings(context: Context) {
     fun updateMiniPlayerStyle(style: MiniPlayerStyle) {
         miniPlayerStyle = style
         AppPreferences.setMiniPlayerStyle(appContext, style)
+    }
+
+    fun updateCoverDisplayMode(mode: CoverDisplayMode) {
+        coverDisplayMode = mode
+        AppPreferences.setCoverDisplayMode(appContext, mode)
+    }
+
+    fun updateAccentColor(accent: AppAccentColor) {
+        accentColor = accent
+        AppPreferences.setAppAccentColor(appContext, accent)
+    }
+
+    fun updateMicaBackgroundPreset(preset: MicaPreset) {
+        micaBackgroundPreset = preset
+        AppPreferences.setMicaBackgroundPreset(appContext, preset)
     }
 
     fun togglePlayerImmersiveLower() {

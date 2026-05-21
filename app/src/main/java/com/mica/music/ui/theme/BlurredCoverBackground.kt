@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -27,10 +26,10 @@ import coil.request.ImageRequest
 fun BlurredCoverBackground(
     albumArtUri: String?,
     coverColor: Color,
+    mica: MicaSurfaceColors,
     modifier: Modifier = Modifier,
 ) {
     val isDark = MicaTheme.colors.isDark
-    val theme = MaterialTheme.colorScheme.background
     val accent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
     val canBlurArtwork = !albumArtUri.isNullOrBlank() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -57,7 +56,13 @@ fun BlurredCoverBackground(
                     },
             )
         } else {
-            AmbientPaletteBackground(accent, theme, isDark, Modifier.fillMaxSize())
+            AmbientPaletteBackground(
+                accent = accent,
+                themeTop = mica.gradientStart,
+                themeBottom = mica.gradientEnd,
+                isDark = isDark,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -88,11 +93,11 @@ fun BlurredCoverBackground(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0f to theme.copy(alpha = if (isDark) 0.38f else 0.24f),
+                            0f to mica.gradientStart.copy(alpha = if (isDark) 0.38f else 0.24f),
                             0.32f to Color.Transparent,
                             0.52f to Color.Black.copy(alpha = if (isDark) 0.12f else 0.08f),
-                            0.72f to Color.Black.copy(alpha = if (isDark) 0.32f else 0.22f),
-                            1f to Color.Black.copy(alpha = if (isDark) 0.58f else 0.42f),
+                            0.72f to mica.gradientEnd.copy(alpha = if (isDark) 0.45f else 0.32f),
+                            1f to mica.gradientEnd.copy(alpha = if (isDark) 0.72f else 0.55f),
                         ),
                     ),
                 ),
@@ -104,19 +109,20 @@ fun BlurredCoverBackground(
 @Composable
 private fun AmbientPaletteBackground(
     accent: Color,
-    theme: Color,
+    themeTop: Color,
+    themeBottom: Color,
     isDark: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val hold = PlayerBackgroundBlend.artworkHold(accent, theme, isDark)
-    val peak = PlayerBackgroundBlend.artworkPeak(accent, theme, isDark)
+    val hold = PlayerBackgroundBlend.artworkHold(accent, themeBottom, isDark)
+    val peak = PlayerBackgroundBlend.artworkPeak(accent, themeBottom, isDark)
     Box(
         modifier.background(
             Brush.verticalGradient(
                 colorStops = arrayOf(
-                    0f to PlayerBackgroundBlend.blend(peak, theme, 0.15f),
+                    0f to PlayerBackgroundBlend.blend(peak, themeTop, 0.12f),
                     0.45f to hold,
-                    1f to PlayerBackgroundBlend.blend(hold, Color.Black, if (isDark) 0.25f else 0.12f),
+                    1f to PlayerBackgroundBlend.blend(hold, themeBottom, 0.35f),
                 ),
             ),
         ),

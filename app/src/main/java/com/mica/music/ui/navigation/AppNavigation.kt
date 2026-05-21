@@ -1,6 +1,8 @@
 package com.mica.music.ui.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -20,14 +22,18 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.ui.screens.EqualizerScreen
 import com.mica.music.ui.screens.HomeScreen
+import com.mica.music.ui.screens.MetadataDebugScreen
 import com.mica.music.ui.screens.NowPlayingScreen
 import com.mica.music.ui.screens.SettingsScreen
+import com.mica.music.ui.motion.MicaMotion
+import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.SongDetailScreen
 
 object Routes {
     const val Home = "home"
     const val Settings = "settings"
     const val Equalizer = "equalizer"
+    const val MetadataDebug = "metadata_debug"
     const val NowPlaying = "now_playing"
     const val SongDetail = "song_detail/{songId}"
 
@@ -44,21 +50,26 @@ fun AppNavigation(
 ) {
     val navController = rememberNavController()
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
+    val motionEnabled = rememberMicaMotionEnabled()
+    val navFade = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)
+    val navSlide = MicaMotion.tweenIntOffset(motionEnabled, MicaMotion.DurationMediumMs)
 
     NavHost(
         navController = navController,
         startDestination = Routes.Home,
+        // 进入：子页自下而上；底下主页只淡出，不滑走
         enterTransition = {
-            slideIntoContainer(SlideDirection.Up, animationSpec = tween(300))
+            fadeIn(navFade) + slideIntoContainer(SlideDirection.Up, animationSpec = navSlide)
         },
         exitTransition = {
-            slideOutOfContainer(SlideDirection.Down, animationSpec = tween(300))
+            fadeOut(navFade)
         },
+        // 返回：子页原路向下滑走；底下的主页只淡入，不再滑入
         popEnterTransition = {
-            slideIntoContainer(SlideDirection.Down, animationSpec = tween(300))
+            fadeIn(navFade)
         },
         popExitTransition = {
-            slideOutOfContainer(SlideDirection.Up, animationSpec = tween(300))
+            fadeOut(navFade) + slideOutOfContainer(SlideDirection.Down, animationSpec = navSlide)
         },
         modifier = Modifier,
     ) {
@@ -113,6 +124,19 @@ fun AppNavigation(
                 uiSettings = uiSettings,
                 onBack = { navController.popBackStack() },
                 onOpenEqualizer = { navController.navigate(Routes.Equalizer) },
+                onOpenMetadataDebug = { navController.navigate(Routes.MetadataDebug) },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+            )
+        }
+        composable(Routes.MetadataDebug) {
+            val statusTop = homeStatusBarTopPadding()
+            MetadataDebugScreen(
+                library = library,
+                playerController = playerController,
+                onBack = { navController.popBackStack() },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.data.PlayerController
 import kotlinx.coroutines.launch
 
@@ -19,10 +20,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         playerController.onSongPlayStarted = { songId -> library.onSongPlayed(songId) }
         viewModelScope.launch {
             library.loadCachedLibrary()
+            val songs = library.songs
+            if (songs.isNotEmpty()) {
+                val session = PlaybackSessionStore.load(application)
+                playerController.setQueue(songs)
+                session?.let { playerController.restoreSession(it) }
+                playerController.reconcileRestoredSessionIndex()
+            }
         }
     }
 
     override fun onCleared() {
+        playerController.persistPlaybackSessionNow()
         playerController.release()
         super.onCleared()
     }

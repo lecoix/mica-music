@@ -44,7 +44,7 @@ class AlacAudioTrackEngine(private val context: Context) {
     private var stopRequested = false
     private var playbackEpoch = 0
 
-    fun play(song: Song, listener: Callback) {
+    fun play(song: Song, listener: Callback, startOffsetMs: Int = 0) {
         AlacFfmpegHelper.init(appCtx)
         stop()
         callback = listener
@@ -53,6 +53,7 @@ class AlacAudioTrackEngine(private val context: Context) {
         stopRequested = false
         paused = false
         listener.onBuffering(true)
+        val offsetMs = startOffsetMs.coerceAtLeast(0)
 
         playJob = scope.launch {
             val (decoded, failHint) = withContext(Dispatchers.IO) {
@@ -76,7 +77,7 @@ class AlacAudioTrackEngine(private val context: Context) {
             }
             durationSec = song.durationSec
             callback?.onBuffering(false)
-            startDecodedPlayback(decoded)
+            startDecodedPlayback(decoded, startOffsetMs = offsetMs)
         }
     }
 

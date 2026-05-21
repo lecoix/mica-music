@@ -12,11 +12,11 @@ internal object MetadataTextFix {
 
     fun normalize(text: String): String {
         if (text.isBlank()) return text
-        var result = text.trim()
+        var result = LyricsEncoding.stripBomAndControls(text)
         if (looksLikeUtf8Mojibake(result)) {
             result = repairUtf8FromLatin1(result)
         }
-        return result
+        return LyricsEncoding.stripBomAndControls(result)
     }
 
     fun looksLikeUtf8Mojibake(text: String): Boolean {

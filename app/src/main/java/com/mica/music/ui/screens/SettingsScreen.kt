@@ -31,8 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.MusicLibrary
@@ -45,7 +47,7 @@ import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
-import com.mica.music.ui.theme.micaBackground
+import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.launch
 
@@ -71,12 +73,25 @@ private val MiniPlayerStyleChoices = MiniPlayerStyle.entries.map {
     it.ordinal to it.settingsLabel
 }
 
+private val AccentColorChoices = AppAccentColor.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+private val MicaBackgroundChoices = MicaPreset.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+private val CoverDisplayChoices = CoverDisplayMode.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
 @Composable
 fun SettingsScreen(
     library: MusicLibrary,
     uiSettings: AppUiSettings,
     onBack: () -> Unit,
     onOpenEqualizer: () -> Unit,
+    onOpenMetadataDebug: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     val context = LocalContext.current
@@ -101,7 +116,7 @@ fun SettingsScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         library.updatePermission(granted)
-        if (granted) scope.launch { library.scanDeviceWide() }
+        if (granted) library.launchScanDeviceWide()
     }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -109,7 +124,7 @@ fun SettingsScreen(
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         library.setLibraryFolder(uri)
-        scope.launch { library.scanLibraryFolder() }
+        library.launchScanLibraryFolder()
     }
 
     fun requestRescan() {
@@ -121,13 +136,13 @@ fun SettingsScreen(
             }
             return
         }
-        scope.launch { library.rescan() }
+        library.launchRescan()
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .micaBackground(MicaPreset.Fog)
+            .micaAppBackground()
             .padding(contentPadding),
     ) {
         Row(
@@ -164,6 +179,36 @@ fun SettingsScreen(
                 onSelect = { ordinal ->
                     val mode = AppThemeMode.entries[ordinal]
                     uiSettings.updateThemeMode(mode)
+                },
+            )
+
+            SettingsChoiceRow(
+                title = "强调色",
+                subtitle = "含「动态取色」：Android 12+ 跟随系统主题色",
+                choices = AccentColorChoices,
+                selectedValue = uiSettings.accentColor.ordinal,
+                onSelect = { ordinal ->
+                    uiSettings.updateAccentColor(AppAccentColor.entries[ordinal])
+                },
+            )
+
+            SettingsChoiceRow(
+                title = "云母背景",
+                subtitle = "主页与各页面的渐变底色",
+                choices = MicaBackgroundChoices,
+                selectedValue = uiSettings.micaBackgroundPreset.ordinal,
+                onSelect = { ordinal ->
+                    uiSettings.updateMicaBackgroundPreset(MicaPreset.entries[ordinal])
+                },
+            )
+
+            SettingsChoiceRow(
+                title = "封面显示",
+                subtitle = "原样比例：列表/歌词为正方框内完整显示；播放页大图可按比例；裁切填充：居中裁切",
+                choices = CoverDisplayChoices,
+                selectedValue = uiSettings.coverDisplayMode.ordinal,
+                onSelect = { ordinal ->
+                    uiSettings.updateCoverDisplayMode(CoverDisplayMode.entries[ordinal])
                 },
             )
 
@@ -251,6 +296,13 @@ fun SettingsScreen(
                     deepProbe = it
                     com.mica.music.data.AppPreferences.setDeepMetadataProbe(context, it)
                 },
+            )
+
+            SettingsActionRow(
+                title = "元数据调试",
+                subtitle = "逐首查看应用内字段、ID3/Vorbis、Retriever 与解析器结果",
+                onClick = onOpenMetadataDebug,
+                enabled = library.songs.isNotEmpty(),
             )
 
             SettingsActionRow(

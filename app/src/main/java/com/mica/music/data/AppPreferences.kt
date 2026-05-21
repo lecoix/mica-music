@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
 import com.mica.music.data.scanner.ScanOptions
+import com.mica.music.ui.theme.MicaPreset
 
 /**
  * 轻量偏好存储；设置页读写同名 key。
@@ -26,6 +27,9 @@ object AppPreferences {
     private const val KEY_SONG_SORT_DIRECTION = "song_sort_direction"
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
     private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
+    private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
+    private const val KEY_APP_ACCENT_COLOR = "app_accent_color"
+    private const val KEY_MICA_BACKGROUND_PRESET = "mica_background_preset"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
@@ -152,6 +156,27 @@ object AppPreferences {
 
     fun setMiniPlayerStyle(context: Context, style: MiniPlayerStyle) {
         prefs(context).edit().putString(KEY_MINI_PLAYER_STYLE, style.storageValue).apply()
+    }
+
+    fun coverDisplayMode(context: Context): CoverDisplayMode =
+        CoverDisplayMode.fromStorage(prefs(context).getString(KEY_COVER_DISPLAY_MODE, null))
+
+    fun setCoverDisplayMode(context: Context, mode: CoverDisplayMode) {
+        prefs(context).edit().putString(KEY_COVER_DISPLAY_MODE, mode.storageValue).apply()
+    }
+
+    fun appAccentColor(context: Context): AppAccentColor =
+        AppAccentColor.fromStorage(prefs(context).getString(KEY_APP_ACCENT_COLOR, null))
+
+    fun setAppAccentColor(context: Context, accent: AppAccentColor) {
+        prefs(context).edit().putString(KEY_APP_ACCENT_COLOR, accent.storageValue).apply()
+    }
+
+    fun micaBackgroundPreset(context: Context): MicaPreset =
+        MicaPreset.fromStorage(prefs(context).getString(KEY_MICA_BACKGROUND_PRESET, null))
+
+    fun setMicaBackgroundPreset(context: Context, preset: MicaPreset) {
+        prefs(context).edit().putString(KEY_MICA_BACKGROUND_PRESET, preset.storageValue).apply()
     }
 
     /**

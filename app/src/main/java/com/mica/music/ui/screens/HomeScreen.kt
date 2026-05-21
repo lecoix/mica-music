@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -76,10 +78,11 @@ import com.mica.music.util.shareSong
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
-import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.system.homeStatusBarTopPadding
-import com.mica.music.ui.theme.micaBackground
+import com.mica.music.ui.motion.MicaMotion
+import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.launch
 
@@ -91,6 +94,44 @@ enum class HomeSection {
     Playlist,
     LibraryAnalysis,
     Settings,
+}
+
+private sealed interface HomePaneKey {
+    data object Search : HomePaneKey
+    data object Songs : HomePaneKey
+    data object Analysis : HomePaneKey
+    data class Playlist(val id: String) : HomePaneKey
+    data class Browse(
+        val section: HomeSection,
+        val destination: BrowseDestination,
+    ) : HomePaneKey
+}
+
+/** 主页分区栈深度：用于前进/返回滑动方向。 */
+private fun homePaneDepth(key: HomePaneKey): Int = when (key) {
+    HomePaneKey.Songs, HomePaneKey.Search -> 0
+    is HomePaneKey.Analysis, is HomePaneKey.Playlist -> 1
+    is HomePaneKey.Browse -> when (key.destination) {
+        BrowseDestination.Root -> 1
+        else -> 2
+    }
+}
+
+private fun resolveHomePaneKey(
+    searchOpen: Boolean,
+    section: HomeSection,
+    activePlaylistId: String?,
+    browseDestination: BrowseDestination,
+): HomePaneKey = when {
+    searchOpen -> HomePaneKey.Search
+    section == HomeSection.Songs -> HomePaneKey.Songs
+    section == HomeSection.LibraryAnalysis -> HomePaneKey.Analysis
+    section == HomeSection.Playlist && activePlaylistId != null -> HomePaneKey.Playlist(activePlaylistId)
+    section == HomeSection.Artists ||
+        section == HomeSection.Albums ||
+        section == HomeSection.Recent ->
+        HomePaneKey.Browse(section, browseDestination)
+    else -> HomePaneKey.Songs
 }
 
 @Composable
@@ -111,6 +152,8 @@ fun HomeScreen(
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var browseDestination by remember { mutableStateOf<BrowseDestination>(BrowseDestination.Root) }
+    /** 进入「最近播放 / 音乐库分析」前的分区，返回时恢复（从哪来回哪去）。 */
+    var returnSection by remember { mutableStateOf(HomeSection.Songs) }
     var actionMenuSong by remember { mutableStateOf<Song?>(null) }
     var actionMenuPlaylistId by remember { mutableStateOf<String?>(null) }
     var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
@@ -233,7 +276,7 @@ fun HomeScreen(
         shouldOpenSettings = !granted &&
             !activity.shouldShowRequestPermissionRationale(audioPermission)
         if (granted) {
-            scope.launch { library.scanDeviceWide() }
+            library.launchScanDeviceWide()
         }
     }
 
@@ -242,7 +285,7 @@ fun HomeScreen(
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         library.setLibraryFolder(uri)
-        scope.launch { library.scanLibraryFolder() }
+        library.launchScanLibraryFolder()
     }
 
     LaunchedEffect(Unit) {
@@ -270,24 +313,38 @@ fun HomeScreen(
         if (shouldOpenSettings) {
             openAppSettings(context)
         } else if (library.permissionGranted) {
-            scope.launch { library.scanDeviceWide() }
+            library.launchScanDeviceWide()
         } else {
             permissionLauncher.launch(audioPermission)
         }
     }
 
     val onStartScan: () -> Unit = {
-        scope.launch {
-            when {
-                library.hasLibraryFolder() -> library.scanLibraryFolder()
-                library.hasAudioReadPermission() -> library.scanDeviceWide()
-                else -> permissionLauncher.launch(audioPermission)
-            }
+        when {
+            library.hasLibraryFolder() -> library.launchScanLibraryFolder()
+            library.hasAudioReadPermission() -> library.launchScanDeviceWide()
+            else -> permissionLauncher.launch(audioPermission)
         }
     }
 
     val onRequestRescan: () -> Unit = {
-        scope.launch { library.rescan() }
+        library.launchRescan()
+    }
+
+    fun navigateBack() {
+        when {
+            searchOpen -> {
+                searchOpen = false
+                searchQuery = ""
+            }
+            browseDestination != BrowseDestination.Root -> {
+                browseDestination = BrowseDestination.Root
+            }
+            section == HomeSection.Recent || section == HomeSection.LibraryAnalysis -> {
+                section = returnSection
+                activePlaylistId = null
+            }
+        }
     }
 
     fun onDrawerPick(target: HomeSection) {
@@ -296,6 +353,11 @@ fun HomeScreen(
             HomeSection.Settings -> onOpenSettings()
             HomeSection.Playlist -> Unit
             else -> {
+                if (target == HomeSection.Recent || target == HomeSection.LibraryAnalysis) {
+                    if (section != HomeSection.Recent && section != HomeSection.LibraryAnalysis) {
+                        returnSection = section
+                    }
+                }
                 section = target
                 activePlaylistId = null
             }
@@ -318,21 +380,16 @@ fun HomeScreen(
         }
     }
 
-    val canNavigateBack = searchOpen || browseDestination != BrowseDestination.Root
+    val canNavigateBack = searchOpen ||
+        browseDestination != BrowseDestination.Root ||
+        section == HomeSection.Recent ||
+        section == HomeSection.LibraryAnalysis
 
     BackHandler(enabled = drawerOpen) {
         drawerOpen = false
     }
     BackHandler(enabled = canNavigateBack && !drawerOpen) {
-        when {
-            searchOpen -> {
-                searchOpen = false
-                searchQuery = ""
-            }
-            browseDestination != BrowseDestination.Root -> {
-                browseDestination = BrowseDestination.Root
-            }
-        }
+        navigateBack()
     }
 
     val activePlaylist = activePlaylistId?.let { id ->
@@ -375,7 +432,7 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .micaBackground(MicaPreset.Dawn),
+            .micaAppBackground(),
     ) {
         Column(
             modifier = Modifier
@@ -386,15 +443,10 @@ fun HomeScreen(
                 title = topBarTitle,
                 showBack = canNavigateBack,
                 onLeadingClick = {
-                    when {
-                        searchOpen -> {
-                            searchOpen = false
-                            searchQuery = ""
-                        }
-                        browseDestination != BrowseDestination.Root -> {
-                            browseDestination = BrowseDestination.Root
-                        }
-                        else -> drawerOpen = true
+                    if (canNavigateBack) {
+                        navigateBack()
+                    } else {
+                        drawerOpen = true
                     }
                 },
                 onSearchClick = {
@@ -442,9 +494,21 @@ fun HomeScreen(
                 )
             }
 
-            Box(modifier = Modifier.weight(1f)) {
-                when {
-                    searchOpen -> LibrarySearchPanel(
+            val motionEnabled = rememberMicaMotionEnabled()
+            val paneKey = resolveHomePaneKey(
+                searchOpen = searchOpen,
+                section = section,
+                activePlaylistId = activePlaylistId,
+                browseDestination = browseDestination,
+            )
+            AnimatedContent(
+                targetState = paneKey,
+                modifier = Modifier.weight(1f),
+                transitionSpec = MicaMotion.directionalPaneTransition(motionEnabled, ::homePaneDepth),
+                label = "homePane",
+            ) { key ->
+                when (key) {
+                    HomePaneKey.Search -> LibrarySearchPanel(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
                         library = library,
@@ -454,7 +518,7 @@ fun HomeScreen(
                         listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    section == HomeSection.Songs -> LibraryContent(
+                    HomePaneKey.Songs -> LibraryContent(
                         library = library,
                         playerController = playerController,
                         shouldOpenSettings = shouldOpenSettings,
@@ -467,36 +531,34 @@ fun HomeScreen(
                         onOpenSettings = { openAppSettings(context) },
                         listBottomPadding = listBottomPadding,
                     )
-                    section == HomeSection.LibraryAnalysis -> LibraryAnalysisContent(
+                    HomePaneKey.Analysis -> LibraryAnalysisContent(
                         library = library,
+                        listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    section == HomeSection.Playlist && activePlaylistId != null -> {
-                        val playlistId = activePlaylistId!!
-                        HomePlaylistContent(
-                            playlistId = playlistId,
-                            playlistStore = playlistStore,
-                            library = library,
-                            playerController = playerController,
-                            onSongClick = onSongClick,
-                            onSongOpenMenu = { openSongActionMenu(it, playlistId) },
-                            onMoveSong = { from, to ->
-                                playlistStore.moveSongInPlaylist(playlistId, from, to)
-                            },
-                            listBottomPadding = listBottomPadding,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    section == HomeSection.Settings -> Unit
-                    else -> HomeBrowseContent(
-                        section = section,
-                        destination = browseDestination,
+                    is HomePaneKey.Playlist -> HomePlaylistContent(
+                        playlistId = key.id,
+                        playlistStore = playlistStore,
+                        library = library,
+                        playerController = playerController,
+                        onSongClick = onSongClick,
+                        onSongOpenMenu = { openSongActionMenu(it, key.id) },
+                        onMoveSong = { from, to ->
+                            playlistStore.moveSongInPlaylist(key.id, from, to)
+                        },
+                        listBottomPadding = listBottomPadding,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    is HomePaneKey.Browse -> HomeBrowseContent(
+                        section = key.section,
+                        destination = key.destination,
                         onDestinationChange = { browseDestination = it },
                         library = library,
                         playerController = playerController,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         listBottomPadding = listBottomPadding,
+                        motionEnabled = motionEnabled,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -778,8 +840,13 @@ private fun LibraryStatsRow(
 ) {
     val lineText = model.segments.joinToString(" · ")
 
+    val statsRowMinHeight = HifiSize.iconMd + HifiSpacing.xs * 2
+
     Column(modifier = Modifier.padding(horizontal = HifiSpacing.lg)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.heightIn(min = statsRowMinHeight),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = lineText,
                 style = MicaTheme.typography.monoSm,

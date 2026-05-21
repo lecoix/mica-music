@@ -19,16 +19,23 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.mica.music.data.PlaybackSessionStore
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.mica.music.ui.components.UserMessageHost
 import com.mica.music.ui.navigation.AppNavigation
 import com.mica.music.ui.system.StatusBarEffect
-import com.mica.music.ui.theme.MicaPreset
+import com.mica.music.ui.motion.MicaMotion
+import com.mica.music.ui.motion.rememberReduceMotion
+import com.mica.music.ui.theme.AnimatedMicaAppBackground
 import com.mica.music.ui.theme.MicaTheme
-import com.mica.music.ui.theme.micaBackground
 
 class MainActivity : ComponentActivity() {
 
@@ -44,7 +51,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val darkTheme = uiSettings.isDarkTheme()
-            MicaTheme(darkTheme = darkTheme) {
+            val reduceMotion = rememberReduceMotion()
+            CompositionLocalProvider(MicaMotion.LocalEnabled provides !reduceMotion) {
+            MicaTheme(
+                darkTheme = darkTheme,
+                accentColor = uiSettings.accentColor,
+                micaBackgroundPreset = uiSettings.micaBackgroundPreset,
+                coverDisplayMode = uiSettings.coverDisplayMode,
+            ) {
                 StatusBarEffect(
                     hideStatusBar = uiSettings.hideStatusBar,
                     darkTheme = darkTheme,
@@ -71,10 +85,20 @@ class MainActivity : ComponentActivity() {
                     playerController.connectIfNeeded()
                 }
 
-                LaunchedEffect(library.songs, library.hasScanned) {
-                    if (library.hasScanned || library.songs.isNotEmpty()) {
-                        playerController.setQueue(library.songs)
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner, playerController) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP) {
+                            playerController.persistPlaybackSessionNow()
+                        }
                     }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+
+                LaunchedEffect(library.songs) {
+                    if (library.songs.isEmpty()) return@LaunchedEffect
+                    playerController.setQueue(library.songs)
                 }
 
                 Scaffold(
@@ -90,11 +114,7 @@ class MainActivity : ComponentActivity() {
                     },
                 ) { innerPadding ->
                     Box(Modifier.fillMaxSize()) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .micaBackground(MicaPreset.Dawn),
-                        )
+                        AnimatedMicaAppBackground(Modifier.fillMaxSize())
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -109,6 +129,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
         }
     }

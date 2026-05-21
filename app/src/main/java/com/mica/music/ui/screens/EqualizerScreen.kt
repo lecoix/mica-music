@@ -52,9 +52,8 @@ import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.components.formatEqBandLabel
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
-import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
-import com.mica.music.ui.theme.micaBackground
+import com.mica.music.ui.theme.micaAppBackground
 
 @Composable
 fun EqualizerScreen(
@@ -72,7 +71,7 @@ fun EqualizerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .micaBackground(MicaPreset.Fog)
+            .micaAppBackground()
             .padding(contentPadding),
     ) {
         Row(

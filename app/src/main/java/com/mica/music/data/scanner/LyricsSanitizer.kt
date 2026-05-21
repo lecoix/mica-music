@@ -38,6 +38,7 @@ internal object LyricsSanitizer {
     fun isBinaryGarbage(line: String): Boolean {
         val t = line.trim()
         if (t.isEmpty()) return true
+        if (!LyricsEncoding.isRenderable(t)) return true
         if (isNoiseLine(t)) return true
         if (timedLrc.containsMatchIn(t)) return false
 
@@ -86,10 +87,23 @@ internal object LyricsSanitizer {
         return cleaned.takeIf { it.isNotEmpty() && it.any { it.text.length >= 1 } } ?: emptyList()
     }
 
+    fun finalizeRelaxed(text: String): List<LyricLine>? {
+        val lines = text.lines()
+            .map { MetadataTextFix.normalize(it.trim()) }
+            .filter { it.isNotEmpty() && !it.contains('\uFFFD') && !isNoiseLine(it) }
+            .filter { !LyricsEncoding.looksLikeMojibake(it) }
+        return lines.map { LyricLine(timeMs = 0, it) }.takeIf { it.isNotEmpty() }
+    }
+
     fun score(lines: List<LyricLine>): Int {
         if (lines.isEmpty()) return 0
-        val chars = lines.sumOf { it.text.length }
-        val timed = if (lines.any { it.timeMs > 0 }) 500 else 0
+        val valid = lines.filter { line ->
+            val t = line.text.trim()
+            t.isNotEmpty() && !t.contains('\uFFFD') && !LyricsEncoding.looksLikeMojibake(t)
+        }
+        if (valid.isEmpty()) return 0
+        val chars = valid.sumOf { it.text.length }
+        val timed = if (valid.any { it.timeMs > 0 }) 500 else 0
         return chars + timed
     }
 }

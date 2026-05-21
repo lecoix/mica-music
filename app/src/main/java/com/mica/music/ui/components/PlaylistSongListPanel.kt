@@ -106,7 +106,6 @@ fun PlaylistSongListPanel(
                         isPlaying = isCurrent && playerController.isPlaying,
                         onClick = { onSongClick(song.id) },
                         onLongClick = { onSongOpenMenu(song) },
-                        reserveTrailingActionSpace = false,
                         modifier = Modifier.weight(1f),
                     )
                     Icon(

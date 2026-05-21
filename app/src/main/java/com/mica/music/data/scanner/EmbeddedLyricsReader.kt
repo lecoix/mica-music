@@ -5,24 +5,29 @@ import android.net.Uri
 import com.mica.music.data.LyricLine
 import com.mica.music.media.FfmpegRunner
 import java.io.File
-import java.nio.charset.Charset
-
 /**
- * 读取内嵌歌词：优先直接扫描 LYRICS= / UNSYNCEDLYRICS= 等元数据字段，再解析 ID3/FLAC/APE/FFmpeg。
+ * 读取内嵌歌词：优先直接扫描 LYRICS= / UNSYNCEDLYRICS= 等元数据字段，
+ * 再解析 ID3v2（USLT）/ FLAC / M4A(©ly) / APE / FFmpeg。
  */
 internal object EmbeddedLyricsReader {
 
-    /** 二进制路径已得到足够歌词时，不再复制整轨给 FFmpeg。 */
-    private const val SKIP_FFMPEG_MIN_SCORE = 80
+    /** 低于此分数时尝试 FFmpeg 兜底（M4A/部分 FLAC 依赖容器元数据）。 */
+    private const val SKIP_FFMPEG_MIN_SCORE = 24
 
-    private val latin1 = Charset.forName("ISO-8859-1")
-    private val lyricFrameIds = setOf("USLT", "SYLT", "TXXX", "COMM", "LYR")
+    /** 非同步歌词帧优先；COMM 为评论帧，不在此列表（避免把 comment 当歌词）。 */
+    private val lyricFrameIds = setOf("USLT", "ULT", "SYLT", "TXXX", "LYR")
+
+    /** 同一标签内多帧时按此顺序取歌词。 */
+    private val lyricFramePriority = listOf("USLT", "ULT", "LYR", "SYLT", "TXXX")
 
     private val rawLyricsTagPrefixes = listOf(
         "LYRICS=",
         "UNSYNCEDLYRICS=",
+        "UNSYNCED LYRICS=",
         "UNSYNCEDLYRIC=",
+        "UNSYNCED LYRIC=",
         "SYNCEDLYRICS=",
+        "SYNCED LYRICS=",
     )
 
     fun read(
@@ -44,14 +49,15 @@ internal object EmbeddedLyricsReader {
             scanRawLyricsTags(bytes)?.let { candidates += it }
             readFromBinary(bytes, mime, ext)?.let { candidates += it }
         }
-        val bestBeforeFfmpeg = candidates.maxByOrNull { LyricsSanitizer.score(it) }
+        var best = candidates.maxByOrNull { LyricsSanitizer.score(it) }
         val needFfmpeg = FfmpegRunner.hasEmbeddedBinary(context) &&
-            (bestBeforeFfmpeg == null || LyricsSanitizer.score(bestBeforeFfmpeg) < SKIP_FFMPEG_MIN_SCORE)
+            (best == null || LyricsSanitizer.score(best) < SKIP_FFMPEG_MIN_SCORE)
         if (needFfmpeg) {
             readViaFfmpegMetadataBlock(context, uri, displayName)?.let { candidates += it }
             readViaFfmpegFfmetadata(context, uri, displayName)?.let { candidates += it }
+            best = candidates.maxByOrNull { LyricsSanitizer.score(it) }
         }
-        return candidates.maxByOrNull { LyricsSanitizer.score(it) } ?: emptyList()
+        return best ?: emptyList()
     }
 
     /**
@@ -95,14 +101,16 @@ internal object EmbeddedLyricsReader {
             end++
         }
         if (end <= i) return ""
-        return String(bytes, i, end - i, Charsets.UTF_8).trim('\u0000')
+        val slice = bytes.copyOfRange(i, end)
+        return LyricsEncoding.decodeBytes(slice)
     }
 
     private fun parseLyricsText(raw: String): List<LyricLine>? {
         if (raw.isBlank()) return null
         val normalized = MetadataTextFix.normalize(raw)
         LyricsSanitizer.parseFiltered(normalized).takeIf { it.isNotEmpty() }?.let { return it }
-        return LyricsSanitizer.finalize(LrcParser.parse(normalized)).takeIf { it.isNotEmpty() }
+        LyricsSanitizer.finalize(LrcParser.parse(normalized)).takeIf { it.isNotEmpty() }?.let { return it }
+        return LyricsSanitizer.finalizeRelaxed(normalized)
     }
 
     private fun readViaFfmpegFfmetadata(
@@ -123,7 +131,9 @@ internal object EmbeddedLyricsReader {
                 ),
             )
             if (!session.success || !metaOut.exists()) return@withLocalFileForFfmpeg null
-            val body = extractLyricsFromFfmetadata(metaOut.readText()) ?: return@withLocalFileForFfmpeg null
+            val body = extractLyricsFromFfmetadata(
+                LyricsEncoding.decodeBytes(metaOut.readBytes()),
+            ) ?: return@withLocalFileForFfmpeg null
             parseLyricsText(body)
         } finally {
             metaOut.delete()
@@ -152,7 +162,7 @@ internal object EmbeddedLyricsReader {
         val sb = StringBuilder()
         var inLyrics = false
         val startRx = Regex(
-            """(?i)^\s*(lyrics|unsyncedlyrics|unsyncedlyric|syncedlyrics)\s*:\s*(.*)$""",
+            """(?i)^\s*(lyrics|unsynced\s*lyrics?|synced\s*lyrics?)\s*:\s*(.*)$""",
         )
         val continueRx = Regex("""^\s+:\s*(.+)$""")
         val otherKeyRx = Regex("""^\s+[A-Za-z][\w./-]+\s+:\s*.+""")
@@ -189,20 +199,29 @@ internal object EmbeddedLyricsReader {
         parseId3(bytes)?.let { candidates += it }
         parseFlac(bytes)?.let { candidates += it }
         parseApe(bytes)?.let { candidates += it }
-        if (mime.contains("mpeg") || ext == "mp3") parseId3(bytes)?.let { candidates += it }
-        if (mime.contains("flac") || ext == "flac") parseFlac(bytes)?.let { candidates += it }
+        if (mime.contains("mp4") || ext in setOf("m4a", "m4b", "mp4", "aac")) {
+            Mp4LyricsReader.read(bytes)?.let { parseLyricsText(it) }?.let { candidates += it }
+        }
         return candidates.maxByOrNull { LyricsSanitizer.score(it) }
     }
 
     private fun parseId3(bytes: ByteArray): List<LyricLine>? {
         var searchFrom = 0
+        var best: List<LyricLine>? = null
+        var bestScore = 0
         while (searchFrom < bytes.size - 10) {
             val idx = indexOf(bytes, "ID3".toByteArray(), searchFrom)
             if (idx < 0) break
-            parseId3TagAt(bytes, idx)?.let { return it }
+            parseId3TagAt(bytes, idx)?.let { parsed ->
+                val score = LyricsSanitizer.score(parsed)
+                if (score > bestScore) {
+                    best = parsed
+                    bestScore = score
+                }
+            }
             searchFrom = idx + 3
         }
-        return null
+        return best
     }
 
     private fun parseId3TagAt(bytes: ByteArray, start: Int): List<LyricLine>? {
@@ -214,14 +233,23 @@ internal object EmbeddedLyricsReader {
         }
         val versionMajor = bytes[start + 3].toInt()
         val flags = bytes[start + 5].toInt()
+        val tagUnsync = flags and 0x80 != 0
         val tagSize = synchsafeSize(bytes, start + 6)
         var offset = start + 10
-        if (versionMajor == 4 && flags and 0x40 != 0) {
-            val extSize = synchsafeSize(bytes, offset)
-            offset += 4 + extSize
+        when {
+            versionMajor == 4 && flags and 0x40 != 0 -> {
+                val extSize = synchsafeSize(bytes, offset)
+                offset += 4 + extSize
+            }
+            versionMajor == 3 && flags and 0x40 != 0 -> {
+                // ID3v2.3 扩展头：4 字节大端长度（含此 4 字节）
+                val extSize = readUInt32Be(bytes, offset).toInt()
+                if (extSize >= 4) offset += extSize
+            }
         }
         val end = (start + 10 + tagSize).coerceAtMost(bytes.size)
         val frameIdLen = if (versionMajor == 2) 3 else 4
+        val byFrame = linkedMapOf<String, List<LyricLine>>()
 
         while (offset + frameIdLen + 6 <= end) {
             val frameId = String(bytes, offset, frameIdLen, Charsets.US_ASCII)
@@ -236,58 +264,58 @@ internal object EmbeddedLyricsReader {
             val frameEnd = (frameStart + frameSize).coerceAtMost(end)
             if (frameEnd <= frameStart) break
             if (frameId in lyricFrameIds) {
-                val payload = bytes.copyOfRange(frameStart, frameEnd)
+                var payload = bytes.copyOfRange(frameStart, frameEnd)
+                if (tagUnsync) payload = deunsynchronizeId3(payload)
                 extractLyricsPayload(frameId, payload)?.let { text ->
-                    parseLyricsText(text)?.let { return it }
+                    parseLyricsText(text)?.takeIf { it.isNotEmpty() }?.let { lines ->
+                        val prev = byFrame[frameId]
+                        if (prev == null || LyricsSanitizer.score(lines) > LyricsSanitizer.score(prev)) {
+                            byFrame[frameId] = lines
+                        }
+                    }
                 }
             }
             offset = frameEnd
         }
-        return null
+        for (id in lyricFramePriority) {
+            byFrame[id]?.let { return it }
+        }
+        return byFrame.values.maxByOrNull { LyricsSanitizer.score(it) }
     }
 
     private fun extractLyricsPayload(frameId: String, payload: ByteArray): String? = when (frameId) {
-        "USLT", "LYR" -> parseUslt(payload)
+        "USLT", "ULT", "LYR" -> parseUslt(payload)
         "SYLT" -> parseSylt(payload)
         "TXXX" -> parseTxxx(payload)
-        "COMM" -> parseComm(payload)
         else -> null
     }
 
+    /**
+     * USLT/ULT：encoding(1) + language(3 固定 ISO-639-2，无分隔符) + 描述符(以 0/00 00 结尾) + 歌词正文。
+     */
     private fun parseUslt(payload: ByteArray): String? {
-        if (payload.isEmpty()) return null
-        val encoding = payload[0].toInt()
-        var i = 1
-        while (i < payload.size && payload[i] != 0.toByte()) i++
-        if (i < payload.size) i++
-        while (i < payload.size && payload[i] != 0.toByte()) i++
-        if (i < payload.size) i++
-        return decodeLyricsBytes(payload, i, encoding)
-    }
-
-    private fun parseComm(payload: ByteArray): String? {
         if (payload.size < 5) return null
-        val encoding = payload[0].toInt()
-        var i = 1
-        while (i < payload.size && payload[i] != 0.toByte()) i++
-        if (i < payload.size) i++
-        while (i < payload.size && payload[i] != 0.toByte()) i++
-        if (i < payload.size) i++
-        return decodeLyricsBytes(payload, i, encoding)
+        val encoding = payload[0].toInt() and 0xFF
+        var i = 4
+        i = skipId3TextField(payload, i, encoding)
+        if (i >= payload.size) return null
+        return decodeId3LyricsSlice(payload, i, encoding)
     }
 
     private fun parseSylt(payload: ByteArray): String? {
         if (payload.size < 10) return null
-        val encoding = payload[0].toInt()
-        var i = 5
-        while (i < payload.size && payload[i] != 0.toByte()) i++
-        if (i < payload.size) i++
+        val encoding = payload[0].toInt() and 0xFF
+        var i = 6
+        i = skipId3TextField(payload, i, encoding)
         val sb = StringBuilder()
         while (i + 5 < payload.size) {
-            val textEnd = indexOfByte(payload, 0.toByte(), i)
-            if (textEnd < 0) break
-            val text = decodeLyricsBytes(payload, i, encoding)?.trim().orEmpty()
-            val timeStart = textEnd + 1
+            val textEnd = id3LyricsEnd(payload, i, encoding)
+            val text = decodeId3LyricsSlice(payload, i, encoding)?.trim().orEmpty()
+            val timeStart = if (encoding == 1 || encoding == 2) {
+                (textEnd + 2).coerceAtMost(payload.size)
+            } else {
+                (textEnd + 1).coerceAtMost(payload.size)
+            }
             if (timeStart + 4 > payload.size) break
             i = timeStart + 4
             if (text.isNotEmpty()) {
@@ -300,40 +328,67 @@ internal object EmbeddedLyricsReader {
 
     private fun parseTxxx(payload: ByteArray): String? {
         if (payload.size < 2) return null
-        val encoding = payload[0].toInt()
-        var i = 1
-        val descEnd = indexOfByte(payload, 0.toByte(), i)
-        if (descEnd < 0) return null
-        val desc = decodeLyricsBytes(payload, i, encoding)?.uppercase().orEmpty()
-        i = descEnd + 1
+        val encoding = payload[0].toInt() and 0xFF
+        val descEnd = id3LyricsEnd(payload, 1, encoding)
+        if (descEnd <= 1) return null
+        val desc = decodeId3LyricsSlice(payload, 1, encoding)?.uppercase().orEmpty()
+        val valueStart = if (encoding == 1 || encoding == 2) descEnd + 2 else descEnd + 1
         if (!desc.contains("LYRIC") && !desc.contains("UNSYNCED")) return null
-        return decodeLyricsBytes(payload, i, encoding)
+        return decodeId3LyricsSlice(payload, valueStart, encoding)
     }
 
-    private fun decodeLyricsBytes(bytes: ByteArray, offset: Int, encoding: Int): String? {
+    /** 跳过 ID3 文本字段（语言 / 描述）；UTF-16 以 `00 00` 结尾。 */
+    private fun skipId3TextField(payload: ByteArray, start: Int, encoding: Int): Int {
+        if (start >= payload.size) return start
+        return when (encoding) {
+            1, 2 -> {
+                var i = start
+                while (i + 1 < payload.size) {
+                    if (payload[i] == 0.toByte() && payload[i + 1] == 0.toByte()) return i + 2
+                    i++
+                }
+                payload.size
+            }
+            else -> {
+                var i = start
+                while (i < payload.size && payload[i] != 0.toByte()) i++
+                if (i < payload.size) i + 1 else i
+            }
+        }
+    }
+
+    private fun id3LyricsEnd(bytes: ByteArray, offset: Int, encoding: Int): Int {
+        return when (encoding) {
+            1, 2 -> {
+                var i = offset
+                while (i + 1 < bytes.size) {
+                    if (bytes[i] == 0.toByte() && bytes[i + 1] == 0.toByte()) return i
+                    i++
+                }
+                bytes.size
+            }
+            else -> indexOfByte(bytes, 0.toByte(), offset).let { if (it < 0) bytes.size else it }
+        }
+    }
+
+    private fun decodeId3LyricsSlice(bytes: ByteArray, offset: Int, encoding: Int): String? {
         if (offset >= bytes.size) return null
-        val end = indexOfByte(bytes, 0.toByte(), offset).let { if (it < 0) bytes.size else it }
+        val end = when (encoding) {
+            // UTF-16 歌词字节里常见 0x00，不能按 00 00 截断，取帧内剩余全部字节
+            1, 2 -> bytes.size
+            else -> id3LyricsEnd(bytes, offset, encoding).let { if (it <= offset) bytes.size else it }
+        }
         if (end <= offset) return null
         val slice = bytes.copyOfRange(offset, end)
-        val encodings = listOf(encoding, 3, 1, 0)
-        for (enc in encodings.distinct()) {
-            decodeWithEncoding(slice, enc)?.let { if (it.isNotBlank()) return it }
-        }
-        return String(slice, Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
+        return LyricsEncoding.decodeId3Bytes(slice, encoding).takeIf { it.isNotEmpty() }
     }
-
-    private fun decodeWithEncoding(slice: ByteArray, encoding: Int): String? =
-        when (encoding) {
-            1 -> String(slice, Charsets.UTF_16LE)
-            2 -> String(slice, Charset.forName("UTF-16BE"))
-            3 -> String(slice, Charsets.UTF_8)
-            else -> String(slice, latin1)
-        }.trim().takeIf { it.isNotEmpty() }
 
     private fun parseFlac(bytes: ByteArray): List<LyricLine>? {
         val start = indexOf(bytes, "fLaC".toByteArray(), 0)
         if (start < 0) return null
         var offset = start + 4
+        var best: List<LyricLine>? = null
+        var bestScore = 0
         while (offset + 4 <= bytes.size) {
             val header = bytes[offset].toInt() and 0xFF
             val isLast = header and 0x80 != 0
@@ -342,12 +397,18 @@ internal object EmbeddedLyricsReader {
             val blockStart = offset + 4
             val blockEnd = (blockStart + blockLen).coerceAtMost(bytes.size)
             if (blockType == 4 && blockEnd > blockStart) {
-                parseVorbisComment(bytes, blockStart, blockEnd)?.let { return it }
+                parseVorbisComment(bytes, blockStart, blockEnd)?.let { parsed ->
+                    val score = LyricsSanitizer.score(parsed)
+                    if (score > bestScore) {
+                        best = parsed
+                        bestScore = score
+                    }
+                }
             }
             offset = blockEnd
             if (isLast) break
         }
-        return null
+        return best
     }
 
     private fun parseVorbisComment(bytes: ByteArray, start: Int, end: Int): List<LyricLine>? {
@@ -357,22 +418,30 @@ internal object EmbeddedLyricsReader {
         if (pos + 4 > end) return null
         val count = readUInt32Le(bytes, pos).toInt()
         pos += 4
+        var best: List<LyricLine>? = null
+        var bestScore = 0
         for (i in 0 until count) {
-            if (pos + 4 > end) return null
+            if (pos + 4 > end) return best
             val len = readUInt32Le(bytes, pos).toInt()
             pos += 4
-            if (pos + len > end) return null
-            val entry = decodeUtf8(bytes, pos, len)
+            if (pos + len > end) return best
+            val entry = LyricsEncoding.decodeBytes(bytes.copyOfRange(pos, pos + len))
             pos += len
             val eq = entry.indexOf('=')
             if (eq <= 0) continue
-            val key = entry.substring(0, eq).uppercase()
-            if (key.contains("LYRIC")) {
+            val key = entry.substring(0, eq).uppercase().replace(" ", "")
+            if (key.contains("LYRIC") || key.contains("UNSYNCED")) {
                 val body = entry.substring(eq + 1)
-                parseLyricsText(body)?.let { return it }
+                parseLyricsText(body)?.let { parsed ->
+                    val score = LyricsSanitizer.score(parsed)
+                    if (score > bestScore) {
+                        best = parsed
+                        bestScore = score
+                    }
+                }
             }
         }
-        return null
+        return best
     }
 
     private fun parseApe(bytes: ByteArray): List<LyricLine>? {
@@ -403,7 +472,7 @@ internal object EmbeddedLyricsReader {
             pos = keyEnd + 1
             if (pos + valueLen > end) return null
             if (key.contains("LYRIC")) {
-                val value = decodeUtf8(bytes, pos, valueLen)
+                val value = LyricsEncoding.decodeBytes(bytes.copyOfRange(pos, pos + valueLen))
                 parseLyricsText(value)?.let { return it }
             }
             pos += valueLen
@@ -415,7 +484,7 @@ internal object EmbeddedLyricsReader {
         val sb = StringBuilder()
         var inLyrics = false
         val keyRegex = Regex(
-            """^(lyrics|unsyncedlyrics|syncedlyrics)\s*=\s*(.*)$""",
+            """(?i)^(lyrics|unsynced\s*lyrics?|synced\s*lyrics?)\s*=\s*(.*)$""",
             RegexOption.IGNORE_CASE,
         )
         for (line in text.lines()) {
@@ -490,38 +559,8 @@ internal object EmbeddedLyricsReader {
         }
     }
 
-    private fun readAudioBytes(context: Context, uri: Uri): ByteArray? {
-        val size = context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
-        return when {
-            size in 0..25_000_000 -> readAllBytes(context, uri)
-            else -> readHeadAndTail(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 8 * 1024 * 1024)
-        }
-    }
-
-    private fun readAllBytes(context: Context, uri: Uri): ByteArray? =
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull()
-
-    private fun readHeadAndTail(
-        context: Context,
-        uri: Uri,
-        headBytes: Int,
-        tailBytes: Int,
-    ): ByteArray? = runCatching {
-        val head = context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.readNBytes(headBytes)
-        } ?: return@runCatching null
-        val tail = context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-            val size = pfd.statSize
-            val tailLen = tailBytes.toLong().coerceAtMost(size).toInt()
-            java.io.FileInputStream(pfd.fileDescriptor).use { fis ->
-                if (size > tailLen) fis.skip(size - tailLen)
-                fis.readNBytes(tailLen)
-            }
-        } ?: return@runCatching null
-        head + tail
-    }.getOrNull()
+    private fun readAudioBytes(context: Context, uri: Uri): ByteArray? =
+        AudioProbeBytes.read(context, uri)
 
     private fun readUInt32Be(bytes: ByteArray, offset: Int): Long {
         if (offset + 4 > bytes.size) return 0L
@@ -554,9 +593,6 @@ internal object EmbeddedLyricsReader {
             (bytes[offset + 3].toInt() and 0x7F)
     }
 
-    private fun decodeUtf8(bytes: ByteArray, offset: Int, len: Int): String =
-        String(bytes, offset, len.coerceAtMost(bytes.size - offset), Charsets.UTF_8)
-
     private fun indexOf(bytes: ByteArray, needle: ByteArray, from: Int): Int {
         if (needle.isEmpty() || from >= bytes.size) return -1
         outer@ for (i in from..bytes.size - needle.size) {
@@ -571,5 +607,22 @@ internal object EmbeddedLyricsReader {
     private fun indexOfByte(bytes: ByteArray, byte: Byte, from: Int): Int {
         for (i in from until bytes.size) if (bytes[i] == byte) return i
         return -1
+    }
+
+    /** ID3 标签级 Unsynchronisation：帧内 `FF 00` 表示数据中的 `00` 字节。 */
+    private fun deunsynchronizeId3(data: ByteArray): ByteArray {
+        if (data.isEmpty()) return data
+        val out = ArrayList<Byte>(data.size)
+        var i = 0
+        while (i < data.size) {
+            if (data[i] == 0xFF.toByte() && i + 1 < data.size && data[i + 1] == 0.toByte()) {
+                out.add(0.toByte())
+                i += 2
+            } else {
+                out.add(data[i])
+                i++
+            }
+        }
+        return out.toByteArray()
     }
 }

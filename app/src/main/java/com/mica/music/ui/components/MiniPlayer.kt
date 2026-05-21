@@ -28,7 +28,7 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.Song
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
-import com.mica.music.ui.theme.MicaPreset
+import com.mica.music.ui.theme.LocalMicaBackgroundPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.bottomThemeColor
 import com.mica.music.ui.theme.micaFloatingCardBottomEdge
@@ -118,7 +118,7 @@ private fun FloatingIslandMiniPlayer(
     modifier: Modifier = Modifier,
 ) {
     val colors = MicaTheme.colors
-    val pagePreset = MicaPreset.Dawn
+    val pagePreset = LocalMicaBackgroundPreset.current
     val cardSurface = pagePreset.bottomThemeColor(colors.isDark)
     val bottomEdge = micaFloatingCardBottomEdge(cardSurface, colors.isDark)
 
@@ -193,7 +193,7 @@ private fun AudiophileMiniPlayer(
     modifier: Modifier = Modifier,
 ) {
     val colors = MicaTheme.colors
-    val barSurface = MicaPreset.Dawn.bottomThemeColor(colors.isDark)
+    val barSurface = LocalMicaBackgroundPreset.current.bottomThemeColor(colors.isDark)
 
     Column(
         modifier = modifier.fillMaxWidth(),
