@@ -13,7 +13,6 @@ import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.media.AlacPlayback
 import java.io.File
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 internal data class TrackDraft(
@@ -314,7 +313,7 @@ object AudioMetadataProbe {
         cacheKey: String,
         mediaUri: Uri,
     ): String? {
-        val cacheFile = embeddedArtFile(context, cacheKey)
+        val cacheFile = AlbumArtCache.fileForKey(context, cacheKey)
         if (cacheFile.exists() && cacheFile.length() > 0) {
             return cacheFile.toUri().toString()
         }
@@ -323,14 +322,6 @@ object AudioMetadataProbe {
         cacheFile.parentFile?.mkdirs()
         cacheFile.writeBytes(bytes)
         return cacheFile.toUri().toString()
-    }
-
-    private fun embeddedArtFile(context: Context, cacheKey: String): File {
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(cacheKey.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-            .take(32)
-        return File(context.cacheDir, "${ScanCacheManager.DIR_ALBUM_ART}/$digest.jpg")
     }
 
     private fun canOpen(context: Context, uri: Uri): Boolean =

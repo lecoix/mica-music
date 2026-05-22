@@ -109,8 +109,8 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 侧栏抽屉 | ✅ | `HomeDrawerPanel` + `HomeScreen` | 左栏滑入 + 主内容整体右移 50% 宽（不缩窄，`drawerPushSpec` Medium）；迷你播放栏不位移；设置项 `bottomInset` 上抬 |
 | NavHost 子页（设置/播放/详情/EQ） | ✅ | `AppNavigation` | 进入：fade + **上滑**；返回：fade + **下滑**；Medium |
 | 深浅色 / 云母背景 | ✅ | `Theme.kt`、`AnimatedTheme.kt` | 颜色 crossfade Medium |
-| 播放页沉浸（下半屏） | ✅ | `NowPlayingScreen` | chrome fade/size Long |
-| 播放页封面 lerp | ✅ | `NowPlayingScreen` | `tweenFloat` Long |
+| 播放页沉浸（下半屏） | ✅ | `NowPlayingScreen` | 先冻结间距与底栏起止，再 `lerp` + fade Long |
+| 播放页封面 lerp | ✅ | `NowPlayingScreen` | 单一 `lyricsFocus` 驱动多属性 Long |
 | 切歌擦除 | ✅ | `NowPlayingTrackWipe` | `tweenFloat` Medium |
 | 列表→播放共享元素 | ⏳ | — | 待做；目标：进入上滑 + 共享元素，返回下滑 |
 | BottomSheet / 对话框 | ⏳ | Material 默认 | 待对齐 Medium + 统一 expand |
@@ -146,7 +146,17 @@ val motionEnabled = rememberMicaMotionEnabled()
 
 - 需要「等顶栏动画再聚焦」时：`delay(MicaMotion.DurationShortMs)` 后再 `FocusRequester.requestFocus()`（见 `HomeTopBar` 搜索）。
 
-### 7.5 禁止
+### 7.5 播放页：先冻结 → 全算 → 再动
+
+顺序**不可颠倒**：
+
+1. **计算前先冻结**：`panelHeight`、`layoutMode`、下半区间距、底栏起止高度、标题位移终点等，在 `immersiveLower` / `lyricsExpanded` 切换时快照。
+2. **再全算完**：`computePlayerLowerLayout` 等仅用冻结输入算目标；禁止在 `immersiveProgress` 动画途中用正在变矮的底栏重算间距。
+3. **再挨个动**：每元素只跟一个 progress 做 `lerp` / fade（如底栏高度 `lerp(start, end, immersiveProgress)`）；禁止 `animateDpAsState` 目标每帧随布局重算。
+
+详见 `.cursor/rules/player-screen-animation.mdc` 与 `PlayerLowerPanelSpacing.kt`。
+
+### 7.6 禁止
 
 - 硬编码 `tween(250)`、`spring()` 作为默认页面过渡（除非 EQ 等专业控件且文档化）。
 - 前进用左滑、返回用右滑（与全局方向相反）。

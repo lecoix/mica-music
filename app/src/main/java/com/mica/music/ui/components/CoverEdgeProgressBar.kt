@@ -19,6 +19,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** 封面底边进度触摸区高度；布局需为封面块额外预留同等高度。 */
+val CoverEdgeProgressTouchHeight = 20.dp
+
 /**
  * 封面底边进度：屏宽、细线，仅绘制已播放段（无底层轨道）。
  * 触摸区域略高于可见条，便于拖动 seek。
@@ -32,7 +35,7 @@ fun CoverEdgeProgressBar(
     progressColor: Color,
     modifier: Modifier = Modifier,
     barHeight: Dp = 2.dp,
-    touchHeight: Dp = 20.dp,
+    touchHeight: Dp = CoverEdgeProgressTouchHeight,
 ) {
     val min = valueRange.start
     val max = valueRange.endInclusive.coerceAtLeast(min + 1f)

@@ -37,6 +37,8 @@ fun SongCover(
     onAspectRatioChanged: ((Float) -> Unit)? = null,
     /** 原样比例黑底衬透明度；歌词↔播放切换时由播放页控制显隐顺序。 */
     letterboxAlpha: Float = 1f,
+    /** Coil 加载 crossfade；同一 URI 布局动画时宜为 0，避免切换分支时闪一下。 */
+    crossfadeMillis: Int = 200,
 ) {
     val displayMode = LocalCoverDisplayMode.current
     val resolvedScale = contentScale ?: when (displayMode) {
@@ -73,7 +75,7 @@ fun SongCover(
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(albumArtUri)
-                    .crossfade(200)
+                    .crossfade(crossfadeMillis)
                     .build(),
                 contentDescription = contentDescription,
                 contentScale = resolvedScale,

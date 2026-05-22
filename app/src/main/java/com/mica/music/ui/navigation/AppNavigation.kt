@@ -105,7 +105,7 @@ fun AppNavigation(
                     navController.popBackStack()
                 }
             } else {
-                val statusTop = homeStatusBarTopPadding()
+                val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
                 SongDetailScreen(
                     song = song,
                     library = library,
@@ -118,7 +118,7 @@ fun AppNavigation(
             }
         }
         composable(Routes.Settings) {
-            val statusTop = homeStatusBarTopPadding()
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             SettingsScreen(
                 library = library,
                 uiSettings = uiSettings,
@@ -132,7 +132,7 @@ fun AppNavigation(
             )
         }
         composable(Routes.MetadataDebug) {
-            val statusTop = homeStatusBarTopPadding()
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             MetadataDebugScreen(
                 library = library,
                 playerController = playerController,
@@ -144,7 +144,7 @@ fun AppNavigation(
             )
         }
         composable(Routes.Equalizer) {
-            val statusTop = homeStatusBarTopPadding()
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             EqualizerScreen(
                 onBack = { navController.popBackStack() },
                 contentPadding = PaddingValues(

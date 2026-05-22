@@ -12,18 +12,25 @@ import androidx.compose.ui.unit.dp
 
 /**
  * 主页/设置顶栏顶部间距：在 edge-to-edge 下把顶栏放在状态栏下方。
- * 优先 [WindowInsets.statusBars]；隐藏状态栏导致 inset 为 0 时用系统 status_bar_height 兜底。
+ *
+ * - [hideStatusBar] 为 true 时始终用固定 [status_bar_height]，避免切回 App 时 inset 从有到无导致布局跳动。
+ * - 否则优先 [WindowInsets.statusBars]；inset 为 0 时用系统 status_bar_height 兜底。
  */
 @Composable
-fun homeStatusBarTopPadding(): Dp {
+fun homeStatusBarTopPadding(hideStatusBar: Boolean = false): Dp {
+    if (hideStatusBar) {
+        return rememberFixedStatusBarHeight()
+    }
     val insetTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     if (insetTop > 0.dp) return insetTop
+    return rememberFixedStatusBarHeight()
+}
 
+@Composable
+private fun rememberFixedStatusBarHeight(): Dp {
     val context = LocalContext.current
     val density = LocalDensity.current
     return remember(context, density) {
-        val resId = context.resources.getIdentifier("status_bar_height", "dimen", "android")
-        val px = if (resId > 0) context.resources.getDimensionPixelSize(resId) else 0
-        with(density) { px.toDp().coerceAtLeast(0.dp) }
+        with(density) { StatusBarController.statusBarHeightDp(context).dp }
     }
 }

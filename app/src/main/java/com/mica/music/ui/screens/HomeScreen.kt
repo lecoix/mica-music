@@ -271,7 +271,7 @@ fun HomeScreen(
         library.clearScanSyncSummary()
     }
 
-    val statusBarTop = homeStatusBarTopPadding()
+    val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
 
     val audioPermission = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

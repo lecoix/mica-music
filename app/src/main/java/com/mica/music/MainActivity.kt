@@ -27,10 +27,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mica.music.data.PlaybackSessionStore
+import com.mica.music.data.scanner.ScanCacheManager
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.mica.music.ui.components.UserMessageHost
 import com.mica.music.ui.navigation.AppNavigation
+import com.mica.music.ui.system.StatusBarController
 import com.mica.music.ui.system.StatusBarEffect
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberReduceMotion
@@ -41,9 +43,25 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    override fun onResume() {
+        super.onResume()
+        applyWindowStatusBar()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyWindowStatusBar()
+    }
+
+    private fun applyWindowStatusBar() {
+        StatusBarController.applyFromPreferences(this, window)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        ScanCacheManager.runStartupCacheCleanup(this)
+        applyWindowStatusBar()
 
         val library = viewModel.library
         val playerController = viewModel.playerController

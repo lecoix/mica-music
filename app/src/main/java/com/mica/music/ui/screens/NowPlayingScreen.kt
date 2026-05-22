@@ -3,8 +3,6 @@ package com.mica.music.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -28,14 +26,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.Equalizer
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -53,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -76,7 +72,9 @@ import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.coverIntrinsicMorphProgress
+import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.measureIntrinsicCoverSize
+import com.mica.music.ui.components.measurePlayerCoverFitOriginal
 import com.mica.music.ui.components.NowPlayingTrackWipe
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.rememberPlaybackSeekState
@@ -92,16 +90,21 @@ import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.system.homeStatusBarTopPadding
-import com.mica.music.util.shareSong
 import kotlinx.coroutines.delay
 
 private val LyricsFocusMiniCoverSize = 56.dp
 
-/** 进入歌词聚焦时，常规进度条 + 控制区整体下沉量（两种进度模式一致） */
-private val LyricsChromeSink = 20.dp
+/** 原样比例底衬显隐淡入淡出时长（慢于常规短动效） */
+private const val CoverLetterboxFadeMs = 480
 
 private const val LyricsCoverMorphEndFocus = 0.05f
-private const val LyricsFocusDurationMs = 400
+/** 沉浸 progress 归零前仍视为过渡中（用于保留冻结快照与底栏 lerp） */
+private const val ImmersiveProgressEpsilon = 0.001f
+
+private data class ImmersiveTitleSlideSnapshot(
+    val titleOffsetFromLowerTop: Dp,
+    val titleSlideEnd: Dp,
+)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -164,6 +167,9 @@ fun NowPlayingScreen(
     BackHandler(enabled = lyricsExpanded) {
         lyricsExpanded = false
     }
+    BackHandler(enabled = !lyricsExpanded) {
+        onClose()
+    }
 
     val showCoverEdgeProgress = useCoverEdgeProgress && lyricsFocus < 0.05f
 
@@ -191,15 +197,8 @@ fun NowPlayingScreen(
             coverZoneStop = coverZoneStop,
             modifier = Modifier.matchParentSize(),
         )
-        NowPlayingTopBar(
-            onClose = onClose,
-            onShare = { shareSong(context, activeSong) },
-            onOpenEqualizer = onOpenEqualizer,
-            colors = contentColors,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
         Column(Modifier.fillMaxSize()) {
-            val statusBarTop = homeStatusBarTopPadding()
+            val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val screenWidth = maxWidth
                 val miniHeaderHeight = statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm
@@ -216,11 +215,19 @@ fun NowPlayingScreen(
                 } else {
                     0f
                 }
-                val (intrinsicW, intrinsicH) = measureIntrinsicCoverSize(
-                    coverAspectRatio,
-                    screenWidth,
-                    coverSize,
-                )
+                val (intrinsicW, intrinsicH) = if (fitOriginal) {
+                    measurePlayerCoverFitOriginal(
+                        coverAspectRatio,
+                        screenWidth,
+                        screenHeight,
+                    )
+                } else {
+                    measureIntrinsicCoverSize(
+                        coverAspectRatio,
+                        screenWidth,
+                        coverSize,
+                    )
+                }
                 val coverWidth = lerpDp(coverSize, intrinsicW, morphToIntrinsic)
                 val coverHeight = lerpDp(coverSize, intrinsicH, morphToIntrinsic)
                 val coverBlockHeight = lerpDp(
@@ -230,24 +237,23 @@ fun NowPlayingScreen(
                 )
                 SideEffect {
                     coverZoneStop = (coverBlockHeight.value / screenHeight.value)
-                        .coerceIn(0.12f, 0.62f)
+                        .coerceIn(0.12f, PlayerCoverMaxScreenFraction)
                 }
 
-                val letterboxAlpha by animateFloatAsState(
-                    targetValue = if (fitOriginal && !lyricsExpanded && lyricsFocus <= 0.001f) 1f else 0f,
-                    animationSpec = if (fitOriginal && !lyricsExpanded && lyricsFocus <= 0.001f) {
-                        tween(
-                            durationMillis = 160,
-                            delayMillis = LyricsFocusDurationMs,
-                            easing = FastOutSlowInEasing,
-                        )
-                    } else {
-                        tween(durationMillis = 0)
-                    },
-                    label = "coverLetterboxAlpha",
+                val letterboxAlpha = rememberFitOriginalLetterboxAlpha(
+                    fitOriginal = fitOriginal,
+                    lyricsExpanded = lyricsExpanded,
+                    lyricsFocus = lyricsFocus,
+                    motionEnabled = motionEnabled,
                 )
 
-                Box(Modifier.height(coverBlockHeight).fillMaxWidth()) {
+                Box(
+                    Modifier
+                        .height(coverBlockHeight)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    // 单一 SongCover，避免 lyricsFocus≈0.01 切换分支时重挂载 + Coil crossfade 闪一下
                     Box(
                         modifier = Modifier
                             .padding(start = coverStartPadding, top = coverTopPadding)
@@ -266,6 +272,7 @@ fun NowPlayingScreen(
                             contentDescription = activeSong.album,
                             modifier = Modifier.matchParentSize(),
                             letterboxAlpha = letterboxAlpha,
+                            crossfadeMillis = 0,
                             onAspectRatioChanged = { coverAspectRatio = it },
                         )
                         if (coverEdgeFade) {
@@ -289,14 +296,16 @@ fun NowPlayingScreen(
                         }
                     }
                     if (lyricsFocus > 0.01f) {
-                        LyricsFocusHeaderTexts(
+                        LyricsFocusHeaderOverlay(
                             title = activeSong.title,
                             artist = activeSong.artist,
+                            coverWidth = coverWidth,
+                            coverHeight = coverHeight,
+                            coverStartPadding = coverStartPadding,
+                            coverTopPadding = coverTopPadding,
                             colors = contentColors,
-                            coverStart = coverStartPadding,
-                            coverTop = coverTopPadding,
-                            coverSize = LyricsFocusMiniCoverSize,
                             focusAlpha = lyricsFocus,
+                            onCloseLyrics = { lyricsExpanded = false },
                         )
                     }
                 }
@@ -308,14 +317,58 @@ fun NowPlayingScreen(
                     .fillMaxWidth(),
             ) {
                 val panelHeight = maxHeight
-                // 固定位移，避免底部控制条收起后 panel 变高导致 translationY 二次跳动
-                val titleSlideDown = 72.dp
-                val metaLayoutMode = if (useCoverEdgeProgress && lyricsFocus < 0.5f) {
+                val immersiveInTransition =
+                    immersiveLower || immersiveProgress > ImmersiveProgressEpsilon
+                val lowerLayoutFrozen = lyricsExpanded || immersiveInTransition
+                val metaLayoutModeLive = if (showCoverEdgeProgress) {
                     PlayerLowerLayoutMode.COVER_EDGE_PROGRESS
                 } else {
                     PlayerLowerLayoutMode.STANDARD
                 }
-                val spacing = rememberPlayerLowerPanelSpacing(panelHeight, layoutMode = metaLayoutMode)
+                val metaLayoutMode = if (!lowerLayoutFrozen) {
+                    metaLayoutModeLive
+                } else {
+                    remember(panelHeight, useCoverEdgeProgress, lowerLayoutFrozen) {
+                        metaLayoutModeLive
+                    }
+                }
+                val lowerLayout = rememberPlayerLowerLayout(
+                    panelHeight = panelHeight,
+                    layoutMode = metaLayoutMode,
+                    immersiveProgress = immersiveProgress,
+                    useCoverEdgeProgressSetting = useCoverEdgeProgress,
+                    lyricsFocus = lyricsFocus,
+                    lyricsCoverMorphEndFocus = LyricsCoverMorphEndFocus,
+                    freezeSpacing = lowerLayoutFrozen,
+                )
+                val spacing = lowerLayout.spacing
+                val chromeVisibleHeight = lowerLayout.chromeHeight
+
+                // 先冻结再算：进沉浸时快照 titleOffset / 终点，动画只跟 immersiveProgress
+                val density = LocalDensity.current
+                val typography = MicaTheme.typography
+                val infoLine = with(density) { typography.monoMd.lineHeight.toDp() }
+                val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
+                val immersiveLayoutSnapshot = remember(immersiveInTransition) {
+                    if (!immersiveInTransition) {
+                        null
+                    } else {
+                        val titleOffset = spacing.afterCover + infoLine + spacing.afterInfo
+                        val metaEnd = panelHeight - lowerLayout.chromeHeightAtFullImmersive
+                        ImmersiveTitleSlideSnapshot(
+                            titleOffsetFromLowerTop = titleOffset,
+                            titleSlideEnd = maxOf(
+                                0.dp,
+                                metaEnd / 2 - titleOffset - titleLine,
+                            ),
+                        )
+                    }
+                }
+                val titleSlideDown = lerpDp(
+                    0.dp,
+                    immersiveLayoutSnapshot?.titleSlideEnd ?: 0.dp,
+                    immersiveProgress,
+                )
 
                 Column(Modifier.fillMaxSize()) {
                     Box(
@@ -333,7 +386,9 @@ fun NowPlayingScreen(
                                 },
                             ),
                     ) {
-                        val metaFade = (1f - lyricsFocus) * (1f - immersiveProgress)
+                        // 仅歌词聚焦时淡出元数据区；沉浸模式由 SongTitleSection 内交叉淡入淡出，
+                        // 勿对整个 Column 乘 (1 - immersiveProgress)，否则标题行会被一并隐藏。
+                        val metaFade = 1f - lyricsFocus
                         Column(
                             Modifier
                                 .fillMaxSize()
@@ -342,6 +397,7 @@ fun NowPlayingScreen(
                             Spacer(Modifier.height(spacing.afterCover))
                             Box(
                                 Modifier.graphicsLayer {
+                                    alpha = metaFade * (1f - immersiveProgress)
                                     translationY = -immersiveProgress * 12f
                                 },
                             ) {
@@ -355,7 +411,6 @@ fun NowPlayingScreen(
                                 )
                             }
                             Spacer(Modifier.height(spacing.afterInfo))
-                            val titleOffsetY = lerpDp(0.dp, titleSlideDown, immersiveProgress)
                             SongTitleSection(
                                 title = activeSong.title,
                                 artist = activeSong.artist,
@@ -365,7 +420,7 @@ fun NowPlayingScreen(
                                 colors = contentColors,
                                 immersiveProgress = immersiveProgress,
                                 modifier = Modifier.graphicsLayer {
-                                    translationY = titleOffsetY.toPx()
+                                    translationY = titleSlideDown.toPx()
                                 },
                                 onLongPress = if (!immersiveLower) {
                                     { uiSettings.togglePlayerImmersiveLower() }
@@ -384,6 +439,7 @@ fun NowPlayingScreen(
                                         lyrics = activeSong.lyrics,
                                         positionMs = playerController.positionMs,
                                         colors = contentColors,
+                                        lineSlots = spacing.lyricLineSlots,
                                         onClick = { lyricsExpanded = true },
                                         modifier = Modifier.fillMaxSize(),
                                     )
@@ -409,27 +465,24 @@ fun NowPlayingScreen(
                             )
                         }
                     }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(chromeVisibleHeight)
+                            .clipToBounds()
+                            .graphicsLayer { alpha = 1f - immersiveProgress },
+                    ) {
+                        LyricsPlaybackChrome(
+                            playerController = playerController,
+                            colors = contentColors,
+                            seekState = seekState,
+                            spacing = spacing,
+                            useCoverEdgeProgress = useCoverEdgeProgress,
+                            lyricsFocus = lyricsFocus,
+                            onOpenQueue = { queueSheetOpen = true },
+                        )
+                    }
                 }
-            }
-
-            // 与 immersiveProgress 同步收起高度，避免 AnimatedVisibility 导致中间区突然变高
-            val chromeBlockHeight = 132.dp
-            val chromeVisibleHeight = lerpDp(chromeBlockHeight, 0.dp, immersiveProgress)
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(chromeVisibleHeight)
-                    .clipToBounds()
-                    .graphicsLayer { alpha = 1f - immersiveProgress },
-            ) {
-                LyricsPlaybackChrome(
-                    playerController = playerController,
-                    colors = contentColors,
-                    seekState = seekState,
-                    useCoverEdgeProgress = useCoverEdgeProgress,
-                    lyricsFocus = lyricsFocus,
-                    onOpenQueue = { queueSheetOpen = true },
-                )
             }
         }
     }
@@ -437,43 +490,24 @@ fun NowPlayingScreen(
 }
 
 @Composable
-private fun NowPlayingTopBar(
-    onClose: () -> Unit,
-    onShare: () -> Unit,
-    onOpenEqualizer: () -> Unit,
-    colors: PlayerContentColors,
-    modifier: Modifier = Modifier,
-) {
-    val statusBarTop = homeStatusBarTopPadding()
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = statusBarTop, start = HifiSpacing.sm, end = HifiSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onClose, modifier = Modifier.size(HifiSize.touchTarget)) {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = "收起",
-                tint = colors.primary,
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        IconButton(onClick = onShare, modifier = Modifier.size(HifiSize.touchTarget)) {
-            Icon(
-                imageVector = Icons.Outlined.Share,
-                contentDescription = "分享",
-                tint = colors.secondary,
-            )
-        }
-        IconButton(onClick = onOpenEqualizer, modifier = Modifier.size(HifiSize.touchTarget)) {
-            Icon(
-                imageVector = Icons.Outlined.Equalizer,
-                contentDescription = "均衡器",
-                tint = colors.secondary,
-            )
-        }
-    }
+private fun rememberFitOriginalLetterboxAlpha(
+    fitOriginal: Boolean,
+    lyricsExpanded: Boolean,
+    lyricsFocus: Float,
+    motionEnabled: Boolean,
+): Float {
+    if (!fitOriginal) return 0f
+
+    val settledOnLyrics =
+        lyricsExpanded && lyricsFocus >= 1f - ImmersiveProgressEpsilon
+
+    val target = if (settledOnLyrics) 1f else 0f
+    val animated by animateFloatAsState(
+        targetValue = target,
+        animationSpec = MicaMotion.tweenFloat(motionEnabled, CoverLetterboxFadeMs),
+        label = "coverLetterboxAlpha",
+    )
+    return animated
 }
 
 @Composable
@@ -481,34 +515,27 @@ private fun LyricsPlaybackChrome(
     playerController: PlayerController,
     colors: PlayerContentColors,
     seekState: PlaybackSeekState,
+    spacing: PlayerLowerPanelSpacing,
     useCoverEdgeProgress: Boolean,
     lyricsFocus: Float,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val motionEnabled = rememberMicaMotionEnabled()
-    val lyricsChromeActive = lyricsFocus > 0.01f
-    val afterControls = HifiSize.iconLg + HifiSize.touchTarget / 2 +
-        if (useCoverEdgeProgress && !lyricsChromeActive) HifiSpacing.sm else 0.dp
-
-    val chromeSinkOffset by animateDpAsState(
-        targetValue = lerpDp(0.dp, LyricsChromeSink, lyricsFocus.coerceIn(0f, 1f)),
-        animationSpec = MicaMotion.tweenDp(motionEnabled, MicaMotion.DurationLongMs),
-        label = "lyricsChromeSink",
-    )
+    val showProgressInChrome = !useCoverEdgeProgress || lyricsFocus >= LyricsCoverMorphEndFocus
 
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .offset(y = chromeSinkOffset),
+        modifier = modifier.fillMaxWidth(),
     ) {
-        if (useCoverEdgeProgress && lyricsChromeActive) {
-            Box(Modifier.graphicsLayer { alpha = lyricsFocus }) {
-                LyricsChromeProgressBlock(seekState, colors)
+        if (showProgressInChrome) {
+            val progressAlpha = if (useCoverEdgeProgress && lyricsFocus < LyricsCoverMorphEndFocus) {
+                0f
+            } else {
+                1f
             }
-        } else if (!useCoverEdgeProgress) {
-            // 标准进度条始终存在，随整列 offset 下沉；勿用双 AnimatedVisibility 切换，否则会闪现
-            LyricsChromeProgressBlock(seekState, colors)
+            Box(Modifier.graphicsLayer { alpha = progressAlpha }) {
+                // 标准进度条始终存在；勿用双 AnimatedVisibility 切换，否则会闪现
+                LyricsChromeProgressBlock(seekState, colors, afterProgress = spacing.afterProgress)
+            }
         }
         PlayerPlaybackControlsSection(
             playerController = playerController,
@@ -516,7 +543,7 @@ private fun LyricsPlaybackChrome(
             onOpenQueue = onOpenQueue,
             modifier = Modifier.padding(horizontal = HifiSpacing.lg),
         )
-        Spacer(Modifier.height(afterControls))
+        Spacer(Modifier.height(spacing.afterControls))
     }
 }
 
@@ -524,6 +551,7 @@ private fun LyricsPlaybackChrome(
 private fun LyricsChromeProgressBlock(
     seekState: PlaybackSeekState,
     colors: PlayerContentColors,
+    afterProgress: Dp,
 ) {
     Column(
         modifier = Modifier
@@ -531,33 +559,41 @@ private fun LyricsChromeProgressBlock(
             .padding(horizontal = HifiSpacing.lg),
     ) {
         PlayerProgressBarSection(seekState, colors)
-        Spacer(Modifier.height(HifiSize.iconLg / 2))
+        Spacer(Modifier.height(afterProgress))
     }
 }
 
 @Composable
-private fun LyricsFocusHeaderTexts(
+private fun LyricsFocusHeaderOverlay(
     title: String,
     artist: String,
+    coverWidth: Dp,
+    coverHeight: Dp,
+    coverStartPadding: Dp,
+    coverTopPadding: Dp,
     colors: PlayerContentColors,
-    coverStart: Dp,
-    coverTop: Dp,
-    coverSize: Dp,
     focusAlpha: Float,
+    onCloseLyrics: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                top = coverTop,
-                start = coverStart + coverSize + HifiSpacing.md,
+                top = coverTopPadding,
+                start = coverStartPadding,
                 end = HifiSpacing.lg,
             )
-            .height(coverSize)
             .graphicsLayer { alpha = focusAlpha },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Spacer(Modifier.size(coverWidth, coverHeight))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = HifiSpacing.md)
+                .height(maxOf(coverHeight, HifiSize.touchTarget)),
+            verticalArrangement = Arrangement.Center,
+        ) {
             Text(
                 text = title,
                 style = MicaTheme.typography.titleSm,
@@ -571,6 +607,16 @@ private fun LyricsFocusHeaderTexts(
                 color = colors.secondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(
+            onClick = onCloseLyrics,
+            modifier = Modifier.size(HifiSize.touchTarget),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = "收起歌词",
+                tint = colors.primary,
             )
         }
     }
@@ -689,12 +735,14 @@ private fun LyricsSection(
     lyrics: List<LyricLine>,
     positionMs: Int,
     colors: PlayerContentColors,
+    lineSlots: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val index = LyricsSync.indexForPosition(lyrics, positionMs)
     val otherStyle = MicaTheme.typography.bodySm
     val currentStyle = MicaTheme.typography.bodyMd.copy(fontWeight = FontWeight.SemiBold)
+    val compact = lineSlots <= 1
 
     Box(
         modifier = modifier
@@ -718,6 +766,18 @@ private fun LyricsSection(
                         color = colors.tertiary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                compact -> {
+                    val lineText = when {
+                        index in lyrics.indices -> lyrics[index].text
+                        else -> lyrics.firstOrNull()?.text ?: "暂无歌词"
+                    }
+                    LyricLineText(
+                        text = lineText,
+                        style = if (index in lyrics.indices) currentStyle else otherStyle,
+                        isCurrent = index in lyrics.indices,
+                        colors = colors,
                     )
                 }
                 index < 0 -> {

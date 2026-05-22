@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 
 @Composable
 fun NowPlayingBackground(
@@ -86,7 +87,7 @@ internal fun ArtworkGradientBackground(
     ) {
         val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
         val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
-        val edge = coverZoneStop?.coerceIn(0.12f, 0.62f)
+        val edge = coverZoneStop?.coerceIn(0.12f, PlayerCoverMaxScreenFraction)
             ?: (widthPx / heightPx).coerceIn(0.32f, 0.58f)
         val coverBottom = Offset(widthPx / 2f, edge * heightPx)
 
