@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
+import com.mica.music.ui.components.PlayerPanelLyricScale
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.HifiTypography
@@ -114,7 +115,9 @@ internal fun computePlayerLowerLayout(
     val infoLine = with(density) { typography.monoMd.lineHeight.toDp() }
     val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
     val subtitleLine = with(density) { typography.bodyMd.lineHeight.toDp() }
-    val lyricLine = with(density) { typography.bodySm.lineHeight.toDp() }
+    val lyricLine = with(density) {
+        (typography.lyricCurrent.lineHeight * PlayerPanelLyricScale).toDp()
+    }
     val timeRowHeight = with(density) { typography.monoMd.lineHeight.toDp() }
 
     val iconGap = HifiSize.iconLg

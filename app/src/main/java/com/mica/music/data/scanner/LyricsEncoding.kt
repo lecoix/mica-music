@@ -318,9 +318,9 @@ internal object LyricsEncoding {
 
                 c.code in 0x3040..0x9FFF || c.code in 0xAC00..0xD7AF -> meaningful += 2
 
-                c.isWhitespace() -> {}
+                c.isWhitespace() || c.code in 0x2000..0x200B -> {}
 
-                c in "[]:.,，。！？、…—-（）()'" -> meaningful++
+                c in "[]:.,，。！？、…—-（）()'\"?;；" -> meaningful++
 
                 c.code < 0x20 -> return false
 
@@ -370,11 +370,16 @@ internal object LyricsEncoding {
 
         }
 
-        if (cjk >= 4 && latin1Supplement >= 2) return true
+        // 正常双语对照（英/日 + 中文）：大量真实小写字母 + 汉字，少量 Latin-1 乱码符
+        if (cjk >= 4 && latinLower >= 4 && latin1Supplement <= 3) return false
 
-        if (cjk >= 6 && latinLower >= 3 && !lrcTimestamp.containsMatchIn(t)) return true
+        if (cjk >= 4 && latin1Supplement >= 2 && latinLower < 3) return true
 
-        if (cjk >= 4 && latinLower >= 2 && digit >= 1 && latin1Supplement >= 1) return true
+        if (cjk >= 6 && latinLower >= 3 && latin1Supplement >= 2 && !lrcTimestamp.containsMatchIn(t)) {
+            return true
+        }
+
+        if (cjk >= 4 && latinLower >= 2 && digit >= 1 && latin1Supplement >= 2) return true
 
         return false
 

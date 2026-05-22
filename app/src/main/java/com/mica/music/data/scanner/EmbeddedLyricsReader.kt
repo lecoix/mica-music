@@ -49,16 +49,19 @@ internal object EmbeddedLyricsReader {
             scanRawLyricsTags(bytes)?.let { candidates += it }
             readFromBinary(bytes, mime, ext)?.let { candidates += it }
         }
-        var best = candidates.maxByOrNull { LyricsSanitizer.score(it) }
+        var best = pickBestLyricsCandidate(candidates)
         val needFfmpeg = FfmpegRunner.hasEmbeddedBinary(context) &&
             (best == null || LyricsSanitizer.score(best) < SKIP_FFMPEG_MIN_SCORE)
         if (needFfmpeg) {
             readViaFfmpegMetadataBlock(context, uri, displayName)?.let { candidates += it }
             readViaFfmpegFfmetadata(context, uri, displayName)?.let { candidates += it }
-            best = candidates.maxByOrNull { LyricsSanitizer.score(it) }
+            best = pickBestLyricsCandidate(candidates)
         }
         return best ?: emptyList()
     }
+
+    private fun pickBestLyricsCandidate(candidates: List<List<LyricLine>>): List<LyricLine>? =
+        LyricsSanitizer.pickBest(candidates)
 
     /**
      * 在文件字节中直接查找 `LYRICS=`、`UNSYNCEDLYRICS=` 等（FLAC Vorbis / 部分 M4A 最常见）。
@@ -91,18 +94,37 @@ internal object EmbeddedLyricsReader {
         return best
     }
 
+    /**
+     * 容器里常见多段以 0x00 分隔的歌词；仅取第一段会只剩片头/片尾。
+     * 若下一段仍以 LRC 时间戳开头则继续拼接。
+     */
     private fun extractTextAfterMarker(bytes: ByteArray, start: Int): String {
         val maxEnd = (start + 800 * 1024).coerceAtMost(bytes.size)
         var i = start
         while (i < maxEnd && bytes[i] == 0.toByte()) i++
-        var end = i
-        while (end < maxEnd) {
-            if (bytes[end] == 0.toByte()) break
-            end++
+        val parts = mutableListOf<String>()
+        while (i < maxEnd) {
+            var end = i
+            while (end < maxEnd && bytes[end] != 0.toByte()) end++
+            if (end > i) {
+                val decoded = LyricsEncoding.decodeBytes(bytes.copyOfRange(i, end)).trim()
+                if (decoded.isNotEmpty()) parts += decoded
+            }
+            if (end >= maxEnd) break
+            i = end + 1
+            while (i < maxEnd && bytes[i] == 0.toByte()) i++
+            if (i >= maxEnd) break
+            if (!looksLikeLrcContinuation(bytes, i, maxEnd)) break
         }
-        if (end <= i) return ""
-        val slice = bytes.copyOfRange(i, end)
-        return LyricsEncoding.decodeBytes(slice)
+        return parts.joinToString("\n")
+    }
+
+    private fun looksLikeLrcContinuation(bytes: ByteArray, offset: Int, maxEnd: Int): Boolean {
+        val len = minOf(96, maxEnd - offset)
+        if (len <= 0) return false
+        val peek = LyricsEncoding.decodeBytes(bytes.copyOfRange(offset, offset + len))
+        val trimmed = peek.trimStart()
+        return trimmed.startsWith('[') || LyricsSanitizer.timedLrcHint.containsMatchIn(trimmed)
     }
 
     private fun parseLyricsText(raw: String): List<LyricLine>? {
@@ -180,7 +202,7 @@ internal object EmbeddedLyricsReader {
             }
             if (!inLyrics) continue
             when {
-                line.isBlank() -> inLyrics = false
+                line.isBlank() -> Unit
                 continueRx.matches(line) -> {
                     val v = continueRx.find(line)!!.groupValues[1].trim()
                     if (v.isNotEmpty()) {
@@ -202,7 +224,7 @@ internal object EmbeddedLyricsReader {
         if (mime.contains("mp4") || ext in setOf("m4a", "m4b", "mp4", "aac")) {
             Mp4LyricsReader.read(bytes)?.let { parseLyricsText(it) }?.let { candidates += it }
         }
-        return candidates.maxByOrNull { LyricsSanitizer.score(it) }
+        return LyricsSanitizer.pickBest(candidates)
     }
 
     private fun parseId3(bytes: ByteArray): List<LyricLine>? {
@@ -501,10 +523,7 @@ internal object EmbeddedLyricsReader {
                 continue
             }
             if (inLyrics) {
-                if (trimmed.isEmpty()) {
-                    inLyrics = false
-                    continue
-                }
+                if (trimmed.isEmpty()) continue
                 if (trimmed.contains('=') && !Regex("""\[\d{1,2}:\d{2}""").containsMatchIn(trimmed)) {
                     inLyrics = false
                     continue
@@ -560,7 +579,7 @@ internal object EmbeddedLyricsReader {
     }
 
     private fun readAudioBytes(context: Context, uri: Uri): ByteArray? =
-        AudioProbeBytes.read(context, uri)
+        AudioProbeBytes.readForLyrics(context, uri)
 
     private fun readUInt32Be(bytes: ByteArray, offset: Int): Long {
         if (offset + 4 > bytes.size) return 0L

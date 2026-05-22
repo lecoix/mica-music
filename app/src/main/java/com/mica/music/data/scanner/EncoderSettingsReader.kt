@@ -228,11 +228,22 @@ internal object EncoderSettingsReader {
 
 /** ID3/文件探测共用二进制工具 */
 internal object AudioProbeBytes {
-    fun read(context: Context, uri: Uri): ByteArray? {
+    fun read(context: Context, uri: Uri): ByteArray? = readBytes(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 8 * 1024 * 1024)
+
+    /** 歌词扫描：大文件加大头尾窗口，避免 ID3/标签落在中间被截断。 */
+    fun readForLyrics(context: Context, uri: Uri): ByteArray? =
+        readBytes(context, uri, headBytes = 8 * 1024 * 1024, tailBytes = 16 * 1024 * 1024)
+
+    private fun readBytes(
+        context: Context,
+        uri: Uri,
+        headBytes: Int,
+        tailBytes: Int,
+    ): ByteArray? {
         val size = context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
         return when {
             size in 0..25_000_000 -> readAll(context, uri)
-            else -> readHeadAndTail(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 8 * 1024 * 1024)
+            else -> readHeadAndTail(context, uri, headBytes = headBytes, tailBytes = tailBytes)
         }
     }
 

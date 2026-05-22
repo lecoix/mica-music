@@ -4,6 +4,8 @@ import androidx.compose.ui.unit.dp
 
 object HifiSpacing {
     val xxs = 2.dp
+    /** 同一句歌词拆成的双语两行之间 */
+    val lyricBilingualGap = 0.dp
     val xs = 4.dp
     val sm = 8.dp
     val md = 12.dp

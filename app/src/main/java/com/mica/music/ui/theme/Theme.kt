@@ -19,7 +19,6 @@ val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
 val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
 val LocalMicaBackgroundPreset = staticCompositionLocalOf { MicaPreset.Dawn }
 val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
-
 @Composable
 fun MicaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),

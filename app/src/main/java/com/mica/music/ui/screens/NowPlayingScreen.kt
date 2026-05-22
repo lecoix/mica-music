@@ -2,9 +2,8 @@ package com.mica.music.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -49,8 +48,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -66,7 +63,13 @@ import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.ui.components.CoverEdgeProgressBar
 import com.mica.music.ui.components.HiFiInfoRow
 import com.mica.music.ui.components.HiResIndicator
+import com.mica.music.ui.components.LyricLineBlock
+import com.mica.music.ui.components.LyricsAreaEdgeFade
 import com.mica.music.ui.components.MarqueeTitleText
+import com.mica.music.ui.components.lyricTransitionSpec
+import com.mica.music.ui.components.rememberLyricLineColorSpec
+import com.mica.music.ui.components.rememberPlayerPanelLyricStyles
+import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
@@ -727,9 +730,6 @@ private fun SongTitleSection(
     }
 }
 
-private const val LYRIC_LINE_PLACEHOLDER = "\u00A0"
-private val LyricLineColorAnimSpec = tween<Color>(durationMillis = 400)
-
 @Composable
 private fun LyricsSection(
     lyrics: List<LyricLine>,
@@ -740,101 +740,104 @@ private fun LyricsSection(
     modifier: Modifier = Modifier,
 ) {
     val index = LyricsSync.indexForPosition(lyrics, positionMs)
-    val otherStyle = MicaTheme.typography.bodySm
-    val currentStyle = MicaTheme.typography.bodyMd.copy(fontWeight = FontWeight.SemiBold)
     val compact = lineSlots <= 1
+    val (currentStyle, otherStyle) = rememberPlayerPanelLyricStyles()
+    val colorSpec = rememberLyricLineColorSpec()
+    val motionEnabled = rememberMicaMotionEnabled()
+    val indexTransition = lyricTransitionSpec(motionEnabled)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight()
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(HifiSpacing.xs),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = HifiSpacing.lg),
-        ) {
-            when {
-                lyrics.isEmpty() -> {
-                    Text(
-                        text = "暂无歌词",
-                        style = otherStyle,
-                        color = colors.tertiary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                compact -> {
-                    val lineText = when {
-                        index in lyrics.indices -> lyrics[index].text
-                        else -> lyrics.firstOrNull()?.text ?: "暂无歌词"
+        LyricsAreaEdgeFade(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    lyrics.isEmpty() -> {
+                        Text(
+                            text = "暂无歌词",
+                            style = otherStyle,
+                            color = colors.tertiary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = HifiSpacing.lg),
+                        )
                     }
-                    LyricLineText(
-                        text = lineText,
-                        style = if (index in lyrics.indices) currentStyle else otherStyle,
-                        isCurrent = index in lyrics.indices,
-                        colors = colors,
-                    )
-                }
-                index < 0 -> {
-                    Text(
-                        text = lyrics.firstOrNull()?.text ?: "暂无歌词",
-                        style = otherStyle,
-                        color = colors.tertiary,
-                        textAlign = TextAlign.Center,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                else -> {
-                    LyricLineText(
-                        text = lyrics.getOrNull(index - 1)?.text,
-                        style = otherStyle,
-                        isCurrent = false,
-                        colors = colors,
-                    )
-                    LyricLineText(
-                        text = lyrics[index].text,
-                        style = currentStyle,
-                        isCurrent = true,
-                        colors = colors,
-                    )
-                    LyricLineText(
-                        text = lyrics.getOrNull(index + 1)?.text,
-                        style = otherStyle,
-                        isCurrent = false,
-                        colors = colors,
-                    )
+                    else -> AnimatedContent(
+                        targetState = index,
+                        transitionSpec = { indexTransition },
+                        label = "playerLyricsIndex",
+                    ) { animatedIndex ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(HifiSpacing.xs),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = HifiSpacing.lg),
+                        ) {
+                            when {
+                                compact -> {
+                                    val lineText = when {
+                                        animatedIndex in lyrics.indices -> lyrics[animatedIndex].text
+                                        else -> lyrics.firstOrNull()?.text ?: "暂无歌词"
+                                    }
+                                    LyricLineBlock(
+                                        text = lineText,
+                                        isCurrent = animatedIndex in lyrics.indices,
+                                        colors = colors,
+                                        currentStyle = currentStyle,
+                                        otherStyle = otherStyle,
+                                        colorSpec = colorSpec,
+                                    )
+                                }
+                                animatedIndex < 0 -> {
+                                    Text(
+                                        text = lyrics.firstOrNull()?.text ?: "暂无歌词",
+                                        style = otherStyle,
+                                        color = colors.tertiary,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                                else -> {
+                                    LyricLineBlock(
+                                        text = lyrics.getOrNull(animatedIndex - 1)?.text,
+                                        isCurrent = false,
+                                        colors = colors,
+                                        currentStyle = currentStyle,
+                                        otherStyle = otherStyle,
+                                        colorSpec = colorSpec,
+                                    )
+                                    LyricLineBlock(
+                                        text = lyrics[animatedIndex].text,
+                                        isCurrent = true,
+                                        colors = colors,
+                                        currentStyle = currentStyle,
+                                        otherStyle = otherStyle,
+                                        colorSpec = colorSpec,
+                                    )
+                                    LyricLineBlock(
+                                        text = lyrics.getOrNull(animatedIndex + 1)?.text,
+                                        isCurrent = false,
+                                        colors = colors,
+                                        currentStyle = currentStyle,
+                                        otherStyle = otherStyle,
+                                        colorSpec = colorSpec,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun LyricLineText(
-    text: String?,
-    style: TextStyle,
-    isCurrent: Boolean,
-    colors: PlayerContentColors,
-) {
-    val color by animateColorAsState(
-        targetValue = if (isCurrent) colors.primary else colors.tertiary,
-        animationSpec = LyricLineColorAnimSpec,
-        label = "lyricLineColor",
-    )
-    Text(
-        text = text?.takeIf { it.isNotBlank() } ?: LYRIC_LINE_PLACEHOLDER,
-        style = style,
-        color = color,
-        textAlign = TextAlign.Center,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth(),
-    )
 }

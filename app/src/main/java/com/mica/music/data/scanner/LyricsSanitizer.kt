@@ -9,6 +9,15 @@ internal object LyricsSanitizer {
 
     private val timedLrc = Regex("""\[\d{1,2}:\d{2}""")
 
+    internal val timedLrcHint: Regex get() = timedLrc
+
+    fun pickBest(candidates: List<List<LyricLine>>): List<LyricLine>? =
+        candidates.maxWithOrNull(
+            compareBy<List<LyricLine>> { score(it) }
+                .thenBy { lines -> lines.count { it.timeMs > 0 } }
+                .thenBy { it.size },
+        )
+
     /** FFmpeg / 容器元数据行（绝不是歌词） */
     private val noiseLinePatterns = listOf(
         Regex("""(?i)^duration\s*[:=]"""),
@@ -50,8 +59,9 @@ internal object LyricsSanitizer {
             when {
                 c.isLetter() -> letters++
                 c.code in 0x3040..0x9FFF || c.code in 0xAC00..0xD7AF -> cjk++
-                c.isWhitespace() -> {}
+                c.isWhitespace() || c.code in 0x2000..0x200B -> {}
                 c.isDigit() -> letters++
+                c in "?!，。、；：（）()[]" -> letters++
                 c.code < 0x20 -> control++
                 c in "@\$^`|~\\{}" -> badSymbols++
                 c == '?' && letters + cjk == 0 -> badSymbols++
@@ -104,6 +114,7 @@ internal object LyricsSanitizer {
         if (valid.isEmpty()) return 0
         val chars = valid.sumOf { it.text.length }
         val timed = if (valid.any { it.timeMs > 0 }) 500 else 0
-        return chars + timed
+        val lineBonus = valid.size * 30
+        return chars + timed + lineBonus
     }
 }

@@ -22,7 +22,7 @@ internal object ExternalLyricsReader {
             readLrcByAbsolutePath(filePath, base)?.let { candidates += it }
             readLrcViaDocumentTree(context, uri, base)?.let { candidates += it }
         }
-        return candidates.maxByOrNull { LyricsSanitizer.score(it) } ?: emptyList()
+        return LyricsSanitizer.pickBest(candidates) ?: emptyList()
     }
 
     private fun basenameCandidates(
