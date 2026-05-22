@@ -6,6 +6,8 @@ object HifiSpacing {
     val xxs = 2.dp
     /** 同一句歌词拆成的双语两行之间 */
     val lyricBilingualGap = 0.dp
+    /** 播放页相邻两句（不同时间戳）之间的间距 */
+    val playerLyricLineGap = 10.dp
     val xs = 4.dp
     val sm = 8.dp
     val md = 12.dp

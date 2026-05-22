@@ -256,6 +256,13 @@ fun SettingsScreen(
                 onCheckedChange = { uiSettings.updatePlayerImmersiveLower(it) },
             )
 
+            SettingsToggleRow(
+                title = "分割双语歌词",
+                subtitle = "将含细空格（U+2009 等）或 //、/、| 的行拆成上下两行；关闭后每行 LRC 保持一行",
+                checked = uiSettings.lyricSplitEnabled,
+                onCheckedChange = { uiSettings.updateLyricSplitEnabled(it) },
+            )
+
             Spacer(Modifier.height(HifiSpacing.lg))
 
             SettingsSectionTitle("扫描")

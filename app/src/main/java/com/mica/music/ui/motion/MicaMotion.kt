@@ -12,7 +12,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -158,6 +160,23 @@ object MicaMotion {
         } else {
             val spec = tween<Float>(DurationMediumMs, easing = Easing)
             fadeIn(spec) togetherWith fadeOut(spec)
+        }
+    }
+
+    /** 播放页歌词切句：下一句时整块自下而上滚入，上一句则反向。 */
+    fun playerLyricIndexTransition(enabled: Boolean): AnimatedContentTransitionScope<Int>.() -> ContentTransform = {
+        if (!enabled) {
+            fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+        } else {
+            val slide = tweenIntOffset(enabled, DurationLongMs)
+            val transform = if (targetState > initialState) {
+                slideInVertically(slide) { fullHeight -> fullHeight }
+                    .togetherWith(slideOutVertically(slide) { fullHeight -> -fullHeight })
+            } else {
+                slideInVertically(slide) { fullHeight -> -fullHeight }
+                    .togetherWith(slideOutVertically(slide) { fullHeight -> fullHeight })
+            }
+            transform.using(SizeTransform(clip = false))
         }
     }
 }

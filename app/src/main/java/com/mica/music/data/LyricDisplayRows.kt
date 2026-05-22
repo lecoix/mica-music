@@ -28,8 +28,9 @@ object LyricDisplayRows {
             """studio|produced|assistant|scoring|solo|instrumental|guita|violin)""",
     )
 
-    fun splitForDisplay(text: String): List<String> {
+    fun splitForDisplay(text: String, enabled: Boolean = true): List<String> {
         val trimmed = text.trim()
+        if (!enabled) return listOf(trimmed)
         if (trimmed.isEmpty()) return listOf(trimmed)
         if (isCreditMetadataLine(trimmed)) return listOf(trimmed)
 
@@ -40,7 +41,8 @@ object LyricDisplayRows {
         return listOf(trimmed)
     }
 
-    fun isBilingualLine(text: String): Boolean = splitForDisplay(text).size > 1
+    fun isBilingualLine(text: String, enabled: Boolean = true): Boolean =
+        splitForDisplay(text, enabled).size > 1
 
     /** 在最后一个细空格类字符处切成两行。 */
     private fun splitBySpecialSpaces(text: String): List<String>? {

@@ -42,6 +42,9 @@ class AppUiSettings(context: Context) {
     var micaBackgroundPreset by mutableStateOf(AppPreferences.micaBackgroundPreset(appContext))
         private set
 
+    var lyricSplitEnabled by mutableStateOf(AppPreferences.lyricSplitEnabled(appContext))
+        private set
+
     fun updateThemeMode(mode: AppThemeMode) {
         themeMode = mode
         AppPreferences.setThemeMode(appContext, mode)
@@ -85,6 +88,11 @@ class AppUiSettings(context: Context) {
     fun updateMicaBackgroundPreset(preset: MicaPreset) {
         micaBackgroundPreset = preset
         AppPreferences.setMicaBackgroundPreset(appContext, preset)
+    }
+
+    fun updateLyricSplitEnabled(enabled: Boolean) {
+        lyricSplitEnabled = enabled
+        AppPreferences.setLyricSplitEnabled(appContext, enabled)
     }
 
     fun togglePlayerImmersiveLower() {

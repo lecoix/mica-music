@@ -3,7 +3,6 @@ package com.mica.music.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,15 +17,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.components.LyricLineBlock
 import com.mica.music.ui.components.LyricsAreaEdgeFade
 import com.mica.music.ui.components.rememberLyricLineColorSpec
+import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.theme.HifiSpacing
-import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.PlayerContentColors
 
 @Composable
@@ -37,25 +36,23 @@ internal fun ExpandedLyricsPanel(
     onLineClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val currentStyle = MicaTheme.typography.lyricCurrent
-    val otherStyle = MicaTheme.typography.lyricOther
+    val textStyle = rememberLyricUniformStyle()
     val colorSpec = rememberLyricLineColorSpec()
+    val lyricSplitEnabled = LocalLyricSplitEnabled.current
 
-    if (lyrics.isEmpty()) {
-        LyricsAreaEdgeFade(modifier = modifier) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = HifiSpacing.lg),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "暂无歌词",
-                    style = otherStyle,
-                    color = colors.tertiary,
-                    textAlign = TextAlign.Center,
-                )
-            }
+    if (!lyrics.hasDisplayableLyrics()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = HifiSpacing.lg),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = EmptyLyricsText,
+                style = textStyle,
+                color = colors.secondary,
+                textAlign = TextAlign.Center,
+            )
         }
         return
     }
@@ -64,13 +61,13 @@ internal fun ExpandedLyricsPanel(
     val currentIndex = LyricsSync.indexForPosition(lyrics, positionMs)
     val listState = rememberLazyListState()
     val density = LocalDensity.current
-    val lineHeightPx = with(density) { currentStyle.lineHeight.toPx().toInt() }
+    val lineHeightPx = with(density) { textStyle.lineHeight.toPx().toInt() }
 
     LaunchedEffect(currentIndex, timed, lyrics) {
         if (!timed || currentIndex < 0) return@LaunchedEffect
         val viewport = listState.layoutInfo.viewportSize.height
         val currentRows = lyrics.getOrNull(currentIndex)?.text
-            ?.let { LyricDisplayRows.splitForDisplay(it).size } ?: 1
+            ?.let { LyricDisplayRows.splitForDisplay(it, lyricSplitEnabled).size } ?: 1
         val bilingualGapPx = with(density) { HifiSpacing.lyricBilingualGap.roundToPx() }
         val itemHeightPx = lineHeightPx * currentRows + bilingualGapPx * (currentRows - 1).coerceAtLeast(0)
         val offset = -((viewport - itemHeightPx) / 2).coerceAtLeast(0)
@@ -99,8 +96,7 @@ internal fun ExpandedLyricsPanel(
                     text = line.text,
                     isCurrent = isCurrent,
                     colors = colors,
-                    currentStyle = currentStyle,
-                    otherStyle = otherStyle,
+                    textStyle = textStyle,
                     colorSpec = colorSpec,
                     modifier = Modifier
                         .fillMaxWidth()

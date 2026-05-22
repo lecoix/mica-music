@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
                 accentColor = uiSettings.accentColor,
                 micaBackgroundPreset = uiSettings.micaBackgroundPreset,
                 coverDisplayMode = uiSettings.coverDisplayMode,
+                lyricSplitEnabled = uiSettings.lyricSplitEnabled,
             ) {
                 StatusBarEffect(
                     hideStatusBar = uiSettings.hideStatusBar,

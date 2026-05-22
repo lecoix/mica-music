@@ -32,6 +32,7 @@ object AppPreferences {
     private const val KEY_MICA_BACKGROUND_PRESET = "mica_background_preset"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
+    private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
     private const val KEY_EQUALIZER_PRESET = "equalizer_preset"
     private const val KEY_EQUALIZER_BAND_LEVELS = "equalizer_band_levels"
@@ -196,6 +197,14 @@ object AppPreferences {
 
     fun setPlayerImmersiveLower(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_PLAYER_IMMERSIVE_LOWER, enabled).apply()
+    }
+
+    /** 是否在播放页/歌词页将含细空格等的行拆成双语两行展示。 */
+    fun lyricSplitEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_LYRIC_SPLIT_ENABLED, true)
+
+    fun setLyricSplitEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_LYRIC_SPLIT_ENABLED, enabled).apply()
     }
 
     fun equalizerEnabled(context: Context): Boolean =

@@ -397,6 +397,7 @@ class PlayerController(private val context: Context) {
     }
 
     fun setQueue(newQueue: List<Song>) {
+        val preserveId = preserveSongIdForQueue()
         val sameOrderAndIds = songQueue.isNotEmpty() &&
             newQueue.size == songQueue.size &&
             newQueue.indices.all { i -> newQueue[i].id == songQueue[i].id }
@@ -423,7 +424,9 @@ class PlayerController(private val context: Context) {
         }
 
         if (sameOrderAndIds) {
-            controller?.let { applyQueue(it, newQueue, preservePlayback = true) }
+            controller?.let {
+                applyQueue(it, newQueue, preservePlayback = true, preserveSongId = preserveId)
+            }
             return
         }
         val c = controller
@@ -433,15 +436,15 @@ class PlayerController(private val context: Context) {
                 currentIndex = 0
                 persistedSessionSongId = null
             } else {
-                applyPreserveIndexForQueue(newQueue)
+                applyPreserveIndexForQueue(newQueue, preserveId)
             }
             return
         }
-        applyQueue(c, newQueue, preservePlayback = true)
+        applyQueue(c, newQueue, preservePlayback = true, preserveSongId = preserveId)
     }
 
-    private fun applyPreserveIndexForQueue(newQueue: List<Song>) {
-        val preserveId = preserveSongIdForQueue() ?: return
+    private fun applyPreserveIndexForQueue(newQueue: List<Song>, preserveSongId: String?) {
+        val preserveId = preserveSongId ?: return
         val keepIndex = newQueue.indexOfFirst { it.id == preserveId }
         if (keepIndex >= 0) currentIndex = keepIndex
     }
@@ -451,6 +454,7 @@ class PlayerController(private val context: Context) {
         c: MediaController,
         newQueue: List<Song>,
         preservePlayback: Boolean = false,
+        preserveSongId: String? = preserveSongIdForQueue(),
     ) {
         if (newQueue.isEmpty()) {
             stopAlacStream()
@@ -461,7 +465,7 @@ class PlayerController(private val context: Context) {
             return
         }
 
-        val playingId = preserveSongIdForQueue()
+        val playingId = preserveSongId
         val keepIndex = playingId?.let { id -> newQueue.indexOfFirst { it.id == id } } ?: -1
         val foundOldSong = preservePlayback && keepIndex >= 0
         currentIndex = if (foundOldSong) keepIndex else 0

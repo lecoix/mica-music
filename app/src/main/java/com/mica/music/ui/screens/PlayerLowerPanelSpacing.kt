@@ -13,6 +13,13 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.HifiTypography
 import com.mica.music.ui.theme.MicaTheme
 
+/** 歌词页底栏：五按钮与屏幕底边间距在 [lyricsFocus]=1 时缩至该比例（0.5 = 减半）。 */
+internal const val LyricsChromeBottomInsetScale = 0.5f
+
+/** 随歌词聚焦进度缩放底栏下留白（1 → 聚焦前，[LyricsChromeBottomInsetScale] → 全屏歌词）。 */
+internal fun lyricsChromeBottomInsetScale(lyricsFocus: Float): Float =
+    1f - lyricsFocus.coerceIn(0f, 1f) * (1f - LyricsChromeBottomInsetScale)
+
 internal enum class PlayerLowerLayoutMode {
     /** 常规进度条 + 时间 + 控制区 */
     STANDARD,
@@ -63,16 +70,29 @@ internal fun rememberPlayerLowerLayout(
         lyricsCoverMorphEndFocus,
         density,
         typography,
+        freezeSpacing,
     ) {
-        computePlayerLowerLayout(
-            density = density,
-            typography = typography,
-            panelHeight = panelHeight,
-            layoutMode = layoutMode,
-            useCoverEdgeProgressSetting = useCoverEdgeProgressSetting,
-            lyricsFocus = lyricsFocus,
-            lyricsCoverMorphEndFocus = lyricsCoverMorphEndFocus,
-        )
+        if (freezeSpacing) {
+            computePlayerLowerLayout(
+                density = density,
+                typography = typography,
+                panelHeight = panelHeight,
+                layoutMode = layoutMode,
+                useCoverEdgeProgressSetting = useCoverEdgeProgressSetting,
+                lyricsFocus = 0f,
+                lyricsCoverMorphEndFocus = lyricsCoverMorphEndFocus,
+            )
+        } else {
+            computePlayerLowerLayout(
+                density = density,
+                typography = typography,
+                panelHeight = panelHeight,
+                layoutMode = layoutMode,
+                useCoverEdgeProgressSetting = useCoverEdgeProgressSetting,
+                lyricsFocus = lyricsFocus,
+                lyricsCoverMorphEndFocus = lyricsCoverMorphEndFocus,
+            )
+        }
     }
 
     val activePlan = if (!freezeSpacing) {
@@ -153,7 +173,7 @@ internal fun computePlayerLowerLayout(
 
     val metaShellFixed = infoLine + titleLine + HifiSpacing.sm + subtitleLine * 2
     val lyricCompactLine = maxOf(lyricLine, subtitleLine)
-    val lyricsBlock3 = lyricLine * 3 + HifiSpacing.xs * 2
+    val lyricsBlock3 = lyricLine * 3 + HifiSpacing.playerLyricLineGap * 2
 
     val idealMeta3 = metaShellFixed + metaIdealGaps + lyricsBlock3
     val idealMeta1 = metaShellFixed + metaIdealGaps + lyricCompactLine
