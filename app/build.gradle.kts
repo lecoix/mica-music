@@ -65,6 +65,8 @@ android {
 
     buildFeatures {
         compose = true
+        // perf 等自定义 buildType 需要 BuildConfig（AGP 8+ 默认关闭）
+        buildConfig = true
     }
 
     packaging {
