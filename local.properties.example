@@ -1,0 +1,17 @@
+# 复制为 local.properties（该文件已被 .gitignore，勿提交到 Git）
+#
+# Windows（Android Studio 默认 SDK 路径，把 YourUser 换成你的用户名）：
+# sdk.dir=C\:\\Users\\YourUser\\AppData\\Local\\Android\\Sdk
+#
+# 或使用正斜杠（推荐）：
+# sdk.dir=C:/Users/YourUser/AppData/Local/Android/Sdk
+#
+# macOS：
+# sdk.dir=/Users/YourUser/Library/Android/sdk
+#
+# Linux：
+# sdk.dir=/home/YourUser/Android/Sdk
+#
+# 也可设置环境变量 ANDROID_HOME，指向上述同一目录。
+
+sdk.dir=C:/Users/YourUser/AppData/Local/Android/Sdk

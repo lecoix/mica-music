@@ -15,9 +15,20 @@
 - **Android SDK**：API 34（compileSdk）/ API 26+（minSdk）
 - **设备**：Android 8.0+，**arm64-v8a**（项目仅编 64 位；含 FFmpeg native）
 
+### 配置 Android SDK（命令行构建必做）
+
+`local.properties` 不会进 Git。在项目根目录新建 `local.properties`，写入本机 SDK 路径（Android Studio → **Settings → Android SDK** 可查看）：
+
+```properties
+sdk.dir=C:/Users/你的用户名/AppData/Local/Android/Sdk
+```
+
+也可复制 [`local.properties.example`](./local.properties.example) 为 `local.properties` 后改路径。  
+未配置时会报错：`SDK location not found`。
+
 ### 打开并运行
 
-1. Android Studio → `File → Open`，选择本仓库根目录 `mica-android`（不要选上级 `d:\AI\2`）
+1. Android Studio → `File → Open`，选择本仓库根目录
 2. 等待 Gradle Sync（首次会下载 Gradle 8.9 与依赖）
 3. 连接真机或模拟器，点击 `Run 'app'`
 
@@ -25,7 +36,10 @@
 
 ```bash
 .\gradlew.bat :app:assembleDebug
+.\gradlew.bat clean :app:assemblePerf
 ```
+
+`perf` 变体：接近 release 性能、debug 签名，便于真机安装做性能测试；产物在 `app\build\outputs\apk\perf\app-perf.apk`。
 
 ### 首次使用
 
