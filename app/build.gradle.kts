@@ -45,6 +45,13 @@ android {
                 "proguard-rules.pro"
             )
         }
+        create("perf") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     compileOptions {
