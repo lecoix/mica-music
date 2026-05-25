@@ -28,6 +28,7 @@ object AppPreferences {
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
     private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
+    private const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
     private const val KEY_APP_ACCENT_COLOR = "app_accent_color"
     private const val KEY_MICA_BACKGROUND_PRESET = "mica_background_preset"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
@@ -165,6 +166,15 @@ object AppPreferences {
 
     fun setCoverDisplayMode(context: Context, mode: CoverDisplayMode) {
         prefs(context).edit().putString(KEY_COVER_DISPLAY_MODE, mode.storageValue).apply()
+    }
+
+    fun playerCoverFlowMode(context: Context): PlayerCoverFlowMode =
+        PlayerCoverFlowMode.fromStorage(
+            prefs(context).getString(KEY_PLAYER_COVER_FLOW_MODE, null),
+        )
+
+    fun setPlayerCoverFlowMode(context: Context, mode: PlayerCoverFlowMode) {
+        prefs(context).edit().putString(KEY_PLAYER_COVER_FLOW_MODE, mode.storageValue).apply()
     }
 
     fun appAccentColor(context: Context): AppAccentColor =

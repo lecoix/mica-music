@@ -18,6 +18,7 @@ ffmpeg/build/
 
 # AI / temp
 .codex-tmp/
+.codex-push-*/
 
 # OS
 .DS_Store

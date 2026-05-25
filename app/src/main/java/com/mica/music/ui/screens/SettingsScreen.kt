@@ -36,6 +36,7 @@ import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.MiniPlayerStyle
+import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.MusicLibrary
 import com.mica.music.media.FfmpegRunner
@@ -82,6 +83,10 @@ private val MicaBackgroundChoices = MicaPreset.entries.map {
 }
 
 private val CoverDisplayChoices = CoverDisplayMode.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+private val PlayerCoverFlowChoices = PlayerCoverFlowMode.entries.map {
     it.ordinal to it.settingsLabel
 }
 
@@ -209,6 +214,16 @@ fun SettingsScreen(
                 selectedValue = uiSettings.coverDisplayMode.ordinal,
                 onSelect = { ordinal ->
                     uiSettings.updateCoverDisplayMode(CoverDisplayMode.entries[ordinal])
+                },
+            )
+
+            SettingsChoiceRow(
+                title = "播放页特殊主题",
+                subtitle = "平行封面带：播放页常驻同尺寸并排封面，并自动禁用原样比例",
+                choices = PlayerCoverFlowChoices,
+                selectedValue = uiSettings.playerCoverFlowMode.ordinal,
+                onSelect = { ordinal ->
+                    uiSettings.updatePlayerCoverFlowMode(PlayerCoverFlowMode.entries[ordinal])
                 },
             )
 

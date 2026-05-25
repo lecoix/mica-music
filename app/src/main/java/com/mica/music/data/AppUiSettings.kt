@@ -37,6 +37,9 @@ class AppUiSettings(context: Context) {
     var coverDisplayMode by mutableStateOf(AppPreferences.coverDisplayMode(appContext))
         private set
 
+    var playerCoverFlowMode by mutableStateOf(AppPreferences.playerCoverFlowMode(appContext))
+        private set
+
     var accentColor by mutableStateOf(AppPreferences.appAccentColor(appContext))
         private set
 
@@ -86,6 +89,11 @@ class AppUiSettings(context: Context) {
     fun updateCoverDisplayMode(mode: CoverDisplayMode) {
         coverDisplayMode = mode
         AppPreferences.setCoverDisplayMode(appContext, mode)
+    }
+
+    fun updatePlayerCoverFlowMode(mode: PlayerCoverFlowMode) {
+        playerCoverFlowMode = mode
+        AppPreferences.setPlayerCoverFlowMode(appContext, mode)
     }
 
     fun updateAccentColor(accent: AppAccentColor) {

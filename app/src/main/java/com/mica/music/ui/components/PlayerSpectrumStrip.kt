@@ -99,11 +99,7 @@ fun PlayerSpectrumStrip(
             for (index in 0 until minOf(count, displayLevels.size)) {
                 val from = displayLevels[index]
                 val to = target[index].coerceIn(0f, 1f)
-                val next = if (to >= from) {
-                    from + (to - from) * 0.55f
-                } else {
-                    maxOf(to, from - 3.2f * dt)
-                }
+                val next = from + (to - from) * 0.55f
                 displayLevels[index] = if (abs(next - to) < 0.001f) to else next
             }
             frameTick++

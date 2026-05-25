@@ -26,6 +26,7 @@ fun NowPlayingTrackWipe(
     targetSong: Song,
     consumeSkipDirection: () -> TrackSkipDirection?,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     content: @Composable (Song) -> Unit,
 ) {
     val motionEnabled = rememberMicaMotionEnabled()
@@ -35,7 +36,15 @@ fun NowPlayingTrackWipe(
     var wiping by remember { mutableStateOf(false) }
     val wipeProgress = remember { Animatable(0f) }
 
-    LaunchedEffect(targetSong.id) {
+    LaunchedEffect(enabled, targetSong.id) {
+        if (!enabled) {
+            consumeSkipDirection()
+            holdSong = targetSong
+            outgoingSong = null
+            wiping = false
+            wipeProgress.snapTo(0f)
+            return@LaunchedEffect
+        }
         if (targetSong.id == holdSong.id) return@LaunchedEffect
         val direction = consumeSkipDirection()
         if (direction == null) {

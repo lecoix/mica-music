@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerController
 import com.mica.music.ui.components.NowPlayingTrackWipe
 import com.mica.music.ui.components.PlaybackQueueSheet
@@ -64,6 +65,7 @@ fun NowPlayingScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding),
+        enabled = uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.PAUSE_FOLD,
     ) { activeSong ->
         LaunchedEffect(Unit) {
             while (true) {
@@ -83,6 +85,7 @@ fun NowPlayingScreen(
         val seekState = rememberPlaybackSeekState(playerController)
         val motionEnabled = rememberMicaMotionEnabled()
         val spectrumSettingEnabled = uiSettings.spectrumEnabled
+        val coverFlowModeEnabled = uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD
 
         val lyricsTransition = rememberLyricsFocusTransition(
             lyricsExpanded = lyricsExpanded,
@@ -107,6 +110,20 @@ fun NowPlayingScreen(
 
         val lyricsLayoutActive = lyricsTransition.layoutActive
         val coverEdgeOnPlaySurface = lyricsTransition.coverEdgeOnPlaySurface
+        val coverFlowAvailable =
+            coverFlowModeEnabled &&
+                playerController.songQueue.isNotEmpty() &&
+                !lyricsExpanded &&
+                !immersiveLower &&
+                lyricsLayoutFocus < 0.01f
+        val coverFlowProgress by animateFloatAsState(
+            targetValue = if (coverFlowAvailable) 1f else 0f,
+            animationSpec = MicaMotion.tweenFloat(
+                motionEnabled,
+                if (coverFlowAvailable) MicaMotion.DurationLongMs else MicaMotion.DurationMediumMs,
+            ),
+            label = "coverFlowProgress",
+        )
 
         if (queueSheetOpen) {
             PlaybackQueueSheet(
@@ -134,7 +151,8 @@ fun NowPlayingScreen(
             )
             Column(Modifier.fillMaxSize()) {
                 val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
-                val fitOriginal = LocalCoverDisplayMode.current == CoverDisplayMode.FIT_ORIGINAL
+                val fitOriginal =
+                    !coverFlowModeEnabled && LocalCoverDisplayMode.current == CoverDisplayMode.FIT_ORIGINAL
                 val letterboxAlpha = rememberFitOriginalLetterboxAlpha(
                     fitOriginal = fitOriginal,
                     lyricsExpanded = lyricsExpanded,
@@ -156,9 +174,17 @@ fun NowPlayingScreen(
                     seekState = seekState,
                     spectrumEnabled = spectrumEnabled,
                     spectrumPlaying = playerController.isPlaying,
+                    coverFlowModeEnabled = coverFlowModeEnabled,
+                    queue = playerController.songQueue,
+                    currentIndex = playerController.currentIndex,
+                    coverFlowProgress = coverFlowProgress,
                     letterboxAlpha = letterboxAlpha,
                     onCoverZoneStopChanged = { coverZoneStop = it },
                     onCloseLyrics = { lyricsExpanded = false },
+                    onToggleCoverFlow = null,
+                    onPlayQueueIndex = {
+                        playerController.playSong(it)
+                    },
                 )
 
                 BoxWithConstraints(
