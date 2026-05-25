@@ -1,0 +1,24 @@
+# Android / Gradle
+*.iml
+.gradle/
+.gradle-bootstrap/
+.idea/
+.kotlin/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+
+# FFmpeg 本地构建产物（保留 ffmpeg/docker 脚本）
+ffmpeg/build/
+
+# AI / temp
+.codex-tmp/
+
+# OS
+.DS_Store
+Thumbs.db
