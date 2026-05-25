@@ -166,6 +166,8 @@ fun HomeScreen(
     onSongClick: (String) -> Unit,
     onMiniPlayerExpand: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenAbout: () -> Unit,
     onOpenSongDetail: (String) -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -512,6 +514,14 @@ fun HomeScreen(
             statusBarTop = statusBarTop,
             bottomInset = drawerBottomInset,
             onSectionSelected = ::onDrawerPick,
+            onOpenEqualizer = {
+                drawerOpen = false
+                onOpenEqualizer()
+            },
+            onOpenAbout = {
+                drawerOpen = false
+                onOpenAbout()
+            },
             onPlaylistSelected = ::onDrawerPlaylistPick,
             onCreatePlaylist = {
                 drawerOpen = false

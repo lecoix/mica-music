@@ -18,7 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PlaylistPlay
@@ -61,6 +63,8 @@ fun HomeDrawerPanel(
     statusBarTop: Dp,
     bottomInset: Dp,
     onSectionSelected: (HomeSection) -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenAbout: () -> Unit,
     onPlaylistSelected: (String) -> Unit,
     onCreatePlaylist: () -> Unit,
     modifier: Modifier = Modifier,
@@ -143,6 +147,18 @@ fun HomeDrawerPanel(
                 )
             }
 
+            DrawerNavItem(
+                label = "均衡器",
+                icon = Icons.Outlined.GraphicEq,
+                selected = false,
+                onClick = onOpenEqualizer,
+            )
+            DrawerNavItem(
+                label = "关于",
+                icon = Icons.Outlined.Info,
+                selected = false,
+                onClick = onOpenAbout,
+            )
             DrawerNavItem(
                 label = "设置",
                 icon = Icons.Outlined.Settings,

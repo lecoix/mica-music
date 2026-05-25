@@ -1,9 +1,9 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,14 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppPreferences
@@ -43,12 +42,10 @@ import com.mica.music.data.EqSelection
 import com.mica.music.media.EqualizerSnapshot
 import com.mica.music.media.MicaEqualizerManager
 import com.mica.music.media.eq.EqBandConstants
-import com.mica.music.ui.components.EqualizerBandBar
+import com.mica.music.ui.components.EqualizerBandSlider
 import com.mica.music.ui.components.EqualizerCurveChart
-import com.mica.music.ui.components.EqualizerDbScale
-import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsSectionTitle
-import com.mica.music.ui.components.SettingsToggleRow
+import com.mica.music.ui.components.TextToggle
 import com.mica.music.ui.components.formatEqBandLabel
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -74,83 +71,22 @@ fun EqualizerScreen(
             .micaAppBackground()
             .padding(contentPadding),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .height(HifiSize.topBarHeight)
-                .padding(horizontal = HifiSpacing.sm),
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(HifiSize.touchTarget)) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "返回",
-                    tint = MicaTheme.colors.textPrimary,
-                )
-            }
-            Text(
-                text = "均衡器",
-                style = MicaTheme.typography.display,
-                color = MicaTheme.colors.textPrimary,
-            )
-        }
+        EqualizerTopBar(onBack = onBack)
 
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
-            SettingsToggleRow(
-                title = "启用均衡器",
-                subtitle = buildString {
-                    append("${EqBandConstants.BAND_COUNT} 段软件均衡 · ±12 dB")
-                    if (!snapshot.sessionReady) {
-                        append(" · 播放后系统预设列表更完整")
-                    }
-                },
-                checked = enabled,
-                onCheckedChange = {
+            EqualizerStatusPanel(
+                snapshot = snapshot,
+                enabled = enabled,
+                onEnabledChange = {
                     enabled = it
                     MicaEqualizerManager.setEnabled(context, it)
                     revision++
                 },
             )
-
-            SettingsSectionTitle("预设")
-            EqPresetDropdown(
-                snapshot = snapshot,
-                onSelect = { selection ->
-                    MicaEqualizerManager.applySelection(context, selection)
-                    revision++
-                },
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
-                horizontalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
-            ) {
-                Text(
-                    text = "保存为自定义",
-                    style = MicaTheme.typography.bodyMd,
-                    color = MicaTheme.colors.accent,
-                    modifier = Modifier.clickable { saveDialogOpen = true },
-                )
-                if (snapshot.selection is EqSelection.Saved) {
-                    Text(
-                        text = "删除当前配置",
-                        style = MicaTheme.typography.bodyMd,
-                        color = MicaTheme.colors.like,
-                        modifier = Modifier.clickable {
-                            MicaEqualizerManager.deleteSavedProfile(
-                                context,
-                                (snapshot.selection as EqSelection.Saved).name,
-                            )
-                            revision++
-                        },
-                    )
-                }
-            }
 
             SettingsSectionTitle("频响曲线")
             EqualizerCurveChart(
@@ -160,21 +96,35 @@ fun EqualizerScreen(
                 modifier = Modifier.padding(horizontal = HifiSpacing.lg),
             )
 
-            SettingsSectionTitle("频段")
+            SettingsSectionTitle("预设")
+            EqPresetStrip(
+                snapshot = snapshot,
+                onSelect = { selection ->
+                    MicaEqualizerManager.applySelection(context, selection)
+                    revision++
+                },
+            )
+            EqCommandStrip(
+                canDelete = snapshot.selection is EqSelection.Saved,
+                onSave = { saveDialogOpen = true },
+                onReset = {
+                    MicaEqualizerManager.resetFlat(context)
+                    revision++
+                },
+                onDelete = {
+                    (snapshot.selection as? EqSelection.Saved)?.let { saved ->
+                        MicaEqualizerManager.deleteSavedProfile(context, saved.name)
+                        revision++
+                    }
+                },
+            )
+
+            SettingsSectionTitle("10 段推子")
             EqBandsPanel(
                 snapshot = snapshot,
                 enabled = enabled,
                 onBandChanged = { band, level ->
                     MicaEqualizerManager.setBandLevel(context, band, level)
-                    revision++
-                },
-            )
-
-            SettingsActionRow(
-                title = "重置为平直",
-                subtitle = "所有频段回到 0 dB 附近",
-                onClick = {
-                    MicaEqualizerManager.resetFlat(context)
                     revision++
                 },
             )
@@ -197,100 +147,247 @@ fun EqualizerScreen(
 }
 
 @Composable
-private fun EqPresetDropdown(
-    snapshot: EqualizerSnapshot,
-    onSelect: (EqSelection) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val currentLabel = selectionLabel(snapshot)
+private fun EqualizerTopBar(onBack: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .height(HifiSize.topBarHeight)
+            .padding(horizontal = HifiSpacing.sm),
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.size(HifiSize.touchTarget)) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "返回",
+                tint = MicaTheme.colors.textPrimary,
+            )
+        }
+        Text(
+            text = "均衡器",
+            style = MicaTheme.typography.display,
+            color = MicaTheme.colors.textPrimary,
+        )
+    }
+}
 
+@Composable
+private fun EqualizerStatusPanel(
+    snapshot: EqualizerSnapshot,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm)
+            .background(MicaTheme.colors.surfaceGlass)
+            .padding(HifiSpacing.lg),
     ) {
-        Text(
-            text = "当前预设",
-            style = MicaTheme.typography.caption,
-            color = MicaTheme.colors.textTertiary,
-        )
-        Spacer(Modifier.height(HifiSpacing.xs))
-        Box {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = true }
-                    .padding(vertical = HifiSpacing.sm),
-            ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = currentLabel,
-                    style = MicaTheme.typography.bodyLg,
+                    text = selectionLabel(snapshot),
+                    style = MicaTheme.typography.titleMd,
                     color = MicaTheme.colors.textPrimary,
-                    modifier = Modifier.weight(1f),
                 )
-                Icon(
-                    imageVector = Icons.Outlined.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = MicaTheme.colors.textSecondary,
-                )
-            }
-            HorizontalDivider(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                color = MicaTheme.colors.divider,
-                thickness = 1.dp,
-            )
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-            ) {
-                if (snapshot.presets.isEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text("播放后可读取系统预设") },
-                        onClick = { expanded = false },
-                        enabled = false,
-                    )
-                } else {
-                    snapshot.presets.forEach { preset ->
-                        DropdownMenuItem(
-                            text = { Text(preset.name) },
-                            onClick = {
-                                expanded = false
-                                onSelect(EqSelection.System(preset.index))
-                            },
-                        )
-                    }
-                }
-                if (snapshot.savedProfiles.isNotEmpty()) {
-                    HorizontalDivider()
-                    snapshot.savedProfiles.forEach { profile ->
-                        DropdownMenuItem(
-                            text = { Text("自定义 · ${profile.name}") },
-                            onClick = {
-                                expanded = false
-                                onSelect(EqSelection.Saved(profile.name))
-                            },
-                        )
-                    }
-                }
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text("自定义（当前编辑）") },
-                    onClick = {
-                        expanded = false
-                        onSelect(EqSelection.Draft)
+                Text(
+                    text = if (snapshot.sessionReady) {
+                        "音频会话已连接，当前配置会实时应用"
+                    } else {
+                        "播放开始后可读取系统预设；软件 EQ 仍按当前配置生效"
                     },
+                    style = MicaTheme.typography.caption,
+                    color = MicaTheme.colors.textTertiary,
+                    modifier = Modifier.padding(top = HifiSpacing.xxs),
                 )
             }
+            TextToggle(
+                checked = enabled,
+                onCheckedChange = onEnabledChange,
+            )
+        }
+
+        Spacer(Modifier.height(HifiSpacing.md))
+        HorizontalDivider(color = MicaTheme.colors.divider)
+        Spacer(Modifier.height(HifiSpacing.md))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            EqMetric(
+                label = "处理",
+                value = if (enabled) "开启" else "旁路",
+                active = enabled,
+                modifier = Modifier.weight(1f),
+            )
+            EqMetric(
+                label = "频段",
+                value = "${EqBandConstants.BAND_COUNT}",
+                active = true,
+                modifier = Modifier.weight(1f),
+            )
+            EqMetric(
+                label = "范围",
+                value = "±${snapshot.levelMaxMillibels / 100} dB",
+                active = true,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
 
+@Composable
+private fun EqMetric(
+    label: String,
+    value: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MicaTheme.typography.caption,
+            color = MicaTheme.colors.textTertiary,
+        )
+        Text(
+            text = value,
+            style = MicaTheme.typography.monoMd,
+            color = if (active) MicaTheme.colors.accent else MicaTheme.colors.textSecondary,
+            modifier = Modifier.padding(top = HifiSpacing.xxs),
+        )
+    }
+}
+
+@Composable
+private fun EqPresetStrip(
+    snapshot: EqualizerSnapshot,
+    onSelect: (EqSelection) -> Unit,
+) {
+    val scroll = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scroll)
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+    ) {
+        if (snapshot.presets.isEmpty()) {
+            EqPresetChip(
+                label = "播放后读取系统预设",
+                selected = false,
+                enabled = false,
+                onClick = {},
+            )
+        } else {
+            snapshot.presets.forEach { preset ->
+                val selection = EqSelection.System(preset.index)
+                EqPresetChip(
+                    label = preset.name,
+                    selected = sameSelection(snapshot.selection, selection),
+                    onClick = { onSelect(selection) },
+                )
+            }
+        }
+        EqPresetChip(
+            label = "当前编辑",
+            selected = snapshot.selection == EqSelection.Draft,
+            onClick = { onSelect(EqSelection.Draft) },
+        )
+        snapshot.savedProfiles.forEach { profile ->
+            val selection = EqSelection.Saved(profile.name)
+            EqPresetChip(
+                label = "自定义 · ${profile.name}",
+                selected = sameSelection(snapshot.selection, selection),
+                onClick = { onSelect(selection) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun EqPresetChip(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val bg = when {
+        selected -> MicaTheme.colors.accent.copy(alpha = 0.14f)
+        else -> Color.Transparent
+    }
+    val fg = when {
+        !enabled -> MicaTheme.colors.textTertiary
+        selected -> MicaTheme.colors.accent
+        else -> MicaTheme.colors.textSecondary
+    }
+    Text(
+        text = label,
+        style = MicaTheme.typography.bodyMd,
+        color = fg,
+        modifier = Modifier
+            .widthIn(min = 72.dp)
+            .background(bg)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = HifiSpacing.sm, vertical = HifiSpacing.xs),
+    )
+}
+
+@Composable
+private fun EqCommandStrip(
+    canDelete: Boolean,
+    onSave: () -> Unit,
+    onReset: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+    ) {
+        EqCommand("保存自定义", onClick = onSave)
+        EqCommand("重置平直", onClick = onReset)
+        if (canDelete) {
+            EqCommand(
+                label = "删除配置",
+                onClick = onDelete,
+                color = MicaTheme.colors.like,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EqCommand(
+    label: String,
+    onClick: () -> Unit,
+    color: Color = MicaTheme.colors.accent,
+) {
+    Text(
+        text = label,
+        style = MicaTheme.typography.bodyMd,
+        color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.10f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = HifiSpacing.md, vertical = HifiSpacing.sm),
+    )
+}
+
 private fun selectionLabel(snapshot: EqualizerSnapshot): String = when (val sel = snapshot.selection) {
     is EqSelection.System -> snapshot.presets.firstOrNull { it.index == sel.index }?.name ?: "系统预设 ${sel.index}"
-    EqSelection.Draft -> "自定义（当前编辑）"
+    EqSelection.Draft -> "当前编辑"
     is EqSelection.Saved -> "自定义 · ${sel.name}"
 }
+
+private fun sameSelection(left: EqSelection, right: EqSelection): Boolean =
+    when {
+        left is EqSelection.System && right is EqSelection.System -> left.index == right.index
+        left is EqSelection.Saved && right is EqSelection.Saved -> left.name == right.name
+        left == EqSelection.Draft && right == EqSelection.Draft -> true
+        else -> false
+    }
 
 @Composable
 private fun EqBandsPanel(
@@ -298,48 +395,34 @@ private fun EqBandsPanel(
     enabled: Boolean,
     onBandChanged: (bandIndex: Int, levelMillibels: Short) -> Unit,
 ) {
-    val bandScroll = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = HifiSpacing.md),
+            .padding(vertical = HifiSpacing.sm),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(bandScroll)
                 .padding(horizontal = HifiSpacing.lg),
-            verticalAlignment = Alignment.Bottom,
+            verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
         ) {
-            EqualizerDbScale(
-                minMillibels = snapshot.levelMinMillibels,
-                maxMillibels = snapshot.levelMaxMillibels,
-            )
-            Row(
-                modifier = Modifier.padding(start = HifiSpacing.sm),
-                horizontalArrangement = Arrangement.spacedBy(HifiSpacing.xxs),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                snapshot.bands.forEachIndexed { index, band ->
-                    EqualizerBandBar(
-                        freqLabel = formatEqBandLabel(band.centerHz),
-                        levelMillibels = band.levelMillibels,
-                        minMillibels = snapshot.levelMinMillibels,
-                        maxMillibels = snapshot.levelMaxMillibels,
-                        enabled = enabled,
-                        onLevelChange = { level -> onBandChanged(index, level) },
-                    )
-                }
+            snapshot.bands.forEachIndexed { index, band ->
+                EqualizerBandSlider(
+                    freqLabel = formatEqBandLabel(band.centerHz),
+                    levelMillibels = band.levelMillibels,
+                    minMillibels = snapshot.levelMinMillibels,
+                    maxMillibels = snapshot.levelMaxMillibels,
+                    enabled = enabled,
+                    onLevelChange = { level -> onBandChanged(index, level) },
+                )
             }
         }
-        if (snapshot.bands.size > 8) {
-            Text(
-                text = "← 左右滑动查看全部 ${snapshot.bands.size} 段 →",
-                style = MicaTheme.typography.caption,
-                color = MicaTheme.colors.textTertiary,
-                modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
-            )
-        }
+        Text(
+            text = "每一行从左到右对应 -12 dB 到 +12 dB；拖动任一推子会进入当前编辑配置",
+            style = MicaTheme.typography.caption,
+            color = MicaTheme.colors.textTertiary,
+            modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
+        )
     }
 }
 

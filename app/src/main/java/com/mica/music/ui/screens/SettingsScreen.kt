@@ -39,7 +39,6 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.MusicLibrary
-import com.mica.music.media.FfmpegRunner
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
@@ -95,7 +94,6 @@ fun SettingsScreen(
     library: MusicLibrary,
     uiSettings: AppUiSettings,
     onBack: () -> Unit,
-    onOpenEqualizer: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -106,8 +104,6 @@ fun SettingsScreen(
     var includeNonMusic by remember { mutableStateOf(com.mica.music.data.AppPreferences.includeNonMusicAudio(context)) }
     var deepProbe by remember { mutableStateOf(com.mica.music.data.AppPreferences.deepMetadataProbe(context)) }
     var minDurationSec by remember { mutableIntStateOf(com.mica.music.data.AppPreferences.minTrackDurationSec(context)) }
-
-    val ffmpegReady = remember { FfmpegRunner.hasEmbeddedBinary(context) }
 
     val audioPermission = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -356,36 +352,6 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))
-
-            SettingsSectionTitle("播放")
-
-            SettingsActionRow(
-                title = "均衡器",
-                subtitle = "系统频段调节；播放中进入可加载预设与自定义曲线",
-                onClick = onOpenEqualizer,
-            )
-
-            Spacer(Modifier.height(HifiSpacing.lg))
-
-            SettingsSectionTitle("关于")
-
-            SettingsActionRow(
-                title = "FFmpeg（软件解码）",
-                subtitle = if (ffmpegReady) {
-                    "已打包 arm64；全部曲目 FFmpeg → PCM → AudioTrack"
-                } else {
-                    "未检测到二进制，请运行 scripts\\build-ffmpeg-arm64.ps1"
-                },
-                onClick = {},
-                enabled = false,
-            )
-
-            SettingsActionRow(
-                title = "版本",
-                subtitle = "Mica Music 0.1.0 · arm64-v8a",
-                onClick = {},
-                enabled = false,
-            )
 
             Spacer(Modifier.height(HifiSpacing.xxl))
         }

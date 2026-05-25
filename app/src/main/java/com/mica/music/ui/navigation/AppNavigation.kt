@@ -20,6 +20,7 @@ import android.net.Uri
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
+import com.mica.music.ui.screens.AboutScreen
 import com.mica.music.ui.screens.EqualizerScreen
 import com.mica.music.ui.screens.HomeScreen
 import com.mica.music.ui.screens.MetadataDebugScreen
@@ -33,6 +34,7 @@ object Routes {
     const val Home = "home"
     const val Settings = "settings"
     const val Equalizer = "equalizer"
+    const val About = "about"
     const val MetadataDebug = "metadata_debug"
     const val NowPlaying = "now_playing"
     const val SongDetail = "song_detail/{songId}"
@@ -88,6 +90,12 @@ fun AppNavigation(
                 onOpenSettings = {
                     navController.navigate(Routes.Settings)
                 },
+                onOpenEqualizer = {
+                    navController.navigate(Routes.Equalizer)
+                },
+                onOpenAbout = {
+                    navController.navigate(Routes.About)
+                },
                 onOpenSongDetail = { songId ->
                     navController.navigate(Routes.songDetail(songId))
                 },
@@ -123,7 +131,6 @@ fun AppNavigation(
                 library = library,
                 uiSettings = uiSettings,
                 onBack = { navController.popBackStack() },
-                onOpenEqualizer = { navController.navigate(Routes.Equalizer) },
                 onOpenMetadataDebug = { navController.navigate(Routes.MetadataDebug) },
                 contentPadding = PaddingValues(
                     top = statusTop,
@@ -146,6 +153,16 @@ fun AppNavigation(
         composable(Routes.Equalizer) {
             val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             EqualizerScreen(
+                onBack = { navController.popBackStack() },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+            )
+        }
+        composable(Routes.About) {
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            AboutScreen(
                 onBack = { navController.popBackStack() },
                 contentPadding = PaddingValues(
                     top = statusTop,
