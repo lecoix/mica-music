@@ -153,8 +153,9 @@ object MediaStoreScanner {
                 val year = if (yearCol >= 0) c.getInt(yearCol).coerceAtLeast(0) else 0
                 val dateAddedMs = if (dateAddedCol >= 0) c.getLong(dateAddedCol) * 1000L else 0L
                 val dateModifiedMs = if (dateModifiedCol >= 0) c.getLong(dateModifiedCol) * 1000L else 0L
+                val relativePath = if (relativePathCol >= 0) c.getString(relativePathCol).orEmpty() else ""
                 val folderPath = when {
-                    relativePathCol >= 0 -> c.getString(relativePathCol)
+                    relativePathCol >= 0 -> relativePath
                         ?.trimEnd('/')
                         ?.substringBeforeLast('/', "")
                         .orEmpty()
@@ -166,11 +167,17 @@ object MediaStoreScanner {
                 val filePath = when {
                     dataCol >= 0 -> c.getString(dataCol).orEmpty()
                     relativePathCol >= 0 && !displayName.isNullOrBlank() -> {
-                        val rel = c.getString(relativePathCol).orEmpty().trimStart('/')
+                        val rel = relativePath.trimStart('/')
                         if (rel.isBlank()) displayName else "$rel$displayName"
                     }
                     else -> ""
                 }
+                val externalLyricsUri = findExternalLyricsUri(
+                    context = context,
+                    displayName = displayName,
+                    relativePath = relativePath,
+                    absolutePath = filePath,
+                )
                 val uri = ContentUris.withAppendedId(collection, id)
 
                 drafts += TrackDraft(
@@ -189,6 +196,7 @@ object MediaStoreScanner {
                     year = year,
                     folderPath = folderPath,
                     filePath = filePath,
+                    externalLyricsUri = externalLyricsUri,
                     dateAddedMs = dateAddedMs,
                     dateModifiedMs = dateModifiedMs,
                 )
@@ -196,5 +204,62 @@ object MediaStoreScanner {
         }
         return drafts
     }
+
+    private fun findExternalLyricsUri(
+        context: Context,
+        displayName: String?,
+        relativePath: String,
+        absolutePath: String,
+    ): String? = runCatching {
+        val baseName = displayName
+            ?.substringBeforeLast('.')
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return@runCatching null
+        val lrcName = "$baseName.lrc"
+        val filesUri = MediaStore.Files.getContentUri("external")
+        val projection = mutableListOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+        )
+        val selectionParts = mutableListOf<String>()
+        val selectionArgs = mutableListOf<String>()
+        selectionParts += "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) = ?"
+        selectionArgs += lrcName.lowercase()
+
+        val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Files.FileColumns.RELATIVE_PATH
+        } else {
+            null
+        }
+        if (relativePathColumn != null && relativePath.isNotBlank()) {
+            projection += relativePathColumn
+            selectionParts += "$relativePathColumn = ?"
+            selectionArgs += relativePath
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && absolutePath.contains('/')) {
+            @Suppress("DEPRECATION")
+            val dataColumn = MediaStore.Files.FileColumns.DATA
+            projection += dataColumn
+            selectionParts += "$dataColumn = ?"
+            selectionArgs += "${absolutePath.substringBeforeLast('/')}/$lrcName"
+        }
+
+        context.contentResolver.query(
+            filesUri,
+            projection.toTypedArray(),
+            selectionParts.joinToString(" AND "),
+            selectionArgs.toTypedArray(),
+            null,
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameCol) ?: continue
+                if (!name.equals(lrcName, ignoreCase = true)) continue
+                return@runCatching ContentUris.withAppendedId(filesUri, cursor.getLong(idCol)).toString()
+            }
+        }
+        null
+    }.getOrNull()
 
 }

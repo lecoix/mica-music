@@ -2,6 +2,7 @@ package com.mica.music.data.scanner
 
 import android.content.Context
 import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.LyricLine
 import com.mica.music.media.FfmpegRunner
 import java.io.File
@@ -26,13 +27,15 @@ internal object EmbeddedLyricsReader {
         mimeType: String?,
         displayName: String?,
         filePath: String = "",
+        externalLyricsParent: DocumentFile? = null,
+        externalLyricsUri: String? = null,
     ): List<LyricLine> {
         val bytes = readAudioBytes(context, uri)
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         val mime = mimeType.orEmpty().lowercase()
 
         val candidates = mutableListOf<List<LyricLine>>()
-        ExternalLyricsReader.read(context, uri, displayName, filePath)
+        ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUri)
             .takeIf { it.isNotEmpty() }
             ?.let { candidates += it }
         if (bytes != null) {

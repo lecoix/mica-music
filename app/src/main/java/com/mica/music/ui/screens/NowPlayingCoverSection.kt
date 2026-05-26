@@ -53,6 +53,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.ui.components.CoverEdgeProgressBar
@@ -90,6 +91,7 @@ internal fun NowPlayingCoverSection(
     spectrumEnabled: Boolean,
     spectrumPlaying: Boolean,
     coverFlowModeEnabled: Boolean,
+    coverFlowMode: PlayerCoverFlowMode,
     queue: List<Song>,
     currentIndex: Int,
     coverFlowProgress: Float,
@@ -129,9 +131,14 @@ internal fun NowPlayingCoverSection(
                 swapFromIndex = previousIndex
                 swapToIndex = currentIndex
                 swapProgress.snapTo(0f)
+                val swapDuration = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
+                    MicaMotion.DurationLongMs
+                } else {
+                    MicaMotion.DurationMediumMs
+                }
                 swapProgress.animateTo(
                     targetValue = 1f,
-                    animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
+                    animationSpec = MicaMotion.tweenFloat(motionEnabled, swapDuration),
                 )
                 swapFromSong = null
                 swapToSong = null
@@ -207,6 +214,7 @@ internal fun NowPlayingCoverSection(
                                 coverHeight = coverHeight,
                                 screenWidthPx = with(density) { screenWidth.toPx() },
                                 foldProgress = foldProgress,
+                                coverFlowMode = coverFlowMode,
                                 activeSongId = activeSong.id,
                                 letterboxAlpha = letterboxAlpha,
                                 onAspectRatioChanged = { coverAspectRatio = it },
@@ -294,6 +302,7 @@ private fun BoxScope.CoverFlowStage(
     coverHeight: Dp,
     screenWidthPx: Float,
     foldProgress: Float,
+    coverFlowMode: PlayerCoverFlowMode,
     activeSongId: String,
     letterboxAlpha: Float,
     onAspectRatioChanged: (Float) -> Unit,
@@ -301,15 +310,17 @@ private fun BoxScope.CoverFlowStage(
 ) {
     val start = floor(virtualCenterIndex - 2f).toInt()
     val end = ceil(virtualCenterIndex + 2f).toInt()
+    val maxDistance = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) 2.35f else 2.15f
     (start..end).forEach { index ->
         val song = queue.getOrNull(index) ?: return@forEach
         val offset = index - virtualCenterIndex
         val distance = abs(offset)
-        if (distance > 2.15f) return@forEach
-        val centerScale = 1f - 0.24f * foldProgress
-        val slotScale = coverFlowSlotScale(distance, centerScale)
-        val slotAlpha = coverFlowSlotAlpha(distance, foldProgress)
-        val slotTranslation = coverFlowSlotTranslation(offset, screenWidthPx)
+        if (distance > maxDistance) return@forEach
+        val centerScale = coverFlowCenterScale(coverFlowMode, foldProgress)
+        val slotScale = coverFlowSlotScale(distance, centerScale, coverFlowMode)
+        val slotAlpha = coverFlowSlotAlpha(distance, foldProgress, coverFlowMode)
+        val slotTranslation = coverFlowSlotTranslation(offset, screenWidthPx, coverFlowMode)
+        val slotRotationY = coverFlowSlotRotationY(offset, coverFlowMode)
         val transformOrigin = if (offset < -0.01f) {
             TransformOrigin(1f, 0.5f)
         } else if (offset > 0.01f) {
@@ -321,11 +332,11 @@ private fun BoxScope.CoverFlowStage(
             modifier = Modifier
                 .align(Alignment.Center)
                 .size(coverWidth, coverHeight)
-                .zIndex(10f - distance)
+                .zIndex(coverFlowSlotZIndex(distance, coverFlowMode))
                 .graphicsLayer {
                     alpha = slotAlpha
                     translationX = slotTranslation
-                    rotationY = 0f
+                    rotationY = slotRotationY
                     scaleX = slotScale
                     scaleY = slotScale
                     cameraDistance = 18f * density
@@ -426,30 +437,85 @@ private fun ParallelCoverWithReflection(
     }
 }
 
-private fun coverFlowSlotScale(distance: Float, centerScale: Float): Float {
-    return centerScale
+private fun coverFlowCenterScale(mode: PlayerCoverFlowMode, foldProgress: Float): Float {
+    return when (mode) {
+        PlayerCoverFlowMode.RETRO_3D -> 1f - 0.38f * foldProgress
+        PlayerCoverFlowMode.PAUSE_FOLD -> 1f - 0.24f * foldProgress
+        PlayerCoverFlowMode.STANDARD -> 1f
+    }
 }
 
-private fun coverFlowSlotAlpha(distance: Float, foldProgress: Float): Float {
+private fun coverFlowSlotScale(
+    distance: Float,
+    centerScale: Float,
+    mode: PlayerCoverFlowMode,
+): Float {
+    if (mode != PlayerCoverFlowMode.RETRO_3D) return centerScale
     val d = distance.coerceIn(0f, 2f)
-    val alpha = if (d <= 1f) {
-        1f
+    return if (d <= 1f) {
+        centerScale + (0.52f - centerScale) * d
     } else {
-        1f + (0.48f - 1f) * (d - 1f)
+        0.52f + (0.44f - 0.52f) * (d - 1f)
+    }
+}
+
+private fun coverFlowSlotAlpha(
+    distance: Float,
+    foldProgress: Float,
+    mode: PlayerCoverFlowMode,
+): Float {
+    val d = distance.coerceIn(0f, 2f)
+    val farAlpha = if (mode == PlayerCoverFlowMode.RETRO_3D) 1f else 0.48f
+    val alpha = when {
+        d <= 1f -> 1f
+        else -> 1f + (farAlpha - 1f) * (d - 1f)
     }
     return if (d < 0.05f) alpha else alpha * foldProgress
 }
 
-private fun coverFlowSlotTranslation(offset: Float, screenWidthPx: Float): Float {
+private fun coverFlowSlotTranslation(
+    offset: Float,
+    screenWidthPx: Float,
+    mode: PlayerCoverFlowMode,
+): Float {
     val distance = abs(offset)
     if (distance < 0.001f) return 0f
     val sign = if (offset < 0f) -1f else 1f
-    val fraction = if (distance <= 1f) {
-        0.92f * distance
+    if (mode != PlayerCoverFlowMode.RETRO_3D) {
+        val step = 0.92f
+        val fraction = if (distance <= 1f) {
+            step * distance
+        } else {
+            step + step * (distance - 1f)
+        }
+        return sign * screenWidthPx * fraction
+    }
+    val d = distance.coerceIn(0f, 2f)
+    val fraction = if (d <= 1f) {
+        0.81f * d
     } else {
-        0.92f + 0.92f * (distance - 1f)
+        0.81f + (0.90f - 0.81f) * (d - 1f)
     }
     return sign * screenWidthPx * fraction
+}
+
+private fun coverFlowSlotZIndex(distance: Float, mode: PlayerCoverFlowMode): Float {
+    if (mode != PlayerCoverFlowMode.RETRO_3D) return 10f - distance
+    return when {
+        distance < 0.05f -> 30f
+        distance <= 1.05f -> 20f
+        else -> 10f - distance
+    }
+}
+
+private fun coverFlowSlotRotationY(offset: Float, mode: PlayerCoverFlowMode): Float {
+    if (mode != PlayerCoverFlowMode.RETRO_3D) return 0f
+    val distance = abs(offset)
+    if (distance < 0.001f) return 0f
+    val turn = distance.coerceIn(0f, 1f)
+    val easedTurn = turn * turn * (3f - 2f * turn)
+    val sign = if (offset < 0f) 1f else -1f
+    return sign * 75f * easedTurn
 }
 
 @Composable

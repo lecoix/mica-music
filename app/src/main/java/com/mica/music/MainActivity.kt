@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.graphics.Color
@@ -26,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.core.view.WindowCompat
 import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.data.scanner.ScanCacheManager
 import androidx.compose.ui.Modifier
@@ -54,7 +54,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyWindowStatusBar() {
+        applyEdgeToEdgeSystemBars()
         StatusBarController.applyFromPreferences(this, window)
+    }
+
+    private fun applyEdgeToEdgeSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,14 +142,10 @@ class MainActivity : ComponentActivity() {
                             snackbarHostState = snackbarHostState,
                         )
                     },
-                ) { innerPadding ->
+                ) {
                     Box(Modifier.fillMaxSize()) {
                         AnimatedMicaAppBackground(Modifier.fillMaxSize())
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding),
-                        ) {
+                        Box(Modifier.fillMaxSize()) {
                             AppNavigation(
                                 library = library,
                                 playerController = playerController,

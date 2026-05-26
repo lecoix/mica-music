@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.PlaybackMimeResolver
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
@@ -36,6 +37,8 @@ internal data class TrackDraft(
     val codecLabel: String = "",
     val dateAddedMs: Long = 0L,
     val dateModifiedMs: Long = 0L,
+    val externalLyricsParent: DocumentFile? = null,
+    val externalLyricsUri: String? = null,
 )
 
 private data class TagInfo(
@@ -65,7 +68,15 @@ object AudioMetadataProbe {
         )
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
-        val lyrics = EmbeddedLyricsReader.read(appCtx, uri, draft.mimeType, draft.displayName, draft.filePath)
+        val lyrics = EmbeddedLyricsReader.read(
+            appCtx,
+            uri,
+            draft.mimeType,
+            draft.displayName,
+            draft.filePath,
+            draft.externalLyricsParent,
+            draft.externalLyricsUri,
+        )
         val albumArtUri = resolveAlbumArtFromStoreOnly(context, draft.albumId)
         val coverArgb = resolveCoverColor(appCtx, null, uri, draft.albumId, albumArtUri)
             ?: draft.coverColorArgb
@@ -103,7 +114,15 @@ object AudioMetadataProbe {
             )
             val artKey = artCacheKey(withMeta)
             val albumArtUri = resolveAlbumArt(appCtx, retriever, artKey, withMeta.albumId, uri)
-            val lyrics = EmbeddedLyricsReader.read(appCtx, uri, withMeta.mimeType, withMeta.displayName, withMeta.filePath)
+            val lyrics = EmbeddedLyricsReader.read(
+                appCtx,
+                uri,
+                withMeta.mimeType,
+                withMeta.displayName,
+                withMeta.filePath,
+                withMeta.externalLyricsParent,
+                withMeta.externalLyricsUri,
+            )
             val coverArgb = resolveCoverColor(appCtx, retriever, uri, withMeta.albumId, albumArtUri)
                 ?: withMeta.coverColorArgb
             withMeta.copy(coverColorArgb = coverArgb).toSong(appCtx, metadata, albumArtUri, lyrics)
@@ -126,7 +145,15 @@ object AudioMetadataProbe {
                     mediaUri = draft.mediaUri,
                 )
             }
-            val lyrics = EmbeddedLyricsReader.read(appCtx, uri, draft.mimeType, draft.displayName, draft.filePath)
+            val lyrics = EmbeddedLyricsReader.read(
+                appCtx,
+                uri,
+                draft.mimeType,
+                draft.displayName,
+                draft.filePath,
+                draft.externalLyricsParent,
+                draft.externalLyricsUri,
+            )
             draft.toSong(
                 appCtx,
                 metadata,

@@ -10,6 +10,9 @@ enum class PlayerCoverFlowMode(
 
     /** 暂停后切换为平行封面带，队列相邻封面从两侧并排展开。 */
     PAUSE_FOLD("pause_fold", "平行封面带"),
+
+    /** 复古 Cover Flow：中心封面正面展示，两侧封面带透视倾斜与倒影。 */
+    RETRO_3D("retro_3d", "复古立体封面"),
     ;
 
     companion object {

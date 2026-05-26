@@ -127,6 +127,7 @@ object FolderScanner {
                 filePath = filePath,
                 dateAddedMs = scannedAt,
                 dateModifiedMs = modifiedMs,
+                externalLyricsParent = entry.parent,
             )
         }
 
@@ -135,6 +136,7 @@ object FolderScanner {
 
     private data class AudioFileEntry(
         val file: DocumentFile,
+        val parent: DocumentFile,
         val folderPath: String,
     )
 
@@ -153,7 +155,7 @@ object FolderScanner {
                 val ext = name.substringAfterLast('.', "").lowercase()
                 val mime = child.type.orEmpty()
                 if (mime.startsWith("audio/") || ext in audioExtensions) {
-                    out += AudioFileEntry(file = child, folderPath = parentPath)
+                    out += AudioFileEntry(file = child, parent = dir, folderPath = parentPath)
                 }
             }
         }

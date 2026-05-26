@@ -16,9 +16,16 @@ internal object ExternalLyricsReader {
         uri: Uri,
         displayName: String?,
         filePath: String,
+        parentDirectory: DocumentFile? = null,
+        directLyricsUri: String? = null,
     ): List<LyricLine> {
         val candidates = mutableListOf<List<LyricLine>>()
+        readLrcByUri(context, directLyricsUri)?.let { candidates += it }
         for (base in basenameCandidates(displayName, filePath)) {
+            parentDirectory
+                ?.takeIf { it.isDirectory }
+                ?.let { readLrcInDocumentParent(context, it, base) }
+                ?.let { candidates += it }
             readLrcByAbsolutePath(filePath, base)?.let { candidates += it }
             readLrcViaDocumentTree(context, uri, base)?.let { candidates += it }
         }
@@ -115,6 +122,16 @@ internal object ExternalLyricsReader {
 
     private fun readLrcTextFromFile(file: File): String? =
         runCatching { decodeLrcBytes(file.readBytes()) }.getOrNull()
+
+    private fun readLrcByUri(context: Context, uriString: String?): List<LyricLine>? {
+        if (uriString.isNullOrBlank()) return null
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return null
+        return runCatching {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                parseLrcFile(decodeLrcBytes(stream.readBytes()))
+            }
+        }.getOrNull()
+    }
 
     private fun decodeLrcBytes(bytes: ByteArray): String =
         LyricsEncoding.decodeBytes(bytes)

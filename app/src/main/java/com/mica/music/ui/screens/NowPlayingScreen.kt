@@ -62,10 +62,8 @@ fun NowPlayingScreen(
     NowPlayingTrackWipe(
         targetSong = song,
         consumeSkipDirection = { playerController.consumeTrackSkipDirection() },
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(contentPadding),
-        enabled = uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.PAUSE_FOLD,
+        modifier = Modifier.fillMaxSize(),
+        enabled = uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD,
     ) { activeSong ->
         LaunchedEffect(Unit) {
             while (true) {
@@ -85,7 +83,8 @@ fun NowPlayingScreen(
         val seekState = rememberPlaybackSeekState(playerController)
         val motionEnabled = rememberMicaMotionEnabled()
         val spectrumSettingEnabled = uiSettings.spectrumEnabled
-        val coverFlowModeEnabled = uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD
+        val coverFlowMode = uiSettings.playerCoverFlowMode
+        val coverFlowModeEnabled = coverFlowMode != PlayerCoverFlowMode.STANDARD
 
         val lyricsTransition = rememberLyricsFocusTransition(
             lyricsExpanded = lyricsExpanded,
@@ -149,7 +148,11 @@ fun NowPlayingScreen(
                 coverZoneStop = coverZoneStop,
                 modifier = Modifier.matchParentSize(),
             )
-            Column(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding),
+            ) {
                 val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
                 val fitOriginal =
                     !coverFlowModeEnabled && LocalCoverDisplayMode.current == CoverDisplayMode.FIT_ORIGINAL
@@ -175,6 +178,7 @@ fun NowPlayingScreen(
                     spectrumEnabled = spectrumEnabled,
                     spectrumPlaying = playerController.isPlaying,
                     coverFlowModeEnabled = coverFlowModeEnabled,
+                    coverFlowMode = coverFlowMode,
                     queue = playerController.songQueue,
                     currentIndex = playerController.currentIndex,
                     coverFlowProgress = coverFlowProgress,

@@ -215,7 +215,7 @@ fun SettingsScreen(
 
             SettingsChoiceRow(
                 title = "播放页特殊主题",
-                subtitle = "平行封面带：播放页常驻同尺寸并排封面，并自动禁用原样比例",
+                subtitle = "平行封面带 / 复古立体封面：播放页常驻封面流，并自动禁用原样比例",
                 choices = PlayerCoverFlowChoices,
                 selectedValue = uiSettings.playerCoverFlowMode.ordinal,
                 onSelect = { ordinal ->
