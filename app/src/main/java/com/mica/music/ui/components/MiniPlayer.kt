@@ -19,8 +19,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -80,6 +85,8 @@ fun MiniPlayer(
     onNext: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit = {},
+    coverAlpha: Float = 1f,
+    onCoverBoundsChanged: (Rect?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val safeBottom = maxOf(
@@ -97,6 +104,8 @@ fun MiniPlayer(
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
+            coverAlpha = coverAlpha,
+            onCoverBoundsChanged = onCoverBoundsChanged,
             bottomInset = bottomInset,
             modifier = modifier,
         )
@@ -106,6 +115,7 @@ fun MiniPlayer(
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
+            onCoverBoundsChanged = onCoverBoundsChanged,
             bottomInset = bottomInset,
             modifier = modifier,
         )
@@ -120,6 +130,8 @@ private fun FloatingIslandMiniPlayer(
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
+    coverAlpha: Float,
+    onCoverBoundsChanged: (Rect?) -> Unit,
     bottomInset: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -155,7 +167,10 @@ private fun FloatingIslandMiniPlayer(
                     albumArtUri = song.albumArtUri,
                     fallbackColor = song.coverColor,
                     contentDescription = song.title,
-                    modifier = Modifier.size(FloatingCoverSize),
+                    modifier = Modifier
+                        .size(FloatingCoverSize)
+                        .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
+                        .graphicsLayer { alpha = coverAlpha },
                 )
                 Spacer(Modifier.width(HifiSpacing.md))
                 Column(Modifier.weight(1f)) {
@@ -200,11 +215,15 @@ private fun AudiophileMiniPlayer(
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
+    onCoverBoundsChanged: (Rect?) -> Unit,
     bottomInset: Dp,
     modifier: Modifier = Modifier,
 ) {
     val colors = MicaTheme.colors
     val barSurface = LocalMicaBackgroundPreset.current.bottomThemeColor(colors.isDark)
+    LaunchedEffect(Unit) {
+        onCoverBoundsChanged(null)
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),

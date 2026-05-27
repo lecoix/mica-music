@@ -53,7 +53,7 @@ class AppUiSettings(context: Context) {
         private set
 
     init {
-        MicaSpectrumAnalyzer.setEnabled(spectrumEnabled)
+        syncSpectrumAnalyzer()
     }
 
     fun updateThemeMode(mode: AppThemeMode) {
@@ -84,6 +84,7 @@ class AppUiSettings(context: Context) {
     fun updateMiniPlayerStyle(style: MiniPlayerStyle) {
         miniPlayerStyle = style
         AppPreferences.setMiniPlayerStyle(appContext, style)
+        syncSpectrumAnalyzer()
     }
 
     fun updateCoverDisplayMode(mode: CoverDisplayMode) {
@@ -114,7 +115,7 @@ class AppUiSettings(context: Context) {
     fun updateSpectrumEnabled(enabled: Boolean) {
         spectrumEnabled = enabled
         AppPreferences.setSpectrumEnabled(appContext, enabled)
-        MicaSpectrumAnalyzer.setEnabled(enabled)
+        syncSpectrumAnalyzer()
     }
 
     fun togglePlayerImmersiveLower() {
@@ -133,5 +134,11 @@ class AppUiSettings(context: Context) {
         AppThemeMode.DARK -> true
         AppThemeMode.LIGHT -> false
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
+
+    private fun syncSpectrumAnalyzer() {
+        MicaSpectrumAnalyzer.setEnabled(
+            spectrumEnabled || miniPlayerStyle == MiniPlayerStyle.AUDIOPHILE,
+        )
     }
 }

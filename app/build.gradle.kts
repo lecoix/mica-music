@@ -23,8 +23,8 @@ android {
         applicationId = "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.1"
+        versionCode = 2
+        versionName = "0.1.2"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")

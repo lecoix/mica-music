@@ -1,9 +1,13 @@
 package com.mica.music.ui.components
 
+import android.content.Context
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 
 /** 原样显示时允许的最宽比例（相对高度），避免列表行被极宽横图撑破。 */
@@ -17,6 +21,30 @@ const val PlayerCoverMaxScreenFraction = 0.65f
 fun coerceCoverAspectRatio(width: Float, height: Float): Float {
     if (width <= 0f || height <= 0f) return 1f
     return (width / height).coerceIn(CoverMinAspectRatio, CoverMaxAspectRatio)
+}
+
+private val coverAspectRatioCache = ConcurrentHashMap<String, Float>()
+
+fun cacheCoverAspectRatio(albumArtUri: String?, aspectRatio: Float) {
+    val key = albumArtUri ?: return
+    coverAspectRatioCache[key] = aspectRatio.coerceIn(CoverMinAspectRatio, CoverMaxAspectRatio)
+}
+
+fun resolveCoverAspectRatioFromUri(context: Context, albumArtUri: String?): Float? {
+    if (albumArtUri.isNullOrBlank()) return null
+    coverAspectRatioCache[albumArtUri]?.let { return it }
+    val ratio = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(Uri.parse(albumArtUri))?.use { input ->
+            BitmapFactory.decodeStream(input, null, bounds)
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+        coerceCoverAspectRatio(bounds.outWidth.toFloat(), bounds.outHeight.toFloat())
+    }.getOrNull()
+    if (ratio != null) {
+        coverAspectRatioCache[albumArtUri] = ratio
+    }
+    return ratio
 }
 
 /**

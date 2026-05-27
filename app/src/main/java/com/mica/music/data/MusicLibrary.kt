@@ -270,9 +270,9 @@ class MusicLibrary(private val context: Context) {
     suspend fun scanDeviceWide() {
         if (!hasAudioReadPermission()) return
         if (isScanning) return
-        performScan(ScanSource.DEVICE) { onProgress ->
+        performScan(ScanSource.DEVICE) { onProgress, cachedSongs ->
             val options = AppPreferences.scanOptions(context)
-            MediaStoreScanner.scan(context, options, onProgress)
+            MediaStoreScanner.scan(context, options, cachedSongs, onProgress)
         }
     }
 
@@ -285,24 +285,37 @@ class MusicLibrary(private val context: Context) {
             return
         }
         if (isScanning) return
-        performScan(ScanSource.FOLDER) { onProgress ->
+        performScan(ScanSource.FOLDER) { onProgress, cachedSongs ->
             val options = AppPreferences.scanOptions(context)
-            FolderScanner.scan(context, treeUri, options, onProgress)
+            FolderScanner.scan(context, treeUri, options, cachedSongs, onProgress)
         }
     }
 
     private suspend fun performScan(
         source: ScanSource,
-        block: suspend (onProgress: (Int, Int) -> Unit) -> com.mica.music.data.scanner.ScanResult,
+        block: suspend (
+            onProgress: (Int, Int) -> Unit,
+            cachedSongs: List<Song>,
+        ) -> com.mica.music.data.scanner.ScanResult,
     ) {
         isScanning = true
         lastScanError = null
         scanProgressLabel = "正在读取歌曲列表…"
         ScanCacheManager.clearTransientScanCache(context)
         try {
-            val result = block { done, total ->
-                scanProgressLabel = "正在分析音质、封面与歌词 ($done/$total)"
+            val cachedSongs = if (scannedSongs.isNotEmpty()) {
+                scannedSongs
+            } else {
+                withContext(Dispatchers.IO) {
+                    libraryRepository.loadCached()?.songs.orEmpty()
+                }
             }
+            val result = block(
+                { done, total ->
+                    scanProgressLabel = "正在分析音质、封面与歌词 ($done/$total)"
+                },
+                cachedSongs,
+            )
             totalSizeMb = result.totalSizeMb
             hasScanned = true
             lastScanAtMs = System.currentTimeMillis()

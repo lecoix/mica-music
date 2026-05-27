@@ -112,7 +112,8 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 播放页沉浸（下半屏） | ✅ | `NowPlayingScreen` | 先冻结间距与底栏起止，再 `lerp` + fade Long |
 | 播放页封面 lerp | ✅ | `NowPlayingScreen` | 单一 `lyricsFocus` 驱动多属性 Long |
 | 切歌擦除 | ✅ | `NowPlayingTrackWipe` | `tweenFloat` Medium |
-| 列表→播放共享元素 | ⏳ | — | 待做；目标：进入上滑 + 共享元素，返回下滑 |
+| 迷你播放器→播放共享封面 | ✅ | `AppNavigation` + `MiniPlayer` + `NowPlayingCoverSection` | 进入/返回用同一封面 overlay lerp；返回与页面下滑同步起跑；特殊封面流主题回退普通转场 |
+| 列表→播放共享元素 | ⏳ | — | 待做；目标：列表项封面作为来源，来源不可见时回退迷你播放器或普通转场 |
 | BottomSheet / 对话框 | ⏳ | Material 默认 | 待对齐 Medium + 统一 expand |
 | 迷你栏展开全屏 | ⏳ | — | 待做 |
 | 歌词行切换 / 双语 | ⏳ | — | 规范建议 Long fade（见 §八） |
@@ -170,7 +171,7 @@ val motionEnabled = rememberMicaMotionEnabled()
 | DESIGN_SPEC（旧） | 现行实现 |
 |-------------------|----------|
 | 页面切换 200ms | 主页/浏览 **320ms**（Medium） |
-| 进入播放页 300ms | Nav 上滑 **320ms**；共享元素未做 |
+| 进入播放页 300ms | Nav 上滑 **320ms**；迷你播放器封面共享元素 **320ms**；列表项来源未做 |
 | 歌词行 400ms | 播放页 chrome **400ms**（Long）；歌词行切换未做 |
 | Tab 下划线 250ms | 若实现，建议改为 **Short 200** 或 **Medium 320** 二选一 |
 | 列表波形 600ms | 保持独立循环，不入 `MicaMotion` token |
@@ -196,3 +197,4 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 日期 | 说明 |
 |------|------|
 | 2026-05 | 初稿：对齐 `MicaMotion`、主页/搜索/浏览/Nav/主题/播放页现状；标注未完成项 |
+| 2026-05 | 补入迷你播放器→播放页封面共享元素第一版；列表项封面来源仍列为待做 |

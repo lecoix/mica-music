@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 data class ScanResult(
     val songs: List<Song>,
     val totalSizeMb: Int,
+    val performanceSummary: String = "",
 )
 
 /**
@@ -30,15 +31,41 @@ object MediaStoreScanner {
     suspend fun scan(
         context: Context,
         options: ScanOptions = ScanOptions(),
+        cachedSongs: List<Song> = emptyList(),
         onProgress: ((done: Int, total: Int) -> Unit)? = null,
     ): ScanResult = withContext(Dispatchers.IO) {
+        val profiler = ScanProfiler("MediaStore")
         AudioMetadataProbe.clearArtCache()
-        val drafts = loadDrafts(context, options)
-        if (drafts.isEmpty()) return@withContext ScanResult(emptyList(), 0)
+        val drafts = profiler.measure("loadDrafts") { loadDrafts(context, options) }
+        if (drafts.isEmpty()) {
+            return@withContext ScanResult(
+                songs = emptyList(),
+                totalSizeMb = 0,
+                performanceSummary = profiler.finish(total = 0, reused = 0, probed = 0),
+            )
+        }
+        val cachedById = cachedSongs.associateBy { it.id }
+        val reused = AtomicInteger(0)
+        val probed = AtomicInteger(0)
 
         val songs = if (!options.deepMetadataProbe) {
             onProgress?.invoke(drafts.size, drafts.size)
-            drafts.map { AudioMetadataProbe.quickSong(context, it) }
+            drafts.map { draft ->
+                draft.reusableCachedSong(
+                    cachedById = cachedById,
+                    requireDirectLyrics = !draft.externalLyricsUri.isNullOrBlank(),
+                    requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
+                )?.also { reused.incrementAndGet() }
+                    ?: profiler.measure("quickSong") {
+                        probed.incrementAndGet()
+                        AudioMetadataProbe.quickSong(
+                            context = context,
+                            draft = draft,
+                            profiler = profiler,
+                            cachedSong = draft.unchangedCachedSong(cachedById),
+                        )
+                    }
+            }
         } else {
             val total = drafts.size
             val done = AtomicInteger(0)
@@ -47,7 +74,22 @@ object MediaStoreScanner {
                 drafts.map { draft ->
                     async {
                         semaphore.withPermit {
-                            val song = AudioMetadataProbe.probeTrack(context, draft)
+                            val song = draft.reusableCachedSong(
+                                cachedById = cachedById,
+                                requireDeepMetadata = true,
+                                requireDirectLyrics = !draft.externalLyricsUri.isNullOrBlank(),
+                                requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
+                            )
+                                ?.also { reused.incrementAndGet() }
+                                ?: profiler.measure("probeTrack") {
+                                    probed.incrementAndGet()
+                                    AudioMetadataProbe.probeTrack(
+                                        context = context,
+                                        draft = draft,
+                                        profiler = profiler,
+                                        cachedSong = draft.unchangedCachedSong(cachedById),
+                                    )
+                                }
                             onProgress?.invoke(done.incrementAndGet(), total)
                             song
                         }
@@ -57,14 +99,21 @@ object MediaStoreScanner {
         }
 
         val totalBytes = drafts.sumOf { it.sizeBytes }
+        val summary = profiler.finish(
+            total = drafts.size,
+            reused = reused.get(),
+            probed = probed.get(),
+        )
         ScanResult(
             songs = songs,
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
+            performanceSummary = summary,
         )
     }
 
     private fun loadDrafts(context: Context, options: ScanOptions): List<TrackDraft> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val lrcByAudioKey = loadLyricsIndex(context)
 
         val baseProjection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -172,12 +221,13 @@ object MediaStoreScanner {
                     }
                     else -> ""
                 }
-                val externalLyricsUri = findExternalLyricsUri(
-                    context = context,
-                    displayName = displayName,
-                    relativePath = relativePath,
-                    absolutePath = filePath,
-                )
+                val externalLyricsUri = displayName
+                    ?.substringBeforeLast('.')
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { baseName ->
+                        lrcByAudioKey[lyricsKey(lyricsFolderPath(relativePath, filePath), baseName)]
+                    }
                 val uri = ContentUris.withAppendedId(collection, id)
 
                 drafts += TrackDraft(
@@ -205,61 +255,67 @@ object MediaStoreScanner {
         return drafts
     }
 
-    private fun findExternalLyricsUri(
-        context: Context,
-        displayName: String?,
-        relativePath: String,
-        absolutePath: String,
-    ): String? = runCatching {
-        val baseName = displayName
-            ?.substringBeforeLast('.')
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: return@runCatching null
-        val lrcName = "$baseName.lrc"
+    private fun loadLyricsIndex(context: Context): Map<String, String> = runCatching {
         val filesUri = MediaStore.Files.getContentUri("external")
         val projection = mutableListOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME,
         )
-        val selectionParts = mutableListOf<String>()
-        val selectionArgs = mutableListOf<String>()
-        selectionParts += "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) = ?"
-        selectionArgs += lrcName.lowercase()
 
         val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Files.FileColumns.RELATIVE_PATH
         } else {
             null
         }
-        if (relativePathColumn != null && relativePath.isNotBlank()) {
+        if (relativePathColumn != null) {
             projection += relativePathColumn
-            selectionParts += "$relativePathColumn = ?"
-            selectionArgs += relativePath
-        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && absolutePath.contains('/')) {
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             @Suppress("DEPRECATION")
             val dataColumn = MediaStore.Files.FileColumns.DATA
             projection += dataColumn
-            selectionParts += "$dataColumn = ?"
-            selectionArgs += "${absolutePath.substringBeforeLast('/')}/$lrcName"
         }
 
+        val out = LinkedHashMap<String, String>()
         context.contentResolver.query(
             filesUri,
             projection.toTypedArray(),
-            selectionParts.joinToString(" AND "),
-            selectionArgs.toTypedArray(),
+            "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?",
+            arrayOf("%.lrc"),
             null,
         )?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val relativePathCol = relativePathColumn?.let { cursor.getColumnIndex(it) } ?: -1
+            @Suppress("DEPRECATION")
+            val dataCol = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                cursor.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+            } else {
+                -1
+            }
             while (cursor.moveToNext()) {
                 val name = cursor.getString(nameCol) ?: continue
-                if (!name.equals(lrcName, ignoreCase = true)) continue
-                return@runCatching ContentUris.withAppendedId(filesUri, cursor.getLong(idCol)).toString()
+                if (!name.endsWith(".lrc", ignoreCase = true)) continue
+                val baseName = name.substringBeforeLast('.').trim()
+                if (baseName.isEmpty()) continue
+                val folderPath = when {
+                    relativePathCol >= 0 -> cursor.getString(relativePathCol).orEmpty()
+                    dataCol >= 0 -> cursor.getString(dataCol).orEmpty().substringBeforeLast('/', "")
+                    else -> ""
+                }
+                val uri = ContentUris.withAppendedId(filesUri, cursor.getLong(idCol)).toString()
+                out[lyricsKey(folderPath, baseName)] = uri
             }
         }
-        null
-    }.getOrNull()
+        out
+    }.getOrDefault(emptyMap())
+
+    private fun lyricsFolderPath(relativePath: String, absolutePath: String): String = when {
+        relativePath.isNotBlank() -> relativePath
+        '/' in absolutePath -> absolutePath.substringBeforeLast('/', "")
+        else -> ""
+    }
+
+    private fun lyricsKey(folderPath: String, baseName: String): String =
+        "${folderPath.trim('/').lowercase()}\u0001${baseName.trim().lowercase()}"
 
 }

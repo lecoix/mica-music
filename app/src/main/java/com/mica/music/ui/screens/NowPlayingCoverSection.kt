@@ -1,5 +1,4 @@
 package com.mica.music.ui.screens
-
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
@@ -41,7 +41,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -62,6 +65,7 @@ import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.measurePlayerCoverFitOriginal
+import com.mica.music.ui.components.resolveCoverAspectRatioFromUri
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.HifiSize
@@ -100,14 +104,15 @@ internal fun NowPlayingCoverSection(
     onCloseLyrics: () -> Unit,
     onToggleCoverFlow: (() -> Unit)?,
     onPlayQueueIndex: (Int) -> Unit,
+    coverContentAlpha: Float = 1f,
+    onCoverBoundsChanged: (Rect?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val screenWidth = maxWidth
         val density = LocalDensity.current
+        val context = LocalContext.current
         val miniHeaderHeight = statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm
-        val coverSize = lerpDp(screenWidth, LyricsFocusMiniCoverSize, lyricsLayoutFocus)
-        val coverStartPadding = lerpDp(0.dp, LyricsFocusCoverStartPadding, lyricsLayoutFocus)
         val coverTopPadding = lerpDp(0.dp, statusBarTop, lyricsLayoutFocus)
         val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
             lyricsLayoutFocus < 0.5f
@@ -149,7 +154,30 @@ internal fun NowPlayingCoverSection(
             previousIndex = currentIndex
         }
 
-        var coverAspectRatio by remember { mutableFloatStateOf(1f) }
+        val initialCoverAspectRatio = remember(context, activeSong.albumArtUri) {
+            resolveCoverAspectRatioFromUri(context, activeSong.albumArtUri) ?: 1f
+        }
+        var coverAspectRatio by remember(activeSong.albumArtUri) {
+            mutableFloatStateOf(initialCoverAspectRatio)
+        }
+        var pendingCoverAspectRatio by remember(activeSong.albumArtUri) {
+            mutableStateOf<Float?>(null)
+        }
+        val lyricsFocusActive = lyricsExpanded || lyricsLayoutFocus > 0.001f
+        val onCoverAspectRatioChanged: (Float) -> Unit = { ratio ->
+            if (lyricsFocusActive) {
+                pendingCoverAspectRatio = ratio
+            } else {
+                coverAspectRatio = ratio
+            }
+        }
+        LaunchedEffect(lyricsFocusActive, pendingCoverAspectRatio) {
+            val pending = pendingCoverAspectRatio
+            if (!lyricsFocusActive && pending != null) {
+                coverAspectRatio = pending
+                pendingCoverAspectRatio = null
+            }
+        }
         val coverDisplayMode = LocalCoverDisplayMode.current
         val effectiveCoverDisplayMode = if (coverFlowModeEnabled) {
             CoverDisplayMode.CROP_FILL
@@ -157,17 +185,27 @@ internal fun NowPlayingCoverSection(
             coverDisplayMode
         }
         val fitOriginal = effectiveCoverDisplayMode == CoverDisplayMode.FIT_ORIGINAL
-        val (coverWidth, coverHeight) = if (fitOriginal) {
-            val (intrinsicW, intrinsicH) = measurePlayerCoverFitOriginal(
+        val (expandedCoverWidth, expandedCoverHeight) = if (fitOriginal) {
+            measurePlayerCoverFitOriginal(
                 coverAspectRatio,
                 screenWidth,
                 screenHeight,
             )
-            lerpDp(intrinsicW, LyricsFocusMiniCoverSize, lyricsLayoutFocus) to
-                lerpDp(intrinsicH, LyricsFocusMiniCoverSize, lyricsLayoutFocus)
         } else {
-            coverSize to coverSize
+            screenWidth to screenWidth
         }
+        val coverWidth = lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, lyricsLayoutFocus)
+        val coverHeight = lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsLayoutFocus)
+        val expandedCoverStartPadding = if (fitOriginal) {
+            Dp(((screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
+        } else {
+            0.dp
+        }
+        val coverStartPadding = lerpDp(
+            expandedCoverStartPadding,
+            LyricsFocusCoverStartPadding,
+            lyricsLayoutFocus,
+        )
         val coverBlockHeight = lerpDp(
             coverHeight + coverTopPadding,
             miniHeaderHeight,
@@ -191,11 +229,13 @@ internal fun NowPlayingCoverSection(
                     modifier = Modifier
                         .padding(start = coverStartPadding, top = coverTopPadding)
                         .size(coverWidth, coverHeight)
+                        .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
                         .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onToggleCoverFlow)),
                 ) {
                     Box(
                         modifier = Modifier
                             .matchParentSize()
+                            .graphicsLayer { alpha = coverContentAlpha }
                             .zIndex(1f),
                     ) {
                         if (coverFlowModeEnabled && stageActive) {
@@ -217,7 +257,7 @@ internal fun NowPlayingCoverSection(
                                 coverFlowMode = coverFlowMode,
                                 activeSongId = activeSong.id,
                                 letterboxAlpha = letterboxAlpha,
-                                onAspectRatioChanged = { coverAspectRatio = it },
+                                onAspectRatioChanged = onCoverAspectRatioChanged,
                                 onPlayQueueIndex = onPlayQueueIndex,
                             )
                         } else {
@@ -228,7 +268,7 @@ internal fun NowPlayingCoverSection(
                                 modifier = Modifier.matchParentSize(),
                                 letterboxAlpha = letterboxAlpha,
                                 crossfadeMillis = 0,
-                                onAspectRatioChanged = { coverAspectRatio = it },
+                                onAspectRatioChanged = onCoverAspectRatioChanged,
                             )
                         }
                         if (!stageActive && coverEdgeFade) {

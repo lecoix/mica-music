@@ -25,6 +25,8 @@ import com.mica.music.ui.components.PlayerProgressBarSection
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.PlayerContentColors
 
+private val CoverEdgeChromeProgressSlide = HifiSpacing.lg
+
 @Composable
 internal fun PlayerLowerPanelChrome(
     playerController: PlayerController,
@@ -49,6 +51,9 @@ internal fun PlayerLowerPanelChrome(
     val settledOnPlay = lyricsLayoutFocus <= PlayerLowerPanelProgressEpsilon
     val density = LocalDensity.current
     val spectrumAlpha = (1f - lyricsLayoutFocus).coerceIn(0f, 1f)
+    val transitionProgressSlidePx = with(density) {
+        CoverEdgeChromeProgressSlide.toPx() * (1f - lyricsLayoutFocus.coerceIn(0f, 1f))
+    }
 
     val controlsModifier = Modifier
         .fillMaxWidth()
@@ -78,7 +83,10 @@ internal fun PlayerLowerPanelChrome(
                     Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .graphicsLayer { alpha = chromeProgressAlpha },
+                        .graphicsLayer {
+                            alpha = chromeProgressAlpha
+                            translationY = transitionProgressSlidePx
+                        },
                 ) {
                     Column(
                         Modifier

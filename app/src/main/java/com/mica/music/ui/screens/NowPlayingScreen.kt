@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,8 @@ fun NowPlayingScreen(
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
+    coverContentAlpha: Float = 1f,
+    onCoverBoundsChanged: (Rect?) -> Unit = {},
 ) {
     val song = playerController.currentSong
     if (song == null) {
@@ -58,6 +61,10 @@ fun NowPlayingScreen(
 
     var queueSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(song.id) {
+        lyricsExpanded = false
+    }
 
     NowPlayingTrackWipe(
         targetSong = song,
@@ -188,6 +195,12 @@ fun NowPlayingScreen(
                     onToggleCoverFlow = null,
                     onPlayQueueIndex = {
                         playerController.playSong(it)
+                    },
+                    coverContentAlpha = coverContentAlpha,
+                    onCoverBoundsChanged = { bounds ->
+                        if (activeSong.id == playerController.currentSong?.id) {
+                            onCoverBoundsChanged(bounds)
+                        }
                     },
                 )
 

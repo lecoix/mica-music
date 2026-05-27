@@ -54,12 +54,28 @@ private data class TagInfo(
 object AudioMetadataProbe {
 
     private val albumArtCache = ConcurrentHashMap<String, String?>()
+    private val mp4CopyrightMarkers = listOf(
+        "cprt".toByteArray(Charsets.US_ASCII),
+    )
+    private val retrieverLyricsKeys = listOf(
+        "lyrics",
+        "LYRICS",
+        "unsyncedlyrics",
+        "UNSYNCEDLYRICS",
+        "UNSYNCED LYRICS",
+        "description",
+    )
 
     fun clearArtCache() {
         albumArtCache.clear()
     }
 
-    internal fun quickSong(context: Context, draft: TrackDraft): Song {
+    internal fun quickSong(
+        context: Context,
+        draft: TrackDraft,
+        profiler: ScanProfiler? = null,
+        cachedSong: Song? = null,
+    ): Song {
         val metadata = TrackMetadata.fallback(
             mimeType = draft.mimeType,
             bitrateBpsFromStore = draft.bitrateBpsFromStore,
@@ -68,34 +84,52 @@ object AudioMetadataProbe {
         )
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
-        val lyrics = EmbeddedLyricsReader.read(
-            appCtx,
-            uri,
-            draft.mimeType,
-            draft.displayName,
-            draft.filePath,
-            draft.externalLyricsParent,
-            draft.externalLyricsUri,
-        )
-        val albumArtUri = resolveAlbumArtFromStoreOnly(context, draft.albumId)
-        val coverArgb = resolveCoverColor(appCtx, null, uri, draft.albumId, albumArtUri)
+        val lyricDraft = draft.copy(mimeType = metadata.playbackMimeType.ifBlank { draft.mimeType })
+        val lyrics = profiler.measureOptional("lyrics") {
+            readScanLyrics(
+                appCtx,
+                lyricDraft,
+                cachedSong,
+            )
+        }
+        val copyright = profiler.measureOptional("copyright") {
+            readCopyright(appCtx, uri, lyricDraft)
+        }
+        val albumArtUri = profiler.measureOptional("albumArt") {
+            resolveAlbumArtFromStoreOnly(context, draft.albumId)
+        }
+        val coverArgb = profiler.measureOptional("coverColor") {
+            resolveCoverColor(appCtx, null, uri, draft.albumId, albumArtUri)
+        }
             ?: draft.coverColorArgb
         return draft.copy(coverColorArgb = coverArgb).toSong(
             appCtx,
             metadata,
             albumArtUri = albumArtUri,
             lyrics = lyrics,
+            copyrightOverride = copyright,
         )
     }
 
-    internal fun probeTrack(context: Context, draft: TrackDraft): Song {
+    internal fun probeTrack(
+        context: Context,
+        draft: TrackDraft,
+        profiler: ScanProfiler? = null,
+        cachedSong: Song? = null,
+    ): Song {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
-        val trackProbe = AudioTrackProbe.probe(appCtx, uri, draft.mimeType, draft.displayName)
+        val trackProbe = profiler.measureOptional("mediaExtractor") {
+            AudioTrackProbe.probe(appCtx, uri, draft.mimeType, draft.displayName)
+        }
         val retriever = MediaMetadataRetriever()
         return try {
-            setRetrieverDataSource(retriever, appCtx, uri)
-            val tags = readTags(retriever, draft)
+            profiler.measureOptional("retriever.setDataSource") {
+                setRetrieverDataSource(retriever, appCtx, uri)
+            }
+            val tags = profiler.measureOptional("retriever.tags") {
+                readTags(retriever, draft)
+            }
             val enriched = draft.copy(
                 title = tags.title,
                 artist = tags.artist,
@@ -103,27 +137,38 @@ object AudioMetadataProbe {
                 durationSec = tags.durationSec,
                 year = tags.year,
             )
-            val metadata = readMetadata(retriever, enriched, trackProbe, tags.durationSec)
-            val encoderSettings = EncoderSettingsReader.read(appCtx, uri, retriever)
+            val metadata = profiler.measureOptional("retriever.metadata") {
+                readMetadata(retriever, enriched, trackProbe, tags.durationSec)
+            }
+            val copyright = tags.copyright.ifBlank {
+                profiler.measureOptional("copyright") {
+                    readCopyright(
+                        appCtx,
+                        uri,
+                        enriched.copy(mimeType = metadata.playbackMimeType.ifBlank { enriched.mimeType }),
+                    )
+                }
+            }
             val withMeta = enriched.copy(
                 albumArtist = tags.albumArtist,
-                copyright = tags.copyright,
-                codecLabel = encoderSettings.ifBlank {
-                    trackProbe?.trackMime ?: metadata.playbackMimeType
-                },
+                copyright = copyright,
+                codecLabel = trackProbe?.trackMime ?: metadata.playbackMimeType,
             )
             val artKey = artCacheKey(withMeta)
-            val albumArtUri = resolveAlbumArt(appCtx, retriever, artKey, withMeta.albumId, uri)
-            val lyrics = EmbeddedLyricsReader.read(
-                appCtx,
-                uri,
-                withMeta.mimeType,
-                withMeta.displayName,
-                withMeta.filePath,
-                withMeta.externalLyricsParent,
-                withMeta.externalLyricsUri,
-            )
-            val coverArgb = resolveCoverColor(appCtx, retriever, uri, withMeta.albumId, albumArtUri)
+            val albumArtUri = profiler.measureOptional("albumArt") {
+                resolveAlbumArt(appCtx, retriever, artKey, withMeta.albumId, uri)
+            }
+            val lyrics = profiler.measureOptional("lyrics") {
+                readScanLyrics(
+                    appCtx,
+                    withMeta.copy(mimeType = metadata.playbackMimeType.ifBlank { withMeta.mimeType }),
+                    cachedSong,
+                    retriever,
+                )
+            }
+            val coverArgb = profiler.measureOptional("coverColor") {
+                resolveCoverColor(appCtx, retriever, uri, withMeta.albumId, albumArtUri)
+            }
                 ?: withMeta.coverColorArgb
             withMeta.copy(coverColorArgb = coverArgb).toSong(appCtx, metadata, albumArtUri, lyrics)
         } catch (_: Exception) {
@@ -145,24 +190,87 @@ object AudioMetadataProbe {
                     mediaUri = draft.mediaUri,
                 )
             }
-            val lyrics = EmbeddedLyricsReader.read(
-                appCtx,
-                uri,
-                draft.mimeType,
-                draft.displayName,
-                draft.filePath,
-                draft.externalLyricsParent,
-                draft.externalLyricsUri,
-            )
+            val lyricDraft = draft.copy(mimeType = metadata.playbackMimeType.ifBlank { draft.mimeType })
+            val lyrics = profiler.measureOptional("lyrics") {
+                readScanLyrics(
+                    appCtx,
+                    lyricDraft,
+                    cachedSong,
+                )
+            }
+            val copyright = profiler.measureOptional("copyright") {
+                readCopyright(appCtx, uri, lyricDraft)
+            }
             draft.toSong(
                 appCtx,
                 metadata,
-                albumArtUri = resolveAlbumArtFromStoreOnly(appCtx, draft.albumId),
+                albumArtUri = profiler.measureOptional("albumArt") {
+                    resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
+                },
                 lyrics = lyrics,
+                copyrightOverride = copyright,
             )
         } finally {
             runCatching { retriever.release() }
         }
+    }
+
+    private fun <T> ScanProfiler?.measureOptional(stage: String, block: () -> T): T =
+        this?.measure(stage, block) ?: block()
+
+    private fun readScanLyrics(
+        context: Context,
+        draft: TrackDraft,
+        cachedSong: Song?,
+        retriever: MediaMetadataRetriever? = null,
+    ): List<com.mica.music.data.LyricLine> {
+        cachedSong?.lyrics?.takeIf { it.isNotEmpty() }?.let { return it }
+        ExternalLyricsReader.readDirectUri(context, draft.externalLyricsUri)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        retriever?.let { readRetrieverLyrics(it) }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        val embedded = EmbeddedLyricsReader.readFastEmbeddedOnly(
+            context = context,
+            uri = Uri.parse(draft.mediaUri),
+            mimeType = draft.mimeType,
+            displayName = draft.displayName,
+        )
+        return embedded
+    }
+
+    private fun readRetrieverLyrics(retriever: MediaMetadataRetriever): List<com.mica.music.data.LyricLine>? {
+        val candidates = mutableListOf<List<com.mica.music.data.LyricLine>>()
+        for (key in retrieverLyricsKeys) {
+            extractMetadataString(retriever, key)
+                ?.let { MetadataTextFix.normalize(it) }
+                ?.let { parseLyricsTextForScan(it) }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { candidates += it }
+        }
+        return LyricsSanitizer.pickBest(candidates)
+    }
+
+    private fun readCopyright(context: Context, uri: Uri, draft: TrackDraft): String {
+        if (!draft.mayContainMp4EmbeddedLyrics()) return ""
+        val bytes = AudioProbeBytes.readFastForLyrics(
+            context = context,
+            uri = uri,
+            mimeType = draft.mimeType,
+            displayName = draft.displayName,
+        ) ?: return ""
+        return Mp4AtomTextReader.read(bytes, mp4CopyrightMarkers)
+            ?.let { MetadataTextFix.normalize(it) }
+            ?.takeIf { it.isNotBlank() }
+            .orEmpty()
+    }
+
+    private fun parseLyricsTextForScan(raw: String): List<com.mica.music.data.LyricLine>? {
+        if (raw.isBlank()) return null
+        LyricsSanitizer.parseFiltered(raw).takeIf { it.isNotEmpty() }?.let { return it }
+        LyricsSanitizer.finalize(LrcParser.parse(raw)).takeIf { it.isNotEmpty() }?.let { return it }
+        return LyricsSanitizer.finalizeRelaxed(raw)
     }
 
     /** [MediaMetadataRetriever.extractMetadata] 的字符串 key 在部分 SDK 绑定中不可用，用反射读取。 */
@@ -388,6 +496,7 @@ object AudioMetadataProbe {
         metadata: TrackMetadata,
         albumArtUri: String?,
         lyrics: List<com.mica.music.data.LyricLine> = emptyList(),
+        copyrightOverride: String = "",
     ): Song {
         val id = if (mediaStoreId > 0) "ms_$mediaStoreId" else "doc_${mediaUri.hashCode()}"
         val cachedAlac = if (metadata.containerName == "ALAC") {
@@ -412,7 +521,7 @@ object AudioMetadataProbe {
             year = year,
             folderPath = folderPath,
             filePath = filePath,
-            copyright = copyright,
+            copyright = copyrightOverride.ifBlank { copyright },
             codecLabel = codecLabel,
             dateAddedMs = dateAddedMs,
             dateModifiedMs = dateModifiedMs,

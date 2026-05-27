@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -84,7 +85,9 @@ fun NowPlayingTrackWipe(
                 .fillMaxSize()
                 .trackWipeClip(seamFraction, wipeDirection, isIncomingLayer = true),
         ) {
-            content(incomingSong)
+            key(incomingSong.id) {
+                content(incomingSong)
+            }
         }
         val outgoing = outgoingSong
         if (wiping && outgoing != null) {
@@ -93,7 +96,9 @@ fun NowPlayingTrackWipe(
                     .fillMaxSize()
                     .trackWipeClip(seamFraction, wipeDirection, isIncomingLayer = false),
             ) {
-                content(outgoing)
+                key(outgoing.id) {
+                    content(outgoing)
+                }
             }
         }
     }

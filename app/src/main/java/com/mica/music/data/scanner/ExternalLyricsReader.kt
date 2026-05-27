@@ -11,6 +11,9 @@ import java.io.File
  */
 internal object ExternalLyricsReader {
 
+    fun readDirectUri(context: Context, uriString: String?): List<LyricLine>? =
+        readLrcByUri(context, uriString)
+
     fun read(
         context: Context,
         uri: Uri,

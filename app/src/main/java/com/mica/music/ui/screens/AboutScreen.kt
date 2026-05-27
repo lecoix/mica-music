@@ -68,7 +68,7 @@ fun AboutScreen(
             AboutHero()
 
             SettingsSectionTitle("版本")
-            AboutInfoRow(title = "Mica Music", subtitle = "0.1.1 beta")
+            AboutInfoRow(title = "Mica Music", subtitle = "0.1.2 beta")
             AboutInfoRow(title = "平台", subtitle = "Android · arm64-v8a")
             AboutInfoRow(title = "播放链路", subtitle = "Media3 / FFmpeg / AudioTrack")
 

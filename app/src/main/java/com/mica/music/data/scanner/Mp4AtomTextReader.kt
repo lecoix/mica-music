@@ -54,8 +54,8 @@ internal object Mp4AtomTextReader {
         val payloadStart = dataTypeOffset + 4
         val payloadLen = atomSize - 8
         if (payloadLen <= 4 || payloadStart + payloadLen > bytes.size) return null
-        val textStart = payloadStart + 4
-        val textLen = payloadLen - 4
+        val textStart = payloadStart + 8
+        val textLen = payloadLen - 8
         if (textLen <= 0 || textStart + textLen > bytes.size) return null
         return LyricsEncoding.decodeBytes(bytes.copyOfRange(textStart, textStart + textLen))
     }

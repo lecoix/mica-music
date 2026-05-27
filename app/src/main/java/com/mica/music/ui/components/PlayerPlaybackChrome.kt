@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.RepeatOne
@@ -70,13 +69,13 @@ internal fun PlayerProgressBarSection(
     spectrumAlpha: Float = 1f,
     spectrumHeight: Dp = 56.dp,
 ) {
-    val showSpectrum = spectrumEnabled && spectrumAlpha > 0.01f
+    val spectrumProgress = spectrumAlpha.coerceIn(0f, 1f)
+    val showSpectrum = spectrumEnabled && spectrumProgress > 0.01f
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (showSpectrum) spectrumHeight else 32.dp)
-                .clipToBounds(),
+                .height(32.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
             if (showSpectrum) {
@@ -84,8 +83,8 @@ internal fun PlayerProgressBarSection(
                     enabled = true,
                     isPlaying = spectrumPlaying,
                     colors = colors,
-                    height = spectrumHeight * spectrumAlpha,
-                    alpha = spectrumAlpha,
+                    height = spectrumHeight * spectrumProgress,
+                    alpha = spectrumProgress,
                     modifier = Modifier.graphicsLayer {
                         translationY = -15.dp.toPx()
                     },

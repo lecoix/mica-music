@@ -21,6 +21,16 @@ internal object EmbeddedLyricsReader {
     /** 同一标签内多帧时按此顺序取歌词。 */
     private val lyricFramePriority = listOf("USLT", "ULT", "LYR", "SYLT", "TXXX")
 
+    fun readExternalOnly(
+        context: Context,
+        uri: Uri,
+        displayName: String?,
+        filePath: String = "",
+        externalLyricsParent: DocumentFile? = null,
+        externalLyricsUri: String? = null,
+    ): List<LyricLine> =
+        ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUri)
+
     fun read(
         context: Context,
         uri: Uri,
@@ -50,6 +60,23 @@ internal object EmbeddedLyricsReader {
             best = pickBestLyricsCandidate(candidates)
         }
         return best ?: emptyList()
+    }
+
+    fun readFastEmbeddedOnly(
+        context: Context,
+        uri: Uri,
+        mimeType: String?,
+        displayName: String?,
+    ): List<LyricLine> {
+        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        val mime = mimeType.orEmpty().lowercase()
+        val bytes = AudioProbeBytes.readFastForLyrics(
+            context = context,
+            uri = uri,
+            mimeType = mime,
+            displayName = displayName,
+        ) ?: return emptyList()
+        return readFromBinary(bytes, mime, ext).orEmpty()
     }
 
     private fun pickBestLyricsCandidate(candidates: List<List<LyricLine>>): List<LyricLine>? =
@@ -149,7 +176,7 @@ internal object EmbeddedLyricsReader {
         parseId3(bytes)?.let { candidates += it }
         parseFlac(bytes)?.let { candidates += it }
         parseApe(bytes)?.let { candidates += it }
-        if (mime.contains("mp4") || ext in setOf("m4a", "m4b", "mp4", "aac")) {
+        if (mime.contains("mp4") || mime.contains("alac") || ext in setOf("m4a", "m4b", "mp4", "aac", "alac")) {
             Mp4LyricsReader.read(bytes)?.let { parseLyricsText(it) }?.let { candidates += it }
         }
         return LyricsSanitizer.pickBest(candidates)

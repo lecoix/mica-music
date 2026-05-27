@@ -234,6 +234,27 @@ internal object AudioProbeBytes {
     fun readForLyrics(context: Context, uri: Uri): ByteArray? =
         readBytes(context, uri, headBytes = 8 * 1024 * 1024, tailBytes = 16 * 1024 * 1024)
 
+    fun readFastForLyrics(
+        context: Context,
+        uri: Uri,
+        mimeType: String,
+        displayName: String?,
+    ): ByteArray? {
+        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        val mime = mimeType.lowercase()
+        return when {
+            ext == "mp3" || mime.contains("mpeg") -> readId3Tag(context, uri)
+            ext == "flac" || mime.contains("flac") -> readHead(context, uri, 4 * 1024 * 1024)
+            ext == "ape" -> readTail(context, uri, 2 * 1024 * 1024)
+            ext in setOf("m4a", "m4b", "mp4", "aac", "alac") || mime.contains("mp4") -> {
+                readMp4Moov(context, uri)
+                    ?: readHeadAndTail(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 4 * 1024 * 1024)
+            }
+            else -> readId3Tag(context, uri)
+                ?: readHeadAndTail(context, uri, headBytes = 512 * 1024, tailBytes = 512 * 1024)
+        }
+    }
+
     private fun readBytes(
         context: Context,
         uri: Uri,
@@ -252,6 +273,77 @@ internal object AudioProbeBytes {
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
         }.getOrNull()
 
+    private fun readId3Tag(context: Context, uri: Uri): ByteArray? =
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val header = input.readNBytes(10)
+                if (header.size < 10 || !Id3Binary.isId3Header(header, 0)) return@use null
+                val tagSize = Id3Binary.synchsafeSize(header, 6)
+                val totalSize = (tagSize + 10).coerceAtMost(4 * 1024 * 1024)
+                header + input.readNBytes(totalSize - header.size)
+            }
+        }.getOrNull()
+
+    private fun readHead(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readNBytes(maxBytes) }
+        }.getOrNull()
+
+    private fun readTail(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
+        runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                val size = pfd.statSize
+                if (size <= 0L) return@use null
+                val tailLen = maxBytes.toLong().coerceAtMost(size).toInt()
+                java.io.FileInputStream(pfd.fileDescriptor).use { fis ->
+                    if (size > tailLen) fis.skipFully(size - tailLen)
+                    fis.readNBytes(tailLen)
+                }
+            }
+        }.getOrNull()
+
+    private fun readMp4Moov(context: Context, uri: Uri): ByteArray? =
+        runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                java.io.FileInputStream(pfd.fileDescriptor).use { fis ->
+                    val channel = fis.channel
+                    val fileSize = pfd.statSize.takeIf { it > 0L } ?: channel.size()
+                    if (fileSize <= 0L) return@use null
+                    var offset = 0L
+                    while (offset + 8 <= fileSize) {
+                        val header = channel.readAt(offset, 16) ?: return@use null
+                        if (header.size < 8) return@use null
+                        val boxSize32 = header.readUInt32Be(0)
+                        val type = String(header, 4, 4, Charsets.US_ASCII)
+                        val headerSize: Long
+                        val boxSize: Long
+                        when (boxSize32) {
+                            0L -> {
+                                headerSize = 8L
+                                boxSize = fileSize - offset
+                            }
+                            1L -> {
+                                if (header.size < 16) return@use null
+                                headerSize = 16L
+                                boxSize = header.readUInt64Be(8)
+                            }
+                            else -> {
+                                headerSize = 8L
+                                boxSize = boxSize32
+                            }
+                        }
+                        if (boxSize < headerSize) return@use null
+                        if (type == "moov") {
+                            val safeSize = boxSize.coerceAtMost(16L * 1024L * 1024L).toInt()
+                            return@use channel.readAt(offset, safeSize)
+                        }
+                        offset += boxSize
+                    }
+                    null
+                }
+            }
+        }.getOrNull()
+
     private fun readHeadAndTail(context: Context, uri: Uri, headBytes: Int, tailBytes: Int): ByteArray? =
         runCatching {
             val head = context.contentResolver.openInputStream(uri)?.use { it.readNBytes(headBytes) }
@@ -260,12 +352,54 @@ internal object AudioProbeBytes {
                 val size = pfd.statSize
                 val tailLen = tailBytes.toLong().coerceAtMost(size).toInt()
                 java.io.FileInputStream(pfd.fileDescriptor).use { fis ->
-                    if (size > tailLen) fis.skip(size - tailLen)
+                    if (size > tailLen) fis.skipFully(size - tailLen)
                     fis.readNBytes(tailLen)
                 }
             } ?: return@runCatching null
             head + tail
         }.getOrNull()
+
+    private fun java.io.InputStream.skipFully(bytes: Long) {
+        var remaining = bytes
+        while (remaining > 0L) {
+            val skipped = skip(remaining)
+            if (skipped <= 0L) {
+                if (read() < 0) break
+                remaining--
+            } else {
+                remaining -= skipped
+            }
+        }
+    }
+
+    private fun java.nio.channels.FileChannel.readAt(offset: Long, byteCount: Int): ByteArray? {
+        val buffer = java.nio.ByteBuffer.allocate(byteCount)
+        position(offset)
+        while (buffer.hasRemaining()) {
+            val read = read(buffer)
+            if (read < 0) break
+        }
+        val size = buffer.position()
+        if (size <= 0) return null
+        return buffer.array().copyOf(size)
+    }
+
+    private fun ByteArray.readUInt32Be(offset: Int): Long {
+        if (offset + 4 > size) return 0L
+        return ((this[offset].toLong() and 0xFF) shl 24) or
+            ((this[offset + 1].toLong() and 0xFF) shl 16) or
+            ((this[offset + 2].toLong() and 0xFF) shl 8) or
+            (this[offset + 3].toLong() and 0xFF)
+    }
+
+    private fun ByteArray.readUInt64Be(offset: Int): Long {
+        if (offset + 8 > size) return 0L
+        var value = 0L
+        for (i in 0 until 8) {
+            value = (value shl 8) or (this[offset + i].toLong() and 0xFF)
+        }
+        return value
+    }
 }
 
 internal object Id3Binary {

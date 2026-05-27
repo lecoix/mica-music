@@ -30,6 +30,8 @@ import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.PlayerContentColors
 
+private const val CoverEdgeChromeProgressFadeEnd = 0.18f
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PlayerLowerPanelSection(
@@ -77,7 +79,14 @@ internal fun PlayerLowerPanelSection(
     val chromeProgressAlpha = when {
         !useCoverEdgeProgress -> 1f
         coverEdgeOnPlaySurface -> 0f
-        else -> ((lyricsChromeFade - 0.16f) / 0.84f).coerceIn(0f, 1f)
+        else -> {
+            val transitionProgress = if (lyricsExpanded) {
+                maxOf(lyricsChromeFade, lyricsLayoutFocus)
+            } else {
+                minOf(lyricsChromeFade, lyricsLayoutFocus)
+            }
+            (transitionProgress / CoverEdgeChromeProgressFadeEnd).coerceIn(0f, 1f)
+        }
     }
 
     Column(

@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -39,6 +41,8 @@ fun SongCover(
     letterboxAlpha: Float = 1f,
     /** Coil 加载 crossfade；同一 URI 布局动画时宜为 0，避免切换分支时闪一下。 */
     crossfadeMillis: Int = 200,
+    drawBackdropWhileLoading: Boolean = true,
+    onImageReady: () -> Unit = {},
 ) {
     val displayMode = LocalCoverDisplayMode.current
     val resolvedScale = contentScale ?: when (displayMode) {
@@ -70,7 +74,18 @@ fun SongCover(
         CoverDisplayMode.FIT_ORIGINAL ->
             HifiPalette.CoverFitLetterbox.copy(alpha = letterboxAlpha.coerceIn(0f, 1f))
     }
-    Box(modifier = layoutModifier.background(backdropColor)) {
+    var imageReady by remember(albumArtUri) { mutableStateOf(albumArtUri.isNullOrBlank()) }
+    LaunchedEffect(albumArtUri, imageReady) {
+        if (imageReady) {
+            onImageReady()
+        }
+    }
+    val effectiveBackdropColor = if (drawBackdropWhileLoading || imageReady) {
+        backdropColor
+    } else {
+        Color.Transparent
+    }
+    Box(modifier = layoutModifier.background(effectiveBackdropColor)) {
         if (!albumArtUri.isNullOrBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
@@ -81,9 +96,11 @@ fun SongCover(
                 contentScale = resolvedScale,
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
-                    if (!allowIntrinsicBounds && onAspectRatioChanged == null) return@AsyncImage
+                    imageReady = true
                     val size = state.painter.intrinsicSize
                     val ratio = coerceCoverAspectRatio(size.width, size.height)
+                    cacheCoverAspectRatio(albumArtUri, ratio)
+                    if (!allowIntrinsicBounds && onAspectRatioChanged == null) return@AsyncImage
                     if (allowIntrinsicBounds && ratio != aspectRatio) {
                         aspectRatio = ratio
                     }

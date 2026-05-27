@@ -13,6 +13,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
@@ -58,6 +60,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -74,6 +77,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.LifecycleEventObserver
 import com.mica.music.R
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
@@ -169,6 +173,8 @@ fun HomeScreen(
     onOpenEqualizer: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenSongDetail: (String) -> Unit,
+    miniPlayerCoverAlpha: Float = 1f,
+    onMiniPlayerCoverBoundsChanged: (Rect?) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     var drawerOpen by remember { mutableStateOf(false) }
@@ -679,21 +685,46 @@ fun HomeScreen(
 
         }
 
-        currentSong?.let { song ->
-            val durationMs = (playerController.durationSec.coerceAtLeast(song.durationSec) * 1000)
-                .coerceAtLeast(1)
-            MiniPlayer(
-                style = miniPlayerStyle,
-                song = song,
-                isPlaying = playerController.isPlaying,
-                positionMs = playerController.positionMs,
-                durationMs = durationMs,
-                onPlayPause = { playerController.togglePlay() },
-                onNext = { playerController.next() },
-                onExpand = onMiniPlayerExpand,
-                onLongPress = ::locateCurrentSongInLibrary,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+        var miniPlayerSongSnapshot by remember { mutableStateOf<Song?>(null) }
+        LaunchedEffect(currentSong) {
+            currentSong?.let { miniPlayerSongSnapshot = it }
+        }
+        val miniPlayerEnter = if (miniPlayerStyle == MiniPlayerStyle.AUDIOPHILE) {
+            fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs)) +
+                slideInVertically(MicaMotion.tweenIntOffset(motionEnabled, MicaMotion.DurationShortMs)) { it }
+        } else {
+            fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs))
+        }
+        val miniPlayerExit = if (miniPlayerStyle == MiniPlayerStyle.AUDIOPHILE) {
+            fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs)) +
+                slideOutVertically(MicaMotion.tweenIntOffset(motionEnabled, MicaMotion.DurationShortMs)) { it }
+        } else {
+            fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs))
+        }
+        AnimatedVisibility(
+            visible = currentSong != null,
+            enter = miniPlayerEnter,
+            exit = miniPlayerExit,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            (currentSong ?: miniPlayerSongSnapshot)?.let { song ->
+                val durationMs = (playerController.durationSec.coerceAtLeast(song.durationSec) * 1000)
+                    .coerceAtLeast(1)
+                MiniPlayer(
+                    style = miniPlayerStyle,
+                    song = song,
+                    isPlaying = playerController.isPlaying,
+                    positionMs = playerController.positionMs,
+                    durationMs = durationMs,
+                    onPlayPause = { playerController.togglePlay() },
+                    onNext = { playerController.next() },
+                    onExpand = onMiniPlayerExpand,
+                    onLongPress = ::locateCurrentSongInLibrary,
+                    coverAlpha = miniPlayerCoverAlpha,
+                    onCoverBoundsChanged = onMiniPlayerCoverBoundsChanged,
+                    modifier = Modifier,
+                )
+            }
         }
 
         SnackbarHost(

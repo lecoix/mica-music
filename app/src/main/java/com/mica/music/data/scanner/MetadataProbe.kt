@@ -52,7 +52,16 @@ object MetadataProbe {
             appendId3Frames(out, bytes)
             appendRawTags(out, bytes)
             appendVorbisComments(out, bytes)
-            appendMp4Lyrics(out, bytes)
+            appendMp4Lyrics(out, bytes, "MP4/M4A window")
+        }
+        val fastBytes = AudioProbeBytes.readFastForLyrics(
+            context = context,
+            uri = uri,
+            mimeType = song.metadata.playbackMimeType,
+            displayName = song.fileName,
+        )
+        if (fastBytes != null) {
+            appendMp4Lyrics(out, fastBytes, "MP4/M4A fast")
         }
         appendDerived(out, context, uri)
         out.sortedWith(compareBy({ it.group }, { it.key }))
@@ -167,16 +176,30 @@ object MetadataProbe {
         }
     }
 
-    private fun appendMp4Lyrics(out: MutableList<MetadataEntry>, bytes: ByteArray) {
+    private fun appendMp4Lyrics(out: MutableList<MetadataEntry>, bytes: ByteArray, group: String) {
         val text = Mp4LyricsReader.read(bytes)
-        out += entry("MP4/M4A", "©ly (Mp4LyricsReader)", text?.take(500) ?: "—")
+        Mp4LyricsReader.listIlstItems(bytes).take(80).forEachIndexed { index, item ->
+            out += entry(
+                group,
+                "ilst[$index] ${item.key}",
+                item.valuePreview.ifBlank { "-" },
+            )
+        }
+        Mp4LyricsReader.scanTextDataAtoms(bytes).take(80).forEachIndexed { index, item ->
+            out += entry(
+                group,
+                "textData[$index] ${item.key}",
+                item.valuePreview.ifBlank { "-" },
+            )
+        }
+        out += entry(group, "lyrics (Mp4LyricsReader)", text?.take(500) ?: "-")
         val tool = Mp4AtomTextReader.read(
             bytes,
             listOf(
                 byteArrayOf(0xA9.toByte(), 't'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte()),
             ),
         )
-        out += entry("MP4/M4A", "©too (encoding tool)", tool?.take(500) ?: "—")
+        out += entry(group, "tool (encoding tool)", tool?.take(500) ?: "-")
     }
 
     private fun retrieverMetadataKeys(): List<String> {
