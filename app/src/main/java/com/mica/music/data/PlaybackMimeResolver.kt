@@ -53,6 +53,8 @@ object PlaybackMimeResolver {
             "opus" -> MimeTypes.AUDIO_OPUS
             "wma" -> "audio/x-ms-wma"
             "alac" -> "audio/alac"
+            "dsf" -> "audio/x-dsf"
+            "dff", "dsdiff" -> "audio/x-dsdiff"
             else -> null
         }
     }
@@ -63,6 +65,8 @@ object PlaybackMimeResolver {
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         return when {
             ext in setOf("m4a", "m4b", "m4p", "mp4", "aac") -> MimeTypes.APPLICATION_MP4
+            DsdSupport.isDsdExtension(ext) -> mimeFromFileName(displayName) ?: "audio/dsd"
+            DsdSupport.isDsdMime(m) -> m
             m.contains("m4a") || m == "audio/mp4" || m.contains("mp4a") || m.contains("alac") ->
                 MimeTypes.APPLICATION_MP4
             else -> mime

@@ -135,4 +135,4 @@ mica-android/
 
 ---
 
-**Made with care · v0.1.2 · 2026-05**
+**Made with care · v0.1.3 · 2026-05**

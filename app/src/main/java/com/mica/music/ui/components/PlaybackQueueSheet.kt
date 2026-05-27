@@ -70,6 +70,11 @@ fun PlaybackQueueSheet(
     }
 
     val lazyListState = rememberLazyListState()
+    LaunchedEffect(currentIndex, items.size) {
+        if (currentIndex in items.indices) {
+            lazyListState.scrollToItem((currentIndex - 2).coerceAtLeast(0))
+        }
+    }
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         val moved = items.removeAt(from.index)
         items.add(to.index, moved)

@@ -13,7 +13,11 @@ data class TrackMetadata(
     val playbackMimeType: String,
 ) {
     val sampleRateLabel: String
-        get() = formatSampleRateLabel(sampleRateHz, bitsPerSample)
+        get() = if (DsdSupport.isDsdMetadata(this)) {
+            DsdSupport.rateLabel(sampleRateHz) ?: formatSampleRateLabel(sampleRateHz, bitsPerSample)
+        } else {
+            formatSampleRateLabel(sampleRateHz, bitsPerSample)
+        }
 
     val bitrateLabel: String
         get() = formatBitrateLabel(bitrateKbps)
@@ -70,8 +74,8 @@ data class TrackMetadata(
                 "mpeg" in m || "mp3" in m -> "MP3"
                 "mp4" in m || "m4a" in m || "aac" in m -> "AAC"
                 "wav" in m || "x-wav" in m -> "WAV"
-                "ogg" in m || "opus" in m -> "OGG"
                 "dsd" in m || "dsf" in m -> "DSD"
+                "ogg" in m || "opus" in m -> "OGG"
                 "alac" in m -> "ALAC"
                 else -> mimeType.substringAfterLast('/').uppercase().ifBlank { "AUDIO" }
             }

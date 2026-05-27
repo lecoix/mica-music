@@ -109,7 +109,9 @@ fun AppNavigation(
     var stableMiniCoverBounds by remember { mutableStateOf<Rect?>(null) }
     var stableMiniUpdatesEnabled by remember { mutableStateOf(true) }
     var nowPlayingCoverBounds by remember { mutableStateOf<SongCoverBounds?>(null) }
-    val sharedCoverEnabled = uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD
+    val sharedCoverEnabled =
+        uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD &&
+            uiSettings.miniPlayerStyle == MiniPlayerStyle.FLOATING_ISLAND
     val hiddenCoverSongId = sharedCoverRequest
         ?.takeIf { it.key == sharedCoverHideKey }
         ?.song

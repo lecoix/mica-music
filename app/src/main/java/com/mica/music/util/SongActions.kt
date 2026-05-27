@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.core.net.toUri
+import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 
 fun shareSong(context: Context, song: Song): Boolean {
@@ -50,6 +51,10 @@ private fun resolveShareMimeType(context: Context, song: Song, uri: Uri): String
         ?.takeIf { it.isNotBlank() }
         ?.let { return it }
     val path = song.filePath.ifBlank { uri.lastPathSegment.orEmpty() }
+    val ext = path.substringAfterLast('.', "")
+    if (DsdSupport.isDsdExtension(ext)) {
+        return DsdSupport.mimeForExtension(ext)
+    }
     return when {
         path.endsWith(".flac", ignoreCase = true) -> "audio/flac"
         path.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"

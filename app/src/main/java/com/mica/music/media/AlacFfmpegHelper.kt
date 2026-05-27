@@ -1,6 +1,8 @@
 package com.mica.music.media
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.os.Build
 import java.io.File
 import java.util.Locale
@@ -25,6 +27,7 @@ internal object AlacFfmpegHelper {
         val file: File,
         val kind: OutputKind,
         val pcmFormat: AlacPcmFormat,
+        val producer: FfmpegRunner.RunningSession? = null,
     )
 
     fun decodeAlac(
@@ -33,12 +36,18 @@ internal object AlacFfmpegHelper {
         format: AlacPcmFormat,
         seekMs: Int = 0,
         preference: OutputPreference = OutputPreference.STREAM_PCM,
+        allowEarlyPlayback: Boolean = true,
     ): DecodeResult? {
         if (!FfmpegRunner.hasEmbeddedBinary(appContext)) {
             lastFailureHint = "未安装 FFmpeg：请运行 scripts\\build-ffmpeg-arm64.ps1 后重新编译安装"
             return null
         }
-        FfmpegCapability.missingPlaybackHint(appContext)?.let {
+        val missingHint = if (format.isDsdSource) {
+            FfmpegCapability.missingDsdPlaybackHint(appContext)
+        } else {
+            FfmpegCapability.missingPlaybackHint(appContext)
+        }
+        missingHint?.let {
             lastFailureHint = it
             return null
         }
@@ -59,12 +68,39 @@ internal object AlacFfmpegHelper {
         var lastHint: String? = null
         for (attempt in attempts) {
             attempt.cleanup.forEach { it.delete() }
+            if (preference == OutputPreference.STREAM_PCM && allowEarlyPlayback) {
+                startStreamingAttempt(attempt)?.let { return it }
+                lastHint = lastFailureHint
+                continue
+            }
             val session = FfmpegRunner.executeWithArguments(appContext, attempt.args)
             val out = attempt.pickResult()
             if (out != null) return out
             lastHint = sessionFailureHint(session)
         }
         lastFailureHint = lastHint
+        return null
+    }
+
+    private fun startStreamingAttempt(attempt: DecodeAttempt): DecodeResult? {
+        val session = FfmpegRunner.startWithArguments(appContext, attempt.args) ?: run {
+            lastFailureHint = "无法启动 FFmpeg"
+            return null
+        }
+        val deadline = System.currentTimeMillis() + 8_000L
+        val minReadyBytes = attempt.minReadyBytes.coerceAtLeast(64 * 1024L)
+        while (System.currentTimeMillis() < deadline) {
+            val out = attempt.pickStreamingResult(session, minReadyBytes)
+            if (out != null) return out
+            if (!session.isAlive) {
+                val finished = session.waitFor()
+                lastFailureHint = sessionFailureHint(finished)
+                return null
+            }
+            Thread.sleep(40)
+        }
+        session.destroy()
+        lastFailureHint = "FFmpeg 解码启动超时"
         return null
     }
 
@@ -76,23 +112,45 @@ internal object AlacFfmpegHelper {
     ): List<DecodeAttempt> {
         val probe = listOf("-probesize", "32M", "-analyzeduration", "10M")
         val streamFlags = listOf("-vn", "-sn", "-dn") + probe
-        val preferHiRes = format.bitsPerSample > 16 &&
+        if (!format.isDsdSource) {
+            val preferHiRes = format.bitsPerSample > 16 &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            val profiles = FfmpegCapability.pcmEncodeProfiles(appContext, preferHiRes)
+            return profiles.flatMapIndexed { index, profile ->
+                val resampleFlags = if (index == 0) {
+                    streamFlags + listOf(
+                        "-ar", format.sampleRateHz.toString(),
+                        "-ac", format.channelCount.toString(),
+                    )
+                } else {
+                    streamFlags
+                }
+                listOf(
+                    rawPcmAttempt(
+                        seekMs, input, outputBase, profile, resampleFlags, format,
+                    ),
+                )
+            }
+        }
+        val targetFormats = playbackFormats(format)
+        val preferHiRes = targetFormats.any { it.bitsPerSample > 16 } &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         val profiles = FfmpegCapability.pcmEncodeProfiles(appContext, preferHiRes)
-        return profiles.flatMapIndexed { index, profile ->
-            val resampleFlags = if (index == 0) {
-                streamFlags + listOf(
-                    "-ar", format.sampleRateHz.toString(),
-                    "-ac", format.channelCount.toString(),
+        return targetFormats.flatMap { targetFormat ->
+            profiles.filter { it.bitsPerSample == targetFormat.bitsPerSample }.map { profile ->
+                val resampleFlags = streamFlags + listOf(
+                    "-ar", targetFormat.sampleRateHz.toString(),
+                    "-ac", targetFormat.channelCount.toString(),
                 )
-            } else {
-                streamFlags
-            }
-            listOf(
                 rawPcmAttempt(
-                    seekMs, input, outputBase, profile, resampleFlags, format,
-                ),
-            )
+                    seekMs,
+                    input,
+                    outputBase,
+                    profile,
+                    resampleFlags,
+                    targetFormat,
+                )
+            }
         }
     }
 
@@ -119,11 +177,18 @@ internal object AlacFfmpegHelper {
                 }
             },
             cleanup = listOf(pcmOut),
+            minReadyBytes = outFormat.bytesPerFrame.toLong() * outFormat.sampleRateHz,
             pickResult = {
                 if (!pcmOut.exists() || pcmOut.length() < outFormat.bytesPerFrame.toLong()) {
                     return@DecodeAttempt null
                 }
                 DecodeResult(pcmOut, OutputKind.PCM, outFormat)
+            },
+            pickStreamingResult = { producer, minReadyBytes ->
+                if (!pcmOut.exists() || pcmOut.length() < minReadyBytes) {
+                    return@DecodeAttempt null
+                }
+                DecodeResult(pcmOut, OutputKind.PCM, outFormat, producer)
             },
         )
     }
@@ -146,14 +211,46 @@ internal object AlacFfmpegHelper {
                         DecodeResult(flacOut, OutputKind.FLAC, format)
                     } else null
                 },
+                pickStreamingResult = { _, _ -> null },
             ),
         )
     }
 
+    private fun playbackFormats(source: AlacPcmFormat): List<AlacPcmFormat> {
+        if (!source.isDsdSource) return listOf(source)
+        val channels = source.channelCount.coerceIn(1, 2)
+        val preferred = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(AlacPcmFormat(sampleRateHz = 176_400, channelCount = channels, bitsPerSample = 24))
+            }
+            add(AlacPcmFormat(sampleRateHz = 88_200, channelCount = channels, bitsPerSample = 16))
+        }
+        return preferred.filter(::isAudioTrackFormatSupported).ifEmpty {
+            listOf(AlacPcmFormat(sampleRateHz = 88_200, channelCount = channels, bitsPerSample = 16))
+        }
+    }
+
+    private fun isAudioTrackFormatSupported(format: AlacPcmFormat): Boolean {
+        val channelMask = when (format.channelCount.coerceIn(1, 2)) {
+            1 -> AudioFormat.CHANNEL_OUT_MONO
+            else -> AudioFormat.CHANNEL_OUT_STEREO
+        }
+        return AudioTrack.getMinBufferSize(
+            format.sampleRateHz,
+            channelMask,
+            format.audioTrackEncoding,
+        ) > 0
+    }
+
+    private val AlacPcmFormat.isDsdSource: Boolean
+        get() = bitsPerSample == 1 || sampleRateHz >= 1_000_000
+
     private data class DecodeAttempt(
         val args: Array<String>,
         val cleanup: List<File>,
+        val minReadyBytes: Long = 0L,
         val pickResult: () -> DecodeResult?,
+        val pickStreamingResult: (FfmpegRunner.RunningSession, Long) -> DecodeResult?,
     )
 
     var lastFailureHint: String? = null

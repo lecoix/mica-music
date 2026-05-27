@@ -94,12 +94,12 @@ echo ">> configure (arm64 static ffmpeg, common audio decoders)..."
   --disable-doc \
   --disable-debug \
   --enable-protocol=file \
-  --enable-demuxer=mov,mp3,flac,ogg,wav,matroska,ape,wv,caf,aiff,asf,avi,mpc,mpc8,m4v \
+  --enable-demuxer=mov,mp3,flac,ogg,wav,matroska,ape,wv,caf,aiff,asf,avi,mpc,mpc8,m4v,dsf,iff \
   --enable-muxer=pcm_s16le \
   --enable-muxer=pcm_s24le \
   --enable-muxer=pcm_s32le \
   --enable-muxer=flac \
-  --enable-decoder=alac,aac,aac_latm,flac,mp3,opus,vorbis,ape,wavpack,mpc7,mpc8,tta,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
+  --enable-decoder=alac,aac,aac_latm,flac,mp3,opus,vorbis,ape,wavpack,mpc7,mpc8,tta,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar \
   --enable-encoder=pcm_s16le,pcm_s24le,pcm_s32le,flac \
   --enable-parser=aac,alac,flac,mpegaudio,opus,vorbis,ac3 \
   --disable-ffprobe \
@@ -127,7 +127,22 @@ if [ -n "$MISSING" ]; then
 fi
 echo ">> PCM muxers OK (pcm_s16le / pcm_s24le / pcm_s32le → -f s16le / s24le / s32le)"
 
+echo ">> Verify DSD demuxers / decoders (config.mak)..."
+for d in DSF IFF; do
+  if ! grep -q "CONFIG_${d}_DEMUXER=yes" ffbuild/config.mak; then
+    echo "!! Missing ${d} demuxer in config.mak" >&2
+    exit 1
+  fi
+done
+for d in DSD_LSBF DSD_MSBF DSD_LSBF_PLANAR DSD_MSBF_PLANAR; do
+  if ! grep -q "CONFIG_${d}_DECODER=yes" ffbuild/config.mak; then
+    echo "!! Missing ${d} decoder in config.mak" >&2
+    exit 1
+  fi
+done
+echo ">> DSD demuxers / decoders OK"
+
 SIZE="$(du -h "$OUT_DIR/ffmpeg" | cut -f1)"
 echo ">> Done: $OUT_DIR/ffmpeg ($SIZE)"
-echo ">> Enabled demuxers: mov(m4a/mp4) flac mp3 ogg wav matroska ape wv aiff caf asf avi mpc ..."
+echo ">> Enabled demuxers: mov(m4a/mp4) flac mp3 ogg wav matroska ape wv aiff caf asf avi mpc dsf iff(dff/dsdiff) ..."
 echo ">> Rebuild and reinstall APK after this step."

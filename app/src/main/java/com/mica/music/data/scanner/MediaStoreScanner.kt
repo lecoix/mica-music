@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.ui.graphics.toArgb
+import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -252,8 +253,104 @@ object MediaStoreScanner {
                 )
             }
         }
+        val existingKeys = drafts
+            .map { draft -> mediaStoreDuplicateKey(draft.mediaUri, draft.filePath, draft.sizeBytes) }
+            .toMutableSet()
+        drafts += loadDsdFileDrafts(context, lrcByAudioKey, existingKeys)
         return drafts
     }
+
+    private fun loadDsdFileDrafts(
+        context: Context,
+        lrcByAudioKey: Map<String, String>,
+        existingKeys: MutableSet<String>,
+    ): List<TrackDraft> = runCatching {
+        val filesUri = MediaStore.Files.getContentUri("external")
+        val projection = mutableListOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_ADDED,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
+        )
+        val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Files.FileColumns.RELATIVE_PATH
+        } else {
+            null
+        }
+        if (relativePathColumn != null) {
+            projection += relativePathColumn
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            @Suppress("DEPRECATION")
+            projection += MediaStore.Files.FileColumns.DATA
+        }
+        val selection = DsdSupport.extensions.joinToString(" OR ") {
+            "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?"
+        }
+        val args = DsdSupport.extensions.map { "%.$it" }.toTypedArray()
+        val out = mutableListOf<TrackDraft>()
+        context.contentResolver.query(
+            filesUri,
+            projection.toTypedArray(),
+            selection,
+            args,
+            "${MediaStore.Files.FileColumns.DATE_ADDED} DESC",
+        )?.use { c ->
+            val idCol = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val nameCol = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val mimeCol = c.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
+            val sizeCol = c.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+            val dateAddedCol = c.getColumnIndex(MediaStore.Files.FileColumns.DATE_ADDED)
+            val dateModifiedCol = c.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
+            val relativePathCol = relativePathColumn?.let { c.getColumnIndex(it) } ?: -1
+            @Suppress("DEPRECATION")
+            val dataCol = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                c.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+            } else {
+                -1
+            }
+            while (c.moveToNext()) {
+                val name = c.getString(nameCol) ?: continue
+                val ext = name.substringAfterLast('.', "").lowercase()
+                if (!DsdSupport.isDsdExtension(ext)) continue
+                val id = c.getLong(idCol)
+                val uri = ContentUris.withAppendedId(filesUri, id)
+                val mime = c.getStringOrEmpty(mimeCol).ifBlank { DsdSupport.mimeForExtension(ext) }
+                val size = c.getLongOrZero(sizeCol)
+                val relativePath = if (relativePathCol >= 0) c.getString(relativePathCol).orEmpty() else ""
+                val filePath = when {
+                    dataCol >= 0 -> c.getString(dataCol).orEmpty()
+                    relativePath.isNotBlank() -> relativePath.trimStart('/') + name
+                    else -> ""
+                }
+                val key = mediaStoreDuplicateKey(uri.toString(), filePath, size)
+                if (!existingKeys.add(key)) continue
+                val folderPath = lyricsFolderPath(relativePath, filePath)
+                val baseName = name.substringBeforeLast('.').trim()
+                out += TrackDraft(
+                    mediaStoreId = id,
+                    title = baseName.ifBlank { name },
+                    artist = "未知艺人",
+                    album = "未知专辑",
+                    albumId = 0L,
+                    durationSec = 0,
+                    mimeType = mime,
+                    displayName = name,
+                    sizeBytes = size,
+                    bitrateBpsFromStore = 0,
+                    mediaUri = uri.toString(),
+                    coverColorArgb = CoverColorExtractor.FALLBACK_ARGB,
+                    folderPath = folderPath,
+                    filePath = filePath,
+                    externalLyricsUri = lrcByAudioKey[lyricsKey(folderPath, baseName)],
+                    dateAddedMs = if (dateAddedCol >= 0) c.getLong(dateAddedCol) * 1000L else 0L,
+                    dateModifiedMs = if (dateModifiedCol >= 0) c.getLong(dateModifiedCol) * 1000L else 0L,
+                )
+            }
+        }
+        out
+    }.getOrDefault(emptyList())
 
     private fun loadLyricsIndex(context: Context): Map<String, String> = runCatching {
         val filesUri = MediaStore.Files.getContentUri("external")
@@ -317,5 +414,14 @@ object MediaStoreScanner {
 
     private fun lyricsKey(folderPath: String, baseName: String): String =
         "${folderPath.trim('/').lowercase()}\u0001${baseName.trim().lowercase()}"
+
+    private fun mediaStoreDuplicateKey(mediaUri: String, filePath: String, sizeBytes: Long): String =
+        "${filePath.ifBlank { mediaUri }.lowercase()}\u0001${sizeBytes.coerceAtLeast(0L)}"
+
+    private fun android.database.Cursor.getStringOrEmpty(columnIndex: Int): String =
+        if (columnIndex >= 0 && !isNull(columnIndex)) getString(columnIndex).orEmpty() else ""
+
+    private fun android.database.Cursor.getLongOrZero(columnIndex: Int): Long =
+        if (columnIndex >= 0 && !isNull(columnIndex)) getLong(columnIndex) else 0L
 
 }

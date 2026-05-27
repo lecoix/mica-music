@@ -54,6 +54,7 @@ internal class AlacPcmPlayer(
         listener: Listener,
         startOffsetMs: Int = 0,
         autoStart: Boolean = true,
+        producerAlive: (() -> Boolean)? = null,
     ) {
         stop()
         framesSubmitted.set(0L)
@@ -114,7 +115,11 @@ internal class AlacPcmPlayer(
                 val startByte = format.byteOffsetForMs(startOffsetMs)
                 val fileFrames = pcmFile.length() / bytesPerFrame
                 val startFrame = format.framesForMs(startOffsetMs)
-                val framesToPlay = (fileFrames - startFrame).coerceAtLeast(0)
+                val framesToPlay = if (producerAlive != null) {
+                    ((durationSec.coerceAtLeast(1) * sampleRate).toLong() - startFrame).coerceAtLeast(0)
+                } else {
+                    (fileFrames - startFrame).coerceAtLeast(0)
+                }
                 FileInputStream(pcmFile).use { input ->
                     if (startByte > 0) {
                         var remaining = startByte
@@ -135,7 +140,13 @@ internal class AlacPcmPlayer(
                         }
                         if (stopRequested()) break
                         val read = input.read(buffer)
-                        if (read <= 0) break
+                        if (read <= 0) {
+                            if (producerAlive?.invoke() == true) {
+                                delay(30)
+                                continue
+                            }
+                            break
+                        }
                         MicaEqualizerManager.processPcmBuffer(
                             buffer = buffer,
                             offset = 0,
@@ -179,7 +190,8 @@ internal class AlacPcmPlayer(
                     }
                 }
                 if (!stopRequested()) {
-                    waitForDrain(track, framesToPlay, stopRequested)
+                    val drainFrames = if (producerAlive != null) framesSubmitted.get() else framesToPlay
+                    waitForDrain(track, drainFrames, stopRequested)
                 }
             } catch (e: Exception) {
                 if (!stopRequested()) {

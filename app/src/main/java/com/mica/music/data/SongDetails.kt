@@ -20,7 +20,7 @@ object SongDetails {
         SongDetailRow("播放次数", song.playCount.toString()),
         SongDetailRow("时长", song.durationLabel),
         SongDetailRow("比特率", song.metadata.bitrateLabel),
-        SongDetailRow("采样率", sampleRateOnly(song.metadata.sampleRateHz)),
+        SongDetailRow("采样率", sampleRateLabel(song.metadata)),
         SongDetailRow("位深", bitDepthLabel(song.metadata.bitsPerSample)),
         SongDetailRow("大小", formatFileSize(song.sizeBytes)),
         SongDetailRow("格式", song.metadata.containerName.ifBlank { "—" }),
@@ -43,6 +43,13 @@ object SongDetails {
         }
         library.lastScanSource == ScanSource.FOLDER -> "文件夹扫描"
         else -> "MediaStore 媒体库"
+    }
+
+    private fun sampleRateLabel(metadata: TrackMetadata): String {
+        if (DsdSupport.isDsdMetadata(metadata)) {
+            return DsdSupport.rateLabel(metadata.sampleRateHz) ?: "—"
+        }
+        return sampleRateOnly(metadata.sampleRateHz)
     }
 
     private fun sampleRateOnly(sampleRateHz: Int): String {

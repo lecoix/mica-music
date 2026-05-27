@@ -2,6 +2,7 @@ package com.mica.music.data.scanner
 
 import android.os.SystemClock
 import android.util.Log
+import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -60,6 +61,7 @@ internal fun TrackDraft.reusableCachedSong(
     val cached = unchangedCachedSong(cachedById) ?: return null
     return cached.takeIf {
         (!requireDeepMetadata || it.hasDeepMetadata()) &&
+            (!requireDeepMetadata || !isDsdDraft() || DsdSupport.isDsdMetadata(it.metadata)) &&
             (!requireDirectLyrics || it.lyrics.isNotEmpty()) &&
             (!requireFreshEmbeddedLyrics || it.lyrics.isNotEmpty())
     }
@@ -85,6 +87,11 @@ internal fun TrackDraft.mayContainMp4EmbeddedLyrics(): Boolean {
     return ext in setOf("m4a", "m4b", "mp4", "aac", "alac") ||
         mime.contains("mp4") ||
         mime.contains("alac")
+}
+
+internal fun TrackDraft.isDsdDraft(): Boolean {
+    val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+    return DsdSupport.isDsdExtension(ext) || DsdSupport.isDsdMime(mimeType)
 }
 
 private fun Long.nanosToMs(): Long = this / 1_000_000L

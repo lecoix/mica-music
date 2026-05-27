@@ -78,7 +78,7 @@ object LibraryAnalyzer {
     fun qualityTierLabel(song: Song): String = qualityTierLabel(song.metadata)
 
     fun qualityTierLabel(metadata: TrackMetadata): String {
-        if (metadata.isHiRes) return TIER_HR
+        if (metadata.isHiRes || DsdSupport.isDsdMetadata(metadata)) return TIER_HR
         val lossless = metadata.containerName.uppercase() in LOSSLESS
         if (lossless) return TIER_SQ
         if (metadata.bitrateKbps >= 320) return TIER_HQ

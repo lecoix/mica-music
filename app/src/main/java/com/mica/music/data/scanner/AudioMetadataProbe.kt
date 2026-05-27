@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.mica.music.data.DsdSupport
 import com.mica.music.data.PlaybackMimeResolver
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
@@ -76,14 +77,19 @@ object AudioMetadataProbe {
         profiler: ScanProfiler? = null,
         cachedSong: Song? = null,
     ): Song {
+        val appCtx = context.applicationContext
+        val uri = Uri.parse(draft.mediaUri)
+        profiler.measureOptional("dsdMetadata") {
+            DsdMetadataReader.read(appCtx, uri, draft)
+        }?.let { dsd ->
+            return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+        }
         val metadata = TrackMetadata.fallback(
             mimeType = draft.mimeType,
             bitrateBpsFromStore = draft.bitrateBpsFromStore,
             displayName = draft.displayName,
             mediaUri = draft.mediaUri,
         )
-        val appCtx = context.applicationContext
-        val uri = Uri.parse(draft.mediaUri)
         val lyricDraft = draft.copy(mimeType = metadata.playbackMimeType.ifBlank { draft.mimeType })
         val lyrics = profiler.measureOptional("lyrics") {
             readScanLyrics(
@@ -119,6 +125,11 @@ object AudioMetadataProbe {
     ): Song {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
+        profiler.measureOptional("dsdMetadata") {
+            DsdMetadataReader.read(appCtx, uri, draft)
+        }?.let { dsd ->
+            return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+        }
         val trackProbe = profiler.measureOptional("mediaExtractor") {
             AudioTrackProbe.probe(appCtx, uri, draft.mimeType, draft.displayName)
         }
@@ -390,6 +401,48 @@ object AudioMetadataProbe {
         )
     }
 
+    private fun DsdMetadataReader.Result.toSong(
+        context: Context,
+        draft: TrackDraft,
+        uri: Uri,
+        profiler: ScanProfiler?,
+        cachedSong: Song?,
+    ): Song {
+        val title = tags.title.ifBlank { draft.title }
+        val artist = ArtistNames.normalizeDisplay(tags.artist.ifBlank { draft.artist })
+        val album = tags.album.ifBlank { draft.album }
+        val albumArtist = tags.albumArtist
+        val enriched = draft.copy(
+            title = title,
+            artist = artist,
+            album = album,
+            albumArtist = albumArtist,
+            copyright = tags.copyright,
+            durationSec = durationSec.takeIf { it > 0 } ?: draft.durationSec,
+            year = tags.year.takeIf { it > 0 } ?: draft.year,
+            codecLabel = DsdSupport.rateLabel(metadata.sampleRateHz) ?: "DSD",
+            mimeType = metadata.playbackMimeType,
+        )
+        val lyrics = profiler.measureOptional("lyrics") {
+            readScanLyrics(context, enriched, cachedSong)
+        }
+        val artKey = artCacheKey(enriched)
+        val albumArtUri = profiler.measureOptional("albumArt") {
+            saveEmbeddedPictureBytes(context, albumArtBytes, artKey)
+        }
+        val coverArgb = profiler.measureOptional("coverColor") {
+            albumArtBytes
+                ?.let { CoverColorExtractor.fromBytes(it) }
+                ?: resolveCoverColor(context, null, uri, enriched.albumId, albumArtUri)
+        } ?: enriched.coverColorArgb
+        return enriched.copy(coverColorArgb = coverArgb).toSong(
+            context = context,
+            metadata = metadata,
+            albumArtUri = albumArtUri,
+            lyrics = lyrics,
+        )
+    }
+
     private fun artCacheKey(draft: TrackDraft): String = when {
         draft.albumId > 0 -> "ms_album_${draft.albumId}"
         else -> {
@@ -454,6 +507,21 @@ object AudioMetadataProbe {
         }
         val bytes = retriever.embeddedPicture ?: return null
         if (bytes.size < 256) return null
+        cacheFile.parentFile?.mkdirs()
+        cacheFile.writeBytes(bytes)
+        return cacheFile.toUri().toString()
+    }
+
+    private fun saveEmbeddedPictureBytes(
+        context: Context,
+        bytes: ByteArray?,
+        cacheKey: String,
+    ): String? {
+        if (bytes == null || bytes.size < 256) return null
+        val cacheFile = AlbumArtCache.fileForKey(context, cacheKey)
+        if (cacheFile.exists() && cacheFile.length() > 0) {
+            return cacheFile.toUri().toString()
+        }
         cacheFile.parentFile?.mkdirs()
         cacheFile.writeBytes(bytes)
         return cacheFile.toUri().toString()

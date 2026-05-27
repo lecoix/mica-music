@@ -6,6 +6,7 @@ import android.system.OsConstants
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import kotlin.concurrent.thread
 
 /**
  * 通过 [ProcessBuilder] 调用自编 FFmpeg。
@@ -22,6 +23,26 @@ object FfmpegRunner {
         val success: Boolean get() = returnCode == 0
     }
 
+    class RunningSession internal constructor(
+        private val process: Process,
+        private val logsBuilder: StringBuilder,
+    ) {
+        val isAlive: Boolean get() = process.isAlive
+        val logs: String get() = synchronized(logsBuilder) { logsBuilder.toString() }
+
+        fun waitFor(): Session {
+            val code = runCatching { process.waitFor() }.getOrDefault(-1)
+            return Session(code, logs)
+        }
+
+        fun destroy() {
+            runCatching { process.destroy() }
+            runCatching {
+                if (process.isAlive) process.destroyForcibly()
+            }
+        }
+    }
+
     @Volatile
     private var cachedBinary: File? = null
 
@@ -34,6 +55,11 @@ object FfmpegRunner {
                 logs = "未找到 FFmpeg（$LIB_NAME / assets/$ASSET_PATH）。请运行 scripts\\build-ffmpeg-arm64.ps1 后重新编译安装。",
             )
         return executeCli(bin, args)
+    }
+
+    fun startWithArguments(context: Context, args: Array<String>): RunningSession? {
+        val bin = resolveBinary(context) ?: return null
+        return startCli(bin, args)
     }
 
     private fun resolveBinary(context: Context): File? {
@@ -98,6 +124,32 @@ object FfmpegRunner {
                     append("\n若提示 Permission denied，请确认已用 jniLibs 打包 $LIB_NAME 并重新安装 APK。")
                 },
             )
+        }
+    }
+
+    private fun startCli(binary: File, args: Array<String>): RunningSession? {
+        return try {
+            val command = listOf(binary.absolutePath) + args.toList()
+            val process = ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .start()
+            val logs = StringBuilder()
+            thread(name = "mica-ffmpeg-log", isDaemon = true) {
+                runCatching {
+                    BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                        var line = reader.readLine()
+                        while (line != null) {
+                            synchronized(logs) {
+                                logs.appendLine(line)
+                            }
+                            line = reader.readLine()
+                        }
+                    }
+                }
+            }
+            RunningSession(process, logs)
+        } catch (_: Exception) {
+            null
         }
     }
 

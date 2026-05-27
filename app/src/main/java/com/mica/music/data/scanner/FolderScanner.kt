@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -23,7 +24,7 @@ object FolderScanner {
 
     private val audioExtensions = setOf(
         "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wma", "alac", "aiff", "aif",
-    )
+    ) + DsdSupport.extensions
 
     suspend fun scan(
         context: Context,
@@ -163,6 +164,7 @@ object FolderScanner {
                 when (ext) {
                     "flac" -> "audio/flac"
                     "m4a", "alac" -> "audio/mp4"
+                    "dsf", "dff", "dsdiff" -> DsdSupport.mimeForExtension(ext)
                     "mp3" -> "audio/mpeg"
                     "ogg", "opus" -> "audio/ogg"
                     "wav" -> "audio/wav"

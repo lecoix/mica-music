@@ -67,7 +67,10 @@ internal fun HomePlaylistContent(
         customOrder = playlist.sortField == SongSortField.CUSTOM,
         library = library,
         playerController = playerController,
-        onSongClick = onSongClick,
+        onSongClick = { songId ->
+            playerController.setQueue(songs)
+            onSongClick(songId)
+        },
         onSongOpenMenu = onSongOpenMenu,
         onMoveSong = onMoveSong,
         emptyMessage = "歌单为空",

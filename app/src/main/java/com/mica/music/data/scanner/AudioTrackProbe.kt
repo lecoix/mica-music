@@ -5,6 +5,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import androidx.media3.common.MimeTypes
+import com.mica.music.data.DsdSupport
 import com.mica.music.data.TrackMetadata
 
 /**
@@ -81,7 +82,10 @@ internal object AudioTrackProbe {
             "wav" -> MimeTypes.AUDIO_WAV
             "ogg", "oga" -> MimeTypes.AUDIO_OGG
             "opus" -> MimeTypes.AUDIO_OPUS
+            "dsf", "dff", "dsdiff" -> DsdSupport.mimeForExtension(ext)
             else -> when {
+                DsdSupport.isDsdMime(trackMime) || DsdSupport.isDsdMime(storeMime) ->
+                    DsdSupport.mimeForExtension(ext)
                 trackMime.contains("mp4a", ignoreCase = true) ||
                     trackMime.contains("aac", ignoreCase = true) ||
                     storeMime.contains("mp4", ignoreCase = true) ||

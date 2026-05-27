@@ -57,6 +57,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -162,6 +164,23 @@ private fun resolveHomePaneKey(
     else -> HomePaneKey.Songs
 }
 
+private val BrowseDestinationSaver = Saver<BrowseDestination, List<String>>(
+    save = { destination ->
+        when (destination) {
+            BrowseDestination.Root -> listOf("root", "")
+            is BrowseDestination.Artist -> listOf("artist", destination.name)
+            is BrowseDestination.Album -> listOf("album", destination.title)
+        }
+    },
+    restore = { saved ->
+        when (saved.getOrNull(0)) {
+            "artist" -> BrowseDestination.Artist(saved.getOrNull(1).orEmpty())
+            "album" -> BrowseDestination.Album(saved.getOrNull(1).orEmpty())
+            else -> BrowseDestination.Root
+        }
+    },
+)
+
 @Composable
 fun HomeScreen(
     library: MusicLibrary,
@@ -178,14 +197,16 @@ fun HomeScreen(
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     var drawerOpen by remember { mutableStateOf(false) }
-    var section by remember { mutableStateOf(HomeSection.Songs) }
-    var activePlaylistId by remember { mutableStateOf<String?>(null) }
+    var section by rememberSaveable { mutableStateOf(HomeSection.Songs) }
+    var activePlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
     var sortSheetOpen by remember { mutableStateOf(false) }
-    var searchOpen by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-    var browseDestination by remember { mutableStateOf<BrowseDestination>(BrowseDestination.Root) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var browseDestination by rememberSaveable(stateSaver = BrowseDestinationSaver) {
+        mutableStateOf<BrowseDestination>(BrowseDestination.Root)
+    }
     /** 进入「最近播放 / 音乐库分析」前的分区，返回时恢复（从哪来回哪去）。 */
-    var returnSection by remember { mutableStateOf(HomeSection.Songs) }
+    var returnSection by rememberSaveable { mutableStateOf(HomeSection.Songs) }
     var actionMenuSong by remember { mutableStateOf<Song?>(null) }
     var actionMenuPlaylistId by remember { mutableStateOf<String?>(null) }
     var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
@@ -193,10 +214,6 @@ fun HomeScreen(
     var pendingDeletePlaylistId by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
-
-    LaunchedEffect(section) {
-        browseDestination = BrowseDestination.Root
-    }
 
     val context = LocalContext.current
     val playlistStore = remember { PlaylistStore(context) }
@@ -395,6 +412,7 @@ fun HomeScreen(
                 }
                 section = target
                 activePlaylistId = null
+                browseDestination = BrowseDestination.Root
             }
         }
     }
@@ -403,6 +421,7 @@ fun HomeScreen(
         drawerOpen = false
         section = HomeSection.Playlist
         activePlaylistId = playlistId
+        browseDestination = BrowseDestination.Root
         searchOpen = false
     }
 

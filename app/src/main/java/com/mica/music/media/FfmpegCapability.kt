@@ -23,6 +23,8 @@ internal object FfmpegCapability {
 
     private val KNOWN_PCM_ENCODERS = listOf("pcm_s24le", "pcm_s32le", "pcm_s16le")
     private val KNOWN_PCM_MUXERS = listOf("s32le", "s24le", "s16le")
+    private val KNOWN_DSD_DECODERS = listOf("dsd_lsbf", "dsd_msbf", "dsd_lsbf_planar", "dsd_msbf_planar")
+    private val KNOWN_DSD_DEMUXERS = listOf("dsf", "iff")
 
     /** 匹配 ` E s16le ` / ` EV s24le ` 行，避免把 pcm_s16le、wav 说明行误判为 muxer。 */
     private val ENABLED_MUXER_LINE =
@@ -33,6 +35,12 @@ internal object FfmpegCapability {
 
     @Volatile
     private var cachedMuxers: Set<String>? = null
+
+    @Volatile
+    private var cachedDecoders: Set<String>? = null
+
+    @Volatile
+    private var cachedDemuxers: Set<String>? = null
 
     fun availableEncoders(context: Context): Set<String> {
         cachedEncoders?.let { return it }
@@ -74,6 +82,46 @@ internal object FfmpegCapability {
         }
     }
 
+    fun availableDecoders(context: Context): Set<String> {
+        cachedDecoders?.let { return it }
+        synchronized(this) {
+            cachedDecoders?.let { return it }
+            if (!FfmpegRunner.hasEmbeddedBinary(context)) {
+                cachedDecoders = emptySet()
+                return emptySet()
+            }
+            val session = FfmpegRunner.executeWithArguments(
+                context,
+                arrayOf("-hide_banner", "-decoders"),
+            )
+            val found = KNOWN_DSD_DECODERS.filter { name ->
+                session.logs.contains(name)
+            }.toSet()
+            cachedDecoders = found
+            return found
+        }
+    }
+
+    fun availableDemuxers(context: Context): Set<String> {
+        cachedDemuxers?.let { return it }
+        synchronized(this) {
+            cachedDemuxers?.let { return it }
+            if (!FfmpegRunner.hasEmbeddedBinary(context)) {
+                cachedDemuxers = emptySet()
+                return emptySet()
+            }
+            val session = FfmpegRunner.executeWithArguments(
+                context,
+                arrayOf("-hide_banner", "-demuxers"),
+            )
+            val found = KNOWN_DSD_DEMUXERS.filter { name ->
+                Regex("""\sD\s+$name\s""").containsMatchIn(session.logs)
+            }.toSet()
+            cachedDemuxers = found
+            return found
+        }
+    }
+
     /** 按优先级生成配置：encoder 与裸 PCM muxer 必须同时存在。 */
     fun pcmEncodeProfiles(context: Context, preferHiRes: Boolean): List<PcmEncodeProfile> {
         val enc = availableEncoders(context)
@@ -108,10 +156,25 @@ internal object FfmpegCapability {
 
     fun missingEncoderHint(context: Context): String? = missingPlaybackHint(context)
 
+    fun missingDsdPlaybackHint(context: Context): String? {
+        missingPlaybackHint(context)?.let { return it }
+        val demuxers = availableDemuxers(context)
+        if (!demuxers.containsAll(KNOWN_DSD_DEMUXERS)) {
+            return "FFmpeg 未包含 DSF/IFF(DFF/DSDIFF) demuxer，请运行 scripts\\build-ffmpeg-arm64.ps1 后重装"
+        }
+        val decoders = availableDecoders(context)
+        if (decoders.intersect(KNOWN_DSD_DECODERS.toSet()).isEmpty()) {
+            return "FFmpeg 未包含 DSD decoder，请运行 scripts\\build-ffmpeg-arm64.ps1 后重装"
+        }
+        return null
+    }
+
     /** 设置页/诊断：当前二进制能力摘要 */
     fun capabilitySummary(context: Context): String {
         val enc = availableEncoders(context).sorted()
         val mux = availableMuxers(context).sorted()
-        return "enc=${enc.joinToString()} mux=${mux.joinToString()}"
+        val dec = availableDecoders(context).sorted()
+        val demux = availableDemuxers(context).sorted()
+        return "enc=${enc.joinToString()} mux=${mux.joinToString()} dec=${dec.joinToString()} demux=${demux.joinToString()}"
     }
 }

@@ -126,9 +126,20 @@ class MainActivity : ComponentActivity() {
                     onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                 }
 
+                val libraryQueueIds = remember { androidx.compose.runtime.mutableStateOf<List<String>>(emptyList()) }
                 LaunchedEffect(library.songs) {
-                    if (library.songs.isEmpty()) return@LaunchedEffect
-                    playerController.setQueue(library.songs)
+                    val songs = library.songs
+                    if (songs.isEmpty()) return@LaunchedEffect
+
+                    val previousLibraryIds = libraryQueueIds.value
+                    val currentQueueIds = playerController.songQueue.map { it.id }
+                    val currentQueueWasLibrary = previousLibraryIds.isNotEmpty() &&
+                        currentQueueIds == previousLibraryIds
+                    libraryQueueIds.value = songs.map { it.id }
+
+                    if (currentQueueIds.isEmpty() || currentQueueWasLibrary) {
+                        playerController.setQueue(songs)
+                    }
                 }
 
                 Scaffold(

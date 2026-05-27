@@ -57,7 +57,7 @@ class AlacAudioTrackEngine(private val context: Context) {
 
         playJob = scope.launch {
             val (decoded, failHint) = withContext(Dispatchers.IO) {
-                runCatching { ensureSessionDecoded(song) }
+                runCatching { ensureSessionDecoded(song, allowEarlyPlayback = offsetMs <= 0) }
                     .getOrElse { e ->
                         null to (e.message ?: e.javaClass.simpleName)
                     }
@@ -124,7 +124,7 @@ class AlacAudioTrackEngine(private val context: Context) {
         cb.onBuffering(true)
         playJob = scope.launch {
             val (decoded, failHint) = withContext(Dispatchers.IO) {
-                runCatching { ensureSessionDecoded(song) }
+                runCatching { ensureSessionDecoded(song, allowEarlyPlayback = false) }
                     .getOrElse { e ->
                         null to (e.message ?: e.javaClass.simpleName)
                     }
@@ -182,12 +182,15 @@ class AlacAudioTrackEngine(private val context: Context) {
             decodedFile?.exists() == true &&
             (decodedFile?.length() ?: 0L) > 0L
 
-    private fun ensureSessionDecoded(song: Song): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
+    private fun ensureSessionDecoded(
+        song: Song,
+        allowEarlyPlayback: Boolean = true,
+    ): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
         if (hasSessionFor(song)) {
             return sessionDecode to null
         }
         releaseSession()
-        return decodeAtPosition(song).also { (result, _) ->
+        return decodeAtPosition(song, allowEarlyPlayback).also { (result, _) ->
             if (result != null) {
                 sessionSongId = song.id
                 sessionDecode = result
@@ -195,7 +198,10 @@ class AlacAudioTrackEngine(private val context: Context) {
         }
     }
 
-    private fun decodeAtPosition(song: Song): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
+    private fun decodeAtPosition(
+        song: Song,
+        allowEarlyPlayback: Boolean,
+    ): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
         val format = pcmFormat ?: AlacPcmFormat.fromSong(song)
         if (tempInput == null || sessionSongId != song.id) {
             tempInput?.delete()
@@ -209,7 +215,8 @@ class AlacAudioTrackEngine(private val context: Context) {
             base,
             format,
             seekMs = 0,
-            AlacFfmpegHelper.OutputPreference.STREAM_PCM,
+            preference = AlacFfmpegHelper.OutputPreference.STREAM_PCM,
+            allowEarlyPlayback = allowEarlyPlayback,
         )
         return if (result != null && result.kind == AlacFfmpegHelper.OutputKind.PCM) {
             decodedFile = result.file
@@ -248,6 +255,9 @@ class AlacAudioTrackEngine(private val context: Context) {
             startOffsetMs = startOffsetMs,
             autoStart = startPlayback,
             stopRequested = { stopRequested },
+            producerAlive = decoded.producer?.let { producer ->
+                { producer.isAlive }
+            },
             listener = object : AlacPcmPlayer.Listener {
                 override fun onPrepared(durationSec: Int) {
                     if (epoch != playbackEpoch) return
@@ -312,6 +322,7 @@ class AlacAudioTrackEngine(private val context: Context) {
     }
 
     private fun releaseSession() {
+        sessionDecode?.producer?.destroy()
         decodedFile?.delete()
         decodedFile = null
         tempInput?.delete()
