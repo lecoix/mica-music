@@ -1,6 +1,6 @@
 [versions]
 agp = "8.7.0"
-kotlin = "2.0.21"
+kotlin = "2.2.21"
 coreKtx = "1.13.1"
 lifecycle = "2.8.6"
 activityCompose = "1.9.2"
@@ -12,8 +12,9 @@ coroutines = "1.8.1"
 documentfile = "1.0.1"
 palette = "1.0.0"
 room = "2.6.1"
-ksp = "2.0.21-1.0.28"
+ksp = "2.2.21-2.0.5"
 reorderable = "2.4.3"
+taglib = "1.0.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -40,6 +41,7 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }
+kyant-taglib = { group = "io.github.kyant0", name = "taglib", version.ref = "taglib" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

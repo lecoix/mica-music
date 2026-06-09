@@ -133,6 +133,12 @@ object AudioMetadataProbe {
         val trackProbe = profiler.measureOptional("mediaExtractor") {
             AudioTrackProbe.probe(appCtx, uri, draft.mimeType, draft.displayName)
         }
+        // TagLib 优先；失败（不支持的格式 / native 异常）时走 MediaMetadataRetriever 兜底
+        profiler.measureOptional("taglib") {
+            TagLibReader.read(appCtx, uri)
+        }?.let { tagLib ->
+            return tagLibSong(appCtx, draft, uri, trackProbe, tagLib, profiler, cachedSong)
+        }
         val retriever = MediaMetadataRetriever()
         return try {
             profiler.measureOptional("retriever.setDataSource") {
@@ -229,14 +235,118 @@ object AudioMetadataProbe {
     private fun <T> ScanProfiler?.measureOptional(stage: String, block: () -> T): T =
         this?.measure(stage, block) ?: block()
 
+    /** TagLib 成功读取后的组装路径，与 retriever 路径字段语义保持一致。 */
+    private fun tagLibSong(
+        context: Context,
+        draft: TrackDraft,
+        uri: Uri,
+        trackProbe: AudioTrackProbe.Result?,
+        tagLib: TagLibReader.Result,
+        profiler: ScanProfiler?,
+        cachedSong: Song?,
+    ): Song {
+        val title = MetadataTextFix.titleFromTagsOrFilename(
+            tagTitle = tagLib.title,
+            displayName = draft.displayName,
+            fallbackTitle = draft.title,
+        )
+        val albumArtist = MetadataTextFix.normalize(tagLib.albumArtist)
+        val artist = ArtistNames.normalizeDisplay(
+            MetadataTextFix.normalize(
+                tagLib.artist.takeIf { it.isNotBlank() }
+                    ?: albumArtist.takeIf { it.isNotBlank() }
+                    ?: draft.artist,
+            ),
+        )
+        val album = MetadataTextFix.normalize(tagLib.album.takeIf { it.isNotBlank() } ?: draft.album)
+        val durationSec = when {
+            tagLib.durationSec > 0 -> tagLib.durationSec
+            draft.durationSec > 0 -> draft.durationSec
+            else -> 0
+        }
+        val year = tagLib.year.takeIf { it > 0 } ?: draft.year
+
+        val container = trackProbe?.containerName ?: TrackMetadata.containerFromMime(draft.mimeType)
+        val bits = profiler.measureOptional("taglib.bits") {
+            TagLibReader.readBitsPerSample(context, uri, container, draft.mimeType, draft.displayName)
+        }
+        val durationForBitrate = durationSec.coerceAtLeast(1)
+        val bitrateKbps = when {
+            tagLib.bitrateKbps > 0 -> tagLib.bitrateKbps
+            draft.bitrateBpsFromStore > 0 -> draft.bitrateBpsFromStore / 1000
+            draft.sizeBytes > 0 ->
+                ((draft.sizeBytes * 8L) / durationForBitrate / 1000L).toInt().coerceAtLeast(0)
+            else -> 0
+        }
+        val playbackMime = trackProbe?.playbackMimeType ?: PlaybackMimeResolver.resolve(
+            storeMime = draft.mimeType,
+            probeMime = null,
+            displayName = draft.displayName,
+            mediaUri = draft.mediaUri,
+            containerName = container,
+        )
+        val metadata = TrackMetadata(
+            containerName = container,
+            sampleRateHz = tagLib.sampleRateHz.coerceAtLeast(0),
+            bitsPerSample = bits,
+            bitrateKbps = bitrateKbps,
+            channelCount = tagLib.channelCount.coerceAtLeast(1),
+            playbackMimeType = playbackMime,
+        )
+        val copyright = MetadataTextFix.normalize(tagLib.copyright).ifBlank {
+            profiler.measureOptional("copyright") {
+                readCopyright(
+                    context,
+                    uri,
+                    draft.copy(mimeType = playbackMime.ifBlank { draft.mimeType }),
+                )
+            }
+        }
+        val withMeta = draft.copy(
+            title = title,
+            artist = artist,
+            album = album,
+            durationSec = durationSec,
+            year = year,
+            albumArtist = albumArtist,
+            copyright = copyright,
+            codecLabel = trackProbe?.trackMime ?: playbackMime,
+        )
+        val artKey = artCacheKey(withMeta)
+        val albumArtUri = profiler.measureOptional("albumArt") {
+            resolveAlbumArtFromBytes(context, tagLib.frontCoverBytes, artKey, withMeta.albumId, uri)
+        }
+        val lyrics = profiler.measureOptional("lyrics") {
+            readScanLyrics(
+                context,
+                withMeta.copy(mimeType = playbackMime.ifBlank { withMeta.mimeType }),
+                cachedSong,
+                taglibLyricsCandidates = tagLib.lyricsCandidates,
+            )
+        }
+        val coverArgb = profiler.measureOptional("coverColor") {
+            tagLib.frontCoverBytes?.let { CoverColorExtractor.fromBytes(it) }
+                ?: resolveCoverColor(context, null, uri, withMeta.albumId, albumArtUri)
+        } ?: withMeta.coverColorArgb
+        return withMeta.copy(coverColorArgb = coverArgb).toSong(context, metadata, albumArtUri, lyrics)
+    }
+
     private fun readScanLyrics(
         context: Context,
         draft: TrackDraft,
         cachedSong: Song?,
         retriever: MediaMetadataRetriever? = null,
+        taglibLyricsCandidates: List<String> = emptyList(),
     ): List<com.mica.music.data.LyricLine> {
         cachedSong?.lyrics?.takeIf { it.isNotEmpty() }?.let { return it }
         ExternalLyricsReader.readDirectUri(context, draft.externalLyricsUri)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        taglibLyricsCandidates
+            .mapNotNull { parseLyricsTextForScan(MetadataTextFix.normalize(it)) }
+            .filter { it.isNotEmpty() }
+            .takeIf { it.isNotEmpty() }
+            ?.let { LyricsSanitizer.pickBest(it) }
             ?.takeIf { it.isNotEmpty() }
             ?.let { return it }
         retriever?.let { readRetrieverLyrics(it) }
@@ -472,6 +582,29 @@ object AudioMetadataProbe {
     ): String? {
         val trackKey = trackArtCacheKey(mediaUri)
         saveEmbeddedPicture(context, retriever, trackKey, mediaUri)?.let { embedded ->
+            albumArtCache[artKey] = embedded
+            return embedded
+        }
+
+        albumArtCache[artKey]?.let { return it }
+
+        resolveAlbumArtFromStoreOnly(context, albumId)?.let { storeUri ->
+            albumArtCache[artKey] = storeUri
+            return storeUri
+        }
+
+        return null
+    }
+
+    /** TagLib 路径的封面解析：内嵌图字节 → 同专辑缓存 → MediaStore 专辑图。 */
+    private fun resolveAlbumArtFromBytes(
+        context: Context,
+        coverBytes: ByteArray?,
+        artKey: String,
+        albumId: Long,
+        mediaUri: Uri,
+    ): String? {
+        saveEmbeddedPictureBytes(context, coverBytes, trackArtCacheKey(mediaUri))?.let { embedded ->
             albumArtCache[artKey] = embedded
             return embedded
         }

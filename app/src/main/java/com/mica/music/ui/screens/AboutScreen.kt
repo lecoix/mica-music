@@ -87,6 +87,8 @@ fun AboutScreen(
             LicenseRow("Coil", "Apache License 2.0")
             LicenseRow("Calvin Reorderable", "Apache License 2.0")
             LicenseRow("FFmpeg", "LGPL 2.1+；当前构建脚本未启用 GPL / nonfree 组件")
+            LicenseRow("TagLib（音频标签读取）", "LGPL 2.1 / MPL 1.1 双许可；源码见 https://taglib.org")
+            LicenseRow("Kyant0/taglib（Android JNI 绑定）", "Apache License 2.0")
 
             Spacer(Modifier.height(HifiSpacing.lg))
 

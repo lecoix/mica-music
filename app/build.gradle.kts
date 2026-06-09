@@ -104,6 +104,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.reorderable)
+    implementation(libs.kyant.taglib)
 
     debugImplementation(libs.androidx.ui.tooling)
 }
