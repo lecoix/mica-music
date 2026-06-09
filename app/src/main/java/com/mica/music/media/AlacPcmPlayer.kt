@@ -26,6 +26,7 @@ internal class AlacPcmPlayer(
 ) {
     private companion object {
         const val SpectrumTargetFps = 60
+        const val ProgressUpdateIntervalMs = 200L
     }
 
     interface Listener {
@@ -78,23 +79,33 @@ internal class AlacPcmPlayer(
         }
 
         val bufferBytes = minBuf * 4
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build(),
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(sampleRate)
-                    .setEncoding(encoding)
-                    .setChannelMask(channelMask)
-                    .build(),
-            )
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .setBufferSizeInBytes(bufferBytes)
-            .build()
+        val track = runCatching {
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setEncoding(encoding)
+                        .setChannelMask(channelMask)
+                        .build(),
+                )
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(bufferBytes)
+                .build()
+        }.getOrElse {
+            listener.onError("无法创建 AudioTrack (${format.bitsPerSample}bit/${sampleRate}Hz)")
+            return
+        }
+        if (track.state != AudioTrack.STATE_INITIALIZED) {
+            runCatching { track.release() }
+            listener.onError("AudioTrack 初始化失败 (${format.bitsPerSample}bit/${sampleRate}Hz)")
+            return
+        }
 
         audioTrack = track
         AlacPlaybackCoordinator.appContext?.let { ctx ->
@@ -103,7 +114,12 @@ internal class AlacPcmPlayer(
         val maxMs = durationSec.coerceAtLeast(1) * 1000
         listener.onPrepared(durationSec.coerceAtLeast(1))
         if (autoStart) {
-            track.play()
+            runCatching { track.play() }
+                .onFailure {
+                    listener.onError("AudioTrack 启动失败")
+                    stop()
+                    return
+                }
             listener.onPlayingChanged(true)
         } else {
             val parkedMs = startOffsetMs.coerceIn(0, maxMs)
@@ -216,7 +232,7 @@ internal class AlacPcmPlayer(
                 val absoluteMs = (startOffsetMs + playedFrames * 1000L / sampleRate).toInt()
                     .coerceIn(0, maxMs)
                 listener.onPositionMs(absoluteMs)
-                delay(50)
+                delay(ProgressUpdateIntervalMs)
             }
         }
     }
@@ -254,13 +270,18 @@ internal class AlacPcmPlayer(
         progressJob?.cancel()
         progressJob = null
         framesSubmitted.set(0L)
-        runCatching {
-            audioTrack?.pause()
-            audioTrack?.flush()
-            audioTrack?.stop()
-            audioTrack?.release()
-        }
+        val track = audioTrack
         audioTrack = null
+        if (track != null) {
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    track.pause()
+                    track.flush()
+                    track.stop()
+                    track.release()
+                }
+            }
+        }
         paused = false
     }
 }

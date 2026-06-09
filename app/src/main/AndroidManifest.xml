@@ -3,21 +3,16 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- 读取本地音频文件 -->
-    <!-- Android 13+ 用 READ_MEDIA_AUDIO；之前的版本用 READ_EXTERNAL_STORAGE -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
-    <!-- 前台服务（后台播放） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
-    <!-- Android 13+ 通知栏控件需要 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- 后续接入唤醒锁，避免被系统省电策略打断 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
@@ -30,6 +25,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Mica">
 
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -41,10 +37,6 @@
             </intent-filter>
         </activity>
 
-        <!--
-            播放服务：拥有 ExoPlayer 和 MediaSession，独立于 Activity 生命周期。
-            前台服务类型必须声明为 mediaPlayback（Android 14+ 强制），系统通知栏控件由 Media3 自动管理。
-        -->
         <service
             android:name=".media.MicaMediaService"
             android:exported="true"

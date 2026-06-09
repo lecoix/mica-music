@@ -25,8 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlaybackQueueMode
-import com.mica.music.data.PlayerController
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -34,11 +34,16 @@ import com.mica.music.ui.theme.PlayerContentColors
 
 @Composable
 internal fun PlayerPlaybackBottomSection(
-    playerController: PlayerController,
+    surfaceState: PlaybackSurfaceState,
     colors: PlayerContentColors,
     seekState: PlaybackSeekState,
     showStandardProgress: Boolean,
     afterProgress: Dp,
+    onCyclePlaybackQueueMode: () -> Unit,
+    onPrevious: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onOpenEqualizer: (() -> Unit)? = null,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -52,8 +57,13 @@ internal fun PlayerPlaybackBottomSection(
             Spacer(Modifier.height(afterProgress))
         }
         PlayerPlaybackControlsSection(
-            playerController = playerController,
+            surfaceState = surfaceState,
             colors = colors,
+            onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+            onPrevious = onPrevious,
+            onTogglePlay = onTogglePlay,
+            onNext = onNext,
+            onOpenEqualizer = onOpenEqualizer,
             onOpenQueue = onOpenQueue,
         )
     }
@@ -116,12 +126,17 @@ internal fun PlayerProgressBarSection(
 
 @Composable
 internal fun PlayerPlaybackControlsSection(
-    playerController: PlayerController,
+    surfaceState: PlaybackSurfaceState,
     colors: PlayerContentColors,
+    onCyclePlaybackQueueMode: () -> Unit,
+    onPrevious: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onOpenEqualizer: (() -> Unit)? = null,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val mode = playerController.playbackQueueMode
+    val mode = surfaceState.playbackQueueMode
     val modeActive = mode != PlaybackQueueMode.OFF
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -129,7 +144,7 @@ internal fun PlayerPlaybackControlsSection(
         modifier = modifier.fillMaxWidth(),
     ) {
         IconButton(
-            onClick = { playerController.cyclePlaybackQueueMode() },
+            onClick = onCyclePlaybackQueueMode,
             modifier = Modifier.size(HifiSize.touchTarget),
         ) {
             Icon(
@@ -140,7 +155,7 @@ internal fun PlayerPlaybackControlsSection(
             )
         }
         IconButton(
-            onClick = { playerController.previous() },
+            onClick = onPrevious,
             modifier = Modifier.size(HifiSize.touchTarget),
         ) {
             Icon(
@@ -151,13 +166,13 @@ internal fun PlayerPlaybackControlsSection(
             )
         }
         SharpPlayPauseButton(
-            isPlaying = playerController.isPlaying,
-            onToggle = { playerController.togglePlay() },
+            isPlaying = surfaceState.isPlaying,
+            onToggle = onTogglePlay,
             size = HifiSize.iconXxl,
             color = colors.primary,
         )
         IconButton(
-            onClick = { playerController.next() },
+            onClick = onNext,
             modifier = Modifier.size(HifiSize.touchTarget),
         ) {
             Icon(

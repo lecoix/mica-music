@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -23,8 +25,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.PlaybackProgressState
+import com.mica.music.data.PlaybackQueueState
+import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerController
+import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.Song
+import com.mica.music.data.TrackSkipDirection
 import com.mica.music.ui.components.NowPlayingTrackWipe
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.rememberPlaybackSeekState
@@ -43,6 +51,124 @@ private data class ImmersiveTitleSlideSnapshot(
     val titleSlideEnd: Dp,
 )
 
+@Stable
+data class NowPlayingUiState(
+    val song: Song,
+    val displayedCoverSong: Song,
+    val displayedCoverIndex: Int,
+    val coverHoldoverAlbumArtUri: String?,
+    val queue: List<Song>,
+    val currentIndex: Int,
+    val lowerBackground: PlayerLowerBackgroundMode,
+    val coverFlowMode: PlayerCoverFlowMode,
+    val coverEdgeProgress: Boolean,
+    val immersiveLower: Boolean,
+    val spectrumSettingEnabled: Boolean,
+) {
+    val coverFlowModeEnabled: Boolean
+        get() = coverFlowMode != PlayerCoverFlowMode.STANDARD
+
+    val coverSwitching: Boolean
+        get() = displayedCoverSong.id != song.id
+}
+
+@Stable
+internal class StableCoverState(initialSong: Song, initialIndex: Int) {
+    var displayedSong by mutableStateOf(initialSong)
+        private set
+
+    var displayedIndex by mutableIntStateOf(initialIndex)
+        private set
+
+    var pendingSong by mutableStateOf<Song?>(null)
+        private set
+
+    var pendingIndex by mutableIntStateOf(initialIndex)
+        private set
+
+    var coverHoldoverAlbumArtUri by mutableStateOf(initialSong.albumArtUri)
+        private set
+
+    fun retarget(song: Song, index: Int, waitForArtwork: Boolean) {
+        if (song.id == displayedSong.id) {
+            pendingSong = null
+            displayedIndex = index
+            pendingIndex = index
+            return
+        }
+        if (!waitForArtwork) {
+            coverHoldoverAlbumArtUri = displayedSong.albumArtUri
+            displayedSong = song
+            displayedIndex = index
+            pendingSong = null
+            pendingIndex = index
+            return
+        }
+        pendingIndex = index
+        if (song.albumArtUri.isNullOrBlank()) {
+            coverHoldoverAlbumArtUri = displayedSong.albumArtUri
+            displayedSong = song
+            displayedIndex = index
+            pendingSong = null
+        } else {
+            pendingSong = song
+        }
+    }
+
+    fun markTargetReady(song: Song, index: Int) {
+        val pending = pendingSong ?: return
+        if (pending.id != song.id) return
+        coverHoldoverAlbumArtUri = displayedSong.albumArtUri
+        displayedSong = pending
+        displayedIndex = pendingIndex
+        pendingSong = null
+        pendingIndex = displayedIndex
+    }
+
+    fun markDisplayedCoverDrawn(song: Song) {
+        if (displayedSong.id == song.id) {
+            coverHoldoverAlbumArtUri = song.albumArtUri
+        }
+    }
+}
+
+data class NowPlayingActions(
+    val syncPosition: () -> Unit,
+    val consumeSkipDirection: () -> TrackSkipDirection?,
+    val setSeekUiActive: (Boolean) -> Unit,
+    val seekToMs: (Int) -> Unit,
+    val playQueueIndex: (Int) -> Unit,
+    val moveQueueItem: (Int, Int) -> Unit,
+    val removeQueueItem: (Int) -> Unit,
+    val togglePlay: () -> Unit,
+    val previous: () -> Unit,
+    val next: () -> Unit,
+    val cyclePlaybackQueueMode: () -> Unit,
+    val toggleImmersiveLower: () -> Unit,
+)
+
+@Composable
+fun rememberNowPlayingActions(
+    playerController: PlayerController,
+    uiSettings: AppUiSettings,
+): NowPlayingActions =
+    remember(playerController, uiSettings) {
+        NowPlayingActions(
+            syncPosition = playerController::syncPosition,
+            consumeSkipDirection = playerController::consumeTrackSkipDirection,
+            setSeekUiActive = playerController::setAlacSeekUiActive,
+            seekToMs = playerController::seekToMs,
+            playQueueIndex = playerController::playSong,
+            moveQueueItem = playerController::moveInQueue,
+            removeQueueItem = playerController::removeFromQueue,
+            togglePlay = playerController::togglePlay,
+            previous = playerController::previous,
+            next = playerController::next,
+            cyclePlaybackQueueMode = playerController::cyclePlaybackQueueMode,
+            toggleImmersiveLower = uiSettings::togglePlayerImmersiveLower,
+        )
+    }
+
 @Composable
 fun NowPlayingScreen(
     playerController: PlayerController,
@@ -53,7 +179,34 @@ fun NowPlayingScreen(
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
 ) {
-    val song = playerController.currentSong
+    NowPlayingContent(
+        surfaceState = playerController.playbackSurfaceState,
+        progressState = playerController.playbackProgressState,
+        queueState = playerController.playbackQueueState,
+        actions = rememberNowPlayingActions(playerController, uiSettings),
+        uiSettings = uiSettings,
+        onClose = onClose,
+        onOpenEqualizer = onOpenEqualizer,
+        contentPadding = contentPadding,
+        coverContentAlpha = coverContentAlpha,
+        onCoverBoundsChanged = onCoverBoundsChanged,
+    )
+}
+
+@Composable
+fun NowPlayingContent(
+    surfaceState: PlaybackSurfaceState,
+    progressState: PlaybackProgressState,
+    queueState: PlaybackQueueState,
+    actions: NowPlayingActions,
+    uiSettings: AppUiSettings,
+    onClose: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    contentPadding: PaddingValues = PaddingValues(),
+    coverContentAlpha: Float = 1f,
+    onCoverBoundsChanged: (Rect?) -> Unit = {},
+) {
+    val song = surfaceState.currentSong
     if (song == null) {
         LaunchedEffect(Unit) { onClose() }
         return
@@ -61,24 +214,37 @@ fun NowPlayingScreen(
 
     var queueSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by remember { mutableStateOf(false) }
+    val stableCoverState = remember {
+        StableCoverState(song, queueState.currentIndex)
+    }
 
     LaunchedEffect(song.id) {
         lyricsExpanded = false
     }
 
+    LaunchedEffect(song.id, queueState.currentIndex, uiSettings.playerCoverFlowMode) {
+        stableCoverState.retarget(
+            song = song,
+            index = queueState.currentIndex,
+            waitForArtwork = uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD,
+        )
+    }
+
+    LaunchedEffect(actions, surfaceState.isPlaying, surfaceState.alacStreamActive) {
+        actions.syncPosition()
+        if (!surfaceState.isPlaying || surfaceState.alacStreamActive) return@LaunchedEffect
+        while (true) {
+            delay(500)
+            actions.syncPosition()
+        }
+    }
+
     NowPlayingTrackWipe(
         targetSong = song,
-        consumeSkipDirection = { playerController.consumeTrackSkipDirection() },
+        consumeSkipDirection = actions.consumeSkipDirection,
         modifier = Modifier.fillMaxSize(),
-        enabled = uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD,
+        enabled = false,
     ) { activeSong ->
-        LaunchedEffect(Unit) {
-            while (true) {
-                playerController.syncPosition()
-                delay(50)
-            }
-        }
-
         val lowerBackground = uiSettings.playerLowerBackground
         val appearance = rememberPlayerScreenAppearance(activeSong, lowerBackground)
         val coverColor = appearance.coverColor
@@ -87,11 +253,33 @@ fun NowPlayingScreen(
         val artworkJunction = appearance.artworkJunction
         val useCoverEdgeProgress = uiSettings.useCoverEdgeProgressNow()
         val immersiveLower = uiSettings.playerImmersiveLower
-        val seekState = rememberPlaybackSeekState(playerController)
+        val seekState = rememberPlaybackSeekState(
+            progressState = progressState,
+            onSeekUiActiveChanged = actions.setSeekUiActive,
+            onSeekToMs = actions.seekToMs,
+        )
         val motionEnabled = rememberMicaMotionEnabled()
         val spectrumSettingEnabled = uiSettings.spectrumEnabled
         val coverFlowMode = uiSettings.playerCoverFlowMode
-        val coverFlowModeEnabled = coverFlowMode != PlayerCoverFlowMode.STANDARD
+        val uiState = NowPlayingUiState(
+            song = activeSong,
+            displayedCoverSong = stableCoverState.displayedSong,
+            displayedCoverIndex = stableCoverState.displayedIndex,
+            coverHoldoverAlbumArtUri = stableCoverState.coverHoldoverAlbumArtUri,
+            queue = queueState.queue,
+            currentIndex = queueState.currentIndex,
+            lowerBackground = lowerBackground,
+            coverFlowMode = coverFlowMode,
+            coverEdgeProgress = useCoverEdgeProgress,
+            immersiveLower = immersiveLower,
+            spectrumSettingEnabled = spectrumSettingEnabled,
+        )
+        var spectrumDeferred by remember { mutableStateOf(false) }
+        LaunchedEffect(activeSong.id) {
+            spectrumDeferred = true
+            delay(260)
+            spectrumDeferred = false
+        }
 
         val lyricsTransition = rememberLyricsFocusTransition(
             lyricsExpanded = lyricsExpanded,
@@ -106,7 +294,10 @@ fun NowPlayingScreen(
             label = "immersiveProgress",
         )
         val spectrumEnabled =
-            spectrumSettingEnabled && immersiveProgress <= ImmersiveProgressEpsilon
+            uiState.spectrumSettingEnabled &&
+                !spectrumDeferred &&
+                !uiState.coverSwitching &&
+                immersiveProgress <= ImmersiveProgressEpsilon
         BackHandler(enabled = lyricsExpanded) {
             lyricsExpanded = false
         }
@@ -117,8 +308,8 @@ fun NowPlayingScreen(
         val lyricsLayoutActive = lyricsTransition.layoutActive
         val coverEdgeOnPlaySurface = lyricsTransition.coverEdgeOnPlaySurface
         val coverFlowAvailable =
-            coverFlowModeEnabled &&
-                playerController.songQueue.isNotEmpty() &&
+            uiState.coverFlowModeEnabled &&
+                uiState.queue.isNotEmpty() &&
                 !lyricsExpanded &&
                 !immersiveLower &&
                 lyricsLayoutFocus < 0.01f
@@ -133,13 +324,13 @@ fun NowPlayingScreen(
 
         if (queueSheetOpen) {
             PlaybackQueueSheet(
-                queue = playerController.songQueue,
-                currentIndex = playerController.currentIndex,
-                isPlaying = playerController.isPlaying,
+                queue = queueState.queue,
+                currentIndex = queueState.currentIndex,
+                isPlaying = surfaceState.isPlaying,
                 onDismiss = { queueSheetOpen = false },
-                onPlayAt = { playerController.playSong(it) },
-                onMove = { from, to -> playerController.moveInQueue(from, to) },
-                onRemove = { index -> playerController.removeFromQueue(index) },
+                onPlayAt = actions.playQueueIndex,
+                onMove = actions.moveQueueItem,
+                onRemove = actions.removeQueueItem,
             )
         }
 
@@ -151,7 +342,7 @@ fun NowPlayingScreen(
             NowPlayingBackground(
                 coverColor = coverColor,
                 albumArtUri = activeSong.albumArtUri,
-                mode = lowerBackground,
+                mode = uiState.lowerBackground,
                 coverZoneStop = coverZoneStop,
                 modifier = Modifier.matchParentSize(),
             )
@@ -162,7 +353,7 @@ fun NowPlayingScreen(
             ) {
                 val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
                 val fitOriginal =
-                    !coverFlowModeEnabled && LocalCoverDisplayMode.current == CoverDisplayMode.FIT_ORIGINAL
+                    !uiState.coverFlowModeEnabled && LocalCoverDisplayMode.current == CoverDisplayMode.FIT_ORIGINAL
                 val letterboxAlpha = rememberFitOriginalLetterboxAlpha(
                     fitOriginal = fitOriginal,
                     lyricsExpanded = lyricsExpanded,
@@ -171,9 +362,11 @@ fun NowPlayingScreen(
                 )
                 NowPlayingCoverSection(
                     activeSong = activeSong,
+                    displayedCoverSong = uiState.displayedCoverSong,
+                    coverHoldoverAlbumArtUri = uiState.coverHoldoverAlbumArtUri,
                     coverColor = coverColor,
                     contentColors = contentColors,
-                    lowerBackground = lowerBackground,
+                    lowerBackground = uiState.lowerBackground,
                     artworkJunction = artworkJunction,
                     statusBarTop = statusBarTop,
                     screenHeight = screenHeight,
@@ -183,22 +376,28 @@ fun NowPlayingScreen(
                     useCoverEdgeProgress = useCoverEdgeProgress,
                     seekState = seekState,
                     spectrumEnabled = spectrumEnabled,
-                    spectrumPlaying = playerController.isPlaying,
-                    coverFlowModeEnabled = coverFlowModeEnabled,
-                    coverFlowMode = coverFlowMode,
-                    queue = playerController.songQueue,
-                    currentIndex = playerController.currentIndex,
+                    spectrumPlaying = surfaceState.isPlaying,
+                    coverFlowModeEnabled = uiState.coverFlowModeEnabled,
+                    coverFlowMode = uiState.coverFlowMode,
+                    queue = uiState.queue,
+                    currentIndex = uiState.currentIndex,
+                    displayedCoverIndex = uiState.displayedCoverIndex,
+                    coverSwitching = uiState.coverSwitching,
                     coverFlowProgress = coverFlowProgress,
                     letterboxAlpha = letterboxAlpha,
                     onCoverZoneStopChanged = { coverZoneStop = it },
                     onCloseLyrics = { lyricsExpanded = false },
                     onToggleCoverFlow = null,
-                    onPlayQueueIndex = {
-                        playerController.playSong(it)
+                    onPlayQueueIndex = actions.playQueueIndex,
+                    onTargetCoverReady = {
+                        stableCoverState.markTargetReady(activeSong, queueState.currentIndex)
+                    },
+                    onDisplayedCoverDrawn = { drawnSong ->
+                        stableCoverState.markDisplayedCoverDrawn(drawnSong)
                     },
                     coverContentAlpha = coverContentAlpha,
                     onCoverBoundsChanged = { bounds ->
-                        if (activeSong.id == playerController.currentSong?.id) {
+                        if (activeSong.id == surfaceState.currentSong?.id) {
                             onCoverBoundsChanged(bounds)
                         }
                     },
@@ -283,7 +482,8 @@ fun NowPlayingScreen(
                     )
 
                     PlayerLowerPanelSection(
-                        playerController = playerController,
+                        surfaceState = surfaceState,
+                        progressState = progressState,
                         activeSong = activeSong,
                         lyrics = activeSong.lyrics,
                         colors = contentColors,
@@ -302,7 +502,13 @@ fun NowPlayingScreen(
                         immersiveProgress = immersiveProgress,
                         titleSlideDown = titleSlideDown,
                         lyricLineSlots = spacing.lyricLineSlots,
-                        onToggleImmersive = { uiSettings.togglePlayerImmersiveLower() },
+                        onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
+                        onPrevious = actions.previous,
+                        onTogglePlay = actions.togglePlay,
+                        onNext = actions.next,
+                        onSeekToMs = actions.seekToMs,
+                        onToggleImmersive = actions.toggleImmersiveLower,
+                        onOpenEqualizer = onOpenEqualizer,
                         onOpenLyrics = {
                             edgeAnchor.onOpenLyrics()
                             lyricsExpanded = true

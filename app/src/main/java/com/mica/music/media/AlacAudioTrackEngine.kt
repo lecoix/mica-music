@@ -164,15 +164,26 @@ class AlacAudioTrackEngine(private val context: Context) {
     fun seekTo(seconds: Int) = seekToMs(seconds * 1000)
 
     fun stop() {
+        stop(cleanupAsync = true)
+    }
+
+    private fun stop(cleanupAsync: Boolean) {
         stopRequested = true
         stopPlaybackOnly()
-        releaseSession()
+        val cleanup = detachSession()
         callback = null
         currentSong = null
+        if (cleanupAsync) {
+            scope.launch(Dispatchers.IO) {
+                cleanup.release()
+            }
+        } else {
+            cleanup.release()
+        }
     }
 
     fun release() {
-        stop()
+        stop(cleanupAsync = false)
         scope.cancel()
     }
 
@@ -248,46 +259,59 @@ class AlacAudioTrackEngine(private val context: Context) {
         if (stopBeforeStart) stopPlaybackOnly()
         val epoch = playbackEpoch
         if (!startPlayback) paused = true
-        pcmPlayer.play(
-            pcmFile = decoded.file,
-            format = decoded.pcmFormat,
-            durationSec = durationSec,
-            startOffsetMs = startOffsetMs,
-            autoStart = startPlayback,
-            stopRequested = { stopRequested },
-            producerAlive = decoded.producer?.let { producer ->
-                { producer.isAlive }
-            },
-            listener = object : AlacPcmPlayer.Listener {
-                override fun onPrepared(durationSec: Int) {
-                    if (epoch != playbackEpoch) return
-                    if (durationSec > 0) this@AlacAudioTrackEngine.durationSec = durationSec
-                    cb.onPrepared(this@AlacAudioTrackEngine.durationSec)
-                    cb.onBuffering(false)
-                }
+        scope.launch(Dispatchers.IO) {
+            if (epoch != playbackEpoch || stopRequested) return@launch
+            pcmPlayer.play(
+                pcmFile = decoded.file,
+                format = decoded.pcmFormat,
+                durationSec = durationSec,
+                startOffsetMs = startOffsetMs,
+                autoStart = startPlayback,
+                stopRequested = { stopRequested },
+                producerAlive = decoded.producer?.let { producer ->
+                    { producer.isAlive }
+                },
+                listener = object : AlacPcmPlayer.Listener {
+                    override fun onPrepared(durationSec: Int) {
+                        scope.launch {
+                            if (epoch != playbackEpoch) return@launch
+                            if (durationSec > 0) this@AlacAudioTrackEngine.durationSec = durationSec
+                            cb.onPrepared(this@AlacAudioTrackEngine.durationSec)
+                            cb.onBuffering(false)
+                        }
+                    }
 
-                override fun onPositionMs(positionMs: Int) {
-                    if (epoch != playbackEpoch) return
-                    cb.onPositionMs(positionMs)
-                }
+                    override fun onPositionMs(positionMs: Int) {
+                        scope.launch {
+                            if (epoch != playbackEpoch) return@launch
+                            cb.onPositionMs(positionMs)
+                        }
+                    }
 
-                override fun onPlayingChanged(playing: Boolean) {
-                    if (epoch != playbackEpoch) return
-                    cb.onPlayingChanged(playing)
-                }
+                    override fun onPlayingChanged(playing: Boolean) {
+                        scope.launch {
+                            if (epoch != playbackEpoch) return@launch
+                            cb.onPlayingChanged(playing)
+                        }
+                    }
 
-                override fun onEnded() {
-                    if (epoch != playbackEpoch || stopRequested) return
-                    cb.onPlayingChanged(false)
-                    cb.onEnded()
-                }
+                    override fun onEnded() {
+                        scope.launch {
+                            if (epoch != playbackEpoch || stopRequested) return@launch
+                            cb.onPlayingChanged(false)
+                            cb.onEnded()
+                        }
+                    }
 
-                override fun onError(message: String) {
-                    if (epoch != playbackEpoch || stopRequested) return
-                    cb.onError(message)
-                }
-            },
-        )
+                    override fun onError(message: String) {
+                        scope.launch {
+                            if (epoch != playbackEpoch || stopRequested) return@launch
+                            cb.onError(message)
+                        }
+                    }
+                },
+            )
+        }
     }
 
     private fun stopPlaybackOnly() {
@@ -322,12 +346,31 @@ class AlacAudioTrackEngine(private val context: Context) {
     }
 
     private fun releaseSession() {
-        sessionDecode?.producer?.destroy()
-        decodedFile?.delete()
+        detachSession().release()
+    }
+
+    private fun detachSession(): SessionCleanup {
+        val cleanup = SessionCleanup(
+            producer = sessionDecode?.producer,
+            decodedFile = decodedFile,
+            tempInput = tempInput,
+        )
         decodedFile = null
-        tempInput?.delete()
         tempInput = null
         sessionSongId = null
         sessionDecode = null
+        return cleanup
+    }
+
+    private data class SessionCleanup(
+        val producer: FfmpegRunner.RunningSession?,
+        val decodedFile: File?,
+        val tempInput: File?,
+    ) {
+        fun release() {
+            producer?.destroy()
+            decodedFile?.delete()
+            tempInput?.delete()
+        }
     }
 }

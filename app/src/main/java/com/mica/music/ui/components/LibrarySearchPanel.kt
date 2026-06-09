@@ -30,7 +30,10 @@ fun LibrarySearchPanel(
         songs = results,
         library = library,
         playerController = playerController,
-        onSongClick = onSongClick,
+        onSongClick = { songId ->
+            playerController.setQueue(results)
+            onSongClick(songId)
+        },
         onSongOpenMenu = onSongOpenMenu,
         emptyMessage = emptyMessage,
         listBottomPadding = listBottomPadding,

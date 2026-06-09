@@ -82,11 +82,15 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Artist -> {
                         val songListState = rememberBrowseDetailSongListState("artist:${dest.name}")
+                        val songs = library.songsForArtist(dest.name)
                         SongListPanel(
-                            songs = library.songsForArtist(dest.name),
+                            songs = songs,
                             library = library,
                             playerController = playerController,
-                            onSongClick = onSongClick,
+                            onSongClick = { songId ->
+                                playerController.setQueue(songs)
+                                onSongClick(songId)
+                            },
                             onSongOpenMenu = onSongOpenMenu,
                             emptyMessage = "该歌手下暂无歌曲",
                             listState = songListState,
@@ -117,11 +121,15 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Album -> {
                         val songListState = rememberBrowseDetailSongListState("album:${dest.title}")
+                        val songs = library.songsForAlbum(dest.title)
                         SongListPanel(
-                            songs = library.songsForAlbum(dest.title),
+                            songs = songs,
                             library = library,
                             playerController = playerController,
-                            onSongClick = onSongClick,
+                            onSongClick = { songId ->
+                                playerController.setQueue(songs)
+                                onSongClick(songId)
+                            },
                             onSongOpenMenu = onSongOpenMenu,
                             emptyMessage = "该专辑下暂无歌曲",
                             listState = songListState,
@@ -134,11 +142,15 @@ internal fun HomeBrowseContent(
             }
         }
         HomeSection.Recent -> {
+            val songs = library.recentSongs()
             SongListPanel(
-                songs = library.recentSongs(),
+                songs = songs,
                 library = library,
                 playerController = playerController,
-                onSongClick = onSongClick,
+                onSongClick = { songId ->
+                    playerController.setQueue(songs)
+                    onSongClick(songId)
+                },
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "暂无播放记录",
                 listBottomPadding = listBottomPadding,

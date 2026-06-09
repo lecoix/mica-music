@@ -194,6 +194,8 @@ fun HomeScreen(
     onOpenSongDetail: (String) -> Unit,
     miniPlayerCoverAlpha: Float = 1f,
     onMiniPlayerCoverBoundsChanged: (Rect?) -> Unit = {},
+    showMiniPlayer: Boolean = true,
+    locateCurrentSongRequest: Int = 0,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     var drawerOpen by remember { mutableStateOf(false) }
@@ -451,6 +453,13 @@ fun HomeScreen(
                 section = HomeSection.Songs
                 activePlaylistId = null
             }
+        }
+    }
+
+    // 长按迷你播放条：定位到歌曲列表中的当前播放歌曲（事件由外层 PlayerSheetHost 转发而来）。
+    LaunchedEffect(locateCurrentSongRequest) {
+        if (locateCurrentSongRequest > 0) {
+            locateCurrentSongInLibrary()
         }
     }
 
@@ -720,37 +729,40 @@ fun HomeScreen(
         } else {
             fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationShortMs))
         }
-        AnimatedVisibility(
-            visible = currentSong != null,
-            enter = miniPlayerEnter,
-            exit = miniPlayerExit,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            (currentSong ?: miniPlayerSongSnapshot)?.let { song ->
-                val durationMs = (playerController.durationSec.coerceAtLeast(song.durationSec) * 1000)
-                    .coerceAtLeast(1)
-                MiniPlayer(
-                    style = miniPlayerStyle,
-                    song = song,
-                    isPlaying = playerController.isPlaying,
-                    positionMs = playerController.positionMs,
-                    durationMs = durationMs,
-                    onPlayPause = { playerController.togglePlay() },
-                    onNext = { playerController.next() },
-                    onExpand = onMiniPlayerExpand,
-                    onLongPress = ::locateCurrentSongInLibrary,
-                    coverAlpha = miniPlayerCoverAlpha,
-                    onCoverBoundsChanged = onMiniPlayerCoverBoundsChanged,
-                    modifier = Modifier,
-                )
+        if (showMiniPlayer) {
+            AnimatedVisibility(
+                visible = currentSong != null,
+                enter = miniPlayerEnter,
+                exit = miniPlayerExit,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                (currentSong ?: miniPlayerSongSnapshot)?.let { song ->
+                    MiniPlayer(
+                        style = miniPlayerStyle,
+                        song = song,
+                        isPlaying = playerController.playbackSurfaceState.isPlaying,
+                        onPlayPause = { playerController.togglePlay() },
+                        onNext = { playerController.next() },
+                        onExpand = onMiniPlayerExpand,
+                        onLongPress = ::locateCurrentSongInLibrary,
+                        coverAlpha = miniPlayerCoverAlpha,
+                        onCoverBoundsChanged = onMiniPlayerCoverBoundsChanged,
+                        modifier = Modifier,
+                    )
+                }
             }
         }
 
+        val snackbarBottomPadding = if (currentSong != null) {
+            miniPlayerOverlayHeight(miniPlayerStyle) + HifiSpacing.md
+        } else {
+            contentPadding.calculateBottomPadding() + HifiSpacing.md
+        }
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = contentPadding.calculateBottomPadding() + HifiSpacing.md),
+                .padding(bottom = snackbarBottomPadding),
         )
 
         actionMenuSong?.let { song ->
@@ -1042,7 +1054,10 @@ private fun LibraryContent(
                 songs = library.songs,
                 library = library,
                 playerController = playerController,
-                onSongClick = onSongClick,
+                onSongClick = { songId ->
+                    playerController.setQueue(library.songs)
+                    onSongClick(songId)
+                },
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "暂无歌曲",
                 listState = listState,

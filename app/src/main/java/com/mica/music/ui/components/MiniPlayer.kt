@@ -79,8 +79,6 @@ fun MiniPlayer(
     style: MiniPlayerStyle,
     song: Song,
     isPlaying: Boolean,
-    positionMs: Int,
-    durationMs: Int,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onExpand: () -> Unit,

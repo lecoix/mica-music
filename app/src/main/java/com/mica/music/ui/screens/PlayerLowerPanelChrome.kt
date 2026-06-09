@@ -18,7 +18,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mica.music.data.PlayerController
+import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
@@ -29,7 +29,7 @@ private val CoverEdgeChromeProgressSlide = HifiSpacing.lg
 
 @Composable
 internal fun PlayerLowerPanelChrome(
-    playerController: PlayerController,
+    surfaceState: PlaybackSurfaceState,
     colors: PlayerContentColors,
     seekState: PlaybackSeekState,
     chromeHeight: Dp,
@@ -43,6 +43,11 @@ internal fun PlayerLowerPanelChrome(
     lowerPanelCoords: LayoutCoordinates?,
     onControlsBottomMeasured: (bottomFromPanel: Dp, settledOnLyrics: Boolean) -> Unit,
     lyricsLayoutFocus: Float,
+    onCyclePlaybackQueueMode: () -> Unit,
+    onPrevious: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onOpenEqualizer: () -> Unit,
     onOpenQueue: () -> Unit,
     clipChrome: Boolean,
     immersiveProgress: Float,
@@ -97,7 +102,7 @@ internal fun PlayerLowerPanelChrome(
                             seekState = seekState,
                             colors = colors,
                             spectrumEnabled = spectrumEnabled,
-                            spectrumPlaying = playerController.isPlaying,
+                            spectrumPlaying = surfaceState.isPlaying,
                             spectrumAlpha = spectrumAlpha,
                             spectrumHeight = 56.dp,
                         )
@@ -106,8 +111,13 @@ internal fun PlayerLowerPanelChrome(
                 }
             }
             PlayerPlaybackControlsSection(
-                playerController = playerController,
+                surfaceState = surfaceState,
                 colors = colors,
+                onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+                onPrevious = onPrevious,
+                onTogglePlay = onTogglePlay,
+                onNext = onNext,
+                onOpenEqualizer = onOpenEqualizer,
                 onOpenQueue = onOpenQueue,
                 modifier = controlsModifier.align(Alignment.BottomCenter),
             )
@@ -128,8 +138,13 @@ internal fun PlayerLowerPanelChrome(
                 }
                 Spacer(Modifier.weight(1f))
                 PlayerPlaybackControlsSection(
-                    playerController = playerController,
+                    surfaceState = surfaceState,
                     colors = colors,
+                    onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+                    onPrevious = onPrevious,
+                    onTogglePlay = onTogglePlay,
+                    onNext = onNext,
+                    onOpenEqualizer = onOpenEqualizer,
                     onOpenQueue = onOpenQueue,
                     modifier = controlsModifier,
                 )

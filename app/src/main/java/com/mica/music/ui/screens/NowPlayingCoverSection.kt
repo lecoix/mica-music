@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,8 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
-import kotlin.math.ceil
-import kotlin.math.floor
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlayerCoverFlowMode
@@ -64,6 +63,7 @@ import com.mica.music.ui.components.LivePlayerSpectrumStrip
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.SongCover
+import com.mica.music.ui.components.cachedCoverAspectRatio
 import com.mica.music.ui.components.measurePlayerCoverFitOriginal
 import com.mica.music.ui.components.resolveCoverAspectRatioFromUri
 import com.mica.music.ui.motion.MicaMotion
@@ -74,6 +74,8 @@ import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.artworkEdgeFadeStops
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val LyricsFocusMiniCoverSize = 56.dp * 0.95f
 private val LyricsFocusCoverStartPadding = HifiSpacing.lg + HifiSpacing.sm
@@ -81,6 +83,8 @@ private val LyricsFocusCoverStartPadding = HifiSpacing.lg + HifiSpacing.sm
 @Composable
 internal fun NowPlayingCoverSection(
     activeSong: Song,
+    displayedCoverSong: Song,
+    coverHoldoverAlbumArtUri: String?,
     coverColor: Color,
     contentColors: PlayerContentColors,
     lowerBackground: PlayerLowerBackgroundMode,
@@ -98,12 +102,16 @@ internal fun NowPlayingCoverSection(
     coverFlowMode: PlayerCoverFlowMode,
     queue: List<Song>,
     currentIndex: Int,
+    displayedCoverIndex: Int,
+    coverSwitching: Boolean,
     coverFlowProgress: Float,
     letterboxAlpha: Float,
     onCoverZoneStopChanged: (Float) -> Unit,
     onCloseLyrics: () -> Unit,
     onToggleCoverFlow: (() -> Unit)?,
     onPlayQueueIndex: (Int) -> Unit,
+    onTargetCoverReady: () -> Unit,
+    onDisplayedCoverDrawn: (Song) -> Unit,
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -117,50 +125,59 @@ internal fun NowPlayingCoverSection(
         val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
             lyricsLayoutFocus < 0.5f
         val motionEnabled = rememberMicaMotionEnabled()
-        var previousSong by remember { mutableStateOf(activeSong) }
-        var previousIndex by remember { mutableIntStateOf(currentIndex) }
+        var previousSong by remember { mutableStateOf(displayedCoverSong) }
+        var previousIndex by remember { mutableIntStateOf(displayedCoverIndex) }
         var swapFromSong by remember { mutableStateOf<Song?>(null) }
         var swapToSong by remember { mutableStateOf<Song?>(null) }
-        var swapFromIndex by remember { mutableIntStateOf(currentIndex) }
-        var swapToIndex by remember { mutableIntStateOf(currentIndex) }
+        var swapFromIndex by remember { mutableIntStateOf(displayedCoverIndex) }
+        var swapToIndex by remember { mutableIntStateOf(displayedCoverIndex) }
         val swapProgress = remember { Animatable(1f) }
-        val pendingSwap = coverFlowModeEnabled && previousSong.id != activeSong.id
+        val pendingSwap = coverFlowModeEnabled && previousSong.id != displayedCoverSong.id
         val swapActive = pendingSwap || (swapFromSong != null && swapToSong != null)
         val foldProgress = if (swapActive) 1f else coverFlowProgress.coerceIn(0f, 1f)
         val stageActive = foldProgress > 0.001f
 
-        LaunchedEffect(coverFlowModeEnabled, activeSong.id) {
-            if (coverFlowModeEnabled && previousSong.id != activeSong.id) {
+        StableCoverPreloader(
+            targetSong = activeSong,
+            active = coverSwitching,
+            onReady = onTargetCoverReady,
+        )
+
+        LaunchedEffect(coverFlowModeEnabled, displayedCoverSong.id, displayedCoverIndex) {
+            if (coverFlowModeEnabled && previousSong.id != displayedCoverSong.id) {
                 swapFromSong = previousSong
-                swapToSong = activeSong
+                swapToSong = displayedCoverSong
                 swapFromIndex = previousIndex
-                swapToIndex = currentIndex
+                swapToIndex = displayedCoverIndex
                 swapProgress.snapTo(0f)
-                val swapDuration = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
-                    MicaMotion.DurationLongMs
+                val indexDelta = abs(displayedCoverIndex - previousIndex)
+                if (!motionEnabled || indexDelta > 1) {
+                    swapProgress.snapTo(1f)
                 } else {
-                    MicaMotion.DurationMediumMs
+                    val swapDuration = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
+                        MicaMotion.DurationLongMs
+                    } else {
+                        MicaMotion.DurationMediumMs
+                    }
+                    swapProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = MicaMotion.tweenFloat(motionEnabled, swapDuration),
+                    )
                 }
-                swapProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = MicaMotion.tweenFloat(motionEnabled, swapDuration),
-                )
                 swapFromSong = null
                 swapToSong = null
-                swapFromIndex = currentIndex
-                swapToIndex = currentIndex
+                swapFromIndex = displayedCoverIndex
+                swapToIndex = displayedCoverIndex
             }
-            previousSong = activeSong
-            previousIndex = currentIndex
+            previousSong = displayedCoverSong
+            previousIndex = displayedCoverIndex
         }
 
-        val initialCoverAspectRatio = remember(context, activeSong.albumArtUri) {
-            resolveCoverAspectRatioFromUri(context, activeSong.albumArtUri) ?: 1f
-        }
-        var coverAspectRatio by remember(activeSong.albumArtUri) {
+        val initialCoverAspectRatio = cachedCoverAspectRatio(displayedCoverSong.albumArtUri) ?: 1f
+        var coverAspectRatio by remember(displayedCoverSong.albumArtUri) {
             mutableFloatStateOf(initialCoverAspectRatio)
         }
-        var pendingCoverAspectRatio by remember(activeSong.albumArtUri) {
+        var pendingCoverAspectRatio by remember(displayedCoverSong.albumArtUri) {
             mutableStateOf<Float?>(null)
         }
         val lyricsFocusActive = lyricsExpanded || lyricsLayoutFocus > 0.001f
@@ -176,6 +193,17 @@ internal fun NowPlayingCoverSection(
             if (!lyricsFocusActive && pending != null) {
                 coverAspectRatio = pending
                 pendingCoverAspectRatio = null
+            }
+        }
+        LaunchedEffect(context, displayedCoverSong.albumArtUri, lyricsFocusActive) {
+            if (cachedCoverAspectRatio(displayedCoverSong.albumArtUri) != null) return@LaunchedEffect
+            val resolved = withContext(Dispatchers.IO) {
+                resolveCoverAspectRatioFromUri(context, displayedCoverSong.albumArtUri)
+            } ?: return@LaunchedEffect
+            if (lyricsFocusActive) {
+                pendingCoverAspectRatio = resolved
+            } else {
+                coverAspectRatio = resolved
             }
         }
         val coverDisplayMode = LocalCoverDisplayMode.current
@@ -240,35 +268,53 @@ internal fun NowPlayingCoverSection(
                     ) {
                         if (coverFlowModeEnabled && stageActive) {
                             val transitionFrom = if (pendingSwap) previousIndex else swapFromIndex
-                            val transitionTo = if (pendingSwap) currentIndex else swapToIndex
-                            val progress = if (pendingSwap && swapToSong?.id != activeSong.id) {
+                            val transitionTo = if (pendingSwap) displayedCoverIndex else swapToIndex
+                            val progress = if (pendingSwap && swapToSong?.id != displayedCoverSong.id) {
                                 0f
                             } else {
                                 swapProgress.value
                             }
+                            val virtualCenterIndex =
+                                transitionFrom + (transitionTo - transitionFrom) * progress
                             CoverFlowStage(
                                 queue = queue,
-                                virtualCenterIndex = transitionFrom + (transitionTo - transitionFrom) * progress,
+                                virtualCenterIndex = virtualCenterIndex,
+                                centerAnchorIndex = displayedCoverIndex,
                                 coverColor = coverColor,
                                 coverWidth = coverWidth,
                                 coverHeight = coverHeight,
                                 screenWidthPx = with(density) { screenWidth.toPx() },
                                 foldProgress = foldProgress,
                                 coverFlowMode = coverFlowMode,
-                                activeSongId = activeSong.id,
+                                activeSongId = displayedCoverSong.id,
+                                coverHoldoverAlbumArtUri = coverHoldoverAlbumArtUri,
                                 letterboxAlpha = letterboxAlpha,
                                 onAspectRatioChanged = onCoverAspectRatioChanged,
+                                onDisplayedCoverDrawn = onDisplayedCoverDrawn,
                                 onPlayQueueIndex = onPlayQueueIndex,
                             )
                         } else {
                             SongCover(
-                                albumArtUri = activeSong.albumArtUri,
+                                albumArtUri = displayedCoverSong.albumArtUri,
                                 fallbackColor = coverColor,
-                                contentDescription = activeSong.album,
+                                contentDescription = displayedCoverSong.album,
                                 modifier = Modifier.matchParentSize(),
                                 letterboxAlpha = letterboxAlpha,
                                 crossfadeMillis = 0,
+                                holdoverUntilImageReady = true,
+                                holdoverAlbumArtUri = coverHoldoverAlbumArtUri,
                                 onAspectRatioChanged = onCoverAspectRatioChanged,
+                                onImageReady = {
+                                    onDisplayedCoverDrawn(displayedCoverSong)
+                                    if (displayedCoverSong.id == activeSong.id) {
+                                        onTargetCoverReady()
+                                    }
+                                },
+                                onImageFailed = {
+                                    if (displayedCoverSong.id == activeSong.id) {
+                                        onTargetCoverReady()
+                                    }
+                                },
                             )
                         }
                         if (!stageActive && coverEdgeFade) {
@@ -334,9 +380,38 @@ private fun coverClickModifier(
 }
 
 @Composable
+private fun StableCoverPreloader(
+    targetSong: Song,
+    active: Boolean,
+    onReady: () -> Unit,
+) {
+    if (!active) return
+    if (targetSong.albumArtUri.isNullOrBlank()) {
+        LaunchedEffect(targetSong.id) {
+            onReady()
+        }
+        return
+    }
+    SongCover(
+        albumArtUri = targetSong.albumArtUri,
+        fallbackColor = Color.Transparent,
+        contentDescription = null,
+        modifier = Modifier
+            .size(1.dp)
+            .graphicsLayer { alpha = 0f },
+        crossfadeMillis = 0,
+        drawBackdropWhileLoading = false,
+        publishHoldoverOnSuccess = false,
+        onImageReady = onReady,
+        onImageFailed = onReady,
+    )
+}
+
+@Composable
 private fun BoxScope.CoverFlowStage(
     queue: List<Song>,
     virtualCenterIndex: Float,
+    centerAnchorIndex: Int,
     coverColor: Color,
     coverWidth: Dp,
     coverHeight: Dp,
@@ -344,59 +419,74 @@ private fun BoxScope.CoverFlowStage(
     foldProgress: Float,
     coverFlowMode: PlayerCoverFlowMode,
     activeSongId: String,
+    coverHoldoverAlbumArtUri: String?,
     letterboxAlpha: Float,
     onAspectRatioChanged: (Float) -> Unit,
+    onDisplayedCoverDrawn: (Song) -> Unit,
     onPlayQueueIndex: (Int) -> Unit,
 ) {
-    val start = floor(virtualCenterIndex - 2f).toInt()
-    val end = ceil(virtualCenterIndex + 2f).toInt()
+    // 渲染窗口锚定到“真正切歌”的稳定整数下标，而非动画中的浮点中心。
+    // 这样整段滑动里被渲染的 key 集合恒定不变，避免跨整数时整组 slot 被销毁重建
+    // （那会清空 imageReady，让新建的 AsyncImage 出现一帧空白：模糊/渐变背景下表现为闪上一张或露底色）。
+    // 远端 slot 不再用 continue 剔除，改为透明度归零，从而不改变 keyed 子项的序列。
+    val windowRadius = 3
+    val start = centerAnchorIndex - windowRadius
+    val end = centerAnchorIndex + windowRadius
     val maxDistance = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) 2.35f else 2.15f
-    (start..end).forEach { index ->
-        val song = queue.getOrNull(index) ?: return@forEach
+    for (index in start..end) {
+        val song = queue.getOrNull(index) ?: continue
         val offset = index - virtualCenterIndex
         val distance = abs(offset)
-        if (distance > maxDistance) return@forEach
-        val centerScale = coverFlowCenterScale(coverFlowMode, foldProgress)
-        val slotScale = coverFlowSlotScale(distance, centerScale, coverFlowMode)
-        val slotAlpha = coverFlowSlotAlpha(distance, foldProgress, coverFlowMode)
-        val slotTranslation = coverFlowSlotTranslation(offset, screenWidthPx, coverFlowMode)
-        val slotRotationY = coverFlowSlotRotationY(offset, coverFlowMode)
-        val transformOrigin = if (offset < -0.01f) {
-            TransformOrigin(1f, 0.5f)
-        } else if (offset > 0.01f) {
-            TransformOrigin(0f, 0.5f)
-        } else {
-            TransformOrigin.Center
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(coverWidth, coverHeight)
-                .zIndex(coverFlowSlotZIndex(distance, coverFlowMode))
-                .graphicsLayer {
-                    alpha = slotAlpha
-                    translationX = slotTranslation
-                    rotationY = slotRotationY
-                    scaleX = slotScale
-                    scaleY = slotScale
-                    cameraDistance = 18f * density
-                    this.transformOrigin = transformOrigin
-                }
-                .then(
-                    if (distance > 0.08f) {
-                        Modifier.clickable { onPlayQueueIndex(index) }
-                    } else {
-                        Modifier
-                    },
-                ),
-        ) {
-            ParallelCoverWithReflection(
-                song = song,
-                coverColor = coverColor,
-                activeSongId = activeSongId,
-                letterboxAlpha = letterboxAlpha,
-                onAspectRatioChanged = onAspectRatioChanged,
-            )
+        val withinView = distance <= maxDistance
+        key(song.id) {
+            val centerScale = coverFlowCenterScale(coverFlowMode, foldProgress)
+            val slotScale = coverFlowSlotScale(distance, centerScale, coverFlowMode)
+            val slotAlpha = if (withinView) {
+                coverFlowSlotAlpha(distance, foldProgress, coverFlowMode)
+            } else {
+                0f
+            }
+            val slotTranslation = coverFlowSlotTranslation(offset, screenWidthPx, coverFlowMode)
+            val slotRotationY = coverFlowSlotRotationY(offset, coverFlowMode)
+            val transformOrigin = if (offset < -0.01f) {
+                TransformOrigin(1f, 0.5f)
+            } else if (offset > 0.01f) {
+                TransformOrigin(0f, 0.5f)
+            } else {
+                TransformOrigin.Center
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(coverWidth, coverHeight)
+                    .zIndex(coverFlowSlotZIndex(distance, coverFlowMode))
+                    .graphicsLayer {
+                        alpha = slotAlpha
+                        translationX = slotTranslation
+                        rotationY = slotRotationY
+                        scaleX = slotScale
+                        scaleY = slotScale
+                        cameraDistance = 18f * density
+                        this.transformOrigin = transformOrigin
+                    }
+                    .then(
+                        if (withinView && distance > 0.08f) {
+                            Modifier.clickable { onPlayQueueIndex(index) }
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                ParallelCoverWithReflection(
+                    song = song,
+                    coverColor = coverColor,
+                    activeSongId = activeSongId,
+                    coverHoldoverAlbumArtUri = coverHoldoverAlbumArtUri,
+                    letterboxAlpha = letterboxAlpha,
+                    onAspectRatioChanged = onAspectRatioChanged,
+                    onDisplayedCoverDrawn = onDisplayedCoverDrawn,
+                )
+            }
         }
     }
 }
@@ -406,9 +496,12 @@ private fun ParallelCoverWithReflection(
     song: Song,
     coverColor: Color,
     activeSongId: String,
+    coverHoldoverAlbumArtUri: String?,
     letterboxAlpha: Float,
     onAspectRatioChanged: (Float) -> Unit,
+    onDisplayedCoverDrawn: (Song) -> Unit,
 ) {
+    val active = song.id == activeSongId
     Box(Modifier.fillMaxSize()) {
         SongCover(
             albumArtUri = song.albumArtUri,
@@ -417,7 +510,16 @@ private fun ParallelCoverWithReflection(
             modifier = Modifier.matchParentSize(),
             letterboxAlpha = letterboxAlpha,
             crossfadeMillis = 0,
-            onAspectRatioChanged = if (song.id == activeSongId) onAspectRatioChanged else null,
+            holdoverUntilImageReady = false,
+            holdoverAlbumArtUri = null,
+            publishHoldoverOnSuccess = active,
+            stableMemoryCacheKey = song.albumArtUri,
+            onAspectRatioChanged = if (active) onAspectRatioChanged else null,
+            onImageReady = {
+                if (active) {
+                    onDisplayedCoverDrawn(song)
+                }
+            },
         )
         BoxWithConstraints(
             Modifier.matchParentSize(),
@@ -460,6 +562,10 @@ private fun ParallelCoverWithReflection(
                             },
                             letterboxAlpha = 0f,
                             crossfadeMillis = 0,
+                            holdoverUntilImageReady = false,
+                            holdoverAlbumArtUri = null,
+                            publishHoldoverOnSuccess = active,
+                            stableMemoryCacheKey = song.albumArtUri,
                         )
                     },
                 ) { measurables, constraints ->

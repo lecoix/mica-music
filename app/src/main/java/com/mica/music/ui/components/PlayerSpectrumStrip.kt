@@ -24,7 +24,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 private const val SpectrumProbeTag = "MicaSpectrumProbe"
-private const val SpectrumProbeEnabled = true
+private const val SpectrumProbeEnabled = false
 
 @Composable
 fun LivePlayerSpectrumStrip(

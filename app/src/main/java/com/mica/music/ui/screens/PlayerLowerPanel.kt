@@ -22,7 +22,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
-import com.mica.music.data.PlayerController
+import com.mica.music.data.PlaybackProgressState
+import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.Song
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.ui.components.LivePlayerSpectrumStrip
@@ -35,7 +36,8 @@ private const val CoverEdgeChromeProgressFadeEnd = 0.18f
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PlayerLowerPanelSection(
-    playerController: PlayerController,
+    surfaceState: PlaybackSurfaceState,
+    progressState: PlaybackProgressState,
     activeSong: Song,
     lyrics: List<LyricLine>,
     colors: PlayerContentColors,
@@ -54,7 +56,13 @@ internal fun PlayerLowerPanelSection(
     immersiveProgress: Float,
     titleSlideDown: Dp,
     lyricLineSlots: Int,
+    onCyclePlaybackQueueMode: () -> Unit,
+    onPrevious: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onSeekToMs: (Int) -> Unit,
     onToggleImmersive: () -> Unit,
+    onOpenEqualizer: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
@@ -101,7 +109,7 @@ internal fun PlayerLowerPanelSection(
                 .then(
                     if (immersiveLower) {
                         Modifier.combinedClickable(
-                            onClick = { playerController.togglePlay() },
+                            onClick = onTogglePlay,
                             onLongClick = onToggleImmersive,
                         )
                     } else {
@@ -135,8 +143,8 @@ internal fun PlayerLowerPanelSection(
                     title = activeSong.title,
                     artist = activeSong.artist,
                     album = activeSong.album,
-                    isBuffering = playerController.isBuffering,
-                    playbackError = playerController.playbackError,
+                    isBuffering = surfaceState.isBuffering,
+                    playbackError = surfaceState.playbackError,
                     colors = colors,
                     immersiveProgress = immersiveProgress,
                     modifier = Modifier.graphicsLayer {
@@ -154,7 +162,7 @@ internal fun PlayerLowerPanelSection(
                     ) {
                         LyricsSection(
                             lyrics = lyrics,
-                            positionMs = playerController.positionMs,
+                            positionMs = progressState.positionMs,
                             colors = colors,
                             lineSlots = if (edgeAnchor.active) {
                                 edgeAnchor.playLyricLineSlots
@@ -175,11 +183,11 @@ internal fun PlayerLowerPanelSection(
             if (lyricsLayoutFocus > 0.01f) {
                 ExpandedLyricsPanel(
                     lyrics = lyrics,
-                    positionMs = playerController.positionMs,
+                    positionMs = progressState.positionMs,
                     colors = colors,
                     onLineClick = { timeMs ->
                         if (timeMs >= 0) {
-                            playerController.seekToMs(timeMs)
+                            onSeekToMs(timeMs)
                         }
                     },
                     modifier = Modifier
@@ -195,7 +203,7 @@ internal fun PlayerLowerPanelSection(
             if (spectrumEnabled && showStdProgress && spectrumOverlayAlpha > 0.01f) {
                 LivePlayerSpectrumStrip(
                     enabled = true,
-                    isPlaying = playerController.isPlaying,
+                    isPlaying = surfaceState.isPlaying,
                     colors = colors,
                     height = 56.dp,
                     alpha = spectrumOverlayAlpha,
@@ -208,7 +216,7 @@ internal fun PlayerLowerPanelSection(
         }
 
         PlayerLowerPanelChrome(
-            playerController = playerController,
+            surfaceState = surfaceState,
             colors = colors,
             seekState = seekState,
             chromeHeight = displayChromeHeight,
@@ -222,6 +230,11 @@ internal fun PlayerLowerPanelSection(
             lowerPanelCoords = lowerPanelCoords,
             onControlsBottomMeasured = edgeAnchor.onControlsBottomMeasured,
             lyricsLayoutFocus = lyricsLayoutFocus,
+            onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+            onPrevious = onPrevious,
+            onTogglePlay = onTogglePlay,
+            onNext = onNext,
+            onOpenEqualizer = onOpenEqualizer,
             onOpenQueue = onOpenQueue,
             clipChrome = !edgeAnchor.active,
             immersiveProgress = immersiveProgress,

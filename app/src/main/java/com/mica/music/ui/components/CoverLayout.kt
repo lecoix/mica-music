@@ -30,6 +30,9 @@ fun cacheCoverAspectRatio(albumArtUri: String?, aspectRatio: Float) {
     coverAspectRatioCache[key] = aspectRatio.coerceIn(CoverMinAspectRatio, CoverMaxAspectRatio)
 }
 
+fun cachedCoverAspectRatio(albumArtUri: String?): Float? =
+    albumArtUri?.let { coverAspectRatioCache[it] }
+
 fun resolveCoverAspectRatioFromUri(context: Context, albumArtUri: String?): Float? {
     if (albumArtUri.isNullOrBlank()) return null
     coverAspectRatioCache[albumArtUri]?.let { return it }

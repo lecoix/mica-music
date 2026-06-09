@@ -144,6 +144,21 @@
 - [x] **复古立体封面**（播放页特殊主题；复古 Cover Flow 透视封面 + 独立倒影）
   - **范围**：先仅作用于播放页封面区域，与现有「主题色 / 封面渐变 / 封面模糊」并存，不替换播放页背景。
   - **实现提示**：统一封面舞台按连续中心索引计算位移、alpha 与缩放；启用时播放页局部禁用「原样比例」并强制裁切填充；限制可见封面数；减少动态效果时直接切换。
+- [ ] **封面带/立体封面切歌闪帧 —— 治本（当前为缓解）**
+  - **现象**：在「平行封面带 / 复古立体封面」+「封面模糊 / 封面渐变」背景下切歌，下一张专辑图滑到正中的过程中（或起步那一刻）会有几帧露出**上一张专辑图**或**底色**；「主题色」背景下不出现。
+  - **根因（已用日志逐帧坐实，见下）**：
+    1. **Compose 重建是主因**。封面舞台 [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt) `CoverFlowStage` 用 `for (index in start..end) { key(song.id){ … } }` 渲染可见封面。当渲染窗口的下标序列发生平移（旧实现里 `start = floor(virtualCenterIndex - 2)` 在 `virtualCenterIndex` 跨整数那一帧跳变，且 `if (distance > maxDistance) continue` 按动画值剔除首尾项）时，**这一帧整排 keyed 子项被销毁并重建**（logcat `CoverFlowDiag` 可见同一毫秒内 5 个 `SLOT disposed` + 5 个 `SLOT composed`，`LaunchedEffect`/`onImageReady` 重新触发）。重建会清空 `SongCover` 内 `remember` 的 `imageReady`，新建的 `AsyncImage` 至少有一帧还没把位图绘上屏。
+    2. **背景为何决定可见性**：那一帧空白用什么填只是表象——回退全局占位则闪「上一张」，判定已就绪不画占位则露「底色」。**真正让空白可见的是「重建当帧能否立刻把封面画出来」**：封面模糊把**全尺寸**专辑原图灌进 Coil 默认内存缓存，把体积较小的封面位图挤出缓存，重建当帧封面需从磁盘重解码 → 露空白；封面渐变切歌时取色/重组占用主线程，同样把封面那一帧重绘推迟几帧。主题色无额外负载、封面常驻内存缓存，重建当帧即出图，故肉眼看不见。
+  - **已做缓解（非治本，勿误删）**：
+    1. 渲染窗口锚定到**稳定整数** `displayedCoverIndex`（`centerAnchorIndex`），远端用 `alpha=0` 代替 `continue` 剔除 → 整段滑动里 keyed 序列恒定，消除**滑动中途**重建；
+    2. 模糊背景按 `.size(384)` 降采样加载（[`BlurredCoverBackground.kt`](../app/src/main/java/com/mica/music/ui/theme/BlurredCoverBackground.kt) `BlurredBackgroundSourcePx`），不再挤占封面内存缓存；
+    3. 封面带封面请求加 `memoryCacheKey(uri)` + `placeholderMemoryCacheKey(uri)`（[`SongCover.kt`](../app/src/main/java/com/mica/music/ui/components/SongCover.kt) `stableMemoryCacheKey`），即便重建也由 Coil **第一帧同步**取内存缓存位图绘出，空白帧消失；
+    4. `SongCover` 内 `decodedCoverUris` 让「就绪」状态脱离单个 composable 寿命，作为安全网。
+  - **遗留与治本方向**：缓解只是让「窗口起步那一次仍存在的重建」变得**无害**，并未真正消除重建。彻底治本应让可见封面 slot 在切歌时**永不被销毁重建、只做位移**：
+    - 用 `movableContentOf`/`movableContentWithReceiverOf` 把每个 `song.id` 的封面包成可移动内容，窗口滑动时**移动**而非重建（保留已加载位图与全部 `remember` 状态）；
+    - 或自管「lane → song」映射 + 稳定 lane key，使序列平移时 Compose 走「移动/复用」而非「拆建」；
+    - 配套：自定义 `ImageLoader` 给全屏模糊背景**独立内存缓存**，与封面缓存物理隔离；封面取色/模糊改后台线程，避免切歌帧主线程争用。
+    - 验收：logcat `CoverFlowDiag` 在任意模式切歌全程**不出现成批 `SLOT disposed/composed`**（最多吞吐最远端不可见 slot）；四种背景 × 两种封面流模式连续切歌均无闪。治本完成后可移除上述诊断日志。
 
 ---
 

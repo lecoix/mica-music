@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlayerController
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -25,6 +26,19 @@ internal class PlaybackSeekState(
  */
 @Composable
 internal fun rememberPlaybackSeekState(playerController: PlayerController): PlaybackSeekState {
+    return rememberPlaybackSeekState(
+        progressState = playerController.playbackProgressState,
+        onSeekUiActiveChanged = playerController::setAlacSeekUiActive,
+        onSeekToMs = playerController::seekToMs,
+    )
+}
+
+@Composable
+internal fun rememberPlaybackSeekState(
+    progressState: PlaybackProgressState,
+    onSeekUiActiveChanged: (Boolean) -> Unit,
+    onSeekToMs: (Int) -> Unit,
+): PlaybackSeekState {
     var isDragging by remember { mutableStateOf(false) }
     var dragValueSec by remember { mutableFloatStateOf(0f) }
     /** 按下时锁定的总时长，拖动过程中不随 metadata 变化而缩放比例 */
@@ -32,7 +46,7 @@ internal fun rememberPlaybackSeekState(playerController: PlayerController): Play
     /** 拖动期间锁定的 valueRange 上界，避免时长变化导致 pointerInput 重建、条乱跳 */
     var dragRangeEndSec by remember { mutableFloatStateOf(-1f) }
 
-    val liveTotalMs = playerController.uiDurationMs().coerceAtLeast(1)
+    val liveTotalMs = progressState.durationMs.coerceAtLeast(1)
     val totalMs = when {
         isDragging && dragAnchorTotalMs > 0 -> dragAnchorTotalMs
         else -> liveTotalMs
@@ -41,7 +55,7 @@ internal fun rememberPlaybackSeekState(playerController: PlayerController): Play
     val totalFloat = totalMs / 1000f
     val rangeEndSec = if (isDragging && dragRangeEndSec > 0f) dragRangeEndSec else totalFloat
 
-    val liveSec = playerController.uiPositionMs().coerceIn(0, liveTotalMs) / 1000f
+    val liveSec = progressState.positionMs.coerceIn(0, liveTotalMs) / 1000f
 
     val sliderValueSec = if (isDragging) {
         dragValueSec.coerceIn(0f, rangeEndSec)
@@ -58,7 +72,7 @@ internal fun rememberPlaybackSeekState(playerController: PlayerController): Play
         valueRange = 0f..rangeEndSec.coerceAtLeast(1f),
         onValueChange = { value ->
             if (!isDragging) {
-                playerController.setAlacSeekUiActive(true)
+                onSeekUiActiveChanged(true)
                 dragAnchorTotalMs = liveTotalMs
                 dragRangeEndSec = liveTotalMs / 1000f
                 dragValueSec = liveSec.coerceIn(0f, dragRangeEndSec)
@@ -70,8 +84,8 @@ internal fun rememberPlaybackSeekState(playerController: PlayerController): Play
         onValueChangeFinished = {
             val capMs = if (dragAnchorTotalMs > 0) dragAnchorTotalMs else liveTotalMs
             val targetMs = (dragValueSec * 1000f).roundToInt().coerceIn(0, capMs)
-            playerController.setAlacSeekUiActive(false)
-            playerController.seekToMs(targetMs)
+            onSeekUiActiveChanged(false)
+            onSeekToMs(targetMs)
             isDragging = false
             dragAnchorTotalMs = -1
             dragRangeEndSec = -1f

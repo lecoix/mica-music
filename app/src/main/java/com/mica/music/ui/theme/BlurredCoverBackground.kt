@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -18,6 +22,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+
+/**
+ * 模糊背景源图的解码尺寸（像素）。背景最终会被 [BlurEffect] 模糊到约 120px，
+ * 无需原图分辨率；降采样加载可大幅降低内存占用与解码耗时，避免把封面位图挤出 Coil 内存缓存，
+ * 从而消除切歌时封面 slot 重建后那一帧的空白（模糊/渐变背景下表现为闪一下）。
+ */
+private const val BlurredBackgroundSourcePx = 384
 
 /**
  * 封面模糊：全屏强模糊专辑图 + 取色晕染；Android 12+ 用 [BlurEffect]，低版本取色渐变兜底。
@@ -33,6 +44,10 @@ fun BlurredCoverBackground(
     val accent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
     val canBlurArtwork = !albumArtUri.isNullOrBlank() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    var readyBackgroundUri by remember { mutableStateOf(albumArtUri) }
+    var imageReady by remember(albumArtUri, readyBackgroundUri) {
+        mutableStateOf(albumArtUri.isNullOrBlank() || albumArtUri == readyBackgroundUri)
+    }
 
     Box(
         modifier
@@ -40,10 +55,32 @@ fun BlurredCoverBackground(
             .background(Color.Black),
     ) {
         if (canBlurArtwork) {
+            val holdoverBackgroundUri = readyBackgroundUri?.takeIf {
+                !imageReady && it != albumArtUri
+            }
+            if (!holdoverBackgroundUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(holdoverBackgroundUri)
+                        .size(BlurredBackgroundSourcePx)
+                        .crossfade(0)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = 1.22f
+                            scaleY = 1.22f
+                            renderEffect = BlurEffect(120f, 120f, TileMode.Clamp)
+                        },
+                )
+            }
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(albumArtUri)
-                    .crossfade(280)
+                    .size(BlurredBackgroundSourcePx)
+                    .crossfade(0)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
@@ -54,6 +91,10 @@ fun BlurredCoverBackground(
                         scaleY = 1.22f
                         renderEffect = BlurEffect(120f, 120f, TileMode.Clamp)
                     },
+                onSuccess = {
+                    imageReady = true
+                    readyBackgroundUri = albumArtUri
+                },
             )
         } else {
             AmbientPaletteBackground(

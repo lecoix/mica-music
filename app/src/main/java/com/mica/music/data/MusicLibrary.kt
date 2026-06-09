@@ -110,23 +110,32 @@ class MusicLibrary(private val context: Context) {
     }
 
     fun onSongPlayed(songId: String) {
-        val stats = PlayHistoryStore.recordPlay(context, songId)
-        scannedSongs = scannedSongs.map { song ->
-            if (song.id == songId) {
-                song.copy(playCount = stats.count, lastPlayedAtMs = stats.lastPlayedAtMs)
-            } else {
-                song
+        ioScope.launch {
+            val stats = PlayHistoryStore.recordPlay(context, songId)
+            withContext(Dispatchers.Main.immediate) {
+                applyPlayStats(songId, stats)
             }
         }
+    }
+
+    private fun applyPlayStats(songId: String, stats: PlayStats) {
+        val scannedIndex = scannedSongs.indexOfFirst { it.id == songId }
+        if (scannedIndex < 0) return
+        val updatedScanned = scannedSongs[scannedIndex].copy(
+            playCount = stats.count,
+            lastPlayedAtMs = stats.lastPlayedAtMs,
+        )
+        scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updatedScanned }
         songs = when (sortField) {
             SongSortField.PLAY_COUNT,
             SongSortField.LAST_PLAYED,
             -> SongSorter.sort(scannedSongs, sortField, sortDirection)
-            else -> songs.map { song ->
-                if (song.id == songId) {
-                    song.copy(playCount = stats.count, lastPlayedAtMs = stats.lastPlayedAtMs)
+            else -> {
+                val visibleIndex = songs.indexOfFirst { it.id == songId }
+                if (visibleIndex < 0) {
+                    songs
                 } else {
-                    song
+                    songs.toMutableList().also { it[visibleIndex] = updatedScanned }
                 }
             }
         }

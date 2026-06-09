@@ -20,7 +20,8 @@ fun rememberPlayerScreenAppearance(
     song: Song,
     lowerBackground: PlayerLowerBackgroundMode,
 ): PlayerScreenAppearance {
-    val coverColor = rememberCoverColor(song)
+    val sampleArtworkColor = lowerBackground != PlayerLowerBackgroundMode.THEME
+    val coverColor = rememberCoverColor(song, sampleArtwork = sampleArtworkColor)
     val isDark = MicaTheme.colors.isDark
     val mica = rememberMicaSurfaceColors()
     val appAccent = MicaTheme.colors.accent
