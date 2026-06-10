@@ -1,9 +1,14 @@
 package com.mica.music.ui.screens
-import androidx.compose.animation.core.Animatable
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -25,34 +30,28 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.key
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import com.mica.music.data.ArtistNames
@@ -64,306 +63,204 @@ import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.CoverEdgeProgressBar
 import com.mica.music.ui.components.LivePlayerSpectrumStrip
 import com.mica.music.ui.components.PlaybackSeekState
-import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.SongCover
-import com.mica.music.ui.components.cachedCoverAspectRatio
-import com.mica.music.ui.components.measurePlayerCoverFitOriginal
-import com.mica.music.ui.components.resolveCoverAspectRatioFromUri
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.screens.player.CoverFlowMath
+import com.mica.music.ui.screens.player.CoverLaneBinding
+import com.mica.music.ui.screens.player.PlayerPageFrame
+import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.artworkEdgeFadeStops
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-private val LyricsFocusMiniCoverSize = 56.dp * 0.95f
-private val LyricsFocusCoverStartPadding = HifiSpacing.lg + HifiSpacing.sm
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun NowPlayingCoverSection(
-    activeSong: Song,
-    displayedCoverSong: Song,
-    coverHoldoverAlbumArtUri: String?,
+    song: Song,
+    queue: List<Song>,
+    currentIndex: Int,
+    frame: PlayerPageFrame,
     coverColor: Color,
     contentColors: PlayerContentColors,
     lowerBackground: PlayerLowerBackgroundMode,
     artworkJunction: Color,
-    statusBarTop: Dp,
-    screenHeight: Dp,
-    lyricsExpanded: Boolean,
-    lyricsLayoutFocus: Float,
-    lyricsChromeFade: Float,
-    useCoverEdgeProgress: Boolean,
     seekState: PlaybackSeekState,
-    spectrumEnabled: Boolean,
-    spectrumPlaying: Boolean,
-    coverFlowModeEnabled: Boolean,
+    isPlaying: Boolean,
     coverFlowMode: PlayerCoverFlowMode,
-    queue: List<Song>,
-    currentIndex: Int,
-    displayedCoverIndex: Int,
-    coverSwitching: Boolean,
-    coverFlowProgress: Float,
-    letterboxAlpha: Float,
-    onCoverZoneStopChanged: (Float) -> Unit,
+    lyricsExpanded: Boolean,
+    coverContentAlpha: Float,
+    onCoverBoundsChanged: (Rect?) -> Unit,
+    onCoverAspectRatioChanged: (Float) -> Unit,
     onCloseLyrics: () -> Unit,
-    onToggleCoverFlow: (() -> Unit)?,
     onPlayQueueIndex: (Int) -> Unit,
-    onTargetCoverReady: () -> Unit,
-    onDisplayedCoverDrawn: (Song) -> Unit,
-    coverContentAlpha: Float = 1f,
-    onCoverBoundsChanged: (Rect?) -> Unit = {},
-    onCoverLongPress: (() -> Unit)? = null,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onCoverLongPress: (() -> Unit)?,
+    screenWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val screenWidth = maxWidth
-        val density = LocalDensity.current
-        val context = LocalContext.current
-        val miniHeaderHeight = statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm
-        val coverTopPadding = lerpDp(0.dp, statusBarTop, lyricsLayoutFocus)
-        val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
-            lyricsLayoutFocus < 0.5f
-        val motionEnabled = rememberMicaMotionEnabled()
-        var previousSong by remember { mutableStateOf(displayedCoverSong) }
-        var previousIndex by remember { mutableIntStateOf(displayedCoverIndex) }
-        var swapFromSong by remember { mutableStateOf<Song?>(null) }
-        var swapToSong by remember { mutableStateOf<Song?>(null) }
-        var swapFromIndex by remember { mutableIntStateOf(displayedCoverIndex) }
-        var swapToIndex by remember { mutableIntStateOf(displayedCoverIndex) }
-        val swapProgress = remember { Animatable(1f) }
-        val pendingSwap = coverFlowModeEnabled && previousSong.id != displayedCoverSong.id
-        val swapActive = pendingSwap || (swapFromSong != null && swapToSong != null)
-        val foldProgress = if (swapActive) 1f else coverFlowProgress.coerceIn(0f, 1f)
-        val stageActive = foldProgress > 0.001f
+    val cover = frame.cover
+    val motionEnabled = rememberMicaMotionEnabled()
+    val density = LocalDensity.current
+    val context = LocalContext.current
+    val screenWidthPx = with(density) { screenWidth.coerceAtLeast(1.dp).toPx() }
 
-        StableCoverPreloader(
-            targetSong = activeSong,
-            active = coverSwitching,
-            preloadBlurredBackground = lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW,
-            onReady = onTargetCoverReady,
-        )
+    val standardMode = coverFlowMode == PlayerCoverFlowMode.STANDARD && !frame.coverFlowStageActive
 
-        LaunchedEffect(coverFlowModeEnabled, displayedCoverSong.id, displayedCoverIndex) {
-            if (coverFlowModeEnabled && previousSong.id != displayedCoverSong.id) {
-                swapFromSong = previousSong
-                swapToSong = displayedCoverSong
-                swapFromIndex = previousIndex
-                swapToIndex = displayedCoverIndex
-                swapProgress.snapTo(0f)
-                val indexDelta = abs(displayedCoverIndex - previousIndex)
-                if (!motionEnabled || indexDelta > 1) {
-                    swapProgress.snapTo(1f)
-                } else {
-                    val swapDuration = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
-                        MicaMotion.DurationLongMs
-                    } else {
-                        MicaMotion.DurationMediumMs
-                    }
-                    swapProgress.animateTo(
-                        targetValue = 1f,
-                        animationSpec = MicaMotion.tweenFloat(motionEnabled, swapDuration),
-                    )
-                }
-                swapFromSong = null
-                swapToSong = null
-                swapFromIndex = displayedCoverIndex
-                swapToIndex = displayedCoverIndex
-            }
-            previousSong = displayedCoverSong
-            previousIndex = displayedCoverIndex
-        }
+    val gestureState = rememberCoverGestureState(
+        queue = queue,
+        currentIndex = currentIndex,
+        coverFlowStageActive = frame.coverFlowStageActive,
+        coverFlowMode = coverFlowMode,
+        gesturesEnabled = frame.gesturesEnabled,
+        standardMode = standardMode,
+        screenWidthPx = screenWidthPx,
+        motionEnabled = motionEnabled,
+        onPlayQueueIndex = onPlayQueueIndex,
+        onPrevious = onPrevious,
+        onNext = onNext,
+    )
 
-        val initialCoverAspectRatio = cachedCoverAspectRatio(displayedCoverSong.albumArtUri) ?: 1f
-        var coverAspectRatio by remember(displayedCoverSong.albumArtUri) {
-            mutableFloatStateOf(initialCoverAspectRatio)
-        }
-        var pendingCoverAspectRatio by remember(displayedCoverSong.albumArtUri) {
-            mutableStateOf<Float?>(null)
-        }
-        val lyricsFocusActive = lyricsExpanded || lyricsLayoutFocus > 0.001f
-        val onCoverAspectRatioChanged: (Float) -> Unit = { ratio ->
-            if (lyricsFocusActive) {
-                pendingCoverAspectRatio = ratio
-            } else {
-                coverAspectRatio = ratio
+    LaunchedEffect(gestureState.centerAnchorIndex, queue) {
+        for (binding in gestureState.laneBindings) {
+            val uri = binding.song?.albumArtUri ?: continue
+            MicaImageLoaders.ensureCoverCached(context, uri)
+            if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
+                MicaImageLoaders.ensureBackgroundCached(context, uri)
             }
         }
-        LaunchedEffect(lyricsFocusActive, pendingCoverAspectRatio) {
-            val pending = pendingCoverAspectRatio
-            if (!lyricsFocusActive && pending != null) {
-                coverAspectRatio = pending
-                pendingCoverAspectRatio = null
-            }
-        }
-        LaunchedEffect(context, displayedCoverSong.albumArtUri, lyricsFocusActive) {
-            if (cachedCoverAspectRatio(displayedCoverSong.albumArtUri) != null) return@LaunchedEffect
-            val resolved = withContext(Dispatchers.IO) {
-                resolveCoverAspectRatioFromUri(context, displayedCoverSong.albumArtUri)
-            } ?: return@LaunchedEffect
-            if (lyricsFocusActive) {
-                pendingCoverAspectRatio = resolved
-            } else {
-                coverAspectRatio = resolved
-            }
-        }
-        val coverDisplayMode = LocalCoverDisplayMode.current
-        val effectiveCoverDisplayMode = if (coverFlowModeEnabled) {
-            CoverDisplayMode.CROP_FILL
-        } else {
-            coverDisplayMode
-        }
-        val fitOriginal = effectiveCoverDisplayMode == CoverDisplayMode.FIT_ORIGINAL
-        val (expandedCoverWidth, expandedCoverHeight) = if (fitOriginal) {
-            measurePlayerCoverFitOriginal(
-                coverAspectRatio,
-                screenWidth,
-                screenHeight,
-            )
-        } else {
-            screenWidth to screenWidth
-        }
-        val coverWidth = lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, lyricsLayoutFocus)
-        val coverHeight = lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsLayoutFocus)
-        val expandedCoverStartPadding = if (fitOriginal) {
-            Dp(((screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
-        } else {
-            0.dp
-        }
-        val coverStartPadding = lerpDp(
-            expandedCoverStartPadding,
-            LyricsFocusCoverStartPadding,
-            lyricsLayoutFocus,
-        )
-        val coverBlockHeight = lerpDp(
-            coverHeight + coverTopPadding,
-            miniHeaderHeight,
-            lyricsLayoutFocus,
-        )
-        SideEffect {
-            onCoverZoneStopChanged(
-                (coverBlockHeight.value / screenHeight.value)
-                    .coerceIn(0.12f, PlayerCoverMaxScreenFraction),
-            )
-        }
+    }
 
-        CompositionLocalProvider(LocalCoverDisplayMode provides effectiveCoverDisplayMode) {
+    val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
+        frame.lyricsProgress < 0.5f
+    val effectiveCoverDisplayMode = if (coverFlowMode != PlayerCoverFlowMode.STANDARD) {
+        CoverDisplayMode.CROP_FILL
+    } else {
+        LocalCoverDisplayMode.current
+    }
+
+    CompositionLocalProvider(LocalCoverDisplayMode provides effectiveCoverDisplayMode) {
+        Box(
+            modifier
+                .height(cover.blockHeight)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.TopStart,
+        ) {
             Box(
-                Modifier
-                    .height(coverBlockHeight)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.TopStart,
+                modifier = Modifier
+                    .padding(start = cover.startPadding, top = cover.topPadding)
+                    .size(cover.width, cover.height)
+                    .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
+                    .pointerInput(frame.gesturesEnabled) {
+                        if (frame.gesturesEnabled) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { gestureState.handlers.onDragStart() },
+                                onDragEnd = { gestureState.handlers.onDragEnd() },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    gestureState.handlers.onHorizontalDrag(dragAmount)
+                                },
+                            )
+                        }
+                    }
+                    .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverLongPress)),
             ) {
                 Box(
                     modifier = Modifier
-                        .padding(start = coverStartPadding, top = coverTopPadding)
-                        .size(coverWidth, coverHeight)
-                        .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
-                        .then(
-                            coverClickModifier(
-                                lyricsExpanded = lyricsExpanded,
-                                onCloseLyrics = onCloseLyrics,
-                                onToggleCoverFlow = onToggleCoverFlow,
-                                onCoverLongPress = onCoverLongPress,
-                            ),
-                        ),
+                        .matchParentSize()
+                        .graphicsLayer {
+                            alpha = coverContentAlpha
+                            if (standardMode && !frame.coverFlowStageActive) {
+                                translationX = gestureState.standardSwipeOffsetFraction *
+                                    size.width * 0.35f
+                            }
+                        }
+                        .zIndex(1f),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .graphicsLayer { alpha = coverContentAlpha }
-                            .zIndex(1f),
-                    ) {
-                        if (coverFlowModeEnabled && stageActive) {
-                            val transitionFrom = if (pendingSwap) previousIndex else swapFromIndex
-                            val transitionTo = if (pendingSwap) displayedCoverIndex else swapToIndex
-                            val progress = if (pendingSwap && swapToSong?.id != displayedCoverSong.id) {
-                                0f
-                            } else {
-                                swapProgress.value
-                            }
-                            val virtualCenterIndex =
-                                transitionFrom + (transitionTo - transitionFrom) * progress
-                            CoverFlowStage(
-                                queue = queue,
-                                virtualCenterIndex = virtualCenterIndex,
-                                centerAnchorIndex = displayedCoverIndex,
-                                coverColor = coverColor,
-                                coverWidth = coverWidth,
-                                coverHeight = coverHeight,
-                                screenWidthPx = with(density) { screenWidth.toPx() },
-                                foldProgress = foldProgress,
-                                coverFlowMode = coverFlowMode,
-                                activeSongId = displayedCoverSong.id,
-                                coverHoldoverAlbumArtUri = coverHoldoverAlbumArtUri,
-                                letterboxAlpha = letterboxAlpha,
-                                onAspectRatioChanged = onCoverAspectRatioChanged,
-                                onDisplayedCoverDrawn = onDisplayedCoverDrawn,
-                                onPlayQueueIndex = onPlayQueueIndex,
-                                onCoverLongPress = onCoverLongPress,
-                            )
-                        } else {
-                            StandardDualSlotCover(
-                                displayedCoverSong = displayedCoverSong,
-                                coverColor = coverColor,
-                                letterboxAlpha = letterboxAlpha,
-                                onAspectRatioChanged = onCoverAspectRatioChanged,
-                                onDisplayedCoverDrawn = onDisplayedCoverDrawn,
+                    if (frame.coverFlowStageActive) {
+                        CoverFlowLaneStage(
+                            bindings = gestureState.laneBindings,
+                            virtualCenterIndex = gestureState.virtualCenterIndex,
+                            coverColor = coverColor,
+                            coverWidth = cover.width,
+                            coverHeight = cover.height,
+                            screenWidthPx = screenWidthPx,
+                            foldProgress = frame.coverFlowProgress,
+                            coverFlowMode = coverFlowMode,
+                    letterboxAlpha = cover.letterboxAlpha,
+                            onAspectRatioChanged = onCoverAspectRatioChanged,
+                            onPlayQueueIndex = onPlayQueueIndex,
+                            onCoverLongPress = onCoverLongPress,
+                        )
+                    } else {
+                        AnimatedContent(
+                            targetState = song.id,
+                            transitionSpec = {
+                                fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)) togetherWith
+                                    fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs))
+                            },
+                            label = "standardCover",
+                        ) { _ ->
+                            SongCover(
+                                albumArtUri = song.albumArtUri,
+                                fallbackColor = coverColor,
+                                contentDescription = song.album,
                                 modifier = Modifier.matchParentSize(),
+                                letterboxAlpha = cover.letterboxAlpha,
+                                crossfadeMillis = if (motionEnabled) 200 else 0,
+                                onAspectRatioChanged = onCoverAspectRatioChanged,
                             )
                         }
-                        if (!stageActive && coverEdgeFade) {
-                            artworkEdgeFadeStops(artworkJunction)?.let { stops ->
-                                Box(
-                                    Modifier
-                                        .matchParentSize()
-                                        .background(Brush.verticalGradient(colorStops = stops)),
-                                )
-                            }
+                    }
+                    if (!frame.coverFlowStageActive && coverEdgeFade) {
+                        artworkEdgeFadeStops(artworkJunction)?.let { stops ->
+                            Box(
+                                Modifier
+                                    .matchParentSize()
+                                    .background(Brush.verticalGradient(colorStops = stops)),
+                            )
                         }
-                        if (!stageActive && useCoverEdgeProgress) {
-                            val coverEdgeProgressAlpha = 1f - lyricsChromeFade
-                            if (coverEdgeProgressAlpha > 0.01f) {
-                                LivePlayerSpectrumStrip(
-                                    enabled = spectrumEnabled,
-                                    isPlaying = spectrumPlaying,
-                                    colors = contentColors,
-                                    height = 72.dp,
-                                    alpha = coverEdgeProgressAlpha,
-                                    modifier = Modifier.align(Alignment.BottomCenter),
-                                )
-                                CoverEdgeProgressBar(
-                                    value = seekState.sliderValue,
-                                    onValueChange = seekState.onValueChange,
-                                    onValueChangeFinished = seekState.onValueChangeFinished,
-                                    valueRange = seekState.valueRange,
-                                    progressColor = contentColors.primary,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .graphicsLayer { alpha = coverEdgeProgressAlpha },
-                                )
-                            }
+                    }
+                    if (!frame.coverFlowStageActive && frame.lower.coverEdgeOnPlaySurface) {
+                        val coverEdgeProgressAlpha = 1f - frame.lower.lyricsChromeFade
+                        if (coverEdgeProgressAlpha > 0.01f) {
+                            LivePlayerSpectrumStrip(
+                                enabled = frame.spectrumEnabled,
+                                isPlaying = isPlaying,
+                                colors = contentColors,
+                                height = 72.dp,
+                                alpha = coverEdgeProgressAlpha,
+                                modifier = Modifier.align(Alignment.BottomCenter),
+                            )
+                            CoverEdgeProgressBar(
+                                value = seekState.sliderValue,
+                                onValueChange = seekState.onValueChange,
+                                onValueChangeFinished = seekState.onValueChangeFinished,
+                                valueRange = seekState.valueRange,
+                                progressColor = contentColors.primary,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .graphicsLayer { alpha = coverEdgeProgressAlpha },
+                            )
                         }
                     }
                 }
-                if (lyricsLayoutFocus > 0.01f) {
-                    LyricsFocusHeaderOverlay(
-                        title = activeSong.title,
-                        artist = activeSong.artist,
-                        coverWidth = coverWidth,
-                        coverHeight = coverHeight,
-                        coverStartPadding = coverStartPadding,
-                        coverTopPadding = coverTopPadding,
-                        colors = contentColors,
-                        focusAlpha = lyricsLayoutFocus,
-                        onCloseLyrics = onCloseLyrics,
-                    )
-                }
+            }
+            if (frame.lyricsProgress > 0.01f) {
+                LyricsFocusHeaderOverlay(
+                    title = song.title,
+                    artist = song.artist,
+                    coverWidth = cover.width,
+                    coverHeight = cover.height,
+                    coverStartPadding = cover.startPadding,
+                    coverTopPadding = cover.topPadding,
+                    colors = contentColors,
+                    focusAlpha = frame.lyricsProgress,
+                    onCloseLyrics = onCloseLyrics,
+                )
             }
         }
     }
@@ -373,7 +270,6 @@ internal fun NowPlayingCoverSection(
 private fun coverClickModifier(
     lyricsExpanded: Boolean,
     onCloseLyrics: () -> Unit,
-    onToggleCoverFlow: (() -> Unit)?,
     onCoverLongPress: (() -> Unit)?,
 ): Modifier = when {
     lyricsExpanded && onCoverLongPress != null ->
@@ -384,202 +280,76 @@ private fun coverClickModifier(
     lyricsExpanded -> Modifier.clickable(onClick = onCloseLyrics)
     onCoverLongPress != null ->
         Modifier.combinedClickable(
-            onClick = onToggleCoverFlow ?: {},
+            onClick = {},
             onLongClick = onCoverLongPress,
         )
-    onToggleCoverFlow != null -> Modifier.clickable(onClick = onToggleCoverFlow)
     else -> Modifier
-}
-
-/**
- * 标准主题封面：固定 A/B 两槽，[key] 终身不变。
- * 新曲只写入当前不可见槽（alpha=0），再翻转可见性；可见槽在展示期间不换 URI，
- * 避免单实例 [SongCover] 换 model 导致的逻辑重建与闪帧。
- */
-@Composable
-private fun StandardDualSlotCover(
-    displayedCoverSong: Song,
-    coverColor: Color,
-    letterboxAlpha: Float,
-    onAspectRatioChanged: (Float) -> Unit,
-    onDisplayedCoverDrawn: (Song) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var slotA by remember { mutableStateOf(displayedCoverSong) }
-    var slotB by remember { mutableStateOf(displayedCoverSong) }
-    var frontIsA by remember { mutableStateOf(true) }
-
-    LaunchedEffect(displayedCoverSong.id) {
-        val frontSong = if (frontIsA) slotA else slotB
-        if (frontSong.id == displayedCoverSong.id) return@LaunchedEffect
-        if (frontIsA) {
-            slotB = displayedCoverSong
-            frontIsA = false
-        } else {
-            slotA = displayedCoverSong
-            frontIsA = true
-        }
-    }
-
-    Box(modifier) {
-        key("standard_cover_slot_a") {
-            StandardCoverSlot(
-                song = slotA,
-                visible = frontIsA,
-                coverColor = coverColor,
-                letterboxAlpha = letterboxAlpha,
-                onAspectRatioChanged = if (frontIsA) onAspectRatioChanged else null,
-                onDisplayedCoverDrawn = {
-                    if (slotA.id == displayedCoverSong.id) {
-                        onDisplayedCoverDrawn(slotA)
-                    }
-                },
-                modifier = Modifier
-                    .matchParentSize()
-                    .zIndex(if (frontIsA) 1f else 0f),
-            )
-        }
-        key("standard_cover_slot_b") {
-            StandardCoverSlot(
-                song = slotB,
-                visible = !frontIsA,
-                coverColor = coverColor,
-                letterboxAlpha = letterboxAlpha,
-                onAspectRatioChanged = if (!frontIsA) onAspectRatioChanged else null,
-                onDisplayedCoverDrawn = {
-                    if (slotB.id == displayedCoverSong.id) {
-                        onDisplayedCoverDrawn(slotB)
-                    }
-                },
-                modifier = Modifier
-                    .matchParentSize()
-                    .zIndex(if (frontIsA) 0f else 1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun StandardCoverSlot(
-    song: Song,
-    visible: Boolean,
-    coverColor: Color,
-    letterboxAlpha: Float,
-    onAspectRatioChanged: ((Float) -> Unit)?,
-    onDisplayedCoverDrawn: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    SongCover(
-        albumArtUri = song.albumArtUri,
-        fallbackColor = coverColor,
-        contentDescription = if (visible) song.album else null,
-        modifier = modifier.graphicsLayer {
-            alpha = if (visible) 1f else 0f
-        },
-        letterboxAlpha = letterboxAlpha,
-        crossfadeMillis = 0,
-        holdoverUntilImageReady = false,
-        publishHoldoverOnSuccess = visible,
-        onAspectRatioChanged = onAspectRatioChanged,
-        onImageReady = {
-            if (visible) {
-                onDisplayedCoverDrawn()
-            }
-        },
-    )
-}
-
-@Composable
-private fun StableCoverPreloader(
-    targetSong: Song,
-    active: Boolean,
-    preloadBlurredBackground: Boolean,
-    onReady: () -> Unit,
-) {
-    if (!active) return
-    val context = LocalContext.current
-    LaunchedEffect(targetSong.id, targetSong.albumArtUri, preloadBlurredBackground) {
-        val uri = targetSong.albumArtUri
-        if (uri.isNullOrBlank()) {
-            onReady()
-            return@LaunchedEffect
-        }
-        MicaImageLoaders.ensureCoverCached(context, uri)
-        if (preloadBlurredBackground) {
-            MicaImageLoaders.ensureBackgroundCached(context, uri)
-        }
-        onReady()
-    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BoxScope.CoverFlowStage(
-    queue: List<Song>,
+private fun BoxScope.CoverFlowLaneStage(
+    bindings: List<CoverLaneBinding>,
     virtualCenterIndex: Float,
-    centerAnchorIndex: Int,
     coverColor: Color,
     coverWidth: Dp,
     coverHeight: Dp,
     screenWidthPx: Float,
     foldProgress: Float,
     coverFlowMode: PlayerCoverFlowMode,
-    activeSongId: String,
-    coverHoldoverAlbumArtUri: String?,
     letterboxAlpha: Float,
     onAspectRatioChanged: (Float) -> Unit,
-    onDisplayedCoverDrawn: (Song) -> Unit,
     onPlayQueueIndex: (Int) -> Unit,
     onCoverLongPress: (() -> Unit)?,
 ) {
-    // 渲染窗口锚定到“真正切歌”的稳定整数下标，而非动画中的浮点中心。
-    // 这样整段滑动里被渲染的 key 集合恒定不变，避免跨整数时整组 slot 被销毁重建
-    // （那会清空 imageReady，让新建的 AsyncImage 出现一帧空白：模糊/渐变背景下表现为闪上一张或露底色）。
-    // 远端 slot 不再用 continue 剔除，改为透明度归零，从而不改变 keyed 子项的序列。
-    val windowRadius = 3
-    val start = centerAnchorIndex - windowRadius
-    val end = centerAnchorIndex + windowRadius
-    val maxDistance = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) 2.35f else 2.15f
-    for (index in start..end) {
-        val song = queue.getOrNull(index) ?: continue
-        val offset = index - virtualCenterIndex
-        val distance = abs(offset)
-        val withinView = distance <= maxDistance
-        key(song.id) {
-            val centerScale = coverFlowCenterScale(coverFlowMode, foldProgress)
-            val slotScale = coverFlowSlotScale(distance, centerScale, coverFlowMode)
+    val density = LocalDensity.current
+    val maxDistance = CoverFlowMath.MaxViewDistance
+
+    for (binding in bindings) {
+        val laneOffset = binding.laneOffset
+        val song = binding.song
+        val queueIndex = binding.queueIndex
+        if (song == null) continue
+        key("cover_lane_$laneOffset") {
+            val offset = queueIndex - virtualCenterIndex
+            val distance = abs(offset)
+            val withinView = distance <= maxDistance
+            val centerScale = CoverFlowMath.centerScale(coverFlowMode, foldProgress)
+            val slotScale = CoverFlowMath.slotScale(distance, centerScale, coverFlowMode)
             val slotAlpha = if (withinView) {
-                coverFlowSlotAlpha(distance, foldProgress, coverFlowMode)
+                CoverFlowMath.slotAlpha(distance, foldProgress, coverFlowMode)
             } else {
                 0f
             }
-            val slotTranslation = coverFlowSlotTranslation(offset, screenWidthPx, coverFlowMode)
-            val slotRotationY = coverFlowSlotRotationY(offset, coverFlowMode)
-            val transformOrigin = if (offset < -0.01f) {
-                TransformOrigin(1f, 0.5f)
-            } else if (offset > 0.01f) {
-                TransformOrigin(0f, 0.5f)
-            } else {
-                TransformOrigin.Center
+            val slotTranslation = CoverFlowMath.slotTranslation(
+                offset = offset,
+                screenWidthPx = screenWidthPx,
+                mode = coverFlowMode,
+            )
+            val slotRotationY = CoverFlowMath.slotRotationY(offset, coverFlowMode)
+            val transformOrigin = when {
+                distance < 0.08f -> TransformOrigin.Center
+                offset < 0f -> TransformOrigin(1f, 0.5f)
+                else -> TransformOrigin(0f, 0.5f)
             }
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .size(coverWidth, coverHeight)
-                    .zIndex(coverFlowSlotZIndex(distance, coverFlowMode))
+                    .zIndex(CoverFlowMath.slotZIndex(distance, coverFlowMode))
                     .graphicsLayer {
                         alpha = slotAlpha
                         translationX = slotTranslation
                         rotationY = slotRotationY
                         scaleX = slotScale
                         scaleY = slotScale
-                        cameraDistance = 18f * density
+                        cameraDistance = 18f * density.density
                         this.transformOrigin = transformOrigin
                     }
                     .then(
                         when {
                             withinView && distance > 0.08f ->
-                                Modifier.clickable { onPlayQueueIndex(index) }
+                                Modifier.clickable { onPlayQueueIndex(queueIndex) }
                             withinView && distance < 0.08f && onCoverLongPress != null ->
                                 Modifier.combinedClickable(
                                     onClick = {},
@@ -592,11 +362,8 @@ private fun BoxScope.CoverFlowStage(
                 ParallelCoverWithReflection(
                     song = song,
                     coverColor = coverColor,
-                    activeSongId = activeSongId,
-                    coverHoldoverAlbumArtUri = coverHoldoverAlbumArtUri,
                     letterboxAlpha = letterboxAlpha,
-                    onAspectRatioChanged = onAspectRatioChanged,
-                    onDisplayedCoverDrawn = onDisplayedCoverDrawn,
+                    onAspectRatioChanged = if (distance < 0.08f) onAspectRatioChanged else null,
                 )
             }
         }
@@ -607,13 +374,9 @@ private fun BoxScope.CoverFlowStage(
 private fun ParallelCoverWithReflection(
     song: Song,
     coverColor: Color,
-    activeSongId: String,
-    coverHoldoverAlbumArtUri: String?,
     letterboxAlpha: Float,
-    onAspectRatioChanged: (Float) -> Unit,
-    onDisplayedCoverDrawn: (Song) -> Unit,
+    onAspectRatioChanged: ((Float) -> Unit)?,
 ) {
-    val active = song.id == activeSongId
     Box(Modifier.fillMaxSize()) {
         SongCover(
             albumArtUri = song.albumArtUri,
@@ -622,20 +385,10 @@ private fun ParallelCoverWithReflection(
             modifier = Modifier.matchParentSize(),
             letterboxAlpha = letterboxAlpha,
             crossfadeMillis = 0,
-            holdoverUntilImageReady = false,
-            holdoverAlbumArtUri = null,
-            publishHoldoverOnSuccess = active,
             stableMemoryCacheKey = song.albumArtUri,
-            onAspectRatioChanged = if (active) onAspectRatioChanged else null,
-            onImageReady = {
-                if (active) {
-                    onDisplayedCoverDrawn(song)
-                }
-            },
+            onAspectRatioChanged = onAspectRatioChanged,
         )
-        BoxWithConstraints(
-            Modifier.matchParentSize(),
-        ) {
+        BoxWithConstraints(Modifier.matchParentSize()) {
             val fullWidth = maxWidth
             val fullHeight = maxHeight
             val reflectionHeight = maxHeight * 0.28f
@@ -674,9 +427,6 @@ private fun ParallelCoverWithReflection(
                             },
                             letterboxAlpha = 0f,
                             crossfadeMillis = 0,
-                            holdoverUntilImageReady = false,
-                            holdoverAlbumArtUri = null,
-                            publishHoldoverOnSuccess = active,
                             stableMemoryCacheKey = song.albumArtUri,
                         )
                     },
@@ -693,87 +443,6 @@ private fun ParallelCoverWithReflection(
             }
         }
     }
-}
-
-private fun coverFlowCenterScale(mode: PlayerCoverFlowMode, foldProgress: Float): Float {
-    return when (mode) {
-        PlayerCoverFlowMode.RETRO_3D -> 1f - 0.38f * foldProgress
-        PlayerCoverFlowMode.PAUSE_FOLD -> 1f - 0.24f * foldProgress
-        PlayerCoverFlowMode.STANDARD -> 1f
-    }
-}
-
-private fun coverFlowSlotScale(
-    distance: Float,
-    centerScale: Float,
-    mode: PlayerCoverFlowMode,
-): Float {
-    if (mode != PlayerCoverFlowMode.RETRO_3D) return centerScale
-    val d = distance.coerceIn(0f, 2f)
-    return if (d <= 1f) {
-        centerScale + (0.52f - centerScale) * d
-    } else {
-        0.52f + (0.44f - 0.52f) * (d - 1f)
-    }
-}
-
-private fun coverFlowSlotAlpha(
-    distance: Float,
-    foldProgress: Float,
-    mode: PlayerCoverFlowMode,
-): Float {
-    val d = distance.coerceIn(0f, 2f)
-    val farAlpha = if (mode == PlayerCoverFlowMode.RETRO_3D) 1f else 0.48f
-    val alpha = when {
-        d <= 1f -> 1f
-        else -> 1f + (farAlpha - 1f) * (d - 1f)
-    }
-    return if (d < 0.05f) alpha else alpha * foldProgress
-}
-
-private fun coverFlowSlotTranslation(
-    offset: Float,
-    screenWidthPx: Float,
-    mode: PlayerCoverFlowMode,
-): Float {
-    val distance = abs(offset)
-    if (distance < 0.001f) return 0f
-    val sign = if (offset < 0f) -1f else 1f
-    if (mode != PlayerCoverFlowMode.RETRO_3D) {
-        val step = 0.92f
-        val fraction = if (distance <= 1f) {
-            step * distance
-        } else {
-            step + step * (distance - 1f)
-        }
-        return sign * screenWidthPx * fraction
-    }
-    val d = distance.coerceIn(0f, 2f)
-    val fraction = if (d <= 1f) {
-        0.81f * d
-    } else {
-        0.81f + (0.90f - 0.81f) * (d - 1f)
-    }
-    return sign * screenWidthPx * fraction
-}
-
-private fun coverFlowSlotZIndex(distance: Float, mode: PlayerCoverFlowMode): Float {
-    if (mode != PlayerCoverFlowMode.RETRO_3D) return 10f - distance
-    return when {
-        distance < 0.05f -> 30f
-        distance <= 1.05f -> 20f
-        else -> 10f - distance
-    }
-}
-
-private fun coverFlowSlotRotationY(offset: Float, mode: PlayerCoverFlowMode): Float {
-    if (mode != PlayerCoverFlowMode.RETRO_3D) return 0f
-    val distance = abs(offset)
-    if (distance < 0.001f) return 0f
-    val turn = distance.coerceIn(0f, 1f)
-    val easedTurn = turn * turn * (3f - 2f * turn)
-    val sign = if (offset < 0f) 1f else -1f
-    return sign * 75f * easedTurn
 }
 
 @Composable

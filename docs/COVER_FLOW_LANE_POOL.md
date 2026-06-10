@@ -1,8 +1,8 @@
 # 封面流 Lane 池治本方案
 
-> 状态：**待实现**（设计稿）  
+> 状态：**已实现**（Lane 池 + 滑动手势；见 [`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt)）  
 > 最后更新：2026-06  
-> 关联：[封面流产品设计](COVER_FLOW.md) · [切歌闪帧记录](TODO.md#封面带立体封面切歌闪帧--治本当前为缓解) · 实现入口 [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt)
+> 关联：[封面流产品设计](COVER_FLOW.md) · [播放页契约](PLAYER_PAGE_CONTRACT.md) · [切歌闪帧记录](TODO.md#封面带立体封面切歌闪帧--治本当前为缓解) · 实现入口 [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt)
 
 ---
 
@@ -133,9 +133,67 @@ data class CoverLaneState(
 1. 计算 newCenter 下各 lane 的目标 queueIndex / song
 2. 对「将变为可见」或「即将翻到中心」的 lane，若 URI 变化 → ensureCoverCached(uri)
 3. 仅对 alpha≈0 的 lane 写入新 song
-4. 更新 centerAnchorIndex（或先更新绑定再触发滑动动画，与现 swapProgress 时序对齐）
-5. virtualCenterIndex 动画照旧，只动 graphicsLayer
+4. **动画结束后再**更新 `centerAnchorIndex`（见 §4.2.1；滑动/按钮切歌均适用）
+5. `virtualCenterIndex` 动画期间只动 `graphicsLayer`
+
+#### 4.2.1 滑动切歌跳变：根因与正确时序（2026-06 已修）
+
+播放页重写后，平行封面带 / 复古立体封面在**松手切歌**或**刚开始滑**时曾出现「先跳一段再移动」。与 [TODO 闪帧条目](TODO.md#封面带立体封面切歌闪帧--治本当前为缓解) 的 Compose 重建问题不同，本次是 **位移状态机 + 变换枢轴** 的连续性问题。
+
+**位移模型（实现约定）**
+
+```text
+virtualCenterIndex = centerAnchorIndex + laneFraction
+offset(queueIndex)   = queueIndex - virtualCenterIndex
+translationX         = CoverFlowMath.slotTranslation(offset, …)
 ```
+
+- `centerAnchorIndex`：Lane 窗口绑定的整数中心（`queueIndex = centerAnchor + laneOffset`）。
+- `laneFraction`：相对锚点的浮点偏移；拖动、切歌补间都只改这一项（勿拆成 `dragFraction` + `animOffset` 分步清零）。
+- 拖动增量除以 `screenWidth × 0.92`，与 `slotTranslation` 单格步进对齐，保证跟手比例一致。
+
+**根因 1 — 动画中途更新 `centerAnchor`（松手跳变的主因）**
+
+错误做法： `currentIndex` 一变就立刻 `centerAnchor = currentIndex`，再用负的 `laneFraction` 补偿 `virtualCenter`。
+
+Lane 槽位按 `laneOffset` 固定 key（`cover_lane_0` 等），**中心槽**是用户主视觉。提前换锚点时，**同一帧**内中心槽会发生：
+
+| 时刻 | lane 0 绑定的歌 | offset | 视觉效果 |
+|------|-----------------|--------|----------|
+| 松手后、换锚点前 | 当前曲 N | ≈ -0.4（略偏左） | 正常 |
+| 换锚点后 | 下一曲 N+1 | ≈ +0.6（偏右） | **中心槽内容 + 位移同时突变** |
+
+虽然 N+1 在全局坐标上位置连续，但 **lane 0  composable 换歌且 translation 跳变**，表现为「往滑来/滑去方向先跳一段」。
+
+**正确做法**：`currentIndex` 变化后，**整段补间动画期间保持 `centerAnchor` 为旧值**；只把 `laneFraction` 从拖动值动画到 `signedDelta`（下一首 `+1`，上一首 `-1`）。当 `virtualCenter` 已到达整数目标后，再在同一帧执行 `centerAnchor = currentIndex; laneFraction = 0`（此时各曲目的 `offset` 与换锚点前一致，无视觉跳变）。
+
+```text
+拖动中:     anchor=N, laneFraction=0.4  → virtualCenter=N+0.4
+松手切歌:   anchor=N, laneFraction: 0.4 → 1.0  （lane 绑定不变，只动 graphicsLayer）
+动画结束:   anchor=N+1, laneFraction=0   → virtualCenter=N+1
+```
+
+**根因 2 — `transformOrigin` 随 `offset` 阈值跳变（刚开始滑时闪一下）**
+
+若用 `offset` 是否越过 ±0.01 切换 `TransformOrigin`（`Center` ↔ 左/右边缘），中心封面在**第一下拖动**跨阈值时旋转枢轴突变，Retro 3D / Pause Fold 都会闪。
+
+**正确做法**：按 **固定 `laneOffset`** 定枢轴——`laneOffset < 0` → 右缘，`> 0` → 左缘，`== 0` → `Center`；与拖动产生的瞬时 `offset` 解耦。
+
+**根因 3 — 拖动方向与 `virtualCenter` 符号反了**
+
+`detectHorizontalDragGestures` 左滑时 `dragAmount` 为负。应使用 `laneFraction -= delta`（`delta = dragAmount / (screenWidth × 0.92)`），使左滑增大 `virtualCenter`、封面跟手向左。
+
+**根因 4 — `pointerInput` 在切歌时重建手势**
+
+勿把 `gestureState.handlers` 放进 `pointerInput` 的 key；`currentIndex` 变化会重建 detector，松手帧可能多触发事件。key 仅用 `gesturesEnabled`；索引用 `rememberUpdatedState` 读最新值。
+
+**勿再引入的写法**
+
+- 动画开始前 `laneFraction = 0` 再另起 `animOffset`（中间帧 `virtualCenter` 断裂）。
+- 动画未结束就 `centerAnchor = to`（中心槽换歌跳变）。
+- 用 `offset` 阈值切换 `transformOrigin`（拖动起始闪动）。
+
+实现与单测：[`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt)、[`CoverGestureCoordinatorTest.kt`](../app/src/test/java/com/mica/music/ui/screens/player/CoverGestureCoordinatorTest.kt)。
 
 ### 4.3 渲染循环（伪代码）
 

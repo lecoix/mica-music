@@ -107,6 +107,8 @@ dependencies {
     implementation(libs.kyant.taglib)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    testImplementation(libs.junit)
 }
 
 tasks.named("preBuild") {

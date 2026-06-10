@@ -154,10 +154,11 @@
     2. 模糊背景按 `.size(384)` 降采样加载（[`BlurredCoverBackground.kt`](../app/src/main/java/com/mica/music/ui/theme/BlurredCoverBackground.kt) `BlurredBackgroundSourcePx`），不再挤占封面内存缓存；
     3. 封面带封面请求加 `memoryCacheKey(uri)` + `placeholderMemoryCacheKey(uri)`（[`SongCover.kt`](../app/src/main/java/com/mica/music/ui/components/SongCover.kt) `stableMemoryCacheKey`），即便重建也由 Coil **第一帧同步**取内存缓存位图绘出，空白帧消失；
     4. `SongCover` 内 `decodedCoverUris` 让「就绪」状态脱离单个 composable 寿命，作为安全网。
-  - **遗留与治本方向（封面流 L2）**：标准主题已由 `StandardDualSlotCover`（A/B 固定 key）治本；平行 / 复古仍待 **Lane 池**。完整设计见 [`docs/COVER_FLOW_LANE_POOL.md`](COVER_FLOW_LANE_POOL.md)（状态：待实现）。
+  - **遗留与治本方向（封面流 L2）**：标准主题已由 `StandardDualSlotCover`（A/B 固定 key）治本；平行 / 复古 **Lane 池已实现**（[`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt)）。完整设计见 [`docs/COVER_FLOW_LANE_POOL.md`](COVER_FLOW_LANE_POOL.md)。
     - 核心：`key(song.id)` → `key("cover_lane_$offset")`；仅隐藏 lane 换 URI；换绑前 `ensureCoverCached`。
-    - 配套（已完成）：双 `ImageLoader`、背景跟 `displayedCoverSong`、[`MicaImageLoaders`](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt) 预载。
-    - 验收：logcat `CoverFlowDiag` 切歌全程**不成批** `SLOT disposed/composed`；两种封面流 × 三种背景连续切歌无闪。
+    - 配套（已完成）：双 `ImageLoader`、背景跟 `currentSong`、[`MicaImageLoaders`](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt) 预载。
+    - **滑动切歌位移跳变（另一类问题，已修）**：与上列「闪帧/重建」无关；根因是动画中途更新 `centerAnchor`、按 `offset` 切换 `transformOrigin` 等，见 [Lane 池文档 §4.2.1](COVER_FLOW_LANE_POOL.md#421-滑动切歌跳变根因与正确时序2026-06-已修)。
+    - 验收：logcat `CoverFlowDiag` 切歌全程**不成批** `SLOT disposed/composed`；两种封面流 × 三种背景连续切歌无闪；滑动手势跟手且无松手跳变。
 
 ---
 

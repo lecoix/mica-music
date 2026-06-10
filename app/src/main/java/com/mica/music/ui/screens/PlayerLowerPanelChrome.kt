@@ -12,16 +12,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
+import com.mica.music.ui.screens.player.LowerPanelFrame
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.PlayerContentColors
 
@@ -32,64 +29,44 @@ internal fun PlayerLowerPanelChrome(
     surfaceState: PlaybackSurfaceState,
     colors: PlayerContentColors,
     seekState: PlaybackSeekState,
-    chromeHeight: Dp,
-    controlsBottomPadding: Dp,
-    afterProgress: Dp,
-    anchorToPanelBottom: Boolean,
-    showStandardProgress: Boolean,
-    showCoverEdgeTransitionProgress: Boolean,
-    chromeProgressAlpha: Float,
+    lower: LowerPanelFrame,
     spectrumEnabled: Boolean,
-    lowerPanelCoords: LayoutCoordinates?,
-    onControlsBottomMeasured: (bottomFromPanel: Dp, settledOnLyrics: Boolean) -> Unit,
-    lyricsLayoutFocus: Float,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
     onOpenEqualizer: () -> Unit,
     onOpenQueue: () -> Unit,
-    clipChrome: Boolean,
-    immersiveProgress: Float,
 ) {
-    val settledOnLyrics = lyricsLayoutFocus >= 1f - PlayerLowerPanelProgressEpsilon
-    val settledOnPlay = lyricsLayoutFocus <= PlayerLowerPanelProgressEpsilon
+    val lyricsFocus = lower.lyricsLayoutFocus
     val density = LocalDensity.current
-    val spectrumAlpha = (1f - lyricsLayoutFocus).coerceIn(0f, 1f)
+    val spectrumAlpha = (1f - lyricsFocus).coerceIn(0f, 1f)
     val transitionProgressSlidePx = with(density) {
-        CoverEdgeChromeProgressSlide.toPx() * (1f - lyricsLayoutFocus.coerceIn(0f, 1f))
+        CoverEdgeChromeProgressSlide.toPx() * (1f - lyricsFocus.coerceIn(0f, 1f))
     }
 
     val controlsModifier = Modifier
         .fillMaxWidth()
         .padding(horizontal = HifiSpacing.lg)
-        .padding(bottom = controlsBottomPadding)
-        .onGloballyPositioned { coords ->
-            val panel = lowerPanelCoords ?: return@onGloballyPositioned
-            val panelBottomY = panel.positionInRoot().y + panel.size.height
-            val controlsBottomY = coords.positionInRoot().y + coords.size.height
-            val bottomDp = with(density) { (panelBottomY - controlsBottomY).toDp() }
-            when {
-                settledOnLyrics -> onControlsBottomMeasured(bottomDp, true)
-                settledOnPlay -> onControlsBottomMeasured(bottomDp, false)
-            }
-        }
+        .padding(bottom = lower.controlsBottomPadding)
 
     Box(
         Modifier
             .fillMaxWidth()
-            .height(chromeHeight)
-            .then(if (clipChrome) Modifier.clipToBounds() else Modifier)
-            .graphicsLayer { alpha = 1f - immersiveProgress },
+            .height(lower.chromeHeight)
+            .then(
+                if (lower.coverEdgeOnPlaySurface) Modifier.clipToBounds() else Modifier,
+            )
+            .graphicsLayer { alpha = 1f - lower.immersiveProgress },
     ) {
-        if (anchorToPanelBottom) {
-            if (showCoverEdgeTransitionProgress) {
+        if (lower.coverEdgeOnPlaySurface) {
+            if (lower.showChromeProgressInTransition) {
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
                         .graphicsLayer {
-                            alpha = chromeProgressAlpha
+                            alpha = lower.chromeProgressAlpha
                             translationY = transitionProgressSlidePx
                         },
                 ) {
@@ -106,7 +83,7 @@ internal fun PlayerLowerPanelChrome(
                             spectrumAlpha = spectrumAlpha,
                             spectrumHeight = 56.dp,
                         )
-                        Spacer(Modifier.height(afterProgress))
+                        Spacer(Modifier.height(lower.spacing.afterProgress))
                     }
                 }
             }
@@ -123,7 +100,7 @@ internal fun PlayerLowerPanelChrome(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                if (showStandardProgress) {
+                if (lower.showStandardProgress) {
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -132,8 +109,12 @@ internal fun PlayerLowerPanelChrome(
                         PlayerProgressBarSection(
                             seekState = seekState,
                             colors = colors,
+                            spectrumEnabled = spectrumEnabled,
+                            spectrumPlaying = surfaceState.isPlaying,
+                            spectrumAlpha = spectrumAlpha,
+                            spectrumHeight = 56.dp,
                         )
-                        Spacer(Modifier.height(afterProgress))
+                        Spacer(Modifier.height(lower.spacing.afterProgress))
                     }
                 }
                 Spacer(Modifier.weight(1f))
