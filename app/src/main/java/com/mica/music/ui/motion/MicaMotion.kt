@@ -8,6 +8,7 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -52,6 +53,10 @@ object MicaMotion {
 
     fun tweenFloat(enabled: Boolean, durationMs: Int = DurationMediumMs): FiniteAnimationSpec<Float> =
         if (enabled) tween(durationMillis = durationMs, easing = Easing) else tween(0)
+
+    /** 封面带切歌补间：线性位移，避免 FastOutSlowIn 导致各槽位视觉不同步 */
+    fun coverFlowTrackChangeTween(enabled: Boolean, durationMs: Int): FiniteAnimationSpec<Float> =
+        if (enabled) tween(durationMillis = durationMs, easing = LinearEasing) else tween(0)
 
     fun tweenDp(enabled: Boolean, durationMs: Int = DurationLongMs): FiniteAnimationSpec<Dp> =
         if (enabled) tween(durationMillis = durationMs, easing = Easing) else tween(0)

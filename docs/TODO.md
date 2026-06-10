@@ -144,21 +144,10 @@
 - [x] **复古立体封面**（播放页特殊主题；复古 Cover Flow 透视封面 + 独立倒影）
   - **范围**：先仅作用于播放页封面区域，与现有「主题色 / 封面渐变 / 封面模糊」并存，不替换播放页背景。
   - **实现提示**：统一封面舞台按连续中心索引计算位移、alpha 与缩放；启用时播放页局部禁用「原样比例」并强制裁切填充；限制可见封面数；减少动态效果时直接切换。
-- [ ] **封面带/立体封面切歌闪帧 —— 治本（当前为缓解）**
-  - **现象**：在「平行封面带 / 复古立体封面」+「封面模糊 / 封面渐变」背景下切歌，下一张专辑图滑到正中的过程中（或起步那一刻）会有几帧露出**上一张专辑图**或**底色**；「主题色」背景下不出现。
-  - **根因（已用日志逐帧坐实，见下）**：
-    1. **Compose 重建是主因**。封面舞台 [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt) `CoverFlowStage` 用 `for (index in start..end) { key(song.id){ … } }` 渲染可见封面。当渲染窗口的下标序列发生平移（旧实现里 `start = floor(virtualCenterIndex - 2)` 在 `virtualCenterIndex` 跨整数那一帧跳变，且 `if (distance > maxDistance) continue` 按动画值剔除首尾项）时，**这一帧整排 keyed 子项被销毁并重建**（logcat `CoverFlowDiag` 可见同一毫秒内 5 个 `SLOT disposed` + 5 个 `SLOT composed`，`LaunchedEffect`/`onImageReady` 重新触发）。重建会清空 `SongCover` 内 `remember` 的 `imageReady`，新建的 `AsyncImage` 至少有一帧还没把位图绘上屏。
-    2. **背景为何决定可见性**：那一帧空白用什么填只是表象——回退全局占位则闪「上一张」，判定已就绪不画占位则露「底色」。**真正让空白可见的是「重建当帧能否立刻把封面画出来」**：封面模糊把**全尺寸**专辑原图灌进 Coil 默认内存缓存，把体积较小的封面位图挤出缓存，重建当帧封面需从磁盘重解码 → 露空白；封面渐变切歌时取色/重组占用主线程，同样把封面那一帧重绘推迟几帧。主题色无额外负载、封面常驻内存缓存，重建当帧即出图，故肉眼看不见。
-  - **已做缓解（非治本，勿误删）**：
-    1. 渲染窗口锚定到**稳定整数** `displayedCoverIndex`（`centerAnchorIndex`），远端用 `alpha=0` 代替 `continue` 剔除 → 整段滑动里 keyed 序列恒定，消除**滑动中途**重建；
-    2. 模糊背景按 `.size(384)` 降采样加载（[`BlurredCoverBackground.kt`](../app/src/main/java/com/mica/music/ui/theme/BlurredCoverBackground.kt) `BlurredBackgroundSourcePx`），不再挤占封面内存缓存；
-    3. 封面带封面请求加 `memoryCacheKey(uri)` + `placeholderMemoryCacheKey(uri)`（[`SongCover.kt`](../app/src/main/java/com/mica/music/ui/components/SongCover.kt) `stableMemoryCacheKey`），即便重建也由 Coil **第一帧同步**取内存缓存位图绘出，空白帧消失；
-    4. `SongCover` 内 `decodedCoverUris` 让「就绪」状态脱离单个 composable 寿命，作为安全网。
-  - **遗留与治本方向（封面流 L2）**：标准主题已由 `StandardDualSlotCover`（A/B 固定 key）治本；平行 / 复古 **Lane 池已实现**（[`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt)）。完整设计见 [`docs/COVER_FLOW_LANE_POOL.md`](COVER_FLOW_LANE_POOL.md)。
-    - 核心：`key(song.id)` → `key("cover_lane_$offset")`；仅隐藏 lane 换 URI；换绑前 `ensureCoverCached`。
-    - 配套（已完成）：双 `ImageLoader`、背景跟 `currentSong`、[`MicaImageLoaders`](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt) 预载。
-    - **滑动切歌位移跳变（另一类问题，已修）**：与上列「闪帧/重建」无关；根因是动画中途更新 `centerAnchor`、按 `offset` 切换 `transformOrigin` 等，见 [Lane 池文档 §4.2.1](COVER_FLOW_LANE_POOL.md#421-滑动切歌跳变根因与正确时序2026-06-已修)。
-    - 验收：logcat `CoverFlowDiag` 切歌全程**不成批** `SLOT disposed/composed`；两种封面流 × 三种背景连续切歌无闪；滑动手势跟手且无松手跳变。
+- [x] **封面流切歌闪帧 / 位移跳变（已治本）**
+  - **治本**：View + Canvas 七轨（[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)）——无 Compose 槽位重建、Coil 缓存位图直绘、`railOffset` 单轨末帧连续。
+  - **仍保留的通用优化**：模糊背景 `.size(384)` 降采样；`SongCover` `stableMemoryCacheKey`；[`MicaImageLoaders`](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt) 预载。
+  - **验收**：平行 / 复古 × 三种背景下连续切歌与拖动；无闪帧、无松手跳变。
 
 ---
 

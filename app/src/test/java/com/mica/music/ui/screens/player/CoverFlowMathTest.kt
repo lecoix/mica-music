@@ -58,6 +58,30 @@ class CoverFlowMathTest {
     }
 
     @Test
+    fun pauseFold_carouselDecompositionMatchesFloatOffset() {
+        val screenWidthPx = 1080f
+        val laneFraction = 0.42f
+        val laneOffset = 1
+        val floatOffset = laneOffset - laneFraction
+        val carousel = CoverFlowMath.carouselShiftPx(
+            laneFraction = laneFraction,
+            screenWidthPx = screenWidthPx,
+            mode = PlayerCoverFlowMode.PAUSE_FOLD,
+        )
+        val slot = CoverFlowMath.slotTranslation(
+            offset = laneOffset.toFloat(),
+            screenWidthPx = screenWidthPx,
+            mode = PlayerCoverFlowMode.PAUSE_FOLD,
+        )
+        val combined = CoverFlowMath.slotTranslation(
+            offset = floatOffset,
+            screenWidthPx = screenWidthPx,
+            mode = PlayerCoverFlowMode.PAUSE_FOLD,
+        )
+        assertEquals(combined, carousel + slot, 0.01f)
+    }
+
+    @Test
     fun retro3d_translationContinuousThroughCenter() {
         val screenWidthPx = 1000f
         val nearZero = CoverFlowMath.slotTranslation(

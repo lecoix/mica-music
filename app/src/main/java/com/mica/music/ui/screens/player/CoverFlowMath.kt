@@ -23,6 +23,16 @@ internal object CoverFlowMath {
             PlayerCoverFlowMode.STANDARD -> LaneStepFraction
         }
 
+    /** 平行封面带：父层整体平移，槽位仅用整数 laneOffset 定位，避免浮点 offset 与缓动不同步 */
+    fun carouselShiftPx(
+        laneFraction: Float,
+        screenWidthPx: Float,
+        mode: PlayerCoverFlowMode,
+    ): Float {
+        if (mode != PlayerCoverFlowMode.PAUSE_FOLD) return 0f
+        return -laneFraction * LaneStepFraction * screenWidthPx
+    }
+
     fun centerScale(mode: PlayerCoverFlowMode, foldProgress: Float): Float =
         when (mode) {
             PlayerCoverFlowMode.RETRO_3D -> 1f - 0.38f * foldProgress

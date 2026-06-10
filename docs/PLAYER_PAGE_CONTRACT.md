@@ -25,22 +25,12 @@
 
 ## 封面手势 → Controller
 
-`rememberCoverGestureState`（[`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt)）在松手过阈值时调用：
+| 模式 | 实现 | 行为 |
+|------|------|------|
+| **封面流**（平行 / 复古） | [`CoverFlowCarouselView`](../app/src/main/java/com/mica/music/ui/screens/player/view/CoverFlowCarouselView.kt) | 拖动跟手；松手超阈值 → `onPlayQueueIndex` / `onNext` / `onPrevious`；点击侧槽 → `onPlayQueueIndex` |
+| **标准主题** | [`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt) | 横向轻扫 → `onPrevious` / `onNext` |
 
-- Cover Flow：`onPlayQueueIndex(target)` 或 `onNext()` / `onPrevious()`
-- 标准主题轻扫：`onPrevious()` / `onNext()`
-
-不新增 Controller API；切歌动画监听 `currentIndex` 变化。
-
-### Cover Flow 位移状态
-
-| 状态 | 含义 |
-|------|------|
-| `centerAnchorIndex` | Lane 池整数锚点；`laneBindings` 的 `queueIndex = anchor + laneOffset` |
-| `laneFraction` | 相对锚点的浮点偏移；拖动与切歌补间共用 |
-| `virtualCenterIndex` | `anchor + laneFraction`；驱动 `CoverFlowMath.slotTranslation` |
-
-`currentIndex` 变化且相邻切歌（`|Δ| = 1`）时：`centerAnchor` **保持旧值**，`laneFraction` 从当前值动画到 `Δ`；结束后 `anchor ← currentIndex`、`laneFraction ← 0`。详见 [COVER_FLOW_LANE_POOL.md §4.2.1](COVER_FLOW_LANE_POOL.md#421-滑动切歌跳变根因与正确时序2026-06-已修)。
+不新增 Controller API。封面流切歌动画由 View 监听 `currentIndex`（经 `CoverFlowCarouselHost.update` → `updateCurrentIndex`）驱动，详见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §4。
 
 ## 布局
 

@@ -25,6 +25,8 @@ object MicaImageLoaders {
     lateinit var background: ImageLoader
         private set
 
+    fun isInitialized(): Boolean = ::cover.isInitialized
+
     fun init(context: Context) {
         if (::cover.isInitialized) return
         appContext = context.applicationContext

@@ -40,7 +40,7 @@
 ## 交互
 
 - 点击侧边封面：切到对应歌曲，并保持折叠态短暂展示。
-- 横向拖动封面区：跟手平移封面带，松手超过约 35% 屏宽切歌；未达阈值回弹。实现见 [`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt) 与 [Lane 池文档 §4.2.1](COVER_FLOW_LANE_POOL.md#421-滑动切歌跳变根因与正确时序2026-06-已修)。
+- 横向拖动封面区：跟手平移封面带，松手超过约 35% 屏宽切歌；未达阈值回弹。实现见 [`CoverFlowCarouselView.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/CoverFlowCarouselView.kt) 与 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §4。
 - 播放 / 暂停按钮：不改变平行封面带状态。
 - 减少动态效果开启时：直接切状态，不播放 3D 插入动画。
 
@@ -109,5 +109,5 @@
 
 ## 实现备注
 
-- **切歌闪帧治本（封面流）**：[`COVER_FLOW_LANE_POOL.md`](COVER_FLOW_LANE_POOL.md)（Lane 池，待实现）。
-- **标准主题封面**：`StandardDualSlotCover` A/B 双槽（已实现，见该文档 §11 对照）。
+- **实现手册（必读）**：[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) — 架构、轨道不变式、动画时序、布局、间距参数、踩坑清单。
+- **播放页契约**：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md) — 手势与 Controller 边界。

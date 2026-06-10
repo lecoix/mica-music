@@ -11,15 +11,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -30,30 +27,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import kotlin.math.abs
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlayerCoverFlowMode
@@ -66,10 +54,9 @@ import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
-import com.mica.music.ui.screens.player.CoverFlowMath
-import com.mica.music.ui.screens.player.CoverLaneBinding
 import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.rememberCoverGestureState
+import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
@@ -108,26 +95,35 @@ internal fun NowPlayingCoverSection(
     val density = LocalDensity.current
     val context = LocalContext.current
     val screenWidthPx = with(density) { screenWidth.coerceAtLeast(1.dp).toPx() }
+    val coverWidthPx = with(density) { cover.width.toPx() }
+    val coverHeightPx = with(density) { cover.height.toPx() }
+    val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
+    val reflectionGapPx = with(density) { HifiSpacing.sm.toPx() }
+    val reflectionExtraDp = cover.height * 0.28f + HifiSpacing.sm + 4.dp
+    val coverFlowReflection = frame.coverFlowStageActive &&
+        (coverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
+            coverFlowMode == PlayerCoverFlowMode.RETRO_3D)
+    val coverBoxHeight = if (coverFlowReflection) {
+        cover.height + reflectionExtraDp
+    } else {
+        cover.height
+    }
+    val cameraDistancePx = with(density) { 18.dp.toPx() }
 
     val standardMode = coverFlowMode == PlayerCoverFlowMode.STANDARD && !frame.coverFlowStageActive
 
     val gestureState = rememberCoverGestureState(
-        queue = queue,
-        currentIndex = currentIndex,
-        coverFlowStageActive = frame.coverFlowStageActive,
-        coverFlowMode = coverFlowMode,
         gesturesEnabled = frame.gesturesEnabled,
         standardMode = standardMode,
         screenWidthPx = screenWidthPx,
-        motionEnabled = motionEnabled,
-        onPlayQueueIndex = onPlayQueueIndex,
         onPrevious = onPrevious,
         onNext = onNext,
     )
 
-    LaunchedEffect(gestureState.centerAnchorIndex, queue) {
-        for (binding in gestureState.laneBindings) {
-            val uri = binding.song?.albumArtUri ?: continue
+    LaunchedEffect(frame.coverFlowStageActive, currentIndex, queue) {
+        if (!frame.coverFlowStageActive) return@LaunchedEffect
+        for (offset in -3..3) {
+            val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
             MicaImageLoaders.ensureCoverCached(context, uri)
             if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
                 MicaImageLoaders.ensureBackgroundCached(context, uri)
@@ -147,16 +143,79 @@ internal fun NowPlayingCoverSection(
         Box(
             modifier
                 .height(cover.blockHeight)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .then(
+                    if (coverFlowReflection) {
+                        // 倒影在布局高度外绘制，不占下半区纵向空间
+                        Modifier
+                            .zIndex(1f)
+                            .graphicsLayer { clip = false }
+                    } else {
+                        Modifier
+                    },
+                ),
             contentAlignment = Alignment.TopStart,
         ) {
+            if (frame.coverFlowStageActive) {
+                CoverFlowCarouselHost(
+                    queue = queue,
+                    currentIndex = currentIndex,
+                    coverFlowMode = coverFlowMode,
+                    foldProgress = frame.coverFlowProgress,
+                    screenWidthPx = screenWidthPx,
+                    coverWidthPx = coverWidthPx,
+                    coverHeightPx = coverHeightPx,
+                    coverStartPaddingPx = coverStartPaddingPx,
+                    reflectionGapPx = reflectionGapPx,
+                    cameraDistancePx = cameraDistancePx,
+                    motionEnabled = motionEnabled,
+                    coverColor = coverColor,
+                    stageActive = frame.coverFlowStageActive,
+                    gesturesEnabled = frame.gesturesEnabled,
+                    onPlayQueueIndex = onPlayQueueIndex,
+                    onPrevious = onPrevious,
+                    onNext = onNext,
+                    onCoverLongPress = onCoverLongPress,
+                    onAspectRatioChanged = onCoverAspectRatioChanged,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(coverBoxHeight)
+                        .padding(top = cover.topPadding)
+                        .graphicsLayer {
+                            alpha = coverContentAlpha
+                            clip = false
+                        }
+                        .onGloballyPositioned { coords ->
+                            val b = coords.boundsInRoot()
+                            onCoverBoundsChanged(
+                                Rect(
+                                    left = b.left + coverStartPaddingPx,
+                                    top = b.top,
+                                    right = b.left + coverStartPaddingPx + coverWidthPx,
+                                    bottom = b.top + coverHeightPx,
+                                ),
+                            )
+                        },
+                )
+                if (lyricsExpanded) {
+                    Box(
+                        modifier = Modifier
+                            .padding(start = cover.startPadding, top = cover.topPadding)
+                            .size(cover.width, cover.height)
+                            .zIndex(2f)
+                            .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverLongPress)),
+                    )
+                }
+            }
+            if (!frame.coverFlowStageActive) {
             Box(
                 modifier = Modifier
                     .padding(start = cover.startPadding, top = cover.topPadding)
-                    .size(cover.width, cover.height)
+                    .size(cover.width, coverBoxHeight)
+                    .graphicsLayer { clip = !coverFlowReflection }
                     .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
-                    .pointerInput(frame.gesturesEnabled) {
-                        if (frame.gesturesEnabled) {
+                    .pointerInput(frame.gesturesEnabled, frame.coverFlowStageActive) {
+                        if (frame.gesturesEnabled && !frame.coverFlowStageActive) {
                             detectHorizontalDragGestures(
                                 onDragStart = { gestureState.handlers.onDragStart() },
                                 onDragEnd = { gestureState.handlers.onDragEnd() },
@@ -173,6 +232,7 @@ internal fun NowPlayingCoverSection(
                         .matchParentSize()
                         .graphicsLayer {
                             alpha = coverContentAlpha
+                            clip = !coverFlowReflection
                             if (standardMode && !frame.coverFlowStageActive) {
                                 translationX = gestureState.standardSwipeOffsetFraction *
                                     size.width * 0.35f
@@ -180,42 +240,25 @@ internal fun NowPlayingCoverSection(
                         }
                         .zIndex(1f),
                 ) {
-                    if (frame.coverFlowStageActive) {
-                        CoverFlowLaneStage(
-                            bindings = gestureState.laneBindings,
-                            virtualCenterIndex = gestureState.virtualCenterIndex,
-                            coverColor = coverColor,
-                            coverWidth = cover.width,
-                            coverHeight = cover.height,
-                            screenWidthPx = screenWidthPx,
-                            foldProgress = frame.coverFlowProgress,
-                            coverFlowMode = coverFlowMode,
-                    letterboxAlpha = cover.letterboxAlpha,
+                    AnimatedContent(
+                        targetState = song.id,
+                        transitionSpec = {
+                            fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)) togetherWith
+                                fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs))
+                        },
+                        label = "standardCover",
+                    ) { _ ->
+                        SongCover(
+                            albumArtUri = song.albumArtUri,
+                            fallbackColor = coverColor,
+                            contentDescription = song.album,
+                            modifier = Modifier.matchParentSize(),
+                            letterboxAlpha = cover.letterboxAlpha,
+                            crossfadeMillis = if (motionEnabled) 200 else 0,
                             onAspectRatioChanged = onCoverAspectRatioChanged,
-                            onPlayQueueIndex = onPlayQueueIndex,
-                            onCoverLongPress = onCoverLongPress,
                         )
-                    } else {
-                        AnimatedContent(
-                            targetState = song.id,
-                            transitionSpec = {
-                                fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)) togetherWith
-                                    fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs))
-                            },
-                            label = "standardCover",
-                        ) { _ ->
-                            SongCover(
-                                albumArtUri = song.albumArtUri,
-                                fallbackColor = coverColor,
-                                contentDescription = song.album,
-                                modifier = Modifier.matchParentSize(),
-                                letterboxAlpha = cover.letterboxAlpha,
-                                crossfadeMillis = if (motionEnabled) 200 else 0,
-                                onAspectRatioChanged = onCoverAspectRatioChanged,
-                            )
-                        }
                     }
-                    if (!frame.coverFlowStageActive && coverEdgeFade) {
+                    if (coverEdgeFade) {
                         artworkEdgeFadeStops(artworkJunction)?.let { stops ->
                             Box(
                                 Modifier
@@ -224,7 +267,7 @@ internal fun NowPlayingCoverSection(
                             )
                         }
                     }
-                    if (!frame.coverFlowStageActive && frame.lower.coverEdgeOnPlaySurface) {
+                    if (frame.lower.coverEdgeOnPlaySurface) {
                         val coverEdgeProgressAlpha = 1f - frame.lower.lyricsChromeFade
                         if (coverEdgeProgressAlpha > 0.01f) {
                             LivePlayerSpectrumStrip(
@@ -248,6 +291,7 @@ internal fun NowPlayingCoverSection(
                         }
                     }
                 }
+            }
             }
             if (frame.lyricsProgress > 0.01f) {
                 LyricsFocusHeaderOverlay(
@@ -284,165 +328,6 @@ private fun coverClickModifier(
             onLongClick = onCoverLongPress,
         )
     else -> Modifier
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun BoxScope.CoverFlowLaneStage(
-    bindings: List<CoverLaneBinding>,
-    virtualCenterIndex: Float,
-    coverColor: Color,
-    coverWidth: Dp,
-    coverHeight: Dp,
-    screenWidthPx: Float,
-    foldProgress: Float,
-    coverFlowMode: PlayerCoverFlowMode,
-    letterboxAlpha: Float,
-    onAspectRatioChanged: (Float) -> Unit,
-    onPlayQueueIndex: (Int) -> Unit,
-    onCoverLongPress: (() -> Unit)?,
-) {
-    val density = LocalDensity.current
-    val maxDistance = CoverFlowMath.MaxViewDistance
-
-    for (binding in bindings) {
-        val laneOffset = binding.laneOffset
-        val song = binding.song
-        val queueIndex = binding.queueIndex
-        if (song == null) continue
-        key("cover_lane_$laneOffset") {
-            val offset = queueIndex - virtualCenterIndex
-            val distance = abs(offset)
-            val withinView = distance <= maxDistance
-            val centerScale = CoverFlowMath.centerScale(coverFlowMode, foldProgress)
-            val slotScale = CoverFlowMath.slotScale(distance, centerScale, coverFlowMode)
-            val slotAlpha = if (withinView) {
-                CoverFlowMath.slotAlpha(distance, foldProgress, coverFlowMode)
-            } else {
-                0f
-            }
-            val slotTranslation = CoverFlowMath.slotTranslation(
-                offset = offset,
-                screenWidthPx = screenWidthPx,
-                mode = coverFlowMode,
-            )
-            val slotRotationY = CoverFlowMath.slotRotationY(offset, coverFlowMode)
-            val transformOrigin = when {
-                distance < 0.08f -> TransformOrigin.Center
-                offset < 0f -> TransformOrigin(1f, 0.5f)
-                else -> TransformOrigin(0f, 0.5f)
-            }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(coverWidth, coverHeight)
-                    .zIndex(CoverFlowMath.slotZIndex(distance, coverFlowMode))
-                    .graphicsLayer {
-                        alpha = slotAlpha
-                        translationX = slotTranslation
-                        rotationY = slotRotationY
-                        scaleX = slotScale
-                        scaleY = slotScale
-                        cameraDistance = 18f * density.density
-                        this.transformOrigin = transformOrigin
-                    }
-                    .then(
-                        when {
-                            withinView && distance > 0.08f ->
-                                Modifier.clickable { onPlayQueueIndex(queueIndex) }
-                            withinView && distance < 0.08f && onCoverLongPress != null ->
-                                Modifier.combinedClickable(
-                                    onClick = {},
-                                    onLongClick = onCoverLongPress,
-                                )
-                            else -> Modifier
-                        },
-                    ),
-            ) {
-                ParallelCoverWithReflection(
-                    song = song,
-                    coverColor = coverColor,
-                    letterboxAlpha = letterboxAlpha,
-                    onAspectRatioChanged = if (distance < 0.08f) onAspectRatioChanged else null,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ParallelCoverWithReflection(
-    song: Song,
-    coverColor: Color,
-    letterboxAlpha: Float,
-    onAspectRatioChanged: ((Float) -> Unit)?,
-) {
-    Box(Modifier.fillMaxSize()) {
-        SongCover(
-            albumArtUri = song.albumArtUri,
-            fallbackColor = coverColor,
-            contentDescription = song.album,
-            modifier = Modifier.matchParentSize(),
-            letterboxAlpha = letterboxAlpha,
-            crossfadeMillis = 0,
-            stableMemoryCacheKey = song.albumArtUri,
-            onAspectRatioChanged = onAspectRatioChanged,
-        )
-        BoxWithConstraints(Modifier.matchParentSize()) {
-            val fullWidth = maxWidth
-            val fullHeight = maxHeight
-            val reflectionHeight = maxHeight * 0.28f
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(reflectionHeight)
-                    .offset(y = fullHeight + HifiSpacing.sm)
-                    .graphicsLayer {
-                        alpha = 0.24f
-                        clip = true
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                0f to Color.White,
-                                0.45f to Color.White.copy(alpha = 0.55f),
-                                1f to Color.Transparent,
-                            ),
-                            blendMode = BlendMode.DstIn,
-                        )
-                    },
-            ) {
-                Layout(
-                    modifier = Modifier.matchParentSize(),
-                    content = {
-                        SongCover(
-                            albumArtUri = song.albumArtUri,
-                            fallbackColor = coverColor,
-                            contentDescription = null,
-                            modifier = Modifier.graphicsLayer {
-                                transformOrigin = TransformOrigin(0.5f, 0.5f)
-                                scaleY = -1f
-                            },
-                            letterboxAlpha = 0f,
-                            crossfadeMillis = 0,
-                            stableMemoryCacheKey = song.albumArtUri,
-                        )
-                    },
-                ) { measurables, constraints ->
-                    val coverWidthPx = fullWidth.roundToPx()
-                    val coverHeightPx = fullHeight.roundToPx()
-                    val placeable = measurables.first().measure(
-                        Constraints.fixed(coverWidthPx, coverHeightPx),
-                    )
-                    layout(constraints.maxWidth, constraints.maxHeight) {
-                        placeable.placeRelative(0, 0)
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
