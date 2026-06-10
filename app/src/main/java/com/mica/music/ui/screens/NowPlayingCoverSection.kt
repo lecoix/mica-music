@@ -1,7 +1,9 @@
 package com.mica.music.ui.screens
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -80,6 +82,7 @@ import kotlinx.coroutines.withContext
 private val LyricsFocusMiniCoverSize = 56.dp * 0.95f
 private val LyricsFocusCoverStartPadding = HifiSpacing.lg + HifiSpacing.sm
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun NowPlayingCoverSection(
     activeSong: Song,
@@ -114,6 +117,7 @@ internal fun NowPlayingCoverSection(
     onDisplayedCoverDrawn: (Song) -> Unit,
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
+    onCoverLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
@@ -258,7 +262,14 @@ internal fun NowPlayingCoverSection(
                         .padding(start = coverStartPadding, top = coverTopPadding)
                         .size(coverWidth, coverHeight)
                         .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
-                        .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onToggleCoverFlow)),
+                        .then(
+                            coverClickModifier(
+                                lyricsExpanded = lyricsExpanded,
+                                onCloseLyrics = onCloseLyrics,
+                                onToggleCoverFlow = onToggleCoverFlow,
+                                onCoverLongPress = onCoverLongPress,
+                            ),
+                        ),
                 ) {
                     Box(
                         modifier = Modifier
@@ -292,6 +303,7 @@ internal fun NowPlayingCoverSection(
                                 onAspectRatioChanged = onCoverAspectRatioChanged,
                                 onDisplayedCoverDrawn = onDisplayedCoverDrawn,
                                 onPlayQueueIndex = onPlayQueueIndex,
+                                onCoverLongPress = onCoverLongPress,
                             )
                         } else {
                             SongCover(
@@ -369,12 +381,24 @@ internal fun NowPlayingCoverSection(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 private fun coverClickModifier(
     lyricsExpanded: Boolean,
     onCloseLyrics: () -> Unit,
     onToggleCoverFlow: (() -> Unit)?,
+    onCoverLongPress: (() -> Unit)?,
 ): Modifier = when {
+    lyricsExpanded && onCoverLongPress != null ->
+        Modifier.combinedClickable(
+            onClick = onCloseLyrics,
+            onLongClick = onCoverLongPress,
+        )
     lyricsExpanded -> Modifier.clickable(onClick = onCloseLyrics)
+    onCoverLongPress != null ->
+        Modifier.combinedClickable(
+            onClick = onToggleCoverFlow ?: {},
+            onLongClick = onCoverLongPress,
+        )
     onToggleCoverFlow != null -> Modifier.clickable(onClick = onToggleCoverFlow)
     else -> Modifier
 }
@@ -407,6 +431,7 @@ private fun StableCoverPreloader(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BoxScope.CoverFlowStage(
     queue: List<Song>,
@@ -424,6 +449,7 @@ private fun BoxScope.CoverFlowStage(
     onAspectRatioChanged: (Float) -> Unit,
     onDisplayedCoverDrawn: (Song) -> Unit,
     onPlayQueueIndex: (Int) -> Unit,
+    onCoverLongPress: (() -> Unit)?,
 ) {
     // 渲染窗口锚定到“真正切歌”的稳定整数下标，而非动画中的浮点中心。
     // 这样整段滑动里被渲染的 key 集合恒定不变，避免跨整数时整组 slot 被销毁重建
@@ -470,10 +496,15 @@ private fun BoxScope.CoverFlowStage(
                         this.transformOrigin = transformOrigin
                     }
                     .then(
-                        if (withinView && distance > 0.08f) {
-                            Modifier.clickable { onPlayQueueIndex(index) }
-                        } else {
-                            Modifier
+                        when {
+                            withinView && distance > 0.08f ->
+                                Modifier.clickable { onPlayQueueIndex(index) }
+                            withinView && distance < 0.08f && onCoverLongPress != null ->
+                                Modifier.combinedClickable(
+                                    onClick = {},
+                                    onLongClick = onCoverLongPress,
+                                )
+                            else -> Modifier
                         },
                     ),
             ) {

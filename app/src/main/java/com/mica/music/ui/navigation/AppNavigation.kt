@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -30,7 +31,10 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.AboutScreen
 import com.mica.music.ui.screens.EqualizerScreen
+import com.mica.music.ui.screens.BrowseDestination
+import com.mica.music.ui.screens.HomeNavigationIntent
 import com.mica.music.ui.screens.HomeScreen
+import com.mica.music.ui.screens.HomeSection
 import com.mica.music.ui.screens.MetadataDebugScreen
 import com.mica.music.ui.screens.SettingsScreen
 import com.mica.music.ui.screens.SongDetailScreen
@@ -62,6 +66,7 @@ fun AppNavigation(
     val navSlide = MicaMotion.tweenIntOffset(motionEnabled, MicaMotion.DurationMediumMs)
     var playerExpanded by rememberSaveable { mutableStateOf(false) }
     var locateCurrentSongRequest by rememberSaveable { mutableStateOf(0) }
+    var homeNavigationIntent by remember { mutableStateOf<HomeNavigationIntent?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         NavHost(
@@ -95,6 +100,8 @@ fun AppNavigation(
                     },
                     showMiniPlayer = false,
                     locateCurrentSongRequest = locateCurrentSongRequest,
+                    homeNavigationIntent = homeNavigationIntent,
+                    onHomeNavigationIntentConsumed = { homeNavigationIntent = null },
                     contentPadding = navBarPadding,
                 )
             }
@@ -169,11 +176,32 @@ fun AppNavigation(
         }
 
         PlayerSheetHost(
+            library = library,
             playerController = playerController,
             uiSettings = uiSettings,
             expanded = playerExpanded,
             onExpandedChange = { playerExpanded = it },
             onOpenEqualizer = { navController.navigate(Routes.Equalizer) },
+            onOpenSongDetail = { songId ->
+                playerExpanded = false
+                navController.navigate(Routes.songDetail(songId))
+            },
+            onBrowseArtist = { artistName ->
+                playerExpanded = false
+                navController.popBackStack(Routes.Home, inclusive = false)
+                homeNavigationIntent = HomeNavigationIntent(
+                    section = HomeSection.Artists,
+                    browseDestination = BrowseDestination.Artist(artistName),
+                )
+            },
+            onBrowseAlbum = { albumTitle ->
+                playerExpanded = false
+                navController.popBackStack(Routes.Home, inclusive = false)
+                homeNavigationIntent = HomeNavigationIntent(
+                    section = HomeSection.Albums,
+                    browseDestination = BrowseDestination.Album(albumTitle),
+                )
+            },
             onLocateCurrentSong = {
                 navController.popBackStack(Routes.Home, inclusive = false)
                 locateCurrentSongRequest++

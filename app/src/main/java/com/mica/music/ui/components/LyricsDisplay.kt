@@ -68,6 +68,35 @@ fun rememberLyricUniformStyle(): TextStyle {
 private val LyricFadeMaskOpaque = Color.White
 private val LyricFadeMaskClear = Color.White.copy(alpha = 0f)
 
+/** 跑马灯标题左右缘渐隐：对内容做 alpha 遮罩，横向边缘柔和淡出。 */
+fun Modifier.marqueeHorizontalEdgeFade(fadeWidth: Dp = 28.dp): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val fadePx = fadeWidth.toPx().coerceAtMost(size.width / 2f)
+            if (fadePx > 0f) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(LyricFadeMaskClear, LyricFadeMaskOpaque),
+                        startX = 0f,
+                        endX = fadePx,
+                    ),
+                    size = Size(fadePx, size.height),
+                    blendMode = BlendMode.DstIn,
+                )
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(LyricFadeMaskOpaque, LyricFadeMaskClear),
+                        startX = size.width - fadePx,
+                        endX = size.width,
+                    ),
+                    topLeft = Offset(size.width - fadePx, 0f),
+                    size = Size(fadePx, size.height),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+        }
+
 /** 歌词区域上下缘渐隐：对内容做 alpha 遮罩，边缘淡出为透明，不依赖背景色。 */
 fun Modifier.lyricsVerticalEdgeFade(fadeHeight: Dp = 28.dp): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }

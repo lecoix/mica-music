@@ -23,11 +23,16 @@ import com.mica.music.ui.components.SongListPanel
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.theme.MicaTheme
 
-internal sealed class BrowseDestination {
+sealed class BrowseDestination {
     data object Root : BrowseDestination()
     data class Artist(val name: String) : BrowseDestination()
     data class Album(val title: String) : BrowseDestination()
 }
+
+data class HomeNavigationIntent(
+    val section: HomeSection,
+    val browseDestination: BrowseDestination,
+)
 
 private fun browseDestinationDepth(destination: BrowseDestination): Int = when (destination) {
     BrowseDestination.Root -> 0

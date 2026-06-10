@@ -196,6 +196,8 @@ fun HomeScreen(
     onMiniPlayerCoverBoundsChanged: (Rect?) -> Unit = {},
     showMiniPlayer: Boolean = true,
     locateCurrentSongRequest: Int = 0,
+    homeNavigationIntent: HomeNavigationIntent? = null,
+    onHomeNavigationIntentConsumed: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     var drawerOpen by remember { mutableStateOf(false) }
@@ -461,6 +463,18 @@ fun HomeScreen(
         if (locateCurrentSongRequest > 0) {
             locateCurrentSongInLibrary()
         }
+    }
+
+    LaunchedEffect(homeNavigationIntent) {
+        val intent = homeNavigationIntent ?: return@LaunchedEffect
+        drawerOpen = false
+        searchOpen = false
+        searchQuery = ""
+        keyboardController?.hide()
+        activePlaylistId = null
+        section = intent.section
+        browseDestination = intent.browseDestination
+        onHomeNavigationIntentConsumed()
     }
 
     val canNavigateBack = searchOpen ||

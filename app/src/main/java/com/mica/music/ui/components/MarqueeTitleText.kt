@@ -27,7 +27,8 @@ fun MarqueeTitleText(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(lineHeight),
+            .height(lineHeight)
+            .marqueeHorizontalEdgeFade(),
         contentAlignment = Alignment.Center,
     ) {
         Text(

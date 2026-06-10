@@ -3,6 +3,8 @@ package com.mica.music.ui.components
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
@@ -23,11 +26,15 @@ import com.mica.music.ui.screens.rememberNowPlayingActions
 
 @Composable
 fun PlayerSheetHost(
+    library: MusicLibrary,
     playerController: PlayerController,
     uiSettings: AppUiSettings,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onOpenEqualizer: () -> Unit,
+    onOpenSongDetail: (String) -> Unit = {},
+    onBrowseArtist: (String) -> Unit = {},
+    onBrowseAlbum: (String) -> Unit = {},
     onLocateCurrentSong: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     modifier: Modifier = Modifier,
@@ -56,21 +63,34 @@ fun PlayerSheetHost(
 
     Box(modifier.fillMaxSize()) {
         if (showFullPlayer) {
+            val scrimInteraction = remember { MutableInteractionSource() }
             Box(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer { alpha = progress }
-                    .background(Color.Black.copy(alpha = 0.28f)),
+                    .background(Color.Black.copy(alpha = 0.28f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = scrimInteraction,
+                        onClick = {},
+                    ),
             )
+            val contentInteraction = remember { MutableInteractionSource() }
             Box(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
                         alpha = progress
                         translationY = (1f - progress) * 96.dp.toPx()
-                    },
+                    }
+                    .clickable(
+                        indication = null,
+                        interactionSource = contentInteraction,
+                        onClick = {},
+                    ),
             ) {
                 NowPlayingContent(
+                    library = library,
                     surfaceState = surfaceState,
                     progressState = progressState,
                     queueState = queueState,
@@ -78,6 +98,9 @@ fun PlayerSheetHost(
                     uiSettings = uiSettings,
                     onClose = { onExpandedChange(false) },
                     onOpenEqualizer = onOpenEqualizer,
+                    onOpenSongDetail = onOpenSongDetail,
+                    onBrowseArtist = onBrowseArtist,
+                    onBrowseAlbum = onBrowseAlbum,
                     contentPadding = contentPadding,
                 )
             }

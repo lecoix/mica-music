@@ -2,12 +2,15 @@ package com.mica.music.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,14 +19,19 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.MusicLibrary
+import com.mica.music.data.PlaylistStore
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
@@ -33,9 +41,17 @@ import com.mica.music.data.PlayerController
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.data.TrackSkipDirection
+import com.mica.music.ui.components.AddToPlaylistSheet
+import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.NowPlayingTrackWipe
 import com.mica.music.ui.components.PlaybackQueueSheet
+import com.mica.music.ui.components.SongActionMenuSheet
+import com.mica.music.ui.components.SongMenuAction
 import com.mica.music.ui.components.rememberPlaybackSeekState
+import com.mica.music.util.deleteSongFile
+import com.mica.music.util.openSongInTagEditor
+import com.mica.music.util.shareSong
+import kotlinx.coroutines.launch
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.system.homeStatusBarTopPadding
@@ -145,6 +161,8 @@ data class NowPlayingActions(
     val next: () -> Unit,
     val cyclePlaybackQueueMode: () -> Unit,
     val toggleImmersiveLower: () -> Unit,
+    val insertPlayNext: (Song) -> Unit,
+    val setQueue: (List<Song>) -> Unit,
 )
 
 @Composable
@@ -166,20 +184,27 @@ fun rememberNowPlayingActions(
             next = playerController::next,
             cyclePlaybackQueueMode = playerController::cyclePlaybackQueueMode,
             toggleImmersiveLower = uiSettings::togglePlayerImmersiveLower,
+            insertPlayNext = playerController::insertPlayNext,
+            setQueue = playerController::setQueue,
         )
     }
 
 @Composable
 fun NowPlayingScreen(
+    library: MusicLibrary,
     playerController: PlayerController,
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
+    onOpenSongDetail: (String) -> Unit = {},
+    onBrowseArtist: (String) -> Unit = {},
+    onBrowseAlbum: (String) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
 ) {
     NowPlayingContent(
+        library = library,
         surfaceState = playerController.playbackSurfaceState,
         progressState = playerController.playbackProgressState,
         queueState = playerController.playbackQueueState,
@@ -187,6 +212,9 @@ fun NowPlayingScreen(
         uiSettings = uiSettings,
         onClose = onClose,
         onOpenEqualizer = onOpenEqualizer,
+        onOpenSongDetail = onOpenSongDetail,
+        onBrowseArtist = onBrowseArtist,
+        onBrowseAlbum = onBrowseAlbum,
         contentPadding = contentPadding,
         coverContentAlpha = coverContentAlpha,
         onCoverBoundsChanged = onCoverBoundsChanged,
@@ -195,6 +223,7 @@ fun NowPlayingScreen(
 
 @Composable
 fun NowPlayingContent(
+    library: MusicLibrary,
     surfaceState: PlaybackSurfaceState,
     progressState: PlaybackProgressState,
     queueState: PlaybackQueueState,
@@ -202,6 +231,9 @@ fun NowPlayingContent(
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
+    onOpenSongDetail: (String) -> Unit = {},
+    onBrowseArtist: (String) -> Unit = {},
+    onBrowseAlbum: (String) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
@@ -212,14 +244,70 @@ fun NowPlayingContent(
         return
     }
 
+    val context = LocalContext.current
+    val playlistStore = remember { PlaylistStore(context) }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var actionMenuSong by remember { mutableStateOf<Song?>(null) }
+    var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
+    var pendingDeleteSong by remember { mutableStateOf<Song?>(null) }
+
+    fun openSongActionMenu(target: Song) {
+        actionMenuSong = target
+    }
+
+    fun handleSongMenuAction(action: SongMenuAction, target: Song) {
+        when (action) {
+            SongMenuAction.AddToPlaylist -> {
+                actionMenuSong = null
+                addToPlaylistSong = target
+            }
+            SongMenuAction.PlayNext -> {
+                library.songById(target.id)?.let { actions.insertPlayNext(it) }
+                actionMenuSong = null
+            }
+            SongMenuAction.Share -> {
+                if (!shareSong(context, target)) {
+                    scope.launch { snackbarHostState.showSnackbar("无法分享此歌曲") }
+                }
+                actionMenuSong = null
+            }
+            SongMenuAction.EditTags -> {
+                if (!openSongInTagEditor(context, target)) {
+                    scope.launch { snackbarHostState.showSnackbar("未找到可用的标签编辑应用") }
+                }
+                actionMenuSong = null
+            }
+            SongMenuAction.SongInfo -> {
+                actionMenuSong = null
+                onOpenSongDetail(target.id)
+            }
+            SongMenuAction.RemoveFromPlaylist -> {
+                actionMenuSong = null
+            }
+            SongMenuAction.Delete -> {
+                actionMenuSong = null
+                pendingDeleteSong = target
+            }
+        }
+    }
+
+    fun performDeleteSong(target: Song) {
+        scope.launch {
+            val deleted = deleteSongFile(context, target)
+            library.removeSongFromLibrary(target.id)
+            playlistStore.removeSongFromAllPlaylists(target.id)
+            val remaining = queueState.queue.filterNot { it.id == target.id }
+            actions.setQueue(remaining)
+            val message = if (deleted) "已从设备删除" else "已从曲库移除（无法删除文件）"
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     var queueSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by remember { mutableStateOf(false) }
     val stableCoverState = remember {
         StableCoverState(song, queueState.currentIndex)
-    }
-
-    LaunchedEffect(song.id) {
-        lyricsExpanded = false
     }
 
     LaunchedEffect(song.id, queueState.currentIndex, uiSettings.playerCoverFlowMode) {
@@ -239,6 +327,7 @@ fun NowPlayingContent(
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     NowPlayingTrackWipe(
         targetSong = song,
         consumeSkipDirection = actions.consumeSkipDirection,
@@ -401,6 +490,7 @@ fun NowPlayingContent(
                             onCoverBoundsChanged(bounds)
                         }
                     },
+                    onCoverLongPress = { openSongActionMenu(activeSong) },
                 )
 
                 BoxWithConstraints(
@@ -517,6 +607,54 @@ fun NowPlayingContent(
                     )
                 }
             }
+        }
+    }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+
+        actionMenuSong?.let { menuSong ->
+            SongActionMenuSheet(
+                song = menuSong,
+                onDismiss = { actionMenuSong = null },
+                onAction = { handleSongMenuAction(it, menuSong) },
+                onArtistClick = { artistName ->
+                    actionMenuSong = null
+                    onBrowseArtist(artistName)
+                },
+                onAlbumClick = { albumTitle ->
+                    actionMenuSong = null
+                    onBrowseAlbum(albumTitle)
+                },
+            )
+        }
+
+        addToPlaylistSong?.let { playlistSong ->
+            AddToPlaylistSheet(
+                song = playlistSong,
+                playlistStore = playlistStore,
+                onDismiss = { addToPlaylistSong = null },
+                onCreated = { message ->
+                    scope.launch { snackbarHostState.showSnackbar(message) }
+                },
+            )
+        }
+
+        pendingDeleteSong?.let { deleteSong ->
+            MicaConfirmDialog(
+                visible = true,
+                title = "删除音乐",
+                message = "确定从设备删除「${deleteSong.title}」？此操作不可撤销。",
+                confirmLabel = "删除",
+                destructive = true,
+                onConfirm = {
+                    performDeleteSong(deleteSong)
+                    pendingDeleteSong = null
+                },
+                onDismiss = { pendingDeleteSong = null },
+            )
         }
     }
 }
