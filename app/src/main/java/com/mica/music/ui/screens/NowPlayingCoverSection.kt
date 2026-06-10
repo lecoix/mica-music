@@ -60,6 +60,7 @@ import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
+import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.CoverEdgeProgressBar
 import com.mica.music.ui.components.LivePlayerSpectrumStrip
 import com.mica.music.ui.components.PlaybackSeekState
@@ -144,6 +145,7 @@ internal fun NowPlayingCoverSection(
         StableCoverPreloader(
             targetSong = activeSong,
             active = coverSwitching,
+            preloadBlurredBackground = lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW,
             onReady = onTargetCoverReady,
         )
 
@@ -306,27 +308,13 @@ internal fun NowPlayingCoverSection(
                                 onCoverLongPress = onCoverLongPress,
                             )
                         } else {
-                            SongCover(
-                                albumArtUri = displayedCoverSong.albumArtUri,
-                                fallbackColor = coverColor,
-                                contentDescription = displayedCoverSong.album,
-                                modifier = Modifier.matchParentSize(),
+                            StandardDualSlotCover(
+                                displayedCoverSong = displayedCoverSong,
+                                coverColor = coverColor,
                                 letterboxAlpha = letterboxAlpha,
-                                crossfadeMillis = 0,
-                                holdoverUntilImageReady = true,
-                                holdoverAlbumArtUri = coverHoldoverAlbumArtUri,
                                 onAspectRatioChanged = onCoverAspectRatioChanged,
-                                onImageReady = {
-                                    onDisplayedCoverDrawn(displayedCoverSong)
-                                    if (displayedCoverSong.id == activeSong.id) {
-                                        onTargetCoverReady()
-                                    }
-                                },
-                                onImageFailed = {
-                                    if (displayedCoverSong.id == activeSong.id) {
-                                        onTargetCoverReady()
-                                    }
-                                },
+                                onDisplayedCoverDrawn = onDisplayedCoverDrawn,
+                                modifier = Modifier.matchParentSize(),
                             )
                         }
                         if (!stageActive && coverEdgeFade) {
@@ -403,32 +391,125 @@ private fun coverClickModifier(
     else -> Modifier
 }
 
+/**
+ * 标准主题封面：固定 A/B 两槽，[key] 终身不变。
+ * 新曲只写入当前不可见槽（alpha=0），再翻转可见性；可见槽在展示期间不换 URI，
+ * 避免单实例 [SongCover] 换 model 导致的逻辑重建与闪帧。
+ */
+@Composable
+private fun StandardDualSlotCover(
+    displayedCoverSong: Song,
+    coverColor: Color,
+    letterboxAlpha: Float,
+    onAspectRatioChanged: (Float) -> Unit,
+    onDisplayedCoverDrawn: (Song) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var slotA by remember { mutableStateOf(displayedCoverSong) }
+    var slotB by remember { mutableStateOf(displayedCoverSong) }
+    var frontIsA by remember { mutableStateOf(true) }
+
+    LaunchedEffect(displayedCoverSong.id) {
+        val frontSong = if (frontIsA) slotA else slotB
+        if (frontSong.id == displayedCoverSong.id) return@LaunchedEffect
+        if (frontIsA) {
+            slotB = displayedCoverSong
+            frontIsA = false
+        } else {
+            slotA = displayedCoverSong
+            frontIsA = true
+        }
+    }
+
+    Box(modifier) {
+        key("standard_cover_slot_a") {
+            StandardCoverSlot(
+                song = slotA,
+                visible = frontIsA,
+                coverColor = coverColor,
+                letterboxAlpha = letterboxAlpha,
+                onAspectRatioChanged = if (frontIsA) onAspectRatioChanged else null,
+                onDisplayedCoverDrawn = {
+                    if (slotA.id == displayedCoverSong.id) {
+                        onDisplayedCoverDrawn(slotA)
+                    }
+                },
+                modifier = Modifier
+                    .matchParentSize()
+                    .zIndex(if (frontIsA) 1f else 0f),
+            )
+        }
+        key("standard_cover_slot_b") {
+            StandardCoverSlot(
+                song = slotB,
+                visible = !frontIsA,
+                coverColor = coverColor,
+                letterboxAlpha = letterboxAlpha,
+                onAspectRatioChanged = if (!frontIsA) onAspectRatioChanged else null,
+                onDisplayedCoverDrawn = {
+                    if (slotB.id == displayedCoverSong.id) {
+                        onDisplayedCoverDrawn(slotB)
+                    }
+                },
+                modifier = Modifier
+                    .matchParentSize()
+                    .zIndex(if (frontIsA) 0f else 1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StandardCoverSlot(
+    song: Song,
+    visible: Boolean,
+    coverColor: Color,
+    letterboxAlpha: Float,
+    onAspectRatioChanged: ((Float) -> Unit)?,
+    onDisplayedCoverDrawn: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SongCover(
+        albumArtUri = song.albumArtUri,
+        fallbackColor = coverColor,
+        contentDescription = if (visible) song.album else null,
+        modifier = modifier.graphicsLayer {
+            alpha = if (visible) 1f else 0f
+        },
+        letterboxAlpha = letterboxAlpha,
+        crossfadeMillis = 0,
+        holdoverUntilImageReady = false,
+        publishHoldoverOnSuccess = visible,
+        onAspectRatioChanged = onAspectRatioChanged,
+        onImageReady = {
+            if (visible) {
+                onDisplayedCoverDrawn()
+            }
+        },
+    )
+}
+
 @Composable
 private fun StableCoverPreloader(
     targetSong: Song,
     active: Boolean,
+    preloadBlurredBackground: Boolean,
     onReady: () -> Unit,
 ) {
     if (!active) return
-    if (targetSong.albumArtUri.isNullOrBlank()) {
-        LaunchedEffect(targetSong.id) {
+    val context = LocalContext.current
+    LaunchedEffect(targetSong.id, targetSong.albumArtUri, preloadBlurredBackground) {
+        val uri = targetSong.albumArtUri
+        if (uri.isNullOrBlank()) {
             onReady()
+            return@LaunchedEffect
         }
-        return
+        MicaImageLoaders.ensureCoverCached(context, uri)
+        if (preloadBlurredBackground) {
+            MicaImageLoaders.ensureBackgroundCached(context, uri)
+        }
+        onReady()
     }
-    SongCover(
-        albumArtUri = targetSong.albumArtUri,
-        fallbackColor = Color.Transparent,
-        contentDescription = null,
-        modifier = Modifier
-            .size(1.dp)
-            .graphicsLayer { alpha = 0f },
-        crossfadeMillis = 0,
-        drawBackdropWhileLoading = false,
-        publishHoldoverOnSuccess = false,
-        onImageReady = onReady,
-        onImageFailed = onReady,
-    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

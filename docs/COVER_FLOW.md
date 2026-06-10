@@ -104,3 +104,10 @@
 - 暂不做强拟物舞台、全量倒影、皮革或金属主题。
 
 这样可以保留当前 Mica 的克制感，同时给播放页一个明确的新主题记忆点。
+
+---
+
+## 实现备注
+
+- **切歌闪帧治本（封面流）**：[`COVER_FLOW_LANE_POOL.md`](COVER_FLOW_LANE_POOL.md)（Lane 池，待实现）。
+- **标准主题封面**：`StandardDualSlotCover` A/B 双槽（已实现，见该文档 §11 对照）。

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.mica.music.imaging.MicaImageLoaders
 
 /**
  * 模糊背景源图的解码尺寸（像素）。背景最终会被 [BlurEffect] 模糊到约 120px，
@@ -44,9 +46,23 @@ fun BlurredCoverBackground(
     val accent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
     val canBlurArtwork = !albumArtUri.isNullOrBlank() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    var readyBackgroundUri by remember { mutableStateOf(albumArtUri) }
-    var imageReady by remember(albumArtUri, readyBackgroundUri) {
-        mutableStateOf(albumArtUri.isNullOrBlank() || albumArtUri == readyBackgroundUri)
+    val context = LocalContext.current
+    var readyBackgroundUri by remember { mutableStateOf<String?>(null) }
+    val imageReady = albumArtUri.isNullOrBlank() || albumArtUri == readyBackgroundUri
+    val backgroundImageLoader = remember { MicaImageLoaders.background }
+    val isFirstBackground = readyBackgroundUri == null
+    // 切歌过渡：新图层未就绪前保持 alpha=0，只显示 holdover 模糊层。
+    val foregroundAlpha = when {
+        albumArtUri.isNullOrBlank() -> 0f
+        imageReady -> 1f
+        isFirstBackground -> 1f
+        else -> 0f
+    }
+
+    LaunchedEffect(albumArtUri) {
+        if (!albumArtUri.isNullOrBlank()) {
+            MicaImageLoaders.preloadBackground(context, albumArtUri)
+        }
     }
 
     Box(
@@ -59,12 +75,16 @@ fun BlurredCoverBackground(
                 !imageReady && it != albumArtUri
             }
             if (!holdoverBackgroundUri.isNullOrBlank()) {
+                val holdoverKey = MicaImageLoaders.backgroundCacheKey(holdoverBackgroundUri)
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(holdoverBackgroundUri)
                         .size(BlurredBackgroundSourcePx)
+                        .memoryCacheKey(holdoverKey)
+                        .placeholderMemoryCacheKey(holdoverKey)
                         .crossfade(0)
                         .build(),
+                    imageLoader = backgroundImageLoader,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
@@ -76,23 +96,27 @@ fun BlurredCoverBackground(
                         },
                 )
             }
+            val backgroundKey = MicaImageLoaders.backgroundCacheKey(albumArtUri)
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(albumArtUri)
                     .size(BlurredBackgroundSourcePx)
+                    .memoryCacheKey(backgroundKey)
+                    .placeholderMemoryCacheKey(backgroundKey)
                     .crossfade(0)
                     .build(),
+                imageLoader = backgroundImageLoader,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
+                        alpha = foregroundAlpha
                         scaleX = 1.22f
                         scaleY = 1.22f
                         renderEffect = BlurEffect(120f, 120f, TileMode.Clamp)
                     },
                 onSuccess = {
-                    imageReady = true
                     readyBackgroundUri = albumArtUri
                 },
             )

@@ -19,17 +19,17 @@ import androidx.compose.ui.unit.Dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.LocalCoverDisplayMode
 
 private var lastReadyCoverHoldoverUri by mutableStateOf<String?>(null)
 
 /**
- * 已成功解码过的封面 URI 集合。用于让“就绪”状态脱离单个 composable 的寿命：
- * 当槽位被重建（如封面带切歌跨整数导致整组 key 重建）时，已解码过的封面起始即视为就绪，
- * 避免回退到全局占位（显示别的/上一张封面）造成闪帧。
+ * 已成功解码过的封面 URI 集合。供其它模块查询；**不**再用于跳过 holdover 层，
+ * 避免「缓存命中但 AsyncImage 尚未绘出」时出现空白帧。
  */
-private val decodedCoverUris = LruCache<String, Boolean>(128)
+private val decodedCoverUris = LruCache<String, Boolean>(192)
 
 internal fun coverHoldoverUri(
     albumArtUri: String?,
@@ -64,18 +64,11 @@ fun SongCover(
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
     contentScale: ContentScale? = null,
-    /**
-     * 原样比例下是否按图片宽高比撑开容器。
-     * 默认 false：列表 / 迷你栏 / 歌词聚焦等保持调用方给的正方形容器，图在框内完整显示。
-     * 仅播放页全屏封面可设为 true。
-     */
     allowIntrinsicBounds: Boolean = false,
     maxHeight: Dp? = null,
     maxWidth: Dp? = null,
     onAspectRatioChanged: ((Float) -> Unit)? = null,
-    /** 原样比例黑底衬透明度；歌词↔播放切换时由播放页控制显隐顺序。 */
     letterboxAlpha: Float = 1f,
-    /** Coil 加载 crossfade；同一 URI 布局动画时宜为 0，避免切换分支时闪一下。 */
     crossfadeMillis: Int = 200,
     drawBackdropWhileLoading: Boolean = true,
     onImageReady: () -> Unit = {},
@@ -83,18 +76,15 @@ fun SongCover(
     publishHoldoverOnSuccess: Boolean = true,
     holdoverUntilImageReady: Boolean = false,
     holdoverAlbumArtUri: String? = null,
-    /**
-     * 稳定内存缓存键。封面带等会被销毁重建的场景传入封面 URI：
-     * 重建时 Coil 会用该键同步取出内存缓存里的位图作为第一帧（不解码、不异步），
-     * 避免重建后出现空白帧（模糊/渐变背景下表现为闪一下）。
-     */
     stableMemoryCacheKey: String? = null,
 ) {
+    val context = LocalContext.current
     val displayMode = LocalCoverDisplayMode.current
     val resolvedScale = contentScale ?: when (displayMode) {
         CoverDisplayMode.CROP_FILL -> ContentScale.Crop
         CoverDisplayMode.FIT_ORIGINAL -> ContentScale.Fit
     }
+    val memoryCacheKey = stableMemoryCacheKey ?: albumArtUri
 
     var aspectRatio by remember(albumArtUri) { mutableFloatStateOf(1f) }
 
@@ -120,41 +110,51 @@ fun SongCover(
         CoverDisplayMode.FIT_ORIGINAL ->
             HifiPalette.CoverFitLetterbox.copy(alpha = letterboxAlpha.coerceIn(0f, 1f))
     }
-    var imageReady by remember(albumArtUri) {
-        mutableStateOf(
-            if (holdoverUntilImageReady) {
-                albumArtUri.isNullOrBlank()
-            } else {
-                coverImageInitiallyReady(albumArtUri)
-            },
-        )
-    }
-    LaunchedEffect(albumArtUri, imageReady) {
-        if (imageReady) {
+
+    // 已真正绘上屏的 URI；切换时保留旧图作底，直到新图 onSuccess。
+    var lastPaintedUri by remember { mutableStateOf<String?>(null) }
+    val isPainted = albumArtUri.isNullOrBlank() || lastPaintedUri == albumArtUri
+
+    LaunchedEffect(albumArtUri) {
+        if (albumArtUri.isNullOrBlank()) {
+            lastPaintedUri = null
             onImageReady()
-        }
-    }
-    val effectiveBackdropColor = if (drawBackdropWhileLoading || imageReady) {
-        backdropColor
-    } else {
-        Color.Transparent
-    }
-    Box(modifier = layoutModifier.background(effectiveBackdropColor)) {
-        val loadingHoldoverUri = if (!imageReady) {
-            holdoverAlbumArtUri ?: coverHoldoverUri(
-                albumArtUri = albumArtUri,
-                imageReady = false,
-                allowSameUri = holdoverUntilImageReady,
-            )
         } else {
-            null
+            MicaImageLoaders.preloadCover(context, albumArtUri)
         }
-        if (!loadingHoldoverUri.isNullOrBlank()) {
+    }
+
+    val underlayUri = when {
+        albumArtUri.isNullOrBlank() -> null
+        holdoverAlbumArtUri != null && holdoverAlbumArtUri != albumArtUri -> holdoverAlbumArtUri
+        lastPaintedUri != null && lastPaintedUri != albumArtUri -> lastPaintedUri
+        !isPainted -> coverHoldoverUri(
+            albumArtUri = albumArtUri,
+            imageReady = false,
+            allowSameUri = holdoverUntilImageReady,
+        )
+        else -> null
+    }
+
+    val effectiveBackdropColor = when {
+        underlayUri != null -> Color.Transparent
+        drawBackdropWhileLoading || isPainted -> backdropColor
+        else -> Color.Transparent
+    }
+    val coverImageLoader = remember { MicaImageLoaders.cover }
+
+    Box(modifier = layoutModifier.background(effectiveBackdropColor)) {
+        if (!underlayUri.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(loadingHoldoverUri)
+                model = ImageRequest.Builder(context)
+                    .data(underlayUri)
                     .crossfade(0)
+                    .apply {
+                        memoryCacheKey(underlayUri)
+                        placeholderMemoryCacheKey(underlayUri)
+                    }
                     .build(),
+                imageLoader = coverImageLoader,
                 contentDescription = null,
                 contentScale = resolvedScale,
                 modifier = Modifier.fillMaxSize(),
@@ -162,21 +162,22 @@ fun SongCover(
         }
         if (!albumArtUri.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
+                model = ImageRequest.Builder(context)
                     .data(albumArtUri)
                     .crossfade(crossfadeMillis)
                     .apply {
-                        if (!stableMemoryCacheKey.isNullOrBlank()) {
-                            memoryCacheKey(stableMemoryCacheKey)
-                            placeholderMemoryCacheKey(stableMemoryCacheKey)
+                        if (!memoryCacheKey.isNullOrBlank()) {
+                            memoryCacheKey(memoryCacheKey)
+                            placeholderMemoryCacheKey(memoryCacheKey)
                         }
                     }
                     .build(),
+                imageLoader = coverImageLoader,
                 contentDescription = contentDescription,
                 contentScale = resolvedScale,
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
-                    imageReady = true
+                    lastPaintedUri = albumArtUri
                     markCoverDecoded(albumArtUri)
                     if (publishHoldoverOnSuccess) {
                         markCoverHoldoverReady(albumArtUri)
@@ -184,14 +185,18 @@ fun SongCover(
                     val size = state.painter.intrinsicSize
                     val ratio = coerceCoverAspectRatio(size.width, size.height)
                     cacheCoverAspectRatio(albumArtUri, ratio)
-                    if (!allowIntrinsicBounds && onAspectRatioChanged == null) return@AsyncImage
+                    if (!allowIntrinsicBounds && onAspectRatioChanged == null) {
+                        onImageReady()
+                        return@AsyncImage
+                    }
                     if (allowIntrinsicBounds && ratio != aspectRatio) {
                         aspectRatio = ratio
                     }
                     onAspectRatioChanged?.invoke(ratio)
+                    onImageReady()
                 },
                 onError = {
-                    imageReady = true
+                    lastPaintedUri = albumArtUri
                     onImageFailed()
                 },
             )

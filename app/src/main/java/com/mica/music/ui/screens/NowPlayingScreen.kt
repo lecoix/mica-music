@@ -58,6 +58,7 @@ import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.theme.NowPlayingBackground
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import kotlinx.coroutines.delay
@@ -335,11 +336,6 @@ fun NowPlayingContent(
         enabled = false,
     ) { activeSong ->
         val lowerBackground = uiSettings.playerLowerBackground
-        val appearance = rememberPlayerScreenAppearance(activeSong, lowerBackground)
-        val coverColor = appearance.coverColor
-        val contentColors = appearance.contentColors
-        val hifiBadgeColors = appearance.hifiBadgeColors
-        val artworkJunction = appearance.artworkJunction
         val useCoverEdgeProgress = uiSettings.useCoverEdgeProgressNow()
         val immersiveLower = uiSettings.playerImmersiveLower
         val seekState = rememberPlaybackSeekState(
@@ -363,6 +359,31 @@ fun NowPlayingContent(
             immersiveLower = immersiveLower,
             spectrumSettingEnabled = spectrumSettingEnabled,
         )
+        // 背景取色与封面同一节拍：跟 displayedCoverSong，避免切歌时背景抢先加载新曲挤占缓存。
+        val visualSong = uiState.displayedCoverSong
+        val appearance = rememberPlayerScreenAppearance(visualSong, lowerBackground)
+        val coverColor = appearance.coverColor
+        val contentColors = appearance.contentColors
+        val hifiBadgeColors = appearance.hifiBadgeColors
+        val artworkJunction = appearance.artworkJunction
+        val preloadBlurredBackground = uiState.lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW
+        LaunchedEffect(
+            uiState.displayedCoverSong.albumArtUri,
+            uiState.song.albumArtUri,
+            uiState.coverSwitching,
+            preloadBlurredBackground,
+        ) {
+            MicaImageLoaders.preloadCover(context, uiState.displayedCoverSong.albumArtUri)
+            if (preloadBlurredBackground) {
+                MicaImageLoaders.preloadBackground(context, uiState.displayedCoverSong.albumArtUri)
+            }
+            if (uiState.coverSwitching) {
+                MicaImageLoaders.preloadCover(context, uiState.song.albumArtUri)
+                if (preloadBlurredBackground) {
+                    MicaImageLoaders.preloadBackground(context, uiState.song.albumArtUri)
+                }
+            }
+        }
         var spectrumDeferred by remember { mutableStateOf(false) }
         LaunchedEffect(activeSong.id) {
             spectrumDeferred = true
@@ -430,7 +451,7 @@ fun NowPlayingContent(
 
             NowPlayingBackground(
                 coverColor = coverColor,
-                albumArtUri = activeSong.albumArtUri,
+                albumArtUri = visualSong.albumArtUri,
                 mode = uiState.lowerBackground,
                 coverZoneStop = coverZoneStop,
                 modifier = Modifier.matchParentSize(),

@@ -2,6 +2,7 @@ package com.mica.music
 
 import android.app.Application
 import android.util.Log
+import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.media.AlacFfmpegHelper
 
 /**
@@ -12,6 +13,7 @@ import com.mica.music.media.AlacFfmpegHelper
 class MicaApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        MicaImageLoaders.init(this)
         AlacFfmpegHelper.init(this)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

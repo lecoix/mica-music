@@ -154,11 +154,10 @@
     2. 模糊背景按 `.size(384)` 降采样加载（[`BlurredCoverBackground.kt`](../app/src/main/java/com/mica/music/ui/theme/BlurredCoverBackground.kt) `BlurredBackgroundSourcePx`），不再挤占封面内存缓存；
     3. 封面带封面请求加 `memoryCacheKey(uri)` + `placeholderMemoryCacheKey(uri)`（[`SongCover.kt`](../app/src/main/java/com/mica/music/ui/components/SongCover.kt) `stableMemoryCacheKey`），即便重建也由 Coil **第一帧同步**取内存缓存位图绘出，空白帧消失；
     4. `SongCover` 内 `decodedCoverUris` 让「就绪」状态脱离单个 composable 寿命，作为安全网。
-  - **遗留与治本方向**：缓解只是让「窗口起步那一次仍存在的重建」变得**无害**，并未真正消除重建。彻底治本应让可见封面 slot 在切歌时**永不被销毁重建、只做位移**：
-    - 用 `movableContentOf`/`movableContentWithReceiverOf` 把每个 `song.id` 的封面包成可移动内容，窗口滑动时**移动**而非重建（保留已加载位图与全部 `remember` 状态）；
-    - 或自管「lane → song」映射 + 稳定 lane key，使序列平移时 Compose 走「移动/复用」而非「拆建」；
-    - 配套：自定义 `ImageLoader` 给全屏模糊背景**独立内存缓存**，与封面缓存物理隔离；封面取色/模糊改后台线程，避免切歌帧主线程争用。
-    - 验收：logcat `CoverFlowDiag` 在任意模式切歌全程**不出现成批 `SLOT disposed/composed`**（最多吞吐最远端不可见 slot）；四种背景 × 两种封面流模式连续切歌均无闪。治本完成后可移除上述诊断日志。
+  - **遗留与治本方向（封面流 L2）**：标准主题已由 `StandardDualSlotCover`（A/B 固定 key）治本；平行 / 复古仍待 **Lane 池**。完整设计见 [`docs/COVER_FLOW_LANE_POOL.md`](COVER_FLOW_LANE_POOL.md)（状态：待实现）。
+    - 核心：`key(song.id)` → `key("cover_lane_$offset")`；仅隐藏 lane 换 URI；换绑前 `ensureCoverCached`。
+    - 配套（已完成）：双 `ImageLoader`、背景跟 `displayedCoverSong`、[`MicaImageLoaders`](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt) 预载。
+    - 验收：logcat `CoverFlowDiag` 切歌全程**不成批** `SLOT disposed/composed`；两种封面流 × 三种背景连续切歌无闪。
 
 ---
 
