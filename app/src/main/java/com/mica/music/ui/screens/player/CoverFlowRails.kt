@@ -13,9 +13,9 @@ import kotlin.math.abs
 internal object CoverFlowRails {
     const val PauseFoldStep = 0.80f
     /** 复古：|railOffset|=1 时的累计间距系数（相对封面宽）。 */
-    const val RetroFirstStep = 1.09f
+    const val RetroFirstStep = 1.10f
     /** 复古：|railOffset|=2 时的累计间距系数（相对封面宽）。 */
-    const val RetroOuterStep = 1.19f
+    const val RetroOuterStep = 1.20f
     const val NearSideScale = 0.85f
     const val OuterSideScale = 0.90f
 

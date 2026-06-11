@@ -2,10 +2,6 @@ package com.mica.music.ui.components
 
 
 
-import androidx.compose.foundation.background
-
-import androidx.compose.foundation.border
-
 import androidx.compose.foundation.clickable
 
 import androidx.compose.foundation.layout.Arrangement
@@ -35,8 +31,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 
 import androidx.compose.ui.Modifier
-
-import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -160,13 +154,13 @@ fun EmptyState(
 
             if (primaryActionLabel != null && onPrimaryAction != null) {
 
-                CtaButton(label = primaryActionLabel, filled = true, onClick = onPrimaryAction)
+                CtaLink(label = primaryActionLabel, isPrimary = true, onClick = onPrimaryAction)
 
             }
 
             if (secondaryActionLabel != null && onSecondaryAction != null) {
 
-                CtaButton(label = secondaryActionLabel, filled = false, onClick = onSecondaryAction)
+                CtaLink(label = secondaryActionLabel, isPrimary = false, onClick = onSecondaryAction)
 
             }
 
@@ -180,47 +174,27 @@ fun EmptyState(
 
 @Composable
 
-private fun CtaButton(label: String, filled: Boolean, onClick: () -> Unit) {
+private fun CtaLink(label: String, isPrimary: Boolean, onClick: () -> Unit) {
 
-    val accent = MicaTheme.colors.accent
+    Text(
 
-    Box(
+        text = label,
+
+        style = if (isPrimary) MicaTheme.typography.titleSm else MicaTheme.typography.bodyMd,
+
+        color = MicaTheme.colors.accent,
+
+        textAlign = TextAlign.Center,
 
         modifier = Modifier
 
-            .padding(top = if (filled) HifiSpacing.md else HifiSpacing.xs)
+            .padding(top = if (isPrimary) HifiSpacing.md else HifiSpacing.xs)
 
             .clickable(onClick = onClick)
 
-            .then(
+            .padding(horizontal = HifiSpacing.sm, vertical = HifiSpacing.xxs),
 
-                if (filled) {
-
-                    Modifier.background(accent)
-
-                } else {
-
-                    Modifier.border(width = 1.dp, color = accent)
-
-                },
-
-            )
-
-            .padding(horizontal = HifiSpacing.xl, vertical = HifiSpacing.sm),
-
-    ) {
-
-        Text(
-
-            text = label,
-
-            style = MicaTheme.typography.bodyLg,
-
-            color = if (filled) Color.White else accent,
-
-        )
-
-    }
+    )
 
 }
 

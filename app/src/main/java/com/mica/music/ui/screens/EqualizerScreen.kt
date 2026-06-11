@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -42,6 +41,7 @@ import com.mica.music.data.EqSelection
 import com.mica.music.media.EqualizerSnapshot
 import com.mica.music.media.MicaEqualizerManager
 import com.mica.music.media.eq.EqBandConstants
+import com.mica.music.ui.components.AccentTextChoice
 import com.mica.music.ui.components.EqualizerBandSlider
 import com.mica.music.ui.components.EqualizerCurveChart
 import com.mica.music.ui.components.SettingsSectionTitle
@@ -269,7 +269,7 @@ private fun EqPresetStrip(
             .fillMaxWidth()
             .horizontalScroll(scroll)
             .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
-        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
     ) {
         if (snapshot.presets.isEmpty()) {
             EqPresetChip(
@@ -311,24 +311,12 @@ private fun EqPresetChip(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val bg = when {
-        selected -> MicaTheme.colors.accent.copy(alpha = 0.14f)
-        else -> Color.Transparent
-    }
-    val fg = when {
-        !enabled -> MicaTheme.colors.textTertiary
-        selected -> MicaTheme.colors.accent
-        else -> MicaTheme.colors.textSecondary
-    }
-    Text(
-        text = label,
-        style = MicaTheme.typography.bodyMd,
-        color = fg,
-        modifier = Modifier
-            .widthIn(min = 72.dp)
-            .background(bg)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = HifiSpacing.sm, vertical = HifiSpacing.xs),
+    AccentTextChoice(
+        label = label,
+        selected = selected,
+        enabled = enabled,
+        onClick = onClick,
+        horizontalPadding = HifiSpacing.sm,
     )
 }
 

@@ -160,8 +160,8 @@ stripFraction ← 0
 | 常量 | 当前值 | 含义 |
 |------|--------|------|
 | `PauseFoldStep` | `0.80` | 平行：相邻槽间距 × 封面宽 |
-| `RetroFirstStep` | `1.09` | 复古：\|railOffset\|=1 的累计位移系数 |
-| `RetroOuterStep` | `1.19` | 复古：\|railOffset\|=2 的累计位移系数 |
+| `RetroFirstStep` | `1.10` | 复古：\|railOffset\|=1 的累计位移系数 |
+| `RetroOuterStep` | `1.20` | 复古：\|railOffset\|=2 的累计位移系数 |
 | `NearSideScale` | `0.85` | 复古 ±1 额外缩放（相对基础 slotScale） |
 | `OuterSideScale` | `0.90` | 复古 ±2、±3 再缩 10% 相对近邻 |
 

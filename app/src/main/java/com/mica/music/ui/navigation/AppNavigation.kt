@@ -26,6 +26,7 @@ import androidx.navigation.navArgument
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
+import com.mica.music.data.SleepTimerController
 import com.mica.music.ui.components.PlayerSheetHost
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
@@ -56,6 +57,7 @@ object Routes {
 fun AppNavigation(
     library: MusicLibrary,
     playerController: PlayerController,
+    sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
@@ -178,6 +180,7 @@ fun AppNavigation(
         PlayerSheetHost(
             library = library,
             playerController = playerController,
+            sleepTimer = sleepTimer,
             uiSettings = uiSettings,
             expanded = playerExpanded,
             onExpandedChange = { playerExpanded = it },

@@ -20,6 +20,7 @@ import android.view.View
 import android.view.animation.LinearInterpolator
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.Song
+import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.screens.player.CoverFlowRails
@@ -502,10 +503,16 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     private fun bitmapFor(uri: String?): Bitmap? {
         if (uri.isNullOrBlank()) return null
-        bitmapByUri[uri]?.let { return it }
-        CoverFlowBitmaps.memoryBitmap(uri)?.let {
-            bitmapByUri[uri] = it
-            return it
+        bitmapByUri[uri]?.let { cached ->
+            if (!CoverFlowBitmaps.isPollutedThumbnail(cached)) return cached
+            bitmapByUri.remove(uri)
+        }
+        CoverFlowBitmaps.memoryBitmap(uri)?.let { cached ->
+            if (!CoverFlowBitmaps.isPollutedThumbnail(cached)) {
+                bitmapByUri[uri] = cached
+                return cached
+            }
+            MicaImageLoaders.evictCoverMemory(uri)
         }
         if (!pendingLoads.contains(uri)) {
             pendingLoads.add(uri)

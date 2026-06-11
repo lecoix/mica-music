@@ -1,9 +1,10 @@
 package com.mica.music.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -13,7 +14,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 
@@ -65,6 +65,7 @@ fun SettingsToggleRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsChoiceRow(
     title: String,
@@ -94,20 +95,15 @@ fun SettingsChoiceRow(
         } else {
             Spacer(Modifier.height(HifiSpacing.sm))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        ) {
             choices.forEach { (value, label) ->
-                val active = value == selectedValue
-                Text(
-                    text = label,
-                    style = MicaTheme.typography.bodyMd,
-                    color = if (active) MicaTheme.colors.accent else MicaTheme.colors.textTertiary,
-                    modifier = Modifier
-                        .clickable { onSelect(value) }
-                        .background(
-                            if (active) MicaTheme.colors.accent.copy(alpha = 0.12f)
-                            else Color.Transparent,
-                        )
-                        .padding(horizontal = HifiSpacing.sm, vertical = HifiSpacing.xs),
+                AccentTextChoice(
+                    label = label,
+                    selected = value == selectedValue,
+                    onClick = { onSelect(value) },
                 )
             }
         }

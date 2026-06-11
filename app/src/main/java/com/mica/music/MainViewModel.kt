@@ -7,6 +7,7 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.data.PlayerController
+import com.mica.music.data.SleepTimerController
 import com.mica.music.data.scanner.ScanCacheManager
 import kotlinx.coroutines.launch
 
@@ -16,6 +17,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val library = MusicLibrary(application)
     val playerController = PlayerController(application)
     val uiSettings = AppUiSettings(application)
+    val sleepTimer = SleepTimerController(viewModelScope, playerController)
 
     init {
         playerController.onSongPlayStarted = { songId -> library.onSongPlayed(songId) }
@@ -33,6 +35,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        sleepTimer.cancel()
         playerController.persistPlaybackSessionNow()
         playerController.release()
         super.onCleared()

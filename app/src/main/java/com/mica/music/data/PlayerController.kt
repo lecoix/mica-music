@@ -585,6 +585,15 @@ class PlayerController(private val context: Context) {
         notifyPlaybackProgress(c.currentPosition.toInt().coerceAtLeast(0))
     }
 
+    fun pauseIfPlaying() {
+        if (!isPlaying) return
+        pausePlaybackInternal()
+    }
+
+    fun setPlaybackVolume(volume: Float) {
+        alacEngine?.setVolume(volume.coerceIn(0f, 1f))
+    }
+
     fun togglePlay() {
         if (songQueue.isEmpty()) return
         val engine = alacEngine ?: run {
@@ -595,13 +604,7 @@ class PlayerController(private val context: Context) {
         playbackError = null
 
         if (isPlaying && alacStreamActive) {
-            alacPlayWhenReady = false
-            alacClock.applyPlayWhenReady(false)
-            alacClock.applyPlaying(alacClock.generation, false)
-            applyAlacClockToUi()
-            syncAlacFromClock(flushTimeline = true)
-            engine.pause()
-            publishPlaybackStates()
+            pausePlaybackInternal(engine)
             return
         }
         if (isPlaying) {
@@ -1001,6 +1004,24 @@ class PlayerController(private val context: Context) {
             pick = Random.nextInt(songQueue.size)
         }
         return pick
+    }
+
+    private fun pausePlaybackInternal(engine: AlacAudioTrackEngine? = alacEngine) {
+        if (alacStreamActive) {
+            alacPlayWhenReady = false
+            alacClock.applyPlayWhenReady(false)
+            alacClock.applyPlaying(alacClock.generation, false)
+            applyAlacClockToUi()
+            syncAlacFromClock(flushTimeline = true)
+            engine?.pause()
+            publishPlaybackStates()
+            return
+        }
+        if (isPlaying) {
+            isPlaying = false
+            isBuffering = false
+            publishSurfaceState()
+        }
     }
 
     private fun stopAlacStream() {

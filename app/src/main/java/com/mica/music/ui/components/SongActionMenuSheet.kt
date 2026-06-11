@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.PlaylistRemove
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +66,9 @@ fun SongActionMenuSheet(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     fromPlaylistId: String? = null,
+    showSleepTimer: Boolean = false,
+    sleepTimerLabel: String = "睡眠定时",
+    onSleepTimerClick: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
@@ -99,6 +103,13 @@ fun SongActionMenuSheet(
                 label = "下一首播放",
                 onClick = { onAction(SongMenuAction.PlayNext) },
             )
+            if (showSleepTimer && onSleepTimerClick != null) {
+                SongMenuItem(
+                    icon = Icons.Outlined.Bedtime,
+                    label = sleepTimerLabel,
+                    onClick = onSleepTimerClick,
+                )
+            }
             SongMenuItem(
                 icon = Icons.Outlined.Share,
                 label = "分享",

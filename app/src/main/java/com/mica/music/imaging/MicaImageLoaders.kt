@@ -1,6 +1,7 @@
 package com.mica.music.imaging
 
 import android.content.Context
+import android.graphics.Bitmap
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
@@ -17,6 +18,12 @@ private const val BackgroundSourcePx = 384
  * 避免全屏模糊背景挤掉封面位图（切歌重建当帧空白的主要来源之一）。
  */
 object MicaImageLoaders {
+
+    /**
+     * 封面内存缓存中短边不超过此值时，视为降采样缩略图（主色采样 256px 等），
+     * 需驱逐后重新解码全尺寸。不得用播放页槽位宽度作门槛——内嵌封面常小于槽位但仍合法。
+     */
+    const val PollutedCoverCacheMaxSidePx = 256
     private lateinit var appContext: Context
 
     lateinit var cover: ImageLoader
@@ -60,10 +67,20 @@ object MicaImageLoaders {
 
     fun backgroundCacheKey(albumArtUri: String): String = "bg:$albumArtUri"
 
-    private fun coverMemoryHit(uri: String): Boolean {
-        if (!::cover.isInitialized) return false
-        val cache = cover.memoryCache ?: return false
-        return cache.get(MemoryCache.Key(uri)) != null
+    fun coverMemoryBitmap(uri: String): Bitmap? {
+        if (!::cover.isInitialized) return null
+        val cache = cover.memoryCache ?: return null
+        return cache[MemoryCache.Key(uri)]?.bitmap
+    }
+
+    fun evictCoverMemory(uri: String) {
+        if (!::cover.isInitialized) return
+        cover.memoryCache?.remove(MemoryCache.Key(uri))
+    }
+
+    fun coverCacheNeedsUpgrade(uri: String): Boolean {
+        val bitmap = coverMemoryBitmap(uri) ?: return false
+        return maxOf(bitmap.width, bitmap.height) <= PollutedCoverCacheMaxSidePx
     }
 
     private fun backgroundMemoryHit(uri: String): Boolean {
@@ -87,7 +104,12 @@ object MicaImageLoaders {
     suspend fun ensureCoverCached(context: Context, albumArtUri: String): Boolean =
         withContext(Dispatchers.IO) {
             if (!::cover.isInitialized) return@withContext false
-            if (coverMemoryHit(albumArtUri)) return@withContext true
+            if (coverMemoryBitmap(albumArtUri) != null && !coverCacheNeedsUpgrade(albumArtUri)) {
+                return@withContext true
+            }
+            if (coverMemoryBitmap(albumArtUri) != null) {
+                evictCoverMemory(albumArtUri)
+            }
             val result = cover.execute(buildCoverRequest(context, albumArtUri))
             result is SuccessResult
         }

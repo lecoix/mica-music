@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
+import com.mica.music.data.SleepTimerController
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.NowPlayingContent
@@ -28,6 +29,7 @@ import com.mica.music.ui.screens.rememberNowPlayingActions
 fun PlayerSheetHost(
     library: MusicLibrary,
     playerController: PlayerController,
+    sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
@@ -94,6 +96,7 @@ fun PlayerSheetHost(
                     surfaceState = surfaceState,
                     progressState = progressState,
                     queueState = queueState,
+                    sleepTimer = sleepTimer,
                     actions = actions,
                     uiSettings = uiSettings,
                     onClose = { onExpandedChange(false) },

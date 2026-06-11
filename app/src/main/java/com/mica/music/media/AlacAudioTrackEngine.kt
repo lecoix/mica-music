@@ -43,6 +43,12 @@ class AlacAudioTrackEngine(private val context: Context) {
     private var paused = false
     private var stopRequested = false
     private var playbackEpoch = 0
+    private var playbackVolume = 1f
+
+    fun setVolume(volume: Float) {
+        playbackVolume = volume.coerceIn(0f, 1f)
+        pcmPlayer.setVolume(playbackVolume)
+    }
 
     fun play(song: Song, listener: Callback, startOffsetMs: Int = 0) {
         AlacFfmpegHelper.init(appCtx)
@@ -261,6 +267,7 @@ class AlacAudioTrackEngine(private val context: Context) {
         if (!startPlayback) paused = true
         scope.launch(Dispatchers.IO) {
             if (epoch != playbackEpoch || stopRequested) return@launch
+            pcmPlayer.setVolume(playbackVolume)
             pcmPlayer.play(
                 pcmFile = decoded.file,
                 format = decoded.pcmFormat,

@@ -1,4 +1,4 @@
-# HiFi 本地音乐播放器 · 设计规范 v1.0
+# HiFi 本地音乐播放器 · 设计规范 v1.1
 
 > Android Jetpack Compose · 云母氛围 + 极简尖角 · 发烧友定位
 
@@ -12,7 +12,7 @@
 |------|------|
 | 形状语言 | 全直角（0dp 圆角），无圆形按钮，无胶囊药丸 |
 | 视觉密度 | 极简，**用留白和字体层级分组，不用边框** |
-| 色彩 | 云母氛围色（mica）作为背景，紫色作为唯一强调色，金色仅用于 Hi-Res 标记 |
+| 色彩 | 云母氛围色（mica）作为背景；**用户可选强调色**（默认紫韵）；Hi-Res 标记固定暖金，不随强调色变化 |
 | 字体 | 中文为主，等宽字体承载技术参数 |
 | 动效 | 克制，短促，不喧宾夺主 |
 | 偶像 | Linear、Dieter Rams、专业 DAW（Ableton/Reaper）、Bandcamp |
@@ -21,18 +21,28 @@
 
 ## 二、色彩系统
 
-### 2.1 强调色（唯一）
+### 2.1 强调色（用户可选，`colors.accent`）
+
+> 设置 → **强调色** 切换；全应用激活态、当前曲高亮、EQ 曲线、频谱等跟随所选色。  
+> 实现：`AppAccentColor` + `MicaTheme.colors.accent`（见 `AppAccent.kt`）。
+
+| 预设名 | 存储键 | Hex（浅色） | 说明 |
+|--------|--------|-------------|------|
+| 紫韵（默认） | `purple` | `#8B7AFF` | 品牌默认 |
+| 鎏金 | `gold` | `#D4AC4F` | 与 Hi-Res 金同色值，**仅作强调色**；Hi-Res 标签仍走 `colors.hiRes` |
+| 青釉 | `teal` | `#5BA8A0` | — |
+| 珊瑚 | `coral` | `#E07A7A` | — |
+| 动态取色 | `dynamic` | 系统 Material You 主色 | Android 12+；低版本回退紫韵 |
+
+| Token | 颜色 | Hex | 说明 |
+|-------|------|-----|------|
+| Primary Glow | 紫色发光 | `#A89BFF` @ 60% | 发光效果（实现可按当前 accent 派生） |
+
+### 2.2 Hi-Res 金色（语义专用）
 
 | 用途 | 颜色 | Hex | 说明 |
 |------|------|-----|------|
-| Primary 强调 | 柔和紫 | `#8B7AFF` | 激活态、正在播放、品牌色 |
-| Primary Glow | 紫色发光 | `#A89BFF` @ 60% | 用于发光效果、EQ 曲线 |
-
-### 2.2 Hi-Res 金色（专用）
-
-| 用途 | 颜色 | Hex | 说明 |
-|------|------|-----|------|
-| Hi-Res 标记 | 暖金 | `#D4AC4F` | 仅用于 Hi-Res 圆点和金标，不用于其他场景 |
+| Hi-Res 标记 | 暖金 | `#D4AC4F` | **仅**用于 Hi-Res 圆点与「Hi-Res」文案（`colors.hiRes`），不随强调色设置改变 |
 
 ### 2.3 中性色（浅色模式）
 
@@ -227,16 +237,34 @@ Modifier
 
 ### 10.1 激活态（统一规则）
 
-> **强调色 + 2dp 直线** 是激活态的唯一表达。不用填充、不用胶囊、不用阴影。
+> **不用填充、不用胶囊、不用阴影。** 分两类表达，均使用当前 `colors.accent`（默认紫韵）。
+
+#### A. 导航级（Tab / 底栏）— 强调色 + `2dp` 直线
 
 | 场景 | 表达 |
 |------|------|
-| Tab 激活 | 文字下方 `2dp` 紫色横线，文字加粗 |
-| 底部导航激活 | 图标下方 `2dp` 紫色横线 |
-| 列表行正在播放 | 左侧 `2dp` 紫色竖线，文字变紫，右侧波形小图标 |
-| EQ 预设激活 | 文字下方 `2dp` 紫色横线 |
-| Toggle 开 | 文字"开" + 紫色小圆点（`●`） |
-| Toggle 关 | 文字"关"灰色 |
+| Tab 激活 | 文字下方 `2dp` 横线（accent），`title.sm` + `text.primary` |
+| Tab 未激活 | `body.md` + `text.tertiary`，无下划线 |
+| 底部导航激活 | 图标与文案为 accent，图标下方 `2dp` 横线 |
+| 底部导航未激活 | `text.tertiary` |
+
+#### B. 选项级（设置 / 排序 / EQ 预设）— **纯字色**
+
+| 场景 | 表达 |
+|------|------|
+| 选项激活 | `title.sm` + **accent 字色** |
+| 选项未激活 | `body.md` + `text.tertiary` |
+| 布局 | `FlowRow` 可换行；项间距 `space.sm`；**无下划线、无背景、无边框** |
+| 实现 | `AccentTextChoice` |
+
+#### C. 其他
+
+| 场景 | 表达 |
+|------|------|
+| 列表行当前曲 | 左侧 `2dp` accent 竖线，歌名 accent，播放中显示波形 |
+| Toggle 开 | 文案 accent + `6dp` accent 方块点 |
+| Toggle 关 | `text.tertiary` |
+| 空状态 CTA | **紫色文字链接**（主：`title.sm`，次：`body.md`），无按钮底/框 |
 
 ### 10.2 Hi-Res 视觉签名
 
@@ -295,6 +323,27 @@ Modifier
 - 列方向布局，整体左对齐
 - 行之间用 `space.xl` (24dp) 分隔
 
+### 10.7 文字选项（`AccentTextChoice`）
+
+用于：`SettingsChoiceRow`、排序 Sheet、EQ 预设条等。
+
+```
+  紫韵    鎏金    青釉
+  ^accent+SemiBold   tertiary+Regular
+```
+
+- 激活：`typography.titleSm` + `colors.accent`
+- 未激活：`typography.bodyMd` + `colors.textTertiary`
+- 内边距：水平 `space.sm`，垂直 `space.xxs`（紧凑，不预留下划线高度）
+- 禁用：`text.tertiary` @ 50%，不可点
+
+### 10.8 空状态（`EmptyState`）
+
+- 结构：图标 → 标题 `title.md` → 副标题 `body.md` → 可选 CTA 链接
+- 主 CTA：`title.sm` + accent，上间距 `space.md`
+- 次 CTA：`body.md` + accent，上间距 `space.xs`
+- 扫描中：仅 `CircularProgressIndicator`，无 CTA
+
 ---
 
 ## 十一、Jetpack Compose 实现
@@ -302,13 +351,22 @@ Modifier
 ### 11.1 文件结构建议
 
 ```
-app/src/main/java/com/yourapp/ui/theme/
-├── Color.kt          # 色彩常量 + 语义化封装
-├── Type.kt           # 字体定义
-├── Spacing.kt        # 间距/尺寸 Token
-├── Shapes.kt         # 全 0dp
-├── Theme.kt          # HifiTheme 主入口
-└── MicaGradient.kt   # 云母渐变工具
+app/src/main/java/com/mica/music/
+├── data/AppAccentColor.kt      # 强调色预设枚举
+├── ui/theme/
+│   ├── Color.kt                # HifiPalette + HifiColors
+│   ├── AppAccent.kt            # accent 解析（含动态取色）
+│   ├── Type.kt
+│   ├── Spacing.kt
+│   ├── Shapes.kt
+│   ├── Theme.kt                # MicaTheme
+│   └── MicaGradient.kt
+└── ui/components/
+    ├── AccentTextChoice.kt     # 选项级激活态
+    ├── MinimalTabRow.kt        # 导航级 Tab
+    ├── TextToggle.kt
+    ├── EmptyState.kt           # 空状态 + CtaLink
+    └── …
 ```
 
 ### 11.2 Color.kt
@@ -724,7 +782,34 @@ fun SongRow(
 }
 ```
 
-### 12.5 Tab 行（带下划线指示）
+### 12.5 文字选项（纯字色激活）
+
+```kotlin
+@Composable
+fun AccentTextChoice(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val colors = MicaTheme.colors
+    val typography = MicaTheme.typography
+    Text(
+        text = label,
+        style = if (selected && enabled) typography.titleSm else typography.bodyMd,
+        color = when {
+            !enabled -> colors.textTertiary.copy(alpha = 0.5f)
+            selected -> colors.accent
+            else -> colors.textTertiary
+        },
+        modifier = Modifier
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = HifiSpacing.sm, vertical = HifiSpacing.xxs),
+    )
+}
+```
+
+### 12.6 Tab 行（带下划线指示）
 
 ```kotlin
 @Composable
@@ -807,14 +892,15 @@ dependencies {
 
 以下页面的规范在迭代时补充：
 
-- [ ] 设置页（音频输出、独占模式、Hi-Res 直通、扫描路径）
+- [x] 设置页 · 外观（主题、强调色、云母背景、封面显示）— 选项用 `AccentTextChoice`
+- [ ] 设置页 · 音频（输出、独占模式、Hi-Res 直通、扫描路径）
 - [ ] 歌单管理（创建、智能歌单条件）
 - [ ] 专辑/歌手聚合页（九宫格、列表）
-- [ ] 首次启动 / 扫描引导
-- [ ] 错误状态、空状态、加载状态
+- [x] 首次启动 / 扫描引导 · 空状态（`EmptyState` + 文字链接 CTA）
+- [ ] 其他错误状态
 
 ---
 
-**版本**：v1.0  
-**最后更新**：2026-05-18  
+**版本**：v1.1  
+**最后更新**：2026-06-11  
 **适用平台**：Android 7.0+ / Jetpack Compose 1.7+

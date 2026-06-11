@@ -160,6 +160,7 @@ class MainActivity : ComponentActivity() {
                             AppNavigation(
                                 library = library,
                                 playerController = playerController,
+                                sleepTimer = viewModel.sleepTimer,
                                 uiSettings = uiSettings,
                                 contentPadding = WindowInsets.navigationBars.asPaddingValues(),
                             )

@@ -148,14 +148,7 @@ fun LibraryAnalysisContent(
 
 @Composable
 private fun AnalysisOverviewPanel(analysis: LibraryAnalysis) {
-    val panelBg = MicaTheme.colors.surfaceCard.copy(
-        alpha = if (MicaTheme.colors.isDark) 0.28f else 0.55f,
-    )
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(panelBg),
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(OverviewCellHeight)) {
             OverviewMetricCell(
                 value = formatSongCount(analysis.totalSongs),
@@ -180,10 +173,14 @@ private fun AnalysisOverviewPanel(analysis: LibraryAnalysis) {
             )
             AnalysisHairlineVertical()
             OverviewMetricCell(
-                value = analysis.losslessCount.toString(),
-                unit = "首",
-                caption = "无损格式",
-                subCaption = "${analysis.losslessPercent}%",
+                value = formatSongCount(analysis.totalPlayCount),
+                unit = "次",
+                caption = "播放次数",
+                subCaption = if (analysis.playedSongCount > 0) {
+                    "${formatSongCount(analysis.playedSongCount)} 首有记录"
+                } else {
+                    "暂无播放记录"
+                },
                 modifier = Modifier.weight(1f),
             )
         }

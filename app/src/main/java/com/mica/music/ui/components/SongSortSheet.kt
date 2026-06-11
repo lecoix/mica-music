@@ -1,13 +1,9 @@
 package com.mica.music.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -17,7 +13,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.ui.theme.HifiPalette
@@ -74,7 +69,7 @@ fun SongSortSheet(
                 verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
             ) {
                 sortFields.forEach { field ->
-                    SortChip(
+                    AccentTextChoice(
                         label = field.label,
                         selected = field == currentField,
                         onClick = {
@@ -92,9 +87,12 @@ fun SongSortSheet(
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textSecondary,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+                ) {
                     SortDirection.entries.forEach { direction ->
-                        SortChip(
+                        AccentTextChoice(
                             label = direction.label,
                             selected = direction == currentDirection,
                             onClick = { onApply(currentField, direction) },
@@ -110,30 +108,4 @@ fun SongSortSheet(
             }
         }
     }
-}
-
-@Composable
-private fun SortChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val accent = MicaTheme.colors.accent
-    Text(
-        text = label,
-        style = MicaTheme.typography.bodyMd,
-        color = if (selected) Color.White else MicaTheme.colors.textPrimary,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .then(
-                if (selected) {
-                    Modifier.background(accent)
-                } else {
-                    Modifier
-                        .background(MicaTheme.colors.divider.copy(alpha = 0.35f))
-                        .border(1.dp, accent.copy(alpha = 0.55f))
-                },
-            )
-            .padding(horizontal = HifiSpacing.md, vertical = HifiSpacing.xs),
-    )
 }

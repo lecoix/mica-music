@@ -6,8 +6,6 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.graphics.get
 import androidx.palette.graphics.Palette
-import coil.request.ImageRequest
-import com.mica.music.imaging.MicaImageLoaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -30,20 +28,7 @@ object CoverColorExtractor {
     suspend fun fromUriString(context: Context, uriString: String?): Int? {
         if (uriString.isNullOrBlank()) return null
         return withContext(Dispatchers.IO) {
-            runCatching {
-                val request = ImageRequest.Builder(context)
-                    .data(uriString)
-                    .memoryCacheKey(uriString)
-                    .allowHardware(false)
-                    .size(256)
-                    .build()
-                val result = MicaImageLoaders.cover.execute(request)
-                val bitmap = when (val d = result.drawable) {
-                    is android.graphics.drawable.BitmapDrawable -> d.bitmap
-                    else -> null
-                } ?: return@runCatching null
-                fromBitmap(bitmap)
-            }.getOrNull()
+            fromUri(context, Uri.parse(uriString))
         }
     }
 

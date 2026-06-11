@@ -30,11 +30,13 @@ import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlayerController
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlaylistStore
+import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.PlaybackQueueSheet
+import com.mica.music.ui.components.SleepTimerSheet
 import com.mica.music.ui.components.SongActionMenuSheet
 import com.mica.music.ui.components.SongMenuAction
 import com.mica.music.ui.components.cachedCoverAspectRatio
@@ -91,6 +93,7 @@ fun rememberNowPlayingActions(
 fun NowPlayingScreen(
     library: MusicLibrary,
     playerController: PlayerController,
+    sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
@@ -106,6 +109,7 @@ fun NowPlayingScreen(
         surfaceState = playerController.playbackSurfaceState,
         progressState = playerController.playbackProgressState,
         queueState = playerController.playbackQueueState,
+        sleepTimer = sleepTimer,
         actions = rememberNowPlayingActions(playerController, uiSettings),
         uiSettings = uiSettings,
         onClose = onClose,
@@ -125,6 +129,7 @@ fun NowPlayingContent(
     surfaceState: PlaybackSurfaceState,
     progressState: PlaybackProgressState,
     queueState: PlaybackQueueState,
+    sleepTimer: SleepTimerController,
     actions: NowPlayingActions,
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
@@ -150,7 +155,30 @@ fun NowPlayingContent(
     var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
     var pendingDeleteSong by remember { mutableStateOf<Song?>(null) }
     var queueSheetOpen by remember { mutableStateOf(false) }
+    var sleepTimerSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by remember { mutableStateOf(false) }
+
+    val sleepTimerActive = sleepTimer.isActive
+    val sleepTimerMenuLabel = if (sleepTimerActive) {
+        sleepTimer.displayTick
+        sleepTimer.menuLabel()
+    } else {
+        "睡眠定时"
+    }
+    val sleepTimerRemainingLabel = if (sleepTimerActive) {
+        sleepTimer.displayTick
+        sleepTimer.formatRemaining()
+    } else {
+        null
+    }
+
+    LaunchedEffect(sleepTimer) {
+        sleepTimer.onExpired = {
+            scope.launch {
+                snackbarHostState.showSnackbar("睡眠定时已结束，播放已暂停")
+            }
+        }
+    }
 
     fun openSongActionMenu(target: Song) {
         actionMenuSong = target
@@ -364,6 +392,34 @@ fun NowPlayingContent(
                 onAlbumClick = { albumTitle ->
                     actionMenuSong = null
                     onBrowseAlbum(albumTitle)
+                },
+                showSleepTimer = true,
+                sleepTimerLabel = sleepTimerMenuLabel,
+                onSleepTimerClick = {
+                    actionMenuSong = null
+                    sleepTimerSheetOpen = true
+                },
+            )
+        }
+
+        if (sleepTimerSheetOpen) {
+            SleepTimerSheet(
+                isActive = sleepTimerActive,
+                activeRemainingLabel = sleepTimerRemainingLabel,
+                onDismiss = { sleepTimerSheetOpen = false },
+                onSelectMinutes = { minutes ->
+                    sleepTimer.start(minutes)
+                    sleepTimerSheetOpen = false
+                    scope.launch {
+                        val label = com.mica.music.data.SleepTimerController.presetLabel(minutes)
+                        snackbarHostState.showSnackbar("将在 $label 后停止播放")
+                    }
+                },
+                onCancel = {
+                    sleepTimer.cancel()
+                    scope.launch {
+                        snackbarHostState.showSnackbar("已关闭睡眠定时")
+                    }
                 },
             )
         }

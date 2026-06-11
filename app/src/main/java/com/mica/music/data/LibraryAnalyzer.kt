@@ -11,8 +11,10 @@ data class LibraryAnalysis(
     val totalSizeMb: Int,
     val hiResCount: Int,
     val hiResPercent: Int,
-    val losslessCount: Int,
-    val losslessPercent: Int,
+    /** 全曲库累计播放次数（各曲 playCount 之和） */
+    val totalPlayCount: Int,
+    /** 至少播放过一次的曲目数 */
+    val playedSongCount: Int,
     val formatBreakdown: List<LabeledCount>,
     /** HR / SQ / HQ / 其他（合并原采样率与码率分布） */
     val qualityTierBreakdown: List<LabeledCount>,
@@ -37,8 +39,8 @@ object LibraryAnalyzer {
                 totalSizeMb = 0,
                 hiResCount = 0,
                 hiResPercent = 0,
-                losslessCount = 0,
-                losslessPercent = 0,
+                totalPlayCount = 0,
+                playedSongCount = 0,
                 formatBreakdown = emptyList(),
                 qualityTierBreakdown = emptyList(),
             )
@@ -46,7 +48,8 @@ object LibraryAnalyzer {
 
         val totalSize = songs.sumOf { it.sizeBytes.coerceAtLeast(0L) }
         val hiRes = songs.count { it.isHiRes }
-        val lossless = songs.count { it.metadata.containerName.uppercase() in LOSSLESS }
+        val playedSongs = songs.count { it.playCount > 0 }
+        val totalPlays = songs.sumOf { it.playCount.coerceAtLeast(0) }
         val tierCounts = songs.groupingBy { qualityTierLabel(it) }.eachCount()
 
         return LibraryAnalysis(
@@ -55,8 +58,8 @@ object LibraryAnalyzer {
             totalSizeMb = (totalSize / (1024 * 1024)).toInt().coerceAtLeast(0),
             hiResCount = hiRes,
             hiResPercent = (hiRes * 100 / songs.size),
-            losslessCount = lossless,
-            losslessPercent = (lossless * 100 / songs.size),
+            totalPlayCount = totalPlays,
+            playedSongCount = playedSongs,
             formatBreakdown = songs.groupingBy { it.metadata.containerName.uppercase() }
                 .eachCount()
                 .entries

@@ -44,6 +44,8 @@ internal class AlacPcmPlayer(
     @Volatile
     private var paused = false
 
+    private var currentVolume = 1f
+
     private var sampleRateHz = 44_100
     private val framesSubmitted = AtomicLong(0L)
 
@@ -108,6 +110,7 @@ internal class AlacPcmPlayer(
         }
 
         audioTrack = track
+        track.setVolume(currentVolume)
         AlacPlaybackCoordinator.appContext?.let { ctx ->
             MicaEqualizerManager.attach(ctx, track.audioSessionId)
         }
@@ -248,6 +251,11 @@ internal class AlacPcmPlayer(
             delay(80)
         }
         delay(150)
+    }
+
+    fun setVolume(volume: Float) {
+        currentVolume = volume.coerceIn(0f, 1f)
+        audioTrack?.setVolume(currentVolume)
     }
 
     fun pause() {
