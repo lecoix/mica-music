@@ -17,7 +17,7 @@ val syncFfmpegNative = tasks.register<Copy>("syncFfmpegNative") {
 
 android {
     namespace = "com.mica.music"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.mica.music"
@@ -74,6 +74,19 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    // Kotlin 2.2 + lifecycle lint 2.9.x 分析 API 不兼容时会崩溃（NonNullableMutableLiveDataDetector）
+    lint {
+        disable += "NullSafeMutableLiveData"
+    }
+}
+
+configurations.configureEach {
+    resolutionStrategy.force(
+        "androidx.activity:activity:1.9.2",
+        "androidx.activity:activity-ktx:1.9.2",
+        "androidx.activity:activity-compose:1.9.2",
+    )
 }
 
 dependencies {
@@ -105,6 +118,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.reorderable)
     implementation(libs.kyant.taglib)
+    implementation(libs.blurview)
 
     debugImplementation(libs.androidx.ui.tooling)
 

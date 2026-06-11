@@ -71,6 +71,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -549,7 +550,6 @@ fun HomeScreen(
     } else {
         0.dp
     }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -578,11 +578,14 @@ fun HomeScreen(
             modifier = Modifier.offset(x = drawerOffsetX),
         )
 
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .offset(x = contentOffsetX)
                 .padding(top = statusBarTop),
+        ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
         ) {
             HomeTopBar(
                 title = topBarTitle,
@@ -748,7 +751,9 @@ fun HomeScreen(
                 visible = currentSong != null,
                 enter = miniPlayerEnter,
                 exit = miniPlayerExit,
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .zIndex(1f),
             ) {
                 (currentSong ?: miniPlayerSongSnapshot)?.let { song ->
                     MiniPlayer(
@@ -765,6 +770,7 @@ fun HomeScreen(
                     )
                 }
             }
+        }
         }
 
         val snackbarBottomPadding = if (currentSong != null) {

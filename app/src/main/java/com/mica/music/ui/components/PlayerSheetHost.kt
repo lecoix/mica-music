@@ -8,8 +8,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +40,7 @@ fun PlayerSheetHost(
     onBrowseArtist: (String) -> Unit = {},
     onBrowseAlbum: (String) -> Unit = {},
     onLocateCurrentSong: () -> Unit = {},
+    onOverlayFullScreenChange: (Boolean) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     modifier: Modifier = Modifier,
 ) {
@@ -45,7 +48,11 @@ fun PlayerSheetHost(
     val progressState = playerController.playbackProgressState
     val queueState = playerController.playbackQueueState
     val actions = rememberNowPlayingActions(playerController, uiSettings)
-    val song = surfaceState.currentSong ?: return
+    val song = surfaceState.currentSong
+    if (song == null) {
+        SideEffect { onOverlayFullScreenChange(false) }
+        return
+    }
     val motionEnabled = rememberMicaMotionEnabled()
     val expansion = remember { Animatable(if (expanded) 1f else 0f) }
 
@@ -59,11 +66,17 @@ fun PlayerSheetHost(
     val progress = expansion.value.coerceIn(0f, 1f)
     val showFullPlayer = expanded || progress > 0.01f
 
+    LaunchedEffect(showFullPlayer) {
+        onOverlayFullScreenChange(showFullPlayer)
+    }
+
     BackHandler(enabled = showFullPlayer) {
         onExpandedChange(false)
     }
 
-    Box(modifier.fillMaxSize()) {
+    Box(
+        if (showFullPlayer) modifier.fillMaxSize() else modifier.fillMaxWidth(),
+    ) {
         if (showFullPlayer) {
             val scrimInteraction = remember { MutableInteractionSource() }
             Box(

@@ -37,11 +37,26 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalMicaBackgroundPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.bottomThemeColor
-import com.mica.music.ui.theme.micaFloatingCardBottomEdge
+import com.mica.music.ui.theme.FloatingIslandShadowSpread
+import com.mica.music.ui.theme.FloatingIslandShadowVerticalExtra
+import com.mica.music.ui.theme.MicaMaterialBackdrop
+import com.mica.music.ui.theme.FloatingIslandShadowHalo
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.graphicsLayer
 
 private val FloatingCoverSize = 48.dp
 private val FloatingCardHeight = 64.dp
-private val FloatingCardBottomEdgeWidth = 2.dp
+/**
+ * 云母卡片左右距屏幕边缘相等（竖中线对称）。
+ * 与 [SongRow] 列表专辑图横向三等分后，取左段右缘作为卡片左缘。
+ */
+private val FloatingIslandScreenEdgeInset =
+    HifiSize.accentBarWidth + HifiSpacing.md + HifiSize.coverSm / 3
+/** 浮岛云母：略低于规范默认，便于目视确认 blur（规范 24/32dp）。 */
+private val FloatingIslandBlurLight = 4.dp
+private val FloatingIslandBlurDark = 5.dp
+/** 在 surface.glass 基础上再降不透明度，提高透视感（规范约 60%/30%）。 */
+private const val FloatingIslandGlassAlphaScale = 0.1375f
 /** 与列表单行一致：行高 + 底部分割线，便于与第 9 首下方分割线重合。 */
 private val AudiophileBarHeight = HifiSize.listRowHeight + HifiSize.dividerHairline
 
@@ -58,7 +73,7 @@ fun miniPlayerOverlayHeight(style: MiniPlayerStyle): Dp {
     }
     return when (style) {
         MiniPlayerStyle.FLOATING_ISLAND ->
-            FloatingCardHeight + floatGap + safeBottom
+            FloatingCardHeight + FloatingIslandShadowVerticalExtra + floatGap + safeBottom
         MiniPlayerStyle.AUDIOPHILE ->
             AudiophileBarHeight + safeBottom
     }
@@ -134,9 +149,10 @@ private fun FloatingIslandMiniPlayer(
     modifier: Modifier = Modifier,
 ) {
     val colors = MicaTheme.colors
-    val pagePreset = LocalMicaBackgroundPreset.current
-    val cardSurface = pagePreset.bottomThemeColor(colors.isDark)
-    val bottomEdge = micaFloatingCardBottomEdge(cardSurface, colors.isDark)
+    val blurRadius = if (colors.isDark) FloatingIslandBlurDark else FloatingIslandBlurLight
+    val glassOverlay = colors.surfaceGlass.copy(
+        alpha = colors.surfaceGlass.alpha * FloatingIslandGlassAlphaScale,
+    )
 
     Box(
         modifier = modifier
@@ -147,14 +163,31 @@ private fun FloatingIslandMiniPlayer(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = HifiSpacing.xl)
+                .padding(horizontal = FloatingIslandScreenEdgeInset)
+                .height(FloatingCardHeight + FloatingIslandShadowVerticalExtra)
+                .graphicsLayer { clip = false },
+        ) {
+            val cardModifier = Modifier
+                .fillMaxWidth()
                 .height(FloatingCardHeight)
-                .background(cardSurface)
-                .combinedClickable(
+                .align(Alignment.TopCenter)
+                .offset(y = FloatingIslandShadowSpread)
+
+            FloatingIslandShadowHalo(
+                isDark = colors.isDark,
+                modifier = cardModifier,
+            )
+            Box(
+                modifier = cardModifier.combinedClickable(
                     onClick = onExpand,
                     onLongClick = onLongPress,
                 ),
-        ) {
+            ) {
+            MicaMaterialBackdrop(
+                modifier = Modifier.fillMaxSize(),
+                blurRadius = blurRadius,
+                overlayColor = glassOverlay,
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -194,13 +227,7 @@ private fun FloatingIslandMiniPlayer(
                     color = colors.textPrimary,
                 )
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(FloatingCardBottomEdgeWidth)
-                    .align(Alignment.BottomCenter)
-                    .background(bottomEdge),
-            )
+            }
         }
     }
 }

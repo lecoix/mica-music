@@ -8,14 +8,16 @@
 
 **一句话定义**：骨子里精准，外表上克制。尖角是底层规则，留白是表达手段，氛围色是情绪。
 
-| 维度 | 主张 |
-|------|------|
-| 形状语言 | 全直角（0dp 圆角），无圆形按钮，无胶囊药丸 |
-| 视觉密度 | 极简，**用留白和字体层级分组，不用边框** |
-| 色彩 | 云母氛围色（mica）作为背景；**用户可选强调色**（默认紫韵）；Hi-Res 标记固定暖金，不随强调色变化 |
-| 字体 | 中文为主，等宽字体承载技术参数 |
-| 动效 | 克制，短促，不喧宾夺主 |
-| 偶像 | Linear、Dieter Rams、专业 DAW（Ableton/Reaper）、Bandcamp |
+
+| 维度   | 主张                                                      |
+| ---- | ------------------------------------------------------- |
+| 形状语言 | 全直角（0dp 圆角），无圆形按钮，无胶囊药丸                                 |
+| 视觉密度 | 极简，**用留白和字体层级分组，不用边框**                                  |
+| 色彩   | 云母氛围色（mica）作为背景；**用户可选强调色**（默认紫韵）；Hi-Res 标记固定暖金，不随强调色变化 |
+| 字体   | 中文为主，等宽字体承载技术参数                                         |
+| 动效   | 克制，短促，不喧宾夺主                                             |
+| 偶像   | Linear、Dieter Rams、专业 DAW（Ableton/Reaper）、Bandcamp      |
+
 
 ---
 
@@ -26,65 +28,79 @@
 > 设置 → **强调色** 切换；全应用激活态、当前曲高亮、EQ 曲线、频谱等跟随所选色。  
 > 实现：`AppAccentColor` + `MicaTheme.colors.accent`（见 `AppAccent.kt`）。
 
-| 预设名 | 存储键 | Hex（浅色） | 说明 |
-|--------|--------|-------------|------|
-| 紫韵（默认） | `purple` | `#8B7AFF` | 品牌默认 |
-| 鎏金 | `gold` | `#D4AC4F` | 与 Hi-Res 金同色值，**仅作强调色**；Hi-Res 标签仍走 `colors.hiRes` |
-| 青釉 | `teal` | `#5BA8A0` | — |
-| 珊瑚 | `coral` | `#E07A7A` | — |
-| 动态取色 | `dynamic` | 系统 Material You 主色 | Android 12+；低版本回退紫韵 |
 
-| Token | 颜色 | Hex | 说明 |
-|-------|------|-----|------|
+| 预设名    | 存储键       | Hex（浅色）            | 说明                                                 |
+| ------ | --------- | ------------------ | -------------------------------------------------- |
+| 紫韵（默认） | `purple`  | `#8B7AFF`          | 品牌默认                                               |
+| 鎏金     | `gold`    | `#D4AC4F`          | 与 Hi-Res 金同色值，**仅作强调色**；Hi-Res 标签仍走 `colors.hiRes` |
+| 青釉     | `teal`    | `#5BA8A0`          | —                                                  |
+| 珊瑚     | `coral`   | `#E07A7A`          | —                                                  |
+| 动态取色   | `dynamic` | 系统 Material You 主色 | Android 12+；低版本回退紫韵                                |
+
+
+
+| Token        | 颜色   | Hex             | 说明                     |
+| ------------ | ---- | --------------- | ---------------------- |
 | Primary Glow | 紫色发光 | `#A89BFF` @ 60% | 发光效果（实现可按当前 accent 派生） |
+
 
 ### 2.2 Hi-Res 金色（语义专用）
 
-| 用途 | 颜色 | Hex | 说明 |
-|------|------|-----|------|
-| Hi-Res 标记 | 暖金 | `#D4AC4F` | **仅**用于 Hi-Res 圆点与「Hi-Res」文案（`colors.hiRes`），不随强调色设置改变 |
+
+| 用途        | 颜色  | Hex       | 说明                                                     |
+| --------- | --- | --------- | ------------------------------------------------------ |
+| Hi-Res 标记 | 暖金  | `#D4AC4F` | **仅**用于 Hi-Res 圆点与「Hi-Res」文案（`colors.hiRes`），不随强调色设置改变 |
+
 
 ### 2.3 中性色（浅色模式）
 
-| Token | Hex | 用途 |
-|-------|-----|------|
-| `text.primary` | `#1A1A1A` | 主标题、列表行主文本 |
-| `text.secondary` | `#6B6B6B` | 副标题、艺术家、时间戳 |
-| `text.tertiary` | `#9B9B9B` | 辅助说明、Tab 未激活、信息条 |
-| `divider` | `#000000` @ 8% | 列表行之间、信息区分隔 |
-| `surface.glass` | `#FFFFFF` @ 60% + blur 24 | 迷你播放器、底栏 |
+
+| Token            | Hex                       | 用途               |
+| ---------------- | ------------------------- | ---------------- |
+| `text.primary`   | `#1A1A1A`                 | 主标题、列表行主文本       |
+| `text.secondary` | `#6B6B6B`                 | 副标题、艺术家、时间戳      |
+| `text.tertiary`  | `#9B9B9B`                 | 辅助说明、Tab 未激活、信息条 |
+| `divider`        | `#000000` @ 8%            | 列表行之间、信息区分隔      |
+| `surface.glass`  | `#FFFFFF` @ 60% + blur 24 | 迷你播放器、底栏         |
+
 
 ### 2.4 中性色（深色模式 / 播放页背景上）
 
-| Token | Hex | 用途 |
-|-------|-----|------|
-| `text.primary` | `#FFFFFF` | 主文本 |
-| `text.secondary` | `#FFFFFF` @ 70% | 副文本 |
-| `text.tertiary` | `#FFFFFF` @ 40% | 非当前歌词、辅助信息 |
-| `divider` | `#FFFFFF` @ 12% | 列表行之间 |
+
+| Token                | Hex                       | 用途           |
+| -------------------- | ------------------------- | ------------ |
+| `text.primary`       | `#FFFFFF`                 | 主文本          |
+| `text.secondary`     | `#FFFFFF` @ 70%           | 副文本          |
+| `text.tertiary`      | `#FFFFFF` @ 40%           | 非当前歌词、辅助信息   |
+| `divider`            | `#FFFFFF` @ 12%           | 列表行之间        |
 | `surface.glass.dark` | `#000000` @ 30% + blur 32 | 浅色背景上的深色玻璃叠层 |
+
 
 ### 2.5 云母氛围渐变（背景）
 
 > 这是产品的"灵魂层"——所有页面背景都从这套渐变库中取色，**饱和度故意偏低**避免干扰内容。
 
-| 渐变名 | 起始色 | 结束色 | 适用场景 |
-|--------|--------|--------|----------|
-| `mica.dawn` 黎明 | `#F7F2E8` | `#E8E0F2` | 主页、文件夹页（默认浅色） |
-| `mica.dusk` 黄昏 | `#FFE6CC` | `#FFCCD9` | 个人中心、温暖场景 |
+
+| 渐变名                | 起始色       | 结束色       | 适用场景           |
+| ------------------ | --------- | --------- | -------------- |
+| `mica.dawn` 黎明     | `#F7F2E8` | `#E8E0F2` | 主页、文件夹页（默认浅色）  |
+| `mica.dusk` 黄昏     | `#FFE6CC` | `#FFCCD9` | 个人中心、温暖场景      |
 | `mica.midnight` 子夜 | `#0D1B2A` | `#D4823A` | 播放页（深色专辑取色后渲染） |
-| `mica.aurora` 极光 | `#1A0B2E` | `#3B2266` | 均衡器、深色模式默认 |
-| `mica.fog` 薄雾 | `#F5F5F8` | `#E8EBF0` | 搜索页、设置页（最克制） |
+| `mica.aurora` 极光   | `#1A0B2E` | `#3B2266` | 均衡器、深色模式默认     |
+| `mica.fog` 薄雾      | `#F5F5F8` | `#E8EBF0` | 搜索页、设置页（最克制）   |
+
 
 **动态规则**：播放页的氛围色应从专辑封面提取主色调动态生成（Palette API）。其他页面使用固定预设。
 
 ### 2.6 语义色（最小化使用）
 
-| Token | Hex | 用途 |
-|-------|-----|------|
-| `semantic.like` | `#FF6B6B` | 心形已收藏（实心红） |
+
+| Token              | Hex       | 用途           |
+| ------------------ | --------- | ------------ |
+| `semantic.like`    | `#FF6B6B` | 心形已收藏（实心红）   |
 | `semantic.warning` | `#F5A623` | 错误的文件格式、扫描异常 |
-| `semantic.success` | `#52C41A` | 极少使用，扫描完成 |
+| `semantic.success` | `#52C41A` | 极少使用，扫描完成    |
+
 
 ---
 
@@ -92,43 +108,49 @@
 
 ### 3.1 字体族
 
-| 角色 | 字体 | 备用 |
-|------|------|------|
-| 中文（主） | `HarmonyOS Sans SC` | `Noto Sans SC`, `PingFang SC`, `system-ui` |
-| 英文 / 数字 | `Inter` | `SF Pro Display`, `Roboto Flex` |
-| 等宽（技术参数） | `JetBrains Mono` | `IBM Plex Mono`, `Roboto Mono` |
+
+| 角色       | 字体                  | 备用                                         |
+| -------- | ------------------- | ------------------------------------------ |
+| 中文（主）    | `HarmonyOS Sans SC` | `Noto Sans SC`, `PingFang SC`, `system-ui` |
+| 英文 / 数字  | `Inter`             | `SF Pro Display`, `Roboto Flex`            |
+| 等宽（技术参数） | `JetBrains Mono`    | `IBM Plex Mono`, `Roboto Mono`             |
+
 
 ### 3.2 字号层级
 
-| Token | 字号 | 字重 | 行高 | 用途 |
-|-------|------|------|------|------|
-| `display` | 28sp | Bold | 36sp | 页面大标题（"本地音乐"） |
-| `title.lg` | 24sp | Bold | 32sp | 播放页歌曲名 |
-| `title.md` | 18sp | SemiBold | 26sp | 区块标题 |
-| `title.sm` | 16sp | SemiBold | 24sp | 页内小标题 |
-| `body.lg` | 16sp | Medium | 24sp | 列表行主文本（歌名） |
-| `body.md` | 14sp | Regular | 20sp | 正文段落 |
-| `body.sm` | 13sp | Regular | 18sp | 列表行副文本（艺术家·专辑） |
-| `caption` | 12sp | Regular | 16sp | 辅助说明 |
-| `mono.md` | 12sp | Mono Regular | 16sp | FLAC/MP3 格式标签、时间戳 |
-| `mono.sm` | 11sp | Mono Regular | 14sp | 信息条（首歌·GB·扫描时间） |
-| `lyric.current` | 22sp | Bold | 32sp | 当前歌词（带发光） |
-| `lyric.other` | 16sp | Regular | 24sp | 非当前歌词（@40% 透明） |
+
+| Token           | 字号   | 字重           | 行高   | 用途                |
+| --------------- | ---- | ------------ | ---- | ----------------- |
+| `display`       | 28sp | Bold         | 36sp | 页面大标题（"本地音乐"）     |
+| `title.lg`      | 24sp | Bold         | 32sp | 播放页歌曲名            |
+| `title.md`      | 18sp | SemiBold     | 26sp | 区块标题              |
+| `title.sm`      | 16sp | SemiBold     | 24sp | 页内小标题             |
+| `body.lg`       | 16sp | Medium       | 24sp | 列表行主文本（歌名）        |
+| `body.md`       | 14sp | Regular      | 20sp | 正文段落              |
+| `body.sm`       | 13sp | Regular      | 18sp | 列表行副文本（艺术家·专辑）    |
+| `caption`       | 12sp | Regular      | 16sp | 辅助说明              |
+| `mono.md`       | 12sp | Mono Regular | 16sp | FLAC/MP3 格式标签、时间戳 |
+| `mono.sm`       | 11sp | Mono Regular | 14sp | 信息条（首歌·GB·扫描时间）   |
+| `lyric.current` | 22sp | Bold         | 32sp | 当前歌词（带发光）         |
+| `lyric.other`   | 16sp | Regular      | 24sp | 非当前歌词（@40% 透明）    |
+
 
 ---
 
 ## 四、间距系统（4dp 基础网格）
 
-| Token | 数值 | 用途 |
-|-------|------|------|
-| `space.xxs` | 2dp | 紧密元素之间（图标和文字） |
-| `space.xs` | 4dp | 小间隙 |
-| `space.sm` | 8dp | 中等间隙、卡片内边距 |
-| `space.md` | 12dp | 标准间隙 |
-| `space.lg` | 16dp | 页面边距、行间距 |
-| `space.xl` | 24dp | 区块之间 |
-| `space.xxl` | 32dp | 大区块之间 |
-| `space.xxxl` | 48dp | 顶部巨大留白 |
+
+| Token        | 数值   | 用途            |
+| ------------ | ---- | ------------- |
+| `space.xxs`  | 2dp  | 紧密元素之间（图标和文字） |
+| `space.xs`   | 4dp  | 小间隙           |
+| `space.sm`   | 8dp  | 中等间隙、卡片内边距    |
+| `space.md`   | 12dp | 标准间隙          |
+| `space.lg`   | 16dp | 页面边距、行间距      |
+| `space.xl`   | 24dp | 区块之间          |
+| `space.xxl`  | 32dp | 大区块之间         |
+| `space.xxxl` | 48dp | 顶部巨大留白        |
+
 
 ---
 
@@ -141,24 +163,28 @@
 
 ### 5.2 图标尺寸
 
-| Token | 数值 | 用途 |
-|-------|------|------|
-| `icon.xs` | 12dp | 行内指示（Hi-Res 圆点、激活点） |
-| `icon.sm` | 16dp | 列表行末尾、辅助图标 |
-| `icon.md` | 20dp | 工具栏标准图标 |
-| `icon.lg` | 24dp | 顶部导航、底部导航 |
-| `icon.xl` | 32dp | 播放控制（上一首/下一首） |
-| `icon.xxl` | 48dp | 主播放按钮（三角形） |
+
+| Token      | 数值   | 用途                  |
+| ---------- | ---- | ------------------- |
+| `icon.xs`  | 12dp | 行内指示（Hi-Res 圆点、激活点） |
+| `icon.sm`  | 16dp | 列表行末尾、辅助图标          |
+| `icon.md`  | 20dp | 工具栏标准图标             |
+| `icon.lg`  | 24dp | 顶部导航、底部导航           |
+| `icon.xl`  | 32dp | 播放控制（上一首/下一首）       |
+| `icon.xxl` | 48dp | 主播放按钮（三角形）          |
+
 
 ### 5.3 缩略图
 
-| Token | 数值 | 用途 |
-|-------|------|------|
-| `cover.xs` | 32dp | 迷你播放器 |
-| `cover.sm` | 44dp | 列表行 |
-| `cover.md` | 80dp | 卡片缩略图 |
-| `cover.lg` | 240dp | 歌单详情大封面 |
+
+| Token             | 数值           | 用途              |
+| ----------------- | ------------ | --------------- |
+| `cover.xs`        | 32dp         | 迷你播放器           |
+| `cover.sm`        | 44dp         | 列表行             |
+| `cover.md`        | 80dp         | 卡片缩略图           |
+| `cover.lg`        | 240dp        | 歌单详情大封面         |
 | `cover.fullwidth` | screen width | 播放页全屏封面（顶部~45%） |
+
 
 ### 5.4 容器宽高
 
@@ -171,24 +197,28 @@
 
 ## 六、形状（**核心规则**）
 
-| 元素 | 圆角 |
-|------|------|
-| **所有元素** | **0dp（直角）** |
-| 缩略图 | 0dp |
-| 按钮 | 0dp（且尽量用文字按钮，避免矩形填充按钮） |
-| 卡片 | 0dp，但**优先不要卡片**，用留白分组 |
-| 进度条 | 0dp（端点也是直角） |
-| 滑块滑头 | 矩形小条（28dp × 3dp） |
+
+| 元素       | 圆角                     |
+| -------- | ---------------------- |
+| **所有元素** | **0dp（直角）**            |
+| 缩略图      | 0dp                    |
+| 按钮       | 0dp（且尽量用文字按钮，避免矩形填充按钮） |
+| 卡片       | 0dp，但**优先不要卡片**，用留白分组  |
+| 进度条      | 0dp（端点也是直角）            |
+| 滑块滑头     | 矩形小条（28dp × 3dp）       |
+
 
 ---
 
 ## 七、边框 / 分隔
 
-| 用途 | 规则 |
-|------|------|
+
+| 用途    | 规则                             |
+| ----- | ------------------------------ |
 | 列表行分隔 | hairline `1dp` 横线，`divider` 颜色 |
-| 边框 | **几乎不用**——仅在缩略图占位符或扫描中状态使用 |
-| 强调态指示 | 紫色 `2dp` 直线（下划线 / 左侧竖线） |
+| 边框    | **几乎不用**——仅在缩略图占位符或扫描中状态使用     |
+| 强调态指示 | 紫色 `2dp` 直线（下划线 / 左侧竖线）        |
+
 
 ---
 
@@ -208,6 +238,8 @@ Modifier
     .blur(radius = 32.dp)
 ```
 
+**实现状态（浮岛迷你栏 `FLOATING_ISLAND`）**：`MicaMaterialBackdrop`（BlurView 3.x + `surface.glass` tint + 顶 hairline）。极简 Hi‑Fi（`AUDIOPHILE`）仍为不透明通栏，未接 blur。
+
 ### 8.2 阴影
 
 - **几乎不用阴影**。一切扁平化。
@@ -217,19 +249,21 @@ Modifier
 
 ## 九、动效
 
-> **权威说明见 [`docs/MOTION.md`](docs/MOTION.md)**（与 `MicaMotion.kt` 对齐）。下表为早期参考，实现以 Motion 文档为准。
+> **权威说明见 `[docs/MOTION.md](docs/MOTION.md)`**（与 `MicaMotion.kt` 对齐）。下表为早期参考，实现以 Motion 文档为准。
 
-| 场景 | 时长（现行） | 缓动 |
-|------|--------------|------|
-| 主页/浏览分区切换 | 320ms（Medium） | `FastOutSlowInEasing` |
-| 顶栏局部（搜索框等） | 200ms（Short） | `FastOutSlowInEasing` |
-| 播放页沉浸 / 封面 lerp | 400ms（Long） | `FastOutSlowInEasing` |
-| Nav 子页（设置/播放/详情） | 320ms 淡入 + 纵滑 | `FastOutSlowInEasing` |
-| 开关 / 滑块 | 150ms | `LinearOutSlowInEasing`（控件级，待统一） |
-| 歌词行切换 | 400ms（规划） | 淡入淡出 + 轻微上移（待做） |
-| 进入播放页共享元素 | — | 待做 |
-| EQ 曲线变化 | 200ms | 跟随用户拖动，松手后弹簧回稳 |
-| 列表波形指示 | 持续循环 600ms | 3 根竖线高度交替变化（独立周期） |
+
+| 场景               | 时长（现行）        | 缓动                               |
+| ---------------- | ------------- | -------------------------------- |
+| 主页/浏览分区切换        | 320ms（Medium） | `FastOutSlowInEasing`            |
+| 顶栏局部（搜索框等）       | 200ms（Short）  | `FastOutSlowInEasing`            |
+| 播放页沉浸 / 封面 lerp  | 400ms（Long）   | `FastOutSlowInEasing`            |
+| Nav 子页（设置/播放/详情） | 320ms 淡入 + 纵滑 | `FastOutSlowInEasing`            |
+| 开关 / 滑块          | 150ms         | `LinearOutSlowInEasing`（控件级，待统一） |
+| 歌词行切换            | 400ms（规划）     | 淡入淡出 + 轻微上移（待做）                  |
+| 进入播放页共享元素        | —             | 待做                               |
+| EQ 曲线变化          | 200ms         | 跟随用户拖动，松手后弹簧回稳                   |
+| 列表波形指示           | 持续循环 600ms    | 3 根竖线高度交替变化（独立周期）                |
+
 
 ---
 
@@ -241,30 +275,36 @@ Modifier
 
 #### A. 导航级（Tab / 底栏）— 强调色 + `2dp` 直线
 
-| 场景 | 表达 |
-|------|------|
-| Tab 激活 | 文字下方 `2dp` 横线（accent），`title.sm` + `text.primary` |
-| Tab 未激活 | `body.md` + `text.tertiary`，无下划线 |
-| 底部导航激活 | 图标与文案为 accent，图标下方 `2dp` 横线 |
-| 底部导航未激活 | `text.tertiary` |
+
+| 场景      | 表达                                                |
+| ------- | ------------------------------------------------- |
+| Tab 激活  | 文字下方 `2dp` 横线（accent），`title.sm` + `text.primary` |
+| Tab 未激活 | `body.md` + `text.tertiary`，无下划线                  |
+| 底部导航激活  | 图标与文案为 accent，图标下方 `2dp` 横线                       |
+| 底部导航未激活 | `text.tertiary`                                   |
+
 
 #### B. 选项级（设置 / 排序 / EQ 预设）— **纯字色**
 
-| 场景 | 表达 |
-|------|------|
-| 选项激活 | `title.sm` + **accent 字色** |
-| 选项未激活 | `body.md` + `text.tertiary` |
-| 布局 | `FlowRow` 可换行；项间距 `space.sm`；**无下划线、无背景、无边框** |
-| 实现 | `AccentTextChoice` |
+
+| 场景    | 表达                                            |
+| ----- | --------------------------------------------- |
+| 选项激活  | `title.sm` + **accent 字色**                    |
+| 选项未激活 | `body.md` + `text.tertiary`                   |
+| 布局    | `FlowRow` 可换行；项间距 `space.sm`；**无下划线、无背景、无边框** |
+| 实现    | `AccentTextChoice`                            |
+
 
 #### C. 其他
 
-| 场景 | 表达 |
-|------|------|
-| 列表行当前曲 | 左侧 `2dp` accent 竖线，歌名 accent，播放中显示波形 |
-| Toggle 开 | 文案 accent + `6dp` accent 方块点 |
-| Toggle 关 | `text.tertiary` |
-| 空状态 CTA | **紫色文字链接**（主：`title.sm`，次：`body.md`），无按钮底/框 |
+
+| 场景       | 表达                                          |
+| -------- | ------------------------------------------- |
+| 列表行当前曲   | 左侧 `2dp` accent 竖线，歌名 accent，播放中显示波形        |
+| Toggle 开 | 文案 accent + `6dp` accent 方块点                |
+| Toggle 关 | `text.tertiary`                             |
+| 空状态 CTA  | **紫色文字链接**（主：`title.sm`，次：`body.md`），无按钮底/框 |
+
 
 ### 10.2 Hi-Res 视觉签名
 

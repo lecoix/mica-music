@@ -16,6 +16,7 @@ ksp = "2.2.21-2.0.5"
 reorderable = "2.4.3"
 taglib = "1.0.5"
 junit = "4.13.2"
+blurview = "version-3.2.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -44,6 +45,7 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }
 kyant-taglib = { group = "io.github.kyant0", name = "taglib", version.ref = "taglib" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+blurview = { group = "com.github.Dimezis", name = "BlurView", version.ref = "blurview" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
