@@ -22,12 +22,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
+import com.mica.music.util.DiagnosticLog
 
 @Composable
 fun AboutScreen(
@@ -89,6 +91,16 @@ fun AboutScreen(
             LicenseRow("FFmpeg", "LGPL 2.1+；当前构建脚本未启用 GPL / nonfree 组件")
             LicenseRow("TagLib（音频标签读取）", "LGPL 2.1 / MPL 1.1 双许可；源码见 https://taglib.org")
             LicenseRow("Kyant0/taglib（Android JNI 绑定）", "Apache License 2.0")
+
+            Spacer(Modifier.height(HifiSpacing.lg))
+
+            SettingsSectionTitle("诊断")
+            val context = LocalContext.current
+            AboutLinkRow(
+                title = "导出诊断日志",
+                url = "包含闪退、切歌阶段、掉帧和封面绘制耗时",
+                onClick = { DiagnosticLog.shareReport(context) },
+            )
 
             Spacer(Modifier.height(HifiSpacing.lg))
 

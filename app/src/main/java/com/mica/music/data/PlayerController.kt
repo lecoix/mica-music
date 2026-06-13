@@ -23,6 +23,8 @@ import com.mica.music.media.AlacPlaybackClock
 import com.mica.music.media.AlacPlaybackCoordinator
 import com.mica.music.media.AlacSessionCommandHandler
 import com.mica.music.media.MicaMediaService
+import com.mica.music.util.DiagnosticLog
+import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -429,6 +431,7 @@ class PlayerController(private val context: Context) {
     }
 
     private fun finishPlaybackError(c: MediaController, error: PlaybackException) {
+        DiagnosticLog.event("Player", "Media3 playback error; ${playbackSnapshot()}", error)
         val title = currentSong?.title
         val message = PlaybackErrorMapper.toUserMessage(error, title)
         playbackError = message
@@ -734,8 +737,22 @@ class PlayerController(private val context: Context) {
     fun playSong(index: Int) {
         if (songQueue.isEmpty()) return
         val safe = index.coerceIn(0, songQueue.lastIndex)
+        val previousIndex = currentIndex
         playbackError = null
         val song = songQueue[safe]
+        if (safe != previousIndex) {
+            TrackSwitchPerformance.begin(
+                fromIndex = previousIndex,
+                toIndex = safe,
+                mode = playbackQueueMode.name,
+                songId = song.id,
+            )
+        }
+        DiagnosticLog.event(
+            "Player",
+            "playSong requested=$index resolved=$safe; song=${song.id} ${song.title}; " +
+                "format=${song.formatLabel}; path=${song.filePath}; ${playbackSnapshot()}",
+        )
         if (song.id != persistedSessionSongId) {
             pendingRestorePositionMs = null
         }
@@ -812,6 +829,10 @@ class PlayerController(private val context: Context) {
             postUserMessage("未找到 FFmpeg，请在电脑上运行 scripts\\build-ffmpeg-arm64.ps1 后重新安装")
             return
         }
+        TrackSwitchPerformance.mark(
+            "audio-start",
+            "index=$index format=${song.formatLabel} alacActive=$alacStreamActive",
+        )
         val composite = AlacPlaybackCoordinator.compositePlayer
         if (alacStreamActive) {
             alacClock.bumpGeneration()
@@ -845,6 +866,11 @@ class PlayerController(private val context: Context) {
     private fun createAlacCallback(): AlacAudioTrackEngine.Callback =
         object : AlacAudioTrackEngine.Callback {
             override fun onPrepared(durationSec: Int) {
+                TrackSwitchPerformance.mark("audio-prepared", "durationSec=$durationSec")
+                DiagnosticLog.event(
+                    "Player",
+                    "engine prepared durationSec=$durationSec; ${playbackSnapshot()}",
+                )
                 val gen = alacClock.generation
                 if (isAlacCallbackStale(gen)) return
                 alacClock.applyPrepared(gen, durationSec)
@@ -869,6 +895,7 @@ class PlayerController(private val context: Context) {
             }
 
             override fun onPlayingChanged(playing: Boolean) {
+                if (playing) TrackSwitchPerformance.mark("audio-playing")
                 val gen = alacClock.generation
                 if (isAlacCallbackStale(gen)) return
                 alacClock.applyPlaying(gen, playing)
@@ -903,6 +930,7 @@ class PlayerController(private val context: Context) {
             }
 
             override fun onEnded() {
+                DiagnosticLog.event("Player", "engine ended; ${playbackSnapshot()}")
                 val gen = alacClock.generation
                 if (isAlacCallbackStale(gen)) return
                 syncAlacStreamActive(false)
@@ -914,6 +942,7 @@ class PlayerController(private val context: Context) {
             }
 
             override fun onError(message: String) {
+                DiagnosticLog.event("Player", "engine error=$message; ${playbackSnapshot()}")
                 val gen = alacClock.generation
                 if (isAlacCallbackStale(gen)) return
                 clearPendingSeek()
@@ -959,6 +988,10 @@ class PlayerController(private val context: Context) {
         if (songQueue.isEmpty()) return
         val next = resolveNextIndex(forManualSkip = false)
         if (playbackQueueMode == PlaybackQueueMode.OFF && next == currentIndex) return
+        DiagnosticLog.event(
+            "Player",
+            "automatic next target=$next; ${playbackSnapshot()}",
+        )
         trackSkipDirection = TrackSkipDirection.TO_NEXT
         playSong(next)
     }
@@ -1087,21 +1120,31 @@ class PlayerController(private val context: Context) {
         playbackError = null
         if (songQueue.isEmpty()) return
         controller?.let { applyPlaybackQueueMode(it) }
+        val target = resolveNextIndex(forManualSkip = true)
+        DiagnosticLog.event("Player", "manual next target=$target; ${playbackSnapshot()}")
         trackSkipDirection = TrackSkipDirection.TO_NEXT
-        playSong(resolveNextIndex(forManualSkip = true))
+        playSong(target)
     }
 
     fun previous() {
         playbackError = null
         if (songQueue.isEmpty()) return
         if (!alacStreamActive && positionMs > 3_000) {
+            DiagnosticLog.event("Player", "previous restarted current song; ${playbackSnapshot()}")
             seekToMs(0)
             return
         }
         controller?.let { applyPlaybackQueueMode(it) }
+        val target = resolvePreviousIndex()
+        DiagnosticLog.event("Player", "manual previous target=$target; ${playbackSnapshot()}")
         trackSkipDirection = TrackSkipDirection.TO_PREVIOUS
-        playSong(resolvePreviousIndex())
+        playSong(target)
     }
+
+    private fun playbackSnapshot(): String =
+        "index=$currentIndex/${songQueue.size}; current=${currentSong?.id}; " +
+            "mode=$playbackQueueMode; playing=$isPlaying; buffering=$isBuffering; " +
+            "alac=$alacStreamActive; positionMs=$positionMs"
 
     fun seek(seconds: Int) = seekToMs(seconds * 1000)
 
