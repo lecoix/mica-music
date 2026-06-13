@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
+internal const val CoverFlowDragCommitFraction = 0.2625f
 private const val DragCommitFraction = 0.35f
 private const val StandardSwipeMaxFraction = 0.15f
 

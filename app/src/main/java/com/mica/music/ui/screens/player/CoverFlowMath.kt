@@ -4,6 +4,9 @@ import com.mica.music.data.PlayerCoverFlowMode
 import kotlin.math.abs
 
 internal object CoverFlowMath {
+    const val ReflectionHeightFraction = 0.28f
+    const val ReflectionAlpha = 0.24f
+
     /** 平行封面带相邻槽位间距（屏宽比例） */
     const val LaneStepFraction = 0.92f
 
