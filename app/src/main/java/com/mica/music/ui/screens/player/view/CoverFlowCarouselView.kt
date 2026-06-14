@@ -95,6 +95,9 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     var onNext: (() -> Unit)? = null
     var onCoverLongPress: (() -> Unit)? = null
     var onCenterAspectRatio: ((Float) -> Unit)? = null
+    var onMotionActiveChanged: ((Boolean) -> Unit)? = null
+
+    private var motionActive: Boolean = false
 
     private val gestureDetector = GestureDetector(
         context,
@@ -213,6 +216,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         val shouldAnimate = motionEnabled && abs(delta) == 1
         if (!shouldAnimate) {
             commitTrackIndex(index)
+            setMotionActive(false)
             return
         }
         val duration = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
@@ -230,6 +234,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         )
         if (abs(startVisual - endVisual) < 0.0001f) {
             commitTrackIndex(index)
+            setMotionActive(false)
             return
         }
         trackAnimator = ValueAnimator.ofFloat(startVisual, endVisual).apply {
@@ -242,6 +247,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             }
             addListener(object : android.animation.Animator.AnimatorListener {
                 override fun onAnimationStart(animation: android.animation.Animator) {
+                    setMotionActive(true)
                     TrackSwitchPerformance.mark("cover-animation-start", "duration=$duration")
                 }
                 override fun onAnimationCancel(animation: android.animation.Animator) = Unit
@@ -250,6 +256,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                     stripFraction = endVisual - fromCenter
                     commitTrackIndex(index)
                     trackAnimator = null
+                    setMotionActive(false)
                     TrackSwitchPerformance.mark("cover-animation-end", "index=$index")
                 }
             })
@@ -260,6 +267,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     fun resetToIndex(index: Int) {
         cancelAnimators()
         commitTrackIndex(index)
+        setMotionActive(false)
     }
 
     private fun commitTrackIndex(index: Int) {
@@ -605,7 +613,15 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         if (!CoverFlowReflectionBake.ENABLED || !reflectionEnabled()) return
         val aspect = coverSlotAspect()
         scope.launch {
-            CoverFlowReflectionBake.ensureBaked(uri, cover, aspect)
+            runCatching {
+                CoverFlowReflectionBake.ensureBaked(uri, cover, aspect)
+            }.onFailure {
+                com.mica.music.util.DiagnosticLog.event(
+                    "CoverFlow",
+                    "reflection-bake-failed uri=${uri.takeLast(48)}",
+                    it,
+                )
+            }
             invalidate()
         }
     }
@@ -627,9 +643,11 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 cancelAnimators()
+                setMotionActive(true)
                 dragStartX = event.x
                 dragAccumPx = 0f
                 dragging = true
+                TrackSwitchPerformance.mark("coverflow-drag-start")
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
@@ -646,7 +664,9 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 dragging = false
                 parent?.requestDisallowInterceptTouchEvent(false)
                 if (abs(dragAccumPx) < 12f) {
-                    handleTap(event.x)
+                    if (!handleTap(event.x)) {
+                        setMotionActive(false)
+                    }
                 } else {
                     handleDragEnd()
                 }
@@ -656,14 +676,19 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         return super.onTouchEvent(event)
     }
 
-    private fun handleTap(x: Float) {
-        val laneOffset = hitLaneOffset(x) ?: return
+    private fun handleTap(x: Float): Boolean {
+        val laneOffset = hitLaneOffset(x) ?: return false
         val distance = abs(laneOffset.toFloat() - stripFraction)
-        if (distance < 0.12f) return
+        if (distance < 0.12f) return false
         val queueIndex = logicalCenter + laneOffset
         if (queueIndex in queue.indices) {
+            TrackSwitchPerformance.armTrigger("coverflow-tap")
+            TrackSwitchPerformance.mark("coverflow-tap", "lane=$laneOffset index=$queueIndex")
             onPlayQueueIndex?.invoke(queueIndex)
+            scheduleMotionIdleFallback()
+            return true
         }
+        return false
     }
 
     private fun hitLaneOffset(x: Float): Int? {
@@ -691,28 +716,49 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         when {
             stripFraction > CoverFlowDragCommitFraction -> {
                 val target = (logicalCenter + 1).coerceAtMost(queue.lastIndex)
+                TrackSwitchPerformance.armTrigger("coverflow-drag-next")
+                TrackSwitchPerformance.mark(
+                    "coverflow-drag-commit",
+                    "strip=${"%.3f".format(stripFraction)} target=$target",
+                )
                 if (target != logicalCenter) {
                     onPlayQueueIndex?.invoke(target)
                 } else {
                     onNext?.invoke()
                 }
+                scheduleMotionIdleFallback()
             }
             stripFraction < -CoverFlowDragCommitFraction -> {
                 val target = (logicalCenter - 1).coerceAtLeast(0)
+                TrackSwitchPerformance.armTrigger("coverflow-drag-prev")
+                TrackSwitchPerformance.mark(
+                    "coverflow-drag-commit",
+                    "strip=${"%.3f".format(stripFraction)} target=$target",
+                )
                 if (target != logicalCenter) {
                     onPlayQueueIndex?.invoke(target)
                 } else {
                     onPrevious?.invoke()
                 }
+                scheduleMotionIdleFallback()
             }
-            else -> animateStripTo(0f)
+            else -> {
+                TrackSwitchPerformance.mark(
+                    "coverflow-drag-cancel",
+                    "strip=${"%.3f".format(stripFraction)}",
+                )
+                animateStripTo(0f)
+            }
         }
     }
 
     private fun animateStripTo(target: Float) {
         settleAnimator?.cancel()
         val start = stripFraction
-        if (abs(start - target) < 0.0001f) return
+        if (abs(start - target) < 0.0001f) {
+            setMotionActive(false)
+            return
+        }
         settleAnimator = ValueAnimator.ofFloat(start, target).apply {
             duration = if (motionEnabled) MicaMotion.DurationMediumMs.toLong() else 0L
             interpolator = LinearInterpolator()
@@ -720,6 +766,22 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 stripFraction = it.animatedValue as Float
                 invalidate()
             }
+            addListener(object : android.animation.Animator.AnimatorListener {
+                override fun onAnimationStart(animation: android.animation.Animator) {
+                    setMotionActive(true)
+                    TrackSwitchPerformance.mark(
+                        "coverflow-settle-start",
+                        "from=${"%.3f".format(start)} to=${"%.3f".format(target)}",
+                    )
+                }
+                override fun onAnimationCancel(animation: android.animation.Animator) = Unit
+                override fun onAnimationRepeat(animation: android.animation.Animator) = Unit
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    settleAnimator = null
+                    setMotionActive(false)
+                    TrackSwitchPerformance.mark("coverflow-settle-end", "strip=${"%.3f".format(stripFraction)}")
+                }
+            })
             start()
         }
     }
@@ -729,6 +791,23 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         trackAnimator = null
         settleAnimator?.cancel()
         settleAnimator = null
+    }
+
+    private fun setMotionActive(active: Boolean) {
+        if (motionActive == active) return
+        motionActive = active
+        onMotionActiveChanged?.invoke(active)
+    }
+
+    private fun scheduleMotionIdleFallback() {
+        postDelayed(
+            {
+                if (!dragging && trackAnimator == null && settleAnimator == null) {
+                    setMotionActive(false)
+                }
+            },
+            MicaMotion.DurationLongMs.toLong() + 80L,
+        )
     }
 
     fun release() {
@@ -742,6 +821,8 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         onNext = null
         onCoverLongPress = null
         onCenterAspectRatio = null
+        setMotionActive(false)
+        onMotionActiveChanged = null
     }
 
     companion object {

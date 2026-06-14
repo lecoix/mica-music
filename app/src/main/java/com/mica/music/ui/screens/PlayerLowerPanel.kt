@@ -19,10 +19,8 @@ import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
-import com.mica.music.ui.components.LivePlayerSpectrumStrip
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.LowerPanelFrame
-import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.PlayerContentColors
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -137,19 +135,6 @@ internal fun PlayerLowerPanelSection(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = lower.lyricsChromeFade },
-                )
-            }
-            if (spectrumEnabled && lower.showStandardProgress && lower.spectrumOverlayAlpha > 0.01f) {
-                LivePlayerSpectrumStrip(
-                    enabled = true,
-                    isPlaying = surfaceState.isPlaying,
-                    colors = colors,
-                    height = 56.dp,
-                    alpha = lower.spectrumOverlayAlpha,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = HifiSpacing.lg)
-                        .graphicsLayer { translationY = 15.dp.toPx() },
                 )
             }
         }

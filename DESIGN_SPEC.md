@@ -1,6 +1,6 @@
-# HiFi 本地音乐播放器 · 设计规范 v1.1
+# HiFi 本地音乐播放器 · 设计规范 v1.2
 
-> Android Jetpack Compose · 云母氛围 + 极简尖角 · 发烧友定位
+> Android Jetpack Compose · 云母材质（浮岛 blur）+ 氛围渐变 + 极简尖角 · 发烧友定位
 
 ---
 
@@ -226,19 +226,25 @@
 
 ### 8.1 云母 / 毛玻璃
 
-```kotlin
-// 浅色模式
-Modifier
-    .background(Color.White.copy(alpha = 0.60f))
-    .blur(radius = 24.dp)
+**设计意图（视觉目标）**
 
-// 深色模式
-Modifier
-    .background(Color.Black.copy(alpha = 0.30f))
-    .blur(radius = 32.dp)
-```
+| 模式 | 叠色 | 模糊半径 |
+|------|------|----------|
+| 浅色 | `surface.glass`：`#FFFFFF` @ 60% | 24dp |
+| 深色 | `surface.glass.dark`：`#000000` @ 30% | 32dp |
 
-**实现状态（浮岛迷你栏 `FLOATING_ISLAND`）**：`MicaMaterialBackdrop`（BlurView 3.x + `surface.glass` tint + 顶 hairline）。极简 Hi‑Fi（`AUDIOPHILE`）仍为不透明通栏，未接 blur。
+效果是 **backdrop blur**：先透视并模糊**背后**内容（如滚动的歌曲列表），再叠半透明 tint——同 Windows Fluent Mica / iOS 毛玻璃，**不是**只糊一层色块。
+
+**实现约束（勿用 Compose `Modifier.blur()` 冒充）**
+
+- Compose 的 `Modifier.blur()` / 对单个 `Box` 的 `BlurEffect` 只模糊**该层自己绘制的内容**，采不到背后的列表像素；调半径与 alpha **做不出**真毛玻璃。
+- 需要模糊背后内容时 → **View 岛**：`BlurView` 3.x + `BlurTarget` + `surface.glass` tint。栈选型见 [`docs/MOTION.md`](docs/MOTION.md) **§七**。
+- Compose `BlurEffect` 仅用于糊**自身**图形（如浮岛柔影 `FloatingIslandShadowHalo`），不用于 backdrop。
+
+**现网（浮岛迷你栏 `FLOATING_ISLAND`）**
+
+- `MicaMaterialBackdrop`（`MicaMaterialCard.kt`）+ `MainActivity` 双 `ComposeView` / `BlurTarget` 兄弟结构。
+- 顶 hairline + `surface.glass` tint；极简 Hi‑Fi（`AUDIOPHILE`）仍为不透明通栏，未接 blur。
 
 ### 8.2 阴影
 
@@ -249,21 +255,17 @@ Modifier
 
 ## 九、动效
 
-> **权威说明见 `[docs/MOTION.md](docs/MOTION.md)`**（与 `MicaMotion.kt` 对齐）。下表为早期参考，实现以 Motion 文档为准。
+> **权威说明见 [`docs/MOTION.md`](docs/MOTION.md)**：时长 token（Short 200 / Medium 320 / Long 400）、场景映射（§六）、开发约束（§八）、**Compose 与 View 岛分工（§七）**。
 
+本规范不重复维护时长表。实现状态速查：
 
-| 场景               | 时长（现行）        | 缓动                               |
-| ---------------- | ------------- | -------------------------------- |
-| 主页/浏览分区切换        | 320ms（Medium） | `FastOutSlowInEasing`            |
-| 顶栏局部（搜索框等）       | 200ms（Short）  | `FastOutSlowInEasing`            |
-| 播放页沉浸 / 封面 lerp  | 400ms（Long）   | `FastOutSlowInEasing`            |
-| Nav 子页（设置/播放/详情） | 320ms 淡入 + 纵滑 | `FastOutSlowInEasing`            |
-| 开关 / 滑块          | 150ms         | `LinearOutSlowInEasing`（控件级，待统一） |
-| 歌词行切换            | 400ms（规划）     | 淡入淡出 + 轻微上移（待做）                  |
-| 进入播放页共享元素        | —             | 待做                               |
-| EQ 曲线变化          | 200ms         | 跟随用户拖动，松手后弹簧回稳                   |
-| 列表波形指示           | 持续循环 600ms    | 3 根竖线高度交替变化（独立周期）                |
-
+| 场景 | 状态 | 文档 |
+|------|------|------|
+| 主页 / 浏览 / Nav / 主题 / 沉浸 | 已实现 | `MOTION.md` §六 |
+| 迷你栏 → 播放页共享封面 | 第一版已实现 | `SHARED_ELEMENT_ANIMATION_NOTES.md` |
+| 列表项 → 播放共享元素 | 待做 | `TODO.md` |
+| 歌词行切换 / 双语 | 待做 | `TODO.md` |
+| 封面流切歌 / 拖动 | 已实现（View 岛） | `COVER_FLOW_IMPLEMENTATION.md` |
 
 ---
 

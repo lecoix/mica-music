@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.util.TrackSwitchPerformance
 
 /**
  * 模糊背景源图的解码尺寸（像素）。背景最终会被 [BlurEffect] 模糊到约 120px，
@@ -60,6 +61,10 @@ fun BlurredCoverBackground(
     }
 
     LaunchedEffect(albumArtUri) {
+        TrackSwitchPerformance.mark(
+            "blur-bg-request",
+            "uri=${albumArtUri?.takeLast(48)} ready=${readyBackgroundUri?.takeLast(48)}",
+        )
         if (!albumArtUri.isNullOrBlank()) {
             MicaImageLoaders.preloadBackground(context, albumArtUri)
         }
@@ -117,6 +122,10 @@ fun BlurredCoverBackground(
                         renderEffect = BlurEffect(120f, 120f, TileMode.Clamp)
                     },
                 onSuccess = {
+                    TrackSwitchPerformance.mark(
+                        "blur-bg-ready",
+                        "uri=${albumArtUri?.takeLast(48)} alpha=$foregroundAlpha",
+                    )
                     readyBackgroundUri = albumArtUri
                 },
             )

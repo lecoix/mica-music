@@ -13,6 +13,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -36,6 +40,9 @@ fun CoverEdgeProgressBar(
     modifier: Modifier = Modifier,
     barHeight: Dp = 2.dp,
     touchHeight: Dp = CoverEdgeProgressTouchHeight,
+    reflectionHeight: Dp = 0.dp,
+    reflectionGap: Dp = 0.dp,
+    reflectionAlpha: Float = 0.24f,
 ) {
     val min = valueRange.start
     val max = valueRange.endInclusive.coerceAtLeast(min + 1f)
@@ -75,7 +82,25 @@ fun CoverEdgeProgressBar(
             modifier = Modifier
                 .fillMaxWidth(fraction)
                 .height(barHeight)
-                .background(progressColor),
+                .background(progressColor)
+                .drawWithContent {
+                    drawContent()
+                    val reflectedHeight = reflectionHeight.toPx()
+                    if (reflectedHeight <= 0f) return@drawWithContent
+                    val top = size.height + reflectionGap.toPx()
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                progressColor.copy(alpha = reflectionAlpha),
+                                progressColor.copy(alpha = 0f),
+                            ),
+                            startY = top,
+                            endY = top + reflectedHeight,
+                        ),
+                        topLeft = Offset(0f, top),
+                        size = Size(size.width, reflectedHeight),
+                    )
+                },
         )
     }
 }

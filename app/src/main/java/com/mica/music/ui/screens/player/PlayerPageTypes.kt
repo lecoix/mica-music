@@ -85,9 +85,7 @@ data class PlayerPageLayoutInput(
     val coverSwitching: Boolean,
 )
 
-internal const val LyricsCoverMorphEndFocus = 0.05f
 internal const val ImmersiveProgressEpsilon = 0.001f
-internal const val CoverEdgeChromeProgressFadeEnd = 0.18f
 internal val LyricsFocusMiniCoverSize = 56.dp * 0.95f
 internal val LyricsFocusCoverStartPadding = 16.dp + 8.dp // HifiSpacing.lg + sm
 

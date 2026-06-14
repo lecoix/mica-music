@@ -3,6 +3,7 @@ package com.mica.music.media
 import android.content.Context
 import android.net.Uri
 import com.mica.music.data.Song
+import com.mica.music.util.DecodePerformance
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,14 +53,19 @@ class AlacAudioTrackEngine(private val context: Context) {
 
     fun play(song: Song, listener: Callback, startOffsetMs: Int = 0) {
         AlacFfmpegHelper.init(appCtx)
-        stop()
+        stopRequested = true
+        stopPlaybackOnly()
+        DecodePerformance.measure("decode-session-release", song.id) {
+            releaseSession()
+        }
+        stopRequested = false
         callback = listener
         currentSong = song
         pcmFormat = AlacPcmFormat.fromSong(song)
-        stopRequested = false
         paused = false
         listener.onBuffering(true)
         val offsetMs = startOffsetMs.coerceAtLeast(0)
+        val pipelineStartedNs = android.os.SystemClock.elapsedRealtimeNanos()
 
         playJob = scope.launch {
             val (decoded, failHint) = withContext(Dispatchers.IO) {
@@ -70,6 +76,19 @@ class AlacAudioTrackEngine(private val context: Context) {
             }
             if (decoded == null || stopRequested) {
                 callback?.onBuffering(false)
+                if (stopRequested) {
+                    DecodePerformance.pipelineCancelled(
+                        song.id,
+                        pipelineStartedNs,
+                        details = "stage=decode",
+                    )
+                } else {
+                    DecodePerformance.pipelineCancelled(
+                        song.id,
+                        pipelineStartedNs,
+                        details = "error=${failHint ?: "decode-failed"}",
+                    )
+                }
                 if (!stopRequested) {
                     val detail = failHint?.let { "：$it" }.orEmpty()
                     callback?.onError("解码失败$detail")
@@ -78,11 +97,18 @@ class AlacAudioTrackEngine(private val context: Context) {
                 return@launch
             }
             if (stopRequested || callback == null) {
+                DecodePerformance.pipelineCancelled(song.id, pipelineStartedNs, details = "stage=pre-playback")
                 releaseSession()
                 return@launch
             }
             durationSec = song.durationSec
             callback?.onBuffering(false)
+            DecodePerformance.pipelineDone(
+                song.id,
+                pipelineStartedNs,
+                details = "format=${decoded.pcmFormat.bitsPerSample}bit/${decoded.pcmFormat.sampleRateHz}Hz " +
+                    "pcmBytes=${decoded.file.length()} streaming=${decoded.producer != null}",
+            )
             startDecodedPlayback(decoded, startOffsetMs = offsetMs)
         }
     }
@@ -93,6 +119,11 @@ class AlacAudioTrackEngine(private val context: Context) {
             pcmPlayer.pause()
             callback?.onPlayingChanged(false)
         }
+    }
+
+    /** 切歌间隙：停掉当前 PCM 输出，保留引擎与会话状态。 */
+    fun stopPlaybackOnlyForSwitch() {
+        stopPlaybackOnly()
     }
 
     fun resume() {
@@ -204,6 +235,11 @@ class AlacAudioTrackEngine(private val context: Context) {
         allowEarlyPlayback: Boolean = true,
     ): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
         if (hasSessionFor(song)) {
+            DecodePerformance.mark(
+                stage = "decode-cache-hit",
+                songId = song.id,
+                details = "pcmBytes=${decodedFile?.length() ?: 0}",
+            )
             return sessionDecode to null
         }
         releaseSession()
@@ -234,6 +270,7 @@ class AlacAudioTrackEngine(private val context: Context) {
             seekMs = 0,
             preference = AlacFfmpegHelper.OutputPreference.STREAM_PCM,
             allowEarlyPlayback = allowEarlyPlayback,
+            traceSongId = song.id,
         )
         return if (result != null && result.kind == AlacFfmpegHelper.OutputKind.PCM) {
             decodedFile = result.file
@@ -336,21 +373,47 @@ class AlacAudioTrackEngine(private val context: Context) {
             ?: "audio"
         val temp = File(appCtx.cacheDir, "alac_stream/${song.id}_in.$ext")
         temp.parentFile?.mkdirs()
-        return try {
-            appCtx.contentResolver.openInputStream(uri)?.use { input ->
-                temp.outputStream().use { output -> input.copyTo(output) }
-            } ?: return null
-            if (temp.length() <= 0L) {
-                temp.delete()
-                null
-            } else {
+        val startedNs = android.os.SystemClock.elapsedRealtimeNanos()
+        val reused = temp.exists() && temp.length() > 0L
+        val result = try {
+            if (reused) {
                 temp
+            } else {
+                appCtx.contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                } ?: return null
+                if (temp.length() <= 0L) {
+                    temp.delete()
+                    null
+                } else {
+                    temp
+                }
             }
         } catch (_: Exception) {
             temp.delete()
             null
         }
+        val durationMs = (android.os.SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000.0
+        if (result != null) {
+            DecodePerformance.mark(
+                stage = "decode-input-copy",
+                songId = song.id,
+                durationMs = durationMs,
+                details = "reused=$reused sizeMB=${formatMb(result.length())} ext=$ext",
+            )
+        } else {
+            DecodePerformance.mark(
+                stage = "decode-input-copy",
+                songId = song.id,
+                durationMs = durationMs,
+                details = "failed ext=$ext",
+            )
+        }
+        return result
     }
+
+    private fun formatMb(bytes: Long): String =
+        String.format(java.util.Locale.US, "%.2f", bytes / (1024.0 * 1024.0))
 
     private fun releaseSession() {
         detachSession().release()

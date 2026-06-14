@@ -41,9 +41,11 @@ import com.mica.music.ui.components.SongActionMenuSheet
 import com.mica.music.ui.components.SongMenuAction
 import com.mica.music.ui.components.cachedCoverAspectRatio
 import com.mica.music.ui.components.rememberPlaybackSeekState
+import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.theme.NowPlayingBackground
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
+import com.mica.music.util.TrackSwitchPerformance
 import com.mica.music.util.deleteSongFile
 import com.mica.music.util.openSongInTagEditor
 import com.mica.music.util.shareSong
@@ -250,15 +252,21 @@ fun NowPlayingContent(
     val preloadBlurredBackground = lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW
 
     LaunchedEffect(song.id, song.albumArtUri, preloadBlurredBackground) {
+        TrackSwitchPerformance.mark(
+            "compose-song",
+            "song=${song.id} background=$preloadBlurredBackground",
+        )
         MicaImageLoaders.preloadCover(context, song.albumArtUri)
         if (preloadBlurredBackground) {
             MicaImageLoaders.preloadBackground(context, song.albumArtUri)
         }
+        TrackSwitchPerformance.mark("compose-preload-requested", "song=${song.id}")
     }
 
     var coverAspectRatio by remember(song.albumArtUri) {
         mutableFloatStateOf(cachedCoverAspectRatio(song.albumArtUri) ?: 1f)
     }
+    var coverMotionActive by remember { mutableStateOf(false) }
 
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
     BackHandler(enabled = !lyricsExpanded) { onClose() }
@@ -276,13 +284,12 @@ fun NowPlayingContent(
     }
 
     Box(Modifier.fillMaxSize()) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(contentPadding),
-        ) {
-            val screenHeight = maxHeight
-            val screenWidth = maxWidth
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val fullHeight = maxHeight
+            val fullWidth = maxWidth
+            val bottomInset = contentPadding.calculateBottomPadding()
+            val screenHeight = fullHeight - bottomInset
+            val screenWidth = fullWidth
 
             val appearance = rememberPlayerScreenAppearance(song, lowerBackground)
 
@@ -295,18 +302,45 @@ fun NowPlayingContent(
                 screenHeight = screenHeight,
                 screenWidth = screenWidth,
                 coverAspectRatio = coverAspectRatio,
-                coverSwitching = false,
+                coverSwitching = coverMotionActive,
             ) ?: return@BoxWithConstraints
 
-            Box(Modifier.fillMaxSize()) {
-                NowPlayingBackground(
-                    coverColor = appearance.coverColor,
-                    albumArtUri = song.albumArtUri,
-                    mode = lowerBackground,
-                    coverZoneStop = previewModel.frame.cover.zoneStop,
-                    modifier = Modifier.matchParentSize(),
+            val motionEnabled = rememberMicaMotionEnabled()
+            LaunchedEffect(
+                uiSettings.playerCoverFlowMode,
+                lowerBackground,
+                previewModel.frame.coverFlowStageActive,
+                motionEnabled,
+            ) {
+                TrackSwitchPerformance.updateVisualContext(
+                    TrackSwitchPerformance.VisualContext(
+                        coverFlowMode = uiSettings.playerCoverFlowMode.name,
+                        lowerBackground = lowerBackground.name,
+                        coverFlowStageActive = previewModel.frame.coverFlowStageActive,
+                        motionEnabled = motionEnabled,
+                    ),
                 )
-                Column(Modifier.fillMaxSize()) {
+            }
+
+            val backgroundZoneStop = if (fullHeight.value > 0f) {
+                previewModel.frame.cover.zoneStop * (screenHeight.value / fullHeight.value)
+            } else {
+                previewModel.frame.cover.zoneStop
+            }
+
+            NowPlayingBackground(
+                coverColor = appearance.coverColor,
+                albumArtUri = song.albumArtUri,
+                mode = lowerBackground,
+                coverZoneStop = backgroundZoneStop,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding),
+            ) {
                     NowPlayingCoverSection(
                         song = previewModel.song,
                         queue = previewModel.queue,
@@ -324,10 +358,14 @@ fun NowPlayingContent(
                         onCoverBoundsChanged = onCoverBoundsChanged,
                         onCoverAspectRatioChanged = { coverAspectRatio = it },
                         onCloseLyrics = { lyricsExpanded = false },
-                        onPlayQueueIndex = actions.playQueueIndex,
+                        onPlayQueueIndex = { index ->
+                            TrackSwitchPerformance.armTrigger("queue-select")
+                            actions.playQueueIndex(index)
+                        },
                         onPrevious = actions.previous,
                         onNext = actions.next,
                         onCoverLongPress = { openSongActionMenu(song) },
+                        onCoverMotionActiveChanged = { coverMotionActive = it },
                         screenWidth = screenWidth,
                     )
                     BoxWithConstraints(
@@ -345,7 +383,7 @@ fun NowPlayingContent(
                             screenHeight = screenHeight,
                             screenWidth = screenWidth,
                             coverAspectRatio = coverAspectRatio,
-                            coverSwitching = false,
+                            coverSwitching = coverMotionActive,
                         ) ?: return@BoxWithConstraints
                         PlayerLowerPanelSection(
                             surfaceState = surfaceState,
@@ -372,7 +410,6 @@ fun NowPlayingContent(
                         )
                     }
                 }
-            }
         }
 
         SnackbarHost(

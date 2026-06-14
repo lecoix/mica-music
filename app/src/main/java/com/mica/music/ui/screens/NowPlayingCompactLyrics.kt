@@ -32,6 +32,9 @@ internal const val EmptyLyricsText = "暂无歌词"
 internal fun List<LyricLine>.hasDisplayableLyrics(): Boolean =
     any { it.text.isNotBlank() }
 
+internal fun safeLyricDisplayIndex(lyricsSize: Int, displayIndex: Int): Int? =
+    if (lyricsSize <= 0) null else displayIndex.coerceIn(0, lyricsSize - 1)
+
 @Composable
 internal fun LyricsSection(
     lyrics: List<LyricLine>,
@@ -106,17 +109,19 @@ private fun CompactLyricsRows(
     colorSpec: AnimationSpec<Color>,
     lineStepPx: Float,
 ) {
+    val safeTargetIndex = targetIndex.coerceIn(0, lyrics.lastIndex.coerceAtLeast(0))
     PlayerLyricsIndexRoll(
-        targetIndex = targetIndex,
+        targetIndex = safeTargetIndex,
         lineStepPx = lineStepPx,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = HifiSpacing.lg),
     ) { displayIndex ->
+        val safeDisplayIndex = displayIndex.coerceIn(0, lyrics.lastIndex.coerceAtLeast(0))
         when {
             compact -> CompactSingleLyricLine(
                 lyrics = lyrics,
-                displayIndex = displayIndex,
+                displayIndex = safeDisplayIndex,
                 colors = colors,
                 textStyle = textStyle,
                 colorSpec = colorSpec,
@@ -132,7 +137,7 @@ private fun CompactLyricsRows(
             )
             else -> CompactThreeLyricLines(
                 lyrics = lyrics,
-                displayIndex = displayIndex,
+                displayIndex = safeDisplayIndex,
                 colors = colors,
                 textStyle = textStyle,
                 colorSpec = colorSpec,
@@ -170,22 +175,23 @@ private fun CompactThreeLyricLines(
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
 ) {
+    val safeIndex = safeLyricDisplayIndex(lyrics.size, displayIndex) ?: return
     LyricLineBlock(
-        text = lyrics.getOrNull(displayIndex - 1)?.text,
+        text = lyrics.getOrNull(safeIndex - 1)?.text,
         isCurrent = false,
         colors = colors,
         textStyle = textStyle,
         colorSpec = colorSpec,
     )
     LyricLineBlock(
-        text = lyrics[displayIndex].text,
+        text = lyrics[safeIndex].text,
         isCurrent = true,
         colors = colors,
         textStyle = textStyle,
         colorSpec = colorSpec,
     )
     LyricLineBlock(
-        text = lyrics.getOrNull(displayIndex + 1)?.text,
+        text = lyrics.getOrNull(safeIndex + 1)?.text,
         isCurrent = false,
         colors = colors,
         textStyle = textStyle,

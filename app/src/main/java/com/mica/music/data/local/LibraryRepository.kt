@@ -1,6 +1,7 @@
 package com.mica.music.data.local
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.mica.music.data.ScanSource
 import com.mica.music.data.Song
 
@@ -11,9 +12,11 @@ data class CachedLibrary(
     val totalSizeMb: Int,
 )
 
-class LibraryRepository(context: Context) {
+class LibraryRepository internal constructor(
+    private val db: MicaDatabase,
+) {
+    constructor(context: Context) : this(MicaDatabase.get(context))
 
-    private val db = MicaDatabase.get(context)
     private val songDao = db.songDao()
     private val metaDao = db.libraryMetaDao()
 
@@ -63,15 +66,17 @@ class LibraryRepository(context: Context) {
             }
         }
 
-        songDao.syncIncremental(incoming, removeIds)
-        metaDao.upsert(
-            LibraryMetaEntity(
-                lastScanAtMs = lastScanAtMs,
-                lastScanSource = lastScanSource.name,
-                totalSizeMb = totalSizeMb,
-                songCount = songs.size,
-            ),
-        )
+        db.withTransaction {
+            songDao.syncIncremental(incoming, removeIds)
+            metaDao.upsert(
+                LibraryMetaEntity(
+                    lastScanAtMs = lastScanAtMs,
+                    lastScanSource = lastScanSource.name,
+                    totalSizeMb = totalSizeMb,
+                    songCount = songs.size,
+                ),
+            )
+        }
         return LibrarySyncResult(
             added = added,
             updated = updated,

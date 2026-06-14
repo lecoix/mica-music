@@ -25,12 +25,16 @@ object PlayerPageLayoutEngine {
         val lyricsFocus = input.lyricsProgress.coerceIn(0f, 1f)
         val immersiveProgress = input.immersiveProgress.coerceIn(0f, 1f)
         val lyricsChromeFade = input.lyricsChromeFade.coerceIn(0f, 1f)
+        val useCoverEdgePlayback = input.useCoverEdgeProgress
 
-        val layoutActive =
-            input.lyricsExpanded ||
-                lyricsFocus > ImmersiveProgressEpsilon ||
-                (input.useCoverEdgeProgress && lyricsChromeFade > ImmersiveProgressEpsilon)
-        val coverEdgeOnPlaySurface = input.useCoverEdgeProgress && !layoutActive
+        val chromeProgressAlpha = when {
+            !useCoverEdgePlayback -> 1f
+            input.lyricsExpanded -> lyricsChromeFade
+            else -> lyricsFocus
+        }
+        val coverEdgeOnPlaySurface =
+            useCoverEdgePlayback &&
+                chromeProgressAlpha < 1f - ImmersiveProgressEpsilon
 
         val coverFlowAvailable =
             input.coverFlowModeEnabled &&
@@ -54,7 +58,7 @@ object PlayerPageLayoutEngine {
             density = density,
             typography = typography,
             panelHeight = input.panelHeight,
-            useCoverEdgeProgressSetting = coverEdgeOnPlaySurface,
+            useCoverEdgeProgressSetting = useCoverEdgePlayback,
             lyricsFocus = lyricsFocus,
         )
 
@@ -79,33 +83,24 @@ object PlayerPageLayoutEngine {
         )
 
         val showChromeProgressInTransition =
-            input.useCoverEdgeProgress &&
-                !coverEdgeOnPlaySurface &&
-                (lyricsFocus > ImmersiveProgressEpsilon || lyricsChromeFade > ImmersiveProgressEpsilon)
+            useCoverEdgePlayback &&
+                chromeProgressAlpha > ImmersiveProgressEpsilon
         val showStandardProgress =
-            !coverEdgeOnPlaySurface &&
-                (!input.useCoverEdgeProgress || lyricsFocus > 1f - ImmersiveProgressEpsilon)
-        val chromeProgressAlpha = when {
-            !input.useCoverEdgeProgress -> 1f
-            coverEdgeOnPlaySurface -> 0f
-            else -> {
-                val transitionProgress = if (input.lyricsExpanded) {
-                    maxOf(lyricsChromeFade, lyricsFocus)
-                } else {
-                    minOf(lyricsChromeFade, lyricsFocus)
-                }
-                (transitionProgress / CoverEdgeChromeProgressFadeEnd).coerceIn(0f, 1f)
-            }
-        }
+            !useCoverEdgePlayback || showChromeProgressInTransition
 
         val metaAlpha = 1f - lyricsFocus
         val spectrumOverlayAlpha =
             metaAlpha.coerceIn(0f, 1f) * (1f - immersiveProgress)
+        val stablePlaybackScene =
+            !input.lyricsExpanded &&
+                lyricsFocus <= ImmersiveProgressEpsilon &&
+                !input.immersiveLower &&
+                immersiveProgress <= ImmersiveProgressEpsilon
         val spectrumEnabled =
             input.spectrumSettingEnabled &&
                 !input.spectrumDeferred &&
                 !input.coverSwitching &&
-                immersiveProgress <= ImmersiveProgressEpsilon
+                stablePlaybackScene
 
         val gesturesEnabled =
             !input.lyricsExpanded &&
@@ -236,8 +231,6 @@ object PlayerPageLayoutEngine {
         useCoverEdgeProgressSetting: Boolean,
         lyricsFocus: Float,
     ): LowerLayoutPlan {
-        val coverEdge = useCoverEdgeProgressSetting && lyricsFocus < 0.01f
-
         val infoLine = with(density) { typography.monoMd.lineHeight.toDp() }
         val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
         val subtitleLine = with(density) { typography.bodyMd.lineHeight.toDp() }
@@ -252,26 +245,35 @@ object PlayerPageLayoutEngine {
 
         val idealAfterCover = infoLine / 2
         val idealAfterInfo = titleLine
-        val idealAfterSubtitle = if (coverEdge) subtitleLine + HifiSpacing.sm else subtitleLine
-        val idealBeforePlaybackChrome = if (coverEdge) iconGap + HifiSpacing.md else iconGap
-        val idealAfterProgress = if (coverEdge) 0.dp else iconGap / 2
-        val idealAfterControls = if (coverEdge) {
-            iconGap + controlHalfLine + HifiSpacing.sm
-        } else {
-            iconGap + controlHalfLine
-        }
-
-        val seekBarBlock = if (coverEdge) 0.dp else 32.dp + timeRowHeight + iconGap / 2
-        val chromeIdealHeight = seekBarBlock + HifiSize.touchTarget + idealAfterControls
-
-        val edgeChromeIdealHeight = HifiSize.touchTarget + (iconGap + controlHalfLine + HifiSpacing.sm)
-        val standardChromeIdealHeight = (32.dp + timeRowHeight + iconGap / 2) +
-            HifiSize.touchTarget + (iconGap + controlHalfLine)
         val edgeWeight = if (useCoverEdgeProgressSetting) {
-            1f - (lyricsFocus / LyricsCoverMorphEndFocus).coerceIn(0f, 1f)
+            1f - lyricsFocus
         } else {
             0f
         }
+        val idealAfterSubtitle = lerpDp(
+            subtitleLine,
+            subtitleLine + HifiSpacing.sm,
+            edgeWeight,
+        )
+        val idealBeforePlaybackChrome = lerpDp(
+            iconGap,
+            iconGap + HifiSpacing.md,
+            edgeWeight,
+        )
+        val idealAfterProgress = lerpDp(iconGap / 2, 0.dp, edgeWeight)
+        val idealAfterControls = lerpDp(
+            iconGap + controlHalfLine,
+            iconGap + controlHalfLine + HifiSpacing.sm,
+            edgeWeight,
+        )
+
+        val standardSeekBarBlock = 32.dp + timeRowHeight + iconGap / 2
+        val seekBarBlock = lerpDp(standardSeekBarBlock, 0.dp, edgeWeight)
+        val chromeIdealHeight = seekBarBlock + HifiSize.touchTarget + idealAfterControls
+
+        val edgeChromeIdealHeight = HifiSize.touchTarget + (iconGap + controlHalfLine + HifiSpacing.sm)
+        val standardChromeIdealHeight = standardSeekBarBlock +
+            HifiSize.touchTarget + (iconGap + controlHalfLine)
         val blendedChromeIdeal = lerpDp(standardChromeIdealHeight, edgeChromeIdealHeight, edgeWeight)
 
         val metaIdealGaps = idealAfterCover + idealAfterInfo + idealAfterSubtitle + idealBeforePlaybackChrome
@@ -283,7 +285,7 @@ object PlayerPageLayoutEngine {
         val idealMeta1 = metaShellFixed + metaIdealGaps + lyricCompactLine
 
         val preferredChrome = blendedChromeIdeal
-        val chromeGapFloor = if (coverEdge) minGap else minGap * 2
+        val chromeGapFloor = lerpDp(minGap * 2, minGap, edgeWeight)
         val chromeMinHeight = seekBarBlock + HifiSize.touchTarget + chromeGapFloor
 
         var chromeTarget = preferredChrome

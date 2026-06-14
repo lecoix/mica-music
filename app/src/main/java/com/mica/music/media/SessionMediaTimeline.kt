@@ -4,11 +4,13 @@ import androidx.media3.common.AdPlaybackState
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Timeline
+import androidx.media3.common.util.UnstableApi
 
 /**
  * 仅供锁屏 / MediaSession 使用的静态播放列表时间轴（每首歌一个 window + period）。
  * ALAC 实际解码由 AudioTrack 完成，此处不触发 ExoPlayer 加载。
  */
+@UnstableApi
 internal class SessionMediaTimeline(
     private val items: List<MediaItem>,
     private val currentIndex: Int,

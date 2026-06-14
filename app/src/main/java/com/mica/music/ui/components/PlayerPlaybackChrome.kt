@@ -23,8 +23,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlaybackQueueMode
 import com.mica.music.ui.theme.HifiSize
@@ -95,9 +97,7 @@ internal fun PlayerProgressBarSection(
                     colors = colors,
                     height = spectrumHeight * spectrumProgress,
                     alpha = spectrumProgress,
-                    modifier = Modifier.graphicsLayer {
-                        translationY = -15.dp.toPx()
-                    },
+                    modifier = Modifier.alignSpectrumBottomToTrack(),
                 )
             }
             HiFiSeekBar(
@@ -121,6 +121,26 @@ internal fun PlayerProgressBarSection(
                 color = colors.secondary,
             )
         }
+    }
+}
+
+/**
+ * HiFiSeekBar 的实际轨道位于 32dp 触控区中心。
+ * 频谱可越界覆盖上方歌词，但底边必须精确落在该轨道基线上。
+ */
+private fun Modifier.alignSpectrumBottomToTrack(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(
+        constraints.copy(
+            minHeight = 0,
+            maxHeight = Constraints.Infinity,
+        ),
+    )
+    layout(constraints.maxWidth, constraints.maxHeight) {
+        val trackCenterY = constraints.maxHeight / 2
+        placeable.placeRelative(
+            x = 0,
+            y = trackCenterY - placeable.height,
+        )
     }
 }
 

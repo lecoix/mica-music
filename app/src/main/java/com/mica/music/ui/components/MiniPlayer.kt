@@ -26,6 +26,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -178,10 +182,15 @@ private fun FloatingIslandMiniPlayer(
                 modifier = cardModifier,
             )
             Box(
-                modifier = cardModifier.combinedClickable(
-                    onClick = onExpand,
-                    onLongClick = onLongPress,
-                ),
+                modifier = cardModifier
+                    .semantics {
+                        contentDescription = "展开播放器：${song.title}"
+                        role = Role.Button
+                    }
+                    .combinedClickable(
+                        onClick = onExpand,
+                        onLongClick = onLongPress,
+                    ),
             ) {
             MicaMaterialBackdrop(
                 modifier = Modifier.fillMaxSize(),
@@ -258,6 +267,10 @@ private fun AudiophileMiniPlayer(
                 .fillMaxWidth()
                 .height(AudiophileBarHeight)
                 .background(barSurface)
+                .semantics {
+                    contentDescription = "展开播放器：${song.title}"
+                    role = Role.Button
+                }
                 .combinedClickable(
                     onClick = onExpand,
                     onLongClick = onLongPress,

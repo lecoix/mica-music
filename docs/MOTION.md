@@ -116,7 +116,9 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 列表→播放共享元素 | ⏳ | — | 待做；目标：列表项封面作为来源，来源不可见时回退迷你播放器或普通转场 |
 | BottomSheet / 对话框 | ⏳ | Material 默认 | 待对齐 Medium + 统一 expand |
 | 迷你栏展开全屏 | ⏳ | — | 待做 |
-| 歌词行切换 / 双语 | ⏳ | — | 规范建议 Long fade（见 §八） |
+| 歌词行切换 / 双语 | ⏳ | — | 规范建议 Long fade（见 §九） |
+| 封面流切歌 / 拖动 | ✅ | `CoverFlowCarouselView` | View 岛；见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)、§七 |
+| 浮岛毛玻璃 | ✅ | `MicaMaterialBackdrop` | View 岛 + `BlurTarget`；见 `DESIGN_SPEC.md` §8.1、§七 |
 | 播放指示竖条 | ✅ | `PlayingIndicator` | **独立** 600ms 循环，不走 MicaMotion |
 | EQ 拖动 | — | `EqualizerScreen` | 跟手 + 松手回稳（设计稿 200ms，实现待统一） |
 
@@ -124,40 +126,104 @@ val motionEnabled = rememberMicaMotionEnabled()
 
 ---
 
-## 七、开发约束（新增 / 修改 UI 时）
+## 七、Compose 与 AndroidView 岛分工
 
-### 7.1 必须使用
+> **默认 Compose，热路径 View。** 不是「Compose 不擅长动画」，而是两类问题在 Android 上各有更省心的栈；本项目采用 **Compose 外壳 + 战略性 `AndroidView` 岛** 兼得两者优点。
+
+### 7.1 分工原则
+
+| 层 | 技术 | 职责 |
+|----|------|------|
+| **外壳** | Jetpack Compose | 页面结构、列表、主题、导航、`AnimatedContent` / `animate*AsState`、业务状态 |
+| **热路径岛** | `AndroidView` + 自定义 `View` / `Canvas` | 60fps 跟手几何、backdrop 采样模糊、动画帧**不触发** Compose 重组 |
+
+**口诀**：**过渡用 Compose，跟手几何 / 背后模糊用 View。**
+
+### 7.2 默认用 Compose（无需论证）
+
+满足以下**全部**条件时，留在 Compose，接 `MicaMotion`：
+
+- 状态 **A → B** 的过渡（换页、显隐、颜色/尺寸 lerp），而非连续拖动手势驱动；
+- **单一 progress**（或少量明确同步的 progress）驱动多属性 `lerp`；
+- 动画期间子树**不必**每帧重组；或重组成本可忽略；
+- 不涉及「模糊**背后**已绘制内容」（见 `DESIGN_SPEC.md` §8.1）。
+
+典型现网实现：主页 `AnimatedContent`、侧栏推入、Nav 上滑、主题 crossfade、播放页沉浸 `immersiveProgress`、`PlayingIndicator` 循环。
+
+### 7.3 必须或应考虑 View 岛（满足任一即评估）
+
+| 条件 | 原因 | 本项目先例 |
+|------|------|------------|
+| **Backdrop blur**（透视毛玻璃） | Compose `Modifier.blur()` / 单层 `BlurEffect` 只糊**自身绘制内容**，不采背后列表像素 | 浮岛 `MicaMaterialBackdrop` + `BlurView`（`DESIGN_SPEC.md` §8.1） |
+| **60fps 跟手** + 多对象同一连续数学模型 | 声明式 `key()` / 每帧重组易导致闪帧、末帧跳变、双轨状态不同步 | 封面流 `CoverFlowCarouselView`（[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)） |
+| 动画帧**不能**触发子树重组 | `ValueAnimator` + `invalidate()` 比 `animate*AsState` 每帧改状态更可控 | 封面流切歌 / 拖动 |
+| 每帧 **Canvas** 自定义绘制（倒影、3D `Camera`、多槽位） | 单遍 `onDraw` + 统一公式，避免多 Composable `graphicsLayer` 分叉 | 封面流七轨 |
+| 稳定采样的 **View 树兄弟关系** | BlurView 3.x 等要求模糊源与消费方在 View 层有特定结构 | `MainActivity`：`BlurTarget` + 双 `ComposeView` |
+
+**禁止**：在 Compose 热路径上为上述场景反复堆 `animate*AsState`、`AnimatedContent`、`key(song.id)` 补丁——根因是栈选错，不是参数没调好。
+
+### 7.4 决策清单（新增 UI / 动效前必过）
+
+1. 要不要模糊**背后**的内容？→ **是** → View 岛（`BlurView` + `BlurTarget`），**不要**从 `Modifier.blur()` 试起。  
+2. 要不要拖动跟手、且多元素位移/缩放/旋转/透明度**数学绑定**？→ **是** → 优先 View + `Canvas`，单一动画量（如 `stripFraction`）。  
+3. 切歌 / 提交末帧是否要求 **连续不变量**（如 `railOffset`）？→ **是** → 见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §3，勿在 Compose 建第二套槽位状态机。  
+4. 是否仅为 **A↔B 过渡**、单一 progress lerp？→ **是** → Compose + `MicaMotion`。  
+5. 以上都不确定 → **先用 Compose**；真机出现闪帧 / 跳变 / 做不出效果时，**换岛重构**，不要在原 Composable 上叠加第三层动画状态。
+
+### 7.5 岛的实现约束
+
+1. **挂载**：`AndroidView(factory = …, update = …)`；`factory` 只做一次性创建，`update` 内避免重复 `setupWith` 等昂贵初始化（见 `MicaMaterialCard.kt` 的 `blurConfiguredMarker`）。  
+2. **粒度**：全 App 固定区域（底栏、播放页封面区）可接受；**禁止**在 `LazyColumn` **每一行**内嵌 `AndroidView`。  
+3. **手势**：需要跟手时，手势在 **View 内**处理；Compose 遮罩层勿用铺满的 `combinedClickable` 盖住岛（见 `COVER_FLOW_IMPLEMENTATION.md` §6）。  
+4. **状态**：岛外 Compose 只传**业务意图**（当前下标、模式、尺寸）；岛内自管**动画帧状态**（`stripFraction`、animator），勿双向竞态。  
+5. **文档**：新岛须在本节表格或 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) 级文档中登记职责与不变式。
+
+### 7.6 现网岛索引
+
+| 岛 | 文件 | 文档 |
+|----|------|------|
+| 封面流（七轨 + 切歌） | `CoverFlowCarouselView.kt` / `CoverFlowCarouselHost.kt` | [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) |
+| 浮岛毛玻璃 | `MicaMaterialBackdrop` / `MainActivity` `BlurTarget` | `DESIGN_SPEC.md` §8.1 |
+| 浮岛柔影（自绘色块 blur） | `FloatingIslandShadowHalo` | Compose `BlurEffect` 仅糊**自身**阴影，非 backdrop |
+
+共享元素封面（`SHARED_ELEMENT_ANIMATION_NOTES.md`）暂留 Compose，靠**状态机**（`liveBounds` / `stableTarget` / `overlayReady`）而非 View 岛；若反复污染坐标，先修状态模型，不要先换栈。
+
+---
+
+## 八、开发约束（新增 / 修改 UI 时）
+
+### 8.1 必须使用
 
 ```kotlin
 val motionEnabled = rememberMicaMotionEnabled()
 ```
 
-### 7.2 `AnimatedContent` 分区栈
+### 8.2 `AnimatedContent` 分区栈
 
 1. 为 `targetState` 定义 **depth 函数**（或复用现有 `homePaneDepth` / `browseDestinationDepth`）。
 2. `transitionSpec = MicaMotion.directionalPaneTransition(motionEnabled, ::yourDepth)`。
 3. 若状态含「搜索 / 全屏 overlay」等**与 depth 无关的进出场**，扩展 `homePaneWithSearchTransition` 模式，或新增命名预设到 `MicaMotion.kt`，**不要**在 Composable 内复制粘贴 slide 公式。
 
-### 7.3 `AnimatedVisibility` / `animate*AsState`
+### 8.3 `AnimatedVisibility` / `animate*AsState`
 
 - 使用 `MicaMotion.tweenFloat` / `tweenIntSize` 等，并传入 `motionEnabled`。
 - 顶栏、一行控件级：优先 **Short**；整块区域：Medium。
 
-### 7.4 键盘与动效
+### 8.4 键盘与动效
 
 - 需要「等顶栏动画再聚焦」时：`delay(MicaMotion.DurationShortMs)` 后再 `FocusRequester.requestFocus()`（见 `HomeTopBar` 搜索）。
 
-### 7.5 播放页：先冻结 → 全算 → 再动
+### 8.5 播放页：先冻结 → 全算 → 再动
 
 顺序**不可颠倒**：
 
 1. **计算前先冻结**：`panelHeight`、`layoutMode`、下半区间距、底栏起止高度、标题位移终点等，在 `immersiveLower` / `lyricsExpanded` 切换时快照。
-2. **再全算完**：`computePlayerLowerLayout` 等仅用冻结输入算目标；禁止在 `immersiveProgress` 动画途中用正在变矮的底栏重算间距。
+2. **再全算完**：`PlayerPageLayoutEngine.computeFrame()` 等仅用冻结输入算目标；禁止在 `immersiveProgress` 动画途中用正在变矮的底栏重算间距。
 3. **再挨个动**：每元素只跟一个 progress 做 `lerp` / fade（如底栏高度 `lerp(start, end, immersiveProgress)`）；禁止 `animateDpAsState` 目标每帧随布局重算。
 
-详见 `.cursor/rules/player-screen-animation.mdc` 与 `PlayerLowerPanelSpacing.kt`。
+详见 [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md) §布局动画约束 与 `PlayerPageLayoutEngine.kt` / `PlayerPageTypes.kt`（`PlayerLowerPanelSpacing`）。
 
-### 7.6 禁止
+### 8.6 禁止
 
 - 硬编码 `tween(250)`、`spring()` 作为默认页面过渡（除非 EQ 等专业控件且文档化）。
 - 前进用左滑、返回用右滑（与全局方向相反）。
@@ -166,7 +232,7 @@ val motionEnabled = rememberMicaMotionEnabled()
 
 ---
 
-## 八、与 DESIGN_SPEC §九 的对照（迁移用）
+## 九、与 DESIGN_SPEC §九 的对照（迁移用）
 
 | DESIGN_SPEC（旧） | 现行实现 |
 |-------------------|----------|
@@ -180,21 +246,25 @@ val motionEnabled = rememberMicaMotionEnabled()
 
 ---
 
-## 九、文件清单
+## 十、文件清单
 
 | 文件 | 职责 |
 |------|------|
 | `ui/motion/MicaMotion.kt` | 常量、预设过渡、tween 工厂 |
 | `ui/motion/MicaMotion.kt`（底部） | `rememberReduceMotion` / `rememberMicaMotionEnabled` |
 | `MainActivity.kt` | `LocalEnabled` |
-| `docs/MOTION.md` | 本规范 |
+| `docs/MOTION.md` | 本规范（含 §七 Compose / View 岛分工） |
+| `docs/COVER_FLOW_IMPLEMENTATION.md` | 封面流 View 岛不变式 |
+| `docs/SHARED_ELEMENT_ANIMATION_NOTES.md` | 共享元素 Compose 状态机 |
 | `docs/TODO.md` | 动效待办勾选 |
 
 ---
 
-## 十、修订记录
+## 十一、修订记录
 
 | 日期 | 说明 |
 |------|------|
 | 2026-05 | 初稿：对齐 `MicaMotion`、主页/搜索/浏览/Nav/主题/播放页现状；标注未完成项 |
 | 2026-05 | 补入迷你播放器→播放页封面共享元素第一版；列表项封面来源仍列为待做 |
+| 2026-06 | 新增 §七 Compose 与 AndroidView 岛分工；封面流 / 浮岛毛玻璃判据与决策清单 |
+| 2026-06 | §8.5 播放页约束改指 `PLAYER_PAGE_CONTRACT.md`（移除不存在的 cursor rule） |

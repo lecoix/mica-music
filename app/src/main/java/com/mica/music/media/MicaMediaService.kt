@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -25,6 +26,7 @@ import androidx.media3.session.MediaSessionService
  * - 由 MediaController.buildAsync() 自动启动（无需 Activity 显式 startService）
  * - onTaskRemoved：用户滑掉任务栈时，仅当未在播放时停止服务（在播放则继续）
  */
+@UnstableApi
 class MicaMediaService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
@@ -91,9 +93,12 @@ class MicaMediaService : MediaSessionService() {
         // - 队列为空
         // - 已播完（STATE_ENDED）
         // 正在播放则保留服务，让用户通过通知栏继续控制
-        if ((!player.playWhenReady && !alacActive) ||
-            player.mediaItemCount == 0 ||
-            player.playbackState == Player.STATE_ENDED
+        if (MediaServiceLifecyclePolicy.shouldStopAfterTaskRemoved(
+                playWhenReady = player.playWhenReady,
+                alacPlayWhenReady = alacActive,
+                mediaItemCount = player.mediaItemCount,
+                playbackState = player.playbackState,
+            )
         ) {
             stopSelf()
         }

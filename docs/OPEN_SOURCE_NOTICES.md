@@ -14,12 +14,16 @@ and copyright notice required by each dependency.
 | Kotlin / Kotlinx Coroutines | Apache License 2.0 |
 | Coil | Apache License 2.0 |
 | Calvin Reorderable | Apache License 2.0 |
+| BlurView 3.x (`com.github.Dimezis:BlurView`, JitPack) | Apache License 2.0 |
+| Kyant Taglib (metadata) | Apache License 2.0 |
 | FFmpeg | LGPL 2.1+ by default; current build script does not enable GPL or nonfree components |
 
 ## Release Notes
 
 - Apache 2.0 dependencies require preserving copyright notices and a copy of
   the Apache License 2.0 text.
+- **BlurView** (Dimezis): preserve copyright and Apache 2.0 notice; distributed
+  via JitPack — verify `version-3.2.0` tag notice at release time.
 - FFmpeg binary distribution requires preserving FFmpeg / LGPL notices and
   providing a way to obtain the corresponding source or build scripts.
 - If FFmpeg build flags change to include GPL or nonfree components, update this

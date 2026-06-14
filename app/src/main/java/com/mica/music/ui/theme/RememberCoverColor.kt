@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.Song
 import com.mica.music.data.scanner.CoverColorExtractor
+import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.delay
 
 private const val CoverColorSampleDelayMs = 180L
@@ -35,13 +36,18 @@ fun rememberCoverColor(
             val cacheKey = song.albumArtUri ?: song.id
             sampledCoverColorCache.get(cacheKey)?.let { cached ->
                 color = PlayerBackgroundBlend.comfortColor(Color(cached), isDark)
+                TrackSwitchPerformance.mark("cover-color-cache", "key=${cacheKey.takeLast(48)}")
                 return@LaunchedEffect
             }
+            TrackSwitchPerformance.mark("cover-color-sample-start", "key=${cacheKey.takeLast(48)}")
             delay(CoverColorSampleDelayMs)
             val sampled = CoverColorExtractor.fromUriString(context, song.albumArtUri)
             if (sampled != null) {
                 sampledCoverColorCache.put(cacheKey, sampled)
                 color = PlayerBackgroundBlend.comfortColor(Color(sampled), isDark)
+                TrackSwitchPerformance.mark("cover-color-sample-ready", "key=${cacheKey.takeLast(48)}")
+            } else {
+                TrackSwitchPerformance.mark("cover-color-sample-miss", "key=${cacheKey.takeLast(48)}")
             }
         }
     }

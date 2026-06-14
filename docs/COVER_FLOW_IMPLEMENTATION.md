@@ -1,8 +1,81 @@
-# 封面流实现手册（View + Canvas 七轨）
+# 封面流手册（产品 + 实现 · View + Canvas 七轨）
 
 > **状态**：2026-06 现网热路径  
-> **读者**：以后改封面流、间距、倒影、切歌动画的人——先读本文，再动代码。  
-> 产品设计见 [`COVER_FLOW.md`](COVER_FLOW.md)。播放页契约见 [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)。
+> **读者**：改封面流交互、间距、倒影、切歌动画前必读。  
+> 播放页边界见 [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)；动效 token 见 [`MOTION.md`](MOTION.md)。
+
+---
+
+## 0. 产品设计
+
+### 0.1 定位
+
+**平行封面带**与**复古立体封面**是播放页特殊主题：启用后封面区常驻横向队列封面带，不再按播放/暂停放大回半屏大封面。
+
+- 播放 / 暂停：不改变封面带布局。
+- 歌词聚焦或下半屏沉浸：临时退出封面流，回到普通播放页布局过渡。
+- 封面流主题下播放页强制**裁切填充**，忽略设置里「原样比例」。
+
+### 0.2 设置（已实现）
+
+设置 → **播放页封面行为**（`PlayerCoverFlowMode` / `AppUiSettings.playerCoverFlowMode`）：
+
+| 选项 | 枚举 | 说明 |
+|------|------|------|
+| 标准 | `STANDARD` | 普通大封面；横向轻扫切歌 |
+| 平行封面带 | `PAUSE_FOLD` | 同尺寸并排，暂停不折叠 |
+| 复古立体封面 | `RETRO_3D` | 两侧透视倾斜 + 倒影 |
+
+与「播放页背景」（主题色 / 封面渐变 / 封面模糊等）**并列、可任意组合**。
+
+### 0.3 交互
+
+- 标准封面横向轻扫：超过约 **13%** 屏宽切歌（提交阈值 `0.13125`，较原设计降低 25%）。
+- 点击侧槽封面 → 切到对应曲目。
+- 横向拖动 → 跟手；松手超过约 **26%** 的单轨步进切歌，否则回弹（提交阈值 `0.2625`，较原 `0.35` 降低 25%；见 §4.1、`CoverFlowCarouselView`）。
+- 特殊主题遵循「封面底边进度」开关：关闭时保留下方普通进度条与普通频谱条；开启时将进度条与已启用的频谱条移到中心专辑图底边，并隐藏普通进度区域。底边覆盖层由 Compose 按中心槽缩放对齐，封面/倒影/切歌动画仍由 View 绘制。
+- 播放 / 暂停、封面流内布局：**不**随播放状态切换。
+- 系统「减少动态效果」→ `0ms` 瞬切（`MicaMotion`）。
+
+### 0.4 动效（`MicaMotion`）
+
+| 变化 | Token |
+|------|-------|
+| 进入 / 退出封面流布局 | Long `400ms` |
+| 切歌换位（平行） | Medium `320ms` |
+| 复古立体切歌 | Long `400ms`；沿连续中心索引，避免角度阶跃 |
+| 减少动态效果 | `0ms` |
+
+播放页通用约束：**先冻结布局 → 再算目标 → 单一 progress 驱动 lerp**（见 [`MOTION.md`](MOTION.md) §8.5）。
+
+### 0.5 视觉参数
+
+下表为**设计意图**；像素级间距 / 缩放以 [`CoverFlowRails.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverFlowRails.kt) 与本文 §7 为准。
+
+**平行封面带**
+
+| 元素 | 设计参考 |
+|------|----------|
+| 当前封面 | 约 `0.76` 缩放，直角、不旋转 |
+| 左右封面 | 同尺寸并排；外侧可降低 alpha |
+| 倒影 | 位图底部约 **28%** 条带翻转渐隐；非整屏玻璃舞台 |
+| 背景 | 复用现有播放页背景 |
+
+**复古立体**
+
+| 元素 | 设计参考 |
+|------|----------|
+| 当前封面 | 正面居中，较强主视觉 |
+| 两侧 | 透视 `rotationY`；位移/缩放见 `CoverFlowRails` |
+| 倒影 | 与封面同一变换栈（§5.3） |
+
+底边进度与频谱启用时，其轻量倒影与中心专辑图共用 `ReflectionHeightFraction`、`ReflectionAlpha` 和倒影间隙，仅向下绘制矩形/柱条渐隐，不创建位图、模糊或额外离屏图层。
+
+### 0.6 范围
+
+**已做**：播放页封面区；队列 ±3 轨；拖动 + 按钮切歌；平行 / 复古 × 各播放页背景。
+
+**未做**：专辑浏览页 Cover Flow；强拟物舞台 / 皮革金属主题。
 
 ---
 
@@ -31,6 +104,8 @@
 ### 为何从 Compose 迁出（简史）
 
 早期用 Compose `CoverFlowStage`（每槽 `SongCover` + 离屏倒影）+ Lane 环形池 + `CoverGestureCoordinator` 动画。问题在于：动画帧触发整树重组、`key(song.id)` 切歌重建、位移/缩放双轨不同步——表现为闪帧与跳变。现网已 **删除** 上述 Compose 热路径，改为单 View 绘制；旧方案文档已清理，**勿再引入第二套轨道状态机**。
+
+通用判据与决策清单见 [`MOTION.md`](MOTION.md) **§七**（Compose 与 AndroidView 岛分工）。
 
 ---
 
@@ -80,7 +155,7 @@ stripFraction ← 0
 
 1. `ACTION_DOWN` → `cancelAnimators()`，跟手改 `stripFraction`
 2. 步进：`stripFraction -= deltaPx / (coverWidthPx * laneStepFraction())`
-3. `ACTION_UP`：`stripFraction > 0.35` → `onPlayQueueIndex`；`< -0.35` → 上一首；否则 `animateStripTo(0)`
+3. `ACTION_UP`：`stripFraction > 0.2625` → `onPlayQueueIndex`；`< -0.2625` → 上一首；否则 `animateStripTo(0)`
 
 `laneStepFraction()`：平行用 `PauseFoldStep`，复古用 `RetroFirstStep`（与位移首格一致）。
 
@@ -245,7 +320,7 @@ flowchart TB
 
 ## 12. 文档维护
 
+- 改产品交互 / 设置项 → 更新本文 §0
 - 改热路径架构 → 更新本文 §2、§4
 - 改间距常量 → 更新本文 §7 表格 + `CoverFlowRails.kt` 注释
 - 新踩坑 → 追加 §8
-- 产品设计 / 交互文案 → 仍写 [`COVER_FLOW.md`](COVER_FLOW.md)

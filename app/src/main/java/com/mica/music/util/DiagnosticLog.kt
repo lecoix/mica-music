@@ -44,6 +44,7 @@ object DiagnosticLog {
                     .writeText("", Charsets.UTF_8)
             }
             event("App", "process started; ${deviceSummary(applicationContext)}")
+            AudioEnvironmentDiagnostics.logEnvironment(applicationContext, "install")
             recordPreviousExit(applicationContext)
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -108,6 +109,7 @@ object DiagnosticLog {
     }
 
     fun shareReport(context: Context): Boolean {
+        AudioEnvironmentDiagnostics.logEnvironment(context, "export")
         val report = synchronized(lock) {
             runCatching { buildReport(context.applicationContext) }.getOrNull()
         } ?: return false

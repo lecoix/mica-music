@@ -48,8 +48,9 @@ internal object CoverFlowReflectionBake {
 
     internal fun bake(cover: Bitmap, dstAspect: Float): Bitmap? {
         if (cover.width <= 0 || cover.height <= 0 || dstAspect <= 0f) return null
+        val source = softwareBitmap(cover)
         val crop = Rect()
-        centerCropSrc(cover.width, cover.height, dstAspect, crop)
+        centerCropSrc(source.width, source.height, dstAspect, crop)
         val cropW = crop.width()
         val cropH = crop.height()
         if (cropW <= 0 || cropH <= 0) return null
@@ -68,7 +69,7 @@ internal object CoverFlowReflectionBake {
         canvas.translate(0f, outH.toFloat())
         canvas.scale(1f, -1f)
         canvas.drawBitmap(
-            cover,
+            source,
             srcSlice,
             RectF(0f, 0f, outW.toFloat(), outH.toFloat()),
             paint,
@@ -94,6 +95,12 @@ internal object CoverFlowReflectionBake {
         }
         canvas.drawRect(0f, 0f, outW.toFloat(), outH.toFloat(), gradientPaint)
         return out
+    }
+
+    /** Coil 在部分机型返回 [Bitmap.Config.HARDWARE]，不能直接画进软件 [Canvas]。 */
+    private fun softwareBitmap(source: Bitmap): Bitmap {
+        if (source.config != Bitmap.Config.HARDWARE) return source
+        return source.copy(Bitmap.Config.ARGB_8888, false) ?: source
     }
 
     private fun cacheKey(uri: String, dstAspect: Float): String {

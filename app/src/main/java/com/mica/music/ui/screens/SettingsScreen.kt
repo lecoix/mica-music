@@ -253,8 +253,8 @@ fun SettingsScreen(
                 subtitle = when (uiSettings.playerLowerBackground) {
                     PlayerLowerBackgroundMode.THEME,
                     PlayerLowerBackgroundMode.COVER_GLOW,
-                    -> "在封面下缘显示细进度条，并隐藏下方时间与常规进度条"
-                    else -> "仅「主题色」「封面模糊」下生效；当前背景下仍使用常规进度条"
+                    -> "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
+                    else -> "标准主题仅「主题色」「封面模糊」下生效；特殊主题仍可在普通与底边布局间切换"
                 },
                 checked = uiSettings.coverEdgeProgress,
                 onCheckedChange = { uiSettings.updateCoverEdgeProgress(it) },
@@ -262,7 +262,7 @@ fun SettingsScreen(
 
             SettingsToggleRow(
                 title = "频谱条",
-                subtitle = "在播放页进度条上方显示随音乐跳动的频段条",
+                subtitle = "显示随音乐跳动的频段条；位置跟随当前进度条布局",
                 checked = uiSettings.spectrumEnabled,
                 onCheckedChange = { uiSettings.updateSpectrumEnabled(it) },
             )

@@ -4,6 +4,10 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
+import android.os.SystemClock
+import com.mica.music.util.BluetoothAudioDiagnostics
+import com.mica.music.util.DecodePerformance
+import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,6 +51,7 @@ internal class AlacPcmPlayer(
     private var currentVolume = 1f
 
     private var sampleRateHz = 44_100
+    private var activeFormat: AlacPcmFormat? = null
     private val framesSubmitted = AtomicLong(0L)
 
     fun play(
@@ -59,7 +64,7 @@ internal class AlacPcmPlayer(
         autoStart: Boolean = true,
         producerAlive: (() -> Boolean)? = null,
     ) {
-        stop()
+        cancelJobs()
         framesSubmitted.set(0L)
         paused = !autoStart
         val channelMask = if (format.channelCount == 1) {
@@ -81,35 +86,79 @@ internal class AlacPcmPlayer(
         }
 
         val bufferBytes = minBuf * 4
-        val track = runCatching {
-            AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
+        val existing = audioTrack
+        val reuseTrack = existing != null &&
+            activeFormat == format &&
+            existing.state == AudioTrack.STATE_INITIALIZED
+        val track = if (reuseTrack) {
+            val reuseStartedNs = SystemClock.elapsedRealtimeNanos()
+            TrackSwitchPerformance.mark(
+                "audio-track-reuse",
+                "${format.bitsPerSample}bit/${sampleRate}Hz ch=${format.channelCount}",
+            )
+            runCatching {
+                existing.pause()
+                existing.flush()
+            }
+            DecodePerformance.currentSongId()?.let { songId ->
+                DecodePerformance.mark(
+                    stage = "decode-audio-track",
+                    songId = songId,
+                    durationMs = (SystemClock.elapsedRealtimeNanos() - reuseStartedNs) / 1_000_000.0,
+                    details = "reuse=true ${format.bitsPerSample}bit/${sampleRate}Hz ch=${format.channelCount}",
                 )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(sampleRate)
-                        .setEncoding(encoding)
-                        .setChannelMask(channelMask)
-                        .build(),
+            }
+            existing
+        } else {
+            releaseTrack()
+            val createStartedNs = SystemClock.elapsedRealtimeNanos()
+            val created = runCatching {
+                AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build(),
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setSampleRate(sampleRate)
+                            .setEncoding(encoding)
+                            .setChannelMask(channelMask)
+                            .build(),
+                    )
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setBufferSizeInBytes(bufferBytes)
+                    .build()
+            }.getOrElse {
+                listener.onError("无法创建 AudioTrack (${format.bitsPerSample}bit/${sampleRate}Hz)")
+                return
+            }
+            if (created.state != AudioTrack.STATE_INITIALIZED) {
+                runCatching { created.release() }
+                listener.onError("AudioTrack 初始化失败 (${format.bitsPerSample}bit/${sampleRate}Hz)")
+                return
+            }
+            TrackSwitchPerformance.mark(
+                "audio-track-create",
+                "${format.bitsPerSample}bit/${sampleRate}Hz ch=${format.channelCount}",
+            )
+            DecodePerformance.currentSongId()?.let { songId ->
+                DecodePerformance.mark(
+                    stage = "decode-audio-track",
+                    songId = songId,
+                    durationMs = (SystemClock.elapsedRealtimeNanos() - createStartedNs) / 1_000_000.0,
+                    details = "reuse=false ${format.bitsPerSample}bit/${sampleRate}Hz ch=${format.channelCount}",
                 )
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(bufferBytes)
-                .build()
-        }.getOrElse {
-            listener.onError("无法创建 AudioTrack (${format.bitsPerSample}bit/${sampleRate}Hz)")
-            return
+            }
+            created
         }
-        if (track.state != AudioTrack.STATE_INITIALIZED) {
-            runCatching { track.release() }
-            listener.onError("AudioTrack 初始化失败 (${format.bitsPerSample}bit/${sampleRate}Hz)")
-            return
-        }
-
+        activeFormat = format
         audioTrack = track
+        BluetoothAudioDiagnostics.logPlaybackRoute(
+            reason = if (reuseTrack) "audio-track-reuse" else "audio-track-create",
+            extra = "session=${track.audioSessionId}",
+        )
         track.setVolume(currentVolume)
         AlacPlaybackCoordinator.appContext?.let { ctx ->
             MicaEqualizerManager.attach(ctx, track.audioSessionId)
@@ -273,13 +322,23 @@ internal class AlacPcmPlayer(
     }
 
     fun stop() {
+        cancelJobs()
+        releaseTrack()
+        paused = false
+    }
+
+    private fun cancelJobs() {
         writeJob?.cancel()
         writeJob = null
         progressJob?.cancel()
         progressJob = null
         framesSubmitted.set(0L)
+    }
+
+    private fun releaseTrack() {
         val track = audioTrack
         audioTrack = null
+        activeFormat = null
         if (track != null) {
             scope.launch(Dispatchers.IO) {
                 runCatching {
@@ -290,6 +349,5 @@ internal class AlacPcmPlayer(
                 }
             }
         }
-        paused = false
     }
 }

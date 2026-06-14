@@ -3,7 +3,7 @@ package com.mica.music.ui.components
 import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -16,6 +16,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.media.MicaSpectrumAnalyzer
@@ -34,6 +35,9 @@ fun LivePlayerSpectrumStrip(
     modifier: Modifier = Modifier,
     height: Dp = 56.dp,
     alpha: Float = 1f,
+    reflectionHeight: Dp = 0.dp,
+    reflectionGap: Dp = 0.dp,
+    reflectionAlpha: Float = 0.24f,
 ) {
     if (!enabled || alpha <= 0.01f) return
     val liveLevels by MicaSpectrumAnalyzer.levels.collectAsState()
@@ -44,6 +48,9 @@ fun LivePlayerSpectrumStrip(
         modifier = modifier,
         height = height,
         alpha = alpha,
+        reflectionHeight = reflectionHeight,
+        reflectionGap = reflectionGap,
+        reflectionAlpha = reflectionAlpha,
     )
 }
 
@@ -54,6 +61,9 @@ fun PlayerSpectrumStrip(
     modifier: Modifier = Modifier,
     height: Dp = 56.dp,
     alpha: Float = 1f,
+    reflectionHeight: Dp = 0.dp,
+    reflectionGap: Dp = 0.dp,
+    reflectionAlpha: Float = 0.24f,
 ) {
     val baseAlpha = alpha.coerceIn(0f, 1f)
     val targetLevels by rememberUpdatedState(levels)
@@ -109,13 +119,27 @@ fun PlayerSpectrumStrip(
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(height),
+            .requiredHeight(height),
     ) {
         @Suppress("UNUSED_VARIABLE")
         val tick = frameTick
         val count = displayLevels.size.coerceAtLeast(1)
         val barWidth = 2.dp.toPx()
         val gap = (size.width - barWidth * count) / (count - 1).coerceAtLeast(1).toFloat()
+        val reflectionHeightPx = reflectionHeight.toPx().coerceAtLeast(0f)
+        val reflectionTop = size.height + reflectionGap.toPx()
+        val reflectionBrush = if (reflectionHeightPx > 0f) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    colors.primary.copy(alpha = baseAlpha * reflectionAlpha),
+                    colors.primary.copy(alpha = 0f),
+                ),
+                startY = reflectionTop,
+                endY = reflectionTop + reflectionHeightPx,
+            )
+        } else {
+            null
+        }
         displayLevels.forEachIndexed { index, raw ->
             val level = sqrt(raw.coerceIn(0f, 1f))
             if (level < 0.001f) return@forEachIndexed
@@ -129,6 +153,14 @@ fun PlayerSpectrumStrip(
                 topLeft = Offset(x, y),
                 size = Size(barWidth, barHeight),
             )
+            if (reflectionBrush != null) {
+                drawRect(
+                    brush = reflectionBrush,
+                    topLeft = Offset(x, reflectionTop),
+                    size = Size(barWidth, minOf(barHeight, reflectionHeightPx)),
+                    alpha = barAlpha / baseAlpha.coerceAtLeast(0.001f),
+                )
+            }
         }
     }
 }

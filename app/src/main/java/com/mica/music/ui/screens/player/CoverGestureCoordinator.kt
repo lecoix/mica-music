@@ -7,9 +7,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.mica.music.util.TrackSwitchPerformance
 
 internal const val CoverFlowDragCommitFraction = 0.2625f
-private const val DragCommitFraction = 0.35f
+internal const val StandardDragCommitFraction = CoverFlowDragCommitFraction * 0.5f
 private const val StandardSwipeMaxFraction = 0.15f
 
 @Stable
@@ -28,7 +29,9 @@ class CoverGestureHandlers internal constructor(
     private val onPrevious: () -> Unit,
     private val onNext: () -> Unit,
 ) {
-    fun onDragStart() = Unit
+    fun onDragStart() {
+        TrackSwitchPerformance.mark("standard-swipe-start")
+    }
 
     fun onHorizontalDrag(deltaPx: Float) {
         if (!gesturesEnabled() || !standardMode()) return
@@ -46,15 +49,22 @@ class CoverGestureHandlers internal constructor(
         if (!gesturesEnabled() || !standardMode()) return
         val swipe = standardSwipeFraction()
         when {
-            swipe > DragCommitFraction * 0.5f -> {
+            swipe > StandardDragCommitFraction -> {
+                TrackSwitchPerformance.armTrigger("standard-swipe-prev")
+                TrackSwitchPerformance.mark("standard-swipe-commit", "fraction=${"%.3f".format(swipe)} dir=prev")
                 setStandardSwipeFraction(0f)
                 onPrevious()
             }
-            swipe < -DragCommitFraction * 0.5f -> {
+            swipe < -StandardDragCommitFraction -> {
+                TrackSwitchPerformance.armTrigger("standard-swipe-next")
+                TrackSwitchPerformance.mark("standard-swipe-commit", "fraction=${"%.3f".format(swipe)} dir=next")
                 setStandardSwipeFraction(0f)
                 onNext()
             }
-            else -> setStandardSwipeFraction(0f)
+            else -> {
+                TrackSwitchPerformance.mark("standard-swipe-cancel", "fraction=${"%.3f".format(swipe)}")
+                setStandardSwipeFraction(0f)
+            }
         }
     }
 }

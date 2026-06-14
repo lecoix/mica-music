@@ -38,6 +38,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sleepTimer.cancel()
         playerController.persistPlaybackSessionNow()
         playerController.release()
+        library.release()
         super.onCleared()
     }
 }

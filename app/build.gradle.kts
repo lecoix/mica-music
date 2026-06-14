@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.roborazzi)
 }
 
 // assets 里的 ffmpeg → jniLibs（lib*.so），安装后位于 nativeLibraryDir 才可 exec
@@ -23,12 +24,17 @@ android {
         applicationId = "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.1.3"
+        versionCode = 7
+        versionName = "0.1.7-diag5"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")
         }
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.isReturnDefaultValues = true
     }
 
     sourceSets {
@@ -81,6 +87,14 @@ android {
     }
 }
 
+ksp {
+    arg("room.schemaLocation", file("schemas").absolutePath)
+}
+
+roborazzi {
+    outputDir.set(file("src/test/snapshots"))
+}
+
 configurations.configureEach {
     resolutionStrategy.force(
         "androidx.activity:activity:1.9.2",
@@ -121,8 +135,20 @@ dependencies {
     implementation(libs.blurview)
 
     debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
 }
 
 tasks.named("preBuild") {
@@ -140,4 +166,48 @@ tasks.named("preBuild") {
             )
         }
     }
+}
+
+tasks.register("micaCheck") {
+    group = "verification"
+    description = "Runs Mica's compile, lint, JVM/Robolectric, and screenshot regression gates."
+    dependsOn(
+        "compileDebugKotlin",
+        "lintDebug",
+        "testDebugUnitTest",
+        "verifyRoborazziDebug",
+    )
+}
+
+tasks.register("micaScreenshotFull") {
+    group = "verification"
+    description = "Runs the complete Roborazzi screenshot regression matrix."
+    dependsOn("verifyRoborazziDebug")
+}
+
+tasks.register("micaRecordScreenshotFull") {
+    group = "verification"
+    description = "Records the complete Roborazzi screenshot regression matrix."
+    dependsOn("recordRoborazziDebug")
+}
+
+val nightlyRequested = gradle.startParameter.taskNames.any {
+    it.substringAfterLast(':') == "micaNightlyCheck"
+}
+val fullScreenshotsRequested = nightlyRequested || gradle.startParameter.taskNames.any {
+    it.substringAfterLast(':') in setOf("micaScreenshotFull", "micaRecordScreenshotFull")
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    systemProperty("mica.nightly", nightlyRequested.toString())
+    systemProperty("mica.fullScreenshots", fullScreenshotsRequested.toString())
+}
+
+tasks.register("micaNightlyCheck") {
+    group = "verification"
+    description = "Runs compile, lint, all JVM/Robolectric tests, full screenshots, and nightly fuzzing."
+    dependsOn(
+        "micaCheck",
+        "micaScreenshotFull",
+    )
 }

@@ -54,6 +54,7 @@ import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
@@ -63,6 +64,7 @@ import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.artworkEdgeFadeStops
+import com.mica.music.util.TrackSwitchPerformance
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -87,6 +89,7 @@ internal fun NowPlayingCoverSection(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onCoverLongPress: (() -> Unit)?,
+    onCoverMotionActiveChanged: (Boolean) -> Unit,
     screenWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -99,7 +102,8 @@ internal fun NowPlayingCoverSection(
     val coverHeightPx = with(density) { cover.height.toPx() }
     val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
     val reflectionGapPx = with(density) { HifiSpacing.sm.toPx() }
-    val reflectionExtraDp = cover.height * 0.28f + HifiSpacing.sm + 4.dp
+    val reflectionExtraDp =
+        cover.height * CoverFlowMath.ReflectionHeightFraction + HifiSpacing.sm + 4.dp
     val coverFlowReflection = frame.coverFlowStageActive &&
         (coverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
             coverFlowMode == PlayerCoverFlowMode.RETRO_3D)
@@ -119,6 +123,14 @@ internal fun NowPlayingCoverSection(
         onPrevious = onPrevious,
         onNext = onNext,
     )
+
+    LaunchedEffect(song.id, standardMode, frame.coverFlowStageActive) {
+        if (frame.coverFlowStageActive) return@LaunchedEffect
+        TrackSwitchPerformance.mark(
+            "standard-cover-transition",
+            "song=${song.id.takeLast(12)} swipeMode=$standardMode",
+        )
+    }
 
     LaunchedEffect(frame.coverFlowStageActive, currentIndex, queue) {
         if (!frame.coverFlowStageActive) return@LaunchedEffect
@@ -177,6 +189,7 @@ internal fun NowPlayingCoverSection(
                     onNext = onNext,
                     onCoverLongPress = onCoverLongPress,
                     onAspectRatioChanged = onCoverAspectRatioChanged,
+                    onMotionActiveChanged = onCoverMotionActiveChanged,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(coverBoxHeight)
@@ -197,6 +210,31 @@ internal fun NowPlayingCoverSection(
                             )
                         },
                 )
+                if (frame.lower.coverEdgeOnPlaySurface) {
+                    val centerScale = CoverFlowMath.centerScale(
+                        mode = coverFlowMode,
+                        foldProgress = frame.coverFlowProgress,
+                    )
+                    val centerCoverWidth = cover.width * centerScale
+                    val centerCoverHeight = cover.height * centerScale
+                    CoverEdgePlaybackOverlay(
+                        seekState = seekState,
+                        spectrumEnabled = frame.spectrumEnabled,
+                        isPlaying = isPlaying,
+                        contentColors = contentColors,
+                        alpha = (1f - frame.lower.chromeProgressAlpha) * coverContentAlpha,
+                        reflectionHeight =
+                            centerCoverHeight * CoverFlowMath.ReflectionHeightFraction,
+                        reflectionGap = HifiSpacing.sm * centerScale,
+                        modifier = Modifier
+                            .padding(
+                                start = cover.startPadding + (cover.width - centerCoverWidth) / 2,
+                                top = cover.topPadding + (cover.height - centerCoverHeight) / 2,
+                            )
+                            .size(centerCoverWidth, centerCoverHeight)
+                            .zIndex(2f),
+                    )
+                }
                 if (lyricsExpanded) {
                     Box(
                         modifier = Modifier
@@ -241,17 +279,17 @@ internal fun NowPlayingCoverSection(
                         .zIndex(1f),
                 ) {
                     AnimatedContent(
-                        targetState = song.id,
+                        targetState = song,
                         transitionSpec = {
                             fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)) togetherWith
                                 fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs))
                         },
                         label = "standardCover",
-                    ) { _ ->
+                    ) { animatedSong ->
                         SongCover(
-                            albumArtUri = song.albumArtUri,
+                            albumArtUri = animatedSong.albumArtUri,
                             fallbackColor = coverColor,
-                            contentDescription = song.album,
+                            contentDescription = animatedSong.album,
                             modifier = Modifier.matchParentSize(),
                             letterboxAlpha = cover.letterboxAlpha,
                             crossfadeMillis = if (motionEnabled) 200 else 0,
@@ -268,27 +306,15 @@ internal fun NowPlayingCoverSection(
                         }
                     }
                     if (frame.lower.coverEdgeOnPlaySurface) {
-                        val coverEdgeProgressAlpha = 1f - frame.lower.lyricsChromeFade
-                        if (coverEdgeProgressAlpha > 0.01f) {
-                            LivePlayerSpectrumStrip(
-                                enabled = frame.spectrumEnabled,
-                                isPlaying = isPlaying,
-                                colors = contentColors,
-                                height = 72.dp,
-                                alpha = coverEdgeProgressAlpha,
-                                modifier = Modifier.align(Alignment.BottomCenter),
-                            )
-                            CoverEdgeProgressBar(
-                                value = seekState.sliderValue,
-                                onValueChange = seekState.onValueChange,
-                                onValueChangeFinished = seekState.onValueChangeFinished,
-                                valueRange = seekState.valueRange,
-                                progressColor = contentColors.primary,
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .graphicsLayer { alpha = coverEdgeProgressAlpha },
-                            )
-                        }
+                        val coverEdgeProgressAlpha = 1f - frame.lower.chromeProgressAlpha
+                        CoverEdgePlaybackOverlay(
+                            seekState = seekState,
+                            spectrumEnabled = frame.spectrumEnabled,
+                            isPlaying = isPlaying,
+                            contentColors = contentColors,
+                            alpha = coverEdgeProgressAlpha,
+                            modifier = Modifier.matchParentSize(),
+                        )
                     }
                 }
             }
@@ -307,6 +333,48 @@ internal fun NowPlayingCoverSection(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CoverEdgePlaybackOverlay(
+    seekState: PlaybackSeekState,
+    spectrumEnabled: Boolean,
+    isPlaying: Boolean,
+    contentColors: PlayerContentColors,
+    alpha: Float,
+    reflectionHeight: Dp = 0.dp,
+    reflectionGap: Dp = 0.dp,
+    modifier: Modifier = Modifier,
+) {
+    val overlayAlpha = alpha.coerceIn(0f, 1f)
+    if (overlayAlpha <= 0.01f) return
+    val progressReflectionHeight = minOf(reflectionHeight, 12.dp)
+    Box(modifier = modifier) {
+        LivePlayerSpectrumStrip(
+            enabled = spectrumEnabled,
+            isPlaying = isPlaying,
+            colors = contentColors,
+            height = 72.dp,
+            alpha = overlayAlpha,
+            reflectionHeight = reflectionHeight,
+            reflectionGap = reflectionGap,
+            reflectionAlpha = CoverFlowMath.ReflectionAlpha,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+        CoverEdgeProgressBar(
+            value = seekState.sliderValue,
+            onValueChange = seekState.onValueChange,
+            onValueChangeFinished = seekState.onValueChangeFinished,
+            valueRange = seekState.valueRange,
+            progressColor = contentColors.primary,
+            reflectionHeight = progressReflectionHeight,
+            reflectionGap = reflectionGap,
+            reflectionAlpha = CoverFlowMath.ReflectionAlpha,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .graphicsLayer { this.alpha = overlayAlpha },
+        )
     }
 }
 

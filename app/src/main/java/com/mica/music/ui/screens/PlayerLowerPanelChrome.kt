@@ -3,7 +3,6 @@ package com.mica.music.ui.screens
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -55,81 +54,59 @@ internal fun PlayerLowerPanelChrome(
             .fillMaxWidth()
             .height(lower.chromeHeight)
             .then(
-                if (lower.coverEdgeOnPlaySurface) Modifier.clipToBounds() else Modifier,
+                if (lower.coverEdgeOnPlaySurface && !lower.showChromeProgressInTransition) {
+                    Modifier.clipToBounds()
+                } else {
+                    Modifier
+                },
             )
             .graphicsLayer { alpha = 1f - lower.immersiveProgress },
     ) {
-        if (lower.coverEdgeOnPlaySurface) {
-            if (lower.showChromeProgressInTransition) {
+        if (lower.showStandardProgress) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer {
+                        alpha = if (lower.showChromeProgressInTransition) {
+                            lower.chromeProgressAlpha
+                        } else {
+                            1f
+                        }
+                        translationY = if (lower.showChromeProgressInTransition) {
+                            transitionProgressSlidePx
+                        } else {
+                            0f
+                        }
+                    },
+            ) {
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .align(Alignment.TopCenter)
-                        .graphicsLayer {
-                            alpha = lower.chromeProgressAlpha
-                            translationY = transitionProgressSlidePx
-                        },
+                        .padding(horizontal = HifiSpacing.lg),
                 ) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = HifiSpacing.lg),
-                    ) {
-                        PlayerProgressBarSection(
-                            seekState = seekState,
-                            colors = colors,
-                            spectrumEnabled = spectrumEnabled,
-                            spectrumPlaying = surfaceState.isPlaying,
-                            spectrumAlpha = spectrumAlpha,
-                            spectrumHeight = 56.dp,
-                        )
-                        Spacer(Modifier.height(lower.spacing.afterProgress))
-                    }
+                    PlayerProgressBarSection(
+                        seekState = seekState,
+                        colors = colors,
+                        spectrumEnabled = spectrumEnabled,
+                        spectrumPlaying = surfaceState.isPlaying,
+                        spectrumAlpha = spectrumAlpha,
+                        spectrumHeight = 56.dp,
+                    )
+                    Spacer(Modifier.height(lower.spacing.afterProgress))
                 }
-            }
-            PlayerPlaybackControlsSection(
-                surfaceState = surfaceState,
-                colors = colors,
-                onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
-                onPrevious = onPrevious,
-                onTogglePlay = onTogglePlay,
-                onNext = onNext,
-                onOpenEqualizer = onOpenEqualizer,
-                onOpenQueue = onOpenQueue,
-                modifier = controlsModifier.align(Alignment.BottomCenter),
-            )
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                if (lower.showStandardProgress) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = HifiSpacing.lg),
-                    ) {
-                        PlayerProgressBarSection(
-                            seekState = seekState,
-                            colors = colors,
-                            spectrumEnabled = spectrumEnabled,
-                            spectrumPlaying = surfaceState.isPlaying,
-                            spectrumAlpha = spectrumAlpha,
-                            spectrumHeight = 56.dp,
-                        )
-                        Spacer(Modifier.height(lower.spacing.afterProgress))
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                PlayerPlaybackControlsSection(
-                    surfaceState = surfaceState,
-                    colors = colors,
-                    onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
-                    onPrevious = onPrevious,
-                    onTogglePlay = onTogglePlay,
-                    onNext = onNext,
-                    onOpenEqualizer = onOpenEqualizer,
-                    onOpenQueue = onOpenQueue,
-                    modifier = controlsModifier,
-                )
             }
         }
+        PlayerPlaybackControlsSection(
+            surfaceState = surfaceState,
+            colors = colors,
+            onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+            onPrevious = onPrevious,
+            onTogglePlay = onTogglePlay,
+            onNext = onNext,
+            onOpenEqualizer = onOpenEqualizer,
+            onOpenQueue = onOpenQueue,
+            modifier = controlsModifier.align(Alignment.BottomCenter),
+        )
     }
 }

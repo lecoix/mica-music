@@ -10,6 +10,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -21,9 +25,14 @@ fun SharpPlayPauseButton(
     size: Dp = 40.dp,
     color: Color = Color.White,
 ) {
+    val touchSize = maxOf(size, 48.dp)
     Box(
         modifier = modifier
-            .size(size)
+            .size(touchSize)
+            .semantics {
+                contentDescription = if (isPlaying) "暂停" else "播放"
+                role = Role.Button
+            }
             .clickable(onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {

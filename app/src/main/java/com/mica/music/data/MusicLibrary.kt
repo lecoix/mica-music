@@ -2,32 +2,50 @@ package com.mica.music.data
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
-import com.mica.music.data.local.LibraryRepository
-import com.mica.music.data.scanner.FolderScanner
-import com.mica.music.data.scanner.MediaStoreScanner
-import com.mica.music.data.scanner.ScanCacheManager
+import com.mica.music.data.scanner.ScanResult
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class MusicLibrary(private val context: Context) {
+class MusicLibrary internal constructor(
+    private val context: Context,
+    private val libraryScanner: LibraryScanner,
+    private val libraryStore: LibraryStore,
+    private val scanEnvironment: ScanEnvironment,
+    mainDispatcher: CoroutineDispatcher,
+    ioDispatcher: CoroutineDispatcher,
+) {
+    constructor(context: Context) : this(
+        context = context,
+        libraryScanner = AndroidLibraryScanner(context),
+        libraryStore = RoomLibraryStore(context),
+        scanEnvironment = AndroidScanEnvironment(context),
+        mainDispatcher = Dispatchers.Main.immediate,
+        ioDispatcher = Dispatchers.IO,
+    )
 
-    private val libraryRepository = LibraryRepository(context)
-    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ioDispatcher = ioDispatcher
+    private val ioScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    private val scanScope = CoroutineScope(SupervisorJob() + mainDispatcher)
     private var scanJob: Job? = null
+    private var scanGeneration = 0
+    private var released = false
+    private val storeSyncMutex = Mutex()
 
     var songs by mutableStateOf<List<Song>>(emptyList())
         private set
@@ -105,7 +123,7 @@ class MusicLibrary(private val context: Context) {
         val source = lastScanSource
         val sizeMb = totalSizeMb
         ioScope.launch {
-            libraryRepository.save(snapshot, scanAt, source, sizeMb)
+            libraryStore.save(snapshot, scanAt, source, sizeMb)
         }
     }
 
@@ -211,8 +229,7 @@ class MusicLibrary(private val context: Context) {
         }
 
     fun hasAudioReadPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, audioReadPermission()) ==
-            PackageManager.PERMISSION_GRANTED
+        scanEnvironment.hasAudioReadPermission()
 
     fun clearLibrary() {
         songs = emptyList()
@@ -223,15 +240,16 @@ class MusicLibrary(private val context: Context) {
         lastScanError = null
         scanProgressLabel = null
         isScanning = false
-        ioScope.launch { libraryRepository.clear() }
+        ioScope.launch { libraryStore.clear() }
     }
 
     /** 启动时从 Room 恢复上次扫描结果，避免每次冷启动都要重扫。 */
     suspend fun loadCachedLibrary() {
-        if (hasScanned || isScanning) return
-        val cached = withContext(Dispatchers.IO) { libraryRepository.loadCached() } ?: return
+        if (released || hasScanned || isScanning) return
+        val cached = withContext(ioDispatcher) { libraryStore.loadCached() } ?: return
+        if (released) return
         reloadSortFromPrefs()
-        scannedSongs = cached.songs.map { song -> song.withPlayStats(context) }
+        scannedSongs = cached.songs.map { song -> song.withPlayStats() }
         applyCurrentSort()
         totalSizeMb = cached.totalSizeMb
         lastScanAtMs = cached.lastScanAtMs
@@ -256,47 +274,40 @@ class MusicLibrary(private val context: Context) {
     suspend fun scan() = rescan()
 
     /**
-     * 在 [ioScope] 中扫描，不随界面切换（Compose scope 销毁）而取消。
+     * 扫描器内部切到 IO；状态编排保留在主线程，避免跨线程写 Compose State。
      */
     fun launchRescan() {
-        if (isScanning) return
         scanJob?.cancel()
-        scanJob = ioScope.launch { rescan() }
+        scanJob = scanScope.launch { rescan() }
     }
 
     fun launchScanDeviceWide() {
-        if (isScanning) return
         scanJob?.cancel()
-        scanJob = ioScope.launch { scanDeviceWide() }
+        scanJob = scanScope.launch { scanDeviceWide() }
     }
 
     fun launchScanLibraryFolder() {
-        if (isScanning) return
         scanJob?.cancel()
-        scanJob = ioScope.launch { scanLibraryFolder() }
+        scanJob = scanScope.launch { scanLibraryFolder() }
     }
 
     suspend fun scanDeviceWide() {
         if (!hasAudioReadPermission()) return
-        if (isScanning) return
         performScan(ScanSource.DEVICE) { onProgress, cachedSongs ->
-            val options = AppPreferences.scanOptions(context)
-            MediaStoreScanner.scan(context, options, cachedSongs, onProgress)
+            libraryScanner.scanDevice(cachedSongs, onProgress)
         }
     }
 
     suspend fun scanLibraryFolder() {
         val uriString = libraryFolderUri ?: return
         val treeUri = uriString.toUri()
-        if (!LibraryFolderStore.canReadTree(context, treeUri)) {
+        if (!scanEnvironment.canReadTree(treeUri)) {
             lastScanError = "无法访问所选文件夹，请重新选择"
             hasScanned = true
             return
         }
-        if (isScanning) return
         performScan(ScanSource.FOLDER) { onProgress, cachedSongs ->
-            val options = AppPreferences.scanOptions(context)
-            FolderScanner.scan(context, treeUri, options, cachedSongs, onProgress)
+            libraryScanner.scanFolder(treeUri, cachedSongs, onProgress)
         }
     }
 
@@ -305,68 +316,96 @@ class MusicLibrary(private val context: Context) {
         block: suspend (
             onProgress: (Int, Int) -> Unit,
             cachedSongs: List<Song>,
-        ) -> com.mica.music.data.scanner.ScanResult,
+        ) -> ScanResult,
     ) {
+        if (released) return
+        val generation = ++scanGeneration
         isScanning = true
         lastScanError = null
         scanProgressLabel = "正在读取歌曲列表…"
-        ScanCacheManager.clearTransientScanCache(context)
+        scanEnvironment.clearTransientCache()
         try {
             val cachedSongs = if (scannedSongs.isNotEmpty()) {
                 scannedSongs
             } else {
-                withContext(Dispatchers.IO) {
-                    libraryRepository.loadCached()?.songs.orEmpty()
+                withContext(ioDispatcher) {
+                    libraryStore.loadCached()?.songs.orEmpty()
                 }
             }
             val result = block(
                 { done, total ->
-                    scanProgressLabel = "正在分析音质、封面与歌词 ($done/$total)"
+                    if (isActiveGeneration(generation)) {
+                        scanProgressLabel = "正在分析音质、封面与歌词 ($done/$total)"
+                    }
                 },
                 cachedSongs,
             )
+            if (!isActiveGeneration(generation)) return
             totalSizeMb = result.totalSizeMb
             hasScanned = true
-            lastScanAtMs = System.currentTimeMillis()
+            lastScanAtMs = scanEnvironment.currentTimeMillis()
             lastScanSource = source
-            AppPreferences.setLastScanSource(context, source)
-            publishSongs(result.songs)
+            scanEnvironment.persistLastScanSource(source)
+            publishSongs(result.songs, generation)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (!isActiveGeneration(generation)) return
             hasScanned = true
             lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
         } finally {
-            isScanning = false
-            scanProgressLabel = null
+            if (isActiveGeneration(generation)) {
+                isScanning = false
+                scanProgressLabel = null
+            }
         }
     }
 
-    private suspend fun publishSongs(raw: List<Song>) {
-        scannedSongs = raw.map { song -> song.withPlayStats(context) }
+    private suspend fun publishSongs(raw: List<Song>, generation: Int) {
+        if (!isActiveGeneration(generation)) return
+        scannedSongs = raw.map { song -> song.withPlayStats() }
         applyCurrentSort()
         val scanAt = lastScanAtMs ?: return
-        val sync = withContext(Dispatchers.IO) {
-            libraryRepository.syncIncremental(
-                songs = songs,
-                lastScanAtMs = scanAt,
-                lastScanSource = lastScanSource,
-                totalSizeMb = totalSizeMb,
-            )
+        val sync = storeSyncMutex.withLock {
+            if (!isActiveGeneration(generation)) return
+            withContext(ioDispatcher) {
+                libraryStore.syncIncremental(
+                    songs = songs,
+                    lastScanAtMs = scanAt,
+                    lastScanSource = lastScanSource,
+                    totalSizeMb = totalSizeMb,
+                )
+            }
         }
-        lastScanSyncSummary = sync.toSummary()
+        if (isActiveGeneration(generation)) {
+            lastScanSyncSummary = sync.toSummary()
+        }
     }
 
     fun clearScanSyncSummary() {
         lastScanSyncSummary = null
     }
 
-    private fun Song.withPlayStats(ctx: Context): Song {
-        val stats = PlayHistoryStore.getStats(ctx, id)
+    fun release() {
+        released = true
+        scanGeneration++
+        scanJob?.cancel()
+        scanJob = null
+        isScanning = false
+        scanProgressLabel = null
+        scanScope.cancel()
+        ioScope.cancel()
+    }
+
+    private fun Song.withPlayStats(): Song {
+        val stats = scanEnvironment.playStats(id)
         return copy(
             playCount = stats.count,
             lastPlayedAtMs = stats.lastPlayedAtMs,
             artist = ArtistNames.normalizeDisplay(artist),
         )
     }
+
+    private fun isActiveGeneration(generation: Int): Boolean =
+        !released && generation == scanGeneration
 }

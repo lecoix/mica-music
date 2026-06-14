@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [SongEntity::class, LibraryMetaEntity::class],
     version = 2,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
 

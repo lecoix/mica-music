@@ -2,6 +2,7 @@ package com.mica.music.media
 
 import android.content.Context
 import android.media.audiofx.Equalizer
+import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.AppPreferences
 import com.mica.music.data.EqCustomProfile
 import com.mica.music.data.EqCustomProfileStore
@@ -14,6 +15,7 @@ import com.mica.music.media.eq.SoftwareEqualizerAudioProcessor
 /**
  * 均衡器管理：10 段软件 EQ 负责实际音频处理；系统 [Equalizer] 仅用于读取预设名称/曲线。
  */
+@UnstableApi
 object MicaEqualizerManager {
 
     private val softwareEqualizer = SoftwareEqualizer()

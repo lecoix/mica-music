@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +49,30 @@ import com.mica.music.ui.theme.AnimatedMicaAppBackground
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import eightbitlab.com.blurview.BlurTarget
+
+@Composable
+internal fun MainAppSurface(
+    snackbarHost: @Composable () -> Unit,
+    background: @Composable () -> Unit = {
+        AnimatedMicaAppBackground(Modifier.fillMaxSize())
+    },
+    content: @Composable () -> Unit,
+) {
+    @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets.navigationBars,
+        snackbarHost = snackbarHost,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            background()
+            Box(Modifier.fillMaxSize()) {
+                content()
+            }
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -199,10 +224,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = Color.Transparent,
-                    contentWindowInsets = WindowInsets.navigationBars,
+                MainAppSurface(
                     snackbarHost = {
                         UserMessageHost(
                             playerController = playerController,
@@ -210,17 +232,12 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                 ) {
-                    Box(Modifier.fillMaxSize()) {
-                        AnimatedMicaAppBackground(Modifier.fillMaxSize())
-                        Box(Modifier.fillMaxSize()) {
-                            AppNavigationMain(
-                                coordinator = coordinator,
-                                library = library,
-                                playerController = playerController,
-                                uiSettings = uiSettings,
-                            )
-                        }
-                    }
+                    AppNavigationMain(
+                        coordinator = coordinator,
+                        library = library,
+                        playerController = playerController,
+                        uiSettings = uiSettings,
+                    )
                 }
             }
         }

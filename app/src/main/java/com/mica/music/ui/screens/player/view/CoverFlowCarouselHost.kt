@@ -31,6 +31,7 @@ internal fun CoverFlowCarouselHost(
     onNext: () -> Unit,
     onCoverLongPress: (() -> Unit)?,
     onAspectRatioChanged: (Float) -> Unit,
+    onMotionActiveChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -61,6 +62,7 @@ internal fun CoverFlowCarouselHost(
                 this.onNext = onNext
                 this.onCoverLongPress = onCoverLongPress
                 this.onCenterAspectRatio = onAspectRatioChanged
+                this.onMotionActiveChanged = onMotionActiveChanged
             }
         },
         update = { view ->
@@ -79,6 +81,7 @@ internal fun CoverFlowCarouselHost(
             view.onNext = onNext
             view.onCoverLongPress = onCoverLongPress
             view.onCenterAspectRatio = onAspectRatioChanged
+            view.onMotionActiveChanged = onMotionActiveChanged
             view.updateQueue(queue)
             if (!stageActive) {
                 view.resetToIndex(currentIndex)
@@ -86,5 +89,6 @@ internal fun CoverFlowCarouselHost(
                 view.updateCurrentIndex(currentIndex)
             }
         },
+        onRelease = { view -> view.release() },
     )
 }

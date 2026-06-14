@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.player
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,6 +21,7 @@ import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.delay
 
 private const val LyricsLayoutShiftDelayOnCloseMs = 220
@@ -51,10 +53,14 @@ fun rememberPlayerPageUiModel(
     val typography = MicaTheme.typography
 
     var spectrumDeferred by remember { mutableStateOf(false) }
-    val useCoverEdgeProgress = uiSettings.useCoverEdgeProgressNow()
     val immersiveLower = uiSettings.playerImmersiveLower
     val coverFlowMode = uiSettings.playerCoverFlowMode
     val coverFlowModeEnabled = coverFlowMode != PlayerCoverFlowMode.STANDARD
+    val useCoverEdgeProgress = if (coverFlowModeEnabled) {
+        uiSettings.coverEdgeProgress
+    } else {
+        uiSettings.useCoverEdgeProgressNow()
+    }
 
     val lyricsChromeFade by animateFloatAsState(
         targetValue = if (lyricsExpanded) 1f else 0f,
@@ -93,7 +99,20 @@ fun rememberPlayerPageUiModel(
             if (coverFlowAvailable) MicaMotion.DurationLongMs else MicaMotion.DurationMediumMs,
         ),
         label = "coverFlowProgress",
+        finishedListener = { finalValue ->
+            TrackSwitchPerformance.mark(
+                "ui-cover-flow-progress-end",
+                "value=$finalValue available=$coverFlowAvailable",
+            )
+        },
     )
+
+    LaunchedEffect(song.id, coverFlowAvailable) {
+        TrackSwitchPerformance.mark(
+            "ui-cover-flow-progress-start",
+            "available=$coverFlowAvailable target=${if (coverFlowAvailable) 1f else 0f}",
+        )
+    }
 
     val coverDisplayMode = LocalCoverDisplayMode.current
     val fitOriginal =

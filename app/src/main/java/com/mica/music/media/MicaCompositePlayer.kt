@@ -10,6 +10,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import java.util.IdentityHashMap
 
@@ -20,6 +21,7 @@ import java.util.IdentityHashMap
  * ALAC 活跃时：**实际音频仅走 AudioTrack**；Exo 只镜像无 URI 的元数据队列（不 prepare、不解码），
  * 播放态/进度/错误均由 [AlacSessionState] 驱动。
  */
+@UnstableApi
 class MicaCompositePlayer(
     private val exoPlayer: ExoPlayer,
 ) : ForwardingPlayer(exoPlayer) {

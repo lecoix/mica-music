@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
+import android.os.SystemClock
+import com.mica.music.util.DecodePerformance
 import java.io.File
 import java.util.Locale
 
@@ -37,6 +39,7 @@ internal object AlacFfmpegHelper {
         seekMs: Int = 0,
         preference: OutputPreference = OutputPreference.STREAM_PCM,
         allowEarlyPlayback: Boolean = true,
+        traceSongId: String? = null,
     ): DecodeResult? {
         if (!FfmpegRunner.hasEmbeddedBinary(appContext)) {
             lastFailureHint = "未安装 FFmpeg：请运行 scripts\\build-ffmpeg-arm64.ps1 后重新编译安装"
@@ -66,41 +69,106 @@ internal object AlacFfmpegHelper {
         }
 
         var lastHint: String? = null
-        for (attempt in attempts) {
+        for ((attemptIndex, attempt) in attempts.withIndex()) {
             attempt.cleanup.forEach { it.delete() }
             if (preference == OutputPreference.STREAM_PCM && allowEarlyPlayback) {
-                startStreamingAttempt(attempt)?.let { return it }
+                startStreamingAttempt(attempt, traceSongId, attemptIndex)?.let { return it }
+                if (traceSongId != null) {
+                    DecodePerformance.mark(
+                        stage = "decode-ffmpeg-attempt-fail",
+                        songId = traceSongId,
+                        details = "attempt=$attemptIndex hint=${lastFailureHint ?: "unknown"}",
+                    )
+                }
                 lastHint = lastFailureHint
                 continue
             }
+            val startedNs = SystemClock.elapsedRealtimeNanos()
             val session = FfmpegRunner.executeWithArguments(appContext, attempt.args)
             val out = attempt.pickResult()
-            if (out != null) return out
+            if (out != null) {
+                if (traceSongId != null) {
+                    val waitMs = (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000.0
+                    DecodePerformance.mark(
+                        stage = "decode-ffmpeg-ready",
+                        songId = traceSongId,
+                        durationMs = waitMs,
+                        details = "mode=blocking attempt=$attemptIndex pcmBytes=${out.file.length()} " +
+                            "format=${out.pcmFormat.bitsPerSample}bit/${out.pcmFormat.sampleRateHz}Hz",
+                    )
+                }
+                return out
+            }
             lastHint = sessionFailureHint(session)
         }
         lastFailureHint = lastHint
         return null
     }
 
-    private fun startStreamingAttempt(attempt: DecodeAttempt): DecodeResult? {
+    private fun startStreamingAttempt(
+        attempt: DecodeAttempt,
+        traceSongId: String?,
+        attemptIndex: Int,
+    ): DecodeResult? {
+        val startedNs = SystemClock.elapsedRealtimeNanos()
+        if (traceSongId != null) {
+            DecodePerformance.mark(
+                stage = "decode-ffmpeg-start",
+                songId = traceSongId,
+                details = "attempt=$attemptIndex minReadyKB=${attempt.minReadyBytes / 1024}",
+            )
+        }
         val session = FfmpegRunner.startWithArguments(appContext, attempt.args) ?: run {
             lastFailureHint = "无法启动 FFmpeg"
             return null
         }
         val deadline = System.currentTimeMillis() + 8_000L
         val minReadyBytes = attempt.minReadyBytes.coerceAtLeast(64 * 1024L)
+        var pollCount = 0
         while (System.currentTimeMillis() < deadline) {
+            pollCount++
             val out = attempt.pickStreamingResult(session, minReadyBytes)
-            if (out != null) return out
+            if (out != null) {
+                val waitMs = (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000.0
+                if (traceSongId != null) {
+                    DecodePerformance.mark(
+                        stage = "decode-ffmpeg-ready",
+                        songId = traceSongId,
+                        durationMs = waitMs,
+                        details = "mode=stream attempt=$attemptIndex polls=$pollCount " +
+                            "pcmBytes=${out.file.length()} minReadyKB=${minReadyBytes / 1024} " +
+                            "format=${out.pcmFormat.bitsPerSample}bit/${out.pcmFormat.sampleRateHz}Hz",
+                    )
+                }
+                return out
+            }
             if (!session.isAlive) {
                 val finished = session.waitFor()
                 lastFailureHint = sessionFailureHint(finished)
+                if (traceSongId != null) {
+                    val waitMs = (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000.0
+                    DecodePerformance.mark(
+                        stage = "decode-ffmpeg-dead",
+                        songId = traceSongId,
+                        durationMs = waitMs,
+                        details = "attempt=$attemptIndex polls=$pollCount hint=$lastFailureHint",
+                    )
+                }
                 return null
             }
             Thread.sleep(40)
         }
         session.destroy()
         lastFailureHint = "FFmpeg 解码启动超时"
+        if (traceSongId != null) {
+            val waitMs = (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000.0
+            DecodePerformance.mark(
+                stage = "decode-ffmpeg-timeout",
+                songId = traceSongId,
+                durationMs = waitMs,
+                details = "attempt=$attemptIndex polls=$pollCount",
+            )
+        }
         return null
     }
 

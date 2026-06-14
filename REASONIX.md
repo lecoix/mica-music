@@ -1,52 +1,56 @@
 # Mica — Reasonix Code Context
 
+> AI / 工具用速览。**版本与依赖以 `gradle/libs.versions.toml` 为准**；动效与文档索引见 `docs/DOC_INDEX.md`。
+
 ## Stack
 
-- **Language:** Kotlin 2.0.21 + Jetpack Compose (Material3)
-- **Android SDK:** minSdk 26, targetSdk 34, compileSdk 34; arm64-v8a only
+- **Language:** Kotlin 2.2.21 + Jetpack Compose (Material3 BOM 2024.10.00)
+- **Android SDK:** minSdk 26, targetSdk 34, compileSdk 34; **arm64-v8a only**
 - **Build:** AGP 8.7.0, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
-- **Key deps:** Media3 ExoPlayer 1.4.1, Room 2.6.1 (KSP compiler), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, reorderable 2.4.3
-- **FFmpeg native** for ALAC decoding (arm64-v8a `.so` synced from assets at build time)
+- **Key deps:** Media3 1.4.1, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, reorderable 2.4.3, **BlurView 3.2.0** (JitPack)
+- **FFmpeg native** — arm64 `.so` synced from assets; 现网播放出声走 FFmpeg → PCM → AudioTrack
 
 ## Layout
 
-- `app/src/main/java/com/mica/music/` — main source tree
-  - `data/` — models (`Song`, `TrackMetadata`), Room DAOs/entities, scanner (MediaStore + SAF), player controller, preferences
-  - `media/` — ALAC engines (`AlacAudioTrackEngine`, `AlacPcmPlayer`), software EQ, `MicaMediaService`, `MicaCompositePlayer`
-  - `ui/components/` — reusable composables (`MiniPlayer`, `SongRow`, `LyricsDisplay`, `HiFiSeekBar`, etc.)
-  - `ui/screens/` — screen-level composables (`HomeScreen`, `NowPlayingScreen`, `SettingsScreen`, etc.)
-  - `ui/theme/` — `MicaTheme`, `HifiTypography`, shapes (`RectangleShape`), background variants
-  - `ui/navigation/` — `AppNavigation` (NavHost)
-  - `util/` — `SongActions`, `AppIntents`
-- `app/src/main/assets/ffmpeg/arm64-v8a/ffmpeg` — FFmpeg native binary source
-- `ffmpeg/docker/` — Docker-based cross-compile for FFmpeg
-- `scripts/` — `build-ffmpeg-arm64.ps1`, `clean-assemble-debug.ps1`
-- `DESIGN_SPEC.md` — UI/UX design spec (0dp rounded corners = `RectangleShape`, purple accent `#8B7AFF`)
-- `docs/TODO.md` — feature checklist (implemented / planned)
+- `app/src/main/java/com/mica/music/`
+  - `data/` — `Song`, Room, scanner, `PlayerController`, `AppUiSettings`
+  - `media/` — ALAC/FFmpeg engines, EQ, `MicaMediaService`
+  - `ui/components/` — `MiniPlayer`, `SongRow`, `LyricsDisplay`, …
+  - `ui/screens/` — `HomeScreen`, `NowPlayingScreen`, `SettingsScreen`, …
+  - `ui/screens/player/` — 播放页布局引擎、封面流 View 岛、`CoverFlowRails`
+  - `ui/theme/` — `MicaTheme`, 云母渐变, `MicaMaterialBackdrop` (BlurView)
+  - `ui/navigation/` — `AppNavigationMain`, `PlayerSheetOverlay`, `AppNavigationCoordinator`
+  - `ui/motion/` — `MicaMotion.kt`
+- `app/src/test/java/.../player/` — `CoverFlowRailsTest`, `PlayerPageLayoutEngineTest`, …
+- `MainActivity.kt` — **双 `ComposeView`**：`BlurTarget` 包裹主内容 + 底部 overlay（迷你栏 BlurView）
+
+## Docs (read order)
+
+1. `README.md` → `DESIGN_SPEC.md` → `docs/TODO.md` → `docs/MOTION.md` (§七 岛分工)
+2. 播放页：`docs/PLAYER_PAGE_CONTRACT.md`, `docs/COVER_FLOW_IMPLEMENTATION.md`
+3. 共享封面：`docs/SHARED_ELEMENT_ANIMATION_NOTES.md`
+4. 索引：`docs/DOC_INDEX.md`
 
 ## Commands
 
 - **assemble debug:** `.\gradlew.bat :app:assembleDebug`
-- **clean assemble (fix stale cache):** `.\scripts\clean-assemble-debug.ps1` (stops daemon, deletes APK output, runs with `--no-configuration-cache`)
-- **FFmpeg native build:** `.\scripts\build-ffmpeg-arm64.ps1` (must run once before first APK build)
+- **clean assemble:** `.\scripts\clean-assemble-debug.ps1`
+- **FFmpeg native build:** `.\scripts\build-ffmpeg-arm64.ps1` (first APK build)
 - **Gradle daemon stop:** `.\gradlew --stop`
 
 ## Conventions
 
-- **UI shape:** all 0dp rounded corners (`RectangleShape`), no circular/capsule elements
-- **Accent color:** purple `#8B7AFF` for active/now-playing states
-- **Code comments:** Chinese (Mandarin) throughout
-- **Room:** KSP annotation processor, `SongDao` + `LibraryMetaDao`, migration objects in `MicaDatabaseMigrations`
-- **Scanning:** two modes — MediaStore (system DB) and SAF folder picker; results merged into Room with incremental sync
-- **Package name:** `com.mica.music`
-- **No test directory** found in the project
-- **Gradle config:** configuration cache enabled by default; parallel builds; `kotlin.code.style=official`
+- **UI shape:** 0dp corners (`RectangleShape`)
+- **Accent:** user-selectable (`AppAccentColor`); default purple `#8B7AFF`
+- **Comments:** Chinese
+- **Motion:** `rememberMicaMotionEnabled()` + `MicaMotion.tween*`; 跟手几何 / backdrop blur → View 岛
+- **Package:** `com.mica.music`
 
 ## Watch out for
 
-- **FFmpeg binary must be pre-built.** Build warns at preBuild if `app/src/main/assets/ffmpeg/arm64-v8a/ffmpeg` is missing. Without it ALAC playback silently fails at runtime.
-- **arm64-v8a only.** No 32-bit ABI support; will crash on x86 emulators or old 32-bit devices.
-- **FFmpeg asset renamed at build time.** `syncFfmpegNative` copies `ffmpeg` → `libmica_ffmpeg.so` into jniLibs.
-- **Configuration cache staleness.** If builds behave unexpectedly, run `clean-assemble-debug.ps1` which passes `--no-configuration-cache`.
-- **MockData.kt** is legacy UI scaffolding — main flow no longer uses it.
-- **`data/MockData.kt`** — early UI placeholder, not used in production flow.
+- **FFmpeg binary required** — `app/src/main/assets/ffmpeg/arm64-v8a/ffmpeg` → `libmica_ffmpeg.so`
+- **arm64 only** — x86 emulator unsupported
+- **Backdrop blur** — 浮岛 `MicaMaterialBackdrop` + `BlurTarget`; 勿用 Compose `Modifier.blur()` 做毛玻璃
+- **封面流** — 只改 `CoverFlowRails` / `CoverFlowCarouselView`; 勿在 Compose 重建槽位动画
+- **MockData.kt** — legacy, unused
+- **Configuration cache** — if builds act stale, run `clean-assemble-debug.ps1`

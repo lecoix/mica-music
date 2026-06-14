@@ -16,25 +16,29 @@ class PlayerPageLayoutEngineTest {
     private fun baseInput(
         panelHeight: Dp = 400.dp,
         lyricsProgress: Float = 0f,
+        lyricsChromeFade: Float = lyricsProgress,
+        lyricsExpanded: Boolean = lyricsProgress > 0.5f,
         useCoverEdgeProgress: Boolean = false,
+        coverFlowModeEnabled: Boolean = false,
+        coverSwitching: Boolean = false,
     ) = PlayerPageLayoutInput(
         panelHeight = panelHeight,
         screenHeight = 800.dp,
         screenWidth = 400.dp,
         statusBarTop = 24.dp,
-        lyricsExpanded = lyricsProgress > 0.5f,
+        lyricsExpanded = lyricsExpanded,
         lyricsProgress = lyricsProgress,
-        lyricsChromeFade = lyricsProgress,
+        lyricsChromeFade = lyricsChromeFade,
         immersiveLower = false,
         immersiveProgress = 0f,
         coverFlowProgress = 0f,
-        coverFlowModeEnabled = false,
+        coverFlowModeEnabled = coverFlowModeEnabled,
         useCoverEdgeProgress = useCoverEdgeProgress,
         fitOriginal = false,
         coverAspectRatio = 1f,
         spectrumSettingEnabled = true,
         spectrumDeferred = false,
-        coverSwitching = false,
+        coverSwitching = coverSwitching,
     )
 
     @Test
@@ -73,6 +77,167 @@ class PlayerPageLayoutEngineTest {
         )
         assertTrue(frame.lower.coverEdgeOnPlaySurface)
         assertEquals(false, frame.lower.showStandardProgress)
+    }
+
+    @Test
+    fun specialCoverTheme_usesCoverEdgePlaybackWhenSettingEnabled() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                useCoverEdgeProgress = true,
+                coverFlowModeEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.lower.coverEdgeOnPlaySurface)
+        assertEquals(false, frame.lower.showStandardProgress)
+        assertTrue(frame.spectrumEnabled)
+    }
+
+    @Test
+    fun specialCoverTheme_keepsStandardPlaybackChromeWhenSettingDisabled() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                useCoverEdgeProgress = false,
+                coverFlowModeEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, frame.lower.coverEdgeOnPlaySurface)
+        assertTrue(frame.lower.showStandardProgress)
+        assertTrue(frame.spectrumEnabled)
+    }
+
+    @Test
+    fun coverEdgeProgress_keepsStandardProgressMountedDuringLyricsTransition() {
+        val opening = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0.2f,
+                lyricsChromeFade = 0.3f,
+                lyricsExpanded = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val closing = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0.5f,
+                lyricsChromeFade = 0.1f,
+                lyricsExpanded = false,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(opening.lower.coverEdgeOnPlaySurface)
+        assertTrue(opening.lower.showChromeProgressInTransition)
+        assertEquals(0.3f, opening.lower.chromeProgressAlpha, 0.001f)
+        assertTrue(closing.lower.showChromeProgressInTransition)
+        assertEquals(0.5f, closing.lower.chromeProgressAlpha, 0.001f)
+    }
+
+    @Test
+    fun spectrum_isDisabledForEntireLyricsOpeningTransition() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0.01f,
+                lyricsChromeFade = 0.02f,
+                lyricsExpanded = true,
+                useCoverEdgeProgress = true,
+                coverFlowModeEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.lower.showStandardProgress)
+        assertEquals(false, frame.spectrumEnabled)
+    }
+
+    @Test
+    fun spectrum_staysDisabledUntilLyricsClosingTransitionFinishes() {
+        val closing = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0.01f,
+                lyricsChromeFade = 0f,
+                lyricsExpanded = false,
+                useCoverEdgeProgress = true,
+                coverFlowModeEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val finished = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0f,
+                lyricsChromeFade = 0f,
+                lyricsExpanded = false,
+                useCoverEdgeProgress = true,
+                coverFlowModeEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, closing.spectrumEnabled)
+        assertTrue(finished.spectrumEnabled)
+    }
+
+    @Test
+    fun spectrum_isDisabledDuringAnyCoverFlowMotion() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                useCoverEdgeProgress = true,
+                coverFlowModeEnabled = true,
+                coverSwitching = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, frame.spectrumEnabled)
+    }
+
+    @Test
+    fun coverEdgeLayout_usesTheWholeLyricsTransition() {
+        val play = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0f,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val middle = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0.5f,
+                lyricsExpanded = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val lyrics = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 1f,
+                lyricsExpanded = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(
+            middle.lower.chromeHeight > play.lower.chromeHeight,
+        )
+        assertTrue(
+            middle.lower.chromeHeight < lyrics.lower.chromeHeight,
+        )
     }
 
     @Test
