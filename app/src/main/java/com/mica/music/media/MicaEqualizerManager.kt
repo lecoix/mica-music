@@ -18,6 +18,8 @@ import com.mica.music.media.eq.SoftwareEqualizerAudioProcessor
 @UnstableApi
 object MicaEqualizerManager {
 
+    var onEnabledChanged: ((Boolean) -> Unit)? = null
+
     private val softwareEqualizer = SoftwareEqualizer()
     val audioProcessor: SoftwareEqualizerAudioProcessor = SoftwareEqualizerAudioProcessor(softwareEqualizer)
 
@@ -84,6 +86,7 @@ object MicaEqualizerManager {
         AppPreferences.setEqualizerEnabled(context, enabled)
         softwareEqualizer.setEnabled(enabled)
         systemEqualizer?.enabled = false
+        onEnabledChanged?.invoke(enabled)
     }
 
     fun applySelection(context: Context, selection: EqSelection) {
@@ -162,7 +165,9 @@ object MicaEqualizerManager {
     }
 
     private fun syncSoftwareFromPreferences(context: Context) {
-        softwareEqualizer.setEnabled(AppPreferences.equalizerEnabled(context))
+        val enabled = AppPreferences.equalizerEnabled(context)
+        softwareEqualizer.setEnabled(enabled)
+        onEnabledChanged?.invoke(enabled)
         when (val selection = EqCustomProfileStore.getSelection(context)) {
             is EqSelection.System -> applySystemPreset(context, selection.index)
             EqSelection.Draft -> restoreCustomBands(context)

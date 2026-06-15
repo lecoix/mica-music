@@ -311,6 +311,7 @@ fun NowPlayingContent(
                 lowerBackground,
                 previewModel.frame.coverFlowStageActive,
                 motionEnabled,
+                queueState.queue.size,
             ) {
                 TrackSwitchPerformance.updateVisualContext(
                     TrackSwitchPerformance.VisualContext(
@@ -318,6 +319,7 @@ fun NowPlayingContent(
                         lowerBackground = lowerBackground.name,
                         coverFlowStageActive = previewModel.frame.coverFlowStageActive,
                         motionEnabled = motionEnabled,
+                        queueSize = queueState.queue.size,
                     ),
                 )
             }

@@ -77,6 +77,38 @@ class PlayerControllerQueueModelTest {
         controller.release()
     }
 
+    @Test
+    fun setQueueWithUnchangedPlaybackContentIsNoOp() {
+        val controller = PlayerController(ApplicationProvider.getApplicationContext())
+        val songs = listOf(
+            SongFixtures.song(id = "a", title = "Alpha"),
+            SongFixtures.song(id = "b", title = "Beta"),
+        )
+        controller.setQueue(songs)
+        val queueBefore = controller.songQueue
+
+        val metadataOnly = songs.map { song ->
+            if (song.id == "a") song.copy(title = "Alpha (remastered)") else song
+        }
+        controller.setQueue(metadataOnly)
+
+        assertEquals(queueBefore, controller.songQueue)
+        controller.release()
+    }
+
+    @Test
+    fun setQueueWithSameListReferenceIsNoOp() {
+        val controller = PlayerController(ApplicationProvider.getApplicationContext())
+        val songs = listOf(SongFixtures.song(id = "a"))
+        controller.setQueue(songs)
+        val queueBefore = controller.songQueue
+
+        controller.setQueue(songs)
+
+        assertEquals(queueBefore, controller.songQueue)
+        controller.release()
+    }
+
     private class QueueReferenceModel {
         var queue: List<String> = emptyList()
             private set

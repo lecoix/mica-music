@@ -7,9 +7,11 @@ import java.nio.ByteOrder
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.tanh
 
 /**
  * 10 段 peaking biquad 软件均衡器，供 PCM 流与 Media3 [SoftwareEqualizerAudioProcessor] 共用。
@@ -22,7 +24,9 @@ class SoftwareEqualizer {
     private var sampleRateHz = 44_100
     private var channelCount = 2
     private val levelsMillibels = EqBandConstants.defaultLevels()
-    private val filters = Array(EqBandConstants.BAND_COUNT) { BiquadFilter() }
+    private var filters = createFilters(channelCount)
+    private var preampGain = 1.0
+    private var ditherState = 0x4D494341
 
     fun setEnabled(value: Boolean) = lock.withLock { enabled = value }
 
@@ -57,6 +61,7 @@ class SoftwareEqualizer {
         lock.withLock {
             when (encoding) {
                 AudioFormat.ENCODING_PCM_16BIT -> processPcm16Locked(buffer, offset, length)
+                AudioFormat.ENCODING_PCM_24BIT_PACKED -> processPcm24Locked(buffer, offset, length)
                 AudioFormat.ENCODING_PCM_32BIT -> processPcm32Locked(buffer, offset, length)
                 AudioFormat.ENCODING_PCM_FLOAT -> processPcmFloatLocked(buffer, offset, length)
                 else -> Unit
@@ -81,14 +86,33 @@ class SoftwareEqualizer {
         val frameCount = length / (2 * channelCount)
         var index = offset
         repeat(frameCount) {
-            repeat(channelCount) { _ ->
+            repeat(channelCount) { channel ->
                 var sample = ((buffer[index + 1].toInt() shl 8) or (buffer[index].toInt() and 0xFF)).toShort().toInt()
-                var x = sample / 32768.0
-                filters.forEach { x = it.process(x) }
-                sample = (x * 32768.0).toInt().coerceIn(-32768, 32767)
+                val x = processSampleLocked(sample / 32768.0, channel)
+                sample = (x * 32767.0 + triangularDitherLocked()).toInt().coerceIn(-32768, 32767)
                 buffer[index] = (sample and 0xFF).toByte()
                 buffer[index + 1] = ((sample shr 8) and 0xFF).toByte()
                 index += 2
+            }
+        }
+    }
+
+    private fun processPcm24Locked(buffer: ByteArray, offset: Int, length: Int) {
+        val frameCount = length / (3 * channelCount)
+        var index = offset
+        repeat(frameCount) {
+            repeat(channelCount) { channel ->
+                var sample = (buffer[index].toInt() and 0xFF) or
+                    ((buffer[index + 1].toInt() and 0xFF) shl 8) or
+                    (buffer[index + 2].toInt() shl 16)
+                val x = processSampleLocked(sample / 8_388_608.0, channel)
+                sample = (x * 8_388_607.0 + triangularDitherLocked())
+                    .toInt()
+                    .coerceIn(-8_388_608, 8_388_607)
+                buffer[index] = (sample and 0xFF).toByte()
+                buffer[index + 1] = ((sample shr 8) and 0xFF).toByte()
+                buffer[index + 2] = ((sample shr 16) and 0xFF).toByte()
+                index += 3
             }
         }
     }
@@ -97,11 +121,11 @@ class SoftwareEqualizer {
         val frameCount = length / (4 * channelCount)
         var index = offset
         repeat(frameCount) {
-            repeat(channelCount) { _ ->
-                var sample = ByteBuffer.wrap(buffer, index, 4).order(ByteOrder.LITTLE_ENDIAN).int
-                var x = sample / 2_147_483_648.0
-                filters.forEach { x = it.process(x) }
-                sample = (x * 2_147_483_648.0).toInt().coerceIn(Int.MIN_VALUE, Int.MAX_VALUE)
+            repeat(channelCount) { channel ->
+                val source = ByteBuffer.wrap(buffer, index, 4).order(ByteOrder.LITTLE_ENDIAN).int
+                val x = processSampleLocked(source / 2_147_483_648.0, channel)
+                val scaled = x * Int.MAX_VALUE + triangularDitherLocked()
+                val sample = scaled.toLong().coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
                 ByteBuffer.wrap(buffer, index, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(sample)
                 index += 4
             }
@@ -112,11 +136,9 @@ class SoftwareEqualizer {
         val frameCount = length / (4 * channelCount)
         var index = offset
         repeat(frameCount) {
-            repeat(channelCount) { _ ->
+            repeat(channelCount) { channel ->
                 var sample = ByteBuffer.wrap(buffer, index, 4).order(ByteOrder.LITTLE_ENDIAN).float
-                var x = sample.toDouble()
-                filters.forEach { x = it.process(x) }
-                sample = x.toFloat().coerceIn(-1f, 1f)
+                sample = processSampleLocked(sample.toDouble(), channel).toFloat()
                 ByteBuffer.wrap(buffer, index, 4).order(ByteOrder.LITTLE_ENDIAN).putFloat(sample)
                 index += 4
             }
@@ -124,24 +146,64 @@ class SoftwareEqualizer {
     }
 
     private fun rebuildFiltersLocked() {
-        for (index in filters.indices) {
+        if (filters.size != channelCount) {
+            filters = createFilters(channelCount)
+        }
+        preampGain = 10.0.pow(
+            -(levelsMillibels.maxOrNull()?.coerceAtLeast(0) ?: 0) / 2_000.0,
+        )
+        for (index in levelsMillibels.indices) {
             updateFilterLocked(index)
         }
     }
 
     private fun updateFilterLocked(index: Int) {
         val gainDb = levelsMillibels[index] / 100f
-        filters[index].setPeaking(
-            sampleRate = sampleRateHz.toDouble(),
-            centerHz = EqBandConstants.CENTER_HZ[index].toDouble(),
-            gainDb = gainDb.toDouble(),
-            q = 1.41,
-        )
+        filters.forEach { channelFilters ->
+            channelFilters[index].setPeaking(
+                sampleRate = sampleRateHz.toDouble(),
+                centerHz = EqBandConstants.CENTER_HZ[index].toDouble(),
+                gainDb = gainDb.toDouble(),
+                q = 1.41,
+            )
+        }
     }
 
     private fun resetFiltersLocked() {
-        filters.forEach { it.resetState() }
+        filters.forEach { channelFilters ->
+            channelFilters.forEach { it.resetState() }
+        }
+        ditherState = 0x4D494341
     }
+
+    private fun processSampleLocked(source: Double, channel: Int): Double {
+        var sample = source * preampGain
+        filters[channel.coerceIn(filters.indices)].forEach { sample = it.process(sample) }
+        return softLimit(sample)
+    }
+
+    private fun softLimit(value: Double): Double {
+        val ceiling = 10.0.pow(-1.0 / 20.0)
+        val magnitude = abs(value)
+        val knee = ceiling * 0.8
+        if (magnitude <= knee) return value
+        val limited = knee + (ceiling - knee) *
+            tanh((magnitude - knee) / (ceiling - knee))
+        return kotlin.math.sign(value) * limited
+    }
+
+    private fun triangularDitherLocked(): Double =
+        (nextDitherLocked() - nextDitherLocked()) / Int.MAX_VALUE.toDouble()
+
+    private fun nextDitherLocked(): Double {
+        ditherState = ditherState * 1_664_525 + 1_013_904_223
+        return (ditherState ushr 1).toDouble()
+    }
+
+    private fun createFilters(channels: Int): Array<Array<BiquadFilter>> =
+        Array(channels.coerceAtLeast(1)) {
+            Array(EqBandConstants.BAND_COUNT) { BiquadFilter() }
+        }
 
     private class BiquadFilter {
         private var b0 = 1.0

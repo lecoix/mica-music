@@ -5,6 +5,7 @@ import android.system.Os
 import android.system.OsConstants
 import java.io.BufferedReader
 import java.io.File
+import java.io.InputStream
 import java.io.InputStreamReader
 import kotlin.concurrent.thread
 
@@ -26,6 +27,7 @@ object FfmpegRunner {
     class RunningSession internal constructor(
         private val process: Process,
         private val logsBuilder: StringBuilder,
+        val stdout: InputStream? = null,
     ) {
         val isAlive: Boolean get() = process.isAlive
         val logs: String get() = synchronized(logsBuilder) { logsBuilder.toString() }
@@ -36,6 +38,9 @@ object FfmpegRunner {
         }
 
         fun destroy() {
+            runCatching { stdout?.close() }
+            runCatching { process.errorStream.close() }
+            runCatching { process.outputStream.close() }
             runCatching { process.destroy() }
             runCatching {
                 if (process.isAlive) process.destroyForcibly()
@@ -59,7 +64,12 @@ object FfmpegRunner {
 
     fun startWithArguments(context: Context, args: Array<String>): RunningSession? {
         val bin = resolveBinary(context) ?: return null
-        return startCli(bin, args)
+        return startCli(bin, args, pipeStdout = false)
+    }
+
+    fun startPipedWithArguments(context: Context, args: Array<String>): RunningSession? {
+        val bin = resolveBinary(context) ?: return null
+        return startCli(bin, args, pipeStdout = true)
     }
 
     private fun resolveBinary(context: Context): File? {
@@ -127,16 +137,21 @@ object FfmpegRunner {
         }
     }
 
-    private fun startCli(binary: File, args: Array<String>): RunningSession? {
+    private fun startCli(
+        binary: File,
+        args: Array<String>,
+        pipeStdout: Boolean,
+    ): RunningSession? {
         return try {
             val command = listOf(binary.absolutePath) + args.toList()
             val process = ProcessBuilder(command)
-                .redirectErrorStream(true)
+                .redirectErrorStream(!pipeStdout)
                 .start()
             val logs = StringBuilder()
+            val logStream = if (pipeStdout) process.errorStream else process.inputStream
             thread(name = "mica-ffmpeg-log", isDaemon = true) {
                 runCatching {
-                    BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                    BufferedReader(InputStreamReader(logStream)).use { reader ->
                         var line = reader.readLine()
                         while (line != null) {
                             synchronized(logs) {
@@ -147,7 +162,11 @@ object FfmpegRunner {
                     }
                 }
             }
-            RunningSession(process, logs)
+            RunningSession(
+                process = process,
+                logsBuilder = logs,
+                stdout = process.inputStream.takeIf { pipeStdout },
+            )
         } catch (_: Exception) {
             null
         }

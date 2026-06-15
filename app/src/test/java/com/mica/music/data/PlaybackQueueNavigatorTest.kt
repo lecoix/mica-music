@@ -66,6 +66,29 @@ class PlaybackQueueNavigatorTest {
     }
 
     @Test
+    fun nextAndPreviousAlwaysMoveInTheRequestedDirection() {
+        for (current in 1 until 9) {
+            assertEquals(
+                current + 1,
+                PlaybackQueueNavigator.nextIndex(
+                    PlaybackQueueMode.OFF,
+                    current,
+                    10,
+                    true,
+                ) { error("shuffle is not active") },
+            )
+            assertEquals(
+                current - 1,
+                PlaybackQueueNavigator.previousIndex(
+                    PlaybackQueueMode.OFF,
+                    current,
+                    10,
+                ) { error("shuffle is not active") },
+            )
+        }
+    }
+
+    @Test
     fun randomizedOperationsNeverReturnOutOfBounds() {
         val random = Random(0x4D494341)
         repeat(10_000) {

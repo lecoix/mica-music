@@ -1,14 +1,158 @@
 # 切歌卡顿 / 闪退 — 测试问题与分支改进记录
 
 > **分支**：`wip`（已从 `experiment/coverflow-prebaked-reflection` 合入预烘焙 + 诊断 cherry-pick）  
-> **当前版本**：`0.1.7-diag5`（`versionCode 7`，工作区未提交）  
+> **当前版本**：`0.1.8-hybrid7`（`versionCode 14`，工作区未提交）
 > **整理日期**：2026-06-14  
 > **测试设备**：小米 25102RKBEC + 漫步者 Comfo Clip 蓝牙，Android 16；开发者自测机（realme）相对流畅  
 > **WIP 归属**：本文档随性能诊断 WIP 一并合并，**不单独留在实验分支**
 
 ---
 
-## 0. WIP 与实验分支的关系（合并时注意）
+## 0. 2026-06-14 混合播放架构落地状态
+
+### 2026-06-15 hybrid7：撤销音频延迟并阻止旧曲回写
+
+- hybrid6 在 UI 选中新曲后延迟 50/120ms 才向 Service 发送切歌命令。播放中的旧曲会在
+  这段窗口继续发布状态，Controller 又把旧索引同步回 UI，导致封面切过去几帧后回弹。
+- 切歌命令恢复为立即发送。Controller 在命令发出前记录目标 song ID，目标到达前忽略
+  旧曲的索引事件；确认 MediaSession 当前项已是目标曲后再恢复正常状态同步。
+
+### 2026-06-15 hybrid6：音频启动隔离实验（已撤销）
+
+- 旧版与新版使用相同的封面模糊背景，因此背景相关性不能解释重构回归。
+- 关键差异是旧 FFmpeg 路径的输入复制与启动主要在后台线程；新版在 UI 状态更新后
+  立即执行 `MediaController.seekTo + play`，Media3 准备与切歌首帧竞争主线程。
+- 曾尝试标准模式延后 50ms、封面流舞台延后 120ms；真机发现播放中的旧曲会在延迟窗口
+  把 UI 索引写回，因此 hybrid7 已完整撤销该延迟策略。
+
+### 2026-06-15 hybrid4/hybrid5：软件切歌回归定位
+
+- 小米 Android 12 日志中，FFmpeg 启动仅需 2–7ms；每首 24–60MB SAF 文件复制
+  耗时 51–180ms。旧架构同样执行整首复制且该设备流畅，因此复制不是本次回归的
+  根因，只是新架构下可以消除的一段并发成本。
+- 外部存储文档 URI 在确认真实文件可读时改为直接交给 FFmpeg；其他 provider
+  仍使用有界输入缓存兜底。
+- 软件播放切到 Media3 时暂停并清空旧 writer，但保留已初始化的 AudioTrack；
+  后续相同输出格式的软件曲目可以复用，避免重新建立音频会话。
+- 新架构的实际新增负担是软件状态回调反复重建并广播完整的 256 首自定义 timeline。
+  hybrid5 改为只在队列、索引或已知时长变化时刷新 timeline；buffering、播放/暂停
+  和位置变化只更新播放状态。
+
+本轮已将播放主路径从“所有格式统一 FFmpeg”翻转为：
+
+- MP3、FLAC、AAC/MP4、Opus、Ogg/Vorbis、WAV 默认由 Media3 直接读取原始 URI。
+- ALAC 先尝试 Media3；仅解析器、解码器初始化或解码错误允许一次 FFmpeg 回退。
+- DSD 直接进入软件解码；有线/内置优先 24-bit/176.4kHz，蓝牙限制为 48kHz。
+- 每次播放都有递增 request ID 和 source revision，旧软件解码回调不能覆盖新请求。
+- 连续三首失败后暂停，防止损坏曲库造成无限跳歌。
+- ALAC 扫描期预转 FLAC 路径已移除，同一源不再因缓存状态改变后端。
+
+同时完成：
+
+- 输入缓存按源加锁、原子 `.part` 写入、主动关闭被取消的 provider 流、4 首/512MB LRU。
+- EQ 每声道独立滤波，支持 PCM 16/24/32/float，加入自动 preamp、dither 和限幅。
+- EQ 关闭使用 HIFI 模式并允许 Media3 offload；EQ 开启强制 DSP 并关闭 offload。
+- 软件后端由 Service 统一处理音频焦点和 `AUDIO_BECOMING_NOISY`。
+- 播放控制器提升为 Application 进程级实例，Activity/ViewModel 销毁不再停止软件播放。
+
+真机冒烟结果（小米 `22081212C`，Perf 构建）：
+
+- 应用启动无 Mica 崩溃/ANR。
+- FLAC 已确认日志为 `route backend=MEDIA3 reason=platform-format`。
+- HIFI 日志为 `dsp=false offload=true`。
+- ALAC 在设备解码器报错后已确认可回退 FFmpeg，AudioTrack 正常建立且无线程崩溃；Media3 成功路径、DSD、蓝牙断开、后台划卡仍需按 `docs/TESTING.md` 人工验收。
+- 2026-06-15 realme RMX8899 连续切歌日志中出现 60 次相同的
+  `c2.qti.alac.sw.decoder` 稳定失败。每个新 ALAC source 都先等待 Media3 失败，
+  再进入软件路径，AudioTrack 建立相对点击平均约 278ms，且错误切换附近出现
+  77–145ms 长帧。现增加进程级保护：同一具名 ALAC decoder 在两个不同
+  source revision 上失败后，本次进程后续 ALAC 直接走 Software；单文件损坏
+  和未具名的普通解码错误不会开启该保护，应用重启后会重新探测 Media3。
+- 2026-06-15 Xiaomi 22081212C 后续日志确认进程级 ALAC 保护按预期在两个
+  source 失败后生效，但普通 FLAC/MP3 仍有明显卡顿。定位到
+  `TrackSwitchPerformance.begin()` 每次切歌都在主线程调用完整
+  `AudioEnvironmentDiagnostics`，重新枚举已安装应用、系统音效、运行进程
+  和播放配置，单次阻塞约 25–194ms。逐曲环境扫描已删除，环境信息仅在应用
+  启动和用户导出诊断时采集。软件曲目切换同时保留同格式 AudioTrack，避免
+  每首都销毁并重建设备输出。
+- `hybrid2 (9)` 日志确认入口响应已降到约 1ms，AudioTrack 复用开始生效，
+  但普通 FLAC 仍可出现 100ms 以上长帧。进一步定位到播放页重复读取完整封面、
+  二次解码并生成 Palette；该颜色在扫描阶段已经写入 `coverColorArgb`。
+  播放时二次取色已删除，直接使用扫描结果。封面流预热也从前后 7 张封面和
+  7 张背景的串行阻塞缓存，收敛为相邻两张的非阻塞异步预取。
+
+独立代码审查后的收口修复：
+
+- 软件解码结果改为 generation 校验后原子提交，旧任务只能清理自己的 FFmpeg、PCM 和输入 lease。
+- Media3 错误处理校验当前 backend、media ID、source revision 和播放器当前错误，旧错误不再触发新曲回退。
+- MediaController 增加断连回调；Service 停止但进程仍存活时可重新建立连接。
+- 输入缓存增加引用 lease，LRU 不得删除正在解码或播放会话持有的源文件。
+- 软件后端音频焦点申请失败时立即保持暂停，不允许与其他播放器叠播。
+- limiter 改为连续软拐点；连续失败计数仅在实际播放位置超过 1 秒后清零。
+- FFmpeg stdout 与 stderr 已分离；ALAC/DSD 裸 PCM 通过 stdout 直接写入 AudioTrack，不再创建增长中的 PCM 文件。
+- 软件 seek 会关闭旧 stdout、销毁旧 FFmpeg，并使用 `-ss` 从目标位置启动新管道。
+
+此前开发样本中，stdout 迁移后的 ALAC 路径约在 618ms 出现过 `audio-playing`。该结果不能代表当前打包产物已经验收；2026-06-15 的独立 Perf 真机回归发现，APK 内 FFmpeg 不包含 `pipe` 协议，当前软件回退会失败，详见下一节。
+
+### 2026-06-15 独立 Perf 真机回归
+
+设备为 Xiaomi `22081212C`，Android 12 / API 31。为避免覆盖现有签名不同的正式测试包，使用
+`-Pmica.qaSideBySide=true` 构建并行安装的 `com.mica.music.qa`。
+
+已通过：
+
+- MediaStore 扫描识别 533 首、约 22.0 GB，包含 FLAC、MP3 和 ALAC。
+- 普通 FLAC 由 Media3 播放，队列 533 首，未启动 FFmpeg 进程。
+- HIFI 诊断为 `dsp=false offload=true`。
+- Activity 退到后台后，播放位置持续前进，MediaSession、前台 Service 和媒体通知保持。
+- 进程终止后恢复同一首、533 首队列和约 26.97 秒位置，且未自动续播。
+- 恢复后系统媒体播放/暂停按键有效，位置连续，无 Mica 崩溃或 ANR。
+
+发现：
+
+1. **P0：当前 APK 内 FFmpeg 不支持 stdout pipe。** ALAC 的 Media3 解码失败后约 712ms 正确触发一次
+   SOFTWARE 回退，但 FFmpeg 报 `Error opening output pipe:1: Protocol not found`，随后跳到下一首 FLAC。
+   在重新编译 FFmpeg 并启用 `pipe` protocol 前，ALAC 回退和 DSD 软件播放均不可交付。
+2. **P1（已修复并通过真机确认）：嵌套权限异常被分类为 UNKNOWN。** 分类器现会遍历 cause 链，
+   将 `UnexpectedLoaderException -> SecurityException` 映射为 `SOURCE_PERMISSION`；权限错误和取消请求
+   不再触发自动跳歌。
+3. **P1（已修复并通过真机确认）：恢复后的 MediaSession 状态为 IDLE。** 恢复流程现按
+   `playWhenReady=false -> seekTo -> prepare` 执行，恢复后稳定报告 PAUSED，并保持不自动续播。
+4. **性能观察：冷扫描较重。** 无可复用元数据缓存时，35 秒仅完成 94/533，约 125 秒完成；
+   扫描期间出现多次 50-100MB 级大对象回收。播放性能验收必须避开扫描并单独优化扫描内存峰值。
+5. **P2：进入软件后端时迷你播放栏短暂显示错误曲目。** 用户选择目标曲后，迷你播放栏会先从
+   列表第一首切换到目标曲。音频最终曲目正确，优先级较低；后续应让 Service 在软件后端准备前
+   原子发布目标索引和元数据，避免中间 timeline 默认到索引 0。
+
+本轮未形成有效结论：
+
+- 设备无 DSD 测试文件、USB DAC、已连接蓝牙耳机或有线耳机。
+- API 31 无法验证 API 33+ direct playback capability；实现已接入，仍需 API 33+ 与 USB DAC 真机验收。
+- MIUI 的 `media_session dispatch next` 自身报空 package，列表密集点击也只登记最后一次有效选择，
+  因此“连续快速切歌 20 次”仍需手工或 instrumentation 回归。
+- 播放页自绘 seek 控件无法由当前 UI 自动化稳定命中，Media3/Software seek 指标未验收。
+
+尚未完成的深层改造：
+
+- Service 已持久化完整队列 ID、当前索引、位置、repeat/shuffle、播放意图和质量模式；恢复按歌曲 ID 匹配并强制暂停。
+- `MainViewModel` / Activity 已停止读取和写入旧播放会话；播放模式由 MediaController 状态反向驱动 UI。
+- 插入下一首和移动队列项已改用标准 MediaController playlist 命令。
+- 播放 request、一次性 ALAC fallback、软件后端回调、连续失败计数与失败跳过已迁入 `ServicePlaybackEngineCoordinator`。
+- `PlayerController` 不再注入或访问 composite player / software engine；播放、暂停、seek 和切歌只发送标准 MediaController 命令。
+- MediaItem extras 携带软件路由所需的源 URI、revision 字段与 PCM 技术参数，Service 可独立重建 `Song`。
+- 软件播放期间的插入、移动、删除和整队列替换由 `MicaCompositePlayer` 同步到隐藏 Exo 队列和 MediaSession timeline。
+- 旧 Controller 软件播放实现已从活动代码隔离，后续仅需做物理删除和命名清理，不再构成第二状态源。
+- API 33+ 已使用 direct playback capability 过滤 DSD PCM 候选；API 26–32 使用实际
+  `AudioTrack` 初始化探测。软件输出会记录实际 routed device，DSD 路由变化时按当前位置重建，
+  USB DAC/direct 能力仍待真机确认。
+
+后续性能优化项（不阻塞当前架构迁移）：
+
+- 压缩用户切歌操作到 `audio-start` 的前置调度时间；当前真机样本约 405ms，主要位于 UI、队列状态同步和延迟策略。
+- 评估 AudioTrack 跨曲预热与格式相同场景复用，减少创建和设备输出启动开销；必须继续满足单 writer、无双音频约束。
+
+---
+
+## 1. WIP 与实验分支的关系（合并时注意）
 
 | 内容 | 在哪 | 说明 |
 |------|------|------|
@@ -53,7 +197,7 @@
 | **每切歌整文件拷贝** | diag5：`decode-input-copy` 对 93MB FLAC 耗时 **735ms**，占 pipeline 大头；小 mp3 亦 36–103ms | `copyUriToTemp` 仍对每首执行；`releaseSession()` 删除 temp 导致 `reused=false` 永远命中不了 |
 | **连切无节流** | diag5：快速 `button-next` 出现多条 `superseded` 记录，重活叠加 | 仅有 `TrackSwitchPerformance.finish("superseded")` 观测，**未**实现请求作废 / 合并 |
 | **全格式走 FFmpeg 自建管线** | 几乎总走 `startAlacStream`；ExoPlayer 仅 MediaSession 壳 | `MicaCompositePlayer` 已有 ExoPlayer，**未**将 MP3/FLAC 路由到直读播放 |
-| **标准模式音频不延后** | `audioStartDeferMs()` 仅在 `coverFlowStageActive` 时返回 120ms；STANDARD 为 0 | 最轻 UI 下切歌与解码同帧硬碰 |
+| **音频延后实验已撤销** | hybrid7 恢复立即切歌，并以目标 song ID 屏蔽旧曲回调 | 延迟窗口会导致播放中切歌回弹 |
 
 ### 2.3 已定位、待处理（P1）
 
@@ -209,7 +353,7 @@ coverDraws=0, coverFlow=STANDARD, stage=false
 |------|----------|
 | `MicaApp.kt` | 安装 `BluetoothAudioDiagnostics`、`AudioEnvironmentDiagnostics` |
 | `DiagnosticLog.kt` | 导出时附加音频环境；与 diag4/5 配套 |
-| `TrackSwitchPerformance.kt` | 扩展：visualContext、`audioStartDeferMs`、decode summary、mark 去重、`recordCoverDraw` |
+| `TrackSwitchPerformance.kt` | 扩展：visualContext、decode summary、mark 去重、`recordCoverDraw` |
 | `app/build.gradle.kts` | `0.1.7-diag5` / `versionCode 7` |
 
 #### 本地参考克隆（未纳入产品代码）

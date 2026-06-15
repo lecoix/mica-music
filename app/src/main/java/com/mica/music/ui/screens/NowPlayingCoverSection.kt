@@ -134,11 +134,11 @@ internal fun NowPlayingCoverSection(
 
     LaunchedEffect(frame.coverFlowStageActive, currentIndex, queue) {
         if (!frame.coverFlowStageActive) return@LaunchedEffect
-        for (offset in -3..3) {
+        for (offset in listOf(-1, 1)) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
-            MicaImageLoaders.ensureCoverCached(context, uri)
+            MicaImageLoaders.preloadCover(context, uri)
             if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
-                MicaImageLoaders.ensureBackgroundCached(context, uri)
+                MicaImageLoaders.preloadBackground(context, uri)
             }
         }
     }

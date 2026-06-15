@@ -80,6 +80,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private var gesturesEnabled: Boolean = true
     private var fallbackColorArgb: Int = 0xFF000000.toInt()
     private var lastReportedIndex: Int = -1
+    private var pendingHostIndex: Int? = null
 
     private var trackAnimator: ValueAnimator? = null
     private var settleAnimator: ValueAnimator? = null
@@ -98,6 +99,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     var onMotionActiveChanged: ((Boolean) -> Unit)? = null
 
     private var motionActive: Boolean = false
+    private var lastAnimatorCallbackNs: Long = 0L
 
     private val gestureDetector = GestureDetector(
         context,
@@ -122,7 +124,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     fun setScreenWidthPx(px: Float) {
         if (screenWidthPx != px) {
             screenWidthPx = px.coerceAtLeast(1f)
-            invalidate()
+            invalidateFor("screen-size")
         }
     }
 
@@ -137,28 +139,28 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             if (abs(oldAspect - newAspect) > 0.001f) {
                 scheduleReflectionRebakeForWindow()
             }
-            invalidate()
+            invalidateFor("cover-size")
         }
     }
 
     fun setCoverStartPaddingPx(px: Float) {
         if (coverStartPaddingPx != px) {
             coverStartPaddingPx = px.coerceAtLeast(0f)
-            invalidate()
+            invalidateFor("cover-padding")
         }
     }
 
     fun setReflectionGapPx(px: Float) {
         if (reflectionGapPx != px) {
             reflectionGapPx = px
-            invalidate()
+            invalidateFor("reflection-gap")
         }
     }
 
     fun setCameraDistancePx(px: Float) {
         if (cameraDistancePx != px) {
             cameraDistancePx = px.coerceAtLeast(1f)
-            invalidate()
+            invalidateFor("camera-distance")
         }
     }
 
@@ -166,14 +168,14 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         val p = progress.coerceIn(0f, 1f)
         if (foldProgress != p) {
             foldProgress = p
-            invalidate()
+            invalidateFor("fold-progress")
         }
     }
 
     fun setCoverFlowMode(mode: PlayerCoverFlowMode) {
         if (coverFlowMode != mode) {
             coverFlowMode = mode
-            invalidate()
+            invalidateFor("cover-mode")
         }
     }
 
@@ -182,24 +184,76 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     }
 
     fun setFallbackColor(argb: Int) {
+        if (fallbackColorArgb == argb) return
         fallbackColorArgb = argb
-        invalidate()
+        invalidateFor("fallback-color")
+    }
+
+    fun applyHostUpdate(songs: List<Song>, index: Int, stageActive: Boolean) {
+        if (!shouldDeferHostIndexUpdate()) {
+            updateQueue(songs)
+        }
+        if (!stageActive) {
+            pendingHostIndex = null
+            resetToIndex(index)
+            return
+        }
+        if (shouldDeferHostIndexUpdate()) {
+            pendingHostIndex = index
+            return
+        }
+        updateCurrentIndex(index)
+    }
+
+    /** 拖拽中或 strip/track 动画进行中才推迟 Host 索引同步；不含 motionActive 标记本身。 */
+    private fun shouldDeferHostIndexUpdate(): Boolean =
+        dragging || trackAnimator != null || settleAnimator != null
+
+    private fun flushPendingHostIndex() {
+        val pending = pendingHostIndex ?: return
+        pendingHostIndex = null
+        if (pending == logicalCenter && abs(stripFraction) < 0.0001f) return
+        updateCurrentIndex(pending)
     }
 
     fun updateQueue(songs: List<Song>) {
+        val compareStartedNs = SystemClock.elapsedRealtimeNanos()
+        val sameRef = queue === songs
+        val same = sameRef || sameVisualQueue(queue, songs)
+        TrackSwitchPerformance.recordCoverQueueCompare(
+            durationNs = SystemClock.elapsedRealtimeNanos() - compareStartedNs,
+            queueSize = songs.size,
+            skippedBySameRef = sameRef,
+        )
+        if (same) return
         queue = songs
         preloadWindow()
-        invalidate()
+        invalidateFor("queue")
+    }
+
+    private fun sameVisualQueue(current: List<Song>, incoming: List<Song>): Boolean {
+        if (current === incoming) return true
+        if (current.size != incoming.size) return false
+        return current.indices.all { index ->
+            val old = current[index]
+            val new = incoming[index]
+            old.id == new.id &&
+                old.albumArtUri == new.albumArtUri &&
+                old.coverColorArgb == new.coverColorArgb
+        }
     }
 
     fun updateCurrentIndex(index: Int) {
-        if (trackAnimator != null) return
+        if (trackAnimator != null) {
+            pendingHostIndex = index
+            return
+        }
         if (lastReportedIndex < 0) {
             logicalCenter = index
             stripFraction = 0f
             lastReportedIndex = index
             preloadWindow()
-            invalidate()
+            invalidateFor("initial-index")
             return
         }
         if (logicalCenter == index && abs(stripFraction) < 0.0001f) {
@@ -241,12 +295,14 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             this.duration = if (motionEnabled) duration.toLong() else 0L
             interpolator = LinearInterpolator()
             addUpdateListener { anim ->
+                recordAnimatorCallback()
                 val v = anim.animatedValue as Float
                 stripFraction = v - fromCenter
-                invalidate()
+                invalidateFor("track-animator")
             }
             addListener(object : android.animation.Animator.AnimatorListener {
                 override fun onAnimationStart(animation: android.animation.Animator) {
+                    lastAnimatorCallbackNs = 0L
                     setMotionActive(true)
                     TrackSwitchPerformance.mark("cover-animation-start", "duration=$duration")
                 }
@@ -258,6 +314,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                     trackAnimator = null
                     setMotionActive(false)
                     TrackSwitchPerformance.mark("cover-animation-end", "index=$index")
+                    flushPendingHostIndex()
                 }
             })
             start()
@@ -275,7 +332,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         stripFraction = 0f
         lastReportedIndex = index
         preloadWindow()
-        invalidate()
+        invalidateFor("commit-index")
     }
 
     override fun onDetachedFromWindow() {
@@ -286,6 +343,8 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val startedNs = SystemClock.elapsedRealtimeNanos()
+        var stateBuildNs = 0L
+        var laneDrawNs = 0L
         var laneCount = 0
         Trace.beginSection("MicaCoverFlow.onDraw")
         try {
@@ -295,14 +354,18 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             val slotH = if (coverHeightPx > 0f) coverHeightPx else height.toFloat()
             val cx = coverCenterX()
             val cy = contentCenterY(slotH)
+            val stateBuildStartedNs = SystemClock.elapsedRealtimeNanos()
             val lanes = (-CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius).toList()
             val laneStates = lanes.mapNotNull { laneIndex ->
                 buildLaneState(laneIndex, slotW)
             }.sortedBy { it.zIndex }
+            stateBuildNs = SystemClock.elapsedRealtimeNanos() - stateBuildStartedNs
             laneCount = laneStates.size
+            val laneDrawStartedNs = SystemClock.elapsedRealtimeNanos()
             for (state in laneStates) {
                 drawLane(canvas, state, cx, cy, slotW, slotH)
             }
+            laneDrawNs = SystemClock.elapsedRealtimeNanos() - laneDrawStartedNs
             laneStates.firstOrNull { abs(it.railOffset) < 0.08f }?.let { center ->
                 val ratio = if (center.bitmap != null && center.bitmap.height > 0) {
                     center.bitmap.width.toFloat() / center.bitmap.height
@@ -315,6 +378,8 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             Trace.endSection()
             TrackSwitchPerformance.recordCoverDraw(
                 durationNs = SystemClock.elapsedRealtimeNanos() - startedNs,
+                stateBuildNs = stateBuildNs,
+                laneDrawNs = laneDrawNs,
                 laneCount = laneCount,
                 reflection = reflectionEnabled(),
             )
@@ -580,18 +645,29 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         }
         if (!pendingLoads.contains(uri)) {
             pendingLoads.add(uri)
+            val loadStartedNs = SystemClock.elapsedRealtimeNanos()
+            TrackSwitchPerformance.coverAsyncStarted("cover-load")
             TrackSwitchPerformance.mark("cover-load-start", "uri=${uri.takeLast(48)}")
             scope.launch {
-                CoverFlowBitmaps.ensureLoaded(context, uri)?.let { bmp ->
-                    bitmapByUri[uri] = bmp
-                    scheduleReflectionBake(uri, bmp)
-                    invalidate()
-                    TrackSwitchPerformance.mark(
-                        "cover-load-end",
-                        "uri=${uri.takeLast(48)} size=${bmp.width}x${bmp.height}",
+                try {
+                    val loaded = CoverFlowBitmaps.ensureLoaded(context, uri)
+                    loaded?.let { bmp ->
+                        bitmapByUri[uri] = bmp
+                        scheduleReflectionBake(uri, bmp)
+                        invalidateFor("cover-load")
+                        TrackSwitchPerformance.mark(
+                            "cover-load-end",
+                            "uri=${uri.takeLast(48)} size=${bmp.width}x${bmp.height}",
+                        )
+                    }
+                } finally {
+                    pendingLoads.remove(uri)
+                    TrackSwitchPerformance.coverAsyncFinished(
+                        kind = "cover-load",
+                        durationNs = SystemClock.elapsedRealtimeNanos() - loadStartedNs,
+                        cacheHit = false,
                     )
                 }
-                pendingLoads.remove(uri)
             }
         }
         return null
@@ -612,6 +688,9 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private fun scheduleReflectionBake(uri: String, cover: Bitmap) {
         if (!CoverFlowReflectionBake.ENABLED || !reflectionEnabled()) return
         val aspect = coverSlotAspect()
+        val cacheHit = CoverFlowReflectionBake.cached(uri, aspect) != null
+        val bakeStartedNs = SystemClock.elapsedRealtimeNanos()
+        TrackSwitchPerformance.coverAsyncStarted("reflection-bake")
         scope.launch {
             runCatching {
                 CoverFlowReflectionBake.ensureBaked(uri, cover, aspect)
@@ -622,7 +701,12 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                     it,
                 )
             }
-            invalidate()
+            TrackSwitchPerformance.coverAsyncFinished(
+                kind = "reflection-bake",
+                durationNs = SystemClock.elapsedRealtimeNanos() - bakeStartedNs,
+                cacheHit = cacheHit,
+            )
+            invalidateFor("reflection-bake")
         }
     }
 
@@ -647,7 +731,8 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 dragStartX = event.x
                 dragAccumPx = 0f
                 dragging = true
-                TrackSwitchPerformance.mark("coverflow-drag-start")
+                TrackSwitchPerformance.beginCoverFlowWindow(logicalCenter, queue.size)
+                TrackSwitchPerformance.mark("coverflow-drag-start", "queueSize=${queue.size}")
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
@@ -656,7 +741,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 dragStartX = event.x
                 dragAccumPx += deltaPx
                 stripFraction -= deltaPx / (layoutWidthPx() * laneStepFraction())
-                invalidate()
+                invalidateFor("drag")
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -722,7 +807,8 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                     "strip=${"%.3f".format(stripFraction)} target=$target",
                 )
                 if (target != logicalCenter) {
-                    onPlayQueueIndex?.invoke(target)
+                    updateCurrentIndex(target)
+                    post { onPlayQueueIndex?.invoke(target) }
                 } else {
                     onNext?.invoke()
                 }
@@ -736,7 +822,8 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                     "strip=${"%.3f".format(stripFraction)} target=$target",
                 )
                 if (target != logicalCenter) {
-                    onPlayQueueIndex?.invoke(target)
+                    updateCurrentIndex(target)
+                    post { onPlayQueueIndex?.invoke(target) }
                 } else {
                     onPrevious?.invoke()
                 }
@@ -763,11 +850,13 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             duration = if (motionEnabled) MicaMotion.DurationMediumMs.toLong() else 0L
             interpolator = LinearInterpolator()
             addUpdateListener {
+                recordAnimatorCallback()
                 stripFraction = it.animatedValue as Float
-                invalidate()
+                invalidateFor("settle-animator")
             }
             addListener(object : android.animation.Animator.AnimatorListener {
                 override fun onAnimationStart(animation: android.animation.Animator) {
+                    lastAnimatorCallbackNs = 0L
                     setMotionActive(true)
                     TrackSwitchPerformance.mark(
                         "coverflow-settle-start",
@@ -780,6 +869,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                     settleAnimator = null
                     setMotionActive(false)
                     TrackSwitchPerformance.mark("coverflow-settle-end", "strip=${"%.3f".format(stripFraction)}")
+                    flushPendingHostIndex()
                 }
             })
             start()
@@ -799,11 +889,37 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         onMotionActiveChanged?.invoke(active)
     }
 
+    private fun recordAnimatorCallback() {
+        if (coverFlowMode != PlayerCoverFlowMode.RETRO_3D) return
+        val nowNs = SystemClock.elapsedRealtimeNanos()
+        val previousNs = lastAnimatorCallbackNs
+        lastAnimatorCallbackNs = nowNs
+        if (previousNs != 0L) {
+            TrackSwitchPerformance.recordCoverAnimatorFrame(nowNs - previousNs)
+        }
+    }
+
+    private fun invalidateFor(reason: String) {
+        if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
+            TrackSwitchPerformance.recordCoverInvalidate(reason)
+        }
+        invalidate()
+    }
+
     private fun scheduleMotionIdleFallback() {
         postDelayed(
             {
                 if (!dragging && trackAnimator == null && settleAnimator == null) {
-                    setMotionActive(false)
+                    flushPendingHostIndex()
+                    if (abs(stripFraction) >= 0.0001f) {
+                        TrackSwitchPerformance.mark(
+                            "coverflow-boundary-settle",
+                            "strip=${"%.3f".format(stripFraction)}",
+                        )
+                        animateStripTo(0f)
+                    } else {
+                        setMotionActive(false)
+                    }
                 }
             },
             MicaMotion.DurationLongMs.toLong() + 80L,
@@ -816,6 +932,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         pendingLoads.clear()
         bitmapByUri.clear()
         CoverFlowReflectionBake.clear()
+        pendingHostIndex = null
         onPlayQueueIndex = null
         onPrevious = null
         onNext = null

@@ -14,6 +14,15 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import java.util.IdentityHashMap
 
+data class PlaybackQueueSnapshot(
+    val items: List<MediaItem>,
+    val currentIndex: Int,
+    val revision: Long,
+) {
+    val currentItem: MediaItem?
+        get() = items.getOrNull(currentIndex)
+}
+
 /**
  * 将 ExoPlayer 与 ALAC [AudioTrack] 流式播放桥接到同一 [Player]，
  * 供 MediaSession 向系统报告元数据、进度与播放状态。
@@ -26,6 +35,8 @@ class MicaCompositePlayer(
     private val exoPlayer: ExoPlayer,
 ) : ForwardingPlayer(exoPlayer) {
 
+    internal var playbackCoordinator: ServicePlaybackEngineCoordinator? = null
+
     @Volatile
     var alacState: AlacSessionState? = null
         private set
@@ -33,6 +44,8 @@ class MicaCompositePlayer(
     private var sessionMediaItems: List<MediaItem> = emptyList()
     private var sessionCurrentIndex: Int = 0
     private var sessionTimeline: Timeline = Timeline.EMPTY
+    private var queueRevision: Long = 0L
+    private var sessionQueueRevision: Long = NO_SESSION_QUEUE_REVISION
 
     private val sessionListeners = LinkedHashSet<Player.Listener>()
     private val listenerProxies = IdentityHashMap<Player.Listener, Player.Listener>()
@@ -49,14 +62,119 @@ class MicaCompositePlayer(
         listenerProxies.remove(listener)?.let { super.removeListener(it) }
     }
 
+    override fun setMediaItems(
+        mediaItems: List<MediaItem>,
+        startIndex: Int,
+        startPositionMs: Long,
+    ) {
+        super.setMediaItems(mediaItems, startIndex, startPositionMs)
+        queueRevision++
+        if (!useAlacSnapshot) return
+        sessionMediaItems = mediaItems
+        sessionCurrentIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+        sessionQueueRevision = queueRevision
+        sessionTimeline = buildSessionTimeline()
+        notifySessionMetadataChanged()
+        notifyAvailableCommandsChanged()
+    }
+
+    override fun addMediaItem(index: Int, mediaItem: MediaItem) {
+        super.addMediaItem(index, mediaItem)
+        queueRevision++
+        if (!useAlacSnapshot) return
+        val items = sessionMediaItems.toMutableList()
+        val safe = index.coerceIn(0, items.size)
+        items.add(safe, mediaItem)
+        if (safe <= sessionCurrentIndex) sessionCurrentIndex++
+        sessionMediaItems = items
+        sessionQueueRevision = queueRevision
+        sessionTimeline = buildSessionTimeline()
+        notifySessionTimelineChanged()
+        notifyAvailableCommandsChanged()
+    }
+
+    override fun moveMediaItem(currentIndex: Int, newIndex: Int) {
+        super.moveMediaItem(currentIndex, newIndex)
+        queueRevision++
+        if (!useAlacSnapshot ||
+            currentIndex !in sessionMediaItems.indices ||
+            newIndex !in sessionMediaItems.indices
+        ) {
+            return
+        }
+        val items = sessionMediaItems.toMutableList()
+        val moved = items.removeAt(currentIndex)
+        items.add(newIndex, moved)
+        sessionCurrentIndex = when {
+            sessionCurrentIndex == currentIndex -> newIndex
+            currentIndex < sessionCurrentIndex && newIndex >= sessionCurrentIndex ->
+                sessionCurrentIndex - 1
+            currentIndex > sessionCurrentIndex && newIndex <= sessionCurrentIndex ->
+                sessionCurrentIndex + 1
+            else -> sessionCurrentIndex
+        }
+        sessionMediaItems = items
+        sessionQueueRevision = queueRevision
+        sessionTimeline = buildSessionTimeline()
+        if (items.isEmpty()) {
+            playbackCoordinator?.stopSoftwareSession()
+            return
+        }
+        notifySessionMetadataChanged()
+        notifyAvailableCommandsChanged()
+    }
+
+    override fun removeMediaItem(index: Int) {
+        val removedCurrent = useAlacSnapshot && index == sessionCurrentIndex
+        val continuePlaying = playWhenReady
+        super.removeMediaItem(index)
+        queueRevision++
+        if (!useAlacSnapshot || index !in sessionMediaItems.indices) return
+        val items = sessionMediaItems.toMutableList()
+        items.removeAt(index)
+        sessionCurrentIndex = when {
+            items.isEmpty() -> 0
+            index < sessionCurrentIndex -> sessionCurrentIndex - 1
+            else -> sessionCurrentIndex.coerceAtMost(items.lastIndex)
+        }
+        sessionMediaItems = items
+        sessionQueueRevision = queueRevision
+        sessionTimeline = buildSessionTimeline()
+        if (items.isEmpty()) {
+            playbackCoordinator?.stopSoftwareSession()
+            notifySessionTimelineChanged()
+            notifyAvailableCommandsChanged()
+            return
+        }
+        notifySessionMetadataChanged()
+        notifyAvailableCommandsChanged()
+        if (removedCurrent) {
+            playbackCoordinator?.onCurrentQueueItemRemoved(continuePlaying)
+        }
+    }
+
+    override fun clearMediaItems() {
+        super.clearMediaItems()
+        queueRevision++
+        if (!useAlacSnapshot) return
+        sessionMediaItems = emptyList()
+        sessionCurrentIndex = 0
+        sessionQueueRevision = queueRevision
+        sessionTimeline = Timeline.EMPTY
+        playbackCoordinator?.stopSoftwareSession()
+        notifySessionTimelineChanged()
+        notifyAvailableCommandsChanged()
+    }
+
     fun endAlacSession() {
         alacState = null
         sessionMediaItems = emptyList()
         sessionCurrentIndex = 0
+        sessionQueueRevision = NO_SESSION_QUEUE_REVISION
         sessionTimeline = Timeline.EMPTY
         exoPlayer.stop()
-        exoPlayer.clearMediaItems()
         notifySessionPlaybackState()
+        notifyAvailableCommandsChanged()
     }
 
     /** 停止 ALAC 音频但保留 Exo 队列；清除 session 元数据快照，避免误路由 seek/切歌。 */
@@ -64,21 +182,28 @@ class MicaCompositePlayer(
         alacState = null
         sessionMediaItems = emptyList()
         sessionCurrentIndex = 0
+        sessionQueueRevision = NO_SESSION_QUEUE_REVISION
         sessionTimeline = Timeline.EMPTY
     }
 
     /**
      * 从 ALAC 切到 Exo 的原子操作：不清空队列、不广播 IDLE，避免锁屏/通知消失且 Exo 无法恢复。
      */
-    fun startExoPlayback(mediaItems: List<MediaItem>, startIndex: Int) {
+    fun startExoPlayback(
+        mediaItems: List<MediaItem>,
+        startIndex: Int,
+        startPositionMs: Long = 0L,
+        playWhenReady: Boolean = true,
+    ) {
         val safeIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
         alacState = null
         sessionMediaItems = emptyList()
         sessionCurrentIndex = 0
+        sessionQueueRevision = NO_SESSION_QUEUE_REVISION
         sessionTimeline = Timeline.EMPTY
-        exoPlayer.setMediaItems(mediaItems, safeIndex, 0L)
+        exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
         exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
+        exoPlayer.playWhenReady = playWhenReady
         notifyExoSessionStarted()
     }
 
@@ -91,6 +216,7 @@ class MicaCompositePlayer(
             item?.mediaMetadata?.let { listener.onMediaMetadataChanged(it) }
         }
         notifySessionPlaybackState()
+        notifyAvailableCommandsChanged()
     }
 
     private fun notifySessionPlaybackState() {
@@ -111,16 +237,50 @@ class MicaCompositePlayer(
         exoPlayer.stop()
     }
 
+    fun startSoftwarePlaybackSession(
+        mediaItems: List<MediaItem>,
+        startIndex: Int,
+        state: AlacSessionState,
+        snapshotRevision: Long? = null,
+    ) {
+        val incomingRevision = snapshotRevision ?: queueRevision + 1L
+        val queueChanged = sessionQueueRevision != incomingRevision
+        if (queueChanged) {
+            sessionMediaItems = mediaItems
+        }
+        sessionCurrentIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+        queueRevision = incomingRevision
+        sessionQueueRevision = incomingRevision
+        alacState = state
+        sessionTimeline = buildSessionTimeline()
+        exoPlayer.playWhenReady = false
+        exoPlayer.stop()
+        if (queueChanged) {
+            notifySessionMetadataChanged()
+        } else {
+            notifySessionTrackChanged()
+        }
+        notifyAvailableCommandsChanged()
+        notifyAlacPlaybackListeners()
+    }
+
     fun publishAlacState(state: AlacSessionState?) {
+        val previousState = alacState
         alacState = state
         if (state == null) {
             sessionMediaItems = emptyList()
             sessionCurrentIndex = 0
+            sessionQueueRevision = NO_SESSION_QUEUE_REVISION
             sessionTimeline = Timeline.EMPTY
-        } else if (sessionMediaItems.isNotEmpty()) {
+        } else if (
+            sessionMediaItems.isNotEmpty() &&
+            previousState?.durationMs != state.durationMs
+        ) {
+            // Position, buffering and play/pause changes do not alter the queue timeline.
+            // Rebuilding and broadcasting a large custom timeline for every state callback
+            // stalls the main thread during rapid software-track switches.
             sessionTimeline = buildSessionTimeline()
             notifySessionTimelineChanged()
-            notifySessionMetadataChanged()
         }
         notifyAlacPlaybackListeners()
     }
@@ -131,19 +291,29 @@ class MicaCompositePlayer(
     fun syncAlacSessionQueue(mediaItems: List<MediaItem>, startIndex: Int) {
         sessionMediaItems = mediaItems
         sessionCurrentIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+        queueRevision++
+        sessionQueueRevision = queueRevision
         sessionTimeline = buildSessionTimeline()
         if (alacState == null) return
         notifySessionMetadataChanged()
+        notifyAvailableCommandsChanged()
     }
 
     /** ALAC 切歌时更新 session 当前索引（不重载音频）。 */
     fun setAlacSessionIndex(index: Int) {
         if (sessionMediaItems.isEmpty()) return
-        sessionCurrentIndex = index.coerceIn(0, sessionMediaItems.lastIndex)
-        sessionTimeline = buildSessionTimeline()
+        val safe = index.coerceIn(0, sessionMediaItems.lastIndex)
+        if (safe == sessionCurrentIndex && alacState != null) return
+        sessionCurrentIndex = safe
+        refreshSessionTimeline()
         if (alacState != null) {
-            notifySessionMetadataChanged()
+            notifySessionTrackChanged()
+            notifyAvailableCommandsChanged()
         }
+    }
+
+    private fun refreshSessionTimeline() {
+        sessionTimeline = buildSessionTimeline()
     }
 
     private fun buildSessionTimeline(): Timeline {
@@ -167,6 +337,14 @@ class MicaCompositePlayer(
         }
     }
 
+    private fun notifySessionTrackChanged() {
+        val item = sessionMediaItems.getOrNull(sessionCurrentIndex)
+        sessionListeners.forEach { listener ->
+            listener.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
+            item?.mediaMetadata?.let { listener.onMediaMetadataChanged(it) }
+        }
+    }
+
     private fun notifySessionTimelineChanged() {
         sessionListeners.forEach { listener ->
             listener.onTimelineChanged(
@@ -176,23 +354,57 @@ class MicaCompositePlayer(
         }
     }
 
-    /** 仅更新进度快照；时间轴仅在 [publishAlacState] 时刷新，避免通知/锁屏条随轮询乱跳。 */
+    private fun notifyAvailableCommandsChanged() {
+        val commands = availableCommands
+        sessionListeners.forEach { listener ->
+            listener.onAvailableCommandsChanged(commands)
+        }
+    }
+
+    /** 仅更新进度快照；不在此处重建 timeline，避免每 tick 分配 [SessionMediaTimeline]。 */
     fun publishAlacPosition(positionMs: Long, durationMs: Long) {
         val current = alacState ?: return
         alacState = current.copy(
             positionMs = positionMs,
             durationMs = durationMs.coerceAtLeast(current.durationMs),
         )
-        if (sessionMediaItems.isNotEmpty()) {
-            sessionTimeline = buildSessionTimeline()
-        }
     }
 
     val isAlacActive: Boolean
         get() = useAlacSnapshot
 
     private val useAlacSnapshot: Boolean
-        get() = alacState != null && AlacPlaybackCoordinator.alacStreamActive
+        get() = alacState != null
+
+    fun playlistSnapshot(): List<MediaItem> =
+        if (useAlacSnapshot) {
+            sessionMediaItems
+        } else {
+            List(exoPlayer.mediaItemCount, exoPlayer::getMediaItemAt)
+        }
+
+    fun playbackQueueSnapshot(): PlaybackQueueSnapshot {
+        val items = playlistSnapshot()
+        val index = if (items.isEmpty()) {
+            0
+        } else {
+            currentMediaItemIndex.coerceIn(0, items.lastIndex)
+        }
+        return PlaybackQueueSnapshot(items, index, queueRevision)
+    }
+
+    fun playExoDirect() {
+        if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
+        exoPlayer.play()
+    }
+
+    private companion object {
+        const val NO_SESSION_QUEUE_REVISION = Long.MIN_VALUE
+    }
+
+    fun pauseExoDirect() {
+        exoPlayer.pause()
+    }
 
     override fun getCurrentTimeline(): Timeline =
         if (useAlacSnapshot) sessionTimeline else super.getCurrentTimeline()
@@ -263,6 +475,7 @@ class MicaCompositePlayer(
                 .add(Player.COMMAND_PLAY_PAUSE)
                 .add(Player.COMMAND_PREPARE)
                 .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
                 .add(Player.COMMAND_GET_TIMELINE)
                 .add(Player.COMMAND_GET_METADATA)
                 .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
@@ -302,26 +515,30 @@ class MicaCompositePlayer(
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         if (routeToAlacHandler) {
             if (playWhenReady) {
-                AlacPlaybackCoordinator.sessionHandler?.onPlay()
+                playbackCoordinator?.onPlay()
             } else {
-                AlacPlaybackCoordinator.sessionHandler?.onPause()
+                playbackCoordinator?.onPause()
             }
         } else {
-            super.setPlayWhenReady(playWhenReady)
+            if (playWhenReady) {
+                playbackCoordinator?.playCurrent() ?: super.setPlayWhenReady(true)
+            } else {
+                super.setPlayWhenReady(false)
+            }
         }
     }
 
     override fun play() {
         if (routeToAlacHandler) {
-            AlacPlaybackCoordinator.sessionHandler?.onPlay()
+            playbackCoordinator?.onPlay()
         } else {
-            super.play()
+            playbackCoordinator?.playCurrent() ?: super.play()
         }
     }
 
     override fun pause() {
         if (routeToAlacHandler) {
-            AlacPlaybackCoordinator.sessionHandler?.onPause()
+            playbackCoordinator?.onPause()
         } else {
             super.pause()
         }
@@ -329,15 +546,23 @@ class MicaCompositePlayer(
 
     override fun seekTo(positionMs: Long) {
         if (routeToAlacHandler) {
-            AlacPlaybackCoordinator.sessionHandler?.onSeekTo(positionMs)
+            playbackCoordinator?.onSeekTo(positionMs)
         } else {
             super.seekTo(positionMs)
         }
     }
 
+    override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+        if (routeToAlacHandler) {
+            playbackCoordinator?.onSelectMediaItem(mediaItemIndex, positionMs)
+        } else {
+            super.seekTo(mediaItemIndex, positionMs)
+        }
+    }
+
     override fun seekToNextMediaItem() {
         if (routeToAlacHandler) {
-            AlacPlaybackCoordinator.sessionHandler?.onSkipToNext()
+            playbackCoordinator?.onSkipToNext()
         } else {
             super.seekToNextMediaItem()
         }
@@ -345,7 +570,7 @@ class MicaCompositePlayer(
 
     override fun seekToPreviousMediaItem() {
         if (routeToAlacHandler) {
-            AlacPlaybackCoordinator.sessionHandler?.onSkipToPrevious()
+            playbackCoordinator?.onSkipToPrevious()
         } else {
             super.seekToPreviousMediaItem()
         }
@@ -353,7 +578,7 @@ class MicaCompositePlayer(
 
     override fun seekToPrevious() {
         if (routeToAlacHandler) {
-            AlacPlaybackCoordinator.sessionHandler?.onSkipToPrevious()
+            playbackCoordinator?.onSkipToPrevious()
         } else {
             super.seekToPrevious()
         }
@@ -361,7 +586,7 @@ class MicaCompositePlayer(
 
     override fun seekToNext() {
         if (routeToAlacHandler) {
-            AlacPlaybackCoordinator.sessionHandler?.onSkipToNext()
+            playbackCoordinator?.onSkipToNext()
         } else {
             super.seekToNext()
         }
@@ -407,6 +632,12 @@ class MicaCompositePlayer(
 
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
             if (allowExoPlaybackEvents) delegate.onTimelineChanged(timeline, reason)
+        }
+
+        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+            if (allowExoPlaybackEvents) {
+                delegate.onAvailableCommandsChanged(availableCommands)
+            }
         }
 
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {

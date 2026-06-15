@@ -45,6 +45,9 @@ class SoftwareEqualizerAudioProcessor(
             return pendingOutput
         }
         val encoding = media3EncodingToAndroid(inputFormat.encoding)
+        if (encoding == android.media.AudioFormat.ENCODING_INVALID) {
+            throw AudioProcessor.UnhandledAudioFormatException(inputFormat)
+        }
         val size = pendingInput.remaining()
         if (scratch.capacity() < size) {
             scratch = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
@@ -75,7 +78,9 @@ class SoftwareEqualizerAudioProcessor(
 
     private fun media3EncodingToAndroid(encoding: Int): Int = when (encoding) {
         C.ENCODING_PCM_16BIT -> android.media.AudioFormat.ENCODING_PCM_16BIT
+        C.ENCODING_PCM_24BIT -> android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED
+        C.ENCODING_PCM_32BIT -> android.media.AudioFormat.ENCODING_PCM_32BIT
         C.ENCODING_PCM_FLOAT -> android.media.AudioFormat.ENCODING_PCM_FLOAT
-        else -> android.media.AudioFormat.ENCODING_PCM_16BIT
+        else -> android.media.AudioFormat.ENCODING_INVALID
     }
 }

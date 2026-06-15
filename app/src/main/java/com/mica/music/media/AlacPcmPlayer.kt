@@ -1,9 +1,13 @@
 package com.mica.music.media
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioRouting
 import android.media.AudioTrack
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DecodePerformance
@@ -16,8 +20,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileInputStream
+import java.io.InputStream
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -27,16 +30,19 @@ import java.util.concurrent.atomic.AtomicLong
  */
 internal class AlacPcmPlayer(
     private val scope: CoroutineScope,
+    context: Context,
 ) {
+    private val appContext = context.applicationContext
     private companion object {
-        const val SpectrumTargetFps = 60
         const val ProgressUpdateIntervalMs = 200L
+        const val ZeroWriteRetryDelayMs = 2L
     }
 
     interface Listener {
         fun onPrepared(durationSec: Int)
         fun onPositionMs(positionMs: Int)
         fun onPlayingChanged(playing: Boolean)
+        fun onOutputRouteChanged(device: android.media.AudioDeviceInfo?)
         fun onEnded()
         fun onError(message: String)
     }
@@ -44,6 +50,8 @@ internal class AlacPcmPlayer(
     private var audioTrack: AudioTrack? = null
     private var writeJob: Job? = null
     private var progressJob: Job? = null
+    @Volatile
+    private var currentInput: InputStream? = null
 
     @Volatile
     private var paused = false
@@ -53,18 +61,26 @@ internal class AlacPcmPlayer(
     private var sampleRateHz = 44_100
     private var activeFormat: AlacPcmFormat? = null
     private val framesSubmitted = AtomicLong(0L)
+    private var routeListener: Listener? = null
+    private var lastRoutedDeviceId: Int? = null
+    private val routingHandler = Handler(Looper.getMainLooper())
+    private val routingChangedListener = AudioRouting.OnRoutingChangedListener { routing ->
+        val track = routing as? AudioTrack ?: return@OnRoutingChangedListener
+        publishRoute(track, notifyChange = true)
+    }
 
     fun play(
-        pcmFile: File,
+        pcmStream: InputStream,
         format: AlacPcmFormat,
         durationSec: Int,
         stopRequested: () -> Boolean,
         listener: Listener,
         startOffsetMs: Int = 0,
         autoStart: Boolean = true,
-        producerAlive: (() -> Boolean)? = null,
+        producer: FfmpegRunner.RunningSession,
     ) {
         cancelJobs()
+        currentInput = pcmStream
         framesSubmitted.set(0L)
         paused = !autoStart
         val channelMask = if (format.channelCount == 1) {
@@ -76,9 +92,6 @@ internal class AlacPcmPlayer(
         val sampleRate = format.sampleRateHz
         sampleRateHz = sampleRate
         val bytesPerFrame = format.bytesPerFrame.coerceAtLeast(1)
-        val spectrumWriteChunkBytes = (
-            (sampleRate / SpectrumTargetFps).coerceAtLeast(1) * bytesPerFrame
-        ).coerceAtLeast(bytesPerFrame)
         val minBuf = AudioTrack.getMinBufferSize(sampleRate, channelMask, encoding)
         if (minBuf <= 0) {
             listener.onError("不支持的 PCM 格式 (${format.bitsPerSample}bit)")
@@ -153,6 +166,10 @@ internal class AlacPcmPlayer(
             }
             created
         }
+        if (!reuseTrack && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            track.addOnRoutingChangedListener(routingChangedListener, routingHandler)
+        }
+        routeListener = listener
         activeFormat = format
         audioTrack = track
         BluetoothAudioDiagnostics.logPlaybackRoute(
@@ -160,9 +177,7 @@ internal class AlacPcmPlayer(
             extra = "session=${track.audioSessionId}",
         )
         track.setVolume(currentVolume)
-        AlacPlaybackCoordinator.appContext?.let { ctx ->
-            MicaEqualizerManager.attach(ctx, track.audioSessionId)
-        }
+        MicaEqualizerManager.attach(appContext, track.audioSessionId)
         val maxMs = durationSec.coerceAtLeast(1) * 1000
         listener.onPrepared(durationSec.coerceAtLeast(1))
         if (autoStart) {
@@ -173,6 +188,7 @@ internal class AlacPcmPlayer(
                     return
                 }
             listener.onPlayingChanged(true)
+            publishRoute(track, notifyChange = false)
         } else {
             val parkedMs = startOffsetMs.coerceIn(0, maxMs)
             listener.onPositionMs(parkedMs)
@@ -180,41 +196,21 @@ internal class AlacPcmPlayer(
 
         writeJob = scope.launch(Dispatchers.IO) {
             try {
-                val startByte = format.byteOffsetForMs(startOffsetMs)
-                val fileFrames = pcmFile.length() / bytesPerFrame
                 val startFrame = format.framesForMs(startOffsetMs)
-                val framesToPlay = if (producerAlive != null) {
-                    ((durationSec.coerceAtLeast(1) * sampleRate).toLong() - startFrame).coerceAtLeast(0)
-                } else {
-                    (fileFrames - startFrame).coerceAtLeast(0)
-                }
-                FileInputStream(pcmFile).use { input ->
-                    if (startByte > 0) {
-                        var remaining = startByte
-                        while (remaining > 0) {
-                            val skipped = input.skip(remaining)
-                            if (skipped <= 0) break
-                            remaining -= skipped
-                        }
-                    }
+                val framesToPlay =
+                    ((durationSec.coerceAtLeast(1) * sampleRate).toLong() - startFrame)
+                        .coerceAtLeast(0)
+                pcmStream.use { input ->
                     val buffer = ByteArray(minBuf)
-                    var nextWriteNanos = System.nanoTime()
                     while (isActive && !stopRequested()) {
                         if (paused) {
                             while (paused && isActive && !stopRequested()) {
                                 delay(50)
                             }
-                            nextWriteNanos = System.nanoTime()
                         }
                         if (stopRequested()) break
                         val read = input.read(buffer)
-                        if (read <= 0) {
-                            if (producerAlive?.invoke() == true) {
-                                delay(30)
-                                continue
-                            }
-                            break
-                        }
+                        if (read <= 0) break
                         MicaEqualizerManager.processPcmBuffer(
                             buffer = buffer,
                             offset = 0,
@@ -229,19 +225,16 @@ internal class AlacPcmPlayer(
                                 while (paused && isActive && !stopRequested()) {
                                     delay(50)
                                 }
-                                nextWriteNanos = System.nanoTime()
                             }
                             if (stopRequested()) break
-                            val writeLength = minOf(spectrumWriteChunkBytes, read - offset)
-                            val nowNanos = System.nanoTime()
-                            val waitNanos = nextWriteNanos - nowNanos
-                            if (waitNanos > 1_000_000L) {
-                                delay(waitNanos / 1_000_000L)
-                            } else if (waitNanos < -50_000_000L) {
-                                nextWriteNanos = nowNanos
+                            val written = track.write(buffer, offset, read - offset)
+                            if (written < 0) {
+                                throw IllegalStateException("AudioTrack write failed: $written")
                             }
-                            val written = track.write(buffer, offset, writeLength)
-                            if (written <= 0) break
+                            if (written == 0) {
+                                delay(ZeroWriteRetryDelayMs)
+                                continue
+                            }
                             MicaSpectrumAnalyzer.processPcmBuffer(
                                 buffer = buffer,
                                 offset = offset,
@@ -253,13 +246,24 @@ internal class AlacPcmPlayer(
                             offset += written
                             val writtenFrames = written / bytesPerFrame
                             framesSubmitted.addAndGet(writtenFrames.toLong())
-                            nextWriteNanos += writtenFrames * 1_000_000_000L / sampleRate
                         }
                     }
                 }
                 if (!stopRequested()) {
-                    val drainFrames = if (producerAlive != null) framesSubmitted.get() else framesToPlay
-                    waitForDrain(track, drainFrames, stopRequested)
+                    val finished = producer.waitFor()
+                    if (!finished.success) {
+                        withContext(Dispatchers.Main) {
+                            listener.onError(
+                                "FFmpeg 解码失败：${AlacFfmpegHelper.sessionFailureHint(finished)}",
+                            )
+                        }
+                        return@launch
+                    }
+                    waitForDrain(
+                        track,
+                        minOf(framesSubmitted.get(), framesToPlay),
+                        stopRequested,
+                    )
                 }
             } catch (e: Exception) {
                 if (!stopRequested()) {
@@ -268,6 +272,8 @@ internal class AlacPcmPlayer(
                     }
                 }
                 return@launch
+            } finally {
+                if (currentInput === pcmStream) currentInput = null
             }
             if (!stopRequested()) {
                 withContext(Dispatchers.Main) {
@@ -327,7 +333,23 @@ internal class AlacPcmPlayer(
         paused = false
     }
 
+    /**
+     * Stops the current writer but keeps an initialized AudioTrack available for
+     * the next software item when its PCM format matches.
+     */
+    fun stopForSwitch() {
+        cancelJobs()
+        runCatching {
+            audioTrack?.pause()
+            audioTrack?.flush()
+        }
+        routeListener = null
+        paused = false
+    }
+
     private fun cancelJobs() {
+        runCatching { currentInput?.close() }
+        currentInput = null
         writeJob?.cancel()
         writeJob = null
         progressJob?.cancel()
@@ -339,7 +361,12 @@ internal class AlacPcmPlayer(
         val track = audioTrack
         audioTrack = null
         activeFormat = null
+        routeListener = null
+        lastRoutedDeviceId = null
         if (track != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                runCatching { track.removeOnRoutingChangedListener(routingChangedListener) }
+            }
             scope.launch(Dispatchers.IO) {
                 runCatching {
                     track.pause()
@@ -348,6 +375,21 @@ internal class AlacPcmPlayer(
                     track.release()
                 }
             }
+        }
+    }
+
+    private fun publishRoute(track: AudioTrack, notifyChange: Boolean) {
+        val device = track.routedDevice
+        val previousId = lastRoutedDeviceId
+        val currentId = device?.id
+        SoftwareAudioRouteState.update(device)
+        lastRoutedDeviceId = currentId
+        BluetoothAudioDiagnostics.logPlaybackRoute(
+            reason = if (notifyChange) "audio-track-route-changed" else "audio-track-routed",
+            extra = "device=${AudioOutputCapabilities.snapshot(device).deviceName}",
+        )
+        if (notifyChange && previousId != null && currentId != previousId) {
+            routeListener?.onOutputRouteChanged(device)
         }
     }
 }

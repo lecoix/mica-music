@@ -26,6 +26,7 @@ $bin = Join-Path $Root "app\src\main\assets\ffmpeg\arm64-v8a\ffmpeg"
 if (Test-Path $bin) {
     $sizeMb = [math]::Round((Get-Item $bin).Length / 1MB, 2)
     Write-Host ">> OK: $bin (~${sizeMb} MB)" -ForegroundColor Green
+    Write-Host ">> Stdout streaming is checked inside Docker: the pipe protocol must be enabled." -ForegroundColor Green
     Write-Host ">> DSD support is checked inside Docker: dsf + iff(dff/dsdiff) demuxers and DSD decoders must be enabled." -ForegroundColor Green
 } else {
     Write-Host ">> ffmpeg binary not found. Check Docker output above." -ForegroundColor Red

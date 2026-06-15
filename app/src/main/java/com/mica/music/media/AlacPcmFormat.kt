@@ -11,6 +11,12 @@ data class AlacPcmFormat(
     val bitsPerSample: Int,
 ) {
     val bytesPerFrame: Int = channelCount * (bitsPerSample / 8)
+    val channelMask: Int
+        get() = if (channelCount.coerceIn(1, 2) == 1) {
+            AudioFormat.CHANNEL_OUT_MONO
+        } else {
+            AudioFormat.CHANNEL_OUT_STEREO
+        }
 
     /** PCM 文件内与 [positionMs] 对齐的字节偏移（按帧对齐）。 */
     fun byteOffsetForMs(positionMs: Int): Long {

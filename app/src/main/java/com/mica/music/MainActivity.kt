@@ -21,7 +21,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
@@ -33,13 +32,9 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.ui.components.UserMessageHost
 import com.mica.music.ui.navigation.AppNavigationMain
 import com.mica.music.ui.navigation.PlayerSheetOverlay
@@ -121,7 +116,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        ScanCacheManager.runStartupCacheCleanup(this)
         applyWindowStatusBar()
 
         val library = viewModel.library
@@ -197,19 +191,8 @@ class MainActivity : ComponentActivity() {
                     playerController.connectIfNeeded()
                 }
 
-                val lifecycleOwner = LocalLifecycleOwner.current
-                DisposableEffect(lifecycleOwner, playerController) {
-                    val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_STOP) {
-                            playerController.persistPlaybackSessionNow()
-                        }
-                    }
-                    lifecycleOwner.lifecycle.addObserver(observer)
-                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-                }
-
                 val libraryQueueIds = remember { androidx.compose.runtime.mutableStateOf<List<String>>(emptyList()) }
-                LaunchedEffect(library.songs) {
+                LaunchedEffect(library.songIds) {
                     val songs = library.songs
                     if (songs.isEmpty()) return@LaunchedEffect
 
@@ -217,7 +200,7 @@ class MainActivity : ComponentActivity() {
                     val currentQueueIds = playerController.songQueue.map { it.id }
                     val currentQueueWasLibrary = previousLibraryIds.isNotEmpty() &&
                         currentQueueIds == previousLibraryIds
-                    libraryQueueIds.value = songs.map { it.id }
+                    libraryQueueIds.value = library.songIds
 
                     if (currentQueueIds.isEmpty() || currentQueueWasLibrary) {
                         playerController.setQueue(songs)

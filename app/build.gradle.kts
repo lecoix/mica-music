@@ -6,9 +6,16 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
+providers.gradleProperty("mica.alternateBuildDir").orNull?.let { alternateDir ->
+    layout.buildDirectory.set(file(alternateDir))
+}
+
 // assets 里的 ffmpeg → jniLibs（lib*.so），安装后位于 nativeLibraryDir 才可 exec
 val ffmpegJniDir = layout.buildDirectory.dir("generated/ffmpeg-jni")
 val ffmpegAsset = file("src/main/assets/ffmpeg/arm64-v8a/ffmpeg")
+val qaSideBySide = providers.gradleProperty("mica.qaSideBySide")
+    .map(String::toBoolean)
+    .getOrElse(false)
 val syncFfmpegNative = tasks.register<Copy>("syncFfmpegNative") {
     onlyIf { ffmpegAsset.exists() }
     from(ffmpegAsset)
@@ -21,11 +28,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.mica.music"
+        applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.1.7-diag5"
+        versionCode = 14
+        versionName = "0.1.8-hybrid7" + if (qaSideBySide) "-qa" else ""
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")
@@ -53,7 +60,7 @@ android {
         }
         create("perf") {
             initWith(getByName("release"))
-            isDebuggable = false
+            isDebuggable = qaSideBySide
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")
         }

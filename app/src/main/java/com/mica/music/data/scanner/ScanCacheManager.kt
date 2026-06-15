@@ -18,6 +18,7 @@ internal object ScanCacheManager {
     const val DIR_LYRICS_META = "lyrics_meta"
     const val DIR_ALAC_STREAM = "alac_stream"
     const val DIR_ALAC_FLAC = "alac_flac"
+    const val DIR_AUDIO_INPUT = "audio_input"
 
     /** 冷启动：清空播放转码缓存（无进行中的解码会话）。 */
     fun clearPlaybackCache(context: Context) {
@@ -28,6 +29,7 @@ internal object ScanCacheManager {
     /** 冷启动：播放缓存 + 扫描探测临时目录。 */
     fun runStartupCacheCleanup(context: Context) {
         clearPlaybackCache(context)
+        clearPartialInputCopies(context)
         clearTransientScanCache(context)
     }
 
@@ -51,5 +53,12 @@ internal object ScanCacheManager {
     private fun deleteDirContents(dir: File) {
         if (!dir.exists()) return
         dir.listFiles()?.forEach { it.deleteRecursively() }
+    }
+
+    private fun clearPartialInputCopies(context: Context) {
+        File(context.cacheDir, DIR_AUDIO_INPUT)
+            .listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".part") }
+            ?.forEach { it.delete() }
     }
 }

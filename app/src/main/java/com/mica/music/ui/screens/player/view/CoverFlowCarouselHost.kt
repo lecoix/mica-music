@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens.player.view
 
+import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -41,7 +42,18 @@ internal fun CoverFlowCarouselHost(
         if (!stageActive) return@LaunchedEffect
         for (offset in -3..3) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
-            CoverFlowBitmaps.ensureLoaded(context, uri)
+            val cacheHit = CoverFlowBitmaps.memoryBitmap(uri) != null
+            val startedNs = SystemClock.elapsedRealtimeNanos()
+            com.mica.music.util.TrackSwitchPerformance.coverAsyncStarted("host-preload")
+            try {
+                CoverFlowBitmaps.ensureLoaded(context, uri)
+            } finally {
+                com.mica.music.util.TrackSwitchPerformance.coverAsyncFinished(
+                    kind = "host-preload",
+                    durationNs = SystemClock.elapsedRealtimeNanos() - startedNs,
+                    cacheHit = cacheHit,
+                )
+            }
         }
     }
 
@@ -66,6 +78,7 @@ internal fun CoverFlowCarouselHost(
             }
         },
         update = { view ->
+            val updateStartedNs = SystemClock.elapsedRealtimeNanos()
             view.setMotionEnabled(motionEnabled)
             view.setGesturesEnabled(gesturesEnabled)
             view.setFallbackColor(coverArgb)
@@ -82,12 +95,15 @@ internal fun CoverFlowCarouselHost(
             view.onCoverLongPress = onCoverLongPress
             view.onCenterAspectRatio = onAspectRatioChanged
             view.onMotionActiveChanged = onMotionActiveChanged
-            view.updateQueue(queue)
-            if (!stageActive) {
-                view.resetToIndex(currentIndex)
-            } else {
-                view.updateCurrentIndex(currentIndex)
-            }
+            view.applyHostUpdate(
+                songs = queue,
+                index = currentIndex,
+                stageActive = stageActive,
+            )
+            com.mica.music.util.TrackSwitchPerformance.recordCoverHostUpdate(
+                durationNs = SystemClock.elapsedRealtimeNanos() - updateStartedNs,
+                queueSize = queue.size,
+            )
         },
         onRelease = { view -> view.release() },
     )

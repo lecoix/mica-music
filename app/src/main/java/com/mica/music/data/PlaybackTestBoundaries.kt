@@ -5,15 +5,7 @@ import android.content.Context
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.mica.music.media.AlacAudioTrackEngine
-import com.mica.music.media.AlacPlaybackCoordinator
-import com.mica.music.media.MicaCompositePlayer
 import com.mica.music.media.MicaMediaService
-
-internal interface PlaybackBackend {
-    val compositePlayer: MicaCompositePlayer?
-    val alacEngine: AlacAudioTrackEngine?
-}
 
 internal interface MediaControllerConnection {
     fun cancel()
@@ -22,6 +14,7 @@ internal interface MediaControllerConnection {
 internal interface MediaControllerConnector {
     fun connect(
         onConnected: (MediaController) -> Unit,
+        onDisconnected: () -> Unit,
         onFailure: (Throwable) -> Unit,
     ): MediaControllerConnection
 }
@@ -32,26 +25,25 @@ internal interface PlaybackSessionStorage {
     fun clear()
 }
 
-internal object CoordinatorPlaybackBackend : PlaybackBackend {
-    override val compositePlayer: MicaCompositePlayer?
-        get() = AlacPlaybackCoordinator.compositePlayer
-
-    override val alacEngine: AlacAudioTrackEngine?
-        get() = AlacPlaybackCoordinator.engine
-}
-
 internal class AndroidMediaControllerConnector(
     private val context: Context,
 ) : MediaControllerConnector {
     override fun connect(
         onConnected: (MediaController) -> Unit,
+        onDisconnected: () -> Unit,
         onFailure: (Throwable) -> Unit,
     ): MediaControllerConnection {
         val token = SessionToken(
             context,
             ComponentName(context, MicaMediaService::class.java),
         )
-        val future = MediaController.Builder(context, token).buildAsync()
+        val future = MediaController.Builder(context, token)
+            .setListener(object : MediaController.Listener {
+                override fun onDisconnected(controller: MediaController) {
+                    onDisconnected()
+                }
+            })
+            .buildAsync()
         future.addListener(
             {
                 runCatching { future.get() }

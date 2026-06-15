@@ -50,6 +50,10 @@ class MusicLibrary internal constructor(
     var songs by mutableStateOf<List<Song>>(emptyList())
         private set
 
+    /** 可见曲库 id 序列；仅顺序/成员变化时更新，供播放队列同步 LaunchedEffect 使用。 */
+    var songIds by mutableStateOf<List<String>>(emptyList())
+        private set
+
     var sortField by mutableStateOf(AppPreferences.songSortField(context))
         private set
 
@@ -111,9 +115,14 @@ class MusicLibrary internal constructor(
         sortDirection = AppPreferences.songSortDirection(context)
     }
 
+    private fun publishVisibleSongs(list: List<Song>) {
+        songs = list
+        songIds = list.map { it.id }
+    }
+
     private fun applyCurrentSort() {
         if (scannedSongs.isEmpty()) return
-        songs = SongSorter.sort(scannedSongs, sortField, sortDirection)
+        publishVisibleSongs(SongSorter.sort(scannedSongs, sortField, sortDirection))
     }
 
     private fun persistSongsAsync() {
@@ -144,16 +153,14 @@ class MusicLibrary internal constructor(
             lastPlayedAtMs = stats.lastPlayedAtMs,
         )
         scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updatedScanned }
-        songs = when (sortField) {
+        when (sortField) {
             SongSortField.PLAY_COUNT,
             SongSortField.LAST_PLAYED,
-            -> SongSorter.sort(scannedSongs, sortField, sortDirection)
+            -> publishVisibleSongs(SongSorter.sort(scannedSongs, sortField, sortDirection))
             else -> {
                 val visibleIndex = songs.indexOfFirst { it.id == songId }
-                if (visibleIndex < 0) {
-                    songs
-                } else {
-                    songs.toMutableList().also { it[visibleIndex] = updatedScanned }
+                if (visibleIndex >= 0) {
+                    songs = songs.toMutableList().also { it[visibleIndex] = updatedScanned }
                 }
             }
         }
@@ -232,7 +239,7 @@ class MusicLibrary internal constructor(
         scanEnvironment.hasAudioReadPermission()
 
     fun clearLibrary() {
-        songs = emptyList()
+        publishVisibleSongs(emptyList())
         scannedSongs = emptyList()
         hasScanned = false
         totalSizeMb = 0

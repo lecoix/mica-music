@@ -45,8 +45,7 @@ fun BlurredCoverBackground(
 ) {
     val isDark = MicaTheme.colors.isDark
     val accent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
-    val canBlurArtwork = !albumArtUri.isNullOrBlank() &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val canShowArtwork = !albumArtUri.isNullOrBlank()
     val context = LocalContext.current
     var readyBackgroundUri by remember { mutableStateOf<String?>(null) }
     val imageReady = albumArtUri.isNullOrBlank() || albumArtUri == readyBackgroundUri
@@ -75,7 +74,7 @@ fun BlurredCoverBackground(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        if (canBlurArtwork) {
+        if (canShowArtwork) {
             val holdoverBackgroundUri = readyBackgroundUri?.takeIf {
                 !imageReady && it != albumArtUri
             }

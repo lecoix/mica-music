@@ -16,6 +16,7 @@ interface AlacSessionCommandHandler {
     fun onPlay()
     fun onPause()
     fun onSeekTo(positionMs: Long)
+    fun onSelectMediaItem(index: Int, positionMs: Long)
     fun onSkipToNext()
     fun onSkipToPrevious()
 }

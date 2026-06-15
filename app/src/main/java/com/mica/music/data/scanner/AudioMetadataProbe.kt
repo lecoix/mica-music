@@ -700,11 +700,6 @@ object AudioMetadataProbe {
         copyrightOverride: String = "",
     ): Song {
         val id = if (mediaStoreId > 0) "ms_$mediaStoreId" else "doc_${mediaUri.hashCode()}"
-        val cachedAlac = if (metadata.containerName == "ALAC") {
-            AlacPlayback.cachedFlacUri(context, id)
-        } else {
-            null
-        }
         return Song(
             id = id,
             title = title,
@@ -716,7 +711,7 @@ object AudioMetadataProbe {
             coverColorArgb = coverColorArgb,
             albumArtUri = albumArtUri,
             mediaUri = mediaUri,
-            playbackUri = cachedAlac,
+            playbackUri = null,
             fileName = displayName ?: title,
             sizeBytes = sizeBytes,
             year = year,

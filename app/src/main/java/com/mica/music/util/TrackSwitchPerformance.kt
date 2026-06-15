@@ -20,6 +20,7 @@ object TrackSwitchPerformance {
         val lowerBackground: String = "unknown",
         val coverFlowStageActive: Boolean = false,
         val motionEnabled: Boolean = true,
+        val queueSize: Int = 0,
     )
 
     @Volatile
@@ -28,7 +29,6 @@ object TrackSwitchPerformance {
     @Volatile
     private var pendingTrigger: String = "unknown"
 
-    private const val AUDIO_START_DEFER_MS = 120L
     private const val MARK_DEDUPE_WINDOW_MS = 500L
     private val markDedupeAtMs = mutableMapOf<String, Long>()
 
@@ -43,36 +43,26 @@ object TrackSwitchPerformance {
         pendingTrigger = trigger
     }
 
-    /** 封面流舞台活跃时延后音频启动，让切歌动画先跑起来。 */
-    fun audioStartDeferMs(): Long {
-        val ctx = visualContext
-        return if (ctx.coverFlowStageActive && ctx.motionEnabled) AUDIO_START_DEFER_MS else 0L
-    }
-
-    fun begin(fromIndex: Int, toIndex: Int, songId: String) {
+    fun begin(fromIndex: Int, toIndex: Int, songId: String, queueSize: Int = visualContext.queueSize) {
         runOnMain {
             finish("superseded")
-            val ctx = visualContext
-            val trigger = pendingTrigger.also { pendingTrigger = "unknown" }
-            markDedupeAtMs.clear()
-            val item = Capture(
-                id = ++nextId,
-                startedNs = SystemClock.elapsedRealtimeNanos(),
-                trigger = trigger,
-                visualContext = ctx,
+            startCapture(
+                trigger = pendingTrigger.also { pendingTrigger = "unknown" },
+                queueSize = queueSize,
+                banner = "begin $fromIndex->$toIndex song=$songId",
             )
-            capture = item
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                Trace.beginAsyncSection("MicaTrackSwitch", item.id)
-            }
-            DiagnosticLog.event(
-                "TrackPerf",
-                "#${item.id} begin $fromIndex->$toIndex trigger=$trigger " +
-                    "coverFlow=${ctx.coverFlowMode} stage=${ctx.coverFlowStageActive} " +
-                    "bg=${ctx.lowerBackground} motion=${ctx.motionEnabled} song=$songId",
+        }
+    }
+
+    /** 封面流手势按下：若尚无采集窗口则开启，便于记录拖动期 draw/anim/host 指标。 */
+    fun beginCoverFlowWindow(index: Int, queueSize: Int) {
+        runOnMain {
+            if (capture != null) return@runOnMain
+            startCapture(
+                trigger = "coverflow-drag",
+                queueSize = queueSize,
+                banner = "coverflow-window-start index=$index",
             )
-            AudioEnvironmentDiagnostics.logEnvironment("track-switch")
-            Choreographer.getInstance().postFrameCallback(item.frameCallback)
         }
     }
 
@@ -90,13 +80,96 @@ object TrackSwitchPerformance {
         }
     }
 
-    fun recordCoverDraw(durationNs: Long, laneCount: Int, reflection: Boolean) {
+    fun recordCoverDraw(
+        durationNs: Long,
+        stateBuildNs: Long,
+        laneDrawNs: Long,
+        laneCount: Int,
+        reflection: Boolean,
+    ) {
         val item = capture ?: return
         item.drawCount++
         item.drawTotalNs += durationNs
         item.maxDrawNs = max(item.maxDrawNs, durationNs)
+        item.stateBuildTotalNs += stateBuildNs
+        item.maxStateBuildNs = max(item.maxStateBuildNs, stateBuildNs)
+        item.laneDrawTotalNs += laneDrawNs
+        item.maxLaneDrawNs = max(item.maxLaneDrawNs, laneDrawNs)
         item.maxLaneCount = max(item.maxLaneCount, laneCount)
         item.reflectionDrawn = item.reflectionDrawn || reflection
+    }
+
+    fun recordCoverAnimatorFrame(intervalNs: Long) {
+        val item = capture ?: return
+        if (intervalNs <= 0L) return
+        item.animatorIntervals++
+        item.animatorIntervalTotalNs += intervalNs
+        item.maxAnimatorIntervalNs = max(item.maxAnimatorIntervalNs, intervalNs)
+        if (intervalNs >= SPIKE_LOG_THRESHOLD_NS) {
+            item.animatorSpikes++
+            DiagnosticLog.event(
+                "TrackPerf",
+                "#${item.id} +${format(elapsedMs(item.startedNs))}ms anim-spike " +
+                    "interval=${format(intervalNs / 1_000_000.0)}ms queueSize=${item.queueSize} " +
+                    "drawMax=${format(item.maxDrawNs / 1_000_000.0)}ms " +
+                    "hostMax=${format(item.maxHostUpdateNs / 1_000_000.0)}ms " +
+                    "asyncActive=${item.activeAsyncWork} " +
+                    "lastInvalidate=${item.lastInvalidateReason}",
+            )
+        }
+    }
+
+    fun recordCoverHostUpdate(durationNs: Long, queueSize: Int = 0) {
+        val item = capture ?: return
+        item.hostUpdateCount++
+        item.hostUpdateTotalNs += durationNs
+        item.maxHostUpdateNs = max(item.maxHostUpdateNs, durationNs)
+        if (queueSize > 0) item.lastHostQueueSize = queueSize
+    }
+
+    fun recordCoverQueueCompare(durationNs: Long, queueSize: Int, skippedBySameRef: Boolean) {
+        val item = capture ?: return
+        item.queueCompareCount++
+        item.queueCompareTotalNs += durationNs
+        item.maxQueueCompareNs = max(item.maxQueueCompareNs, durationNs)
+        if (skippedBySameRef) {
+            item.queueCompareSameRef++
+        } else {
+            item.queueCompareFull++
+        }
+        if (durationNs >= 2_000_000L) {
+            DiagnosticLog.event(
+                "TrackPerf",
+                "#${item.id} +${format(elapsedMs(item.startedNs))}ms queue-compare-slow " +
+                    "duration=${format(durationNs / 1_000_000.0)}ms queueSize=$queueSize " +
+                    "sameRef=$skippedBySameRef",
+            )
+        }
+    }
+
+    fun recordCoverInvalidate(reason: String) {
+        val item = capture ?: return
+        item.invalidateCounts[reason] = (item.invalidateCounts[reason] ?: 0) + 1
+        item.lastInvalidateReason = reason
+    }
+
+    fun coverAsyncStarted(kind: String) {
+        runOnMain {
+            val item = capture ?: return@runOnMain
+            item.activeAsyncWork++
+            item.asyncStarted[kind] = (item.asyncStarted[kind] ?: 0) + 1
+        }
+    }
+
+    fun coverAsyncFinished(kind: String, durationNs: Long, cacheHit: Boolean) {
+        runOnMain {
+            val item = capture ?: return@runOnMain
+            item.activeAsyncWork = (item.activeAsyncWork - 1).coerceAtLeast(0)
+            item.asyncFinished[kind] = (item.asyncFinished[kind] ?: 0) + 1
+            if (cacheHit) item.asyncCacheHits[kind] = (item.asyncCacheHits[kind] ?: 0) + 1
+            item.asyncTotalNs[kind] = (item.asyncTotalNs[kind] ?: 0L) + durationNs
+            item.asyncMaxNs[kind] = max(item.asyncMaxNs[kind] ?: 0L, durationNs)
+        }
     }
 
     private fun finish(reason: String) {
@@ -116,6 +189,27 @@ object TrackSwitchPerformance {
         } else {
             0.0
         }
+        val averageStateBuildMs = averageMs(item.stateBuildTotalNs, item.drawCount)
+        val averageLaneDrawMs = averageMs(item.laneDrawTotalNs, item.drawCount)
+        val averageAnimatorIntervalMs =
+            averageMs(item.animatorIntervalTotalNs, item.animatorIntervals)
+        val averageHostUpdateMs = averageMs(item.hostUpdateTotalNs, item.hostUpdateCount)
+        val invalidations = item.invalidateCounts.entries
+            .sortedByDescending { it.value }
+            .joinToString(",") { "${it.key}:${it.value}" }
+            .ifBlank { "none" }
+        val asyncSummary = item.asyncStarted.keys
+            .plus(item.asyncFinished.keys)
+            .distinct()
+            .joinToString(",") { kind ->
+                val completed = item.asyncFinished[kind] ?: 0
+                val total = item.asyncTotalNs[kind] ?: 0L
+                val average = averageMs(total, completed)
+                "$kind=${item.asyncStarted[kind] ?: 0}/$completed" +
+                    " hit=${item.asyncCacheHits[kind] ?: 0}" +
+                    " avg=${format(average)} max=${format((item.asyncMaxNs[kind] ?: 0L) / 1_000_000.0)}ms"
+            }
+            .ifBlank { "none" }
         val stageSnapshots = item.stages.map { StageSnapshot(it.stage, it.offsetMs, it.details) }
         val timeline = stageSnapshots.joinToString(" | ") { stage ->
             buildString {
@@ -131,10 +225,21 @@ object TrackSwitchPerformance {
         }
         val decodeSummary = DecodePerformance.summarizeStages(stageSnapshots)
         val ctx = item.visualContext
+        val averageQueueCompareMs = averageMs(item.queueCompareTotalNs, item.queueCompareCount)
+        logCoverFlowDiag(
+            item = item,
+            reason = reason,
+            averageDrawMs = averageDrawMs,
+            averageAnimatorIntervalMs = averageAnimatorIntervalMs,
+            averageHostUpdateMs = averageHostUpdateMs,
+            averageQueueCompareMs = averageQueueCompareMs,
+            asyncSummary = asyncSummary,
+        )
         DiagnosticLog.event(
             "TrackPerf",
             "#${item.id} summary reason=$reason duration=${format(elapsedMs(item.startedNs))}ms; " +
-                "trigger=${item.trigger}; coverFlow=${ctx.coverFlowMode}; stage=${ctx.coverFlowStageActive}; " +
+                "trigger=${item.trigger}; queueSize=${item.queueSize}; " +
+                "coverFlow=${ctx.coverFlowMode}; stage=${ctx.coverFlowStageActive}; " +
                 "bg=${ctx.lowerBackground}; $decodeSummary; " +
                 "frames=${item.frameIntervals}; avgFrame=${format(averageFrameMs)}ms; " +
                 "maxFrame=${format(item.maxFrameNs / 1_000_000.0)}ms; " +
@@ -142,9 +247,84 @@ object TrackSwitchPerformance {
                 "over50=${item.over50}; estimatedMissed=${item.estimatedMissedFrames}; " +
                 "coverDraws=${item.drawCount}; avgDraw=${format(averageDrawMs)}ms; " +
                 "maxDraw=${format(item.maxDrawNs / 1_000_000.0)}ms; " +
+                "stateBuildAvg=${format(averageStateBuildMs)}ms; " +
+                "stateBuildMax=${format(item.maxStateBuildNs / 1_000_000.0)}ms; " +
+                "laneDrawAvg=${format(averageLaneDrawMs)}ms; " +
+                "laneDrawMax=${format(item.maxLaneDrawNs / 1_000_000.0)}ms; " +
                 "lanes=${item.maxLaneCount}; reflection=${item.reflectionDrawn}; " +
+                "animCallbacks=${item.animatorIntervals}; " +
+                "animAvg=${format(averageAnimatorIntervalMs)}ms; " +
+                "animMax=${format(item.maxAnimatorIntervalNs / 1_000_000.0)}ms; " +
+                "animSpikes24=${item.animatorSpikes}; " +
+                "hostUpdates=${item.hostUpdateCount}; hostAvg=${format(averageHostUpdateMs)}ms; " +
+                "hostMax=${format(item.maxHostUpdateNs / 1_000_000.0)}ms; " +
+                "queueCompare=${item.queueCompareCount}; " +
+                "queueCompareSameRef=${item.queueCompareSameRef}; " +
+                "queueCompareFull=${item.queueCompareFull}; " +
+                "queueCompareAvg=${format(averageQueueCompareMs)}ms; " +
+                "queueCompareMax=${format(item.maxQueueCompareNs / 1_000_000.0)}ms; " +
+                "invalidates=$invalidations; async=$asyncSummary; " +
                 "timeline=$timeline",
         )
+    }
+
+    private fun logCoverFlowDiag(
+        item: Capture,
+        reason: String,
+        averageDrawMs: Double,
+        averageAnimatorIntervalMs: Double,
+        averageHostUpdateMs: Double,
+        averageQueueCompareMs: Double,
+        asyncSummary: String,
+    ) {
+        DiagnosticLog.event(
+            "TrackPerf",
+            "#${item.id} coverflow-diag reason=$reason queueSize=${item.queueSize} " +
+                "hostUpdates=${item.hostUpdateCount} hostAvg=${format(averageHostUpdateMs)}ms " +
+                "hostMax=${format(item.maxHostUpdateNs / 1_000_000.0)}ms " +
+                "avgDraw=${format(averageDrawMs)}ms " +
+                "maxDraw=${format(item.maxDrawNs / 1_000_000.0)}ms " +
+                "animAvg=${format(averageAnimatorIntervalMs)}ms " +
+                "animMax=${format(item.maxAnimatorIntervalNs / 1_000_000.0)}ms " +
+                "animSpikes24=${item.animatorSpikes} " +
+                "queueCompare=${item.queueCompareCount} " +
+                "queueCompareMax=${format(item.maxQueueCompareNs / 1_000_000.0)}ms " +
+                "coverLoad=${asyncKindSummary(item, "cover-load")} " +
+                "reflectionBake=${asyncKindSummary(item, "reflection-bake")} " +
+                "hostPreload=${asyncKindSummary(item, "host-preload")} " +
+                "asyncAll=$asyncSummary",
+        )
+    }
+
+    private fun asyncKindSummary(item: Capture, kind: String): String {
+        val started = item.asyncStarted[kind] ?: 0
+        val finished = item.asyncFinished[kind] ?: 0
+        val hits = item.asyncCacheHits[kind] ?: 0
+        val maxMs = format((item.asyncMaxNs[kind] ?: 0L) / 1_000_000.0)
+        return "$started/$finished hit=$hits max=${maxMs}ms"
+    }
+
+    private fun startCapture(trigger: String, queueSize: Int, banner: String) {
+        markDedupeAtMs.clear()
+        val ctx = visualContext.copy(queueSize = queueSize)
+        val item = Capture(
+            id = ++nextId,
+            startedNs = SystemClock.elapsedRealtimeNanos(),
+            trigger = trigger,
+            visualContext = ctx,
+            queueSize = queueSize,
+        )
+        capture = item
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Trace.beginAsyncSection("MicaTrackSwitch", item.id)
+        }
+        DiagnosticLog.event(
+            "TrackPerf",
+            "#${item.id} $banner trigger=$trigger " +
+                "coverFlow=${ctx.coverFlowMode} stage=${ctx.coverFlowStageActive} " +
+                "bg=${ctx.lowerBackground} motion=${ctx.motionEnabled} queueSize=$queueSize",
+        )
+        Choreographer.getInstance().postFrameCallback(item.frameCallback)
     }
 
     private fun onFrame(item: Capture, frameTimeNs: Long) {
@@ -168,7 +348,17 @@ object TrackSwitchPerformance {
                 DiagnosticLog.event(
                     "TrackPerf",
                     "#${item.id} +${format(elapsedMs(item.startedNs))}ms frame-spike " +
-                        "interval=${format(intervalNs / 1_000_000.0)}ms missed~$missed",
+                        "interval=${format(intervalNs / 1_000_000.0)}ms missed~$missed " +
+                        "queueSize=${item.queueSize} " +
+                        "avgDraw=${format(averageMs(item.drawTotalNs, item.drawCount))}ms " +
+                        "drawMax=${format(item.maxDrawNs / 1_000_000.0)}ms " +
+                        "hostUpdates=${item.hostUpdateCount} " +
+                        "hostMax=${format(item.maxHostUpdateNs / 1_000_000.0)}ms " +
+                        "animSpikes24=${item.animatorSpikes} " +
+                        "asyncActive=${item.activeAsyncWork} " +
+                        "coverLoad=${asyncKindSummary(item, "cover-load")} " +
+                        "reflectionBake=${asyncKindSummary(item, "reflection-bake")} " +
+                        "lastInvalidate=${item.lastInvalidateReason}",
                 )
             }
         }
@@ -196,6 +386,9 @@ object TrackSwitchPerformance {
     private fun elapsedMs(startedNs: Long): Double =
         (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000.0
 
+    private fun averageMs(totalNs: Long, count: Int): Double =
+        if (count > 0) totalNs.toDouble() / count / 1_000_000.0 else 0.0
+
     private fun format(value: Double): String = String.format(Locale.US, "%.2f", value)
 
     data class StageSnapshot(
@@ -215,7 +408,14 @@ object TrackSwitchPerformance {
         val startedNs: Long,
         val trigger: String,
         val visualContext: VisualContext,
+        val queueSize: Int,
     ) {
+        var lastHostQueueSize: Int = queueSize
+        var queueCompareCount = 0
+        var queueCompareTotalNs = 0L
+        var maxQueueCompareNs = 0L
+        var queueCompareSameRef = 0
+        var queueCompareFull = 0
         var lastFrameNs = 0L
         var frameIntervals = 0
         var frameTotalNs = 0L
@@ -228,8 +428,27 @@ object TrackSwitchPerformance {
         var drawCount = 0
         var drawTotalNs = 0L
         var maxDrawNs = 0L
+        var stateBuildTotalNs = 0L
+        var maxStateBuildNs = 0L
+        var laneDrawTotalNs = 0L
+        var maxLaneDrawNs = 0L
         var maxLaneCount = 0
         var reflectionDrawn = false
+        var animatorIntervals = 0
+        var animatorIntervalTotalNs = 0L
+        var maxAnimatorIntervalNs = 0L
+        var animatorSpikes = 0
+        var hostUpdateCount = 0
+        var hostUpdateTotalNs = 0L
+        var maxHostUpdateNs = 0L
+        var activeAsyncWork = 0
+        var lastInvalidateReason = "none"
+        val invalidateCounts = linkedMapOf<String, Int>()
+        val asyncStarted = linkedMapOf<String, Int>()
+        val asyncFinished = linkedMapOf<String, Int>()
+        val asyncCacheHits = linkedMapOf<String, Int>()
+        val asyncTotalNs = linkedMapOf<String, Long>()
+        val asyncMaxNs = linkedMapOf<String, Long>()
         val stages = mutableListOf<Stage>()
         val frameCallback = Choreographer.FrameCallback { frameTimeNs ->
             onFrame(this, frameTimeNs)

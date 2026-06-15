@@ -93,7 +93,7 @@ echo ">> configure (arm64 static ffmpeg, common audio decoders)..."
   --disable-shared \
   --disable-doc \
   --disable-debug \
-  --enable-protocol=file \
+  --enable-protocol=file,pipe \
   --enable-demuxer=mov,mp3,flac,ogg,wav,matroska,ape,wv,caf,aiff,asf,avi,mpc,mpc8,m4v,dsf,iff \
   --enable-muxer=pcm_s16le \
   --enable-muxer=pcm_s24le \
@@ -126,6 +126,14 @@ if [ -n "$MISSING" ]; then
   exit 1
 fi
 echo ">> PCM muxers OK (pcm_s16le / pcm_s24le / pcm_s32le → -f s16le / s24le / s32le)"
+
+echo ">> Verify stdout pipe protocol (config.mak)..."
+if ! grep -q "CONFIG_PIPE_PROTOCOL=yes" ffbuild/config.mak; then
+  echo "ERROR: missing pipe protocol; FFmpeg cannot write PCM to pipe:1" >&2
+  echo "       configure must include --enable-protocol=file,pipe" >&2
+  exit 1
+fi
+echo ">> Pipe protocol OK (pipe:1 stdout streaming enabled)"
 
 echo ">> Verify DSD demuxers / decoders (config.mak)..."
 for d in DSF IFF; do
