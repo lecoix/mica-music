@@ -37,11 +37,16 @@ object AlacPlayback {
         outFile.parentFile?.mkdirs()
         val format = AlacPcmFormat.fromSong(song)
         AlacFfmpegHelper.init(appCtx)
-        val input = copyToTemp(appCtx, Uri.parse(song.mediaUri), song.id) ?: return null
+        val tempTarget = File(appCtx.cacheDir, "$CACHE_DIR/${song.id}_in.m4a")
+        val input = FfmpegInputResolver.resolveForFfmpeg(
+            context = appCtx,
+            uri = Uri.parse(song.mediaUri),
+            tempFile = tempTarget,
+        ) ?: return null
         return try {
             val base = File(outFile.parent, outFile.nameWithoutExtension)
             val result = AlacFfmpegHelper.decodeAlac(
-                input,
+                input.file,
                 base,
                 format,
                 preference = AlacFfmpegHelper.OutputPreference.FLAC_FILE,
@@ -53,26 +58,9 @@ object AlacPlayback {
             }
             if (outFile.exists() && outFile.length() > 0) outFile.toUri().toString() else null
         } finally {
-            input.delete()
-        }
-    }
-
-    private fun copyToTemp(context: Context, uri: Uri, songId: String): File? {
-        val temp = File(context.cacheDir, "$CACHE_DIR/${songId}_in.m4a")
-        temp.parentFile?.mkdirs()
-        return try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                temp.outputStream().use { output -> input.copyTo(output) }
-            } ?: return null
-            if (temp.length() <= 0L) {
-                temp.delete()
-                null
-            } else {
-                temp
+            if (input.deleteOnRelease) {
+                input.file.delete()
             }
-        } catch (_: Exception) {
-            temp.delete()
-            null
         }
     }
 }
