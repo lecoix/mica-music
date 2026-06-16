@@ -33,7 +33,7 @@ class AlacAudioTrackEngine(private val context: Context) {
     private val pcmPlayer = AlacPcmPlayer(scope)
     private var playJob: Job? = null
     private var decodedFile: File? = null
-    private var tempInput: File? = null
+    private var sessionInput: FfmpegInputResolver.ResolvedInput? = null
     private var callback: Callback? = null
     private var currentSong: Song? = null
     private var pcmFormat: AlacPcmFormat? = null
@@ -220,15 +220,23 @@ class AlacAudioTrackEngine(private val context: Context) {
         allowEarlyPlayback: Boolean,
     ): Pair<AlacFfmpegHelper.DecodeResult?, String?> {
         val format = pcmFormat ?: AlacPcmFormat.fromSong(song)
-        if (tempInput == null || sessionSongId != song.id) {
-            tempInput?.delete()
-            tempInput = copyUriToTemp(Uri.parse(song.mediaUri), song)
-                ?: return null to "无法读取源文件"
+        if (sessionInput == null || sessionSongId != song.id) {
+            releaseSessionInput()
+            val ext = song.fileName.substringAfterLast('.', "")
+                .lowercase()
+                .takeIf { it.length in 1..8 && it.all { c -> c.isLetterOrDigit() } }
+                ?: "audio"
+            val tempTarget = File(appCtx.cacheDir, "alac_stream/${song.id}_in.$ext")
+            sessionInput = FfmpegInputResolver.resolveForFfmpeg(
+                context = appCtx,
+                uri = Uri.parse(song.mediaUri),
+                tempFile = tempTarget,
+            ) ?: return null to "无法读取源文件"
         }
         val base = File(appCtx.cacheDir, "alac_stream/${song.id}_session")
         base.parentFile?.mkdirs()
         val result = AlacFfmpegHelper.decodeAlac(
-            tempInput!!,
+            sessionInput!!.file,
             base,
             format,
             seekMs = 0,
@@ -329,27 +337,13 @@ class AlacAudioTrackEngine(private val context: Context) {
         paused = false
     }
 
-    private fun copyUriToTemp(uri: Uri, song: Song): File? {
-        val ext = song.fileName.substringAfterLast('.', "")
-            .lowercase()
-            .takeIf { it.length in 1..8 && it.all { c -> c.isLetterOrDigit() } }
-            ?: "audio"
-        val temp = File(appCtx.cacheDir, "alac_stream/${song.id}_in.$ext")
-        temp.parentFile?.mkdirs()
-        return try {
-            appCtx.contentResolver.openInputStream(uri)?.use { input ->
-                temp.outputStream().use { output -> input.copyTo(output) }
-            } ?: return null
-            if (temp.length() <= 0L) {
-                temp.delete()
-                null
-            } else {
-                temp
+    private fun releaseSessionInput() {
+        sessionInput?.let { input ->
+            if (input.deleteOnRelease) {
+                input.file.delete()
             }
-        } catch (_: Exception) {
-            temp.delete()
-            null
         }
+        sessionInput = null
     }
 
     private fun releaseSession() {
@@ -360,10 +354,10 @@ class AlacAudioTrackEngine(private val context: Context) {
         val cleanup = SessionCleanup(
             producer = sessionDecode?.producer,
             decodedFile = decodedFile,
-            tempInput = tempInput,
+            sessionInput = sessionInput,
         )
         decodedFile = null
-        tempInput = null
+        sessionInput = null
         sessionSongId = null
         sessionDecode = null
         return cleanup
@@ -372,12 +366,16 @@ class AlacAudioTrackEngine(private val context: Context) {
     private data class SessionCleanup(
         val producer: FfmpegRunner.RunningSession?,
         val decodedFile: File?,
-        val tempInput: File?,
+        val sessionInput: FfmpegInputResolver.ResolvedInput?,
     ) {
         fun release() {
             producer?.destroy()
             decodedFile?.delete()
-            tempInput?.delete()
+            sessionInput?.let { input ->
+                if (input.deleteOnRelease) {
+                    input.file.delete()
+                }
+            }
         }
     }
 }
