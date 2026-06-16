@@ -23,4 +23,4 @@ jobs:
         run: yes | sdkmanager --licenses || true
 
       - name: Run unit tests
-        run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest --no-daemon
+        run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest --no-daemon --no-configuration-cache

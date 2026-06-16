@@ -28,7 +28,7 @@ jobs:
         run: yes | sdkmanager --licenses || true
 
       - name: Build release APK (beta signing)
-        run: chmod +x gradlew && ./gradlew :app:assembleRelease -PbetaRelease --no-daemon
+        run: chmod +x gradlew && ./gradlew :app:assembleRelease -PbetaRelease --no-daemon --no-configuration-cache
 
       - name: Rename APK
         run: |
