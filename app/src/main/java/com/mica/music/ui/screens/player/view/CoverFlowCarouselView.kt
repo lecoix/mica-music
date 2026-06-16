@@ -57,9 +57,11 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private val matrix = Matrix()
     private val coverRect = RectF()
     private val reflectionRect = RectF()
+    private val reflectionDstRect = RectF()
     private val bitmapSrcRect = Rect()
     private val reflectionSrcRect = Rect()
     private val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private var queue: List<Song> = emptyList()
     private var logicalCenter: Int = 0
@@ -123,8 +125,13 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         val w = widthPx.coerceAtLeast(1f)
         val h = heightPx.coerceAtLeast(1f)
         if (coverWidthPx != w || coverHeightPx != h) {
+            val oldAspect = coverWidthPx / coverHeightPx.coerceAtLeast(1f)
+            val newAspect = w / h
             coverWidthPx = w
             coverHeightPx = h
+            if (abs(oldAspect - newAspect) > 0.001f) {
+                scheduleReflectionRebakeForWindow()
+            }
             invalidate()
         }
     }
@@ -257,6 +264,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         cancelAnimators()
         scope.cancel()
+        CoverFlowReflectionBake.clear()
         super.onDetachedFromWindow()
     }
 
@@ -334,7 +342,15 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             paint.color = fallbackColorArgb
         }
         if (reflectionEnabled()) {
-            drawReflection(canvas, bitmap, state.song, slotW, slotH, state.slotAlphaByte)
+            drawReflection(
+                canvas,
+                state.song.albumArtUri,
+                bitmap,
+                state.song,
+                slotW,
+                slotH,
+                state.slotAlphaByte,
+            )
         }
         canvas.restore()
     }
@@ -361,32 +377,49 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     private fun drawReflection(
         canvas: Canvas,
+        albumArtUri: String?,
         bitmap: Bitmap?,
         song: Song,
         slotW: Float,
         slotH: Float,
         slotAlphaByte: Int,
     ) {
-        val reflH = slotH * ReflectionHeightFraction
+        val reflH = slotH * CoverFlowMath.ReflectionHeightFraction
         val gap = reflectionGapPx
         val coverBottom = slotH * 0.5f
         val top = coverBottom + gap
         val bottom = top + reflH
         reflectionRect.set(-slotW * 0.5f, top, slotW * 0.5f, bottom)
-        val combinedAlpha = ((ReflectionAlpha * slotAlphaByte / 255f) * 255f)
+        val combinedAlpha = ((CoverFlowMath.ReflectionAlpha * slotAlphaByte / 255f) * 255f)
             .toInt()
             .coerceIn(0, 255)
         canvas.save()
         canvas.clipRect(reflectionRect)
+        val slotAspect = slotW / slotH.coerceAtLeast(1f)
+        val bakedReflection = if (
+            CoverFlowReflectionBake.ENABLED &&
+            bitmap != null &&
+            !albumArtUri.isNullOrBlank()
+        ) {
+            CoverFlowReflectionBake.cached(albumArtUri, slotAspect)
+        } else {
+            null
+        }
+        if (bakedReflection != null) {
+            // ReflectionAlpha 已烘焙进位图；此处只应用槽位透明度。
+            paint.alpha = slotAlphaByte
+            canvas.drawBitmap(bakedReflection, null, reflectionRect, paint)
+            paint.alpha = 255
+            canvas.restore()
+            return
+        }
         if (bitmap != null) {
             centerCropSrc(bitmap, slotW, slotH, reflectionSrcRect)
-            val srcSliceH = (reflectionSrcRect.height() * ReflectionHeightFraction)
+            val srcSliceH = (reflectionSrcRect.height() * CoverFlowMath.ReflectionHeightFraction)
                 .toInt()
                 .coerceIn(1, reflectionSrcRect.height())
             reflectionSrcRect.top = reflectionSrcRect.bottom - srcSliceH
-            val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                alpha = combinedAlpha
-            }
+            layerPaint.alpha = combinedAlpha
             val layerId = canvas.saveLayer(
                 reflectionRect.left,
                 reflectionRect.top,
@@ -403,7 +436,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             canvas.drawBitmap(
                 bitmap,
                 reflectionSrcRect,
-                RectF(-slotW * 0.5f, 0f, slotW * 0.5f, reflH),
+                reflectionDstRect.apply { set(-slotW * 0.5f, 0f, slotW * 0.5f, reflH) },
                 scratchPaint,
             )
             canvas.restore()
@@ -427,7 +460,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             gradientPaint.shader = null
             canvas.restoreToCount(layerId)
         } else {
-            val baseAlpha = ReflectionAlpha * slotAlphaByte / 255f
+            val baseAlpha = CoverFlowMath.ReflectionAlpha * slotAlphaByte / 255f
             gradientPaint.shader = LinearGradient(
                 0f,
                 top,
@@ -519,6 +552,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             scope.launch {
                 CoverFlowBitmaps.ensureLoaded(context, uri)?.let { bmp ->
                     bitmapByUri[uri] = bmp
+                    scheduleReflectionBake(uri, bmp)
                     invalidate()
                 }
                 pendingLoads.remove(uri)
@@ -532,6 +566,29 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
             bitmapFor(uri)
+            bitmapByUri[uri]?.let { scheduleReflectionBake(uri, it) }
+        }
+    }
+
+    private fun coverSlotAspect(): Float =
+        coverWidthPx / coverHeightPx.coerceAtLeast(1f)
+
+    private fun scheduleReflectionBake(uri: String, cover: Bitmap) {
+        if (!CoverFlowReflectionBake.ENABLED || !reflectionEnabled()) return
+        val aspect = coverSlotAspect()
+        scope.launch {
+            CoverFlowReflectionBake.ensureBaked(uri, cover, aspect)
+            invalidate()
+        }
+    }
+
+    private fun scheduleReflectionRebakeForWindow() {
+        if (!CoverFlowReflectionBake.ENABLED || !reflectionEnabled()) return
+        val radius = CoverFlowMath.LaneWindowRadius
+        for (offset in -radius..radius) {
+            val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
+            CoverFlowReflectionBake.evict(uri)
+            bitmapByUri[uri]?.let { scheduleReflectionBake(uri, it) }
         }
     }
 
@@ -648,7 +705,5 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     companion object {
         private const val DRAG_COMMIT = 0.35f
-        private const val ReflectionHeightFraction = 0.28f
-        private const val ReflectionAlpha = 0.24f
     }
 }
