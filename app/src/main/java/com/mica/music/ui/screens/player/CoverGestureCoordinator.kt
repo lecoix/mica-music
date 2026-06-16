@@ -9,7 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.mica.music.util.TrackSwitchPerformance
 
-internal const val CoverFlowDragCommitFraction = 0.2625f
+internal const val CoverFlowDragCommitFraction = 0.22f
 internal const val StandardDragCommitFraction = CoverFlowDragCommitFraction * 0.5f
 private const val StandardSwipeMaxFraction = 0.15f
 

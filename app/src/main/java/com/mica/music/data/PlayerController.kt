@@ -60,6 +60,11 @@ internal class PendingMediaSelection {
         return true
     }
 
+    fun accepts(mediaId: String?): Boolean {
+        val target = targetSongId ?: return true
+        return mediaId == target
+    }
+
     fun clear() {
         targetSongId = null
     }
@@ -352,7 +357,7 @@ class PlayerController internal constructor(
 
         c.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                syncIndexFromPlayer(c)
+                if (!syncIndexFromPlayer(c)) return
                 clearPendingSeek()
                 setPositionMsClamped(0)
                 playbackError = null
@@ -360,6 +365,17 @@ class PlayerController internal constructor(
                 if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
                 publishPlaybackStates()
                 publishPlayCountIfStarted(c, c.isPlaying)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (!pendingMediaSelection.accepts(c.currentMediaItem?.mediaId)) return
+                val message = error.message?.takeIf { it.isNotBlank() } ?: "Playback failed"
+                clearPendingMediaSelection()
+                isBuffering = false
+                playbackError = message
+                postUserMessage(message)
+                syncIndexFromPlayer(c)
+                publishPlaybackStates()
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -449,23 +465,29 @@ class PlayerController internal constructor(
     /** 冷启动已恢复曲目、尚未真正开播前，不信任 Exo/MediaSession 的索引（多为 0）。 */
     private fun ignoreExoIndexSync(): Boolean = persistedSessionSongId != null
 
-    private fun syncIndexFromPlayer(c: MediaController) {
+    private fun syncIndexFromPlayer(c: MediaController): Boolean {
         if (ignoreExoIndexSync()) {
             reapplyPersistedSessionIndex()
-            return
+            return true
         }
         if (songQueue.isEmpty()) {
             currentIndex = 0
             publishPlaybackStates()
-            return
+            return true
         }
-        if (!pendingMediaSelection.shouldAccept(c.currentMediaItem?.mediaId)) return
+        val mediaId = c.currentMediaItem?.mediaId
+        if (!pendingMediaSelection.shouldAccept(mediaId)) return false
+        val mediaIdIndex = mediaId?.let { id ->
+            songQueue.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+        }
         val idx = c.currentMediaItemIndex
         currentIndex = when {
+            mediaIdIndex != null -> mediaIdIndex
             idx in songQueue.indices -> idx
             else -> currentIndex.coerceIn(0, songQueue.lastIndex)
         }
         publishPlaybackStates()
+        return true
     }
 
     fun syncPlaybackState() {
@@ -476,7 +498,7 @@ class PlayerController internal constructor(
             pendingRestorePositionMs?.let { setPositionMsClamped(it) }
             return
         }
-        syncIndexFromPlayer(c)
+        if (!syncIndexFromPlayer(c)) return
         syncPosition()
         isPlaying = c.isPlaying
         isBuffering = c.playbackState == Player.STATE_BUFFERING
@@ -790,6 +812,10 @@ class PlayerController internal constructor(
         mainHandler.post(publish)
         pendingMediaSelection.select(song.id)
         startControllerPlayback(c, safe, requestedStartMs, song.id)
+    }
+
+    private fun clearPendingMediaSelection() {
+        pendingMediaSelection.clear()
     }
 
     private fun startControllerPlayback(
@@ -1265,7 +1291,7 @@ class PlayerController internal constructor(
     }
 
     fun release() {
-        pendingMediaSelection.clear()
+        clearPendingMediaSelection()
         deferredPlaybackPublish?.let { mainHandler.removeCallbacks(it) }
         deferredPlaybackPublish = null
         scope.cancel()

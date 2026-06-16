@@ -61,9 +61,12 @@ class AlacAudioTrackEngine(private val context: Context) {
 
     fun play(song: Song, listener: Callback, startOffsetMs: Int = 0) {
         AlacFfmpegHelper.init(appCtx)
-        val generation = ++decodeGeneration
         stopRequested = true
-        stopPlaybackOnly(releaseOutput = false)
+        playbackEpoch++
+        playJob?.cancel()
+        playJob = null
+        pcmPlayer.stopForSwitch()
+        val generation = ++decodeGeneration
         DecodePerformance.measure("decode-session-release", song.id) {
             releaseSession()
         }

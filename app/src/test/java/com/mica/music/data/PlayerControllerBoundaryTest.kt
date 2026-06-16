@@ -2,6 +2,7 @@ package com.mica.music.data
 
 import androidx.media3.session.MediaController
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.testutil.SongFixtures
@@ -13,6 +14,7 @@ import io.mockk.verify
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -229,6 +231,146 @@ class PlayerControllerBoundaryTest {
 
         verify(exactly = 0) { mediaController.seekTo(any<Int>(), any<Long>()) }
         verify(exactly = 0) { mediaController.play() }
+        controller.release()
+    }
+
+    @Test
+    fun playerErrorSurfacesMessageAndReleasesPendingSelection() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = listOf(
+            SongFixtures.song("song-a"),
+            SongFixtures.song("song-b"),
+        )
+        val firstItem = MediaItem.Builder().setMediaId(queue[0].id).build()
+        val secondItem = MediaItem.Builder().setMediaId(queue[1].id).build()
+        var currentItem = firstItem
+        var currentIndex = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.duration } returns 60_000L
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.playSong(1)
+        listener.captured.onMediaItemTransition(
+            firstItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+        )
+        assertEquals("song-b", controller.currentSong?.id)
+
+        currentItem = secondItem
+        currentIndex = 1
+        listener.captured.onPlayerError(
+            PlaybackException(
+                "decoder failed",
+                null,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            ),
+        )
+        assertEquals("decoder failed", controller.playbackError)
+
+        currentItem = firstItem
+        currentIndex = 0
+        listener.captured.onMediaItemTransition(
+            firstItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+        )
+
+        assertEquals("song-a", controller.currentSong?.id)
+        controller.release()
+    }
+
+    @Test
+    fun rapidNextIgnoresCallbacksFromSupersededSelection() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = listOf(
+            SongFixtures.song("song-a"),
+            SongFixtures.song("song-b"),
+            SongFixtures.song("song-c"),
+        )
+        val firstItem = MediaItem.Builder().setMediaId(queue[0].id).build()
+        val secondItem = MediaItem.Builder().setMediaId(queue[1].id).build()
+        val thirdItem = MediaItem.Builder().setMediaId(queue[2].id).build()
+        var currentItem = firstItem
+        var currentIndex = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.duration } returns 60_000L
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.next()
+        controller.next()
+        assertEquals("song-c", controller.currentSong?.id)
+
+        currentItem = secondItem
+        currentIndex = 1
+        listener.captured.onMediaItemTransition(
+            secondItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+        )
+        listener.captured.onPlayerError(
+            PlaybackException(
+                "old request failed",
+                null,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            ),
+        )
+        assertEquals("song-c", controller.currentSong?.id)
+        assertNull(controller.playbackError)
+
+        currentItem = thirdItem
+        currentIndex = 2
+        listener.captured.onMediaItemTransition(
+            thirdItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+        )
+
+        assertEquals("song-c", controller.currentSong?.id)
+        controller.release()
+    }
+
+    @Test
+    fun targetMediaIdWinsWhenPlayerIndexIsStillStale() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val queue = listOf(
+            SongFixtures.song("song-a"),
+            SongFixtures.song("song-b"),
+            SongFixtures.song("song-c"),
+            SongFixtures.song("song-d"),
+        )
+        var currentItem = MediaItem.Builder().setMediaId(queue[0].id).build()
+        var currentIndex = 0
+        every { mediaController.addListener(any()) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.duration } returns 60_000L
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.playSong(3)
+        currentItem = MediaItem.Builder().setMediaId(queue[3].id).build()
+        currentIndex = 1
+        controller.syncPlaybackState()
+
+        assertEquals("song-d", controller.currentSong?.id)
+        assertEquals(3, controller.currentIndex)
         controller.release()
     }
 

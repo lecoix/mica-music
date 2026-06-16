@@ -544,6 +544,11 @@ class MicaCompositePlayer(
         }
     }
 
+    override fun setVolume(volume: Float) {
+        super.setVolume(volume)
+        playbackCoordinator?.setPlaybackVolume(volume)
+    }
+
     override fun seekTo(positionMs: Long) {
         if (routeToAlacHandler) {
             playbackCoordinator?.onSeekTo(positionMs)

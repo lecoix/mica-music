@@ -43,6 +43,10 @@ internal class ServicePlaybackEngineCoordinator(
         player.endAlacSession()
     }
 
+    fun setPlaybackVolume(volume: Float) {
+        engine.setVolume(volume)
+    }
+
     fun onCurrentQueueItemRemoved(continuePlaying: Boolean) {
         val queue = player.playbackQueueSnapshot()
         if (queue.items.isEmpty()) {
@@ -194,13 +198,12 @@ internal class ServicePlaybackEngineCoordinator(
 
     override fun onPlayerError(error: PlaybackException) {
         val request = requestState.activeRequest ?: return
-        if (request.backend != PlaybackBackendKind.MEDIA3 ||
-            player.currentMediaItem?.mediaId != request.songId
-        ) {
-            return
-        }
-        val kind = PlaybackFailureClassifier.classify(error)
+        if (request.backend != PlaybackBackendKind.MEDIA3) return
+        val queue = player.playbackQueueSnapshot()
+        val queueSong = queue.currentItem?.let(SongMediaItemCodec::decode) ?: return
+        if (request.songId != queueSong.id) return
         val song = player.currentMediaItem?.let(SongMediaItemCodec::decode) ?: return
+        if (song.id != queueSong.id) return
         if (!requestState.accepts(
                 generation = request.generation,
                 songId = song.id,
@@ -211,6 +214,7 @@ internal class ServicePlaybackEngineCoordinator(
         ) {
             return
         }
+        val kind = PlaybackFailureClassifier.classify(error)
         val route = PlaybackRouter.decide(song)
         val decoderIdentity = PlaybackFailureClassifier.stableAlacDecoderIdentity(error)
         val circuitOpened = decoderIdentity?.let {

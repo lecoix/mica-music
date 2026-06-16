@@ -33,7 +33,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 import kotlin.math.abs
+import kotlin.math.floor
 
 private data class LaneDrawState(
     val laneIndex: Int,
@@ -61,9 +63,12 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private val matrix = Matrix()
     private val coverRect = RectF()
     private val reflectionRect = RectF()
+    private val reflectionDstRect = RectF()
     private val bitmapSrcRect = Rect()
     private val reflectionSrcRect = Rect()
     private val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val laneStates = ArrayList<LaneDrawState>(CoverFlowMath.LaneWindowRadius * 2 + 1)
 
     private var queue: List<Song> = emptyList()
     private var logicalCenter: Int = 0
@@ -81,6 +86,12 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private var fallbackColorArgb: Int = 0xFF000000.toInt()
     private var lastReportedIndex: Int = -1
     private var pendingHostIndex: Int? = null
+    private var lastCenterAspectRatio: Float = 0f
+    private var pendingPlayQueueIndex: Int? = null
+    private var awaitingCommittedPlayIndex: Int? = null
+    private var lastDispatchedPlayIndex: Int? = null
+    private var hostIndexGuardUntilMs: Long = 0L
+    private var visualCommitGeneration: Int = 0
 
     private var trackAnimator: ValueAnimator? = null
     private var settleAnimator: ValueAnimator? = null
@@ -195,8 +206,25 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         }
         if (!stageActive) {
             pendingHostIndex = null
+            awaitingCommittedPlayIndex = null
+            lastDispatchedPlayIndex = null
+            hostIndexGuardUntilMs = 0L
             resetToIndex(index)
             return
+        }
+        lastDispatchedPlayIndex?.let { latestTarget ->
+            if (index != latestTarget && SystemClock.uptimeMillis() < hostIndexGuardUntilMs) {
+                return
+            }
+        }
+        awaitingCommittedPlayIndex?.let { target ->
+            if (index == target) {
+                awaitingCommittedPlayIndex = null
+            } else if (target in songs.indices) {
+                return
+            } else {
+                awaitingCommittedPlayIndex = null
+            }
         }
         if (shouldDeferHostIndexUpdate()) {
             pendingHostIndex = index
@@ -205,9 +233,9 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         updateCurrentIndex(index)
     }
 
-    /** 拖拽中或 strip/track 动画进行中才推迟 Host 索引同步；不含 motionActive 标记本身。 */
+    /** 拖拽、strip/track 动画或待派发切歌完成前，推迟 Host 索引同步。 */
     private fun shouldDeferHostIndexUpdate(): Boolean =
-        dragging || trackAnimator != null || settleAnimator != null
+        dragging || trackAnimator != null || settleAnimator != null || pendingPlayQueueIndex != null
 
     private fun flushPendingHostIndex() {
         val pending = pendingHostIndex ?: return
@@ -244,7 +272,15 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     }
 
     fun updateCurrentIndex(index: Int) {
-        if (trackAnimator != null) {
+        updateCurrentIndex(index, replaceRunningTrack = false, fromUserGesture = false)
+    }
+
+    private fun updateCurrentIndex(
+        index: Int,
+        replaceRunningTrack: Boolean,
+        fromUserGesture: Boolean,
+    ) {
+        if (trackAnimator != null && !replaceRunningTrack) {
             pendingHostIndex = index
             return
         }
@@ -267,17 +303,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             "logical=$logicalCenter target=$index delta=$delta mode=${coverFlowMode.name}",
         )
         cancelAnimators()
-        val shouldAnimate = motionEnabled && abs(delta) == 1
-        if (!shouldAnimate) {
-            commitTrackIndex(index)
-            setMotionActive(false)
-            return
-        }
-        val duration = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
-            MicaMotion.DurationLongMs
-        } else {
-            MicaMotion.DurationMediumMs
-        }
+        val generation = nextVisualCommitGeneration()
         val fromCenter = logicalCenter
         val endVisual = index.toFloat()
         val startVisual = CoverFlowRails.clampTrackChangeStartVisual(
@@ -286,6 +312,26 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             endVisual = endVisual,
             signedDelta = delta,
         )
+        val visualDistance = abs(endVisual - startVisual)
+        val shouldAnimate = motionEnabled && when {
+            fromUserGesture -> visualDistance > 0.0001f
+            else -> abs(delta) == 1 && visualDistance > 0.0001f
+        }
+        if (!shouldAnimate) {
+            commitTrackIndex(index)
+            setMotionActive(false)
+            return
+        }
+        val baseDuration = if (coverFlowMode == PlayerCoverFlowMode.RETRO_3D) {
+            MicaMotion.DurationLongMs
+        } else {
+            MicaMotion.DurationMediumMs
+        }
+        val duration = if (fromUserGesture && visualDistance > 1f) {
+            (baseDuration * visualDistance.coerceAtMost(2f)).toInt()
+        } else {
+            baseDuration
+        }
         if (abs(startVisual - endVisual) < 0.0001f) {
             commitTrackIndex(index)
             setMotionActive(false)
@@ -297,7 +343,21 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             addUpdateListener { anim ->
                 recordAnimatorCallback()
                 val v = anim.animatedValue as Float
-                stripFraction = v - fromCenter
+                if (fromUserGesture && visualDistance > 1f) {
+                    // 多步切歌：链式单步推进，确保 stripFraction 始终落在 [-1, 1]，
+                    // 使固定 7-lane 窗口始终能覆盖视觉中心，避免出现“后面槽位空白”。
+                    val forward = endVisual >= startVisual
+                    val stepCenter = if (forward) floor(v) else ceil(v)
+                    val clampedCenter = stepCenter.toInt().coerceIn(0, queue.lastIndex.coerceAtLeast(0))
+                    if (clampedCenter != logicalCenter) {
+                        logicalCenter = clampedCenter
+                        lastReportedIndex = clampedCenter
+                        preloadWindow()
+                    }
+                    stripFraction = (v - logicalCenter.toFloat()).coerceIn(-1f, 1f)
+                } else {
+                    stripFraction = v - fromCenter
+                }
                 invalidateFor("track-animator")
             }
             addListener(object : android.animation.Animator.AnimatorListener {
@@ -309,11 +369,12 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 override fun onAnimationCancel(animation: android.animation.Animator) = Unit
                 override fun onAnimationRepeat(animation: android.animation.Animator) = Unit
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    stripFraction = endVisual - fromCenter
+                    if (generation != visualCommitGeneration) return
                     commitTrackIndex(index)
                     trackAnimator = null
                     setMotionActive(false)
                     TrackSwitchPerformance.mark("cover-animation-end", "index=$index")
+                    flushPendingPlayQueueIndex()
                     flushPendingHostIndex()
                 }
             })
@@ -355,10 +416,11 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             val cx = coverCenterX()
             val cy = contentCenterY(slotH)
             val stateBuildStartedNs = SystemClock.elapsedRealtimeNanos()
-            val lanes = (-CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius).toList()
-            val laneStates = lanes.mapNotNull { laneIndex ->
-                buildLaneState(laneIndex, slotW)
-            }.sortedBy { it.zIndex }
+            laneStates.clear()
+            for (laneIndex in -CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius) {
+                buildLaneState(laneIndex, slotW)?.let(laneStates::add)
+            }
+            laneStates.sortBy { it.zIndex }
             stateBuildNs = SystemClock.elapsedRealtimeNanos() - stateBuildStartedNs
             laneCount = laneStates.size
             val laneDrawStartedNs = SystemClock.elapsedRealtimeNanos()
@@ -372,7 +434,10 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 } else {
                     1f
                 }
-                onCenterAspectRatio?.invoke(ratio)
+                if (abs(ratio - lastCenterAspectRatio) > 0.001f) {
+                    lastCenterAspectRatio = ratio
+                    onCenterAspectRatio?.invoke(ratio)
+                }
             }
         } finally {
             Trace.endSection()
@@ -513,9 +578,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 .toInt()
                 .coerceIn(1, reflectionSrcRect.height())
             reflectionSrcRect.top = reflectionSrcRect.bottom - srcSliceH
-            val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                alpha = combinedAlpha
-            }
+            layerPaint.alpha = combinedAlpha
             val layerId = canvas.saveLayer(
                 reflectionRect.left,
                 reflectionRect.top,
@@ -532,7 +595,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             canvas.drawBitmap(
                 bitmap,
                 reflectionSrcRect,
-                RectF(-slotW * 0.5f, 0f, slotW * 0.5f, reflH),
+                reflectionDstRect.apply { set(-slotW * 0.5f, 0f, slotW * 0.5f, reflH) },
                 scratchPaint,
             )
             canvas.restore()
@@ -769,11 +832,36 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         if (queueIndex in queue.indices) {
             TrackSwitchPerformance.armTrigger("coverflow-tap")
             TrackSwitchPerformance.mark("coverflow-tap", "lane=$laneOffset index=$queueIndex")
-            onPlayQueueIndex?.invoke(queueIndex)
+            dispatchPlayQueueIndex(queueIndex)
             scheduleMotionIdleFallback()
             return true
         }
         return false
+    }
+
+    private fun playQueueIndexAfterVisualCommit(index: Int) {
+        updateCurrentIndex(index, replaceRunningTrack = true, fromUserGesture = true)
+        if (trackAnimator == null) {
+            dispatchPlayQueueIndex(index)
+        } else {
+            pendingPlayQueueIndex = index
+        }
+    }
+
+    private fun flushPendingPlayQueueIndex() {
+        val pending = pendingPlayQueueIndex ?: return
+        pendingPlayQueueIndex = null
+        if (pendingHostIndex != pending) {
+            pendingHostIndex = null
+        }
+        dispatchPlayQueueIndex(pending)
+    }
+
+    private fun dispatchPlayQueueIndex(index: Int) {
+        awaitingCommittedPlayIndex = index
+        lastDispatchedPlayIndex = index
+        hostIndexGuardUntilMs = SystemClock.uptimeMillis() + HOST_INDEX_GUARD_MS
+        onPlayQueueIndex?.invoke(index)
     }
 
     private fun hitLaneOffset(x: Float): Int? {
@@ -800,30 +888,28 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private fun handleDragEnd() {
         when {
             stripFraction > CoverFlowDragCommitFraction -> {
-                val target = (logicalCenter + 1).coerceAtMost(queue.lastIndex)
+                val target = nextDragCommitTarget()
                 TrackSwitchPerformance.armTrigger("coverflow-drag-next")
                 TrackSwitchPerformance.mark(
                     "coverflow-drag-commit",
                     "strip=${"%.3f".format(stripFraction)} target=$target",
                 )
                 if (target != logicalCenter) {
-                    updateCurrentIndex(target)
-                    post { onPlayQueueIndex?.invoke(target) }
+                    playQueueIndexAfterVisualCommit(target)
                 } else {
                     onNext?.invoke()
                 }
                 scheduleMotionIdleFallback()
             }
             stripFraction < -CoverFlowDragCommitFraction -> {
-                val target = (logicalCenter - 1).coerceAtLeast(0)
+                val target = previousDragCommitTarget()
                 TrackSwitchPerformance.armTrigger("coverflow-drag-prev")
                 TrackSwitchPerformance.mark(
                     "coverflow-drag-commit",
                     "strip=${"%.3f".format(stripFraction)} target=$target",
                 )
                 if (target != logicalCenter) {
-                    updateCurrentIndex(target)
-                    post { onPlayQueueIndex?.invoke(target) }
+                    playQueueIndexAfterVisualCommit(target)
                 } else {
                     onPrevious?.invoke()
                 }
@@ -841,6 +927,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     private fun animateStripTo(target: Float) {
         settleAnimator?.cancel()
+        val generation = nextVisualCommitGeneration()
         val start = stripFraction
         if (abs(start - target) < 0.0001f) {
             setMotionActive(false)
@@ -866,21 +953,49 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 override fun onAnimationCancel(animation: android.animation.Animator) = Unit
                 override fun onAnimationRepeat(animation: android.animation.Animator) = Unit
                 override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (generation != visualCommitGeneration) return
                     settleAnimator = null
                     setMotionActive(false)
                     TrackSwitchPerformance.mark("coverflow-settle-end", "strip=${"%.3f".format(stripFraction)}")
-                    flushPendingHostIndex()
+                    discardPendingHostIndexAfterCancelledGesture()
                 }
             })
             start()
         }
     }
 
+    private fun nextDragCommitTarget(): Int {
+        val steps = ceil(stripFraction).toInt().coerceAtLeast(1)
+        return (logicalCenter + steps).coerceAtMost(queue.lastIndex)
+    }
+
+    private fun previousDragCommitTarget(): Int {
+        val steps = floor(stripFraction).toInt().coerceAtMost(-1)
+        return (logicalCenter + steps).coerceAtLeast(0)
+    }
+
+    private fun discardPendingHostIndexAfterCancelledGesture() {
+        val pending = pendingHostIndex
+        val lastPlay = lastDispatchedPlayIndex
+        if (pending != null && lastPlay != null && pending != lastPlay) {
+            pendingHostIndex = null
+            return
+        }
+        flushPendingHostIndex()
+    }
+
     private fun cancelAnimators() {
+        nextVisualCommitGeneration()
         trackAnimator?.cancel()
         trackAnimator = null
         settleAnimator?.cancel()
         settleAnimator = null
+        pendingPlayQueueIndex = null
+    }
+
+    private fun nextVisualCommitGeneration(): Int {
+        visualCommitGeneration += 1
+        return visualCommitGeneration
     }
 
     private fun setMotionActive(active: Boolean) {
@@ -933,6 +1048,10 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         bitmapByUri.clear()
         CoverFlowReflectionBake.clear()
         pendingHostIndex = null
+        pendingPlayQueueIndex = null
+        awaitingCommittedPlayIndex = null
+        lastDispatchedPlayIndex = null
+        hostIndexGuardUntilMs = 0L
         onPlayQueueIndex = null
         onPrevious = null
         onNext = null
@@ -943,5 +1062,6 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     }
 
     companion object {
+        private const val HOST_INDEX_GUARD_MS = 1_500L
     }
 }

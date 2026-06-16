@@ -7,8 +7,8 @@ class CoverGestureCoordinatorTest {
 
     @Test
     fun dragCommitThresholds_areReducedByTwentyFivePercent() {
-        assertEquals(0.35f * 0.75f, CoverFlowDragCommitFraction, 0.0001f)
-        assertEquals(0.35f * 0.5f * 0.75f, StandardDragCommitFraction, 0.0001f)
+        assertEquals(0.22f, CoverFlowDragCommitFraction, 0.0001f)
+        assertEquals(0.11f, StandardDragCommitFraction, 0.0001f)
     }
 
     @Test

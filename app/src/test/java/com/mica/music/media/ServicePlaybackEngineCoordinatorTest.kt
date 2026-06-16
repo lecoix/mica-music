@@ -76,4 +76,24 @@ class ServicePlaybackEngineCoordinatorTest {
         }
         coordinator.release()
     }
+
+    @Test
+    fun playerVolumeIsForwardedToSoftwareEngine() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val player = MicaCompositePlayer(exo)
+        val engine = mockk<AlacAudioTrackEngine>(relaxed = true)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            context = ApplicationProvider.getApplicationContext(),
+            player = player,
+            engine = engine,
+        )
+        coordinator.start()
+
+        player.volume = 0.35f
+
+        verify(exactly = 1) {
+            engine.setVolume(0.35f)
+        }
+        coordinator.release()
+    }
 }
