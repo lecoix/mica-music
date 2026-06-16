@@ -23,8 +23,8 @@ android {
         applicationId = "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.1.3"
+        versionCode = 4
+        versionName = "0.1.3.5-bata"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")
@@ -44,6 +44,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (project.hasProperty("betaRelease")) {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
         create("perf") {
             initWith(getByName("release"))
