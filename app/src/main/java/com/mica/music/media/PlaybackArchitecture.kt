@@ -4,10 +4,7 @@ import androidx.media3.common.PlaybackException
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import java.io.FileNotFoundException
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
-
-enum class PlaybackBackendKind { MEDIA3, SOFTWARE }
 
 enum class AudioQualityMode { HIFI, DSP }
 
@@ -33,17 +30,21 @@ data class PlaybackRequest(
     val generation: Long,
     val songId: String,
     val sourceRevision: String,
-    val backend: PlaybackBackendKind,
     val startPositionMs: Long,
     val userPlayIntent: Boolean,
     val qualityMode: AudioQualityMode,
 )
 
-data class PlaybackRouteDecision(
-    val primary: PlaybackBackendKind,
-    val fallback: PlaybackBackendKind?,
-    val reason: String,
-)
+sealed interface PlaybackRouteDecision {
+    val reason: String
+
+    data class Supported(override val reason: String) : PlaybackRouteDecision
+
+    data class Unsupported(
+        override val reason: String,
+        val userMessage: String,
+    ) : PlaybackRouteDecision
+}
 
 sealed interface PlaybackEngineState {
     data object Idle : PlaybackEngineState
@@ -70,36 +71,39 @@ object PlaybackRouter {
         if (DsdSupport.isDsdMetadata(song.metadata) ||
             DsdSupport.isDsdExtension(song.fileName.substringAfterLast('.', ""))
         ) {
-            return PlaybackRouteDecision(
-                primary = PlaybackBackendKind.SOFTWARE,
-                fallback = null,
-                reason = "dsd-high-quality-pcm",
+            if (isDsfFile(song)) {
+                return PlaybackRouteDecision.Supported("dsf-exo-extractor")
+            }
+            return PlaybackRouteDecision.Unsupported(
+                reason = "dsd-dff-unsupported",
+                userMessage = "不支持 DFF/DSDIFF 格式，请使用 DSF",
             )
         }
         if (AlacPlayback.isAlac(song)) {
-            return PlaybackRouteDecision(
-                primary = PlaybackBackendKind.MEDIA3,
-                fallback = PlaybackBackendKind.SOFTWARE,
-                reason = "alac-media3-first",
-            )
+            return PlaybackRouteDecision.Supported("alac-ffmpeg")
         }
-        return PlaybackRouteDecision(
-            primary = PlaybackBackendKind.MEDIA3,
-            fallback = null,
-            reason = "platform-format",
-        )
+        return PlaybackRouteDecision.Supported("platform-format")
     }
+
+    fun isPlayable(song: Song): Boolean = decide(song) is PlaybackRouteDecision.Supported
+
+    fun unsupportedMessage(song: Song): String? =
+        (decide(song) as? PlaybackRouteDecision.Unsupported)?.userMessage
+
+    private fun isDsfFile(song: Song): Boolean =
+        song.fileName.substringAfterLast('.', "").equals("dsf", ignoreCase = true)
 }
 
 object PlaybackFailureClassifier {
-    private val decoderNamePattern = Regex("""Decoder failed:\s*([^\s,]+)""")
-
     fun classify(error: PlaybackException): PlaybackFailureKind {
         findCause<SecurityException>(error)?.let {
             return PlaybackFailureKind.SOURCE_PERMISSION
         }
         findCause<FileNotFoundException>(error)?.let {
             return PlaybackFailureKind.SOURCE_MISSING
+        }
+        if (isAudioTrackBufferSizeFailure(error)) {
+            return PlaybackFailureKind.OUTPUT_FAILED
         }
         return when (error.errorCode) {
         PlaybackException.ERROR_CODE_IO_NO_PERMISSION ->
@@ -123,32 +127,24 @@ object PlaybackFailureClassifier {
         }
     }
 
-    fun allowsSoftwareFallback(kind: PlaybackFailureKind): Boolean =
-        kind == PlaybackFailureKind.EXTRACTOR_UNSUPPORTED ||
-            kind == PlaybackFailureKind.DECODER_UNSUPPORTED ||
-            kind == PlaybackFailureKind.DECODE_FAILED
-
     fun allowsAutomaticSkip(kind: PlaybackFailureKind): Boolean =
         kind != PlaybackFailureKind.SOURCE_PERMISSION &&
             kind != PlaybackFailureKind.CANCELLED
 
-    /**
-     * Returns a decoder identity only when the failure chain names an ALAC decoder.
-     * This is intentionally narrower than DECODE_FAILED: a damaged file must not
-     * disable Media3 ALAC playback for the rest of the process.
-     */
-    fun stableAlacDecoderIdentity(error: Throwable): String? {
+    private fun isAudioTrackBufferSizeFailure(error: Throwable): Boolean {
         val visited = HashSet<Throwable>()
         var current: Throwable? = error
         while (current != null && visited.add(current)) {
-            val decoder = current.message
-                ?.let(decoderNamePattern::find)
-                ?.groupValues
-                ?.getOrNull(1)
-            if (decoder?.contains("alac", ignoreCase = true) == true) return decoder
+            for (element in current.stackTrace) {
+                if (element.className.endsWith("AudioTrackAudioOutputProvider") &&
+                    element.methodName == "getAudioTrackMinBufferSize"
+                ) {
+                    return true
+                }
+            }
             current = current.cause
         }
-        return null
+        return false
     }
 
     private inline fun <reified T : Throwable> findCause(error: Throwable): T? {
@@ -167,7 +163,6 @@ class PlaybackRequestSequencer {
 
     fun next(
         song: Song,
-        backend: PlaybackBackendKind,
         startPositionMs: Long,
         playWhenReady: Boolean,
         qualityMode: AudioQualityMode,
@@ -178,28 +173,9 @@ class PlaybackRequestSequencer {
             generation = id,
             songId = song.id,
             sourceRevision = PlaybackSourceRevision.of(song),
-            backend = backend,
             startPositionMs = startPositionMs.coerceAtLeast(0),
             userPlayIntent = playWhenReady,
             qualityMode = qualityMode,
         )
-    }
-}
-
-class PlaybackFallbackLedger {
-    private val softwareAttempts = ConcurrentHashMap.newKeySet<String>()
-
-    fun claimSoftwareFallback(sourceRevision: String): Boolean =
-        softwareAttempts.add(sourceRevision)
-
-    fun hasAttemptedSoftware(sourceRevision: String): Boolean =
-        sourceRevision in softwareAttempts
-
-    fun forget(sourceRevision: String) {
-        softwareAttempts.remove(sourceRevision)
-    }
-
-    fun clear() {
-        softwareAttempts.clear()
     }
 }

@@ -36,6 +36,7 @@
 |------|------|
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | `refactor/playback-architecture` 分支三轴审查（Bugbot / Standards / Spec） |
+| [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`REASONIX.md`](../REASONIX.md) | AI/工具代码库速览（须与 `libs.versions.toml` 对齐） |
 
 ---
@@ -85,3 +86,4 @@
 | 2026-06 | 初版三类归档 |
 | 2026-06 | 执行清单：合并 COVER_FLOW/REVIEW_NOTES；修 README/DESIGN_SPEC/REASONIX/OPEN_SOURCE/MOTION |
 | 2026-06-16 | 新增 `reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md` 播放架构重构分支审查 |
+| 2026-06-18 | 新增 `DSD_EXO_PLAYBACK.md`（Exo DSD 扩展与音效说明） |

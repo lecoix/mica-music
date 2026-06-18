@@ -12,15 +12,6 @@ class MediaServiceLifecyclePolicyTest {
         assertFalse(
             MediaServiceLifecyclePolicy.shouldStopAfterTaskRemoved(
                 playWhenReady = true,
-                alacPlayWhenReady = false,
-                mediaItemCount = 3,
-                playbackState = Player.STATE_READY,
-            ),
-        )
-        assertFalse(
-            MediaServiceLifecyclePolicy.shouldStopAfterTaskRemoved(
-                playWhenReady = false,
-                alacPlayWhenReady = true,
                 mediaItemCount = 3,
                 playbackState = Player.STATE_READY,
             ),
@@ -40,7 +31,6 @@ class MediaServiceLifecyclePolicyTest {
         state: Int,
     ): Boolean = MediaServiceLifecyclePolicy.shouldStopAfterTaskRemoved(
         playWhenReady = playWhenReady,
-        alacPlayWhenReady = false,
         mediaItemCount = itemCount,
         playbackState = state,
     )

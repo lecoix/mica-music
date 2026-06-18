@@ -90,6 +90,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private var pendingPlayQueueIndex: Int? = null
     private var awaitingCommittedPlayIndex: Int? = null
     private var lastDispatchedPlayIndex: Int? = null
+    private var lastSupersededHostIndex: Int? = null
     private var hostIndexGuardUntilMs: Long = 0L
     private var visualCommitGeneration: Int = 0
 
@@ -206,14 +207,45 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         }
         if (!stageActive) {
             pendingHostIndex = null
+            pendingPlayQueueIndex = null
             awaitingCommittedPlayIndex = null
             lastDispatchedPlayIndex = null
+            lastSupersededHostIndex = null
             hostIndexGuardUntilMs = 0L
             resetToIndex(index)
             return
         }
+        pendingPlayQueueIndex?.let { pendingPlay ->
+            if (index != pendingPlay && index != lastSupersededHostIndex) {
+                pendingPlayQueueIndex = null
+                pendingHostIndex = null
+                awaitingCommittedPlayIndex = null
+                lastDispatchedPlayIndex = null
+                lastSupersededHostIndex = null
+                hostIndexGuardUntilMs = 0L
+                updateQueue(songs)
+                resetToIndex(index)
+                TrackSwitchPerformance.mark(
+                    "coverflow-pending-superseded",
+                    "pending=$pendingPlay host=$index",
+                )
+                return
+            }
+        }
         lastDispatchedPlayIndex?.let { latestTarget ->
             if (index != latestTarget && SystemClock.uptimeMillis() < hostIndexGuardUntilMs) {
+                if (awaitingCommittedPlayIndex == null || index == lastSupersededHostIndex) {
+                    return
+                }
+                // A different host index during the guard window means an external command
+                // (for example a button skip) superseded the visual-first gesture commit.
+                pendingHostIndex = null
+                awaitingCommittedPlayIndex = null
+                lastDispatchedPlayIndex = null
+                lastSupersededHostIndex = null
+                hostIndexGuardUntilMs = 0L
+                updateQueue(songs)
+                resetToIndex(index)
                 return
             }
         }
@@ -840,6 +872,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     }
 
     private fun playQueueIndexAfterVisualCommit(index: Int) {
+        lastSupersededHostIndex = logicalCenter
         updateCurrentIndex(index, replaceRunningTrack = true, fromUserGesture = true)
         if (trackAnimator == null) {
             dispatchPlayQueueIndex(index)
@@ -851,8 +884,18 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private fun flushPendingPlayQueueIndex() {
         val pending = pendingPlayQueueIndex ?: return
         pendingPlayQueueIndex = null
-        if (pendingHostIndex != pending) {
-            pendingHostIndex = null
+        val hostAlreadyCommitted = pendingHostIndex == pending
+        pendingHostIndex = null
+        if (hostAlreadyCommitted) {
+            awaitingCommittedPlayIndex = null
+            lastDispatchedPlayIndex = null
+            lastSupersededHostIndex = null
+            hostIndexGuardUntilMs = 0L
+            TrackSwitchPerformance.mark(
+                "coverflow-dispatch-skip",
+                "index=$pending reason=host-already-committed",
+            )
+            return
         }
         dispatchPlayQueueIndex(pending)
     }
@@ -1051,6 +1094,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         pendingPlayQueueIndex = null
         awaitingCommittedPlayIndex = null
         lastDispatchedPlayIndex = null
+        lastSupersededHostIndex = null
         hostIndexGuardUntilMs = 0L
         onPlayQueueIndex = null
         onPrevious = null

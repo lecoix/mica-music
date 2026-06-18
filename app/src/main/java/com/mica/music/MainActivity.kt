@@ -202,8 +202,13 @@ class MainActivity : ComponentActivity() {
                         currentQueueIds == previousLibraryIds
                     libraryQueueIds.value = library.songIds
 
-                    if (currentQueueIds.isEmpty() || currentQueueWasLibrary) {
-                        playerController.setQueue(songs)
+                    when {
+                        currentQueueIds.isEmpty() -> {
+                            if (!playerController.bootstrapQueue(library::songById)) {
+                                playerController.setQueue(songs)
+                            }
+                        }
+                        currentQueueWasLibrary -> playerController.setQueue(songs)
                     }
                 }
 

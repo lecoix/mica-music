@@ -31,15 +31,19 @@ _Avoid_: shuffle mode、repeat mode（拆开描述时仍用枚举名）
 _Avoid_: 在业务层手写 `index + 1`
 
 **PlayerController**：
-App 侧播放门面：把 `MediaController` / 媒体服务桥接为 Compose 可读状态，承载队列变更、seek、播放模式与 `PlaybackSession` 持久化。
+App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaController` 写入服务；`songQueue` / `PlaybackQueueState` 由服务队列镜像填充，**不是**出声权威源。
 _Avoid_: player view model、media player（指底层引擎时）
 
-**PlaybackSession（播放会话）**：
+**Authoritative playback queue（权威播放队列）**：
+服务侧 `MicaCompositePlayer.playlistItems`（经 `playbackQueueSnapshot()` 暴露）为唯一真相源；`ServicePlaybackEngineCoordinator` 的 `onEnded` / `startAt` / 失败跳曲均读此快照。App 内 `PendingPlaybackNavigation` 在 binder 延迟时携带切歌意图。
+_Avoid_: 在 `PlayerController` 内维护与服务等长的并行队列并驱动出声
+
+**PlaybackSession（播放会话）**（legacy，逐步由 `ServicePlaybackStateStore` 替代）：
 上次退出时的「当前曲 ID + 进度毫秒」，用于曲库就绪后恢复，**不**自动开始播放。
 _Avoid_: session token、playback state（指 UI 三态时）
 
 **Insert play next（插播下一首）**：
-将一首曲插入当前项之后；若当前由软件播路径出声，则等当前曲结束再播插入项。
+将一首曲插入当前项之后；经 `MediaController` 更新 Exo 播放列表，当前曲不中断，曲终或用户显式切歌时出声到插入项。
 _Avoid_: add to queue（未强调「紧挨下一首」时）
 
 ## 播放状态（UI 只读输入）
@@ -47,8 +51,8 @@ _Avoid_: add to queue（未强调「紧挨下一首」时）
 播放页 UI **只读**以下三态；不得绕过它们直接摸 `PlayerController` 内部字段。
 
 **PlaybackSurfaceState**：
-表面播放态：当前曲、播放 / 缓冲 / 错误、播放模式、队列当前下标、软件播是否活跃。
-_Avoid_: player state（笼统说法）
+表面播放态：当前曲、播放 / 缓冲 / 错误、播放模式、队列当前下标。
+_Avoid_: player state（笼统说法）、alacStreamActive
 
 **PlaybackProgressState**：
 进度态：当前位置、总时长、`pendingSeekMs`（seek 尚未反映到进度前）。
@@ -71,20 +75,16 @@ _Avoid_: scrubbing（文档与 issue 中用中文描述）
 ## 出声与媒体服务
 
 **MicaMediaService**：
-独立于 Activity 的 `MediaSessionService`：持有 `ExoPlayer`、`MediaSession` 与软件播引擎，对接通知栏、锁屏、蓝牙与系统媒体控制。
+独立于 Activity 的 `MediaSessionService`：持有 `ExoPlayer`、`MediaSession` 与播放协调器，对接通知栏、锁屏、蓝牙与系统媒体控制。
 _Avoid_: playback service（无专名时）、background service
 
-**Playback backend（播放后端）**：
-出声实现路径：`MEDIA3`（平台 / Exo 解码）或 `SOFTWARE`（FFmpeg → PCM → `AudioTrack`）。
-_Avoid_: decoder、engine（无区分后端时）
-
-**Software playback（软件播）**：
-不经平台解码器、走应用内软解出声的路径；部分高规格或兜底格式使用。
-_Avoid_: FFmpeg 播放（仅说技术栈时）、按编码格式命名播放路径（作为后端统称时）
+**Exo playback pipeline（Exo 播放管线）**：
+唯一出声路径：`ExoPlayer` → `MicaExtractorsFactory` / `MicaRenderersFactory` → `libffmpegJNI.so`（ALAC、DSD 等扩展）→ `MicaAudioProcessorChain`（DSD 降采样 / 频谱 / EQ）→ `AudioTrack`。
+_Avoid_: 软件播、双后端、libmica_ffmpeg
 
 **PlaybackRouteDecision**：
-对一首 `Song` 选择主后端与是否允许兜底后端的决策。
-_Avoid_: codec path
+对一首 `Song` 判定 Exo 是否可播；`.dsf` 与常规格式为 `Supported`，`.dff` 为 `Unsupported`（可扫描入库，播放时拒绝并提示）。
+_Avoid_: codec path、PlaybackBackendKind
 
 ## 播放页与壳层
 

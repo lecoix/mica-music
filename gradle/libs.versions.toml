@@ -7,14 +7,19 @@ activityCompose = "1.9.2"
 composeBom = "2024.10.00"
 navigationCompose = "2.8.2"
 coil = "2.7.0"
-media3 = "1.4.1"
+media3 = "1.9.0"
+media3Ffmpeg = "1.9.0+1"
 coroutines = "1.8.1"
 documentfile = "1.0.1"
+annotation = "1.8.2"
+guava = "33.3.1-android"
+checkerqual = "3.42.0"
 palette = "1.0.0"
 room = "2.6.1"
 ksp = "2.2.21-2.0.5"
 reorderable = "2.4.3"
 taglib = "1.0.5"
+jaudiotagger = "3.0.1"
 junit = "4.13.2"
 blurview = "version-3.2.0"
 androidxTestCore = "1.6.1"
@@ -40,16 +45,22 @@ androidx-material-icons-extended = { group = "androidx.compose.material", name =
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-decoder = { group = "androidx.media3", name = "media3-decoder", version.ref = "media3" }
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
+androidx-media3-exoplayer-ffmpeg = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version.ref = "media3Ffmpeg" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
+guava = { group = "com.google.guava", name = "guava", version.ref = "guava" }
+checkerqual = { group = "org.checkerframework", name = "checker-qual", version.ref = "checkerqual" }
 androidx-palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }
 kyant-taglib = { group = "io.github.kyant0", name = "taglib", version.ref = "taglib" }
+jaudiotagger = { group = "net.jthink", name = "jaudiotagger", version.ref = "jaudiotagger" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 blurview = { group = "com.github.Dimezis", name = "BlurView", version.ref = "blurview" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
@@ -65,6 +76,7 @@ roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi
 roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
 
 [plugins]
+android-library = { id = "com.android.library", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

@@ -1,4 +1,4 @@
-package com.mica.music.data
+﻿package com.mica.music.data
 
 /**
  * 由 [com.mica.music.data.scanner.AudioMetadataProbe] 从文件头读取的真实参数。
@@ -50,7 +50,7 @@ data class TrackMetadata(
             displayName: String? = null,
             mediaUri: String = "",
         ): TrackMetadata {
-            val container = containerFromMime(mimeType)
+            val container = containerFromMime(mimeType, displayName)
             val kbps = if (bitrateBpsFromStore > 0) bitrateBpsFromStore / 1000 else 320
             return TrackMetadata(
                 containerName = container,
@@ -67,7 +67,13 @@ data class TrackMetadata(
             )
         }
 
-        fun containerFromMime(mimeType: String): String {
+        fun containerFromMime(mimeType: String, displayName: String? = null): String {
+            // MediaExtractor may expose decoded PCM as audio/raw. The file extension is the
+            // authoritative container hint for WAV/FLAC and must win over that track MIME.
+            when (displayName?.substringAfterLast('.', "")?.lowercase()) {
+                "wav", "wave" -> return "WAV"
+                "flac" -> return "FLAC"
+            }
             val m = mimeType.lowercase()
             return when {
                 "flac" in m -> "FLAC"

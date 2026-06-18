@@ -11,25 +11,29 @@ import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sqrt
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 object MicaSpectrumAnalyzer {
     private const val BandCount = 96
     private const val WindowSize = 2048
-    private const val MinUpdateIntervalNanos = 8_000_000L
+    private const val AnalysisFps = 60
+    private const val MaxQueuedAudioSeconds = 0.5f
     private const val SilenceDecay = 0.88f
     private const val ProbeTag = "MicaSpectrumProbe"
     private const val ProbeEnabled = true
 
+    // 时间常数（秒）。攻/放/beat 的平滑基于两帧之间的真实 dt，
+    // 而非"按帧固定系数"，因此与解码器喂 PCM 的帧率（采样率/缓冲区）无关，
+    // 不同歌曲的频谱"速度"保持一致。tau 越小越快。
     private val _levels = MutableStateFlow(List(BandCount) { 0f })
     val levels: StateFlow<List<Float>> = _levels.asStateFlow()
 
     @Volatile
     private var enabled = false
 
-    @Volatile
-    private var lastUpdateNanos = 0L
-
     private val ring = FloatArray(WindowSize)
+    private val pcmQueue = SpectrumPcmQueue()
     private val windowed = FloatArray(WindowSize)
     private val window = FloatArray(WindowSize) { index ->
         0.5f - 0.5f * cos((2.0 * PI * index) / (WindowSize - 1)).toFloat()
@@ -42,19 +46,48 @@ object MicaSpectrumAnalyzer {
     private val previousLevels = FloatArray(BandCount)
     private val shapedLevels = FloatArray(BandCount)
     private var previousBassEnergy = 0f
+
     private val lock = Any()
     private var ringWriteIndex = 0
     private var ringSampleCount = 0
+    private var queuedSampleRateHz = 0
+    private var hopRemainder = 0.0
     private var probeWindowStartMs = 0L
     private var probeProcessCalls = 0
     private var probeOutputFrames = 0
     private var probePcmBytes = 0L
     private var probeAnalyzeNanos = 0L
 
-    fun setEnabled(value: Boolean) {
+    private val analyzeExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "mica-spectrum-analyze").apply { isDaemon = true }
+    }
+
+    init {
+        analyzeExecutor.scheduleAtFixedRate(
+            ::analyzeTick,
+            0L,
+            1_000_000_000L / AnalysisFps,
+            TimeUnit.NANOSECONDS,
+        )
+    }
+
+    /** Fired on the caller thread when [setEnabled] changes the flag. */
+    var onEnabledChanged: ((Boolean) -> Unit)? = null
+
+    private data class RingSnapshot(
+        val samples: FloatArray,
+        val count: Int,
+        val writeIndex: Int,
+    )
+
+    fun isEnabledForProcessing(): Boolean = enabled
+
+    fun setEnabled(value: Boolean, notifyPipeline: Boolean = true) {
+        if (enabled == value) return
         enabled = value
         if (!value) {
             synchronized(lock) {
+                pcmQueue.clear()
                 ring.fill(0f)
                 windowed.fill(0f)
                 real.fill(0f)
@@ -67,10 +100,14 @@ object MicaSpectrumAnalyzer {
                 previousBassEnergy = 0f
                 ringWriteIndex = 0
                 ringSampleCount = 0
-                lastUpdateNanos = 0L
+                queuedSampleRateHz = 0
+                hopRemainder = 0.0
                 resetProbe()
                 _levels.value = List(BandCount) { 0f }
             }
+        }
+        if (notifyPipeline) {
+            onEnabledChanged?.invoke(value)
         }
     }
 
@@ -83,9 +120,16 @@ object MicaSpectrumAnalyzer {
         channelCount: Int,
     ) {
         if (!enabled || length <= 0 || sampleRateHz <= 0) return
-        val nowNanos = System.nanoTime()
         val nowMs = System.currentTimeMillis()
         synchronized(lock) {
+            if (queuedSampleRateHz != sampleRateHz) {
+                pcmQueue.clear()
+                ring.fill(0f)
+                ringWriteIndex = 0
+                ringSampleCount = 0
+                hopRemainder = 0.0
+                queuedSampleRateHz = sampleRateHz
+            }
             if (ProbeEnabled) {
                 if (probeWindowStartMs == 0L) probeWindowStartMs = nowMs
                 probeProcessCalls++
@@ -97,22 +141,54 @@ object MicaSpectrumAnalyzer {
                 length = length,
                 encoding = encoding,
                 channelCount = channelCount.coerceAtLeast(1),
+                maxQueuedSamples = (sampleRateHz * MaxQueuedAudioSeconds).toInt(),
             )
-            if (nowNanos - lastUpdateNanos < MinUpdateIntervalNanos) return
-            lastUpdateNanos = nowNanos
-            if (ringSampleCount < WindowSize / 2) {
-                decayToSilence()
-                return
-            }
-            val analyzeStart = if (ProbeEnabled) System.nanoTime() else 0L
-            copyWindowedSamples()
-            val next = shapeBands(analyzeBands(windowed, sampleRateHz))
-            if (ProbeEnabled) {
-                probeAnalyzeNanos += System.nanoTime() - analyzeStart
-                probeOutputFrames++
-                reportProbeIfNeeded(nowMs, sampleRateHz)
-            }
-            _levels.value = next.map { it.coerceIn(0f, 1f) }
+        }
+    }
+
+    private fun analyzeTick() {
+        if (!enabled) return
+        val snapshot: RingSnapshot
+        val sampleRateHz: Int
+        synchronized(lock) {
+            sampleRateHz = queuedSampleRateHz
+            if (sampleRateHz <= 0 || pcmQueue.size == 0) return
+            hopRemainder += sampleRateHz.toDouble() / AnalysisFps
+            val hopSamples = hopRemainder.toInt().coerceAtLeast(1)
+            hopRemainder -= hopSamples
+            pcmQueue.drain(hopSamples, ::appendRingSample)
+            if (ringSampleCount < WindowSize / 2) return
+            snapshot = captureRingSnapshot()
+        }
+        runAnalysis(snapshot, sampleRateHz, System.currentTimeMillis())
+    }
+
+    private fun captureRingSnapshot(): RingSnapshot =
+        RingSnapshot(ring.copyOf(), ringSampleCount, ringWriteIndex)
+
+    private fun runAnalysis(snapshot: RingSnapshot, sampleRateHz: Int, nowMs: Long) {
+        val analyzeStart = if (ProbeEnabled) System.nanoTime() else 0L
+        copyWindowedSamplesFromSnapshot(snapshot)
+        val next = shapeBands(analyzeBands(windowed, sampleRateHz))
+        if (ProbeEnabled) {
+            probeAnalyzeNanos += System.nanoTime() - analyzeStart
+            probeOutputFrames++
+            reportProbeIfNeeded(nowMs, sampleRateHz)
+        }
+        _levels.value = next.map { it.coerceIn(0f, 1f) }
+    }
+
+    private fun copyWindowedSamplesFromSnapshot(snapshot: RingSnapshot) {
+        val available = snapshot.count.coerceAtMost(WindowSize)
+        val start = (snapshot.writeIndex - available + WindowSize) % WindowSize
+        val silence = WindowSize - available
+        for (i in 0 until silence) {
+            windowed[i] = 0f
+        }
+        for (i in 0 until available) {
+            val sourceIndex = (start + i) % WindowSize
+            val targetIndex = silence + i
+            windowed[targetIndex] = snapshot.samples[sourceIndex] * window[targetIndex]
         }
     }
 
@@ -148,11 +224,13 @@ object MicaSpectrumAnalyzer {
     }
 
     private fun decayToSilence() {
-        for (i in 0 until BandCount) {
-            previousLevels[i] *= SilenceDecay
-            shapedLevels[i] *= SilenceDecay
+        synchronized(lock) {
+            for (i in 0 until BandCount) {
+                previousLevels[i] *= SilenceDecay
+                shapedLevels[i] *= SilenceDecay
+            }
+            _levels.value = previousLevels.map { it.coerceIn(0f, 1f) }
         }
-        _levels.value = previousLevels.map { it.coerceIn(0f, 1f) }
     }
 
     private fun appendMonoSamples(
@@ -161,6 +239,7 @@ object MicaSpectrumAnalyzer {
         length: Int,
         encoding: Int,
         channelCount: Int,
+        maxQueuedSamples: Int,
     ) {
         val bytesPerSample = when (encoding) {
             AudioFormat.ENCODING_PCM_8BIT -> 1
@@ -179,24 +258,14 @@ object MicaSpectrumAnalyzer {
                 val pos = offset + frame * frameBytes + ch * bytesPerSample
                 sum += readSample(buffer, pos, encoding)
             }
-            ring[ringWriteIndex] = sum / channelCount
-            ringWriteIndex = (ringWriteIndex + 1) % WindowSize
-            ringSampleCount = (ringSampleCount + 1).coerceAtMost(WindowSize)
+            pcmQueue.offer(sum / channelCount, maxQueuedSamples)
         }
     }
 
-    private fun copyWindowedSamples() {
-        val available = ringSampleCount.coerceAtMost(WindowSize)
-        val start = (ringWriteIndex - available + WindowSize) % WindowSize
-        val silence = WindowSize - available
-        for (i in 0 until silence) {
-            windowed[i] = 0f
-        }
-        for (i in 0 until available) {
-            val sourceIndex = (start + i) % WindowSize
-            val targetIndex = silence + i
-            windowed[targetIndex] = ring[sourceIndex] * window[targetIndex]
-        }
+    private fun appendRingSample(sample: Float) {
+        ring[ringWriteIndex] = sample
+        ringWriteIndex = (ringWriteIndex + 1) % WindowSize
+        ringSampleCount = (ringSampleCount + 1).coerceAtMost(WindowSize)
     }
 
     private fun readSample(buffer: ByteArray, pos: Int, encoding: Int): Float {
@@ -273,7 +342,7 @@ object MicaSpectrumAnalyzer {
     }
 
     private fun shapeBands(raw: FloatArray): FloatArray {
-        // 低频抑制：音乐中 bass 能量天然占优，需要压低以留出峰谷空间
+        // 主分支视觉权重：压低天然占优的低频，中频最突出，高频逐步回落。
         for (i in 0 until BandCount) {
             val t = i / (BandCount - 1f)
             val presence = when {
@@ -287,7 +356,7 @@ object MicaSpectrumAnalyzer {
             weightedLevels[i] = weighted / (1f + weighted * 0.3f)
         }
 
-        // 高对比：波峰突出、波谷明显
+        // 主分支高对比参数：突出局部波峰，压低波谷。
         for (i in 0 until BandCount) {
             val from = maxOf(0, i - 2)
             val to = minOf(BandCount - 1, i + 2)
@@ -301,8 +370,7 @@ object MicaSpectrumAnalyzer {
             val value = weightedLevels[i]
             val prominence = (value - localAvg * 0.7f).coerceAtLeast(0f)
             val base = if (value < localAvg) value * 0.06f else value * 0.22f
-            contrastLevels[i] = (base + prominence * 3.6f)
-                .coerceIn(0f, 1f)
+            contrastLevels[i] = (base + prominence * 3.6f).coerceIn(0f, 1f)
         }
 
         val bassEnergy = weightedLevels.take(7).average().toFloat().coerceIn(0f, 1f)
@@ -317,7 +385,7 @@ object MicaSpectrumAnalyzer {
             visualLevels[i] = (contrastLevels[i] + pulse).coerceIn(0f, 1f)
         }
 
-        // 快攻慢放
+        // 主分支快攻慢放参数。
         for (i in 0 until BandCount) {
             val lifted = visualLevels[i]
             val attack = if (lifted > previousLevels[i]) 0.85f else 0.28f

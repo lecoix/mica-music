@@ -12,29 +12,45 @@ import org.junit.Test
 class PlaybackArchitectureTest {
 
     @Test
-    fun commonFormatsUseMedia3AndDsdUsesSoftware() {
-        val flac = SongFixtures.song(container = "FLAC", mime = "audio/flac")
-        val dsd = SongFixtures.song(container = "DSD", mime = "audio/x-dsf")
-
-        assertEquals(PlaybackBackendKind.MEDIA3, PlaybackRouter.decide(flac).primary)
-        assertEquals(PlaybackBackendKind.SOFTWARE, PlaybackRouter.decide(dsd).primary)
+    fun commonFormatsAreSupportedByExo() {
+        val commonFormats = listOf(
+            SongFixtures.song("mp3", container = "MP3", mime = "audio/mpeg"),
+            SongFixtures.song("aac", container = "AAC", mime = "audio/mp4"),
+            SongFixtures.song("flac", container = "FLAC", mime = "audio/flac"),
+            SongFixtures.song("wav", container = "WAV", mime = "audio/wav"),
+            SongFixtures.song("ogg", container = "OGG", mime = "audio/ogg"),
+            SongFixtures.song("opus", container = "OPUS", mime = "audio/opus"),
+        )
+        commonFormats.forEach { song ->
+            val route = PlaybackRouter.decide(song)
+            assertTrue(route is PlaybackRouteDecision.Supported)
+        }
     }
 
     @Test
-    fun alacUsesMedia3WithSoftwareFallback() {
+    fun dsfIsSupportedAndDffIsRejected() {
+        val dsf = SongFixtures.song("dsf", container = "DSD", mime = "audio/x-dsf")
+            .copy(fileName = "track.dsf", filePath = "Music/track.dsf")
+        val dff = SongFixtures.song("dff", container = "DSD", mime = "audio/x-dsdiff")
+            .copy(fileName = "track.dff", filePath = "Music/track.dff")
+
+        assertTrue(PlaybackRouter.decide(dsf) is PlaybackRouteDecision.Supported)
+        val dffRoute = PlaybackRouter.decide(dff)
+        assertTrue(dffRoute is PlaybackRouteDecision.Unsupported)
+        assertEquals(
+            "不支持 DFF/DSDIFF 格式，请使用 DSF",
+            PlaybackRouter.unsupportedMessage(dff),
+        )
+        assertFalse(PlaybackRouter.isPlayable(dff))
+        assertTrue(PlaybackRouter.isPlayable(dsf))
+    }
+
+    @Test
+    fun alacIsSupportedViaFfmpeg() {
         val alac = SongFixtures.song(container = "ALAC", mime = "audio/mp4")
         val route = PlaybackRouter.decide(alac)
-
-        assertEquals(PlaybackBackendKind.MEDIA3, route.primary)
-        assertEquals(PlaybackBackendKind.SOFTWARE, route.fallback)
-    }
-
-    @Test
-    fun fallbackLedgerAllowsOneAttemptPerSourceRevision() {
-        val ledger = PlaybackFallbackLedger()
-        assertTrue(ledger.claimSoftwareFallback("revision-1"))
-        assertFalse(ledger.claimSoftwareFallback("revision-1"))
-        assertTrue(ledger.claimSoftwareFallback("revision-2"))
+        assertTrue(route is PlaybackRouteDecision.Supported)
+        assertEquals("alac-ffmpeg", (route as PlaybackRouteDecision.Supported).reason)
     }
 
     @Test
@@ -43,20 +59,8 @@ class PlaybackArchitectureTest {
         val original = SongFixtures.song(id = "song").copy(dateModifiedMs = 1)
         val changed = original.copy(dateModifiedMs = 2)
 
-        val first = sequencer.next(
-            original,
-            PlaybackBackendKind.MEDIA3,
-            0,
-            true,
-            AudioQualityMode.HIFI,
-        )
-        val second = sequencer.next(
-            changed,
-            PlaybackBackendKind.MEDIA3,
-            0,
-            true,
-            AudioQualityMode.HIFI,
-        )
+        val first = sequencer.next(original, 0, true, AudioQualityMode.HIFI)
+        val second = sequencer.next(changed, 0, true, AudioQualityMode.HIFI)
 
         assertTrue(second.id > first.id)
         assertNotEquals(first.sourceRevision, second.sourceRevision)
@@ -92,29 +96,6 @@ class PlaybackArchitectureTest {
         assertEquals(
             PlaybackFailureKind.SOURCE_MISSING,
             PlaybackFailureClassifier.classify(error),
-        )
-    }
-
-    @Test
-    fun stableAlacDecoderIdentityRequiresNamedAlacDecoder() {
-        val alacError = PlaybackException(
-            "Renderer failed",
-            IllegalStateException("Decoder failed: c2.qti.alac.sw.decoder"),
-            PlaybackException.ERROR_CODE_DECODING_FAILED,
-        )
-        val genericError = PlaybackException(
-            "Renderer failed",
-            IllegalStateException("Malformed sample"),
-            PlaybackException.ERROR_CODE_DECODING_FAILED,
-        )
-
-        assertEquals(
-            "c2.qti.alac.sw.decoder",
-            PlaybackFailureClassifier.stableAlacDecoderIdentity(alacError),
-        )
-        assertEquals(
-            null,
-            PlaybackFailureClassifier.stableAlacDecoderIdentity(genericError),
         )
     }
 }

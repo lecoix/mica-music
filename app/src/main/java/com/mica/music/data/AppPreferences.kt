@@ -16,7 +16,6 @@ object AppPreferences {
     private const val KEY_HIDE_STATUS_BAR = "hide_status_bar"
     /** 旧版 key，迁移到 [KEY_HIDE_STATUS_BAR] */
     private const val KEY_IMMERSIVE_PLAYER_STATUS_BAR = "immersive_player_status_bar"
-    private const val KEY_ALAC_STREAM_PLAYBACK = "alac_stream_playback"
     private const val KEY_MIN_TRACK_DURATION_SEC = "min_track_duration_sec"
     private const val KEY_INCLUDE_NON_MUSIC_AUDIO = "include_non_music_audio"
     private const val KEY_DEEP_METADATA_PROBE = "deep_metadata_probe"
@@ -72,14 +71,11 @@ object AppPreferences {
     @Deprecated("Use hideStatusBar", ReplaceWith("hideStatusBar(context)"))
     fun immersivePlayerStatusBar(context: Context): Boolean = hideStatusBar(context)
 
-    /**
-     * 已统一为 FFmpeg → AudioTrack；保留键兼容旧设置，始终视为开启。
-     */
+    @Deprecated("Software playback removed", ReplaceWith("Unit"))
     fun alacStreamPlayback(context: Context): Boolean = true
 
-    fun setAlacStreamPlayback(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_ALAC_STREAM_PLAYBACK, enabled).apply()
-    }
+    @Deprecated("Software playback removed")
+    fun setAlacStreamPlayback(context: Context, enabled: Boolean) = Unit
 
     /** 最短曲目时长（秒）；0 表示不限制。默认 60。 */
     fun minTrackDurationSec(context: Context): Int =

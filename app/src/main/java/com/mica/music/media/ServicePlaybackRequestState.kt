@@ -2,7 +2,6 @@ package com.mica.music.media
 
 internal class ServicePlaybackRequestState(
     private val sequencer: PlaybackRequestSequencer = PlaybackRequestSequencer(),
-    private val fallbackLedger: PlaybackFallbackLedger = PlaybackFallbackLedger(),
 ) {
     var activeRequest: PlaybackRequest? = null
         private set
@@ -14,17 +13,14 @@ internal class ServicePlaybackRequestState(
         private set
 
     private var terminalFailureRequestId: Long? = null
-    private val alacDecoderFailedSources = mutableMapOf<String, MutableSet<String>>()
-    private val disabledAlacDecoders = mutableSetOf<String>()
 
     fun begin(
         song: com.mica.music.data.Song,
-        backend: PlaybackBackendKind,
         positionMs: Long,
         playWhenReady: Boolean,
         qualityMode: AudioQualityMode,
     ): PlaybackRequest {
-        val request = sequencer.next(song, backend, positionMs, playWhenReady, qualityMode)
+        val request = sequencer.next(song, positionMs, playWhenReady, qualityMode)
         val previous = activeRequest
         engineState = if (previous == null) {
             PlaybackEngineState.Preparing(request)
@@ -43,13 +39,11 @@ internal class ServicePlaybackRequestState(
         generation: Long,
         songId: String,
         sourceRevision: String,
-        backend: PlaybackBackendKind,
     ): Boolean {
         val request = activeRequest ?: return false
         return request.generation == generation &&
             request.songId == songId &&
-            request.sourceRevision == sourceRevision &&
-            request.backend == backend
+            request.sourceRevision == sourceRevision
     }
 
     fun setUserPlayIntent(requestId: Long, play: Boolean): PlaybackRequest? {
@@ -94,50 +88,7 @@ internal class ServicePlaybackRequestState(
         return consecutiveFailures
     }
 
-    fun shouldUseSoftwareFallback(song: com.mica.music.data.Song): Boolean =
-        fallbackLedger.hasAttemptedSoftware(PlaybackSourceRevision.of(song))
-
-    fun backendFor(song: com.mica.music.data.Song): PlaybackBackendKind {
-        val route = PlaybackRouter.decide(song)
-        return if (route.fallback == PlaybackBackendKind.SOFTWARE && (
-                shouldUseSoftwareFallback(song) ||
-                    (AlacPlayback.isAlac(song) && disabledAlacDecoders.isNotEmpty())
-                )
-        ) {
-            PlaybackBackendKind.SOFTWARE
-        } else {
-            route.primary
-        }
-    }
-
-    fun claimSoftwareFallback(requestId: Long, kind: PlaybackFailureKind): Boolean {
-        val request = activeRequest?.takeIf {
-            it.id == requestId && it.backend == PlaybackBackendKind.MEDIA3
-        } ?: return false
-        return PlaybackFailureClassifier.allowsSoftwareFallback(kind) &&
-            fallbackLedger.claimSoftwareFallback(request.sourceRevision)
-    }
-
-    /**
-     * Opens a process-local circuit after the same named ALAC decoder fails on
-     * two distinct sources. Per-source fallback remains the first line of defense.
-     */
-    fun recordAlacDecoderFailure(requestId: Long, decoderIdentity: String): Boolean {
-        val request = activeRequest?.takeIf {
-            it.id == requestId && it.backend == PlaybackBackendKind.MEDIA3
-        } ?: return false
-        if (!decoderIdentity.contains("alac", ignoreCase = true)) return false
-
-        val failedSources = alacDecoderFailedSources.getOrPut(decoderIdentity) {
-            mutableSetOf()
-        }
-        failedSources += request.sourceRevision
-        if (failedSources.size < ALAC_DECODER_CIRCUIT_THRESHOLD) return false
-        return disabledAlacDecoders.add(decoderIdentity)
-    }
-
     private companion object {
         const val STABLE_PLAYBACK_RESET_MS = 1_000L
-        const val ALAC_DECODER_CIRCUIT_THRESHOLD = 2
     }
 }

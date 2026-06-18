@@ -72,15 +72,12 @@ fun PlayerSpectrumStrip(
 
     LaunchedEffect(levels.size) {
         if (levels.isEmpty()) return@LaunchedEffect
-        var lastFrameNanos = withFrameNanos { it }
-        var probeStartNanos = lastFrameNanos
+        var probeStartNanos = withFrameNanos { it }
         var probeFrames = 0
         var probeTargetFrames = 0
         var lastTargetLevels: List<Float>? = null
         while (true) {
             val frameNanos = withFrameNanos { it }
-            val dt = ((frameNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
-            lastFrameNanos = frameNanos
             val target = targetLevels
             if (SpectrumProbeEnabled) {
                 probeFrames++
@@ -141,7 +138,7 @@ fun PlayerSpectrumStrip(
             null
         }
         displayLevels.forEachIndexed { index, raw ->
-            val level = sqrt(raw.coerceIn(0f, 1f))
+            val level = spectrumHeightFraction(raw)
             if (level < 0.001f) return@forEachIndexed
             val t = index / count.toFloat()
             val barAlpha = (0.38f + 0.54f * (1f - t * 0.55f)) * baseAlpha
@@ -168,3 +165,6 @@ fun PlayerSpectrumStrip(
 fun silentSpectrumLevels(count: Int = 96): List<Float> = List(count) { 0f }
 
 private fun Float.format1(): String = String.format("%.1f", this)
+
+internal fun spectrumHeightFraction(raw: Float): Float =
+    sqrt(raw.coerceIn(0f, 1f))

@@ -13,7 +13,7 @@
 - **Android Studio**：Hedgehog (2023.1.1) 或更新
 - **JDK**：17
 - **Android SDK**：API 34（compileSdk）/ API 26+（minSdk）
-- **设备**：Android 8.0+，**arm64-v8a**（项目仅编 64 位；含 FFmpeg native）
+- **设备**：Android 8.0+，**arm64-v8a**（项目仅编 64 位；含 FFmpeg native；是否“FFmpeg-only 出声路径”待讨论）
 
 ### 打开并运行
 
@@ -42,7 +42,7 @@
 |------|------|
 | **曲库扫描** | MediaStore 或 SAF；深度元数据、封面缓存与取色、增量同步 |
 | **持久化** | Room；冷启动恢复队列与播放进度 |
-| **播放** | FFmpeg → PCM → AudioTrack；顺序/循环/随机；10 段软件 EQ |
+| **播放** | 出声路径与后端路由**待详细讨论/暂未定稿**（历史实现曾为 FFmpeg → PCM → AudioTrack）；顺序/循环/随机；10 段软件 EQ |
 | **歌词** | 内嵌 + 外挂 `.lrc`；三行歌词、展开歌词页 |
 | **浏览** | 歌曲 / 歌手 / 专辑 / 最近 / 歌单 / 音乐库分析 |
 | **播放页** | 多种背景；封面流（平行/复古）；沉浸模式；频谱条（可选） |

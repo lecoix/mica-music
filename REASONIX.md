@@ -8,7 +8,7 @@
 - **Android SDK:** minSdk 26, targetSdk 34, compileSdk 34; **arm64-v8a only**
 - **Build:** AGP 8.7.0, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
 - **Key deps:** Media3 1.4.1, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, reorderable 2.4.3, **BlurView 3.2.0** (JitPack)
-- **FFmpeg native** — arm64 `.so` synced from assets; 现网播放出声走 FFmpeg → PCM → AudioTrack
+- **FFmpeg native** — arm64 `.so` synced from assets; “现网是否仍为 FFmpeg → PCM → AudioTrack 单一路径”属**待详细讨论/暂未定稿**
 
 ## Layout
 

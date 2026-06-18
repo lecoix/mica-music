@@ -55,18 +55,6 @@ object MicaEqualizerManager {
         softwareEqualizer.setEnabled(false)
     }
 
-    fun processPcmBuffer(
-        buffer: ByteArray,
-        offset: Int,
-        length: Int,
-        encoding: Int,
-        sampleRateHz: Int,
-        channelCount: Int,
-    ) {
-        softwareEqualizer.configure(sampleRateHz, channelCount)
-        softwareEqualizer.processInterleaved(buffer, offset, length, encoding)
-    }
-
     fun snapshot(context: Context): EqualizerSnapshot {
         ensurePreferencesLoaded(context)
         val presets = readSystemPresets()

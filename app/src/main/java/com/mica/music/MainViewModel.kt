@@ -25,7 +25,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val songs = library.songs
             ScanCacheManager.pruneAlbumArtCache(application, songs)
             if (songs.isNotEmpty()) {
-                playerController.setQueue(songs)
+                playerController.songResolver = library::songById
+                playerController.connectIfNeeded()
+                if (!playerController.bootstrapQueue(library::songById)) {
+                    playerController.setQueue(songs)
+                }
             }
         }
     }

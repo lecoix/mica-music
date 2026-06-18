@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
@@ -10,18 +10,18 @@ providers.gradleProperty("mica.alternateBuildDir").orNull?.let { alternateDir ->
     layout.buildDirectory.set(file(alternateDir))
 }
 
-// assets 里的 ffmpeg → jniLibs（lib*.so），安装后位于 nativeLibraryDir 才可 exec
-val ffmpegJniDir = layout.buildDirectory.dir("generated/ffmpeg-jni")
-val ffmpegAsset = file("src/main/assets/ffmpeg/arm64-v8a/ffmpeg")
 val qaSideBySide = providers.gradleProperty("mica.qaSideBySide")
     .map(String::toBoolean)
     .getOrElse(false)
-val syncFfmpegNative = tasks.register<Copy>("syncFfmpegNative") {
-    onlyIf { ffmpegAsset.exists() }
-    from(ffmpegAsset)
-    into(ffmpegJniDir.map { it.dir("arm64-v8a") })
-    rename { "libmica_ffmpeg.so" }
-}
+
+val media3FfmpegLocalAar = file("libs/media3-ffmpeg-decoder-dsd.aar")
+val media3FfmpegGeneratedAar =
+    layout.buildDirectory.file("generated/media3-ffmpeg/media3-ffmpeg-decoder-dsd.aar").get().asFile
+val media3FfmpegLocalJniCandidates = listOf(
+    rootProject.file("third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so"),
+    rootProject.file("third_party/media3-ffmpeg-decoder/jniLibs/arm64-v8a/libffmpegJNI.so"),
+)
+val media3FfmpegLocalJni = media3FfmpegLocalJniCandidates.firstOrNull { it.exists() }
 
 android {
     namespace = "com.mica.music"
@@ -31,8 +31,8 @@ android {
         applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "0.1.8-hybrid7" + if (qaSideBySide) "-qa" else ""
+        versionCode = 15
+        versionName = "0.1.8-hybrid8" + if (qaSideBySide) "-qa" else ""
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")
@@ -42,12 +42,6 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
-    }
-
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDir(ffmpegJniDir)
-        }
     }
 
     buildTypes {
@@ -134,11 +128,30 @@ dependencies {
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.session)
 
+    when {
+        media3FfmpegLocalAar.exists() -> implementation(files(media3FfmpegLocalAar))
+        media3FfmpegGeneratedAar.exists() -> implementation(files(media3FfmpegGeneratedAar))
+        media3FfmpegLocalJni != null -> implementation(project(":media3-ffmpeg-decoder-dsd"))
+        else -> {
+            logger.warn(
+                """
+                |
+                | *** DSD-enabled Media3 FFmpeg not found.
+                | *** Run: .\scripts\build-media3-ffmpeg-dsd.ps1
+                | *** Falling back to org.jellyfin.media3:media3-ffmpeg-decoder (no DSD / audio/dsd).
+                |
+                """.trimMargin(),
+            )
+            implementation(libs.androidx.media3.exoplayer.ffmpeg)
+        }
+    }
+
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.reorderable)
     implementation(libs.kyant.taglib)
+    implementation(libs.jaudiotagger)
     implementation(libs.blurview)
 
     debugImplementation(libs.androidx.ui.tooling)
@@ -159,15 +172,17 @@ dependencies {
 }
 
 tasks.named("preBuild") {
-    dependsOn(syncFfmpegNative)
     doFirst {
-        if (!ffmpegAsset.exists()) {
+        if (
+            !media3FfmpegLocalAar.exists() &&
+            !media3FfmpegGeneratedAar.exists() &&
+            media3FfmpegLocalJni == null
+        ) {
             logger.warn(
                 """
                 |
-                | *** FFmpeg binary missing: ${ffmpegAsset.absolutePath}
-                | *** Run: .\scripts\build-ffmpeg-arm64.ps1
-                | *** Then rebuild APK. Playback will fail until then.
+                | *** libffmpegJNI with dsd_lsbf missing.
+                | *** Run: .\scripts\build-media3-ffmpeg-dsd.ps1 for Exo DSF playback.
                 |
                 """.trimMargin(),
             )

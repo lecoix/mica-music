@@ -1,6 +1,7 @@
 package com.mica.music.data
 
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.testutil.SongFixtures
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
@@ -10,6 +11,19 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class PlayerControllerQueueModelTest {
+
+    @Test
+    fun serviceQueueMirrorPrefersCompleteLibrarySong() {
+        val complete = SongFixtures.song(id = "with-lyrics")
+        val lightweightItem = SongMediaItemCodec.encode(complete)
+
+        val mirrored = resolveMirroredSong(lightweightItem) { id ->
+            complete.takeIf { it.id == id }
+        }
+
+        assertEquals(complete, mirrored)
+        assertEquals(2, mirrored?.lyrics?.size)
+    }
 
     @Test
     fun deterministicRandomOperationsMatchIndependentReferenceModel() {
@@ -60,7 +74,8 @@ class PlayerControllerQueueModelTest {
                 }
                 5 -> {
                     controller.cyclePlaybackQueueMode()
-                    model.cycleMode()
+                    // Playback mode is now mirrored from MediaController callbacks. This
+                    // disconnected queue model test should keep mode unchanged.
                 }
             }
 
@@ -171,14 +186,6 @@ class PlayerControllerQueueModelTest {
             }.let { if (list.isEmpty()) 0 else it.coerceIn(0, list.lastIndex) }
         }
 
-        fun cycleMode() {
-            mode = when (mode) {
-                PlaybackQueueMode.OFF -> PlaybackQueueMode.REPEAT_ALL
-                PlaybackQueueMode.REPEAT_ALL -> PlaybackQueueMode.REPEAT_ONE
-                PlaybackQueueMode.REPEAT_ONE -> PlaybackQueueMode.SHUFFLE
-                PlaybackQueueMode.SHUFFLE -> PlaybackQueueMode.OFF
-            }
-        }
     }
 
     private companion object {

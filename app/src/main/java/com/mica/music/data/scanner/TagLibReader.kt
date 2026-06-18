@@ -1,7 +1,9 @@
 package com.mica.music.data.scanner
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import com.kyant.taglib.AudioPropertiesReadStyle
 import com.kyant.taglib.TagLib
 
@@ -36,12 +38,12 @@ internal object TagLibReader {
             val frontCover = metadata.pictures.firstOrNull { it.pictureType == "Front Cover" }
                 ?: metadata.pictures.firstOrNull()
             Result(
-                title = tags.firstValue("TITLE"),
-                artist = tags.firstValue("ARTIST", "ARTISTS", "PERFORMER"),
-                album = tags.firstValue("ALBUM"),
+                title = tags.firstValue("TITLE", "INAM"),
+                artist = tags.firstValue("ARTIST", "ARTISTS", "PERFORMER", "IART"),
+                album = tags.firstValue("ALBUM", "IPRD"),
                 albumArtist = tags.firstValue("ALBUMARTIST", "ALBUM ARTIST"),
-                copyright = tags.firstValue("COPYRIGHT"),
-                year = parseYear(tags.firstValue("DATE", "YEAR", "ORIGINALDATE")),
+                copyright = tags.firstValue("COPYRIGHT", "ICOP"),
+                year = parseYear(tags.firstValue("DATE", "YEAR", "ORIGINALDATE", "ICRD")),
                 durationSec = props.length / 1000,
                 sampleRateHz = props.sampleRate,
                 bitrateKbps = props.bitrate,
@@ -68,7 +70,8 @@ internal object TagLibReader {
             when {
                 containerName == "FLAC" || ext == "flac" -> readFlacBits(context, uri)
                 containerName == "WAV" || ext == "wav" -> readWavBits(context, uri)
-                containerName == "ALAC" -> readAlacBits(context, uri, mimeType, displayName)
+                shouldProbeAlacBitDepth(containerName, mimeType, displayName) ->
+                    readAlacBits(context, uri, mimeType, displayName)
                 else -> null
             }
         }.getOrNull()
@@ -156,14 +159,17 @@ internal object TagLibReader {
             uri = uri,
             mimeType = mimeType.ifBlank { "audio/mp4" },
             displayName = displayName ?: "a.m4a",
-        ) ?: return null
+        )
+        return bytes?.let { readAlacBitDepth(it) }
+            ?: readRetrieverBitDepth(context, uri)
+    }
+
+    internal fun readAlacBitDepth(bytes: ByteArray): Int? {
         val needle = "alac".toByteArray(Charsets.US_ASCII)
         var from = 0
         while (true) {
             val idx = Id3Binary.indexOf(bytes, needle, from)
             if (idx < 0) return null
-            // ALACSpecificConfig 盒：size(4) type"alac"(4) verFlags(4) frameLength(4)
-            // compatibleVersion(1) bitDepth(1)；盒大小通常为 36，借此排除 stsd 采样条目
             if (idx >= 4) {
                 val boxSize = Id3Binary.readUInt32Be(bytes, idx - 4)
                 val depthIdx = idx + 13
@@ -173,6 +179,34 @@ internal object TagLibReader {
                 }
             }
             from = idx + 4
+        }
+    }
+
+
+    internal fun shouldProbeAlacBitDepth(
+        containerName: String,
+        mimeType: String,
+        displayName: String?,
+    ): Boolean {
+        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        val mime = mimeType.lowercase()
+        return containerName.equals("ALAC", ignoreCase = true) ||
+            ext in setOf("m4a", "m4b", "mp4", "alac") ||
+            "alac" in mime || "mp4" in mime || "m4a" in mime
+    }
+
+    private fun readRetrieverBitDepth(context: Context, uri: Uri): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)
+                ?.toIntOrNull()
+                ?.takeIf { it in setOf(16, 20, 24, 32) }
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 }

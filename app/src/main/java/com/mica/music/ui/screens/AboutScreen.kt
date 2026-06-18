@@ -20,16 +20,24 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import com.mica.music.media.PlaybackCapabilityDiagnostics
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.DiagnosticLog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AboutScreen(
@@ -72,7 +80,7 @@ fun AboutScreen(
             SettingsSectionTitle("版本")
             AboutInfoRow(title = "Mica Music", subtitle = "0.1.3 beta")
             AboutInfoRow(title = "平台", subtitle = "Android · arm64-v8a")
-            AboutInfoRow(title = "播放链路", subtitle = "Media3 / FFmpeg / AudioTrack")
+            AboutInfoRow(title = "播放链路", subtitle = "Media3 ExoPlayer · libffmpegJNI · AudioTrack")
 
             Spacer(Modifier.height(HifiSpacing.lg))
 
@@ -85,6 +93,10 @@ fun AboutScreen(
             LicenseRow("AndroidX / Jetpack Compose / Material3", "Apache License 2.0")
             LicenseRow("Kotlin / Kotlinx Coroutines", "Apache License 2.0")
             LicenseRow("Media3", "Apache License 2.0")
+            LicenseRow(
+                "Jellyfin media3-ffmpeg-decoder",
+                "GPL-3.0；预编译 Exo FFmpeg 扩展（libffmpegJNI.so）",
+            )
             LicenseRow("Room / Navigation / Lifecycle / Activity", "Apache License 2.0")
             LicenseRow("Coil", "Apache License 2.0")
             LicenseRow("Calvin Reorderable", "Apache License 2.0")
@@ -94,8 +106,28 @@ fun AboutScreen(
 
             Spacer(Modifier.height(HifiSpacing.lg))
 
-            SettingsSectionTitle("诊断")
             val context = LocalContext.current
+            var playbackReport by remember {
+                mutableStateOf<PlaybackCapabilityDiagnostics.Report?>(null)
+            }
+            LaunchedEffect(context) {
+                playbackReport = withContext(Dispatchers.Default) {
+                    PlaybackCapabilityDiagnostics.report(context)
+                }
+            }
+
+            SettingsSectionTitle("播放能力")
+            if (playbackReport == null) {
+                AboutInfoRow(title = "探测中", subtitle = "正在读取 Exo / FFmpeg 扩展能力…")
+            } else {
+                playbackReport!!.lines.forEach { line ->
+                    AboutCapabilityRow(title = line.title, detail = line.detail)
+                }
+            }
+
+            Spacer(Modifier.height(HifiSpacing.lg))
+
+            SettingsSectionTitle("诊断")
             AboutLinkRow(
                 title = "导出诊断日志",
                 url = "包含闪退、切歌阶段、掉帧和封面绘制耗时",
@@ -223,6 +255,30 @@ private fun AboutLinkRow(
             text = url,
             style = MicaTheme.typography.caption,
             color = MicaTheme.colors.textTertiary,
+            modifier = Modifier.padding(top = HifiSpacing.xxs),
+        )
+    }
+}
+
+@Composable
+private fun AboutCapabilityRow(
+    title: String,
+    detail: String,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
+    ) {
+        Text(
+            text = title,
+            style = MicaTheme.typography.bodyMd,
+            color = MicaTheme.colors.textPrimary,
+        )
+        Text(
+            text = detail,
+            style = MicaTheme.typography.monoSm,
+            color = MicaTheme.colors.textSecondary,
             modifier = Modifier.padding(top = HifiSpacing.xxs),
         )
     }

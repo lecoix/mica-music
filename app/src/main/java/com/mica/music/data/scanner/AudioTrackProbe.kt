@@ -1,4 +1,4 @@
-package com.mica.music.data.scanner
+﻿package com.mica.music.data.scanner
 
 import android.content.Context
 import android.media.MediaExtractor
@@ -32,7 +32,7 @@ internal object AudioTrackProbe {
                 val format = extractor.getTrackFormat(i)
                 val trackMime = format.getString(MediaFormat.KEY_MIME) ?: continue
                 if (!trackMime.startsWith("audio/")) continue
-                val container = containerFromTrackMime(trackMime)
+                val container = containerFromTrackMime(trackMime, displayName)
                 return Result(
                     trackMime = trackMime,
                     containerName = container,
@@ -47,8 +47,12 @@ internal object AudioTrackProbe {
         }
     }
 
-    private fun containerFromTrackMime(trackMime: String): String =
-        when {
+    private fun containerFromTrackMime(trackMime: String, displayName: String?): String {
+        when (displayName?.substringAfterLast('.', "")?.lowercase()) {
+            "wav", "wave" -> return "WAV"
+            "flac" -> return "FLAC"
+        }
+        return when {
             trackMime.contains("alac", ignoreCase = true) -> "ALAC"
             trackMime.contains("mp4a", ignoreCase = true) ||
                 trackMime.contains("aac", ignoreCase = true) -> "AAC"
@@ -58,8 +62,9 @@ internal object AudioTrackProbe {
             trackMime.contains("opus", ignoreCase = true) -> "OGG"
             trackMime.contains("vorbis", ignoreCase = true) -> "OGG"
             trackMime.contains("wav", ignoreCase = true) -> "WAV"
-            else -> TrackMetadata.containerFromMime(trackMime)
+            else -> TrackMetadata.containerFromMime(trackMime, displayName)
         }
+    }
 
     /**
      * ExoPlayer 对本地 m4a 需用 **容器** MIME（application/mp4），不能用 audio/mp4a-latm。

@@ -68,13 +68,14 @@ object SongMediaItemCodec {
     }
 
     fun decode(item: MediaItem): Song? {
-        val extras = item.mediaMetadata.extras ?: return null
+        val metadata = item.mediaMetadata ?: return null
+        val extras = metadata.extras ?: return null
         val mediaUri = extras.getString("${PREFIX}mediaUri").orEmpty()
         if (item.mediaId.isBlank() || mediaUri.isBlank()) return null
         val bits = extras.getInt("${PREFIX}bitsPerSample", -1).takeIf { it > 0 }
         return Song(
             id = item.mediaId,
-            title = item.mediaMetadata.title?.toString().orEmpty(),
+            title = metadata.title?.toString().orEmpty(),
             artist = extras.getString("${PREFIX}artist").orEmpty(),
             album = extras.getString("${PREFIX}album").orEmpty(),
             albumArtist = extras.getString("${PREFIX}albumArtist").orEmpty(),

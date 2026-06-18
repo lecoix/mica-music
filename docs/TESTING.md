@@ -48,7 +48,7 @@
 ## 发布前设备验收
 
 - Android 8/8.1 与 Android 14+ 各至少一台真机。
-- MP3、FLAC、ALAC、DSF、DFF 实际播放，长曲 seek 与连续切歌。
+- MP3、FLAC、ALAC、DSF 实际播放；DFF 播放应被拒绝并提示；长曲 seek 与连续切歌。
 - 蓝牙、耳机拔出、音频焦点、锁屏控制和后台播放。
 - 通知权限拒绝、划掉任务、进程恢复和重启。
 - SAF 文件夹授权及重启后的持久权限。
@@ -58,38 +58,31 @@
 
 设备验收失败时，即使 JVM 测试全部通过也不得发布。
 
-## 混合播放架构验收
+## Exo 单链路播放验收
 
-每次播放测试都应导出诊断日志，并确认 `route backend`、`request`、`source` 与
-`AudioQuality` 字段符合预期。
+每次播放测试都应导出诊断日志，并确认 `route`、`request`、`source` 与 `AudioQuality` 字段符合预期。
 
-- 常见格式必须显示 `backend=MEDIA3`，不得出现 `decode-input-copy`。
-- ALAC 首次必须先走 Media3；只有 extractor/decoder/decode 错误允许一次 SOFTWARE 回退。
-- DSD 必须显示 SOFTWARE；蓝牙实际输出候选不得高于 48kHz。
-- SOFTWARE 日志必须显示 `mode=stdout` 和 `transport=stdout`，`alac_stream` 不得生成 `.pcm` 文件。
-- SOFTWARE seek 必须启动带目标 `-ss` 的新 FFmpeg 管道，并终止旧进程。
-- 连续快速切歌 20 次后只能播放最后一次请求，FFmpeg 进程不得叠加。
-- 快速交替 Media3 与 SOFTWARE 曲目时，旧任务不得覆盖最终曲目的 PCM、输入缓存 lease 或播放状态。
+- 所有可播格式均走 Exo；日志不得出现 `backend=SOFTWARE`、`libmica_ffmpeg` 或 `decode-input-copy`。
+- ALAC 必须由 `FfmpegAudioRenderer` / `libffmpegJNI` 解码，不得回退平台 ALAC 解码器。
+- DSF 必须显示 Exo 路由；蓝牙实际输出候选不得高于 48kHz（DSD 降采样策略）。
+- DFF 必须在播放前拒绝，UI 显示「不支持 DFF/DSDIFF 格式，请使用 DSF」。
+- 频谱在稳定播放且设置开启时，Exo 链上 `SpectrumAudioProcessor` 应有 PCM tap（与软件播无关）。
 - HIFI 必须显示 `dsp=false offload=true`；DSP 必须显示 `dsp=true offload=false`。
 - 耳机/蓝牙断开必须暂停，禁止切到扬声器继续播放。
-- 划掉 Activity 后，Media3 与 SOFTWARE 播放都应继续并可从通知控制。
+- 划掉 Activity 后播放应继续并可从通知控制。
 - 暂停后划掉任务并重新打开应用，MediaController 必须重新连接 Service。
 - Service 重启后必须按歌曲 ID 恢复队列中的当前曲和位置；恢复状态必须为暂停，即使持久化时 `playWhenReady=true`。
 - repeat/shuffle 必须从 MediaSession 恢复并反映到 UI，Activity/ViewModel 不得用默认模式覆盖。
 - 旧 request 的 prepared、position、playing、ended 和 error 回调不得改变当前 Service request。
-- 同一 source revision 的 Media3 → Software fallback 最多一次；权限、文件缺失和输出错误不得 fallback。
-- 软件播放期间执行插入、移动、删除队列项后，通知 timeline、当前索引和自然下一首顺序必须一致。
-- SOFTWARE 申请音频焦点被拒绝时必须保持暂停，不得与其他音源叠播。
+- 插入、移动、删除队列项后，通知 timeline、当前索引和自然下一首顺序必须一致。
 
-自动回归已覆盖 active cache lease、Controller 断连重连，以及 limiter 单调性和 `-1 dBFS` 峰值门槛。
+自动回归已覆盖 Controller 断连重连，以及 limiter 单调性和 `-1 dBFS` 峰值门槛。
 
 性能门槛：
 
 - 常见格式热切歌 p95 ≤ 250ms，冷切歌 p95 ≤ 500ms。
-- ALAC Media3 p95 ≤ 500ms；首次软件回退 p95 ≤ 1,200ms。
-- Media3 seek p95 ≤ 350ms；软件 seek p95 ≤ 900ms。
-- 普通 FLAC 平均 CPU 相比旧全 FFmpeg 基线至少下降 50%。
-- 输入缓存 ≤ 512MB；PCM 临时文件占用必须为 0。
+- ALAC / DSF Exo 起播 p95 ≤ 500ms。
+- Exo seek p95 ≤ 350ms。
 
 ### 并行真机 QA 包
 

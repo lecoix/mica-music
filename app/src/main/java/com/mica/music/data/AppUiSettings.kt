@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mica.music.media.MicaSpectrumAnalyzer
+import com.mica.music.util.DiagnosticLog
 import com.mica.music.ui.theme.MicaPreset
 
 /**
@@ -84,7 +85,7 @@ class AppUiSettings(context: Context) {
     fun updateMiniPlayerStyle(style: MiniPlayerStyle) {
         miniPlayerStyle = style
         AppPreferences.setMiniPlayerStyle(appContext, style)
-        syncSpectrumAnalyzer()
+        syncSpectrumAnalyzer(notifyPipeline = true)
     }
 
     fun updateCoverDisplayMode(mode: CoverDisplayMode) {
@@ -115,7 +116,8 @@ class AppUiSettings(context: Context) {
     fun updateSpectrumEnabled(enabled: Boolean) {
         spectrumEnabled = enabled
         AppPreferences.setSpectrumEnabled(appContext, enabled)
-        syncSpectrumAnalyzer()
+        syncSpectrumAnalyzer(notifyPipeline = true)
+        DiagnosticLog.event("Spectrum", "setting enabled=$enabled analyzer=${MicaSpectrumAnalyzer.isEnabledForProcessing()}")
     }
 
     fun togglePlayerImmersiveLower() {
@@ -136,9 +138,10 @@ class AppUiSettings(context: Context) {
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
 
-    private fun syncSpectrumAnalyzer() {
+    private fun syncSpectrumAnalyzer(notifyPipeline: Boolean = false) {
         MicaSpectrumAnalyzer.setEnabled(
             spectrumEnabled || miniPlayerStyle == MiniPlayerStyle.AUDIOPHILE,
+            notifyPipeline = notifyPipeline,
         )
     }
 }

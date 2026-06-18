@@ -4,16 +4,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.LyricLine
-import com.mica.music.media.FfmpegRunner
-import java.io.File
 /**
- * 读取内嵌歌词：外挂 .lrc → ID3v2（USLT 等）/ FLAC Vorbis / M4A(©ly) / APE；
- * 质量不足时用 FFmpeg 兜底。不在整文件字节中裸扫 `LYRICS=`，避免音频区误匹配。
+ * 读取内嵌歌词：外挂 .lrc → ID3v2（USLT 等）/ FLAC Vorbis / M4A(©ly) / APE。
+ * 主扫描路径由 TagLib 提供候选；此处做二进制帧解析，不再使用 FFmpeg 兜底。
  */
 internal object EmbeddedLyricsReader {
-
-    /** 低于此分数时尝试 FFmpeg 兜底（M4A/部分 FLAC 依赖容器元数据）。 */
-    private const val SKIP_FFMPEG_MIN_SCORE = 24
 
     /** 非同步歌词帧优先；COMM 为评论帧，不在此列表（避免把 comment 当歌词）。 */
     private val lyricFrameIds = setOf("USLT", "ULT", "SYLT", "TXXX", "LYR")
@@ -40,26 +35,14 @@ internal object EmbeddedLyricsReader {
         externalLyricsParent: DocumentFile? = null,
         externalLyricsUri: String? = null,
     ): List<LyricLine> {
-        val bytes = readAudioBytes(context, uri)
-        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
-        val mime = mimeType.orEmpty().lowercase()
-
         val candidates = mutableListOf<List<LyricLine>>()
         ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUri)
             .takeIf { it.isNotEmpty() }
             ?.let { candidates += it }
-        if (bytes != null) {
-            readFromBinary(bytes, mime, ext)?.let { candidates += it }
-        }
-        var best = pickBestLyricsCandidate(candidates)
-        val needFfmpeg = FfmpegRunner.hasEmbeddedBinary(context) &&
-            (best == null || LyricsSanitizer.score(best) < SKIP_FFMPEG_MIN_SCORE)
-        if (needFfmpeg) {
-            readViaFfmpegMetadataBlock(context, uri, displayName)?.let { candidates += it }
-            readViaFfmpegFfmetadata(context, uri, displayName)?.let { candidates += it }
-            best = pickBestLyricsCandidate(candidates)
-        }
-        return best ?: emptyList()
+        readFastEmbeddedOnly(context, uri, mimeType, displayName)
+            .takeIf { it.isNotEmpty() }
+            ?.let { candidates += it }
+        return pickBestLyricsCandidate(candidates) ?: emptyList()
     }
 
     fun readFastEmbeddedOnly(
@@ -88,87 +71,6 @@ internal object EmbeddedLyricsReader {
         LyricsSanitizer.parseFiltered(normalized).takeIf { it.isNotEmpty() }?.let { return it }
         LyricsSanitizer.finalize(LrcParser.parse(normalized)).takeIf { it.isNotEmpty() }?.let { return it }
         return LyricsSanitizer.finalizeRelaxed(normalized)
-    }
-
-    private fun readViaFfmpegFfmetadata(
-        context: Context,
-        uri: Uri,
-        displayName: String?,
-    ): List<LyricLine>? = withLocalFileForFfmpeg(context, uri, displayName) { local ->
-        val metaOut = File.createTempFile("meta_", ".txt", ScanCacheManager.metaTempDir(context))
-        try {
-            val session = FfmpegRunner.executeWithArguments(
-                context,
-                arrayOf(
-                    "-hide_banner", "-loglevel", "error",
-                    "-i", local.absolutePath,
-                    "-map_metadata", "0",
-                    "-f", "ffmetadata",
-                    "-y", metaOut.absolutePath,
-                ),
-            )
-            if (!session.success || !metaOut.exists()) return@withLocalFileForFfmpeg null
-            val body = extractLyricsFromFfmetadata(
-                LyricsEncoding.decodeBytes(metaOut.readBytes()),
-            ) ?: return@withLocalFileForFfmpeg null
-            parseLyricsText(body)
-        } finally {
-            metaOut.delete()
-        }
-    }
-
-    /**
-     * 解析 FFmpeg 输出的 Metadata 块（支持多行歌词缩进续行）。
-     *
-     *     lyrics              : [00:00.00]第一行
-     *                         : [00:01.00]第二行
-     */
-    private fun readViaFfmpegMetadataBlock(
-        context: Context,
-        uri: Uri,
-        displayName: String?,
-    ): List<LyricLine>? = withLocalFileForFfmpeg(context, uri, displayName) { local ->
-        val log = FfmpegRunner.executeWithArguments(
-            context,
-            arrayOf(
-                "-hide_banner", "-loglevel", "info",
-                "-i", local.absolutePath,
-                "-f", "null", "-",
-            ),
-        ).logs
-        val sb = StringBuilder()
-        var inLyrics = false
-        val startRx = Regex(
-            """(?i)^\s*(lyrics|unsynced\s*lyrics?|synced\s*lyrics?)\s*:\s*(.*)$""",
-        )
-        val continueRx = Regex("""^\s+:\s*(.+)$""")
-        val otherKeyRx = Regex("""^\s+[A-Za-z][\w./-]+\s+:\s*.+""")
-
-        for (line in log.lines()) {
-            val startMatch = startRx.find(line)
-            if (startMatch != null) {
-                inLyrics = true
-                val value = startMatch.groupValues[2].trim()
-                if (value.isNotEmpty()) {
-                    if (sb.isNotEmpty()) sb.append('\n')
-                    sb.append(value)
-                }
-                continue
-            }
-            if (!inLyrics) continue
-            when {
-                line.isBlank() -> Unit
-                continueRx.matches(line) -> {
-                    val v = continueRx.find(line)!!.groupValues[1].trim()
-                    if (v.isNotEmpty()) {
-                        if (sb.isNotEmpty()) sb.append('\n')
-                        sb.append(v)
-                    }
-                }
-                otherKeyRx.matches(line) && !continueRx.matches(line) -> inLyrics = false
-            }
-        }
-        parseLyricsText(sb.toString())
     }
 
     private fun readFromBinary(bytes: ByteArray, mime: String, ext: String): List<LyricLine>? {
@@ -456,85 +358,6 @@ internal object EmbeddedLyricsReader {
         }
         return null
     }
-
-    private fun extractLyricsFromFfmetadata(text: String): String? {
-        val sb = StringBuilder()
-        var inLyrics = false
-        val keyRegex = Regex(
-            """(?i)^(lyrics|unsynced\s*lyrics?|synced\s*lyrics?)\s*=\s*(.*)$""",
-            RegexOption.IGNORE_CASE,
-        )
-        for (line in text.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.startsWith(";")) continue
-            val keyMatch = keyRegex.find(trimmed)
-            if (keyMatch != null) {
-                inLyrics = true
-                val value = keyMatch.groupValues[2].trim()
-                if (value.isNotEmpty()) {
-                    if (sb.isNotEmpty()) sb.append('\n')
-                    sb.append(value)
-                }
-                continue
-            }
-            if (inLyrics) {
-                if (trimmed.isEmpty()) continue
-                if (trimmed.contains('=') && !Regex("""\[\d{1,2}:\d{2}""").containsMatchIn(trimmed)) {
-                    inLyrics = false
-                    continue
-                }
-                if (!LyricsSanitizer.isNoiseLine(trimmed) && !LyricsSanitizer.isPlaceholderLyric(trimmed)) {
-                    if (sb.isNotEmpty()) sb.append('\n')
-                    sb.append(trimmed)
-                }
-            }
-        }
-        return sb.toString().trim().takeIf { it.length >= 2 }
-    }
-
-    private fun <T> withLocalFileForFfmpeg(
-        context: Context,
-        uri: Uri,
-        displayName: String?,
-        block: (File) -> T,
-    ): T? {
-        val (local, ephemeral) = resolveLocalFile(context, uri, displayName) ?: return null
-        return try {
-            block(local)
-        } finally {
-            if (ephemeral) local.delete()
-        }
-    }
-
-    /** @return Pair(本地文件, 是否为本轮探测创建的临时副本，需在 finally 中删除) */
-    private fun resolveLocalFile(
-        context: Context,
-        uri: Uri,
-        displayName: String?,
-    ): Pair<File, Boolean>? {
-        if (uri.scheme == "file") {
-            val path = uri.path ?: return null
-            val file = File(path)
-            return if (file.exists()) file to false else null
-        }
-        val ext = displayName?.substringAfterLast('.', "audio")?.take(12) ?: "audio"
-        val dest = runCatching {
-            File.createTempFile("probe_", ".$ext", ScanCacheManager.probeTempDir(context))
-        }.getOrNull() ?: return null
-        val ok = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
-            }
-            dest.length() > 0L
-        }.getOrDefault(false)
-        return if (ok) dest to true else {
-            dest.delete()
-            null
-        }
-    }
-
-    private fun readAudioBytes(context: Context, uri: Uri): ByteArray? =
-        AudioProbeBytes.readForLyrics(context, uri)
 
     private fun readUInt32Be(bytes: ByteArray, offset: Int): Long {
         if (offset + 4 > bytes.size) return 0L

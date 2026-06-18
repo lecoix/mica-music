@@ -18,13 +18,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.media.MicaSpectrumAnalyzer
+import androidx.compose.runtime.withFrameNanos
 import com.mica.music.ui.theme.MicaTheme
-import kotlinx.coroutines.delay
 import kotlin.math.exp
 import kotlin.math.sqrt
 
 private const val BarCount = 11
-private const val TickMs = 48L
 private val BarWidth = 1.5.dp
 private val BarGap = 1.5.dp
 private val SpectrumHeight = 38.dp
@@ -79,29 +78,24 @@ fun MiniPlayerSpectrumBars(
 
     LaunchedEffect(isPlaying) {
         if (!isPlaying) {
-            for (step in 0..15) {
+            repeat(15) {
+                withFrameNanos { it }
                 for (i in 0 until BarCount) {
                     val idle = idleHeight(envelope[i])
                     barHeights[i] = barHeights[i] + (idle - barHeights[i]) * 0.25f
                 }
-                delay(TickMs)
             }
             for (i in 0 until BarCount) barHeights[i] = idleHeight(envelope[i])
             return@LaunchedEffect
         }
         while (true) {
+            withFrameNanos { it }
             val target = downsampleBands(currentLevels, BarCount)
             for (i in 0 until BarCount) {
-                val current = barHeights[i]
                 val dest = target[i].coerceIn(0.08f, 1f)
-                val smoothed = if (dest > current) {
-                    current + (dest - current) * 0.5f
-                } else {
-                    current + (dest - current) * 0.4f
-                }
+                val smoothed = barHeights[i] + (dest - barHeights[i]) * 0.42f
                 barHeights[i] = smoothed.coerceIn(0.08f, 1f)
             }
-            delay(TickMs)
         }
     }
 

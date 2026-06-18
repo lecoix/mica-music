@@ -4,6 +4,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.testutil.SongFixtures
 import io.mockk.clearMocks
@@ -143,6 +144,38 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun cyclePlaybackQueueModeSendsCommandAndWaitsForControllerCallbackMirror() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        var repeatMode = Player.REPEAT_MODE_OFF
+        var shuffleEnabled = false
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.repeatMode } answers { repeatMode }
+        every { mediaController.shuffleModeEnabled } answers { shuffleEnabled }
+        every { mediaController.mediaItemCount } returns 0
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.isPlaying } returns false
+        every { mediaController.duration } returns 0L
+        every { mediaController.currentPosition } returns 0L
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.cyclePlaybackQueueMode()
+
+        verify { mediaController.shuffleModeEnabled = false }
+        verify { mediaController.repeatMode = Player.REPEAT_MODE_ALL }
+        assertEquals(PlaybackQueueMode.OFF, controller.playbackQueueMode)
+
+        repeatMode = Player.REPEAT_MODE_ALL
+        listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ALL)
+
+        assertEquals(PlaybackQueueMode.REPEAT_ALL, controller.playbackQueueMode)
+        controller.release()
+    }
+
+    @Test
     fun insertingExistingSongNextReplacesAuthoritativeQueueWithoutDuplicatingServiceItem() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)
@@ -180,6 +213,88 @@ class PlayerControllerBoundaryTest {
             submittedItems.captured.map(MediaItem::mediaId),
         )
         assertEquals("song-b", controller.currentSong?.id)
+        controller.release()
+    }
+
+    @Test
+    fun playSongSwitchPushesAuthoritativeQueueEvenWithoutSessionTimelineClass() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val queue = listOf(
+            SongFixtures.song("song-a"),
+            SongFixtures.song("song-b"),
+            SongFixtures.song("song-c"),
+        )
+        // Binder 侧常见：timeline 不是 SessionMediaTimeline 子类
+        every { mediaController.currentTimeline } returns Timeline.EMPTY
+        every { mediaController.getCurrentTimeline() } returns Timeline.EMPTY
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+        }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[0].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 4_000L
+        every { mediaController.playWhenReady } returns true
+        every { mediaController.isPlaying } returns true
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.playSong(0)
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+
+        controller.playSong(2)
+
+        verify(exactly = 1) {
+            mediaController.setMediaItems(any<List<MediaItem>>(), 2, 0L)
+        }
+        verify(exactly = 1) {
+            mediaController.seekTo(2, 0L)
+        }
+        controller.release()
+    }
+
+    @Test
+    fun playSongSwitchResetsPlayerDurationSoUiDurationDoesNotInheritPreviousTrack() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val queue = listOf(
+            SongFixtures.song("song-long", durationSec = 312),
+            SongFixtures.song("song-short", durationSec = 218),
+        )
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+        }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[0].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 312_000L
+        every { mediaController.isPlaying } returns true
+        every { mediaController.playbackState } returns Player.STATE_READY
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.syncPlaybackState()
+        assertEquals(312_000, controller.playbackProgressState.durationMs)
+
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[1].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 1
+        // Exo 尚未上报新曲时长时，也不应继续沿用上一首 player duration。
+        every { mediaController.duration } returns 312_000L
+
+        controller.playSong(1)
+
+        assertEquals(218_000, controller.playbackProgressState.durationMs)
+        assertEquals("song-short", controller.currentSong?.id)
         controller.release()
     }
 

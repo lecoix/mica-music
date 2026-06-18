@@ -6,6 +6,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
@@ -15,6 +16,8 @@ import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.media.AlacPlayback
 import java.io.File
+import org.jaudiotagger.audio.AudioFileIO
+import org.jaudiotagger.tag.FieldKey
 import java.util.concurrent.ConcurrentHashMap
 
 internal data class TrackDraft(
@@ -42,7 +45,7 @@ internal data class TrackDraft(
     val externalLyricsUri: String? = null,
 )
 
-private data class TagInfo(
+internal data class TagInfo(
     val title: String,
     val artist: String,
     val album: String,
@@ -52,7 +55,19 @@ private data class TagInfo(
     val year: Int,
 )
 
+internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInfo(
+    title = primary.title.ifBlank { fallback.title },
+    artist = primary.artist.ifBlank { fallback.artist },
+    album = primary.album.ifBlank { fallback.album },
+    albumArtist = primary.albumArtist.ifBlank { fallback.albumArtist },
+    copyright = primary.copyright.ifBlank { fallback.copyright },
+    durationSec = primary.durationSec.takeIf { it > 0 } ?: fallback.durationSec,
+    year = primary.year.takeIf { it > 0 } ?: fallback.year,
+)
+
 object AudioMetadataProbe {
+
+    private const val TAG = "AudioMetadataProbe"
 
     private val albumArtCache = ConcurrentHashMap<String, String?>()
     private val mp4CopyrightMarkers = listOf(
@@ -133,20 +148,45 @@ object AudioMetadataProbe {
         val trackProbe = profiler.measureOptional("mediaExtractor") {
             AudioTrackProbe.probe(appCtx, uri, draft.mimeType, draft.displayName)
         }
-        // TagLib 优先；失败（不支持的格式 / native 异常）时走 MediaMetadataRetriever 兜底
-        profiler.measureOptional("taglib") {
+        val tagLibResult = profiler.measureOptional("taglib") {
             TagLibReader.read(appCtx, uri)
-        }?.let { tagLib ->
-            return tagLibSong(appCtx, draft, uri, trackProbe, tagLib, profiler, cachedSong)
+        }
+        if (tagLibResult != null) {
+            val wavFallback = if (draft.isWav() && tagLibResult.hasCoreTagGaps()) {
+                profiler.measureOptional("jaudiotagger.wav") {
+                    readWavTagsViaJAudioTagger(appCtx, uri)
+                }
+            } else {
+                null
+            }
+            return tagLibSong(
+                appCtx,
+                draft,
+                uri,
+                trackProbe,
+                tagLibResult,
+                wavFallback,
+                profiler,
+                cachedSong,
+            )
+        }
+        // TagLib 整体失败时，WAV 仍先尝试 JAudioTagger，再由 Retriever/MediaStore 补空字段。
+        val wavFallback = if (draft.isWav()) {
+            profiler.measureOptional("jaudiotagger.wav") {
+                readWavTagsViaJAudioTagger(appCtx, uri)
+            }
+        } else {
+            null
         }
         val retriever = MediaMetadataRetriever()
         return try {
             profiler.measureOptional("retriever.setDataSource") {
                 setRetrieverDataSource(retriever, appCtx, uri)
             }
-            val tags = profiler.measureOptional("retriever.tags") {
+            val retrieverTags = profiler.measureOptional("retriever.tags") {
                 readTags(retriever, draft)
             }
+            val tags = wavFallback?.let { mergeTagInfo(it, retrieverTags) } ?: retrieverTags
             val enriched = draft.copy(
                 title = tags.title,
                 artist = tags.artist,
@@ -242,33 +282,85 @@ object AudioMetadataProbe {
         uri: Uri,
         trackProbe: AudioTrackProbe.Result?,
         tagLib: TagLibReader.Result,
+        wavFallback: TagInfo?,
         profiler: ScanProfiler?,
         cachedSong: Song?,
     ): Song {
+        val primaryTags = TagInfo(
+            title = tagLib.title,
+            artist = tagLib.artist,
+            album = tagLib.album,
+            albumArtist = tagLib.albumArtist,
+            copyright = tagLib.copyright,
+            durationSec = tagLib.durationSec,
+            year = tagLib.year,
+        )
+        // 必须在 Retriever/MediaStore 写入默认值之前合并，否则 WAV 兜底永远不会触发。
+        val tagsWithWavFallback = wavFallback?.let { mergeTagInfo(primaryTags, it) } ?: primaryTags
+        val needsRetrieverSupplement = listOf(
+            tagsWithWavFallback.title,
+            tagsWithWavFallback.artist,
+            tagsWithWavFallback.album,
+            tagsWithWavFallback.albumArtist,
+        ).any { it.isBlank() } || tagLib.year <= 0 ||
+            tagLib.frontCoverBytes == null || tagLib.frontCoverBytes.isEmpty()
+        val retriever = if (needsRetrieverSupplement) {
+            MediaMetadataRetriever().let { candidate ->
+                if (runCatching { setRetrieverDataSource(candidate, context, uri) }.isSuccess) {
+                    candidate
+                } else {
+                    runCatching { candidate.release() }
+                    null
+                }
+            }
+        } else {
+            null
+        }
+        val tags = retriever?.let { mergeTagInfo(tagsWithWavFallback, readTags(it, draft)) }
+            ?: tagsWithWavFallback
+
+        val coverBytes = tagLib.frontCoverBytes?.takeIf { it.isNotEmpty() }
+            ?: retriever?.embeddedPicture?.takeIf { it.isNotEmpty() }
+        try {
         val title = MetadataTextFix.titleFromTagsOrFilename(
-            tagTitle = tagLib.title,
+            tagTitle = tags.title,
             displayName = draft.displayName,
             fallbackTitle = draft.title,
         )
-        val albumArtist = MetadataTextFix.normalize(tagLib.albumArtist)
+        val albumArtist = MetadataTextFix.normalize(tags.albumArtist)
         val artist = ArtistNames.normalizeDisplay(
             MetadataTextFix.normalize(
-                tagLib.artist.takeIf { it.isNotBlank() }
+                tags.artist.takeIf { it.isNotBlank() }
                     ?: albumArtist.takeIf { it.isNotBlank() }
                     ?: draft.artist,
             ),
         )
-        val album = MetadataTextFix.normalize(tagLib.album.takeIf { it.isNotBlank() } ?: draft.album)
+        val album = MetadataTextFix.normalize(tags.album.takeIf { it.isNotBlank() } ?: draft.album)
         val durationSec = when {
-            tagLib.durationSec > 0 -> tagLib.durationSec
+            tags.durationSec > 0 -> tags.durationSec
             draft.durationSec > 0 -> draft.durationSec
             else -> 0
         }
-        val year = tagLib.year.takeIf { it > 0 } ?: draft.year
+        val year = tags.year.takeIf { it > 0 } ?: draft.year
 
-        val container = trackProbe?.containerName ?: TrackMetadata.containerFromMime(draft.mimeType)
+        val detectedContainer = trackProbe?.containerName
+            ?: TrackMetadata.containerFromMime(draft.mimeType, draft.displayName)
         val bits = profiler.measureOptional("taglib.bits") {
-            TagLibReader.readBitsPerSample(context, uri, container, draft.mimeType, draft.displayName)
+            TagLibReader.readBitsPerSample(
+                context,
+                uri,
+                detectedContainer,
+                draft.mimeType,
+                draft.displayName,
+            )
+        }
+        val container = if (
+            bits != null && detectedContainer != "ALAC" &&
+            TagLibReader.shouldProbeAlacBitDepth(detectedContainer, draft.mimeType, draft.displayName)
+        ) {
+            "ALAC"
+        } else {
+            detectedContainer
         }
         val durationForBitrate = durationSec.coerceAtLeast(1)
         val bitrateKbps = when {
@@ -293,7 +385,7 @@ object AudioMetadataProbe {
             channelCount = tagLib.channelCount.coerceAtLeast(1),
             playbackMimeType = playbackMime,
         )
-        val copyright = MetadataTextFix.normalize(tagLib.copyright).ifBlank {
+        val copyright = MetadataTextFix.normalize(tags.copyright).ifBlank {
             profiler.measureOptional("copyright") {
                 readCopyright(
                     context,
@@ -314,21 +406,25 @@ object AudioMetadataProbe {
         )
         val artKey = artCacheKey(withMeta)
         val albumArtUri = profiler.measureOptional("albumArt") {
-            resolveAlbumArtFromBytes(context, tagLib.frontCoverBytes, artKey, withMeta.albumId, uri)
+            resolveAlbumArtFromBytes(context, coverBytes, artKey, withMeta.albumId, uri)
         }
         val lyrics = profiler.measureOptional("lyrics") {
             readScanLyrics(
                 context,
                 withMeta.copy(mimeType = playbackMime.ifBlank { withMeta.mimeType }),
                 cachedSong,
+                retriever = retriever,
                 taglibLyricsCandidates = tagLib.lyricsCandidates,
             )
         }
         val coverArgb = profiler.measureOptional("coverColor") {
-            tagLib.frontCoverBytes?.let { CoverColorExtractor.fromBytes(it) }
+            coverBytes?.let { CoverColorExtractor.fromBytes(it) }
                 ?: resolveCoverColor(context, null, uri, withMeta.albumId, albumArtUri)
         } ?: withMeta.coverColorArgb
         return withMeta.copy(coverColorArgb = coverArgb).toSong(context, metadata, albumArtUri, lyrics)
+        } finally {
+            retriever?.let { runCatching { it.release() } }
+        }
     }
 
     private fun readScanLyrics(
@@ -408,9 +504,21 @@ object AudioMetadataProbe {
         try {
             retriever.setDataSource(context, uri)
         } catch (_: Exception) {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-                retriever.setDataSource(pfd.fileDescriptor)
-            } ?: throw IllegalStateException("无法打开音频文件：$uri")
+            try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    retriever.setDataSource(pfd.fileDescriptor)
+                } ?: throw IllegalStateException("无法打开音频文件：$uri")
+            } catch (_: Exception) {
+                val tmp = java.io.File.createTempFile("wav_", ".wav", context.cacheDir)
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        tmp.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    retriever.setDataSource(tmp.absolutePath)
+                } finally {
+                    runCatching { tmp.delete() }
+                }
+            }
         }
     }
 
@@ -493,7 +601,8 @@ object AudioMetadataProbe {
             else -> 0
         }
 
-        val container = trackProbe?.containerName ?: TrackMetadata.containerFromMime(mime)
+        val container = trackProbe?.containerName
+            ?: TrackMetadata.containerFromMime(mime, draft.displayName)
         val playbackMime = trackProbe?.playbackMimeType ?: PlaybackMimeResolver.resolve(
             storeMime = draft.mimeType,
             probeMime = mime,
@@ -724,4 +833,66 @@ object AudioMetadataProbe {
             lyrics = lyrics,
         )
     }
+    /**
+     * JAudioTagger 兜底读取 WAV ID3v2 标签。
+     * TagLib 对 WAV 的 ID3v2 帧（TIT2, TPE1 等）映射不全，
+     * JAudioTagger 兜底读取 WAV ID3v2 标签。
+     * TagLib 对 WAV 的 ID3v2 帧（TIT2, TPE1 等）映射不全，
+     * 而 MediaMetadataRetriever 在部分设备上也读不到，
+     * 因此当前两步字段为空时用 JAudioTagger 补位。
+     *
+     * 参考 PixelPlayer 做法：先拷临时文件再读取，用完后清理。
+     */
+    private fun readWavTagsViaJAudioTagger(context: Context, uri: Uri): TagInfo? {
+        val tmp = File.createTempFile("wav_", ".wav", context.cacheDir)
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                tmp.outputStream().use { output -> input.copyTo(output) }
+            } ?: return null
+
+            // 抑制 JAudioTagger 的冗余日志
+            java.util.logging.Logger.getLogger("org.jaudiotagger").level =
+                java.util.logging.Level.OFF
+
+            val audioFile = AudioFileIO.read(tmp)
+            val tag = audioFile.tag ?: return null
+
+            val title = tag.getFirst(FieldKey.TITLE)?.trim().orEmpty()
+            val artist = tag.getFirst(FieldKey.ARTIST)?.trim().orEmpty()
+            val album = tag.getFirst(FieldKey.ALBUM)?.trim().orEmpty()
+            val albumArtist = tag.getFirst(FieldKey.ALBUM_ARTIST)?.trim().orEmpty()
+            val copyright = tag.getFirst(FieldKey.COPYRIGHT)?.trim().orEmpty()
+            val year = Regex("""\d{4}""")
+                .find(tag.getFirst(FieldKey.YEAR).orEmpty())
+                ?.value
+                ?.toIntOrNull()
+                ?: 0
+            if (title.isBlank() && artist.isBlank() && album.isBlank() && albumArtist.isBlank()) {
+                return null
+            }
+            TagInfo(
+                title = title,
+                artist = artist,
+                album = album,
+                albumArtist = albumArtist,
+                copyright = copyright,
+                durationSec = audioFile.audioHeader?.trackLength?.coerceAtLeast(0) ?: 0,
+                year = year,
+            )
+        } catch (error: Exception) {
+            Log.w(TAG, "JAudioTagger failed to read WAV metadata: $uri", error)
+            null
+        } finally {
+            runCatching { tmp.delete() }
+        }
+    }
+
+    private fun TrackDraft.isWav(): Boolean {
+        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        return ext in setOf("wav", "wave") || mimeType.equals("audio/wav", true) ||
+            mimeType.equals("audio/x-wav", true)
+    }
+
+    private fun TagLibReader.Result.hasCoreTagGaps(): Boolean =
+        title.isBlank() || artist.isBlank() || album.isBlank() || albumArtist.isBlank()
 }

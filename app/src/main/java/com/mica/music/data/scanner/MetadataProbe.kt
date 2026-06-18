@@ -63,7 +63,7 @@ object MetadataProbe {
         if (fastBytes != null) {
             appendMp4Lyrics(out, fastBytes, "MP4/M4A fast")
         }
-        appendDerived(out, context, uri)
+        appendDerived(out, context, uri, song)
         out.sortedWith(compareBy({ it.group }, { it.key }))
     }
 
@@ -113,10 +113,15 @@ object MetadataProbe {
         }
     }
 
-    private fun appendDerived(out: MutableList<MetadataEntry>, context: Context, uri: Uri) {
+    private fun appendDerived(out: MutableList<MetadataEntry>, context: Context, uri: Uri, song: Song) {
         out += entry("解析器", "EncoderSettingsReader", EncoderSettingsReader.read(context, uri).ifBlank { "—" })
         val lyrics = runCatching {
-            EmbeddedLyricsReader.read(context, uri, null, null, "")
+            EmbeddedLyricsReader.readFastEmbeddedOnly(
+                context,
+                uri,
+                song.metadata.playbackMimeType,
+                song.fileName,
+            )
         }.getOrElse { emptyList() }
         out += entry("解析器", "EmbeddedLyricsReader.lines", lyrics.size.toString())
         lyrics.take(3).forEachIndexed { i, line ->

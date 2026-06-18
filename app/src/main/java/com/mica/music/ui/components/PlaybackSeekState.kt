@@ -28,7 +28,7 @@ internal class PlaybackSeekState(
 internal fun rememberPlaybackSeekState(playerController: PlayerController): PlaybackSeekState {
     return rememberPlaybackSeekState(
         progressState = playerController.playbackProgressState,
-        onSeekUiActiveChanged = playerController::setAlacSeekUiActive,
+        onSeekUiActiveChanged = playerController::setSeekUiActive,
         onSeekToMs = playerController::seekToMs,
     )
 }

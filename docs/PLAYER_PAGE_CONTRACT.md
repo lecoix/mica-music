@@ -118,7 +118,7 @@
 
 ## 架构注意
 
-- **出声路径**：现网 `PlayerController.playSong()` 走 FFmpeg → PCM → `AudioTrack`（见 `TODO.md`「全格式软件播」）。缺 `libmica_ffmpeg.so` 时播放失败；长期待办为原生解码优先、FFmpeg 兜底。
+- **出声路径**：已收敛为 **Exo 单链路**（`libffmpegJNI.so` + `MicaAudioProcessorChain` → `AudioTrack`）。无 `libmica_ffmpeg.so` 软件播兜底；`.dff` 播放时拒绝。
 - **共享封面转场**：第一版在 `AppNavigation`；坐标污染与 overlay 顺序见 [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md)。
 
 ## 回归清单

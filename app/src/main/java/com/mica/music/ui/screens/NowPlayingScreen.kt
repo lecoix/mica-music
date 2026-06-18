@@ -76,7 +76,7 @@ fun rememberNowPlayingActions(
     remember(playerController, uiSettings) {
         NowPlayingActions(
             syncPosition = playerController::syncPosition,
-            setSeekUiActive = playerController::setAlacSeekUiActive,
+            setSeekUiActive = playerController::setSeekUiActive,
             seekToMs = playerController::seekToMs,
             playQueueIndex = playerController::playSong,
             moveQueueItem = playerController::moveInQueue,
@@ -232,9 +232,9 @@ fun NowPlayingContent(
         }
     }
 
-    LaunchedEffect(actions, surfaceState.isPlaying, surfaceState.alacStreamActive) {
+    LaunchedEffect(actions, surfaceState.isPlaying) {
         actions.syncPosition()
-        if (!surfaceState.isPlaying || surfaceState.alacStreamActive) return@LaunchedEffect
+        if (!surfaceState.isPlaying) return@LaunchedEffect
         while (true) {
             delay(500)
             actions.syncPosition()
