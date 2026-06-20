@@ -6,7 +6,6 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ExoPlaybackException
-import androidx.test.core.app.ApplicationProvider
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
@@ -33,7 +32,6 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         var failure: PlaybackFailure? = null
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.onPlaybackFailure = { failure = it }
@@ -62,7 +60,6 @@ class ServicePlaybackEngineCoordinatorTest {
         val exo = mockExoWithQueue(items, currentIndex = 0, playWhenReady = false)
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.start()
@@ -84,7 +81,6 @@ class ServicePlaybackEngineCoordinatorTest {
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0)
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.start()
@@ -104,7 +100,6 @@ class ServicePlaybackEngineCoordinatorTest {
         val exo = mockExoWithQueue(listOf(first), currentIndex = 0)
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.start()
@@ -125,7 +120,6 @@ class ServicePlaybackEngineCoordinatorTest {
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 5_000L)
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.start()
@@ -157,7 +151,6 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         var failure: PlaybackFailure? = null
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.onPlaybackFailure = { failure = it }
@@ -183,7 +176,6 @@ class ServicePlaybackEngineCoordinatorTest {
         every { exo.playbackState } returns Player.STATE_READY
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.start()
@@ -203,7 +195,6 @@ class ServicePlaybackEngineCoordinatorTest {
         every { exo.isPlaying } returns true
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
-            context = ApplicationProvider.getApplicationContext(),
             player = player,
         )
         coordinator.start()

@@ -16,17 +16,6 @@ internal data class AudioRouteSnapshot(
     val usb: Boolean,
 )
 
-internal object SoftwareAudioRouteState {
-    @Volatile
-    private var routedDevice: AudioDeviceInfo? = null
-
-    fun update(device: AudioDeviceInfo?) {
-        routedDevice = device
-    }
-
-    fun current(): AudioDeviceInfo? = routedDevice
-}
-
 internal object AudioOutputCapabilities {
     private val mediaAttributes: AudioAttributes by lazy {
         AudioAttributes.Builder()
@@ -37,14 +26,13 @@ internal object AudioOutputCapabilities {
 
     fun route(context: Context): AudioRouteSnapshot {
         val manager = context.getSystemService(AudioManager::class.java)
-        val device = SoftwareAudioRouteState.current()
-            ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                runCatching {
-                    manager.getAudioDevicesForAttributes(mediaAttributes).firstOrNull()
-                }.getOrNull()
-            } else {
-                null
-            }
+        val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                manager.getAudioDevicesForAttributes(mediaAttributes).firstOrNull()
+            }.getOrNull()
+        } else {
+            null
+        }
         return snapshot(device)
     }
 

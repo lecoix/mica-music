@@ -27,12 +27,9 @@ data class PlaybackFailure(
 
 data class PlaybackRequest(
     val id: Long,
-    val generation: Long,
     val songId: String,
     val sourceRevision: String,
     val startPositionMs: Long,
-    val userPlayIntent: Boolean,
-    val qualityMode: AudioQualityMode,
 )
 
 sealed interface PlaybackRouteDecision {
@@ -44,21 +41,6 @@ sealed interface PlaybackRouteDecision {
         override val reason: String,
         val userMessage: String,
     ) : PlaybackRouteDecision
-}
-
-sealed interface PlaybackEngineState {
-    data object Idle : PlaybackEngineState
-    data class Preparing(val request: PlaybackRequest) : PlaybackEngineState
-    data class Playing(val request: PlaybackRequest, val positionMs: Long) : PlaybackEngineState
-    data class Paused(val request: PlaybackRequest, val positionMs: Long) : PlaybackEngineState
-    data class Switching(
-        val fromRequestId: Long,
-        val toRequest: PlaybackRequest,
-    ) : PlaybackEngineState
-    data class Failed(
-        val request: PlaybackRequest,
-        val failure: PlaybackFailure,
-    ) : PlaybackEngineState
 }
 
 object PlaybackSourceRevision {
@@ -164,18 +146,13 @@ class PlaybackRequestSequencer {
     fun next(
         song: Song,
         startPositionMs: Long,
-        playWhenReady: Boolean,
-        qualityMode: AudioQualityMode,
     ): PlaybackRequest {
         val id = nextId.incrementAndGet()
         return PlaybackRequest(
             id = id,
-            generation = id,
             songId = song.id,
             sourceRevision = PlaybackSourceRevision.of(song),
             startPositionMs = startPositionMs.coerceAtLeast(0),
-            userPlayIntent = playWhenReady,
-            qualityMode = qualityMode,
         )
     }
 }

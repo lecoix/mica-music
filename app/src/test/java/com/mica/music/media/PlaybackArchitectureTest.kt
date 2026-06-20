@@ -59,8 +59,8 @@ class PlaybackArchitectureTest {
         val original = SongFixtures.song(id = "song").copy(dateModifiedMs = 1)
         val changed = original.copy(dateModifiedMs = 2)
 
-        val first = sequencer.next(original, 0, true, AudioQualityMode.HIFI)
-        val second = sequencer.next(changed, 0, true, AudioQualityMode.HIFI)
+        val first = sequencer.next(original, 0)
+        val second = sequencer.next(changed, 0)
 
         assertTrue(second.id > first.id)
         assertNotEquals(first.sourceRevision, second.sourceRevision)

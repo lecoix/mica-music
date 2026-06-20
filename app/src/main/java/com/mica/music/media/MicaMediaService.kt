@@ -220,9 +220,6 @@ class MicaMediaService : MediaSessionService() {
         compositePlayer = player
 
         playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
-
-            context = this,
-
             player = player,
 
         ).also { it.start() }

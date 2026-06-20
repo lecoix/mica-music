@@ -8,13 +8,13 @@
 - **Android SDK:** minSdk 26, targetSdk 34, compileSdk 34; **arm64-v8a only**
 - **Build:** AGP 8.7.0, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
 - **Key deps:** Media3 1.4.1, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, reorderable 2.4.3, **BlurView 3.2.0** (JitPack)
-- **FFmpeg native** — arm64 `.so` synced from assets; “现网是否仍为 FFmpeg → PCM → AudioTrack 单一路径”属**待详细讨论/暂未定稿**
+- **FFmpeg native** — `libffmpegJNI.so` 作为 Media3 decoder 扩展随工程分发；无独立 FFmpeg CLI / `libmica_ffmpeg.so` 软件播放路径
 
 ## Layout
 
 - `app/src/main/java/com/mica/music/`
   - `data/` — `Song`, Room, scanner, `PlayerController`, `AppUiSettings`
-  - `media/` — ALAC/FFmpeg engines, EQ, `MicaMediaService`
+  - `media/` — Exo playback pipeline、Media3 FFmpeg 扩展、DSF、EQ、`MicaMediaService`
   - `ui/components/` — `MiniPlayer`, `SongRow`, `LyricsDisplay`, …
   - `ui/screens/` — `HomeScreen`, `NowPlayingScreen`, `SettingsScreen`, …
   - `ui/screens/player/` — 播放页布局引擎、封面流 View 岛、`CoverFlowRails`
@@ -35,7 +35,7 @@
 
 - **assemble debug:** `.\gradlew.bat :app:assembleDebug`
 - **clean assemble:** `.\scripts\clean-assemble-debug.ps1`
-- **FFmpeg native build:** `.\scripts\build-ffmpeg-arm64.ps1` (first APK build)
+- **Media3 FFmpeg native build:** `.\scripts\build-media3-ffmpeg-dsd.ps1`
 - **Gradle daemon stop:** `.\gradlew --stop`
 
 ## Conventions
@@ -48,7 +48,7 @@
 
 ## Watch out for
 
-- **FFmpeg binary required** — `app/src/main/assets/ffmpeg/arm64-v8a/ffmpeg` → `libmica_ffmpeg.so`
+- **Media3 FFmpeg extension required** — `third_party/media3-ffmpeg-decoder` 提供 `libffmpegJNI.so`
 - **arm64 only** — x86 emulator unsupported
 - **Backdrop blur** — 浮岛 `MicaMaterialBackdrop` + `BlurTarget`; 勿用 Compose `Modifier.blur()` 做毛玻璃
 - **封面流** — 只改 `CoverFlowRails` / `CoverFlowCarouselView`; 勿在 Compose 重建槽位动画

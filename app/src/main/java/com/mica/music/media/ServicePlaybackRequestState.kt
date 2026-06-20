@@ -3,87 +3,59 @@ package com.mica.music.media
 internal class ServicePlaybackRequestState(
     private val sequencer: PlaybackRequestSequencer = PlaybackRequestSequencer(),
 ) {
-    var activeRequest: PlaybackRequest? = null
-        private set
+    private data class TerminalFailure(
+        val request: PlaybackRequest,
+        val failure: PlaybackFailure,
+    )
 
-    var engineState: PlaybackEngineState = PlaybackEngineState.Idle
+    var activeRequest: PlaybackRequest? = null
         private set
 
     var consecutiveFailures: Int = 0
         private set
 
-    private var terminalFailureRequestId: Long? = null
+    private var terminalFailure: TerminalFailure? = null
 
     fun begin(
         song: com.mica.music.data.Song,
         positionMs: Long,
-        playWhenReady: Boolean,
-        qualityMode: AudioQualityMode,
     ): PlaybackRequest {
-        val request = sequencer.next(song, positionMs, playWhenReady, qualityMode)
-        val previous = activeRequest
-        engineState = if (previous == null) {
-            PlaybackEngineState.Preparing(request)
-        } else {
-            PlaybackEngineState.Switching(previous.id, request)
-        }
+        val request = sequencer.next(song, positionMs)
         activeRequest = request
-        terminalFailureRequestId = null
-        engineState = PlaybackEngineState.Preparing(request)
+        terminalFailure = null
         return request
     }
 
     fun accepts(requestId: Long): Boolean = activeRequest?.id == requestId
 
     fun accepts(
-        generation: Long,
+        requestId: Long,
         songId: String,
         sourceRevision: String,
     ): Boolean {
         val request = activeRequest ?: return false
-        return request.generation == generation &&
+        return request.id == requestId &&
             request.songId == songId &&
             request.sourceRevision == sourceRevision
     }
 
-    fun setUserPlayIntent(requestId: Long, play: Boolean): PlaybackRequest? {
-        val request = activeRequest?.takeIf { it.id == requestId } ?: return null
-        val updated = request.copy(userPlayIntent = play)
-        activeRequest = updated
-        engineState = when (val state = engineState) {
-            is PlaybackEngineState.Preparing -> PlaybackEngineState.Preparing(updated)
-            is PlaybackEngineState.Playing ->
-                if (play) PlaybackEngineState.Playing(updated, state.positionMs)
-                else PlaybackEngineState.Paused(updated, state.positionMs)
-            is PlaybackEngineState.Paused ->
-                if (play) PlaybackEngineState.Paused(updated, state.positionMs)
-                else PlaybackEngineState.Paused(updated, state.positionMs)
-            is PlaybackEngineState.Switching -> PlaybackEngineState.Switching(
-                state.fromRequestId,
-                updated,
-            )
-            is PlaybackEngineState.Failed -> PlaybackEngineState.Failed(updated, state.failure)
-            PlaybackEngineState.Idle -> PlaybackEngineState.Idle
-        }
-        return updated
-    }
-
-    fun markPlaying(requestId: Long, positionMs: Long) {
-        val request = activeRequest?.takeIf { it.id == requestId } ?: return
-        engineState = PlaybackEngineState.Playing(request, positionMs.coerceAtLeast(0L))
+    fun markPlaybackProgress(requestId: Long, positionMs: Long) {
+        if (!accepts(requestId)) return
         if (positionMs >= STABLE_PLAYBACK_RESET_MS) consecutiveFailures = 0
     }
 
-    fun markPaused(requestId: Long, positionMs: Long) {
-        val request = activeRequest?.takeIf { it.id == requestId } ?: return
-        engineState = PlaybackEngineState.Paused(request, positionMs.coerceAtLeast(0L))
+    fun failureFor(songId: String, sourceRevision: String): PlaybackFailure? {
+        val terminal = terminalFailure ?: return null
+        return terminal.failure.takeIf {
+            terminal.request.songId == songId &&
+                terminal.request.sourceRevision == sourceRevision
+        }
     }
 
     fun markFailed(requestId: Long, failure: PlaybackFailure): Int? {
         val request = activeRequest?.takeIf { it.id == requestId } ?: return null
-        if (terminalFailureRequestId == requestId) return null
-        terminalFailureRequestId = requestId
-        engineState = PlaybackEngineState.Failed(request, failure)
+        if (terminalFailure?.request?.id == requestId) return null
+        terminalFailure = TerminalFailure(request, failure)
         consecutiveFailures++
         return consecutiveFailures
     }

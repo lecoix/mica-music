@@ -2,7 +2,7 @@
 
 > 云母氛围 + 极简尖角 · 发烧友定位 · Jetpack Compose
 
-基于 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md) 实现的 **本地 HiFi 播放器**：真实扫描曲库、软件解码播放、Room 持久化、内嵌歌词与 ALAC 支持。完整功能清单见 [`docs/TODO.md`](./docs/TODO.md)。
+基于 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md) 实现的 **本地 HiFi 播放器**：真实扫描曲库、Media3 ExoPlayer 播放、Room 持久化、内嵌歌词与 ALAC/DSF 支持。完整功能清单见 [`docs/TODO.md`](./docs/TODO.md)。
 
 ---
 
@@ -13,7 +13,7 @@
 - **Android Studio**：Hedgehog (2023.1.1) 或更新
 - **JDK**：17
 - **Android SDK**：API 34（compileSdk）/ API 26+（minSdk）
-- **设备**：Android 8.0+，**arm64-v8a**（项目仅编 64 位；含 FFmpeg native；是否“FFmpeg-only 出声路径”待讨论）
+- **设备**：Android 8.0+，**arm64-v8a**（项目仅编 64 位；Media3 FFmpeg 扩展包含在工程内）
 
 ### 打开并运行
 
@@ -42,7 +42,7 @@
 |------|------|
 | **曲库扫描** | MediaStore 或 SAF；深度元数据、封面缓存与取色、增量同步 |
 | **持久化** | Room；冷启动恢复队列与播放进度 |
-| **播放** | 出声路径与后端路由**待详细讨论/暂未定稿**（历史实现曾为 FFmpeg → PCM → AudioTrack）；顺序/循环/随机；10 段软件 EQ |
+| **播放** | Media3 ExoPlayer 单链路；FFmpeg 扩展解码 ALAC/DSF；顺序/循环/随机；10 段软件 EQ |
 | **歌词** | 内嵌 + 外挂 `.lrc`；三行歌词、展开歌词页 |
 | **浏览** | 歌曲 / 歌手 / 专辑 / 最近 / 歌单 / 音乐库分析 |
 | **播放页** | 多种背景；封面流（平行/复古）；沉浸模式；频谱条（可选） |
@@ -95,10 +95,10 @@
 - 文件夹扫描需授权整个音乐目录
 - 设置中可调最短时长、非 `IS_MUSIC` 条目
 
-### ALAC / 无法播放
+### ALAC / DSF 无法播放
 
-- 需 **arm64** 真机且含 `libmica_ffmpeg.so`
-- 首次构建前可运行 `.\scripts\build-ffmpeg-arm64.ps1` 生成 assets 内 FFmpeg
+- 需 **arm64** 真机，并确保 `third_party/media3-ffmpeg-decoder` 中的 `libffmpegJNI.so` 已存在
+- 需要重建 native 扩展时运行 `.\scripts\build-media3-ffmpeg-dsd.ps1`
 
 ---
 
@@ -108,7 +108,7 @@
 
 - 列表项 → 播放页共享元素；共享转场架构整理
 - 歌词双语与行切换动效；倒影模糊渐变等播放页背景
-- 横屏播放页；原生解码优先（FFmpeg 兜底）
+- 横屏播放页；继续完善 Media3 格式兼容性
 - 内置第二套字体；APK 瘦身（远期）
 
 ---

@@ -1,10 +1,8 @@
 package com.mica.music.media
 
-import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import com.mica.music.data.AppPreferences
 import com.mica.music.data.PlaybackQueueNavigator
 import com.mica.music.data.PlaybackQueueMode
 import com.mica.music.data.Song
@@ -12,7 +10,6 @@ import com.mica.music.util.DiagnosticLog
 import kotlin.random.Random
 
 internal class ServicePlaybackEngineCoordinator(
-    private val context: Context,
     private val player: MicaCompositePlayer,
     private val requestState: ServicePlaybackRequestState = ServicePlaybackRequestState(),
 ) : AlacSessionCommandHandler, Player.Listener {
@@ -37,15 +34,14 @@ internal class ServicePlaybackEngineCoordinator(
             return
         }
         val active = requestState.activeRequest
-        val failed = requestState.engineState as? PlaybackEngineState.Failed
-        if (failed?.request?.songId == song.id &&
-            failed.request.sourceRevision == PlaybackSourceRevision.of(song)
-        ) {
-            onPlaybackFailure?.invoke(failed.failure)
+        val sourceRevision = PlaybackSourceRevision.of(song)
+        val terminalFailure = requestState.failureFor(song.id, sourceRevision)
+        if (terminalFailure != null) {
+            onPlaybackFailure?.invoke(terminalFailure)
             return
         }
         if (active?.songId == song.id &&
-            active.sourceRevision == PlaybackSourceRevision.of(song)
+            active.sourceRevision == sourceRevision
         ) {
             player.playExoDirect()
             return
@@ -103,7 +99,7 @@ internal class ServicePlaybackEngineCoordinator(
         val song = player.currentMediaItem?.let(SongMediaItemCodec::decode) ?: return
         if (song.id != queueSong.id) return
         if (!requestState.accepts(
-                generation = request.generation,
+                requestId = request.id,
                 songId = song.id,
                 sourceRevision = PlaybackSourceRevision.of(song),
             ) ||
@@ -133,17 +129,13 @@ internal class ServicePlaybackEngineCoordinator(
         requestState.begin(
             song,
             player.currentPosition.coerceAtLeast(0L),
-            player.playWhenReady,
-            qualityMode(),
         )
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         val request = requestState.activeRequest ?: return
         if (isPlaying) {
-            requestState.markPlaying(request.id, player.currentPosition)
-        } else {
-            requestState.markPaused(request.id, player.currentPosition)
+            requestState.markPlaybackProgress(request.id, player.currentPosition)
         }
     }
 
@@ -162,8 +154,6 @@ internal class ServicePlaybackEngineCoordinator(
                 val request = requestState.begin(
                     song,
                     positionMs,
-                    playWhenReady,
-                    qualityMode(),
                 )
                 handleFailure(
                     request.id,
@@ -185,8 +175,6 @@ internal class ServicePlaybackEngineCoordinator(
         val request = requestState.begin(
             song,
             positionMs,
-            playWhenReady,
-            qualityMode(),
         )
         DiagnosticLog.event(
             "PlaybackEngine",
@@ -225,8 +213,6 @@ internal class ServicePlaybackEngineCoordinator(
                 val request = requestState.begin(
                     song,
                     position,
-                    playWhenReady,
-                    qualityMode(),
                 )
                 handleFailure(
                     request.id,
@@ -248,8 +234,6 @@ internal class ServicePlaybackEngineCoordinator(
         val request = requestState.begin(
             song,
             position,
-            playWhenReady,
-            qualityMode(),
         )
         DiagnosticLog.event(
             "PlaybackEngine",
@@ -376,9 +360,6 @@ internal class ServicePlaybackEngineCoordinator(
         player.repeatMode == Player.REPEAT_MODE_ONE -> PlaybackQueueMode.REPEAT_ONE
         else -> PlaybackQueueMode.OFF
     }
-
-    private fun qualityMode(): AudioQualityMode =
-        if (AppPreferences.equalizerEnabled(context)) AudioQualityMode.DSP else AudioQualityMode.HIFI
 
     private companion object {
         const val MAX_CONSECUTIVE_FAILURES = 3

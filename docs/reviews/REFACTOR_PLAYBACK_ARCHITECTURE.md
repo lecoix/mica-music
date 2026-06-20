@@ -250,14 +250,14 @@
 
 | 优先级 | Tag | 位置 | 发现 | 替换 / 动作 | 约省行数 |
 |--------|-----|------|------|-------------|----------|
-| P0 | delete | `app/src/main/assets/ffmpeg/arm64-v8a/` | 旧 `libmica_ffmpeg` 资产仍打进 APK（~2.3 MB） | 删目录；同步删 `scripts/build-ffmpeg-arm64.ps1`、`ffmpeg/docker/build.sh` 中对应输出 | 代码 ~15 行 + 资产 |
-| P0 | delete | `util/DecodePerformance.kt` | Exo 线不再产生 `decode-input-copy` / `decode-ffmpeg-ready` 打点 | 删整文件；`TrackSwitchPerformance` 去掉 `summarizeStages()` 调用 | ~120 |
-| P0 | delete | `AudioOutputCapabilities.kt:L19-27` | `SoftwareAudioRouteState`：`update()` 零调用，`current()` 恒 null | 删对象；`route()` 直接用 `AudioManager` | ~10 |
-| P1 | delete | `ServicePlaybackRequestState.kt:L25-32` | `begin()` 先设 `Switching` 再立刻覆写 `Preparing` | 删掉死分支 | ~3 |
-| P1 | delete | `ServicePlaybackRequestState.kt:L49-68` | `setUserPlayIntent()` 生产零调用 | 删方法 + 对应单测 | ~25 |
-| P1 | yagni | `PlaybackArchitecture.kt:L49-61` | `PlaybackEngineState` 除 `Failed` 外只写不读 | `activeRequest` + `lastFailure` 两字段 | ~80 |
-| P1 | delete | `ServicePlaybackRequestState.kt:L71-79` | `markPlaying` / `markPaused` 写入的状态无人读 | 保留 `markFailed`；协调器去掉无效调用 | ~20 |
-| P1 | delete | `PlaybackArchitecture.kt` `PlaybackRequest` | `generation`（恒等于 `id`）、`userPlayIntent`、`qualityMode` 从不读取 | `accepts()` 只比对 `id` + `songId` + `sourceRevision` | ~15 |
+| ✅ 已完成 | delete | `app/src/main/assets/ffmpeg/arm64-v8a/` | 旧 FFmpeg CLI 仍作为 asset 打进 APK（原始 2.31 MB；Perf APK 内压缩后约 1.11 MB） | 已删目录与旧 CLI 构建脚本；保留当前 Media3 FFmpeg decoder 构建链 | 代码 ~15 行 + 资产 |
+| ✅ 已完成 | delete | `util/DecodePerformance.kt` | Exo 线不再产生 `decode-input-copy` / `decode-ffmpeg-ready` 打点 | 已删整文件；`TrackSwitchPerformance` 已去掉恒为 `decode=none` 的汇总 | ~120 |
+| ✅ 已完成并真机确认 | delete | `AudioOutputCapabilities.kt:L19-27` | `SoftwareAudioRouteState`：`update()` 零调用，`current()` 恒 null | 已删对象；零残余引用；`route()` 直接用 `AudioManager`；删除后 DSF 真机播放与输出规格选择正常 | ~10 |
+| ✅ 已完成 | delete | `ServicePlaybackRequestState.kt` | `Switching` 写入后立即被覆盖 | 已移除整套展示型 `PlaybackEngineState` | ~3 |
+| ✅ 已完成 | delete | `ServicePlaybackRequestState.kt` | `setUserPlayIntent()` 在 Exo-only 后生产零调用 | 已删方法与过时测试 | ~25 |
+| ✅ 已完成 | yagni | `PlaybackArchitecture.kt` | `PlaybackEngineState` 除失败信息外只写不读 | 收为 `activeRequest` + 私有 terminal failure | ~80 |
+| ✅ 已完成 | delete | `ServicePlaybackRequestState.kt` | `Playing` / `Paused` 状态无人读 | 保留稳定播放清零失败计数及 `markFailed` | ~20 |
+| ✅ 已完成 | delete | `PlaybackArchitecture.kt` `PlaybackRequest` | `generation` 恒等于 `id`；`userPlayIntent`、`qualityMode` 已失去消费者 | `accepts()` 现比对 `id` + `songId` + `sourceRevision` | ~15 |
 | P1 | delete | `AlacPcmFormat.kt:L22-49` | `byteOffsetForMs` / `framesForMs` / `fromSong` 无调用方 | 删三个成员；类型可重命名为 `PcmOutputFormat` | ~20 |
 | P2 | shrink | `AlacSessionState.kt` | 接口仍名 `AlacSessionCommandHandler` | 重命名为 `PlaybackCommandHandler` | 命名清理 |
 | P2 | shrink | `PlaybackCapabilityDiagnostics.kt:L63-76` | 反射调 `FfmpegLibrary.ffmpegHasDecoder` | 用公开 API 或仅显示 `isAvailable()` / `getVersion()` | ~15 |
@@ -275,14 +275,14 @@
 ### Ponytail 单行格式（机器可读）
 
 ```
-app/src/main/assets/ffmpeg/arm64-v8a/: delete: 旧 libmica_ffmpeg 资产仍进 APK (~2.3MB). 删目录 + build-ffmpeg 脚本.
-app/src/main/java/com/mica/music/util/DecodePerformance.kt: delete: Exo 线无软件播 decode 打点，summarizeStages 恒为 decode=none. 删整文件.
-app/src/main/java/com/mica/music/media/AudioOutputCapabilities.kt:L19-27: delete: SoftwareAudioRouteState.update() 零调用. 删对象，route() 直读 AudioManager.
-app/src/main/java/com/mica/music/media/ServicePlaybackRequestState.kt:L25-32: delete: begin() 里 Switching 分支立刻被 Preparing 覆盖. 删死分支.
-app/src/main/java/com/mica/music/media/ServicePlaybackRequestState.kt:L49-68: delete: setUserPlayIntent() 生产零调用. 删方法.
-app/src/main/java/com/mica/music/media/PlaybackArchitecture.kt:L49-61: yagni: PlaybackEngineState 除 Failed 外只写不读. activeRequest + lastFailure.
-app/src/main/java/com/mica/music/media/ServicePlaybackRequestState.kt:L71-79: delete: markPlaying/markPaused 状态无人消费. 只留 markFailed.
-app/src/main/java/com/mica/music/media/PlaybackArchitecture.kt:L30,L34-35: delete: generation/userPlayIntent/qualityMode 在 request 上从不读取. 删字段.
+DONE app/src/main/assets/ffmpeg/arm64-v8a/: delete: 旧 FFmpeg CLI asset 已删除；保留 Media3 decoder 构建链.
+DONE app/src/main/java/com/mica/music/util/DecodePerformance.kt: delete: 文件与恒为 decode=none 的汇总已删除.
+VERIFIED app/src/main/java/com/mica/music/media/AudioOutputCapabilities.kt:L19-27: delete: SoftwareAudioRouteState 已删除且零残余引用；route() 直读 AudioManager；DSF 真机播放已通过.
+DONE app/src/main/java/com/mica/music/media/ServicePlaybackRequestState.kt: delete: Switching 与展示型状态已删除.
+DONE app/src/main/java/com/mica/music/media/ServicePlaybackRequestState.kt: delete: setUserPlayIntent 已删除.
+DONE app/src/main/java/com/mica/music/media/PlaybackArchitecture.kt: yagni: PlaybackEngineState 已收为 activeRequest + terminal failure.
+DONE app/src/main/java/com/mica/music/media/ServicePlaybackRequestState.kt: delete: Playing/Paused 写入已删除，稳定播放清零语义保留.
+DONE app/src/main/java/com/mica/music/media/PlaybackArchitecture.kt: delete: generation/userPlayIntent/qualityMode 请求字段已删除.
 app/src/main/java/com/mica/music/media/AlacPcmFormat.kt:L22-49: delete: byteOffsetForMs/framesForMs/fromSong 无调用. 删成员.
 app/src/main/java/com/mica/music/media/AlacSessionState.kt: shrink: AlacSessionCommandHandler 命名过时. PlaybackCommandHandler.
 app/src/main/java/com/mica/music/media/PlaybackCapabilityDiagnostics.kt:L63-76: shrink: 反射 ffmpegHasDecoder. 公开 API 或减项.
@@ -302,19 +302,20 @@ app/build.gradle.kts:L17-145: shrink: 三套 media3-ffmpeg 解析路径. 定一�
 
 | 阶段 | 条件 | 约可删减 |
 |------|------|----------|
-| **现在** | 不依赖性能调查结案 | **~450 行** + **~2.3 MB APK**（死资产 + 死状态机 + `DecodePerformance`） |
+| **已完成（2026-06-20）** | 不依赖性能调查结案 | 旧 CLI asset + `DecodePerformance` + `SoftwareAudioRouteState` 已删除；Perf APK 预计减少约 **1.11 MB 压缩体积** |
+| **已完成（2026-06-20）** | 收缩请求状态机 | 删除展示型状态与冗余请求字段；保留请求身份、失败去重及连续失败计数重置 |
 | **调查结案后** | `PERFORMANCE_INVESTIGATION.md` 收工 | 再 **~900 行**（TrackPerf + 环境/蓝牙诊断） |
-| **架构瘦身** | 愿意简化持久化与 MediaItem 序列化 | 再 **~350 行**（StateStore + TestBoundaries + SongMediaItemCodec） |
+| **需单独设计** | 更换队列恢复或 `Song` 解析方案 | 不计入当前删减；现有 StateStore、测试 seam 与 Song transport 均承载真实行为 |
 
-**net: -450 lines possible now; -1700 if diagnostics close and persistence shrinks.**
+低风险资产清理与请求状态收缩均已落地；其余数字须按后续独立设计重新计算，不再沿用原 `-1700` 粗估。
 
 若 P0/P1 全部落地后无新膨胀，可记为 **Lean enough to ship**（诊断层按产品节奏保留或删除）。
 
 ### Ponytail 结论
 
 - **做对了**：软件播整段删除、Exo 单链路、DSF / `libffmpegJNI` 扩展、封面预烘焙与测试基建保留合理。
-- **还没收干净**：hybrid7 留下的请求状态机（多数字段/状态只写不读）、软件播时代命名与资产、diag5 诊断层与 Exo 线脱节。
-- **建议顺序**：① 删 `assets/ffmpeg` + `DecodePerformance` → ② 收 `PlaybackEngineState` / `PlaybackRequest` 死字段 → ③ 调查结案后删诊断层 → ④ 视需要缩 `ServicePlaybackStateStore`。
+- **还没收干净**：软件播时代命名，以及仍待性能调查结案的 diag5 诊断层。
+- **建议顺序**：① ~~删旧 CLI asset + `DecodePerformance` + 空路由缓存~~（已完成）→ ② ~~收 `PlaybackEngineState` / `PlaybackRequest` 死字段~~（已完成）→ ③ 调查结案后删诊断层。`ServicePlaybackStateStore` 承担完整队列恢复语义，不再默认列为删减项。
 
 ---
 
@@ -333,7 +334,7 @@ app/build.gradle.kts:L17-145: shrink: 三套 media3-ffmpeg 解析路径. 定一�
 | **Bugbot** | 5（第一轮）/ 6（第二轮）/ **2（第三轮，exoplayer-only）** | 第三轮：**恢复进度时 seek 强制 autoplay**（已关闭，见修订记录） |
 | **Standards** | 3 硬性 + 若干判断项（第一、二轮）；exoplayer-only 新增 1 项接线缺失 | exoplayer-only：`onPlaybackFailure` 未挂载 |
 | **Spec** | exoplayer-only 核心目标已落地 | 冷启动恢复行为与 `PlaybackSession` 契约仍有缺口 |
-| **Ponytail** | **20 项**（第四轮，`main..exoplayer-only`） | 旧 `libmica_ffmpeg` 资产 + `DecodePerformance` 死代码；hybrid7 状态机只写不读 |
+| **Ponytail** | **20 项**（第四轮历史清单；8 项已完成） | 旧 CLI、失效诊断、空路由缓存及 hybrid7 请求状态遗留已删除 |
 
 > 第一、二轮中多项 High 随 exoplayer-only 架构变更**已解决**；当前合并阻塞项以**第三轮 2 项 High** 为准。
 
@@ -373,11 +374,11 @@ app/build.gradle.kts:L17-145: shrink: 三套 media3-ffmpeg 解析路径. 定一�
 
 按 §Ponytail 建议顺序，合并后可开独立 cleanup PR：
 
-1. **P0**：删 `app/src/main/assets/ffmpeg/`、`DecodePerformance.kt`、`SoftwareAudioRouteState`
-2. **P1**：收 `PlaybackEngineState` / `PlaybackRequest` 死字段与 `setUserPlayIntent`
+1. ~~**P0**：删 `app/src/main/assets/ffmpeg/`、`DecodePerformance.kt`、`SoftwareAudioRouteState`~~（2026-06-20 已完成）
+2. ~~**P1**：收 `PlaybackEngineState` / `PlaybackRequest` 死字段与 `setUserPlayIntent`~~（2026-06-20 已完成）
 3. **P3（调查结案后）**：删 `TrackSwitchPerformance` + 环境/蓝牙诊断层
 
-目标：`net -450` 行（现）→ 调查结案后再 `-900` 行。
+下一阶段目标：处理软件播时代命名；性能与蓝牙调查结案后再评估诊断层。
 
 ---
 
@@ -399,3 +400,5 @@ app/build.gradle.kts:L17-145: shrink: 三套 media3-ffmpeg 解析路径. 定一�
 | 2026-06-19 | 大队列手动切歌改为 O(1) 目标索引对齐 + 现有 Exo playlist 内 seek；队列变更仍保留整队列兜底，完整单测通过，等待 4500 首实机发热复验 |
 | 2026-06-19 | 仓库分支清理：删除 `experiment/coverflow-prebaked-reflection`、`origin/master`、三个 `origin/cursor/*`、`wip`；远程仅余 `main` + `exoplayer-only` |
 | 2026-06-19 | **第四轮 Ponytail**（`main..exoplayer-only`）：20 项可删减发现归档；`net: -450` 行（现）/ `-1700` 行（诊断结案 + 持久化瘦身后）；见 §Ponytail |
+| 2026-06-20 | 第一组低风险清理完成：删除旧 FFmpeg CLI asset 与构建脚本、`DecodePerformance`、`SoftwareAudioRouteState`；保留 Media3 FFmpeg decoder 构建链、DSD 能力检测及未结案性能诊断。`SoftwareAudioRouteState` 已确认零残余引用，删除后的 DSF 真机播放与输出规格选择正常。重新评估后，不再默认建议删除测试 seam、缩减 `SongMediaItemCodec` 或弱化服务队列恢复。 |
+| 2026-06-20 | 播放请求状态收缩：删除 Exo-only 后失效的 `PlaybackEngineState`、`setUserPlayIntent`、`generation`、请求级 `qualityMode` 等；保留当前请求身份、source revision、失败去重、自动跳曲计数及稳定播放后的计数重置。 |

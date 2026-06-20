@@ -223,7 +223,6 @@ object TrackSwitchPerformance {
                 }
             }
         }
-        val decodeSummary = DecodePerformance.summarizeStages(stageSnapshots)
         val ctx = item.visualContext
         val averageQueueCompareMs = averageMs(item.queueCompareTotalNs, item.queueCompareCount)
         logCoverFlowDiag(
@@ -240,7 +239,7 @@ object TrackSwitchPerformance {
             "#${item.id} summary reason=$reason duration=${format(elapsedMs(item.startedNs))}ms; " +
                 "trigger=${item.trigger}; queueSize=${item.queueSize}; " +
                 "coverFlow=${ctx.coverFlowMode}; stage=${ctx.coverFlowStageActive}; " +
-                "bg=${ctx.lowerBackground}; $decodeSummary; " +
+                "bg=${ctx.lowerBackground}; " +
                 "frames=${item.frameIntervals}; avgFrame=${format(averageFrameMs)}ms; " +
                 "maxFrame=${format(item.maxFrameNs / 1_000_000.0)}ms; " +
                 "spikes24=${item.spikeCount}; over16=${item.over16}; over32=${item.over32}; " +
