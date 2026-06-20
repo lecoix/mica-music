@@ -156,9 +156,14 @@ class MicaMediaService : MediaSessionService() {
 
         MicaSpectrumAnalyzer.setEnabled(spectrumTapEnabled(), notifyPipeline = false)
 
+        var equalizerPipelineEnabled = AppPreferences.equalizerEnabled(this)
+
         MicaEqualizerManager.onEnabledChanged = { enabled ->
 
             mainHandler.post {
+
+                val pipelineChanged = equalizerPipelineEnabled != enabled
+                equalizerPipelineEnabled = enabled
 
                 if (compositePlayer != null) {
 
@@ -173,6 +178,10 @@ class MicaMediaService : MediaSessionService() {
                         if (enabled) AudioQualityMode.DSP else AudioQualityMode.HIFI,
 
                     )
+
+                    if (pipelineChanged) {
+                        flushAudioPipeline("equalizer-enabled=$enabled")
+                    }
 
                 }
 
@@ -200,7 +209,7 @@ class MicaMediaService : MediaSessionService() {
 
             exoPlayer,
 
-            dspEnabled = AppPreferences.equalizerEnabled(this),
+            dspEnabled = equalizerPipelineEnabled,
 
             spectrumTapEnabled = spectrumTapEnabled(),
 
@@ -367,12 +376,9 @@ class MicaMediaService : MediaSessionService() {
         if (player.playbackState == Player.STATE_IDLE) return
         val positionMs = player.currentPosition
         val shouldResume = player.isPlaying
-        player.seekTo(positionMs)
-        if (shouldResume) {
-            player.play()
-        }
+        player.rebuildAudioPipeline(positionMs, resumePlayback = shouldResume)
         DiagnosticLog.event(
-            "Spectrum",
+            "AudioPipeline",
             "pipeline-flush reason=$reason pos=$positionMs resume=$shouldResume",
         )
     }

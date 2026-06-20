@@ -53,6 +53,9 @@ class AppUiSettings(context: Context) {
     var spectrumEnabled by mutableStateOf(AppPreferences.spectrumEnabled(appContext))
         private set
 
+    var songListInfoVisibility by mutableStateOf(AppPreferences.songListInfoVisibility(appContext))
+        private set
+
     init {
         syncSpectrumAnalyzer()
     }
@@ -118,6 +121,11 @@ class AppUiSettings(context: Context) {
         AppPreferences.setSpectrumEnabled(appContext, enabled)
         syncSpectrumAnalyzer(notifyPipeline = true)
         DiagnosticLog.event("Spectrum", "setting enabled=$enabled analyzer=${MicaSpectrumAnalyzer.isEnabledForProcessing()}")
+    }
+
+    fun updateSongListInfoVisibility(visibility: SongListInfoVisibility) {
+        songListInfoVisibility = visibility
+        AppPreferences.setSongListInfoVisibility(appContext, visibility)
     }
 
     fun togglePlayerImmersiveLower() {

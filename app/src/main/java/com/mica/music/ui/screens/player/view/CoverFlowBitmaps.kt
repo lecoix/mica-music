@@ -4,22 +4,25 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.imaging.CoverDecodeTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal object CoverFlowBitmaps {
 
-    fun memoryBitmap(uri: String): Bitmap? = MicaImageLoaders.coverMemoryBitmap(uri)
+    fun memoryBitmap(uri: String, target: CoverDecodeTarget): Bitmap? =
+        MicaImageLoaders.coverMemoryBitmap(uri, target)
 
-    suspend fun ensureLoaded(context: Context, uri: String): Bitmap? {
+    suspend fun ensureLoaded(
+        context: Context,
+        uri: String,
+        target: CoverDecodeTarget,
+    ): Bitmap? {
         if (uri.isBlank()) return null
-        memoryBitmap(uri)?.let { cached ->
-            if (!MicaImageLoaders.coverCacheNeedsUpgrade(uri)) return cached
-            MicaImageLoaders.evictCoverMemory(uri)
-        }
-        val ok = MicaImageLoaders.ensureCoverCached(context, uri)
+        memoryBitmap(uri, target)?.let { return it }
+        val ok = MicaImageLoaders.ensureCoverCached(context, uri, target)
         if (!ok) return null
-        return withContext(Dispatchers.Main) { memoryBitmap(uri) }
+        return withContext(Dispatchers.Main) { memoryBitmap(uri, target) }
     }
 
     fun isPollutedThumbnail(bitmap: Bitmap): Boolean =

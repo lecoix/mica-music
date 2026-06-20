@@ -1,10 +1,13 @@
 package com.mica.music.media
 
+import android.os.SystemClock
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.mica.music.util.DiagnosticLog
+import java.util.Locale
 
 data class PlaybackQueueSnapshot(
     val items: List<MediaItem>,
@@ -69,9 +72,70 @@ class MicaCompositePlayer(
         if (switchingItem && exoPlayer.playbackState != Player.STATE_IDLE) {
             exoPlayer.stop()
         }
+        val prevItems = mediaItemCount
+        val setStartedNs = SystemClock.elapsedRealtimeNanos()
         exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = playWhenReady
+        val setMs = (SystemClock.elapsedRealtimeNanos() - setStartedNs) / 1_000_000.0
+        DiagnosticLog.event(
+            "QueueSync",
+            "exo-setMediaItems durMs=${String.format(Locale.US, "%.2f", setMs)} " +
+                "items=${mediaItems.size} index=$safeIndex switching=$switchingItem " +
+                "prevItems=$prevItems",
+        )
+    }
+
+    /** Switches within the existing Exo playlist without rebuilding its timeline. */
+    fun startExistingItem(
+        index: Int,
+        positionMs: Long = 0L,
+        playWhenReady: Boolean = true,
+    ) {
+        if (exoPlayer.mediaItemCount == 0) return
+        val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
+        if (!playWhenReady) exoPlayer.playWhenReady = false
+        exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
+        if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
+        exoPlayer.playWhenReady = playWhenReady
+        DiagnosticLog.event(
+            "QueueSync",
+            "exo-seek-existing index=$safeIndex items=${exoPlayer.mediaItemCount}",
+        )
+    }
+
+    /** Selects an unsupported item already present in Exo without rebuilding the playlist. */
+    fun selectExistingWithoutPlayback(index: Int, positionMs: Long = 0L) {
+        if (exoPlayer.mediaItemCount == 0) return
+        val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
+        exoPlayer.pause()
+        if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
+        exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
+        exoPlayer.playWhenReady = false
+    }
+
+    /** Selects an unsupported item as the current item without preparing or playing it. */
+    fun selectWithoutPlayback(
+        mediaItems: List<MediaItem>,
+        startIndex: Int,
+        startPositionMs: Long = 0L,
+    ) {
+        if (mediaItems.isEmpty()) return
+        val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
+        exoPlayer.pause()
+        if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
+        exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
+        exoPlayer.playWhenReady = false
+        queueRevision++
+    }
+
+    /** Recreates Exo renderers/audio sink while preserving the current queue and position. */
+    fun rebuildAudioPipeline(positionMs: Long, resumePlayback: Boolean) {
+        exoPlayer.playWhenReady = false
+        exoPlayer.stop()
+        exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = resumePlayback
     }
 
     fun playbackQueueSnapshot(): PlaybackQueueSnapshot {
@@ -88,7 +152,7 @@ class MicaCompositePlayer(
         if (mediaItemCount == 0) return
         val safe = index.coerceIn(0, mediaItemCount - 1)
         if (safe == currentMediaItemIndex) return
-        seekTo(safe, currentPosition)
+        exoPlayer.seekTo(safe, currentPosition)
     }
 
     fun playExoDirect() {

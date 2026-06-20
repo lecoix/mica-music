@@ -24,6 +24,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -62,24 +64,36 @@ fun PlaybackQueueSheet(
     val haptic = LocalHapticFeedback.current
 
     val items = remember { mutableStateListOf<Song>() }
+    val lazyListState = rememberLazyListState()
+    val reorderSession = remember { QueueReorderDragSession() }
+    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        val moved = items.removeAt(from.index)
+        items.add(to.index, moved)
+        reorderSession.recordPreviewMove(from.index, to.index)
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    val isReordering by remember {
+        derivedStateOf { reorderState.isAnyItemDragging }
+    }
+
     LaunchedEffect(queue) {
+        if (isReordering || reorderSession.hasPendingPreview()) return@LaunchedEffect
         if (items.toList() != queue) {
             items.clear()
             items.addAll(queue)
         }
     }
-
-    val lazyListState = rememberLazyListState()
-    LaunchedEffect(currentIndex, items.size) {
-        if (currentIndex in items.indices) {
-            lazyListState.scrollToItem((currentIndex - 2).coerceAtLeast(0))
+    LaunchedEffect(isReordering) {
+        if (!isReordering) {
+            reorderSession.finish()?.let { commit ->
+                onMove(commit.fromIndex, commit.toIndex)
+            }
         }
     }
-    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        val moved = items.removeAt(from.index)
-        items.add(to.index, moved)
-        onMove(from.index, to.index)
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    LaunchedEffect(currentIndex, items.size) {
+        if (!isReordering && currentIndex in items.indices) {
+            lazyListState.scrollToItem((currentIndex - 2).coerceAtLeast(0))
+        }
     }
 
     ModalBottomSheet(

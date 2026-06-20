@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.mica.music.util.DiagnosticLog
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.ln
@@ -31,6 +32,9 @@ object MicaSpectrumAnalyzer {
 
     @Volatile
     private var enabled = false
+
+    @Volatile
+    private var analysisActive = false
 
     private val ring = FloatArray(WindowSize)
     private val pcmQueue = SpectrumPcmQueue()
@@ -82,30 +86,25 @@ object MicaSpectrumAnalyzer {
 
     fun isEnabledForProcessing(): Boolean = enabled
 
+    /**
+     * Whether PCM capture and FFT work should run right now. Unlike [setEnabled], changing this
+     * flag never reconfigures ExoPlayer's audio pipeline.
+     */
+    fun isAnalysisActive(): Boolean = enabled && analysisActive
+
+    fun setAnalysisActive(value: Boolean) {
+        if (analysisActive == value) return
+        analysisActive = value
+        if (!value) clearAnalysisState()
+        DiagnosticLog.event("Spectrum", "analysis-active=$value enabled=$enabled")
+    }
+
+    internal fun queuedPcmSampleCount(): Int = synchronized(lock) { pcmQueue.size }
+
     fun setEnabled(value: Boolean, notifyPipeline: Boolean = true) {
         if (enabled == value) return
         enabled = value
-        if (!value) {
-            synchronized(lock) {
-                pcmQueue.clear()
-                ring.fill(0f)
-                windowed.fill(0f)
-                real.fill(0f)
-                imag.fill(0f)
-                weightedLevels.fill(0f)
-                contrastLevels.fill(0f)
-                visualLevels.fill(0f)
-                previousLevels.fill(0f)
-                shapedLevels.fill(0f)
-                previousBassEnergy = 0f
-                ringWriteIndex = 0
-                ringSampleCount = 0
-                queuedSampleRateHz = 0
-                hopRemainder = 0.0
-                resetProbe()
-                _levels.value = List(BandCount) { 0f }
-            }
-        }
+        if (!value) clearAnalysisState()
         if (notifyPipeline) {
             onEnabledChanged?.invoke(value)
         }
@@ -119,7 +118,7 @@ object MicaSpectrumAnalyzer {
         sampleRateHz: Int,
         channelCount: Int,
     ) {
-        if (!enabled || length <= 0 || sampleRateHz <= 0) return
+        if (!isAnalysisActive() || length <= 0 || sampleRateHz <= 0) return
         val nowMs = System.currentTimeMillis()
         synchronized(lock) {
             if (queuedSampleRateHz != sampleRateHz) {
@@ -147,7 +146,7 @@ object MicaSpectrumAnalyzer {
     }
 
     private fun analyzeTick() {
-        if (!enabled) return
+        if (!isAnalysisActive()) return
         val snapshot: RingSnapshot
         val sampleRateHz: Int
         synchronized(lock) {
@@ -161,6 +160,28 @@ object MicaSpectrumAnalyzer {
             snapshot = captureRingSnapshot()
         }
         runAnalysis(snapshot, sampleRateHz, System.currentTimeMillis())
+    }
+
+    private fun clearAnalysisState() {
+        synchronized(lock) {
+            pcmQueue.clear()
+            ring.fill(0f)
+            windowed.fill(0f)
+            real.fill(0f)
+            imag.fill(0f)
+            weightedLevels.fill(0f)
+            contrastLevels.fill(0f)
+            visualLevels.fill(0f)
+            previousLevels.fill(0f)
+            shapedLevels.fill(0f)
+            previousBassEnergy = 0f
+            ringWriteIndex = 0
+            ringSampleCount = 0
+            queuedSampleRateHz = 0
+            hopRemainder = 0.0
+            resetProbe()
+            _levels.value = List(BandCount) { 0f }
+        }
     }
 
     private fun captureRingSnapshot(): RingSnapshot =

@@ -18,7 +18,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.size.Scale
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.LocalCoverDisplayMode
@@ -77,6 +79,7 @@ fun SongCover(
     holdoverUntilImageReady: Boolean = false,
     holdoverAlbumArtUri: String? = null,
     stableMemoryCacheKey: String? = null,
+    decodeTarget: CoverDecodeTarget? = null,
 ) {
     val context = LocalContext.current
     val displayMode = LocalCoverDisplayMode.current
@@ -84,7 +87,9 @@ fun SongCover(
         CoverDisplayMode.CROP_FILL -> ContentScale.Crop
         CoverDisplayMode.FIT_ORIGINAL -> ContentScale.Fit
     }
-    val memoryCacheKey = stableMemoryCacheKey ?: albumArtUri
+    val memoryCacheKey = stableMemoryCacheKey
+        ?: decodeTarget?.let { target -> albumArtUri?.let(target::memoryCacheKey) }
+        ?: albumArtUri
 
     var aspectRatio by remember(albumArtUri) { mutableFloatStateOf(1f) }
 
@@ -115,12 +120,16 @@ fun SongCover(
     var lastPaintedUri by remember { mutableStateOf<String?>(null) }
     val isPainted = albumArtUri.isNullOrBlank() || lastPaintedUri == albumArtUri
 
-    LaunchedEffect(albumArtUri) {
+    LaunchedEffect(albumArtUri, decodeTarget) {
         if (albumArtUri.isNullOrBlank()) {
             lastPaintedUri = null
             onImageReady()
         } else {
-            MicaImageLoaders.preloadCover(context, albumArtUri)
+            if (decodeTarget != null) {
+                MicaImageLoaders.preloadCover(context, albumArtUri, decodeTarget)
+            } else {
+                MicaImageLoaders.preloadCover(context, albumArtUri)
+            }
         }
     }
 
@@ -145,13 +154,18 @@ fun SongCover(
 
     Box(modifier = layoutModifier.background(effectiveBackdropColor)) {
         if (!underlayUri.isNullOrBlank()) {
+            val underlayMemoryCacheKey = decodeTarget?.memoryCacheKey(underlayUri) ?: underlayUri
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(underlayUri)
                     .crossfade(0)
                     .apply {
-                        memoryCacheKey(underlayUri)
-                        placeholderMemoryCacheKey(underlayUri)
+                        decodeTarget?.let { target ->
+                            size(target.widthPx, target.heightPx)
+                            scale(Scale.FILL)
+                        }
+                        memoryCacheKey(underlayMemoryCacheKey)
+                        placeholderMemoryCacheKey(underlayMemoryCacheKey)
                     }
                     .build(),
                 imageLoader = coverImageLoader,
@@ -166,6 +180,10 @@ fun SongCover(
                     .data(albumArtUri)
                     .crossfade(crossfadeMillis)
                     .apply {
+                        decodeTarget?.let { target ->
+                            size(target.widthPx, target.heightPx)
+                            scale(Scale.FILL)
+                        }
                         if (!memoryCacheKey.isNullOrBlank()) {
                             memoryCacheKey(memoryCacheKey)
                             placeholderMemoryCacheKey(memoryCacheKey)

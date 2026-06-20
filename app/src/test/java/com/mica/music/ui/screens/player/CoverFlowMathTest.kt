@@ -2,9 +2,19 @@ package com.mica.music.ui.screens.player
 
 import com.mica.music.data.PlayerCoverFlowMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CoverFlowMathTest {
+
+    @Test
+    fun reflection_isPreparedForEntireSevenLaneWindow() {
+        assertTrue(CoverFlowMath.shouldRenderReflection(-3))
+        assertTrue(CoverFlowMath.shouldRenderReflection(-2))
+        assertTrue(CoverFlowMath.shouldRenderReflection(0))
+        assertTrue(CoverFlowMath.shouldRenderReflection(2))
+        assertTrue(CoverFlowMath.shouldRenderReflection(3))
+    }
 
     @Test
     fun pauseFold_slotTranslationLinearWithOffset() {

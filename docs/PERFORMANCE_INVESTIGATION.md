@@ -1,10 +1,51 @@
 # 切歌卡顿 / 闪退 — 测试问题与分支改进记录
 
-> **分支**：`wip`（已从 `experiment/coverflow-prebaked-reflection` 合入预烘焙 + 诊断 cherry-pick）  
-> **当前版本**：`0.1.8-hybrid7`（`versionCode 14`，工作区未提交）
-> **整理日期**：2026-06-14  
-> **测试设备**：小米 25102RKBEC + 漫步者 Comfo Clip 蓝牙，Android 16；开发者自测机（realme）相对流畅  
-> **WIP 归属**：本文档随性能诊断 WIP 一并合并，**不单独留在实验分支**
+> **当前分支**：`exoplayer-only`
+>
+> **当前版本**：`0.1.8-hybrid8`（`versionCode 15`）
+>
+> **最近整理**：2026-06-20
+>
+> **文档性质**：第 0–8 节保留 hybrid4–hybrid7 的历史调查过程；当前结论与后续验收以本节和第 9 节为准。
+>
+> **续篇**：[PERFORMANCE_INVESTIGATION_02.md](PERFORMANCE_INVESTIGATION_02.md) — 大队列复验（`mirror-index-sync`、按钮 visual-first、cover-load 发热）。
+
+## 当前结论（2026-06-19）
+
+hybrid7 调查时的三个核心 P0——逐曲整文件复制、外部 FFmpeg 自建播放管线、旧软件请求叠加——已随
+ExoPlayer-only 重构结构性消除。普通格式直接走 Exo；ALAC 使用 Media3 FFmpeg Renderer；DSF 使用
+Exo 自定义 Extractor/Processor。旧 `AlacAudioTrackEngine`、`AlacFfmpegHelper`、`AlacPcmPlayer` 和
+`AudioInputCache` 已删除，因此下文关于 temp copy、stdout pipe、手工 AudioTrack 复用及软件后端的描述
+仅作为历史诊断记录，不再代表当前实现。
+
+当前验收状态：
+
+| 项目 | 状态 | 依据 / 后续 |
+|------|------|-------------|
+| 迷你播放栏切歌时短暂显示错误曲目 | **已验证解决** | 两台实机均未复现。 |
+| 耳机 / USB 音频设备断开自动暂停 | **已验证通过** | 实机观察通过；`mica-diagnostics(2).txt` 同时记录了 USB 音频设备移除事件。 |
+| 普通格式切歌正确性与性能 | **已验证通过** | realme RMX8899 / Android 16 实机连续切换 18 次，FLAC/ALAC 均正常起播；目标索引与歌曲 ID 持续一致，无播放错误、崩溃或旧曲回写。证据：`mica-diagnostics (30).txt`。 |
+| 封面流切歌性能 | **卡顿已验证解决；发热主因转至封面解码管线** | 4518 首实机（`mica-diagnostics(1)(1).txt`）：`exo-seek-existing` + `mirror-index-sync` + 按钮 `animAvg≈8ms` 已生效；发热体感仍明显。剩余主因：`cover-load` 全尺寸解码（200–415ms/次）、`reflection-bake`、HIFI 软解 + 频谱 + COVER_GLOW 底噪。详见 [PERFORMANCE_INVESTIGATION_02.md](PERFORMANCE_INVESTIGATION_02.md) 与 `.scratch/manual-skip-queue-rebuild/issues/01-manual-skip-bypasses-queue-aligned-skip.md`。 |
+| EQ 运行中开启立即生效 | **已验证解决** | enabled 真正变化时重建 Exo audio processor 管线；用户实机确认当前曲立即生效，未出现位置跳变或意外暂停。详见 `.scratch/equalizer-runtime-activation/issues/01-eq-enable-not-immediate.md`。 |
+| HIFI / offload 与 DSP 策略 | **实现存在，设备实际 offload 仍待专项验收** | HIFI 表示无需 App PCM 处理时允许 offload；EQ 或频谱需要 PCM 时进入 DSP 并禁用 offload。EQ 动态切换已实机通过；offload 仅为允许，不保证设备实际采用。 |
+| DSF / DFF / USB DAC | **延期** | 本轮不阻塞普通格式和封面流性能验收，后续单独安排。 |
+| 冷扫描内存峰值、发热、偶发黑屏 | **仍待验证** | 与切歌验收分开记录，但可由同一测试人员在长时测试中补充证据。 |
+
+`mica-diagnostics(2).txt` 来自 Xiaomi `22081212C`、Android 12、hybrid8。该文件只包含进程启动、恢复一首
+FLAC、DSP/offload 配置和 USB DAC 插拔事件；没有切歌性能标记，因此不能作为“切歌性能通过”的证据。
+
+`mica-diagnostics (30).txt` 来自 realme `RMX8899`、Android 16、hybrid8。日志记录了 18 次连续切换和
+19 次引擎启动（含冷启动恢复）；每次 `startAt` 的索引、目标 song ID 与用户选择一致，最终稳定落在索引 78，
+未记录播放器错误、崩溃或旧曲回写。`superseded` 表示前一段性能观察窗口被下一次切歌提前结束，不表示播放失败。
+
+特定测试人员后续确认封面流切歌已无明显卡顿，但约 4500 首队列下仍会发热。代码与 `mica-diagnostics (32).txt`
+证据一致：手动 next/prev、滑封面和点队列会绕过已存在的队列对齐早退，每次重新映射整队列、向 Exo
+`setMediaItems`，并触发 2–3 次 `mirror-rebuild`；自然播放到下一首不经过该路径。该问题按大队列规模近似
+O(N) 放大，应作为当前性能 P0 单独处理，不再归因于封面流渲染。
+
+代码修复后，正常手动切歌先以目标索引的 song ID 做 O(1) 对齐判断；对齐时 Controller 不再映射/传递整队列，
+Service 使用 `exoPlayer.seekTo(index, position)` 在现有 playlist 内切换。只有队列确实变更且尚未同步时才执行一次
+整队列重建兜底。自动化测试已覆盖轻量路径与兜底路径；发热改善仍需原 4500 首设备复验。
 
 ---
 
@@ -380,7 +421,38 @@ coverDraws=0, coverFlow=STANDARD, stage=false
 
 ## 9. 未决事项与依赖
 
-- [ ] 测试人员用 **diag5** 在「标准 + 主题色 + STANDARD」下复测并导出日志（确认 copy 仍占主导）。
-- [ ] 产品确认：是否批准 **P0 止血**（temp 缓存 + 连切节流）与 **ExoPlayer 主路径** 分阶段上线。
-- [ ] 黑屏个案：若有 `ApplicationExitInfo` 或 tombstone，需与 `mica-diagnostics/*.txt` 对照。
-- [ ] LunaBeat 源码未公开，ALAC 专线细节来自 APK 字符串反查，实施时需以 Mica 实测为准。
+剩余项目统一打包给能够稳定感知原卡顿的指定测试人员。DSF 暂不纳入本轮；迷你播放栏错曲和耳机断开暂停
+已经通过，不必重复消耗测试时间。
+
+### 9.1 测试前日志预检（必须先做）
+
+1. 安装当前 hybrid8 Perf/QA 包，等待曲库扫描结束，避免把扫描负载混入切歌结果。
+2. 清理或开始新的诊断会话，播放一首普通 FLAC/MP3 后手动切到下一首。
+3. 立即导出诊断日志，确认至少出现 `TrackSwitch`、`audio-start` 和对应的 `PlaybackEngine start request`。
+4. 如果缺少 `TrackSwitch` 或 `audio-start`，停止正式测试并反馈“诊断链缺失”；不要继续跑完整测试矩阵。
+
+2026-06-19 的 `mica-diagnostics(2).txt` 未通过这项预检：日志只有恢复播放和 USB 设备插拔，没有切歌标记。
+
+### 9.2 指定测试人员验收包
+
+| 场景 | 操作 | 观察重点 | 通过标准 |
+|------|------|----------|----------|
+| 标准页面基线 | `STANDARD + 主题色`，FLAC/MP3 连续手动切歌 20 次 | 点击响应、声音起播、封面/标题同步、是否回弹或错曲 | 无错曲、无回弹、无崩溃；热切歌 p95 ≤250ms，冷切歌 p95 ≤500ms |
+| 封面流压力 | 使用原问题对应的封面流和背景设置，拖动、点选、连续切歌 | 动画掉帧、音频起播竞争、体感卡顿 | 相比原问题有明确改善；无黑屏或闪退 |
+| ALAC 混合队列 | FLAC/MP3/ALAC 混排，快速前后切换 | ALAC 起播、错误跳歌、旧请求覆盖新曲 | 最终曲目始终与用户最后选择一致；ALAC 起播 p95 ≤500ms |
+| 长时稳定性 | 连续播放和操作 15–30 分钟 | 发热、黑屏、ANR、音频设备状态 | 无 Mica 崩溃/ANR；若黑屏，保留精确时间和系统退出信息 |
+| 冷扫描（独立轮次） | 清除可复用元数据后重新扫描 | 总耗时、前台卡顿、内存回收、发热 | 与切歌数据分开导出；本轮先形成基线，不阻塞普通播放验收 |
+
+### 9.3 每轮必须交付的证据
+
+- 设备型号、Android 版本、输出设备、构建版本和所用页面/封面流设置。
+- 测试开始与结束时间、切歌次数，以及主观卡顿最明显的具体操作。
+- 完整 Mica 诊断日志；不要只截取最后几行。
+- 若出现黑屏、闪退或 ANR：屏幕录像、精确时间点、`ApplicationExitInfo`；有 tombstone 时一并保留。
+- 若日志已有切歌标记但无法解释体感卡顿，再针对单个复现场景采集 Perfetto/gfxinfo，避免无边界长时间抓取。
+
+### 9.4 延期与已知问题
+
+- DSF、DFF 和 API 33+ USB DAC/direct playback 后续单独验收。
+- EQ 动态切换已补管线刷新并通过自动化测试；实机确认即时生效和无明显跳音后，再把 HIFI/DSP 动态切换列为通过项。
+- Dolby、MiSound、NXP Equalizer 等系统效果是否介入由 ROM 决定；记录环境即可，不把“已注册效果”直接判为 Mica 性能故障。

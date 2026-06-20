@@ -81,14 +81,10 @@ fun HomeDrawerPanel(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
                     .padding(
-                        top = statusBarTop + HifiSpacing.lg,
+                        top = statusBarTop + HifiSpacing.md,
                         bottom = HifiSpacing.md,
                     ),
             ) {
-                DrawerHeader()
-
-                Spacer(Modifier.height(HifiSpacing.xl))
-
                 DrawerSectionLabel("曲库")
                 DrawerNavItem(
                     label = "歌曲",
@@ -169,25 +165,6 @@ fun HomeDrawerPanel(
                 ),
             )
         }
-    }
-}
-
-@Composable
-private fun DrawerHeader() {
-    Column(
-        modifier = Modifier.padding(horizontal = HifiSpacing.lg),
-    ) {
-        Text(
-            text = "Mica",
-            style = MicaTheme.typography.titleMd,
-            color = MicaTheme.colors.textPrimary,
-        )
-        Spacer(Modifier.height(HifiSpacing.xxs))
-        Text(
-            text = "本地音乐",
-            style = MicaTheme.typography.caption,
-            color = MicaTheme.colors.textTertiary,
-        )
     }
 }
 

@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -48,6 +49,7 @@ import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.CoverEdgeProgressBar
 import com.mica.music.ui.components.LivePlayerSpectrumStrip
 import com.mica.music.ui.components.PlaybackSeekState
@@ -57,6 +59,7 @@ import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.rememberCoverGestureState
+import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -90,6 +93,7 @@ internal fun NowPlayingCoverSection(
     onNext: () -> Unit,
     onCoverLongPress: (() -> Unit)?,
     onCoverMotionActiveChanged: (Boolean) -> Unit,
+    coverFlowNavigation: CoverFlowCarouselNavigationBridge,
     screenWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -101,6 +105,9 @@ internal fun NowPlayingCoverSection(
     val coverWidthPx = with(density) { cover.width.toPx() }
     val coverHeightPx = with(density) { cover.height.toPx() }
     val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
+    val coverDecodeTarget = remember(screenWidthPx) {
+        CoverDecodeTarget.forSpecialTheme(screenWidthPx)
+    }
     val reflectionGapPx = with(density) { HifiSpacing.sm.toPx() }
     val reflectionExtraDp =
         cover.height * CoverFlowMath.ReflectionHeightFraction + HifiSpacing.sm + 4.dp
@@ -132,11 +139,11 @@ internal fun NowPlayingCoverSection(
         )
     }
 
-    LaunchedEffect(frame.coverFlowStageActive, currentIndex, queue) {
+    LaunchedEffect(frame.coverFlowStageActive, currentIndex, queue, coverDecodeTarget) {
         if (!frame.coverFlowStageActive) return@LaunchedEffect
         for (offset in listOf(-1, 1)) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
-            MicaImageLoaders.preloadCover(context, uri)
+            MicaImageLoaders.preloadCover(context, uri, coverDecodeTarget)
             if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
                 MicaImageLoaders.preloadBackground(context, uri)
             }
@@ -177,6 +184,7 @@ internal fun NowPlayingCoverSection(
                     screenWidthPx = screenWidthPx,
                     coverWidthPx = coverWidthPx,
                     coverHeightPx = coverHeightPx,
+                    coverDecodeTarget = coverDecodeTarget,
                     coverStartPaddingPx = coverStartPaddingPx,
                     reflectionGapPx = reflectionGapPx,
                     cameraDistancePx = cameraDistancePx,
@@ -190,6 +198,7 @@ internal fun NowPlayingCoverSection(
                     onCoverLongPress = onCoverLongPress,
                     onAspectRatioChanged = onCoverAspectRatioChanged,
                     onMotionActiveChanged = onCoverMotionActiveChanged,
+                    navigationBridge = coverFlowNavigation,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(coverBoxHeight)
@@ -294,6 +303,9 @@ internal fun NowPlayingCoverSection(
                             letterboxAlpha = cover.letterboxAlpha,
                             crossfadeMillis = if (motionEnabled) 200 else 0,
                             onAspectRatioChanged = onCoverAspectRatioChanged,
+                            decodeTarget = coverDecodeTarget.takeIf {
+                                coverFlowMode != PlayerCoverFlowMode.STANDARD
+                            },
                         )
                     }
                     if (coverEdgeFade) {

@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.Song
+import com.mica.music.imaging.CoverDecodeTarget
+import com.mica.music.ui.screens.player.CoverFlowMath
 
 @Composable
 internal fun CoverFlowCarouselHost(
@@ -20,6 +22,7 @@ internal fun CoverFlowCarouselHost(
     screenWidthPx: Float,
     coverWidthPx: Float,
     coverHeightPx: Float,
+    coverDecodeTarget: CoverDecodeTarget,
     coverStartPaddingPx: Float,
     reflectionGapPx: Float,
     cameraDistancePx: Float,
@@ -33,20 +36,21 @@ internal fun CoverFlowCarouselHost(
     onCoverLongPress: (() -> Unit)?,
     onAspectRatioChanged: (Float) -> Unit,
     onMotionActiveChanged: (Boolean) -> Unit,
+    navigationBridge: CoverFlowCarouselNavigationBridge? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val coverArgb = coverColor.toArgb()
 
-    LaunchedEffect(currentIndex, queue.size, stageActive) {
+    LaunchedEffect(currentIndex, queue.size, stageActive, coverDecodeTarget) {
         if (!stageActive) return@LaunchedEffect
-        for (offset in -3..3) {
+        for (offset in -CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
-            val cacheHit = CoverFlowBitmaps.memoryBitmap(uri) != null
+            val cacheHit = CoverFlowBitmaps.memoryBitmap(uri, coverDecodeTarget) != null
             val startedNs = SystemClock.elapsedRealtimeNanos()
             com.mica.music.util.TrackSwitchPerformance.coverAsyncStarted("host-preload")
             try {
-                CoverFlowBitmaps.ensureLoaded(context, uri)
+                CoverFlowBitmaps.ensureLoaded(context, uri, coverDecodeTarget)
             } finally {
                 com.mica.music.util.TrackSwitchPerformance.coverAsyncFinished(
                     kind = "host-preload",
@@ -78,6 +82,7 @@ internal fun CoverFlowCarouselHost(
             }
         },
         update = { view ->
+            navigationBridge?.view = view
             val updateStartedNs = SystemClock.elapsedRealtimeNanos()
             view.setMotionEnabled(motionEnabled)
             view.setGesturesEnabled(gesturesEnabled)
@@ -105,6 +110,11 @@ internal fun CoverFlowCarouselHost(
                 queueSize = queue.size,
             )
         },
-        onRelease = { view -> view.release() },
+        onRelease = { view ->
+            if (navigationBridge?.view === view) {
+                navigationBridge.view = null
+            }
+            view.release()
+        },
     )
 }

@@ -47,7 +47,7 @@ class SpectrumAudioProcessor : AudioProcessor {
             pendingOutput = AudioProcessor.EMPTY_BUFFER
             return pendingOutput
         }
-        if (MicaSpectrumAnalyzer.isEnabledForProcessing()) {
+        if (MicaSpectrumAnalyzer.isAnalysisActive()) {
             tapSpectrum(pendingInput.duplicate(), pendingInput.remaining())
         }
         pendingOutput = pendingInput

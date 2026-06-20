@@ -41,6 +41,7 @@ import com.mica.music.ui.navigation.PlayerSheetOverlay
 import com.mica.music.ui.navigation.AppNavigationCoordinator
 import com.mica.music.ui.system.StatusBarController
 import com.mica.music.ui.theme.AnimatedMicaAppBackground
+import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import eightbitlab.com.blurview.BlurTarget
@@ -70,6 +71,16 @@ internal fun MainAppSurface(
 }
 
 class MainActivity : ComponentActivity() {
+
+    override fun onStart() {
+        super.onStart()
+        MicaSpectrumAnalyzer.setAnalysisActive(true)
+    }
+
+    override fun onStop() {
+        MicaSpectrumAnalyzer.setAnalysisActive(false)
+        super.onStop()
+    }
 
     private val viewModel: MainViewModel by viewModels()
     private lateinit var navigationCoordinator: AppNavigationCoordinator

@@ -37,6 +37,12 @@ object AppPreferences {
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
     private const val KEY_EQUALIZER_PRESET = "equalizer_preset"
     private const val KEY_EQUALIZER_BAND_LEVELS = "equalizer_band_levels"
+    private const val KEY_SONG_LIST_INFO_SHOW_COUNT = "song_list_info_show_count"
+    private const val KEY_SONG_LIST_INFO_SHOW_SIZE = "song_list_info_show_size"
+    private const val KEY_SONG_LIST_INFO_SHOW_SORT = "song_list_info_show_sort"
+    private const val KEY_SONG_LIST_INFO_SHOW_LAST_SCAN = "song_list_info_show_last_scan"
+    private const val KEY_SONG_LIST_INFO_SHOW_CUSTOM = "song_list_info_show_custom"
+    private const val KEY_SONG_LIST_INFO_CUSTOM_TEXT = "song_list_info_custom_text"
 
     /** [equalizerPresetIndex] 为自定义频段时的占位值 */
     const val EQ_PRESET_CUSTOM = -1
@@ -252,6 +258,29 @@ object AppPreferences {
         includeNonMusicByMime = includeNonMusicAudio(context),
         deepMetadataProbe = deepMetadataProbe(context),
     )
+
+    fun songListInfoVisibility(context: Context): SongListInfoVisibility {
+        val p = prefs(context)
+        return SongListInfoVisibility(
+            showSongCount = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_COUNT, true),
+            showLibrarySize = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SIZE, true),
+            showSortOrder = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SORT, true),
+            showLastScanTime = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_LAST_SCAN, true),
+            showCustomText = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_CUSTOM, false),
+            customText = p.getString(KEY_SONG_LIST_INFO_CUSTOM_TEXT, "") ?: "",
+        )
+    }
+
+    fun setSongListInfoVisibility(context: Context, visibility: SongListInfoVisibility) {
+        prefs(context).edit()
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_COUNT, visibility.showSongCount)
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_SIZE, visibility.showLibrarySize)
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_SORT, visibility.showSortOrder)
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_LAST_SCAN, visibility.showLastScanTime)
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_CUSTOM, visibility.showCustomText)
+            .putString(KEY_SONG_LIST_INFO_CUSTOM_TEXT, visibility.customText)
+            .apply()
+    }
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

@@ -111,6 +111,7 @@ fun PlayerSheetHost(
                     queueState = queueState,
                     sleepTimer = sleepTimer,
                     actions = actions,
+                    playerController = playerController,
                     uiSettings = uiSettings,
                     onClose = { onExpandedChange(false) },
                     onOpenEqualizer = onOpenEqualizer,

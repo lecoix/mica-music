@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -63,6 +64,34 @@ fun SettingsToggleRow(
         }
         TextToggle(checked = checked, onCheckedChange = onCheckedChange)
     }
+}
+
+@Composable
+fun SettingsTextFieldRow(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        singleLine = true,
+        placeholder = {
+            Text(
+                text = placeholder,
+                style = MicaTheme.typography.bodyMd,
+                color = MicaTheme.colors.textTertiary,
+            )
+        },
+        textStyle = MicaTheme.typography.bodyMd.copy(color = MicaTheme.colors.textPrimary),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = HifiSpacing.lg)
+            .padding(bottom = HifiSpacing.md),
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

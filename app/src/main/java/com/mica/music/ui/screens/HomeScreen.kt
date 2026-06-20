@@ -512,6 +512,7 @@ fun HomeScreen(
             playlistSongCount = activePlaylistSongCount,
             playlistSortField = activePlaylist?.sortField,
             playlistSortDirection = activePlaylist?.sortDirection,
+            songListInfoVisibility = uiSettings.songListInfoVisibility,
         )
     } else {
         null

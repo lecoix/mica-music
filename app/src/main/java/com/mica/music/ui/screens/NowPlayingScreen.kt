@@ -22,12 +22,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlayerController
+import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SleepTimerController
@@ -67,6 +71,18 @@ data class NowPlayingActions(
     val insertPlayNext: (Song) -> Unit,
     val setQueue: (List<Song>) -> Unit,
 )
+
+internal suspend fun pollNowPlayingProgress(
+    isPlaying: Boolean,
+    syncPosition: () -> Unit,
+) {
+    syncPosition()
+    if (!isPlaying) return
+    while (true) {
+        delay(500)
+        syncPosition()
+    }
+}
 
 @Composable
 fun rememberNowPlayingActions(
@@ -113,6 +129,7 @@ fun NowPlayingScreen(
         queueState = playerController.playbackQueueState,
         sleepTimer = sleepTimer,
         actions = rememberNowPlayingActions(playerController, uiSettings),
+        playerController = playerController,
         uiSettings = uiSettings,
         onClose = onClose,
         onOpenEqualizer = onOpenEqualizer,
@@ -133,6 +150,7 @@ fun NowPlayingContent(
     queueState: PlaybackQueueState,
     sleepTimer: SleepTimerController,
     actions: NowPlayingActions,
+    playerController: PlayerController,
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
@@ -232,12 +250,13 @@ fun NowPlayingContent(
         }
     }
 
-    LaunchedEffect(actions, surfaceState.isPlaying) {
-        actions.syncPosition()
-        if (!surfaceState.isPlaying) return@LaunchedEffect
-        while (true) {
-            delay(500)
-            actions.syncPosition()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(actions, surfaceState.isPlaying, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            pollNowPlayingProgress(
+                isPlaying = surfaceState.isPlaying,
+                syncPosition = actions.syncPosition,
+            )
         }
     }
 
@@ -256,7 +275,7 @@ fun NowPlayingContent(
             "compose-song",
             "song=${song.id} background=$preloadBlurredBackground",
         )
-        MicaImageLoaders.preloadCover(context, song.albumArtUri)
+        // 播放页封面由 NowPlayingCoverSection 在布局尺寸确定后按目标尺寸预载。
         if (preloadBlurredBackground) {
             MicaImageLoaders.preloadBackground(context, song.albumArtUri)
         }
@@ -267,6 +286,7 @@ fun NowPlayingContent(
         mutableFloatStateOf(cachedCoverAspectRatio(song.albumArtUri) ?: 1f)
     }
     var coverMotionActive by remember { mutableStateOf(false) }
+    val coverFlowNavigation = remember { CoverFlowCarouselNavigationBridge() }
 
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
     BackHandler(enabled = !lyricsExpanded) { onClose() }
@@ -330,6 +350,24 @@ fun NowPlayingContent(
                 previewModel.frame.cover.zoneStop
             }
 
+            val coverFlowStageActive = previewModel.frame.coverFlowStageActive
+            val onPlayerNext: () -> Unit = {
+                if (coverFlowStageActive) {
+                    val target = playerController.manualNextTarget()
+                    if (target != null) coverFlowNavigation.skipToIndex(target)
+                } else {
+                    actions.next()
+                }
+            }
+            val onPlayerPrevious: () -> Unit = {
+                if (coverFlowStageActive) {
+                    val target = playerController.manualPreviousTarget()
+                    if (target != null) coverFlowNavigation.skipToIndex(target)
+                } else {
+                    actions.previous()
+                }
+            }
+
             NowPlayingBackground(
                 coverColor = appearance.coverColor,
                 albumArtUri = song.albumArtUri,
@@ -368,6 +406,7 @@ fun NowPlayingContent(
                         onNext = actions.next,
                         onCoverLongPress = { openSongActionMenu(song) },
                         onCoverMotionActiveChanged = { coverMotionActive = it },
+                        coverFlowNavigation = coverFlowNavigation,
                         screenWidth = screenWidth,
                     )
                     BoxWithConstraints(
@@ -400,9 +439,9 @@ fun NowPlayingContent(
                             immersiveLower = immersiveLower,
                             spectrumEnabled = pageModel.frame.spectrumEnabled,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
-                            onPrevious = actions.previous,
+                            onPrevious = onPlayerPrevious,
                             onTogglePlay = actions.togglePlay,
-                            onNext = actions.next,
+                            onNext = onPlayerNext,
                             onSeekToMs = actions.seekToMs,
                             onToggleImmersive = actions.toggleImmersiveLower,
                             onOpenEqualizer = onOpenEqualizer,

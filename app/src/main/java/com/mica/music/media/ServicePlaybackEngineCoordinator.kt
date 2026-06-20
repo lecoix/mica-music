@@ -37,6 +37,13 @@ internal class ServicePlaybackEngineCoordinator(
             return
         }
         val active = requestState.activeRequest
+        val failed = requestState.engineState as? PlaybackEngineState.Failed
+        if (failed?.request?.songId == song.id &&
+            failed.request.sourceRevision == PlaybackSourceRevision.of(song)
+        ) {
+            onPlaybackFailure?.invoke(failed.failure)
+            return
+        }
         if (active?.songId == song.id &&
             active.sourceRevision == PlaybackSourceRevision.of(song)
         ) {
@@ -60,25 +67,31 @@ internal class ServicePlaybackEngineCoordinator(
 
     override fun onSelectMediaItem(index: Int, positionMs: Long) {
         val override = PendingPlaybackNavigation.consumeNavigationOverride()
-        val queue = override?.queue ?: player.playbackQueueSnapshot()
-        val preferredMediaId = override?.targetSongId
-        startAt(
-            index = index,
-            positionMs = positionMs.coerceAtLeast(0L),
-            queue = queue,
-            preferredMediaId = preferredMediaId,
-        )
+        if (override == null) {
+            startExistingAt(index, positionMs.coerceAtLeast(0L), player.playWhenReady)
+        } else {
+            startAt(
+                index = index,
+                positionMs = positionMs.coerceAtLeast(0L),
+                queue = override.queue,
+                preferredMediaId = override.targetSongId,
+                playWhenReady = player.playWhenReady,
+            )
+        }
     }
 
     override fun onSkipToNext() {
-        startAt(resolveNextIndex(manual = true))
+        startExistingAt(
+            resolveNextIndex(manual = true),
+            playWhenReady = player.playWhenReady,
+        )
     }
 
     override fun onSkipToPrevious() {
         if (player.currentPosition > 3_000L) {
             onSeekTo(0L)
         } else {
-            startAt(resolvePreviousIndex())
+            startExistingAt(resolvePreviousIndex(), playWhenReady = player.playWhenReady)
         }
     }
 
@@ -141,8 +154,11 @@ internal class ServicePlaybackEngineCoordinator(
         playWhenReady: Boolean = true,
         queue: PlaybackQueueSnapshot = player.playbackQueueSnapshot(),
     ) {
+        val items = queue.items
+        if (items.isEmpty()) return
         when (val route = PlaybackRouter.decide(song)) {
             is PlaybackRouteDecision.Unsupported -> {
+                player.selectWithoutPlayback(items, index, positionMs)
                 val request = requestState.begin(
                     song,
                     positionMs,
@@ -155,6 +171,7 @@ internal class ServicePlaybackEngineCoordinator(
                         PlaybackFailureKind.EXTRACTOR_UNSUPPORTED,
                         route.userMessage,
                     ),
+                    allowAutomaticSkip = false,
                 )
                 return
             }
@@ -165,8 +182,6 @@ internal class ServicePlaybackEngineCoordinator(
                 )
             }
         }
-        val items = queue.items
-        if (items.isEmpty()) return
         val request = requestState.begin(
             song,
             positionMs,
@@ -180,7 +195,74 @@ internal class ServicePlaybackEngineCoordinator(
         player.startExoPlayback(items, index, positionMs, playWhenReady = playWhenReady)
     }
 
-    private fun handleFailure(requestId: Long, failure: PlaybackFailure) {
+    private fun startExistingAt(
+        index: Int,
+        positionMs: Long = 0L,
+        playWhenReady: Boolean,
+    ) {
+        if (player.mediaItemCount == 0) return
+        val safe = index.coerceIn(0, player.mediaItemCount - 1)
+        val song = SongMediaItemCodec.decode(player.getMediaItemAt(safe)) ?: return
+        val position = positionMs.coerceAtLeast(0L)
+        val active = requestState.activeRequest
+        val duplicateRequest = active != null &&
+            active.songId == song.id &&
+            active.sourceRevision == PlaybackSourceRevision.of(song) &&
+            kotlin.math.abs(active.startPositionMs - position) <=
+            DUPLICATE_START_POSITION_TOLERANCE_MS
+        val playbackHealthy = player.isPlaying || player.playbackState == Player.STATE_BUFFERING
+        if (duplicateRequest && playbackHealthy) {
+            if (player.currentMediaItemIndex != safe) player.setPlaylistIndex(safe)
+            DiagnosticLog.event(
+                "PlaybackEngine",
+                "start-existing ignored duplicate index=$safe song=${song.id} request=${active.id}",
+            )
+            return
+        }
+        when (val route = PlaybackRouter.decide(song)) {
+            is PlaybackRouteDecision.Unsupported -> {
+                player.selectExistingWithoutPlayback(safe, position)
+                val request = requestState.begin(
+                    song,
+                    position,
+                    playWhenReady,
+                    qualityMode(),
+                )
+                handleFailure(
+                    request.id,
+                    PlaybackFailure(
+                        PlaybackFailureKind.EXTRACTOR_UNSUPPORTED,
+                        route.userMessage,
+                    ),
+                    allowAutomaticSkip = false,
+                )
+                return
+            }
+            is PlaybackRouteDecision.Supported -> {
+                DiagnosticLog.event(
+                    "PlaybackEngine",
+                    "route=${route.reason} song=${song.id} existing-playlist=true",
+                )
+            }
+        }
+        val request = requestState.begin(
+            song,
+            position,
+            playWhenReady,
+            qualityMode(),
+        )
+        DiagnosticLog.event(
+            "PlaybackEngine",
+            "start-existing request=${request.id} index=$safe source=${request.sourceRevision}",
+        )
+        player.startExistingItem(safe, position, playWhenReady)
+    }
+
+    private fun handleFailure(
+        requestId: Long,
+        failure: PlaybackFailure,
+        allowAutomaticSkip: Boolean = true,
+    ) {
         val count = requestState.markFailed(requestId, failure) ?: return
         onPlaybackFailure?.invoke(failure)
         DiagnosticLog.event(
@@ -188,7 +270,7 @@ internal class ServicePlaybackEngineCoordinator(
             "failed request=$requestId kind=${failure.kind} count=$count message=${failure.message}",
             failure.cause,
         )
-        if (!PlaybackFailureClassifier.allowsAutomaticSkip(failure.kind)) return
+        if (!allowAutomaticSkip || !PlaybackFailureClassifier.allowsAutomaticSkip(failure.kind)) return
         if (count >= MAX_CONSECUTIVE_FAILURES) return
         val queueAtFailure = player.playbackQueueSnapshot()
         resolveFailureIndex(queueAtFailure)?.let { startAt(it, queue = queueAtFailure) }
@@ -199,6 +281,7 @@ internal class ServicePlaybackEngineCoordinator(
         positionMs: Long = 0L,
         queue: PlaybackQueueSnapshot = player.playbackQueueSnapshot(),
         preferredMediaId: String? = null,
+        playWhenReady: Boolean = player.playWhenReady,
     ) {
         if (queue.items.isEmpty()) return
         val resolvedIndex = preferredMediaId
@@ -237,29 +320,30 @@ internal class ServicePlaybackEngineCoordinator(
         DiagnosticLog.event(
             "PlaybackEngine",
             "startAt requested=$index resolved=$safe song=${song.id} " +
-                "preferred=${preferredMediaId ?: "none"} queueRevision=${queue.revision}",
+                "preferred=${preferredMediaId ?: "none"} queueRevision=${queue.revision} " +
+                "items=${queue.items.size}",
         )
-        start(song, safe, position, queue = queue)
+        start(song, safe, position, playWhenReady = playWhenReady, queue = queue)
     }
 
     private fun resolveNextIndex(manual: Boolean): Int {
-        val queue = player.playbackQueueSnapshot()
+        val queueSize = player.mediaItemCount
         return PlaybackQueueNavigator.nextIndex(
             mode = queueMode(),
-            currentIndex = queue.currentIndex,
-            queueSize = queue.items.size,
+            currentIndex = player.currentMediaItemIndex,
+            queueSize = queueSize,
             manualSkip = manual,
-            randomIndex = { randomIndexExcept(queue.items.size, it) },
+            randomIndex = { randomIndexExcept(queueSize, it) },
         )
     }
 
     private fun resolvePreviousIndex(): Int {
-        val queue = player.playbackQueueSnapshot()
+        val queueSize = player.mediaItemCount
         return PlaybackQueueNavigator.previousIndex(
             mode = queueMode(),
-            currentIndex = queue.currentIndex,
-            queueSize = queue.items.size,
-            randomIndex = { randomIndexExcept(queue.items.size, it) },
+            currentIndex = player.currentMediaItemIndex,
+            queueSize = queueSize,
+            randomIndex = { randomIndexExcept(queueSize, it) },
         )
     }
 

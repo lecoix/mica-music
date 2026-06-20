@@ -16,8 +16,15 @@ internal object CoverFlowMath {
     /** Lane 池窗口半径；与 maxViewDistance 对齐，保证 ±3 槽可渲染 */
     const val LaneWindowRadius = 3
 
+    /** 完整七轨都预烘焙倒影，避免轨位提交时倒影跳现。 */
+    const val ReflectionLaneRadius = LaneWindowRadius
+
     /** 相对中心的可见距离上限（含最外 lane） */
     const val MaxViewDistance = 3f
+
+    fun shouldRenderReflection(laneIndex: Int): Boolean =
+        laneIndex in -ReflectionLaneRadius..ReflectionLaneRadius
+
 
     fun laneStepFraction(mode: PlayerCoverFlowMode): Float =
         when (mode) {

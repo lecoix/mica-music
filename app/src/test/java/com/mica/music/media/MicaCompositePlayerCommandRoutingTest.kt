@@ -91,6 +91,22 @@ class MicaCompositePlayerCommandRoutingTest {
         assertTrue(player.playbackQueueSnapshot().revision > initialRevision)
     }
 
+    @Test
+    fun rebuildAudioPipelineRecreatesRenderersAndPreservesPlaybackIntent() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val player = MicaCompositePlayer(exo)
+
+        player.rebuildAudioPipeline(positionMs = 12_345L, resumePlayback = true)
+
+        verifySequence {
+            exo.playWhenReady = false
+            exo.stop()
+            exo.seekTo(12_345L)
+            exo.prepare()
+            exo.playWhenReady = true
+        }
+    }
+
     private fun items(count: Int): List<MediaItem> =
         List(count) { index ->
             MediaItem.Builder().setMediaId("song-$index").build()

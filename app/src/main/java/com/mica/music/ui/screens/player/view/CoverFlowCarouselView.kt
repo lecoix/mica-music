@@ -21,6 +21,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
 import com.mica.music.data.PlayerCoverFlowMode
+import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.data.Song
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.motion.MicaMotion
@@ -78,6 +79,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private var screenWidthPx: Float = 1f
     private var coverWidthPx: Float = 1f
     private var coverHeightPx: Float = 1f
+    private var coverDecodeTarget = CoverDecodeTarget.fromPixels(1f, 1f)
     private var coverStartPaddingPx: Float = 0f
     private var reflectionGapPx: Float = 0f
     private var cameraDistancePx: Float = 48f
@@ -148,6 +150,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             val newAspect = w / h
             coverWidthPx = w
             coverHeightPx = h
+            coverDecodeTarget = CoverDecodeTarget.fromPixels(w, h)
             if (abs(oldAspect - newAspect) > 0.001f) {
                 scheduleReflectionRebakeForWindow()
             }
@@ -498,7 +501,10 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             song = song,
             tx = CoverFlowRails.translationPx(railOffset, layoutWidthPx(), coverFlowMode),
             rotationY = CoverFlowRails.rotationY(railOffset, coverFlowMode),
-            bitmap = bitmapFor(song.albumArtUri),
+            bitmap = bitmapFor(
+                uri = song.albumArtUri,
+                reflectionEligible = CoverFlowMath.shouldRenderReflection(laneIndex),
+            ),
             slotAlphaByte = (slotAlpha * 255).toInt().coerceIn(0, 255),
             drawScale = CoverFlowRails.drawScale(railOffset, coverFlowMode, foldProgress),
             scalePivotX = CoverFlowRails.pivotX(railOffset, slotW, coverFlowMode),
@@ -532,7 +538,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             canvas.drawRect(coverRect, paint)
             paint.color = fallbackColorArgb
         }
-        if (reflectionEnabled()) {
+        if (reflectionEnabled() && CoverFlowMath.shouldRenderReflection(state.laneIndex)) {
             drawReflection(
                 canvas = canvas,
                 albumArtUri = state.song.albumArtUri,
@@ -725,38 +731,47 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         }
     }
 
-    private fun bitmapFor(uri: String?): Bitmap? {
+    private fun bitmapFor(
+        uri: String?,
+        reflectionEligible: Boolean,
+    ): Bitmap? {
         if (uri.isNullOrBlank()) return null
-        bitmapByUri[uri]?.let { cached ->
+        val bitmapKey = coverDecodeTarget.memoryCacheKey(uri)
+        bitmapByUri[bitmapKey]?.let { cached ->
             if (!CoverFlowBitmaps.isPollutedThumbnail(cached)) return cached
-            bitmapByUri.remove(uri)
+            bitmapByUri.remove(bitmapKey)
         }
-        CoverFlowBitmaps.memoryBitmap(uri)?.let { cached ->
+        CoverFlowBitmaps.memoryBitmap(uri, coverDecodeTarget)?.let { cached ->
             if (!CoverFlowBitmaps.isPollutedThumbnail(cached)) {
-                bitmapByUri[uri] = cached
+                bitmapByUri[bitmapKey] = cached
                 return cached
             }
-            MicaImageLoaders.evictCoverMemory(uri)
+            MicaImageLoaders.evictCoverMemory(uri, coverDecodeTarget)
         }
-        if (!pendingLoads.contains(uri)) {
-            pendingLoads.add(uri)
+        if (!pendingLoads.contains(bitmapKey)) {
+            pendingLoads.add(bitmapKey)
             val loadStartedNs = SystemClock.elapsedRealtimeNanos()
             TrackSwitchPerformance.coverAsyncStarted("cover-load")
             TrackSwitchPerformance.mark("cover-load-start", "uri=${uri.takeLast(48)}")
+            val loadTarget = coverDecodeTarget
             scope.launch {
                 try {
-                    val loaded = CoverFlowBitmaps.ensureLoaded(context, uri)
+                    val loaded = CoverFlowBitmaps.ensureLoaded(context, uri, loadTarget)
                     loaded?.let { bmp ->
-                        bitmapByUri[uri] = bmp
-                        scheduleReflectionBake(uri, bmp)
-                        invalidateFor("cover-load")
+                        if (coverDecodeTarget == loadTarget) {
+                            bitmapByUri[bitmapKey] = bmp
+                            if (reflectionEligible) {
+                                scheduleReflectionBake(uri, bmp)
+                            }
+                            invalidateFor("cover-load")
+                        }
                         TrackSwitchPerformance.mark(
                             "cover-load-end",
                             "uri=${uri.takeLast(48)} size=${bmp.width}x${bmp.height}",
                         )
                     }
                 } finally {
-                    pendingLoads.remove(uri)
+                    pendingLoads.remove(bitmapKey)
                     TrackSwitchPerformance.coverAsyncFinished(
                         kind = "cover-load",
                         durationNs = SystemClock.elapsedRealtimeNanos() - loadStartedNs,
@@ -772,8 +787,12 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         val radius = CoverFlowMath.LaneWindowRadius
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
-            bitmapFor(uri)
-            bitmapByUri[uri]?.let { scheduleReflectionBake(uri, it) }
+            val reflectionEligible = CoverFlowMath.shouldRenderReflection(offset)
+            bitmapFor(uri, reflectionEligible)
+            if (reflectionEligible) {
+                bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
+                    ?.let { scheduleReflectionBake(uri, it) }
+            }
         }
     }
 
@@ -811,7 +830,10 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
             CoverFlowReflectionBake.evict(uri)
-            bitmapByUri[uri]?.let { scheduleReflectionBake(uri, it) }
+            if (CoverFlowMath.shouldRenderReflection(offset)) {
+                bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
+                    ?.let { scheduleReflectionBake(uri, it) }
+            }
         }
     }
 
@@ -869,6 +891,12 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             return true
         }
         return false
+    }
+
+    /** 按钮切歌与滑动 commit 共用：先跑封面动画，结束后再 [dispatchPlayQueueIndex]。 */
+    fun skipToIndexVisualFirst(index: Int) {
+        if (index !in queue.indices) return
+        playQueueIndexAfterVisualCommit(index)
     }
 
     private fun playQueueIndexAfterVisualCommit(index: Int) {

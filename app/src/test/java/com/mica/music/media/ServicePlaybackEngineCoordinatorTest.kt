@@ -21,7 +21,7 @@ import org.robolectric.RobolectricTestRunner
 class ServicePlaybackEngineCoordinatorTest {
 
     @Test
-    fun dffIsRejectedBeforeExoPlaybackStarts() {
+    fun dffSelectionStopsOldPlaybackAndCannotRestartIt() {
         val dff = SongFixtures.song(
             "dff",
             container = "DSD",
@@ -41,10 +41,39 @@ class ServicePlaybackEngineCoordinatorTest {
 
         coordinator.onSelectMediaItem(0, 0L)
 
-        verify(exactly = 0) {
-            exo.setMediaItems(any<List<MediaItem>>(), any(), any())
-        }
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 1) { exo.seekTo(0, 0L) }
+        verify(exactly = 1) { exo.pause() }
+        verify(exactly = 0) { exo.prepare() }
         assertEquals("不支持 DFF/DSDIFF 格式，请使用 DSF", failure?.message)
+
+        coordinator.playCurrent()
+
+        verify(exactly = 0) { exo.play() }
+        coordinator.release()
+    }
+
+    @Test
+    fun indexedSelectionPreservesPausedIntentDuringRestore() {
+        val items = listOf(
+            SongMediaItemCodec.encode(SongFixtures.song("first")),
+            SongMediaItemCodec.encode(SongFixtures.song("second")),
+        )
+        val exo = mockExoWithQueue(items, currentIndex = 0, playWhenReady = false)
+        val player = MicaCompositePlayer(exo)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            context = ApplicationProvider.getApplicationContext(),
+            player = player,
+        )
+        coordinator.start()
+
+        player.playWhenReady = false
+        player.seekTo(1, 12_345L)
+
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 1) { exo.seekTo(1, 12_345L) }
+        verify(atLeast = 1) { exo.playWhenReady = false }
+        verify(exactly = 0) { exo.play() }
         coordinator.release()
     }
 
@@ -62,10 +91,30 @@ class ServicePlaybackEngineCoordinatorTest {
 
         coordinator.onSelectMediaItem(0, 1_500L)
 
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 1) { exo.seekTo(0, 1_500L) }
+        verify(exactly = 0) { exo.prepare() }
+        coordinator.release()
+    }
+
+    @Test
+    fun changedQueueOverrideStillRebuildsExoPlaylistOnce() {
+        val first = SongMediaItemCodec.encode(SongFixtures.song("first"))
+        val second = SongMediaItemCodec.encode(SongFixtures.song("second"))
+        val exo = mockExoWithQueue(listOf(first), currentIndex = 0)
+        val player = MicaCompositePlayer(exo)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            context = ApplicationProvider.getApplicationContext(),
+            player = player,
+        )
+        coordinator.start()
+        PendingPlaybackNavigation.prepare("second", listOf(first, second))
+
+        player.seekTo(1, 0L)
+
         verify(exactly = 1) {
-            exo.setMediaItems(any<List<MediaItem>>(), 0, 1_500L)
+            exo.setMediaItems(match { it.map(MediaItem::mediaId) == listOf("first", "second") }, 1, 0L)
         }
-        verify(exactly = 1) { exo.prepare() }
         coordinator.release()
     }
 
@@ -141,9 +190,8 @@ class ServicePlaybackEngineCoordinatorTest {
         coordinator.onSelectMediaItem(0, 0L)
         coordinator.onSelectMediaItem(0, 0L)
 
-        verify(atLeast = 2) {
-            exo.setMediaItems(any<List<MediaItem>>(), any(), any())
-        }
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(atLeast = 2) { exo.seekTo(0, 0L) }
         coordinator.release()
     }
 
@@ -162,9 +210,8 @@ class ServicePlaybackEngineCoordinatorTest {
         coordinator.onSelectMediaItem(0, 100L)
         coordinator.onSelectMediaItem(0, 100L)
 
-        verify(exactly = 1) {
-            exo.setMediaItems(any<List<MediaItem>>(), any(), any())
-        }
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 1) { exo.seekTo(0, 100L) }
         coordinator.release()
     }
 
@@ -172,6 +219,7 @@ class ServicePlaybackEngineCoordinatorTest {
         items: List<MediaItem>,
         currentIndex: Int,
         positionMs: Long = 0L,
+        playWhenReady: Boolean = true,
     ): ExoPlayer {
         val exo = mockk<ExoPlayer>(relaxed = true)
         every { exo.mediaItemCount } returns items.size
@@ -180,7 +228,7 @@ class ServicePlaybackEngineCoordinatorTest {
         every { exo.currentMediaItemIndex } returns currentIndex
         every { exo.currentPosition } returns positionMs
         every { exo.playbackState } returns Player.STATE_READY
-        every { exo.playWhenReady } returns true
+        every { exo.playWhenReady } returns playWhenReady
         return exo
     }
 }

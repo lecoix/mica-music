@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,8 +60,8 @@ private val FloatingIslandBlurLight = 4.dp
 private val FloatingIslandBlurDark = 5.dp
 /** 在 surface.glass 基础上再降不透明度，提高透视感（规范约 60%/30%）。 */
 private const val FloatingIslandGlassAlphaScale = 0.1375f
-/** 与列表单行一致：行高 + 底部分割线，便于与第 9 首下方分割线重合。 */
-private val AudiophileBarHeight = HifiSize.listRowHeight + HifiSize.dividerHairline
+/** 与列表单行一致的高度。 */
+private val AudiophileBarHeight = HifiSize.listRowHeight
 
 /** 迷你栏自内容区底边向上的占用高度（不含列表缓冲）。 */
 @Composable
@@ -83,7 +82,7 @@ fun miniPlayerOverlayHeight(style: MiniPlayerStyle): Dp {
     }
 }
 
-/** 歌曲列表 [LazyColumn] 底部 contentPadding；极简底栏顶线对齐末行分割线时不额外留白。 */
+/** 歌曲列表 [LazyColumn] 底部 contentPadding。 */
 @Composable
 fun miniPlayerListClearance(style: MiniPlayerStyle): Dp =
     when (style) {
@@ -262,7 +261,8 @@ private fun AudiophileMiniPlayer(
     Column(
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(AudiophileBarHeight)
@@ -274,51 +274,40 @@ private fun AudiophileMiniPlayer(
                 .combinedClickable(
                     onClick = onExpand,
                     onLongClick = onLongPress,
-                ),
-        ) {
-            HorizontalDivider(
-                thickness = HifiSize.dividerHairline,
-                color = colors.divider,
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(HifiSize.listRowHeight)
-                    .padding(start = HifiSpacing.lg, end = HifiSpacing.xl),
-            ) {
-                SharpPlayPauseButton(
-                    isPlaying = isPlaying,
-                    onToggle = onPlayPause,
-                    size = HifiSize.iconLg,
-                    color = colors.textPrimary,
                 )
-                Spacer(Modifier.width(HifiSpacing.md))
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = HifiSpacing.sm),
-                ) {
-                    Text(
-                        text = song.title,
-                        style = MicaTheme.typography.bodyMd,
-                        color = colors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = ArtistNames.normalizeDisplay(song.artist),
-                        style = MicaTheme.typography.bodySm,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                MiniPlayerSpectrumBars(
-                    isPlaying = isPlaying,
-                    height = 38.dp,
+                .padding(start = HifiSpacing.lg, end = HifiSpacing.xl),
+        ) {
+            SharpPlayPauseButton(
+                isPlaying = isPlaying,
+                onToggle = onPlayPause,
+                size = HifiSize.iconLg,
+                color = colors.textPrimary,
+            )
+            Spacer(Modifier.width(HifiSpacing.md))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = HifiSpacing.sm),
+            ) {
+                Text(
+                    text = song.title,
+                    style = MicaTheme.typography.bodyMd,
+                    color = colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = ArtistNames.normalizeDisplay(song.artist),
+                    style = MicaTheme.typography.bodySm,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+            MiniPlayerSpectrumBars(
+                isPlaying = isPlaying,
+                height = 38.dp,
+            )
         }
         if (bottomInset > 0.dp) {
             Box(

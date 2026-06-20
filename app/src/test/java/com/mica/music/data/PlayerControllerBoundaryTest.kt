@@ -6,13 +6,23 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.media.AudioQualityMode
+import com.mica.music.media.PendingPlaybackNavigation
+import com.mica.music.media.ServicePlaybackSnapshot
+import com.mica.music.media.ServicePlaybackStateStore
+import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.testutil.SongFixtures
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -23,6 +33,150 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class PlayerControllerBoundaryTest {
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun rapidEquivalentPlaylistChangesAreDebouncedAndRebuiltOnce() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val connector = FakeConnector()
+        val controller = controller(connector = connector, dispatcher = dispatcher)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = List(4) { index -> SongFixtures.song("local-$index") }
+        val playerQueue = List(4) { index -> SongFixtures.song("player-$index") }
+        var resolverCalls = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(playerQueue[firstArg()].id).build()
+        }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(playerQueue[1].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 1
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 12_345L
+        every { mediaController.duration } returns 60_000L
+        controller.songResolver = { id ->
+            resolverCalls += 1
+            playerQueue.firstOrNull { it.id == id }
+        }
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        listener.captured.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+        listener.captured.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+
+        assertEquals(0, resolverCalls)
+        advanceTimeBy(99)
+        runCurrent()
+        assertEquals(0, resolverCalls)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(playerQueue.size, resolverCalls)
+        assertEquals(playerQueue.map { it.id }, controller.songQueue.map { it.id })
+
+        listener.captured.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+        advanceTimeBy(100)
+        runCurrent()
+
+        assertEquals(playerQueue.size, resolverCalls)
+        controller.release()
+    }
+
+    @Test
+    fun alignedLargeQueueReorderUsesSingleIncrementalMove() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val queue = List(4_500) { index -> SongFixtures.song("song-$index") }
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+        }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[2_000].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 2_000
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 12_345L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+
+        controller.moveInQueue(fromIndex = 4_000, toIndex = 10)
+
+        verify(exactly = 1) { mediaController.moveMediaItem(4_000, 10) }
+        verify(exactly = 0) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        assertEquals("song-2000", controller.currentSong?.id)
+        controller.release()
+    }
+
+    @Test
+    fun misalignedQueueReorderFallsBackToSingleFullSync() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val queue = List(4) { index -> SongFixtures.song("song-$index") }
+        every { mediaController.getMediaItemAt(any()) } answers {
+            val index = firstArg<Int>()
+            val mediaId = if (index == 3) "stale-song" else queue[index].id
+            MediaItem.Builder().setMediaId(mediaId).build()
+        }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[1].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 1
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 12_345L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+
+        controller.moveInQueue(fromIndex = 3, toIndex = 0)
+
+        verify(exactly = 0) { mediaController.moveMediaItem(any(), any()) }
+        verify(exactly = 1) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        assertEquals("song-1", controller.currentSong?.id)
+        controller.release()
+    }
+
+    @Test
+    fun unsupportedSelectionSurfacesUserMessageBeforeExoPlayback() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val dff = SongFixtures.song(
+            "dff",
+            container = "DSD",
+            mime = "audio/x-dsdiff",
+            fileExtension = "dff",
+        ).copy(fileName = "track.dff")
+        val item = SongMediaItemCodec.encode(dff)
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.getMediaItemAt(0) } returns item
+        controller.setQueue(listOf(dff))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.playSong(0)
+
+        val expected = "不支持 DFF/DSDIFF 格式，请使用 DSF"
+        assertEquals(expected, controller.playbackError)
+        assertEquals(expected, controller.userMessage?.text)
+        listener.captured.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+        assertEquals(expected, controller.playbackError)
+        controller.release()
+    }
 
     @Test
     fun duplicateConnectIsIgnoredAndFailureAllowsRetry() {
@@ -89,14 +243,100 @@ class PlayerControllerBoundaryTest {
         controller.release()
     }
 
+    @Test
+    fun selectingAnotherSongAfterColdStartRestoreStartsAtBeginning() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = ServicePlaybackStateStore(context)
+        val queue = SongFixtures.queue(2)
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        store.clear(sync = true)
+        store.save(
+            ServicePlaybackSnapshot(
+                queueSongIds = queue.map { it.id },
+                currentIndex = 0,
+                positionMs = 42_000L,
+                repeatMode = Player.REPEAT_MODE_OFF,
+                shuffleEnabled = false,
+                playWhenReady = false,
+                qualityMode = AudioQualityMode.HIFI,
+            ),
+            sync = true,
+        )
+        every { mediaController.mediaItemCount } returns 0
+
+        try {
+            assertTrue(controller.bootstrapQueue { id -> queue.firstOrNull { it.id == id } })
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+            clearMocks(mediaController, answers = false, recordedCalls = true)
+
+            controller.playSong(1)
+
+            verify(exactly = 1) { mediaController.seekTo(1, 0L) }
+        } finally {
+            controller.release()
+            store.clear(sync = true)
+        }
+    }
+
+    @Test
+    fun coldStartRestoreReleasesUiPositionWhenPlaybackResumes() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = ServicePlaybackStateStore(context)
+        val queue = SongFixtures.queue(2)
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val restoredItem = MediaItem.Builder().setMediaId(queue[0].id).build()
+        var playerPositionMs = 622L
+        store.clear(sync = true)
+        store.save(
+            ServicePlaybackSnapshot(
+                queueSongIds = queue.map { it.id },
+                currentIndex = 0,
+                positionMs = 622L,
+                repeatMode = Player.REPEAT_MODE_OFF,
+                shuffleEnabled = false,
+                playWhenReady = false,
+                qualityMode = AudioQualityMode.HIFI,
+            ),
+            sync = true,
+        )
+        every { mediaController.currentMediaItem } returns restoredItem
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } answers { playerPositionMs }
+        every { mediaController.duration } returns 60_000L
+
+        try {
+            assertTrue(controller.bootstrapQueue { id -> queue.firstOrNull { it.id == id } })
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+            controller.togglePlay()
+
+            playerPositionMs = 128_406L
+            controller.syncPosition()
+
+            assertEquals(128_406, controller.uiPositionMs())
+        } finally {
+            controller.release()
+            store.clear(sync = true)
+        }
+    }
+
     private fun controller(
         connector: FakeConnector = FakeConnector(),
         storage: FakeSessionStorage = FakeSessionStorage(),
+        dispatcher: CoroutineDispatcher = StandardTestDispatcher(),
+        queueMirrorDispatcher: CoroutineDispatcher = dispatcher,
     ): PlayerController = PlayerController(
         context = ApplicationProvider.getApplicationContext(),
         mediaControllerConnector = connector,
         sessionStorage = storage,
-        dispatcher = StandardTestDispatcher(),
+        dispatcher = dispatcher,
+        queueMirrorDispatcher = queueMirrorDispatcher,
     )
 
     @Test
@@ -217,7 +457,7 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun playSongSwitchPushesAuthoritativeQueueEvenWithoutSessionTimelineClass() {
+    fun playSongSwitchSkipsQueuePayloadWhenServiceTargetIsAlreadyAligned() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)
         val mediaController = mockk<MediaController>(relaxed = true)
@@ -248,12 +488,47 @@ class PlayerControllerBoundaryTest {
 
         controller.playSong(2)
 
-        verify(exactly = 1) {
-            mediaController.setMediaItems(any<List<MediaItem>>(), 2, 0L)
-        }
+        val navigation = PendingPlaybackNavigation.consumeNavigationOverride()
+        assertNull(navigation)
+        verify(exactly = 0) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
         verify(exactly = 1) {
             mediaController.seekTo(2, 0L)
         }
+        controller.release()
+    }
+
+    @Test
+    fun playSongSwitchCarriesQueuePayloadWhenServiceQueueIsNotAligned() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val queue = listOf(
+            SongFixtures.song("song-a"),
+            SongFixtures.song("song-b"),
+            SongFixtures.song("song-c"),
+        )
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+        }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[0].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 2
+        every { mediaController.currentPosition } returns 4_000L
+        every { mediaController.playWhenReady } returns true
+        every { mediaController.isPlaying } returns true
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+
+        controller.playSong(2)
+
+        val navigation = PendingPlaybackNavigation.consumeNavigationOverride()
+        assertEquals("song-c", navigation?.targetSongId)
+        assertEquals(queue.map { it.id }, navigation?.queue?.items?.map { it.mediaId })
+        verify(exactly = 1) { mediaController.seekTo(2, 0L) }
         controller.release()
     }
 
@@ -350,6 +625,69 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun playlistChangeKeepsProgressWhenCurrentSongDoesNotChange() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = SongFixtures.queue(2)
+        val currentItem = MediaItem.Builder().setMediaId(queue[0].id).build()
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns currentItem
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 40_000L
+        every { mediaController.duration } returns 60_000L
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.syncPosition()
+
+        listener.captured.onMediaItemTransition(
+            currentItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
+        )
+
+        assertEquals(queue[0].id, controller.currentSong?.id)
+        assertEquals(40_000, controller.uiPositionMs())
+        controller.release()
+    }
+
+    @Test
+    fun playlistChangeResetsProgressWhenCurrentSongChanges() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = SongFixtures.queue(2)
+        val firstItem = MediaItem.Builder().setMediaId(queue[0].id).build()
+        val secondItem = MediaItem.Builder().setMediaId(queue[1].id).build()
+        var currentItem = firstItem
+        var currentIndex = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 40_000L
+        every { mediaController.duration } returns 60_000L
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.syncPosition()
+
+        currentItem = secondItem
+        currentIndex = 1
+        listener.captured.onMediaItemTransition(
+            secondItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
+        )
+
+        assertEquals(queue[1].id, controller.currentSong?.id)
+        assertEquals(0, controller.uiPositionMs())
+        controller.release()
+    }
+
+    @Test
     fun playerErrorSurfacesMessageAndReleasesPendingSelection() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)
@@ -388,7 +726,8 @@ class PlayerControllerBoundaryTest {
                 PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
             ),
         )
-        assertEquals("decoder failed", controller.playbackError)
+        assertEquals("无法读取音频文件", controller.playbackError)
+        assertNull(controller.userMessage)
 
         currentItem = firstItem
         currentIndex = 0

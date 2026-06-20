@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.data.formatSortLabel
@@ -27,6 +28,7 @@ internal fun rememberLibraryStatsBarModel(
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
     playlistSortDirection: SortDirection?,
+    songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
 ): LibraryStatsBarModel? {
     val songs = library.songs
     return remember(
@@ -36,6 +38,7 @@ internal fun rememberLibraryStatsBarModel(
         playlistSongCount,
         playlistSortField,
         playlistSortDirection,
+        songListInfoVisibility,
         songs,
         library.totalSizeMb,
         library.lastScanAtMs,
@@ -52,6 +55,7 @@ internal fun rememberLibraryStatsBarModel(
             playlistSongCount,
             playlistSortField,
             playlistSortDirection,
+            songListInfoVisibility,
         )
     }
 }
@@ -66,6 +70,7 @@ internal fun resolveLibraryStatsBarModel(
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
     playlistSortDirection: SortDirection?,
+    songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
 ): LibraryStatsBarModel? {
     if (section == HomeSection.Settings) {
         return null
@@ -75,11 +80,7 @@ internal fun resolveLibraryStatsBarModel(
 
     return when (section) {
         HomeSection.Songs -> LibraryStatsBarModel(
-            segments = listOfNotNull(
-                songCountLabel(library.songs.size, library.lastScanAtMs),
-                formatSize(library.totalSizeMb),
-                sortSegment(library),
-            ) + scanSegments,
+            segments = buildSongListSegments(library, songListInfoVisibility),
             isScanning = library.isScanning,
             scanProgressLabel = library.scanProgressLabel,
             scanError = library.lastScanError,
@@ -157,6 +158,35 @@ internal fun resolveLibraryStatsBarModel(
         else -> null
     }
 }
+
+private fun buildSongListSegments(
+    library: MusicLibrary,
+    visibility: SongListInfoVisibility,
+): List<String> {
+    val segments = mutableListOf<String>()
+    if (visibility.showSongCount) {
+        segments += songCountLabel(library.songs.size, library.lastScanAtMs)
+    }
+    if (visibility.showLibrarySize) {
+        segments += formatSize(library.totalSizeMb)
+    }
+    if (visibility.showSortOrder) {
+        segments += sortSegment(library)
+    }
+    segments += songListScanSegments(library, visibility.showLastScanTime)
+    if (visibility.showCustomText) {
+        visibility.customText.trim().takeIf { it.isNotEmpty() }?.let { segments += it }
+    }
+    return segments
+}
+
+private fun songListScanSegments(library: MusicLibrary, showLastScanTime: Boolean): List<String> =
+    when {
+        library.isScanning -> listOf("扫描中…")
+        !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
+        showLastScanTime && library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
+        else -> emptyList()
+    }
 
 private fun subsetStats(songs: List<Song>, library: MusicLibrary): LibraryStatsBarModel {
     val sizeMb = songs.totalSizeMb()
