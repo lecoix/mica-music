@@ -6,6 +6,8 @@ package com.mica.music.data
  */
 object LyricDisplayRows {
 
+    data class DisplayRow(val text: String, val start: Int, val endExclusive: Int)
+
     /** LRC 原文与译文之间常见的不可见窄空格 */
     private val specialSpaceSeparators = charArrayOf(
         '\u2009', // thin space
@@ -39,6 +41,19 @@ object LyricDisplayRows {
         splitByExplicitSeparator(trimmed)?.let { return it }
 
         return listOf(trimmed)
+    }
+
+    /** Display rows plus their ranges in the original line, used to retain cue styling after splitting. */
+    fun splitForDisplayRows(text: String, enabled: Boolean = true): List<DisplayRow> {
+        val rows = splitForDisplay(text, enabled)
+        var searchFrom = 0
+        return rows.map { row ->
+            val start = text.indexOf(row, startIndex = searchFrom).takeIf { it >= 0 }
+                ?: text.indexOf(row).coerceAtLeast(0)
+            val end = (start + row.length).coerceAtMost(text.length)
+            searchFrom = end
+            DisplayRow(row, start, end)
+        }
     }
 
     fun isBilingualLine(text: String, enabled: Boolean = true): Boolean =

@@ -55,6 +55,27 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun lyricsParserUpgradeForcesOneSuccessfulLyricsRefresh() = runTest {
+        val cached = SongFixtures.song("cached")
+        val scanner = ControlledScanner()
+        val environment = FakeScanEnvironment(parserVersion = 0)
+        val library = library(
+            scanner = scanner,
+            store = FakeLibraryStore(CachedLibrary(listOf(cached), 100, ScanSource.DEVICE, 1)),
+            environment = environment,
+        )
+
+        val scan = async { library.scanDeviceWide() }
+        runCurrent()
+        assertTrue(scanner.deviceRequests.single().cachedSongs.single().lyrics.isEmpty())
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(cached), 1))
+        scan.await()
+
+        assertEquals(CURRENT_LYRICS_PARSER_VERSION, environment.parserVersion)
+        library.release()
+    }
+
+    @Test
     fun latestScanWinsWhenOlderResultArrivesLast() = runTest {
         val scanner = ControlledScanner()
         val library = library(scanner, FakeLibraryStore())
@@ -158,13 +179,14 @@ class MusicLibraryTest {
     private fun kotlinx.coroutines.test.TestScope.library(
         scanner: ControlledScanner,
         store: LibraryStore,
+        environment: FakeScanEnvironment = FakeScanEnvironment(),
     ): MusicLibrary {
         val dispatcher = StandardTestDispatcher(testScheduler)
         return MusicLibrary(
             context = ApplicationProvider.getApplicationContext(),
             libraryScanner = scanner,
             libraryStore = store,
-            scanEnvironment = FakeScanEnvironment(),
+            scanEnvironment = environment,
             mainDispatcher = dispatcher,
             ioDispatcher = dispatcher,
         )
@@ -268,12 +290,18 @@ class MusicLibraryTest {
         override suspend fun clear() = Unit
     }
 
-    private class FakeScanEnvironment : ScanEnvironment {
+    private class FakeScanEnvironment(
+        var parserVersion: Int = CURRENT_LYRICS_PARSER_VERSION,
+    ) : ScanEnvironment {
         override fun hasAudioReadPermission(): Boolean = true
         override fun canReadTree(treeUri: Uri): Boolean = true
         override fun currentTimeMillis(): Long = 1_234L
         override fun playStats(songId: String): PlayStats = PlayStats(0, 0)
         override fun clearTransientCache() = Unit
         override fun persistLastScanSource(source: ScanSource) = Unit
+        override fun lyricsParserVersion(): Int = parserVersion
+        override fun persistLyricsParserVersion(version: Int) {
+            parserVersion = version
+        }
     }
 }

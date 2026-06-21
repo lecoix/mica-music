@@ -339,13 +339,20 @@ class MusicLibrary internal constructor(
                     libraryStore.loadCached()?.songs.orEmpty()
                 }
             }
+            val lyricsParserUpgrade =
+                scanEnvironment.lyricsParserVersion() < CURRENT_LYRICS_PARSER_VERSION
+            val scanCachedSongs = if (lyricsParserUpgrade) {
+                cachedSongs.map { it.copy(lyrics = emptyList()) }
+            } else {
+                cachedSongs
+            }
             val result = block(
                 { done, total ->
                     if (isActiveGeneration(generation)) {
                         scanProgressLabel = "正在分析音质、封面与歌词 ($done/$total)"
                     }
                 },
-                cachedSongs,
+                scanCachedSongs,
             )
             if (!isActiveGeneration(generation)) return
             totalSizeMb = result.totalSizeMb
@@ -354,6 +361,9 @@ class MusicLibrary internal constructor(
             lastScanSource = source
             scanEnvironment.persistLastScanSource(source)
             publishSongs(result.songs, generation)
+            if (lyricsParserUpgrade && isActiveGeneration(generation)) {
+                scanEnvironment.persistLyricsParserVersion(CURRENT_LYRICS_PARSER_VERSION)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

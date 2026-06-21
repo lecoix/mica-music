@@ -42,7 +42,7 @@ internal data class TrackDraft(
     val dateAddedMs: Long = 0L,
     val dateModifiedMs: Long = 0L,
     val externalLyricsParent: DocumentFile? = null,
-    val externalLyricsUri: String? = null,
+    val externalLyricsUris: List<String> = emptyList(),
 )
 
 internal data class TagInfo(
@@ -434,10 +434,10 @@ object AudioMetadataProbe {
         retriever: MediaMetadataRetriever? = null,
         taglibLyricsCandidates: List<String> = emptyList(),
     ): List<com.mica.music.data.LyricLine> {
-        cachedSong?.lyrics?.takeIf { it.isNotEmpty() }?.let { return it }
-        ExternalLyricsReader.readDirectUri(context, draft.externalLyricsUri)
+        ExternalLyricsReader.readDirectUris(context, draft.externalLyricsUris)
             ?.takeIf { it.isNotEmpty() }
             ?.let { return it }
+        cachedSong?.lyrics?.takeIf { it.isNotEmpty() }?.let { return it }
         taglibLyricsCandidates
             .mapNotNull { parseLyricsTextForScan(MetadataTextFix.normalize(it)) }
             .filter { it.isNotEmpty() }

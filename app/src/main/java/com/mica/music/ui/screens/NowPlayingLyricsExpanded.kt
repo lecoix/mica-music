@@ -99,6 +99,8 @@ internal fun ExpandedLyricsPanel(
                     textStyle = textStyle,
                     colorSpec = colorSpec,
                     maxLines = Int.MAX_VALUE,
+                    lyricLine = line,
+                    positionMs = positionMs,
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(

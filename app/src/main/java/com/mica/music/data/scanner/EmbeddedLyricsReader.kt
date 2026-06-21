@@ -12,19 +12,18 @@ internal object EmbeddedLyricsReader {
 
     /** 非同步歌词帧优先；COMM 为评论帧，不在此列表（避免把 comment 当歌词）。 */
     private val lyricFrameIds = setOf("USLT", "ULT", "SYLT", "TXXX", "LYR")
+    private const val MAX_SYLT_ENTRIES = 50_000
 
     /** 同一标签内多帧时按此顺序取歌词。 */
-    private val lyricFramePriority = listOf("USLT", "ULT", "LYR", "SYLT", "TXXX")
-
     fun readExternalOnly(
         context: Context,
         uri: Uri,
         displayName: String?,
         filePath: String = "",
         externalLyricsParent: DocumentFile? = null,
-        externalLyricsUri: String? = null,
+        externalLyricsUris: List<String> = emptyList(),
     ): List<LyricLine> =
-        ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUri)
+        ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUris)
 
     fun read(
         context: Context,
@@ -33,10 +32,10 @@ internal object EmbeddedLyricsReader {
         displayName: String?,
         filePath: String = "",
         externalLyricsParent: DocumentFile? = null,
-        externalLyricsUri: String? = null,
+        externalLyricsUris: List<String> = emptyList(),
     ): List<LyricLine> {
         val candidates = mutableListOf<List<LyricLine>>()
-        ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUri)
+        ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUris)
             .takeIf { it.isNotEmpty() }
             ?.let { candidates += it }
         readFastEmbeddedOnly(context, uri, mimeType, displayName)
@@ -83,6 +82,9 @@ internal object EmbeddedLyricsReader {
         }
         return LyricsSanitizer.pickBest(candidates)
     }
+
+    internal fun readFromBinaryForTest(bytes: ByteArray, mime: String = "audio/wav", ext: String = "wav"): List<LyricLine>? =
+        readFromBinary(bytes, mime, ext)
 
     private fun parseId3(bytes: ByteArray): List<LyricLine>? {
         var searchFrom = 0
@@ -145,26 +147,24 @@ internal object EmbeddedLyricsReader {
             if (frameId in lyricFrameIds) {
                 var payload = bytes.copyOfRange(frameStart, frameEnd)
                 if (tagUnsync) payload = deunsynchronizeId3(payload)
-                extractLyricsPayload(frameId, payload)?.let { text ->
-                    parseLyricsText(text)?.takeIf { it.isNotEmpty() }?.let { lines ->
-                        val prev = byFrame[frameId]
-                        if (prev == null || LyricsSanitizer.score(lines) > LyricsSanitizer.score(prev)) {
-                            byFrame[frameId] = lines
-                        }
+                val parsed = when (frameId) {
+                    "SYLT" -> parseSylt(payload)
+                    else -> extractLyricsTextPayload(frameId, payload)?.let(::parseLyricsText)
+                }
+                parsed?.takeIf { it.isNotEmpty() }?.let { lines ->
+                    val prev = byFrame[frameId]
+                    if (prev == null || LyricsSanitizer.score(lines) > LyricsSanitizer.score(prev)) {
+                        byFrame[frameId] = lines
                     }
                 }
             }
             offset = frameEnd
         }
-        for (id in lyricFramePriority) {
-            byFrame[id]?.let { return it }
-        }
-        return byFrame.values.maxByOrNull { LyricsSanitizer.score(it) }
+        return LyricsSanitizer.pickBest(byFrame.values.toList())
     }
 
-    private fun extractLyricsPayload(frameId: String, payload: ByteArray): String? = when (frameId) {
+    private fun extractLyricsTextPayload(frameId: String, payload: ByteArray): String? = when (frameId) {
         "USLT", "ULT", "LYR" -> parseUslt(payload)
-        "SYLT" -> parseSylt(payload)
         "TXXX" -> parseTxxx(payload)
         else -> null
     }
@@ -181,28 +181,112 @@ internal object EmbeddedLyricsReader {
         return decodeId3LyricsSlice(payload, i, encoding)
     }
 
-    private fun parseSylt(payload: ByteArray): String? {
+    private data class SyltEntry(val timeMs: Int, val text: String)
+
+    private fun parseSylt(payload: ByteArray): List<LyricLine>? {
         if (payload.size < 10) return null
         val encoding = payload[0].toInt() and 0xFF
-        var i = 6
-        i = skipId3TextField(payload, i, encoding)
-        val sb = StringBuilder()
-        while (i + 5 < payload.size) {
-            val textEnd = id3LyricsEnd(payload, i, encoding)
-            val text = decodeId3LyricsSlice(payload, i, encoding)?.trim().orEmpty()
-            val timeStart = if (encoding == 1 || encoding == 2) {
-                (textEnd + 2).coerceAtMost(payload.size)
-            } else {
-                (textEnd + 1).coerceAtMost(payload.size)
-            }
-            if (timeStart + 4 > payload.size) break
-            i = timeStart + 4
-            if (text.isNotEmpty()) {
-                if (sb.isNotEmpty()) sb.append('\n')
-                sb.append(text)
-            }
+        if (encoding !in 0..3) return null
+        val timestampFormat = payload[4].toInt() and 0xFF
+        if (timestampFormat != 2) return null
+
+        var offset = skipId3TextField(payload, 6, encoding)
+        if (offset >= payload.size) return null
+        val entries = mutableListOf<SyltEntry>()
+        var previousTimeMs = -1
+        while (offset + 4 <= payload.size && entries.size < MAX_SYLT_ENTRIES) {
+            val field = readTerminatedId3Text(payload, offset, encoding) ?: return null
+            offset = field.nextOffset
+            if (offset + 4 > payload.size) return null
+            val timestamp = readUInt32Be(payload, offset)
+            offset += 4
+            if (timestamp > Int.MAX_VALUE.toLong()) return null
+            val timeMs = timestamp.toInt()
+            if (timeMs < previousTimeMs) return null
+            previousTimeMs = timeMs
+            if (field.text.isNotEmpty()) entries += SyltEntry(timeMs, field.text)
         }
-        return sb.toString().takeIf { it.isNotBlank() }
+        if (entries.isEmpty() || entries.size >= MAX_SYLT_ENTRIES) return null
+        return groupSyltEntries(entries)
+    }
+
+    private data class DecodedId3Field(val text: String, val nextOffset: Int)
+
+    private fun readTerminatedId3Text(bytes: ByteArray, offset: Int, encoding: Int): DecodedId3Field? {
+        if (offset >= bytes.size) return null
+        val end = id3LyricsEnd(bytes, offset, encoding)
+        if (end < offset || end >= bytes.size) return null
+        val terminatorSize = if (encoding == 1 || encoding == 2) 2 else 1
+        val text = if (end == offset) {
+            ""
+        } else {
+            decodeSyltText(bytes.copyOfRange(offset, end), encoding) ?: return null
+        }
+        return DecodedId3Field(text, (end + terminatorSize).coerceAtMost(bytes.size))
+    }
+
+    private fun decodeSyltText(bytes: ByteArray, encoding: Int): String? = runCatching {
+        val charset = when (encoding) {
+            0 -> Charsets.ISO_8859_1
+            1 -> Charsets.UTF_16
+            2 -> Charsets.UTF_16BE
+            3 -> Charsets.UTF_8
+            else -> return null
+        }
+        String(bytes, charset)
+            .trim('\u0000')
+            .trimStart('\uFEFF', '\uFFFE')
+    }.getOrNull()
+
+    private fun groupSyltEntries(entries: List<SyltEntry>): List<LyricLine>? {
+        val lines = mutableListOf<LyricLine>()
+        var lineStartMs = -1
+        val lineText = StringBuilder()
+        val lineCues = mutableListOf<com.mica.music.data.LyricCue>()
+
+        fun flushLine() {
+            val normalized = MetadataTextFix.normalize(lineText.toString()).trim()
+            if (lineStartMs >= 0 && normalized.isNotEmpty()) {
+                lines += LyricLine(lineStartMs, normalized, lineCues.toList())
+            }
+            lineStartMs = -1
+            lineText.clear()
+            lineCues.clear()
+        }
+
+        fun appendFragment(timeMs: Int, raw: String) {
+            val fragment = MetadataTextFix.normalizeFragment(raw)
+            if (fragment.isEmpty()) return
+            if (fragment.isBlank()) {
+                if (lineText.isNotEmpty()) {
+                    lineText.append(fragment)
+                    if (lineCues.isNotEmpty()) {
+                        lineCues[lineCues.lastIndex] = lineCues.last().copy(
+                            text = lineCues.last().text + fragment,
+                        )
+                    }
+                }
+                return
+            }
+            if (lineStartMs < 0) lineStartMs = timeMs
+            lineText.append(fragment)
+            lineCues += com.mica.music.data.LyricCue(timeMs, fragment)
+        }
+
+        entries.forEach { entry ->
+            val normalized = entry.text.replace("\r\n", "\n").replace('\r', '\n')
+            var segmentStart = 0
+            normalized.forEachIndexed { index, char ->
+                if (char == '\n') {
+                    appendFragment(entry.timeMs, normalized.substring(segmentStart, index))
+                    flushLine()
+                    segmentStart = index + 1
+                }
+            }
+            appendFragment(entry.timeMs, normalized.substring(segmentStart))
+        }
+        flushLine()
+        return LyricsSanitizer.finalize(lines).takeIf { it.isNotEmpty() }
     }
 
     private fun parseTxxx(payload: ByteArray): String? {
@@ -219,21 +303,7 @@ internal object EmbeddedLyricsReader {
     /** 跳过 ID3 文本字段（语言 / 描述）；UTF-16 以 `00 00` 结尾。 */
     private fun skipId3TextField(payload: ByteArray, start: Int, encoding: Int): Int {
         if (start >= payload.size) return start
-        return when (encoding) {
-            1, 2 -> {
-                var i = start
-                while (i + 1 < payload.size) {
-                    if (payload[i] == 0.toByte() && payload[i + 1] == 0.toByte()) return i + 2
-                    i++
-                }
-                payload.size
-            }
-            else -> {
-                var i = start
-                while (i < payload.size && payload[i] != 0.toByte()) i++
-                if (i < payload.size) i + 1 else i
-            }
-        }
+        return readTerminatedId3Text(payload, start, encoding)?.nextOffset ?: payload.size
     }
 
     private fun id3LyricsEnd(bytes: ByteArray, offset: Int, encoding: Int): Int {
@@ -242,7 +312,7 @@ internal object EmbeddedLyricsReader {
                 var i = offset
                 while (i + 1 < bytes.size) {
                     if (bytes[i] == 0.toByte() && bytes[i + 1] == 0.toByte()) return i
-                    i++
+                    i += 2
                 }
                 bytes.size
             }

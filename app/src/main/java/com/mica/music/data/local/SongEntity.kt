@@ -3,6 +3,7 @@ package com.mica.music.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricCue
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import org.json.JSONArray
@@ -131,11 +132,17 @@ private fun encodeLyrics(lines: List<LyricLine>): String {
     if (lines.isEmpty()) return "[]"
     val array = JSONArray()
     lines.forEach { line ->
-        array.put(
-            JSONObject()
+        val encoded = JSONObject()
                 .put("t", line.timeMs)
-                .put("x", line.text),
-        )
+                .put("x", line.text)
+        if (line.cues.isNotEmpty()) {
+            val cues = JSONArray()
+            line.cues.forEach { cue ->
+                cues.put(JSONObject().put("t", cue.timeMs).put("x", cue.text))
+            }
+            encoded.put("c", cues)
+        }
+        array.put(encoded)
     }
     return array.toString()
 }
@@ -147,7 +154,16 @@ private fun decodeLyrics(json: String): List<LyricLine> {
         buildList(array.length()) {
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                add(LyricLine(timeMs = obj.getInt("t"), text = obj.getString("x")))
+                val cues = obj.optJSONArray("c")?.let { cueArray ->
+                    buildList(cueArray.length()) {
+                        for (cueIndex in 0 until cueArray.length()) {
+                            val cue = cueArray.optJSONObject(cueIndex) ?: continue
+                            if (!cue.has("t") || !cue.has("x")) continue
+                            add(LyricCue(timeMs = cue.getInt("t"), text = cue.getString("x")))
+                        }
+                    }
+                }.orEmpty()
+                add(LyricLine(timeMs = obj.getInt("t"), text = obj.getString("x"), cues = cues))
             }
         }
     }.getOrDefault(emptyList())

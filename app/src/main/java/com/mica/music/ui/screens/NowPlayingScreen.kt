@@ -74,15 +74,19 @@ data class NowPlayingActions(
 
 internal suspend fun pollNowPlayingProgress(
     isPlaying: Boolean,
+    intervalMs: Long = 500L,
     syncPosition: () -> Unit,
 ) {
     syncPosition()
     if (!isPlaying) return
     while (true) {
-        delay(500)
+        delay(intervalMs.coerceAtLeast(50L))
         syncPosition()
     }
 }
+
+internal fun nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics: Boolean): Long =
+    if (hasWordSyncedLyrics) 100L else 500L
 
 @Composable
 fun rememberNowPlayingActions(
@@ -251,11 +255,13 @@ fun NowPlayingContent(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(actions, surfaceState.isPlaying, lifecycleOwner) {
+    val hasWordSyncedLyrics = remember(song.lyrics) { song.lyrics.any { it.cues.isNotEmpty() } }
+    LaunchedEffect(actions, surfaceState.isPlaying, lifecycleOwner, hasWordSyncedLyrics) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             pollNowPlayingProgress(
                 isPlaying = surfaceState.isPlaying,
                 syncPosition = actions.syncPosition,
+                intervalMs = nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics),
             )
         }
     }

@@ -43,6 +43,8 @@ internal interface LibraryStore {
     suspend fun clear()
 }
 
+internal const val CURRENT_LYRICS_PARSER_VERSION = 2
+
 internal interface ScanEnvironment {
     fun hasAudioReadPermission(): Boolean
     fun canReadTree(treeUri: Uri): Boolean
@@ -50,6 +52,8 @@ internal interface ScanEnvironment {
     fun playStats(songId: String): PlayStats
     fun clearTransientCache()
     fun persistLastScanSource(source: ScanSource)
+    fun lyricsParserVersion(): Int = CURRENT_LYRICS_PARSER_VERSION
+    fun persistLyricsParserVersion(version: Int) = Unit
 }
 
 internal class AndroidLibraryScanner(
@@ -129,4 +133,9 @@ internal class AndroidScanEnvironment(
 
     override fun persistLastScanSource(source: ScanSource) =
         AppPreferences.setLastScanSource(context, source)
+
+    override fun lyricsParserVersion(): Int = AppPreferences.lyricsParserVersion(context)
+
+    override fun persistLyricsParserVersion(version: Int) =
+        AppPreferences.setLyricsParserVersion(context, version)
 }

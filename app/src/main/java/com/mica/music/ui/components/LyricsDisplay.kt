@@ -25,9 +25,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.lerp as lerpTextUnit
@@ -35,12 +39,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricDisplayRows
+import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsSync
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 private const val LYRIC_LINE_PLACEHOLDER = "\u00A0"
 
@@ -207,26 +215,133 @@ fun LyricLineBlock(
     modifier: Modifier = Modifier,
     colorSpec: androidx.compose.animation.core.AnimationSpec<Color> = rememberLyricLineColorSpec(),
     maxLines: Int = 1,
+    lyricLine: LyricLine? = null,
+    positionMs: Int = 0,
 ) {
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
-    val rows = LyricDisplayRows.splitForDisplay(text.orEmpty(), lyricSplitEnabled)
+    val rows = LyricDisplayRows.splitForDisplayRows(text.orEmpty(), lyricSplitEnabled)
     val bilingualGap = if (rows.size > 1) HifiSpacing.lyricBilingualGap else 0.dp
+    val cueRanges = remember(lyricLine) { lyricLine?.let(::lyricCueRanges).orEmpty() }
+    val motionEnabled = rememberMicaMotionEnabled()
+    val cueColorSpec = remember(motionEnabled) { MicaMotion.tweenFloat(motionEnabled, 120) }
+    val activeCueIndex = if (isCurrent && lyricLine != null) {
+        LyricsSync.cueIndexForPosition(lyricLine, positionMs)
+    } else {
+        -1
+    }
+    val cueColors = rememberAnimatedCueColors(
+        cueCount = lyricLine?.cues?.size ?: 0,
+        cueKey = lyricLine,
+        activeCueIndex = activeCueIndex,
+        colors = colors,
+        animationSpec = cueColorSpec,
+    )
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(bilingualGap),
     ) {
         rows.forEach { row ->
-            AnimatedLyricLineText(
-                text = row,
-                isCurrent = isCurrent,
-                colors = colors,
-                textStyle = textStyle,
-                colorSpec = colorSpec,
-                maxLines = maxLines,
-            )
+            if (cueRanges.isNotEmpty()) {
+                WordSyncedLyricLineText(
+                    text = buildWordSyncedRow(row, cueRanges, cueColors, colors.tertiary),
+                    isCurrent = isCurrent,
+                    colors = colors,
+                    textStyle = textStyle,
+                    maxLines = maxLines,
+                )
+            } else {
+                AnimatedLyricLineText(
+                    text = row.text,
+                    isCurrent = isCurrent,
+                    colors = colors,
+                    textStyle = textStyle,
+                    colorSpec = colorSpec,
+                    maxLines = maxLines,
+                )
+            }
         }
     }
+}
+
+private data class LyricCueRange(val cueIndex: Int, val start: Int, val endExclusive: Int)
+
+private fun lyricCueRanges(line: LyricLine): List<LyricCueRange> {
+    var searchFrom = 0
+    return buildList {
+        line.cues.forEachIndexed { index, cue ->
+            var visible = cue.text
+            var start = line.text.indexOf(visible, startIndex = searchFrom)
+            if (start < 0) {
+                visible = visible.trim()
+                start = line.text.indexOf(visible, startIndex = searchFrom)
+            }
+            if (start < 0 || visible.isEmpty()) return@forEachIndexed
+            val end = (start + visible.length).coerceAtMost(line.text.length)
+            add(LyricCueRange(index, start, end))
+            searchFrom = end
+        }
+    }
+}
+
+@Composable
+private fun rememberAnimatedCueColors(
+    cueCount: Int,
+    cueKey: Any?,
+    activeCueIndex: Int,
+    colors: PlayerContentColors,
+    animationSpec: androidx.compose.animation.core.AnimationSpec<Float>,
+): List<Color> {
+    val animatables = remember(cueKey, cueCount) { List(cueCount) { Animatable(0f) } }
+    LaunchedEffect(animatables, activeCueIndex, colors.primary, colors.tertiary, animationSpec) {
+        coroutineScope {
+            animatables.forEachIndexed { index, color ->
+                launch {
+                    color.animateTo(
+                        targetValue = if (index == activeCueIndex) 1f else 0f,
+                        animationSpec = animationSpec,
+                    )
+                }
+            }
+        }
+    }
+    return animatables.map { lerp(colors.tertiary, colors.primary, it.value) }
+}
+
+private fun buildWordSyncedRow(
+    row: LyricDisplayRows.DisplayRow,
+    cueRanges: List<LyricCueRange>,
+    cueColors: List<Color>,
+    defaultColor: Color,
+): AnnotatedString = buildAnnotatedString {
+    append(row.text.takeIf { it.isNotBlank() } ?: LYRIC_LINE_PLACEHOLDER)
+    addStyle(SpanStyle(color = defaultColor), 0, length)
+    cueRanges.forEach { cue ->
+        val start = maxOf(cue.start, row.start) - row.start
+        val end = minOf(cue.endExclusive, row.endExclusive) - row.start
+        if (start in 0 until end && end <= length) {
+            addStyle(SpanStyle(color = cueColors.getOrElse(cue.cueIndex) { defaultColor }), start, end)
+        }
+    }
+}
+
+@Composable
+private fun WordSyncedLyricLineText(
+    text: AnnotatedString,
+    isCurrent: Boolean,
+    colors: PlayerContentColors,
+    textStyle: TextStyle,
+    maxLines: Int,
+) {
+    Text(
+        text = text,
+        style = textStyle.copy(fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal),
+        color = colors.tertiary,
+        textAlign = TextAlign.Center,
+        maxLines = maxLines,
+        overflow = if (maxLines == 1) TextOverflow.Ellipsis else TextOverflow.Clip,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable

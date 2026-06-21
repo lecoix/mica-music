@@ -50,4 +50,11 @@ data class Song(
 data class LyricLine(
     val timeMs: Int,
     val text: String,
+    val cues: List<LyricCue> = emptyList(),
+)
+
+/** A timed visible fragment within a lyric line. The text retains source spacing and punctuation. */
+data class LyricCue(
+    val timeMs: Int,
+    val text: String,
 )

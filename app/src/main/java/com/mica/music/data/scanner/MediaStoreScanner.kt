@@ -54,7 +54,7 @@ object MediaStoreScanner {
             drafts.map { draft ->
                 draft.reusableCachedSong(
                     cachedById = cachedById,
-                    requireDirectLyrics = !draft.externalLyricsUri.isNullOrBlank(),
+                    requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
                 )?.also { reused.incrementAndGet() }
                     ?: profiler.measure("quickSong") {
@@ -78,7 +78,7 @@ object MediaStoreScanner {
                             val song = draft.reusableCachedSong(
                                 cachedById = cachedById,
                                 requireDeepMetadata = true,
-                                requireDirectLyrics = !draft.externalLyricsUri.isNullOrBlank(),
+                                requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                                 requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
                             )
                                 ?.also { reused.incrementAndGet() }
@@ -114,7 +114,7 @@ object MediaStoreScanner {
 
     private fun loadDrafts(context: Context, options: ScanOptions): List<TrackDraft> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val lrcByAudioKey = loadLyricsIndex(context)
+        val lyricsByAudioKey = loadLyricsIndex(context)
 
         val baseProjection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -222,13 +222,13 @@ object MediaStoreScanner {
                     }
                     else -> ""
                 }
-                val externalLyricsUri = displayName
+                val externalLyricsUris = displayName
                     ?.substringBeforeLast('.')
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { baseName ->
-                        lrcByAudioKey[lyricsKey(lyricsFolderPath(relativePath, filePath), baseName)]
-                    }
+                        lyricsByAudioKey[lyricsKey(lyricsFolderPath(relativePath, filePath), baseName)]
+                    }.orEmpty()
                 val uri = ContentUris.withAppendedId(collection, id)
 
                 drafts += TrackDraft(
@@ -247,7 +247,7 @@ object MediaStoreScanner {
                     year = year,
                     folderPath = folderPath,
                     filePath = filePath,
-                    externalLyricsUri = externalLyricsUri,
+                    externalLyricsUris = externalLyricsUris,
                     dateAddedMs = dateAddedMs,
                     dateModifiedMs = dateModifiedMs,
                 )
@@ -256,13 +256,13 @@ object MediaStoreScanner {
         val existingKeys = drafts
             .map { draft -> mediaStoreDuplicateKey(draft.mediaUri, draft.filePath, draft.sizeBytes) }
             .toMutableSet()
-        drafts += loadDsdFileDrafts(context, lrcByAudioKey, existingKeys)
+        drafts += loadDsdFileDrafts(context, lyricsByAudioKey, existingKeys)
         return drafts
     }
 
     private fun loadDsdFileDrafts(
         context: Context,
-        lrcByAudioKey: Map<String, String>,
+        lyricsByAudioKey: Map<String, List<String>>,
         existingKeys: MutableSet<String>,
     ): List<TrackDraft> = runCatching {
         val filesUri = MediaStore.Files.getContentUri("external")
@@ -343,7 +343,7 @@ object MediaStoreScanner {
                     coverColorArgb = CoverColorExtractor.FALLBACK_ARGB,
                     folderPath = folderPath,
                     filePath = filePath,
-                    externalLyricsUri = lrcByAudioKey[lyricsKey(folderPath, baseName)],
+                    externalLyricsUris = lyricsByAudioKey[lyricsKey(folderPath, baseName)].orEmpty(),
                     dateAddedMs = if (dateAddedCol >= 0) c.getLong(dateAddedCol) * 1000L else 0L,
                     dateModifiedMs = if (dateModifiedCol >= 0) c.getLong(dateModifiedCol) * 1000L else 0L,
                 )
@@ -352,7 +352,7 @@ object MediaStoreScanner {
         out
     }.getOrDefault(emptyList())
 
-    private fun loadLyricsIndex(context: Context): Map<String, String> = runCatching {
+    private fun loadLyricsIndex(context: Context): Map<String, List<String>> = runCatching {
         val filesUri = MediaStore.Files.getContentUri("external")
         val projection = mutableListOf(
             MediaStore.Files.FileColumns._ID,
@@ -372,12 +372,13 @@ object MediaStoreScanner {
             projection += dataColumn
         }
 
-        val out = LinkedHashMap<String, String>()
+        val out = LinkedHashMap<String, MutableList<String>>()
         context.contentResolver.query(
             filesUri,
             projection.toTypedArray(),
-            "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?",
-            arrayOf("%.lrc"),
+            "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ? OR " +
+                "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?",
+            arrayOf("%.lrc", "%.ttml"),
             null,
         )?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
@@ -391,7 +392,9 @@ object MediaStoreScanner {
             }
             while (cursor.moveToNext()) {
                 val name = cursor.getString(nameCol) ?: continue
-                if (!name.endsWith(".lrc", ignoreCase = true)) continue
+                if (!name.endsWith(".lrc", ignoreCase = true) &&
+                    !name.endsWith(".ttml", ignoreCase = true)
+                ) continue
                 val baseName = name.substringBeforeLast('.').trim()
                 if (baseName.isEmpty()) continue
                 val folderPath = when {
@@ -400,10 +403,10 @@ object MediaStoreScanner {
                     else -> ""
                 }
                 val uri = ContentUris.withAppendedId(filesUri, cursor.getLong(idCol)).toString()
-                out[lyricsKey(folderPath, baseName)] = uri
+                out.getOrPut(lyricsKey(folderPath, baseName)) { mutableListOf() } += uri
             }
         }
-        out
+        out.mapValues { (_, uris) -> uris.distinct() }
     }.getOrDefault(emptyMap())
 
     private fun lyricsFolderPath(relativePath: String, absolutePath: String): String = when {

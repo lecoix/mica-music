@@ -76,6 +76,7 @@ internal fun LyricsSection(
                         textStyle = textStyle,
                         colorSpec = colorSpec,
                         lineStepPx = lineStepPx,
+                        positionMs = positionMs,
                     )
                 }
             }
@@ -108,6 +109,7 @@ private fun CompactLyricsRows(
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
     lineStepPx: Float,
+    positionMs: Int,
 ) {
     val safeTargetIndex = targetIndex.coerceIn(0, lyrics.lastIndex.coerceAtLeast(0))
     PlayerLyricsIndexRoll(
@@ -125,6 +127,7 @@ private fun CompactLyricsRows(
                 colors = colors,
                 textStyle = textStyle,
                 colorSpec = colorSpec,
+                positionMs = positionMs,
             )
             displayIndex < 0 -> Text(
                 text = lyrics.firstOrNull()?.text ?: EmptyLyricsText,
@@ -141,6 +144,7 @@ private fun CompactLyricsRows(
                 colors = colors,
                 textStyle = textStyle,
                 colorSpec = colorSpec,
+                positionMs = positionMs,
             )
         }
     }
@@ -153,6 +157,7 @@ private fun CompactSingleLyricLine(
     colors: PlayerContentColors,
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
+    positionMs: Int,
 ) {
     val lineText = when {
         displayIndex in lyrics.indices -> lyrics[displayIndex].text
@@ -164,6 +169,8 @@ private fun CompactSingleLyricLine(
         colors = colors,
         textStyle = textStyle,
         colorSpec = colorSpec,
+        lyricLine = lyrics.getOrNull(displayIndex),
+        positionMs = positionMs,
     )
 }
 
@@ -174,6 +181,7 @@ private fun CompactThreeLyricLines(
     colors: PlayerContentColors,
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
+    positionMs: Int,
 ) {
     val safeIndex = safeLyricDisplayIndex(lyrics.size, displayIndex) ?: return
     LyricLineBlock(
@@ -182,6 +190,8 @@ private fun CompactThreeLyricLines(
         colors = colors,
         textStyle = textStyle,
         colorSpec = colorSpec,
+        lyricLine = lyrics.getOrNull(safeIndex - 1),
+        positionMs = positionMs,
     )
     LyricLineBlock(
         text = lyrics[safeIndex].text,
@@ -189,6 +199,8 @@ private fun CompactThreeLyricLines(
         colors = colors,
         textStyle = textStyle,
         colorSpec = colorSpec,
+        lyricLine = lyrics[safeIndex],
+        positionMs = positionMs,
     )
     LyricLineBlock(
         text = lyrics.getOrNull(safeIndex + 1)?.text,
@@ -196,5 +208,7 @@ private fun CompactThreeLyricLines(
         colors = colors,
         textStyle = textStyle,
         colorSpec = colorSpec,
+        lyricLine = lyrics.getOrNull(safeIndex + 1),
+        positionMs = positionMs,
     )
 }

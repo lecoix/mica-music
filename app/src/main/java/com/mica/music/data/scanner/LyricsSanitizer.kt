@@ -100,6 +100,7 @@ internal object LyricsSanitizer {
             .joinToString("\n")
 
     fun parseFiltered(raw: String): List<LyricLine> {
+        if (TtmlLyricsParser.looksLikeTtml(raw)) return finalize(TtmlLyricsParser.parse(raw))
         val body = filterNoise(raw.trim())
         if (body.isBlank()) return emptyList()
         return finalize(LrcParser.parse(body))
@@ -134,7 +135,8 @@ internal object LyricsSanitizer {
         if (valid.isEmpty()) return 0
         val chars = valid.sumOf { it.text.length }
         val timed = if (valid.any { it.timeMs > 0 }) 500 else 0
+        val cueBonus = valid.sumOf { it.cues.size } * 80
         val lineBonus = valid.size * 30
-        return chars + timed + lineBonus
+        return chars + timed + cueBonus + lineBonus
     }
 }

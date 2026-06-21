@@ -18,4 +18,12 @@ object LyricsSync {
         }
         return idx
     }
+
+    /** Returns the active cue in [line], or -1 when the line has no usable word timing. */
+    fun cueIndexForPosition(line: LyricLine, positionMs: Int): Int {
+        if (line.cues.isEmpty()) return -1
+        val t = positionMs + LEAD_MS
+        if (t < line.timeMs || t < line.cues.first().timeMs) return -1
+        return line.cues.indexOfLast { it.timeMs <= t }
+    }
 }

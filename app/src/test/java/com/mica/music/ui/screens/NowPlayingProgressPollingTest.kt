@@ -41,4 +41,10 @@ class NowPlayingProgressPollingTest {
 
         assertEquals(1, syncCount)
     }
+
+    @Test
+    fun wordSyncedLyricsUseFastPollingOnlyWhenNeeded() {
+        assertEquals(100L, nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics = true))
+        assertEquals(500L, nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics = false))
+    }
 }

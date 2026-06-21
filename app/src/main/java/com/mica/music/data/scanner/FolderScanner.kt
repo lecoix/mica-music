@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
+import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
 object FolderScanner {
 
     private const val PROBE_PARALLELISM = 6
+    private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
 
     private val audioExtensions = setOf(
         "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wma", "alac", "aiff", "aif",
@@ -66,7 +68,7 @@ object FolderScanner {
             drafts.map { draft ->
                 draft.reusableCachedSong(
                     cachedById = cachedById,
-                    requireDirectLyrics = !draft.externalLyricsUri.isNullOrBlank(),
+                    requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
                 )?.also { reused.incrementAndGet() }
                     ?: profiler.measure("quickSong") {
@@ -90,7 +92,7 @@ object FolderScanner {
                             val song = draft.reusableCachedSong(
                                 cachedById = cachedById,
                                 requireDeepMetadata = true,
-                                requireDirectLyrics = !draft.externalLyricsUri.isNullOrBlank(),
+                                requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                                 requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
                             )
                                 ?.also { reused.incrementAndGet() }
@@ -138,21 +140,31 @@ object FolderScanner {
         profiler: ScanProfiler,
     ): List<TrackDraft> {
         val files = mutableListOf<AudioFileEntry>()
-        val lrcFiles = mutableListOf<LrcFileEntry>()
+        val lyricFiles = mutableListOf<LyricFileEntry>()
         val loadedByQuery = runCatching {
             profiler.measure("loadDrafts.query") {
                 val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
-                collectLibraryFiles(context, treeUri, rootDocumentId, "", files, lrcFiles)
+                collectLibraryFiles(context, treeUri, rootDocumentId, "", files, lyricFiles)
             }
         }.isSuccess
         if (!loadedByQuery) {
             files.clear()
-            lrcFiles.clear()
+            lyricFiles.clear()
             profiler.measure("loadDrafts.fallback") {
-                collectLibraryFilesFallback(root, "", files, lrcFiles)
+                collectLibraryFilesFallback(root, "", files, lyricFiles)
             }
         }
-        val lrcByAudioKey = lrcFiles.associateBy { lyricsKey(it.folderPath, it.baseName) }
+        val lyricsByAudioKey = lyricFiles.groupBy { lyricsKey(it.folderPath, it.baseName) }
+        val audioKeys = files.mapTo(linkedSetOf()) { entry ->
+            lyricsKey(entry.folderPath, entry.name.substringBeforeLast('.').trim())
+        }
+        val matchedLyrics = lyricFiles.filter { lyricsKey(it.folderPath, it.baseName) in audioKeys }
+        DiagnosticLog.event(
+            LYRICS_TRACE,
+            "folder-index audio=${files.size} sidecars=${lyricFiles.size} " +
+                "matched=${matchedLyrics.size} query=$loadedByQuery; " +
+                "sidecarEntries=${lyricFiles.take(20).joinToString(" | ") { "${it.folderPath}/${it.baseName} uri=${it.uri}" }}",
+        )
 
         val drafts = mutableListOf<TrackDraft>()
         val scannedAt = System.currentTimeMillis()
@@ -174,9 +186,16 @@ object FolderScanner {
             if (!mime.startsWith("audio/") && ext !in audioExtensions) continue
 
             val title = name.substringBeforeLast('.').ifBlank { name }
-            val externalLyricsUri = lrcByAudioKey[lyricsKey(entry.folderPath, title)]
-                ?.uri
-                ?.toString()
+            val externalLyricsUris = lyricsByAudioKey[lyricsKey(entry.folderPath, title)]
+                .orEmpty()
+                .map { it.uri.toString() }
+            if (externalLyricsUris.isNotEmpty()) {
+                DiagnosticLog.event(
+                    LYRICS_TRACE,
+                    "folder-pair audio=${entry.folderPath}/$name sidecars=${externalLyricsUris.size} " +
+                        "uris=${externalLyricsUris.joinToString()}",
+                )
+            }
             val size = entry.sizeBytes
             val modifiedMs = entry.lastModifiedMs.coerceAtLeast(0L)
             val filePath = buildString {
@@ -204,7 +223,7 @@ object FolderScanner {
                 dateAddedMs = scannedAt,
                 dateModifiedMs = modifiedMs,
                 externalLyricsParent = null,
-                externalLyricsUri = externalLyricsUri,
+                externalLyricsUris = externalLyricsUris,
             )
         }
 
@@ -220,7 +239,7 @@ object FolderScanner {
         val folderPath: String,
     )
 
-    private data class LrcFileEntry(
+    private data class LyricFileEntry(
         val uri: Uri,
         val folderPath: String,
         val baseName: String,
@@ -232,7 +251,7 @@ object FolderScanner {
         documentId: String,
         parentPath: String,
         audioOut: MutableList<AudioFileEntry>,
-        lrcOut: MutableList<LrcFileEntry>,
+        lyricOut: MutableList<LyricFileEntry>,
     ) {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
         val projection = arrayOf(
@@ -256,7 +275,7 @@ object FolderScanner {
                 val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocumentId)
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                     val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
-                    collectLibraryFiles(context, treeUri, childDocumentId, nextPath, audioOut, lrcOut)
+                    collectLibraryFiles(context, treeUri, childDocumentId, nextPath, audioOut, lyricOut)
                 } else {
                     collectFileEntry(
                         uri = childUri,
@@ -266,7 +285,7 @@ object FolderScanner {
                         lastModified = cursor.getLongOrZero(modifiedCol),
                         folderPath = parentPath,
                         audioOut = audioOut,
-                        lrcOut = lrcOut,
+                        lyricOut = lyricOut,
                     )
                 }
             }
@@ -277,14 +296,14 @@ object FolderScanner {
         dir: DocumentFile,
         parentPath: String,
         audioOut: MutableList<AudioFileEntry>,
-        lrcOut: MutableList<LrcFileEntry>,
+        lyricOut: MutableList<LyricFileEntry>,
     ) {
         val children = dir.listFiles() ?: return
         for (child in children) {
             val name = child.name ?: continue
             if (child.isDirectory) {
                 val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
-                collectLibraryFilesFallback(child, nextPath, audioOut, lrcOut)
+                collectLibraryFilesFallback(child, nextPath, audioOut, lyricOut)
             } else if (child.isFile) {
                 collectFileEntry(
                     uri = child.uri,
@@ -294,7 +313,7 @@ object FolderScanner {
                     lastModified = child.lastModified(),
                     folderPath = parentPath,
                     audioOut = audioOut,
-                    lrcOut = lrcOut,
+                    lyricOut = lyricOut,
                 )
             }
         }
@@ -308,7 +327,7 @@ object FolderScanner {
         lastModified: Long,
         folderPath: String,
         audioOut: MutableList<AudioFileEntry>,
-        lrcOut: MutableList<LrcFileEntry>,
+        lyricOut: MutableList<LyricFileEntry>,
     ) {
         val ext = name.substringAfterLast('.', "").lowercase()
         when {
@@ -322,10 +341,10 @@ object FolderScanner {
                     folderPath = folderPath,
                 )
             }
-            ext == "lrc" -> {
+            ext == "lrc" || ext == "ttml" -> {
                 val baseName = name.substringBeforeLast('.').trim()
                 if (baseName.isNotEmpty()) {
-                    lrcOut += LrcFileEntry(uri = uri, folderPath = folderPath, baseName = baseName)
+                    lyricOut += LyricFileEntry(uri = uri, folderPath = folderPath, baseName = baseName)
                 }
             }
         }

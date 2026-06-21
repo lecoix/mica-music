@@ -19,6 +19,15 @@ internal object MetadataTextFix {
         return LyricsEncoding.stripBomAndControls(result)
     }
 
+    /** Normalizes visible text while retaining whitespace that separates timed lyric cues. */
+    fun normalizeFragment(text: String): String {
+        if (text.isEmpty() || text.all { it.isWhitespace() }) return text
+        val leading = text.takeWhile { it.isWhitespace() }
+        val trailing = text.takeLastWhile { it.isWhitespace() }
+        val core = text.substring(leading.length, text.length - trailing.length)
+        return leading + normalize(core) + trailing
+    }
+
     fun looksLikeUtf8Mojibake(text: String): Boolean {
         if (text.any { it.code in 0x3040..0x9FFF || it.code in 0xAC00..0xD7AF }) return false
         var latinExtended = 0

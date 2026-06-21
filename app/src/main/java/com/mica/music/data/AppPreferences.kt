@@ -43,6 +43,7 @@ object AppPreferences {
     private const val KEY_SONG_LIST_INFO_SHOW_LAST_SCAN = "song_list_info_show_last_scan"
     private const val KEY_SONG_LIST_INFO_SHOW_CUSTOM = "song_list_info_show_custom"
     private const val KEY_SONG_LIST_INFO_CUSTOM_TEXT = "song_list_info_custom_text"
+    private const val KEY_LYRICS_PARSER_VERSION = "lyrics_parser_version"
 
     /** [equalizerPresetIndex] 为自定义频段时的占位值 */
     const val EQ_PRESET_CUSTOM = -1
@@ -218,6 +219,13 @@ object AppPreferences {
 
     fun setLyricSplitEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_LYRIC_SPLIT_ENABLED, enabled).apply()
+    }
+
+    internal fun lyricsParserVersion(context: Context): Int =
+        prefs(context).getInt(KEY_LYRICS_PARSER_VERSION, 0)
+
+    internal fun setLyricsParserVersion(context: Context, version: Int) {
+        prefs(context).edit().putInt(KEY_LYRICS_PARSER_VERSION, version.coerceAtLeast(0)).apply()
     }
 
     fun spectrumEnabled(context: Context): Boolean =
