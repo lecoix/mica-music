@@ -41,6 +41,9 @@ class AppUiSettings(context: Context) {
     var playerCoverFlowMode by mutableStateOf(AppPreferences.playerCoverFlowMode(appContext))
         private set
 
+    var particleCoverTuning by mutableStateOf(AppPreferences.particleCoverTuning(appContext))
+        private set
+
     var accentColor by mutableStateOf(AppPreferences.appAccentColor(appContext))
         private set
 
@@ -99,6 +102,11 @@ class AppUiSettings(context: Context) {
     fun updatePlayerCoverFlowMode(mode: PlayerCoverFlowMode) {
         playerCoverFlowMode = mode
         AppPreferences.setPlayerCoverFlowMode(appContext, mode)
+    }
+
+    fun updateParticleCoverTuning(tuning: ParticleCoverTuning) {
+        particleCoverTuning = tuning
+        AppPreferences.setParticleCoverTuning(appContext, tuning)
     }
 
     fun updateAccentColor(accent: AppAccentColor) {

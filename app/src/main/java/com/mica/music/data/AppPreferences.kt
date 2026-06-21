@@ -28,6 +28,12 @@ object AppPreferences {
     private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     private const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
+    private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
+    private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
+    private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
+    private const val KEY_PARTICLE_COVER_EDGE_ALPHA = "particle_cover_edge_alpha"
+    private const val KEY_PARTICLE_COVER_EDGE_TRAVEL = "particle_cover_edge_travel"
+    private const val KEY_PARTICLE_COVER_TRANSITION_DENSITY = "particle_cover_transition_density"
     private const val KEY_APP_ACCENT_COLOR = "app_accent_color"
     private const val KEY_MICA_BACKGROUND_PRESET = "mica_background_preset"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
@@ -178,6 +184,39 @@ object AppPreferences {
 
     fun setPlayerCoverFlowMode(context: Context, mode: PlayerCoverFlowMode) {
         prefs(context).edit().putString(KEY_PLAYER_COVER_FLOW_MODE, mode.storageValue).apply()
+    }
+
+    fun particleCoverTuning(context: Context): ParticleCoverTuning {
+        val p = prefs(context)
+        val defaults = ParticleCoverTuning()
+        return ParticleCoverTuning(
+            erosionScale = p.getFloat(KEY_PARTICLE_COVER_EROSION_SCALE, defaults.erosionScale),
+            featherScale = p.getFloat(KEY_PARTICLE_COVER_FEATHER_SCALE, defaults.featherScale),
+            edgeParticleDensity = p.getFloat(
+                KEY_PARTICLE_COVER_EDGE_DENSITY,
+                defaults.edgeParticleDensity,
+            ),
+            edgeParticleAlpha = p.getFloat(
+                KEY_PARTICLE_COVER_EDGE_ALPHA,
+                defaults.edgeParticleAlpha,
+            ),
+            edgeTravelScale = p.getFloat(KEY_PARTICLE_COVER_EDGE_TRAVEL, defaults.edgeTravelScale),
+            transitionParticleDensity = p.getFloat(
+                KEY_PARTICLE_COVER_TRANSITION_DENSITY,
+                defaults.transitionParticleDensity,
+            ),
+        )
+    }
+
+    fun setParticleCoverTuning(context: Context, tuning: ParticleCoverTuning) {
+        prefs(context).edit()
+            .putFloat(KEY_PARTICLE_COVER_EROSION_SCALE, tuning.erosionScale)
+            .putFloat(KEY_PARTICLE_COVER_FEATHER_SCALE, tuning.featherScale)
+            .putFloat(KEY_PARTICLE_COVER_EDGE_DENSITY, tuning.edgeParticleDensity)
+            .putFloat(KEY_PARTICLE_COVER_EDGE_ALPHA, tuning.edgeParticleAlpha)
+            .putFloat(KEY_PARTICLE_COVER_EDGE_TRAVEL, tuning.edgeTravelScale)
+            .putFloat(KEY_PARTICLE_COVER_TRANSITION_DENSITY, tuning.transitionParticleDensity)
+            .apply()
     }
 
     fun appAccentColor(context: Context): AppAccentColor =

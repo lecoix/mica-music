@@ -399,6 +399,7 @@ fun NowPlayingContent(
                         seekState = seekState,
                         isPlaying = previewModel.isPlaying,
                         coverFlowMode = uiSettings.playerCoverFlowMode,
+                        particleCoverTuning = uiSettings.particleCoverTuning,
                         lyricsExpanded = lyricsExpanded,
                         coverContentAlpha = coverContentAlpha,
                         onCoverBoundsChanged = onCoverBoundsChanged,

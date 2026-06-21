@@ -97,6 +97,7 @@ fun SettingsScreen(
     uiSettings: AppUiSettings,
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
+    onOpenParticleCoverPreview: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     val context = LocalContext.current
@@ -223,6 +224,12 @@ fun SettingsScreen(
                 onSelect = { ordinal ->
                     uiSettings.updatePlayerCoverFlowMode(PlayerCoverFlowMode.entries[ordinal])
                 },
+            )
+
+            SettingsActionRow(
+                title = "粒子封面预览",
+                subtitle = "打开独立预览页，模拟切歌时专辑图分解与重组，不影响当前播放",
+                onClick = onOpenParticleCoverPreview,
             )
 
             SettingsToggleRow(

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
@@ -61,6 +62,8 @@ import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
+import com.mica.music.ui.screens.player.view.ThreeParticleCoverHaloFraction
+import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
@@ -83,6 +86,7 @@ internal fun NowPlayingCoverSection(
     seekState: PlaybackSeekState,
     isPlaying: Boolean,
     coverFlowMode: PlayerCoverFlowMode,
+    particleCoverTuning: ParticleCoverTuning,
     lyricsExpanded: Boolean,
     coverContentAlpha: Float,
     onCoverBoundsChanged: (Rect?) -> Unit,
@@ -105,8 +109,14 @@ internal fun NowPlayingCoverSection(
     val coverWidthPx = with(density) { cover.width.toPx() }
     val coverHeightPx = with(density) { cover.height.toPx() }
     val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
-    val coverDecodeTarget = remember(screenWidthPx) {
-        CoverDecodeTarget.forSpecialTheme(screenWidthPx)
+    val particleCoverActive = coverFlowMode.usesParticleCover && frame.lyricsProgress < 0.01f
+    val coverDecodeTarget = remember(screenWidthPx, coverWidthPx, coverFlowMode) {
+        val targetPx = if (coverFlowMode.usesParticleCover) {
+            coverWidthPx.coerceAtLeast(1f)
+        } else {
+            screenWidthPx
+        }
+        CoverDecodeTarget.forSpecialTheme(targetPx)
     }
     val reflectionGapPx = with(density) { HifiSpacing.sm.toPx() }
     val reflectionExtraDp =
@@ -121,8 +131,7 @@ internal fun NowPlayingCoverSection(
     }
     val cameraDistancePx = with(density) { 18.dp.toPx() }
 
-    val standardMode = coverFlowMode == PlayerCoverFlowMode.STANDARD && !frame.coverFlowStageActive
-
+    val standardMode = !coverFlowMode.usesCoverFlowStage && !frame.coverFlowStageActive
     val gestureState = rememberCoverGestureState(
         gesturesEnabled = frame.gesturesEnabled,
         standardMode = standardMode,
@@ -152,7 +161,7 @@ internal fun NowPlayingCoverSection(
 
     val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
         frame.lyricsProgress < 0.5f
-    val effectiveCoverDisplayMode = if (coverFlowMode != PlayerCoverFlowMode.STANDARD) {
+    val effectiveCoverDisplayMode = if (coverFlowMode.forcesSquareCrop) {
         CoverDisplayMode.CROP_FILL
     } else {
         LocalCoverDisplayMode.current
@@ -259,7 +268,7 @@ internal fun NowPlayingCoverSection(
                 modifier = Modifier
                     .padding(start = cover.startPadding, top = cover.topPadding)
                     .size(cover.width, coverBoxHeight)
-                    .graphicsLayer { clip = !coverFlowReflection }
+                    .graphicsLayer { clip = !coverFlowReflection && !particleCoverActive }
                     .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
                     .pointerInput(frame.gesturesEnabled, frame.coverFlowStageActive) {
                         if (frame.gesturesEnabled && !frame.coverFlowStageActive) {
@@ -279,34 +288,50 @@ internal fun NowPlayingCoverSection(
                         .matchParentSize()
                         .graphicsLayer {
                             alpha = coverContentAlpha
-                            clip = !coverFlowReflection
+                            clip = !coverFlowReflection && !particleCoverActive
                             if (standardMode && !frame.coverFlowStageActive) {
                                 translationX = gestureState.standardSwipeOffsetFraction *
                                     size.width * 0.35f
                             }
                         }
                         .zIndex(1f),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    AnimatedContent(
-                        targetState = song,
-                        transitionSpec = {
-                            fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)) togetherWith
-                                fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs))
-                        },
-                        label = "standardCover",
-                    ) { animatedSong ->
-                        SongCover(
-                            albumArtUri = animatedSong.albumArtUri,
-                            fallbackColor = coverColor,
-                            contentDescription = animatedSong.album,
-                            modifier = Modifier.matchParentSize(),
-                            letterboxAlpha = cover.letterboxAlpha,
-                            crossfadeMillis = if (motionEnabled) 200 else 0,
+                    if (particleCoverActive) {
+                        val halo = cover.width * ThreeParticleCoverHaloFraction
+                        ThreeParticleCoverHost(
+                            song = song,
+                            coverDecodeTarget = coverDecodeTarget,
+                            motionEnabled = motionEnabled,
+                            coverColor = coverColor,
+                            tuning = particleCoverTuning,
                             onAspectRatioChanged = onCoverAspectRatioChanged,
-                            decodeTarget = coverDecodeTarget.takeIf {
-                                coverFlowMode != PlayerCoverFlowMode.STANDARD
-                            },
+                            onMotionActiveChanged = onCoverMotionActiveChanged,
+                            modifier = Modifier
+                                .size(cover.width + halo * 2f, cover.height + halo * 2f),
                         )
+                    } else {
+                        AnimatedContent(
+                            targetState = song,
+                            transitionSpec = {
+                                fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)) togetherWith
+                                    fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs))
+                            },
+                            label = "standardCover",
+                        ) { animatedSong ->
+                            SongCover(
+                                albumArtUri = animatedSong.albumArtUri,
+                                fallbackColor = coverColor,
+                                contentDescription = animatedSong.album,
+                                modifier = Modifier.matchParentSize(),
+                                letterboxAlpha = cover.letterboxAlpha,
+                                crossfadeMillis = if (motionEnabled) 200 else 0,
+                                onAspectRatioChanged = onCoverAspectRatioChanged,
+                                decodeTarget = coverDecodeTarget.takeIf {
+                                    coverFlowMode.forcesSquareCrop
+                                },
+                            )
+                        }
                     }
                     if (coverEdgeFade) {
                         artworkEdgeFadeStops(artworkJunction)?.let { stops ->

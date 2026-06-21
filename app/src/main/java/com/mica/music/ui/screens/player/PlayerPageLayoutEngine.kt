@@ -16,6 +16,7 @@ import com.mica.music.ui.theme.HifiTypography
  * 不含 freeze / 快照；歌词、沉浸、封面底边进度在同一函数内 lerp。
  */
 object PlayerPageLayoutEngine {
+    private const val ParticleCoverScreenFraction = 1f
 
     fun computeFrame(
         input: PlayerPageLayoutInput,
@@ -147,18 +148,19 @@ object PlayerPageLayoutEngine {
         lyricsChromeFade: Float,
     ): CoverFrame {
         val coverTopPadding = lerpDp(0.dp, input.statusBarTop, lyricsFocus)
-        val (expandedCoverWidth, expandedCoverHeight) = if (input.fitOriginal) {
-            measurePlayerCoverFitOriginal(
+        val particleCoverSize = input.screenWidth * ParticleCoverScreenFraction
+        val (expandedCoverWidth, expandedCoverHeight) = when {
+            input.particleCoverMode -> particleCoverSize to particleCoverSize
+            input.fitOriginal -> measurePlayerCoverFitOriginal(
                 input.coverAspectRatio,
                 input.screenWidth,
                 input.screenHeight,
             )
-        } else {
-            input.screenWidth to input.screenWidth
+            else -> input.screenWidth to input.screenWidth
         }
         val coverWidth = lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, lyricsFocus)
         val coverHeight = lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsFocus)
-        val expandedCoverStartPadding = if (input.fitOriginal) {
+        val expandedCoverStartPadding = if (input.fitOriginal || input.particleCoverMode) {
             Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
         } else {
             0.dp

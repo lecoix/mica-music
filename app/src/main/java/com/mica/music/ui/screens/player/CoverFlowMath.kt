@@ -30,7 +30,9 @@ internal object CoverFlowMath {
         when (mode) {
             PlayerCoverFlowMode.RETRO_3D -> RetroLaneStepFraction
             PlayerCoverFlowMode.PAUSE_FOLD -> LaneStepFraction
-            PlayerCoverFlowMode.STANDARD -> LaneStepFraction
+            PlayerCoverFlowMode.STANDARD,
+            PlayerCoverFlowMode.PARTICLE_COVER,
+            -> LaneStepFraction
         }
 
     /** 平行封面带：父层整体平移，槽位仅用整数 laneOffset 定位，避免浮点 offset 与缓动不同步 */
@@ -47,7 +49,9 @@ internal object CoverFlowMath {
         when (mode) {
             PlayerCoverFlowMode.RETRO_3D -> 1f - 0.38f * foldProgress
             PlayerCoverFlowMode.PAUSE_FOLD -> 1f - 0.24f * foldProgress
-            PlayerCoverFlowMode.STANDARD -> 1f
+            PlayerCoverFlowMode.STANDARD,
+            PlayerCoverFlowMode.PARTICLE_COVER,
+            -> 1f
         }
 
     fun slotScale(distance: Float, centerScale: Float, mode: PlayerCoverFlowMode): Float {

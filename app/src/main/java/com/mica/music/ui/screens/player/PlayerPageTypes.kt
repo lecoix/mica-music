@@ -78,6 +78,7 @@ data class PlayerPageLayoutInput(
     val coverFlowProgress: Float,
     val coverFlowModeEnabled: Boolean,
     val useCoverEdgeProgress: Boolean,
+    val particleCoverMode: Boolean,
     val fitOriginal: Boolean,
     val coverAspectRatio: Float,
     val spectrumSettingEnabled: Boolean,

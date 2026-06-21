@@ -42,6 +42,23 @@ class PreferencesRobolectricTest {
         assertEquals(AppThemeMode.SYSTEM, AppPreferences.themeMode(context))
         assertEquals(SongSortField.TITLE, AppPreferences.songSortField(context))
         assertEquals(listOf<Short>(100, -200), AppPreferences.equalizerBandLevels(context))
+        assertEquals(ParticleCoverTuning(), AppPreferences.particleCoverTuning(context))
+    }
+
+    @Test
+    fun particleCoverTuningRoundTrips() {
+        val tuning = ParticleCoverTuning(
+            erosionScale = 1.35f,
+            featherScale = 1.7f,
+            edgeParticleDensity = 0.88f,
+            edgeParticleAlpha = 1.2f,
+            edgeTravelScale = 0.4f,
+            transitionParticleDensity = 1f,
+        )
+
+        AppPreferences.setParticleCoverTuning(context, tuning)
+
+        assertEquals(tuning, AppPreferences.particleCoverTuning(context))
     }
 
     @Test

@@ -19,6 +19,7 @@ class PlayerPageLayoutEngineTest {
         lyricsChromeFade: Float = lyricsProgress,
         lyricsExpanded: Boolean = lyricsProgress > 0.5f,
         useCoverEdgeProgress: Boolean = false,
+        particleCoverMode: Boolean = false,
         coverFlowModeEnabled: Boolean = false,
         coverSwitching: Boolean = false,
     ) = PlayerPageLayoutInput(
@@ -34,6 +35,7 @@ class PlayerPageLayoutEngineTest {
         coverFlowProgress = 0f,
         coverFlowModeEnabled = coverFlowModeEnabled,
         useCoverEdgeProgress = useCoverEdgeProgress,
+        particleCoverMode = particleCoverMode,
         fitOriginal = false,
         coverAspectRatio = 1f,
         spectrumSettingEnabled = true,

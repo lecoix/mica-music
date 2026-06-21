@@ -31,6 +31,7 @@ import com.mica.music.ui.screens.HomeNavigationIntent
 import com.mica.music.ui.screens.HomeScreen
 import com.mica.music.ui.screens.HomeSection
 import com.mica.music.ui.screens.MetadataDebugScreen
+import com.mica.music.ui.screens.ParticleCoverPreviewScreen
 import com.mica.music.ui.screens.SettingsScreen
 import com.mica.music.ui.screens.SongDetailScreen
 import com.mica.music.ui.system.homeStatusBarTopPadding
@@ -41,6 +42,7 @@ object Routes {
     const val Equalizer = "equalizer"
     const val About = "about"
     const val MetadataDebug = "metadata_debug"
+    const val ParticleCoverPreview = "particle_cover_preview"
     const val SongDetail = "song_detail/{songId}"
 
     fun songDetail(songId: String): String =
@@ -148,6 +150,22 @@ fun AppNavigationMain(
                 uiSettings = uiSettings,
                 onBack = { navController.popBackStack() },
                 onOpenMetadataDebug = { coordinator.navigate(Routes.MetadataDebug) },
+                onOpenParticleCoverPreview = {
+                    coordinator.navigate(Routes.ParticleCoverPreview)
+                },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+            )
+        }
+        composable(Routes.ParticleCoverPreview) {
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            ParticleCoverPreviewScreen(
+                library = library,
+                savedTuning = uiSettings.particleCoverTuning,
+                onSaveTuning = uiSettings::updateParticleCoverTuning,
+                onBack = { navController.popBackStack() },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),

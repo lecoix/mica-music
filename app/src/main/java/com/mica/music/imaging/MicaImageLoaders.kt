@@ -169,6 +169,7 @@ object MicaImageLoaders {
         .data(albumArtUri)
         .size(target.widthPx, target.heightPx)
         .scale(Scale.FILL)
+        .allowHardware(false)
         .memoryCacheKey(target.memoryCacheKey(albumArtUri))
         .build()
 
