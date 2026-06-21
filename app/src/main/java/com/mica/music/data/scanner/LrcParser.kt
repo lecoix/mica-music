@@ -11,6 +11,9 @@ internal object LrcParser {
     private val tagLine = Regex("""\[[^:\]]+:[^\]]*\]""")
     private val kugouLine = Regex("""^\[(\d+),(\d+)](.*)$""")
     private val kugouCue = Regex("""<(\d+),(\d+),(\d+)>([^<]*)""")
+    /** NetEase/QQ embedded word-lyric line prefix, e.g. `v1: `. */
+    private val leadingVersionMarkerCue = Regex("""(?i)^v\d+:\s*$""")
+    private val leadingVersionMarkerText = Regex("""(?i)^v\d+:\s*""")
 
     fun parse(text: String): List<LyricLine> {
         if (TtmlLyricsParser.looksLikeTtml(text)) return TtmlLyricsParser.parse(text)
@@ -27,26 +30,31 @@ internal object LrcParser {
                 continue
             }
             val matches = timestamp.findAll(trimmed).toList()
+            parseInlineBracketLine(trimmed, matches, offsetMs)?.let { parsed ->
+                if (shouldKeepParsedLine(parsed)) {
+                    timed += parsed
+                    continue
+                }
+            }
             val hasLeadingTimestamps = matches.isNotEmpty() &&
                 matches.first().range.first == 0 &&
                 matches.zipWithNext().all { (left, right) -> right.range.first == left.range.last + 1 }
             if (hasLeadingTimestamps) {
                 val body = trimmed.substring(matches.last().range.last + 1)
                 matches.forEach { match ->
-                val lineTimeMs = timestampMs(match) + offsetMs
-                val parsedBody = parseEnhancedBody(body, lineTimeMs, offsetMs)
-                if (parsedBody.text.isNotEmpty() && !LyricsSanitizer.isPlaceholderLyric(parsedBody.text) &&
-                    !LyricsSanitizer.isBinaryGarbage(parsedBody.text)
-                ) {
-                    timed += LyricLine(
-                        timeMs = lineTimeMs.coerceAtLeast(0),
-                        text = parsedBody.text,
-                        cues = parsedBody.cues,
-                    )
+                    val lineTimeMs = timestampMs(match) + offsetMs
+                    val parsedBody = parseEnhancedBody(body, lineTimeMs, offsetMs)
+                    if (parsedBody.text.isNotEmpty() && shouldKeepParsedLine(parsedBody.toLyricLine(lineTimeMs))) {
+                        timed += LyricLine(
+                            timeMs = lineTimeMs.coerceAtLeast(0),
+                            text = parsedBody.text,
+                            cues = parsedBody.cues,
+                        )
+                    }
                 }
-                }
+                continue
             }
-            if (!hasLeadingTimestamps && !trimmed.startsWith("[") && !LyricsSanitizer.isPlaceholderLyric(trimmed) &&
+            if (!trimmed.startsWith("[") && !LyricsSanitizer.isPlaceholderLyric(trimmed) &&
                 !LyricsSanitizer.isBinaryGarbage(trimmed)
             ) {
                 timed += LyricLine(timeMs = 0, text = MetadataTextFix.normalize(trimmed))
@@ -67,11 +75,89 @@ internal object LrcParser {
         return timed.sortedBy { it.timeMs }
     }
 
-    private data class ParsedBody(val text: String, val cues: List<LyricCue>)
+    private data class ParsedBody(val text: String, val cues: List<LyricCue>) {
+        fun toLyricLine(lineTimeMs: Int): LyricLine = LyricLine(lineTimeMs, text, cues)
+    }
+
+    private fun shouldKeepParsedLine(line: LyricLine): Boolean {
+        if (LyricsSanitizer.isPlaceholderLyric(line.text)) return false
+        if (line.cues.isNotEmpty()) return true
+        return !LyricsSanitizer.isBinaryGarbage(line.text)
+    }
+
+    /** [00:00.000]字[00:00.022]词 — common in NetEase/QQ embedded word lyrics. */
+    private fun parseInlineBracketLine(
+        trimmed: String,
+        matches: List<MatchResult>,
+        offsetMs: Int,
+    ): LyricLine? {
+        if (matches.size < 2 || matches.first().range.first != 0) return null
+        if (matches.zipWithNext().all { (left, right) -> right.range.first == left.range.last + 1 }) return null
+
+        val lineTimeMs = (timestampMs(matches.first()) + offsetMs).coerceAtLeast(0)
+        val textBuilder = StringBuilder()
+        val cues = mutableListOf<LyricCue>()
+        matches.forEachIndexed { index, match ->
+            val fragmentStart = match.range.last + 1
+            val fragmentEnd = matches.getOrNull(index + 1)?.range?.first ?: trimmed.length
+            val cueText = MetadataTextFix.normalizeFragment(trimmed.substring(fragmentStart, fragmentEnd))
+            if (cueText.isEmpty()) return@forEachIndexed
+            textBuilder.append(cueText)
+            cues += LyricCue((timestampMs(match) + offsetMs).coerceAtLeast(0), cueText)
+        }
+        val normalizedText = MetadataTextFix.normalize(textBuilder.toString()).trim()
+        if (normalizedText.isEmpty()) return null
+        return finalizeTimedLine(
+            lineTimeMs = lineTimeMs,
+            text = normalizedText,
+            cues = validateCues(cues, lineTimeMs, normalizedText),
+        )
+    }
+
+    private fun finalizeTimedLine(lineTimeMs: Int, text: String, cues: List<LyricCue>): LyricLine {
+        val stripped = stripLeadingVersionMarker(text, cues, lineTimeMs)
+        return LyricLine(
+            timeMs = lineTimeMs,
+            text = stripped.text,
+            cues = stripped.cues,
+        )
+    }
+
+    private fun stripLeadingVersionMarker(
+        text: String,
+        cues: List<LyricCue>,
+        lineTimeMs: Int,
+    ): ParsedBody {
+        var workingCues = cues.dropWhile { leadingVersionMarkerCue.matches(it.text.trim()) }.toMutableList()
+        if (workingCues.isNotEmpty()) {
+            val first = workingCues.first()
+            val strippedFirst = leadingVersionMarkerText.replaceFirst(first.text, "")
+            if (strippedFirst.isEmpty()) {
+                workingCues.removeAt(0)
+            } else if (strippedFirst != first.text) {
+                workingCues[0] = first.copy(text = strippedFirst)
+            }
+        }
+        val resolvedText = if (workingCues.isNotEmpty()) {
+            MetadataTextFix.normalize(workingCues.joinToString(separator = "") { it.text }).trim()
+        } else {
+            leadingVersionMarkerText.replaceFirst(text, "").trim()
+        }
+        if (resolvedText.isEmpty()) return ParsedBody(text, cues)
+        val resolvedCues = if (workingCues.isNotEmpty()) {
+            validateCues(workingCues, lineTimeMs, resolvedText)
+        } else {
+            emptyList()
+        }
+        return ParsedBody(resolvedText, resolvedCues)
+    }
 
     private fun parseEnhancedBody(body: String, lineTimeMs: Int, offsetMs: Int): ParsedBody {
         val matches = cueTimestamp.findAll(body).toList()
-        if (matches.isEmpty()) return ParsedBody(MetadataTextFix.normalize(body).trim(), emptyList())
+        if (matches.isEmpty()) {
+            val normalized = MetadataTextFix.normalize(body).trim()
+            return stripLeadingVersionMarker(normalized, emptyList(), lineTimeMs)
+        }
 
         val plain = buildString {
             var cursor = 0
@@ -90,7 +176,11 @@ internal object LrcParser {
             }
         }
         val normalizedText = MetadataTextFix.normalize(plain).trim()
-        return ParsedBody(normalizedText, validateCues(cues, lineTimeMs, normalizedText))
+        return stripLeadingVersionMarker(
+            normalizedText,
+            validateCues(cues, lineTimeMs, normalizedText),
+            lineTimeMs,
+        )
     }
 
     private fun parseKugouLine(line: String, offsetMs: Int): LyricLine? {
@@ -113,7 +203,7 @@ internal object LrcParser {
             cueText.takeIf { it.isNotEmpty() }?.let { LyricCue(cueTime, it) }
         }
         return text.takeIf { it.isNotEmpty() }?.let {
-            LyricLine(lineStart, it, validateCues(cues, lineStart, text))
+            finalizeTimedLine(lineStart, it, validateCues(cues, lineStart, text))
         }
     }
 

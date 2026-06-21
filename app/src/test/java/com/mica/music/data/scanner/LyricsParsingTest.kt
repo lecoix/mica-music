@@ -50,6 +50,62 @@ class LyricsParsingTest {
     }
 
     @Test
+    fun inlineBracketWordLyricsParsePerCharacterTimestamps() {
+        val parsed = LrcParser.parse(
+            """
+            [00:00.000]黑[00:00.022]Girl [00:00.044]-
+            [00:21.973]猜[00:22.229]不[00:22.477]透
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf(0, 21_973), parsed.map { it.timeMs })
+        assertEquals("黑Girl -", parsed[0].text)
+        assertEquals("猜不透", parsed[1].text)
+        assertEquals(listOf("黑", "Girl ", "-"), parsed[0].cues.map { it.text })
+        assertEquals(listOf(0, 22, 44), parsed[0].cues.map { it.timeMs })
+        assertEquals(listOf("猜", "不", "透"), parsed[1].cues.map { it.text })
+        assertEquals(0, LyricsSync.cueIndexForPosition(parsed[1], 21_900))
+        assertEquals(1, LyricsSync.cueIndexForPosition(parsed[1], 22_100))
+    }
+
+    @Test
+    fun inlineBracketStripsEmbeddedVersionMarkerFromEachLine() {
+        val parsed = LrcParser.parse(
+            """
+            [00:21.973]v1: [00:22.229]猜[00:22.477]不
+            [00:23.000]v1:[00:23.250]透
+            [00:24.000]v1: [00:24.250]v1: 猜
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("猜不", "透", "猜"), parsed.map { it.text })
+        assertEquals(listOf("猜", "不"), parsed[0].cues.map { it.text })
+        assertEquals("透", parsed[1].cues.single().text)
+        assertEquals("猜", parsed[2].cues.single().text)
+    }
+
+    @Test
+    fun enhancedLrcStripsEmbeddedVersionMarkerPrefix() {
+        val parsed = LrcParser.parse(
+            "[00:01.000]v1: <00:01.000>Hello <00:01.500>world",
+        ).single()
+
+        assertEquals("Hello world", parsed.text)
+        assertEquals(listOf("Hello ", "world"), parsed.cues.map { it.text })
+    }
+
+    @Test
+    fun inlineBracketWordLyricsApplyOffset() {
+        val parsed = LrcParser.parse(
+            "[offset:+100]\n[00:01.000]你[00:01.250]好",
+        ).single()
+
+        assertEquals(1_100, parsed.timeMs)
+        assertEquals("你好", parsed.text)
+        assertEquals(listOf(1_100, 1_350), parsed.cues.map { it.timeMs })
+    }
+
+    @Test
     fun kugouWordLyricsUseOffsetsRelativeToLine() {
         val parsed = LrcParser.parse(
             "[1000,2000]<0,400,0>Hello <400,600,0>world",
