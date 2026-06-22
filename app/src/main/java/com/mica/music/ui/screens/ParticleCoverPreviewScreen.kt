@@ -30,6 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,11 +51,13 @@ import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.SettingsSectionTitle
+import com.mica.music.ui.screens.player.view.ParticleCoverHost
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
+import kotlinx.coroutines.delay
 
 @Composable
 fun ParticleCoverPreviewScreen(
@@ -85,6 +88,9 @@ fun ParticleCoverPreviewScreen(
     var transitionParticleDensity by remember(savedTuning) {
         mutableFloatStateOf(savedTuning.transitionParticleDensity)
     }
+    var implementation by remember { mutableStateOf(ParticleCoverPreviewImplementation.NativeGl) }
+    var playbackPreviewProgress by remember { mutableFloatStateOf(0f) }
+    var playbackPreviewRunning by remember { mutableStateOf(false) }
     var savedNoticeVisible by remember { mutableStateOf(false) }
 
     val song = previewSongs[selectedIndex.coerceIn(0, previewSongs.lastIndex)]
@@ -103,6 +109,27 @@ fun ParticleCoverPreviewScreen(
 
     fun move(delta: Int) {
         selectedIndex = Math.floorMod(selectedIndex + delta, previewSongs.size)
+    }
+
+    LaunchedEffect(song.id, implementation) {
+        if (implementation == ParticleCoverPreviewImplementation.PlaybackDisintegration) {
+            delay(900L)
+            playbackPreviewProgress = 0f
+        }
+    }
+
+    LaunchedEffect(playbackPreviewRunning, implementation, song.id) {
+        if (!playbackPreviewRunning ||
+            implementation != ParticleCoverPreviewImplementation.PlaybackDisintegration
+        ) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(100L)
+            val durationMs = song.durationSec.coerceAtLeast(30) * 1000f
+            playbackPreviewProgress = (playbackPreviewProgress + 100f / durationMs)
+                .let { if (it >= 1f) 0f else it }
+        }
     }
 
     Column(
@@ -153,15 +180,43 @@ fun ParticleCoverPreviewScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 val previewSize = maxWidth
-                ThreeParticleCoverHost(
-                    song = song,
-                    coverDecodeTarget = coverDecodeTarget,
-                    motionEnabled = motionEnabled,
-                    coverColor = song.coverColor,
-                    tuning = tuning,
-                    modifier = Modifier
-                        .size(previewSize),
-                )
+                when (implementation) {
+                    ParticleCoverPreviewImplementation.WebView -> {
+                        ThreeParticleCoverHost(
+                            song = song,
+                            coverDecodeTarget = coverDecodeTarget,
+                            motionEnabled = motionEnabled,
+                            coverColor = song.coverColor,
+                            tuning = tuning,
+                            modifier = Modifier.size(previewSize),
+                        )
+                    }
+                    ParticleCoverPreviewImplementation.NativeGl -> {
+                        ParticleCoverHost(
+                            song = song,
+                            coverDecodeTarget = coverDecodeTarget,
+                            motionEnabled = motionEnabled,
+                            coverColor = song.coverColor,
+                            tuning = tuning,
+                            onAspectRatioChanged = {},
+                            onMotionActiveChanged = {},
+                            modifier = Modifier.size(previewSize),
+                        )
+                    }
+                    ParticleCoverPreviewImplementation.PlaybackDisintegration -> {
+                        ParticleCoverHost(
+                            song = song,
+                            coverDecodeTarget = coverDecodeTarget,
+                            motionEnabled = motionEnabled,
+                            coverColor = song.coverColor,
+                            tuning = tuning,
+                            playbackDisintegrationProgress = playbackPreviewProgress,
+                            onAspectRatioChanged = {},
+                            onMotionActiveChanged = {},
+                            modifier = Modifier.size(previewSize),
+                        )
+                    }
+                }
             }
 
             SettingsSectionTitle("预览操作")
@@ -169,7 +224,49 @@ fun ParticleCoverPreviewScreen(
                 ParticleTextButton(label = "上一张", onClick = { move(-1) })
                 ParticleTextButton(label = "模拟切歌", emphasized = true, onClick = { move(1) })
                 ParticleTextButton(label = "下一张", onClick = { move(1) })
+                ParticleTextButton(
+                    label = "WebView",
+                    emphasized = implementation == ParticleCoverPreviewImplementation.WebView,
+                    onClick = { implementation = ParticleCoverPreviewImplementation.WebView },
+                )
+                ParticleTextButton(
+                    label = "Native GL",
+                    emphasized = implementation == ParticleCoverPreviewImplementation.NativeGl,
+                    onClick = { implementation = ParticleCoverPreviewImplementation.NativeGl },
+                )
+                ParticleTextButton(
+                    label = "进度分解",
+                    emphasized = implementation == ParticleCoverPreviewImplementation.PlaybackDisintegration,
+                    onClick = { implementation = ParticleCoverPreviewImplementation.PlaybackDisintegration },
+                )
+                ParticleTextButton(
+                    label = if (playbackPreviewRunning) "暂停进度" else "播放进度",
+                    emphasized = playbackPreviewRunning,
+                    onClick = {
+                        implementation = ParticleCoverPreviewImplementation.PlaybackDisintegration
+                        playbackPreviewRunning = !playbackPreviewRunning
+                    },
+                )
+                ParticleTextButton(
+                    label = "重置进度",
+                    onClick = {
+                        implementation = ParticleCoverPreviewImplementation.PlaybackDisintegration
+                        playbackPreviewRunning = false
+                        playbackPreviewProgress = 0f
+                    },
+                )
             }
+
+            ParticleTuningSlider(
+                label = "模拟歌曲进度",
+                description = "只用于预览整首歌逐渐分解，不会保存到主题参数",
+                value = playbackPreviewProgress,
+                valueRange = 0f..1f,
+                onValueChange = {
+                    implementation = ParticleCoverPreviewImplementation.PlaybackDisintegration
+                    playbackPreviewProgress = it
+                },
+            )
 
             SettingsSectionTitle("应用参数")
             ParticleActionRow {
@@ -447,3 +544,9 @@ private fun previewSong(
     coverColorArgb = color,
     mediaUri = "",
 )
+
+private enum class ParticleCoverPreviewImplementation {
+    WebView,
+    NativeGl,
+    PlaybackDisintegration,
+}

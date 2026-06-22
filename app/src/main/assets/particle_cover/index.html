@@ -23,10 +23,130 @@
       height:100%;
       background:transparent;
     }
+    #maskCanvas{
+      pointer-events:none;
+    }
   </style>
 </head>
 <body>
   <canvas id="particleCanvas"></canvas>
+  <canvas id="maskCanvas"></canvas>
+  <script>
+    (function(){
+      const stableFrameIntervalMs = 83;
+      const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+      const nativeCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+      let visible = !document.hidden;
+      let nextId = 1;
+      let pendingCallbacks = new Map();
+      let scheduledAnimationFrame = 0;
+      let scheduledTimeout = 0;
+      let lastStableFrameAt = 0;
+
+      function transitionActive(){
+        try {
+          const state = window.MicaParticleCover &&
+            window.MicaParticleCover.debugState &&
+            window.MicaParticleCover.debugState();
+          return !!(
+            state &&
+            (state.transitionActive || state.rankTransitionActive)
+          );
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function clearScheduledTimeout(){
+        if (scheduledTimeout) {
+          clearTimeout(scheduledTimeout);
+          scheduledTimeout = 0;
+        }
+      }
+
+      function schedule(delayMs){
+        if (!visible || scheduledAnimationFrame || scheduledTimeout || pendingCallbacks.size === 0) return;
+        if (delayMs > 0) {
+          scheduledTimeout = setTimeout(function(){
+            scheduledTimeout = 0;
+            schedule(0);
+          }, delayMs);
+          return;
+        }
+        scheduledAnimationFrame = nativeRequestAnimationFrame(runFrame);
+      }
+
+      function runFrame(timestamp){
+        scheduledAnimationFrame = 0;
+        if (!visible) return;
+        const active = transitionActive();
+        if (!active) {
+          const remaining = stableFrameIntervalMs - (timestamp - lastStableFrameAt);
+          if (remaining > 0) {
+            schedule(remaining);
+            return;
+          }
+          lastStableFrameAt = timestamp;
+        }
+        const callbacks = Array.from(pendingCallbacks.values());
+        pendingCallbacks.clear();
+        callbacks.forEach(function(callback){
+          callback(timestamp);
+        });
+        schedule(0);
+      }
+
+      window.requestAnimationFrame = function(callback){
+        const id = nextId++;
+        pendingCallbacks.set(id, callback);
+        schedule(0);
+        return id;
+      };
+
+      window.cancelAnimationFrame = function(id){
+        pendingCallbacks.delete(id);
+        if (scheduledAnimationFrame && pendingCallbacks.size === 0) {
+          nativeCancelAnimationFrame(scheduledAnimationFrame);
+          scheduledAnimationFrame = 0;
+        }
+        if (pendingCallbacks.size === 0) clearScheduledTimeout();
+      };
+
+      window.MicaParticleCoverFrameScheduler = {
+        setVisible: function(nextVisible){
+          visible = !!nextVisible && !document.hidden;
+          if (visible) {
+            clearScheduledTimeout();
+            schedule(0);
+          } else {
+            clearScheduledTimeout();
+            if (scheduledAnimationFrame) {
+              nativeCancelAnimationFrame(scheduledAnimationFrame);
+              scheduledAnimationFrame = 0;
+            }
+          }
+        },
+        wake: function(){
+          if (!visible) return;
+          clearScheduledTimeout();
+          schedule(0);
+        },
+        debugState: function(){
+          return {
+            visible: visible,
+            pendingFrames: pendingCallbacks.size,
+            throttledStableFps: Math.round(1000 / stableFrameIntervalMs),
+            transitionActive: transitionActive()
+          };
+        }
+      };
+
+      document.addEventListener("visibilitychange", function(){
+        window.MicaParticleCoverFrameScheduler.setVisible(!document.hidden);
+      });
+    })();
+  </script>
   <script src="./mica-particle-cover.js"></script>
+  <script src="./mica-particle-mask-transition.js"></script>
 </body>
 </html>

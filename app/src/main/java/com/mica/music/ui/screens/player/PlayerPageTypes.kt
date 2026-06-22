@@ -29,8 +29,17 @@ data class CoverFrame(
     val startPadding: Dp,
     val topPadding: Dp,
     val blockHeight: Dp,
+    val particleInfoTopPadding: Dp,
     val letterboxAlpha: Float,
     val zoneStop: Float,
+)
+
+@Immutable
+data class ParticleCoverFrame(
+    val enabled: Boolean,
+    val normalLayerVisible: Boolean,
+    val lyricsBackgroundVisible: Boolean,
+    val hostBaseSize: Dp,
 )
 
 @Immutable
@@ -39,7 +48,9 @@ data class LowerPanelFrame(
     val chromeHeight: Dp,
     val controlsBottomPadding: Dp,
     val titleSlideDown: Dp,
+    val showMetadata: Boolean,
     val metaAlpha: Float,
+    val compactContentAlpha: Float,
     val lyricsChromeFade: Float,
     val lyricsLayoutFocus: Float,
     val immersiveProgress: Float,
@@ -61,6 +72,7 @@ data class PlayerPageFrame(
     val gesturesEnabled: Boolean,
     val spectrumEnabled: Boolean,
     val cover: CoverFrame,
+    val particleCover: ParticleCoverFrame,
     val lower: LowerPanelFrame,
 )
 

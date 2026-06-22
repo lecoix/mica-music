@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +29,10 @@ internal fun ParticleCoverHost(
     onMotionActiveChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     tuning: ParticleCoverTuning = ParticleCoverTuning(),
+    playbackDisintegrationProgress: Float? = null,
+    lyricsProgress: Float = 0f,
+    coverCenter: Offset = Offset.Zero,
+    coverHalfSize: Offset = Offset(1f, 1f),
 ) {
     val context = LocalContext.current
     val fallbackColor = coverColor.toArgb()
@@ -77,6 +82,14 @@ internal fun ParticleCoverHost(
             view.setMotionEnabled(motionEnabled)
             view.setFallbackColor(fallbackColor)
             view.setTuning(tuning)
+            view.setPlaybackDisintegrationProgress(playbackDisintegrationProgress)
+            view.setLyricsProgress(lyricsProgress)
+            view.setCoverTransform(
+                centerX = coverCenter.x,
+                centerY = coverCenter.y,
+                halfWidth = coverHalfSize.x,
+                halfHeight = coverHalfSize.y,
+            )
             view.setCover(song.id, bitmap)
         },
         onRelease = { view -> view.release() },

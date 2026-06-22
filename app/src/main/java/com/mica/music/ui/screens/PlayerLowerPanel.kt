@@ -70,39 +70,41 @@ internal fun PlayerLowerPanelSection(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = lower.metaAlpha },
+                    .graphicsLayer { alpha = lower.compactContentAlpha },
             ) {
                 Spacer(Modifier.height(spacing.afterCover))
-                Box(
-                    Modifier.graphicsLayer {
-                        alpha = lower.metaAlpha * (1f - lower.immersiveProgress)
-                        translationY = -lower.immersiveProgress * 12f
-                    },
-                ) {
-                    HiFiBadgeSection(
-                        song = activeSong,
-                        colors = if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
-                            hifiBadgeColors
-                        } else {
-                            colors
+                if (lower.showMetadata) {
+                    Box(
+                        Modifier.graphicsLayer {
+                            alpha = lower.metaAlpha * (1f - lower.immersiveProgress)
+                            translationY = -lower.immersiveProgress * 12f
                         },
+                    ) {
+                        HiFiBadgeSection(
+                            song = activeSong,
+                            colors = if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
+                                hifiBadgeColors
+                            } else {
+                                colors
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(spacing.afterInfo))
+                    SongTitleSection(
+                        title = activeSong.title,
+                        artist = activeSong.artist,
+                        album = activeSong.album,
+                        isBuffering = surfaceState.isBuffering,
+                        playbackError = surfaceState.playbackError,
+                        colors = colors,
+                        immersiveProgress = lower.immersiveProgress,
+                        modifier = Modifier.graphicsLayer {
+                            translationY = lower.titleSlideDown.toPx()
+                        },
+                        onLongPress = if (!immersiveLower) onToggleImmersive else null,
                     )
+                    Spacer(Modifier.height(spacing.afterSubtitle))
                 }
-                Spacer(Modifier.height(spacing.afterInfo))
-                SongTitleSection(
-                    title = activeSong.title,
-                    artist = activeSong.artist,
-                    album = activeSong.album,
-                    isBuffering = surfaceState.isBuffering,
-                    playbackError = surfaceState.playbackError,
-                    colors = colors,
-                    immersiveProgress = lower.immersiveProgress,
-                    modifier = Modifier.graphicsLayer {
-                        translationY = lower.titleSlideDown.toPx()
-                    },
-                    onLongPress = if (!immersiveLower) onToggleImmersive else null,
-                )
-                Spacer(Modifier.height(spacing.afterSubtitle))
                 if (!immersiveLower) {
                     Box(
                         Modifier

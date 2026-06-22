@@ -251,4 +251,41 @@ class PlayerPageLayoutEngineTest {
         )
         assertTrue(frame.cover.zoneStop in 0.12f..0.65f)
     }
+
+    @Test
+    fun particleCoverLayout_keepsTitleFixedAndLyricsRoomAfterCoverDrop() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 400.dp,
+                particleCoverMode = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, frame.lower.showMetadata)
+        assertTrue(frame.cover.topPadding > frame.cover.particleInfoTopPadding)
+        assertTrue(frame.lower.spacing.lyricLineSlots >= 3)
+    }
+
+    @Test
+    fun particleCoverLyricsLayout_usesBackgroundLayerInsteadOfMiniCoverSlot() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 400.dp,
+                lyricsProgress = 1f,
+                lyricsExpanded = true,
+                particleCoverMode = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.particleCover.enabled)
+        assertEquals(false, frame.particleCover.normalLayerVisible)
+        assertTrue(frame.particleCover.lyricsBackgroundVisible)
+        assertEquals(400.dp, frame.particleCover.hostBaseSize)
+        assertEquals(24.dp, frame.cover.blockHeight)
+        assertTrue(frame.cover.width > LyricsFocusMiniCoverSize)
+    }
 }

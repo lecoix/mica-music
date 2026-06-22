@@ -1,10 +1,10 @@
 package com.mica.music.data
 
 data class ParticleCoverTuning(
-    val erosionScale: Float = 1f,
+    val erosionScale: Float = 0.81f,
     val featherScale: Float = 1.35f,
-    val edgeParticleDensity: Float = 0.88f,
-    val edgeParticleAlpha: Float = 1f,
-    val edgeTravelScale: Float = 1f,
+    val edgeParticleDensity: Float = 1.25f,
+    val edgeParticleAlpha: Float = 0.55f,
+    val edgeTravelScale: Float = 0.25f,
     val transitionParticleDensity: Float = 1f,
 )

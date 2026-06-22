@@ -37,8 +37,9 @@
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
-| [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4–hybrid8） |
+| [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
+| [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面从 `WebView + Three.js` 迁到原生 `TextureView + GLES20` 的视觉保真迁移施工单 |
 | [`REASONIX.md`](../REASONIX.md) | AI/工具代码库速览（须与 `libs.versions.toml` 对齐） |
 
 ---

@@ -1,18 +1,19 @@
 package com.mica.music.ui.screens.player.view
 
 import android.annotation.SuppressLint
-import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.os.Build
-import android.util.Base64
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import com.mica.music.util.DiagnosticLog
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,14 +24,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.Song
 import com.mica.music.imaging.CoverDecodeTarget
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 
 internal const val ThreeParticleCoverTransitionDurationMs = 900L
 internal const val ThreeParticleCoverHaloFraction = 0.04f
@@ -43,15 +44,42 @@ internal fun ThreeParticleCoverHost(
     coverColor: Color,
     modifier: Modifier = Modifier,
     tuning: ParticleCoverTuning = ParticleCoverTuning(),
+    renderVisible: Boolean = true,
     onAspectRatioChanged: (Float) -> Unit = {},
     onMotionActiveChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val textureStore = remember(context) {
+        ThreeParticleCoverTextureStore(context.applicationContext)
+    }
     val coverUri = song.albumArtUri.orEmpty()
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageReady by remember { mutableStateOf(false) }
+    var lifecycleStarted by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     var payload by remember(song.id, coverUri, coverDecodeTarget, coverColor) {
         mutableStateOf<JSONObject?>(null)
+    }
+    val frameSchedulerVisible = renderVisible && lifecycleStarted
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            lifecycleStarted = when (event) {
+                Lifecycle.Event.ON_START,
+                Lifecycle.Event.ON_RESUME -> true
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP,
+                Lifecycle.Event.ON_DESTROY -> false
+                Lifecycle.Event.ON_CREATE,
+                Lifecycle.Event.ON_ANY -> lifecycleStarted
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -86,16 +114,27 @@ internal fun ThreeParticleCoverHost(
             CoverFlowBitmaps.memoryBitmap(coverUri, coverDecodeTarget)
                 ?: CoverFlowBitmaps.ensureLoaded(context, coverUri, coverDecodeTarget)
         }
-        val dataUrl = bitmap?.toDataUrl()
+        val textureSource = bitmap?.let {
+            textureStore.prepareTexture(
+                cacheKey = "${coverDecodeTarget.memoryCacheKey(coverUri)}:${it.generationId}",
+                bitmap = it,
+            )
+        }
         DiagnosticLog.event(
             "ThreeParticleCover",
-            "build-payload-end song=${song.id.takeLast(12)} bitmap=${bitmap != null} bitmapSize=${bitmap?.width}x${bitmap?.height} dataUrlChars=${dataUrl?.length ?: 0}",
+            "build-payload-end song=${song.id.takeLast(12)} bitmap=${bitmap != null} bitmapSize=${bitmap?.width}x${bitmap?.height} textureBytes=${textureSource?.bytes ?: 0} textureCacheHit=${textureSource?.cacheHit ?: false}",
         )
         payload = JSONObject()
             .put("id", song.id)
-            .put("src", dataUrl)
+            .put("src", textureSource?.url)
             .put("color", coverColor.toArgb().toCssColor())
             .put("motionEnabled", motionEnabled)
+    }
+
+    LaunchedEffect(webView, pageReady, frameSchedulerVisible) {
+        val view = webView
+        if (view == null || !pageReady) return@LaunchedEffect
+        view.setParticleFrameSchedulerVisible(frameSchedulerVisible, "compose")
     }
 
     LaunchedEffect(webView, pageReady, payload) {
@@ -114,6 +153,7 @@ internal fun ThreeParticleCoverHost(
             "window.MicaParticleCover && window.MicaParticleCover.setCover(${data});",
         ) { result ->
             DiagnosticLog.event("ThreeParticleCover", "set-cover-result=$result")
+            view.wakeParticleFrameScheduler("after-set-cover")
             view.notifyParticleResize("after-set-cover")
         }
     }
@@ -137,6 +177,7 @@ internal fun ThreeParticleCoverHost(
             "window.MicaParticleCover && window.MicaParticleCover.setTuning(${data});",
         ) { result ->
             DiagnosticLog.event("ThreeParticleCover", "set-tuning-result=$result")
+            view.wakeParticleFrameScheduler("after-set-tuning")
         }
     }
 
@@ -156,9 +197,16 @@ internal fun ThreeParticleCoverHost(
                     }
                 }
                 webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? =
+                        textureStore.intercept(request.url)
+
                     override fun onPageFinished(view: WebView, url: String) {
                         DiagnosticLog.event("ThreeParticleCover", "page-finished url=$url")
                         pageReady = true
+                        view.setParticleFrameSchedulerVisible(frameSchedulerVisible, "page-finished")
                         view.notifyParticleResize("page-finished")
                     }
                 }
@@ -177,6 +225,7 @@ internal fun ThreeParticleCoverHost(
         },
         onRelease = { view ->
             DiagnosticLog.event("ThreeParticleCover", "webview-release")
+            view.setParticleFrameSchedulerVisible(false, "release")
             pageReady = false
             if (webView === view) webView = null
             view.destroy()
@@ -202,11 +251,40 @@ private fun WebView.notifyParticleResize(reason: String) {
         (function(){
           if (!window.MicaParticleCover) return "missing-api";
           window.MicaParticleCover.resize();
+          window.MicaParticleCoverFrameScheduler && window.MicaParticleCoverFrameScheduler.wake();
           return JSON.stringify(window.MicaParticleCover.debugState && window.MicaParticleCover.debugState());
         })();
         """.trimIndent(),
     ) { result ->
         DiagnosticLog.event("ThreeParticleCover", "resize-$reason result=$result")
+    }
+}
+
+private fun WebView.setParticleFrameSchedulerVisible(visible: Boolean, reason: String) {
+    evaluateJavascript(
+        """
+        (function(){
+          if (!window.MicaParticleCoverFrameScheduler) return "missing-frame-scheduler";
+          window.MicaParticleCoverFrameScheduler.setVisible($visible);
+          return JSON.stringify(window.MicaParticleCoverFrameScheduler.debugState());
+        })();
+        """.trimIndent(),
+    ) { result ->
+        DiagnosticLog.event("ThreeParticleCover", "frame-visible-$reason visible=$visible result=$result")
+    }
+}
+
+private fun WebView.wakeParticleFrameScheduler(reason: String) {
+    evaluateJavascript(
+        """
+        (function(){
+          if (!window.MicaParticleCoverFrameScheduler) return "missing-frame-scheduler";
+          window.MicaParticleCoverFrameScheduler.wake();
+          return JSON.stringify(window.MicaParticleCoverFrameScheduler.debugState());
+        })();
+        """.trimIndent(),
+    ) { result ->
+        DiagnosticLog.event("ThreeParticleCover", "frame-wake-$reason result=$result")
     }
 }
 
@@ -224,18 +302,6 @@ private fun WebView.configureForThreeParticleCover() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         settings.safeBrowsingEnabled = false
     }
-}
-
-private suspend fun Bitmap.toDataUrl(): String = withContext(Dispatchers.Default) {
-    val uploadBitmap = if (config == Bitmap.Config.HARDWARE) {
-        copy(Bitmap.Config.ARGB_8888, false)
-    } else {
-        this@toDataUrl
-    }
-    val stream = ByteArrayOutputStream()
-    uploadBitmap.compress(Bitmap.CompressFormat.JPEG, 96, stream)
-    if (uploadBitmap !== this@toDataUrl) uploadBitmap.recycle()
-    "data:image/jpeg;base64," + Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
 }
 
 private fun Int.toCssColor(): String =

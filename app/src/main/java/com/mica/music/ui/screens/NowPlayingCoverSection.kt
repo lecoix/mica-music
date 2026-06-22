@@ -109,10 +109,13 @@ internal fun NowPlayingCoverSection(
     val coverWidthPx = with(density) { cover.width.toPx() }
     val coverHeightPx = with(density) { cover.height.toPx() }
     val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
-    val particleCoverActive = coverFlowMode.usesParticleCover && frame.lyricsProgress < 0.01f
+    val particleFrame = frame.particleCover
+    val nativeParticleCoverActive = particleFrame.enabled && UseNativeParticleCoverInPlayer
+    val particleNormalLayerVisible = particleFrame.normalLayerVisible
+    val coverSlotVisible = !particleFrame.lyricsBackgroundVisible || nativeParticleCoverActive
     val coverDecodeTarget = remember(screenWidthPx, coverWidthPx, coverFlowMode) {
-        val targetPx = if (coverFlowMode.usesParticleCover) {
-            coverWidthPx.coerceAtLeast(1f)
+        val targetPx = if (particleFrame.enabled) {
+            screenWidthPx
         } else {
             screenWidthPx
         }
@@ -132,6 +135,7 @@ internal fun NowPlayingCoverSection(
     val cameraDistancePx = with(density) { 18.dp.toPx() }
 
     val standardMode = !coverFlowMode.usesCoverFlowStage && !frame.coverFlowStageActive
+    val useNativeParticleCover = nativeParticleCoverActive
     val gestureState = rememberCoverGestureState(
         gesturesEnabled = frame.gesturesEnabled,
         standardMode = standardMode,
@@ -146,6 +150,10 @@ internal fun NowPlayingCoverSection(
             "standard-cover-transition",
             "song=${song.id.takeLast(12)} swipeMode=$standardMode",
         )
+    }
+
+    LaunchedEffect(coverSlotVisible) {
+        if (!coverSlotVisible) onCoverBoundsChanged(null)
     }
 
     LaunchedEffect(frame.coverFlowStageActive, currentIndex, queue, coverDecodeTarget) {
@@ -184,6 +192,22 @@ internal fun NowPlayingCoverSection(
                 ),
             contentAlignment = Alignment.TopStart,
         ) {
+            if (particleFrame.normalLayerVisible) {
+                SongTitleSection(
+                    title = song.title,
+                    artist = song.artist,
+                    album = song.album,
+                    isBuffering = false,
+                    playbackError = null,
+                    colors = contentColors,
+                    immersiveProgress = 0f,
+                    modifier = Modifier
+                        .padding(top = frame.cover.particleInfoTopPadding)
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = coverContentAlpha },
+                    onLongPress = onCoverLongPress,
+                )
+            }
             if (frame.coverFlowStageActive) {
                 CoverFlowCarouselHost(
                     queue = queue,
@@ -263,12 +287,14 @@ internal fun NowPlayingCoverSection(
                     )
                 }
             }
-            if (!frame.coverFlowStageActive) {
+            if (!frame.coverFlowStageActive && coverSlotVisible) {
             Box(
                 modifier = Modifier
                     .padding(start = cover.startPadding, top = cover.topPadding)
                     .size(cover.width, coverBoxHeight)
-                    .graphicsLayer { clip = !coverFlowReflection && !particleCoverActive }
+                    .graphicsLayer {
+                        clip = !coverFlowReflection && !particleNormalLayerVisible && !useNativeParticleCover
+                    }
                     .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
                     .pointerInput(frame.gesturesEnabled, frame.coverFlowStageActive) {
                         if (frame.gesturesEnabled && !frame.coverFlowStageActive) {
@@ -288,7 +314,7 @@ internal fun NowPlayingCoverSection(
                         .matchParentSize()
                         .graphicsLayer {
                             alpha = coverContentAlpha
-                            clip = !coverFlowReflection && !particleCoverActive
+                            clip = !coverFlowReflection && !particleNormalLayerVisible && !useNativeParticleCover
                             if (standardMode && !frame.coverFlowStageActive) {
                                 translationX = gestureState.standardSwipeOffsetFraction *
                                     size.width * 0.35f
@@ -297,19 +323,21 @@ internal fun NowPlayingCoverSection(
                         .zIndex(1f),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (particleCoverActive) {
-                        val halo = cover.width * ThreeParticleCoverHaloFraction
-                        ThreeParticleCoverHost(
-                            song = song,
-                            coverDecodeTarget = coverDecodeTarget,
-                            motionEnabled = motionEnabled,
-                            coverColor = coverColor,
-                            tuning = particleCoverTuning,
-                            onAspectRatioChanged = onCoverAspectRatioChanged,
-                            onMotionActiveChanged = onCoverMotionActiveChanged,
-                            modifier = Modifier
-                                .size(cover.width + halo * 2f, cover.height + halo * 2f),
-                        )
+                    if (particleFrame.enabled) {
+                        if (!useNativeParticleCover && particleNormalLayerVisible) {
+                            val halo = cover.width * ThreeParticleCoverHaloFraction
+                            ThreeParticleCoverHost(
+                                song = song,
+                                coverDecodeTarget = coverDecodeTarget,
+                                motionEnabled = motionEnabled,
+                                coverColor = coverColor,
+                                tuning = particleCoverTuning,
+                                renderVisible = particleNormalLayerVisible && !lyricsExpanded,
+                                onAspectRatioChanged = onCoverAspectRatioChanged,
+                                onMotionActiveChanged = onCoverMotionActiveChanged,
+                                modifier = Modifier.size(cover.width + halo * 2f, cover.height + halo * 2f),
+                            )
+                        }
                     } else {
                         AnimatedContent(
                             targetState = song,
@@ -356,7 +384,7 @@ internal fun NowPlayingCoverSection(
                 }
             }
             }
-            if (frame.lyricsProgress > 0.01f) {
+            if (frame.lyricsProgress > 0.01f && !particleFrame.enabled) {
                 LyricsFocusHeaderOverlay(
                     title = song.title,
                     artist = song.artist,
@@ -434,6 +462,9 @@ private fun coverClickModifier(
         )
     else -> Modifier
 }
+
+internal const val UseNativeParticleCoverInPlayer = true
+internal const val ParticleCoverHoldSec = 10f
 
 @Composable
 private fun LyricsFocusHeaderOverlay(

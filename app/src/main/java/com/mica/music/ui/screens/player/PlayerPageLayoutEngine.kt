@@ -16,7 +16,10 @@ import com.mica.music.ui.theme.HifiTypography
  * 不含 freeze / 快照；歌词、沉浸、封面底边进度在同一函数内 lerp。
  */
 object PlayerPageLayoutEngine {
-    private const val ParticleCoverScreenFraction = 1f
+    private const val ParticleCoverScreenFraction = 0.78f
+    private val ParticleCoverDrop = 24.dp
+    private val ParticleInfoBlockHeight = 96.dp
+    internal val ParticleInfoTopExtraPadding = HifiSpacing.lg
 
     fun computeFrame(
         input: PlayerPageLayoutInput,
@@ -54,6 +57,11 @@ object PlayerPageLayoutEngine {
             lyricsFocus = lyricsFocus,
             lyricsChromeFade = lyricsChromeFade,
         )
+        val particleCover = computeParticleCoverFrame(
+            input = input,
+            lyricsFocus = lyricsFocus,
+            coverFlowStageActive = coverFlowStageActive,
+        )
 
         val lowerPlan = computeLowerLayoutPlan(
             density = density,
@@ -61,6 +69,7 @@ object PlayerPageLayoutEngine {
             panelHeight = input.panelHeight,
             useCoverEdgeProgressSetting = useCoverEdgePlayback,
             lyricsFocus = lyricsFocus,
+            showMetadata = !input.particleCoverMode,
         )
 
         val chromeHeight = lerpDp(
@@ -90,6 +99,11 @@ object PlayerPageLayoutEngine {
             !useCoverEdgePlayback || showChromeProgressInTransition
 
         val metaAlpha = 1f - lyricsFocus
+        val compactContentAlpha = if (input.particleCoverMode && lyricsFocus > ImmersiveProgressEpsilon) {
+            0f
+        } else {
+            metaAlpha
+        }
         val spectrumOverlayAlpha =
             metaAlpha.coerceIn(0f, 1f) * (1f - immersiveProgress)
         val stablePlaybackScene =
@@ -123,12 +137,15 @@ object PlayerPageLayoutEngine {
             gesturesEnabled = gesturesEnabled,
             spectrumEnabled = spectrumEnabled,
             cover = cover,
+            particleCover = particleCover,
             lower = LowerPanelFrame(
                 spacing = lowerPlan.spacing,
                 chromeHeight = maxOf(0.dp, chromeHeight - lyricsChromeDrop(lyricsFocus)),
                 controlsBottomPadding = controlsBottomPadding,
                 titleSlideDown = titleSlideDown,
+                showMetadata = lowerPlan.showMetadata,
                 metaAlpha = metaAlpha,
+                compactContentAlpha = compactContentAlpha,
                 lyricsChromeFade = lyricsChromeFade,
                 lyricsLayoutFocus = lyricsFocus,
                 immersiveProgress = immersiveProgress,
@@ -147,7 +164,15 @@ object PlayerPageLayoutEngine {
         lyricsFocus: Float,
         lyricsChromeFade: Float,
     ): CoverFrame {
-        val coverTopPadding = lerpDp(0.dp, input.statusBarTop, lyricsFocus)
+        val particleInfoTopPadding = input.statusBarTop + ParticleInfoTopExtraPadding
+        val particleCoverTopPadding = particleInfoTopPadding +
+            ParticleInfoBlockHeight +
+            HifiSpacing.lg +
+            ParticleCoverDrop
+        val coverTopPadding = when {
+            input.particleCoverMode -> lerpDp(particleCoverTopPadding, input.statusBarTop, lyricsFocus)
+            else -> lerpDp(0.dp, input.statusBarTop, lyricsFocus)
+        }
         val particleCoverSize = input.screenWidth * ParticleCoverScreenFraction
         val (expandedCoverWidth, expandedCoverHeight) = when {
             input.particleCoverMode -> particleCoverSize to particleCoverSize
@@ -158,23 +183,44 @@ object PlayerPageLayoutEngine {
             )
             else -> input.screenWidth to input.screenWidth
         }
-        val coverWidth = lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, lyricsFocus)
-        val coverHeight = lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsFocus)
+        val useParticleLyricsLayout = input.particleCoverMode && lyricsFocus > ImmersiveProgressEpsilon
+        val coverWidth = if (useParticleLyricsLayout) {
+            expandedCoverWidth
+        } else {
+            lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, lyricsFocus)
+        }
+        val coverHeight = if (useParticleLyricsLayout) {
+            expandedCoverHeight
+        } else {
+            lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsFocus)
+        }
         val expandedCoverStartPadding = if (input.fitOriginal || input.particleCoverMode) {
             Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
         } else {
             0.dp
         }
-        val coverStartPadding = lerpDp(
-            expandedCoverStartPadding,
-            LyricsFocusCoverStartPadding,
-            lyricsFocus,
-        )
-        val coverBlockHeight = lerpDp(
-            coverHeight + coverTopPadding,
-            input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm,
-            lyricsFocus,
-        )
+        val coverStartPadding = if (useParticleLyricsLayout) {
+            expandedCoverStartPadding
+        } else {
+            lerpDp(
+                expandedCoverStartPadding,
+                LyricsFocusCoverStartPadding,
+                lyricsFocus,
+            )
+        }
+        val particleCoverBottomPadding = if (input.particleCoverMode) HifiSpacing.lg else 0.dp
+        val coverBlockHeight = when {
+            input.particleCoverMode -> lerpDp(
+                coverHeight + coverTopPadding + particleCoverBottomPadding,
+                input.statusBarTop,
+                lyricsFocus,
+            )
+            else -> lerpDp(
+                coverHeight + coverTopPadding + particleCoverBottomPadding,
+                input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm,
+                lyricsFocus,
+            )
+        }
         val zoneStop = (coverBlockHeight.value / input.screenHeight.value)
             .coerceIn(0.12f, PlayerCoverMaxScreenFraction)
 
@@ -192,8 +238,28 @@ object PlayerPageLayoutEngine {
             startPadding = coverStartPadding,
             topPadding = coverTopPadding,
             blockHeight = coverBlockHeight,
+            particleInfoTopPadding = particleInfoTopPadding,
             letterboxAlpha = letterboxAlpha,
             zoneStop = zoneStop,
+        )
+    }
+
+    private fun computeParticleCoverFrame(
+        input: PlayerPageLayoutInput,
+        lyricsFocus: Float,
+        coverFlowStageActive: Boolean,
+    ): ParticleCoverFrame {
+        val enabled = input.particleCoverMode
+        return ParticleCoverFrame(
+            enabled = enabled,
+            normalLayerVisible = enabled &&
+                !input.lyricsExpanded &&
+                lyricsFocus <= ImmersiveProgressEpsilon &&
+                !coverFlowStageActive,
+            lyricsBackgroundVisible = enabled &&
+                (input.lyricsExpanded || lyricsFocus > ImmersiveProgressEpsilon) &&
+                !coverFlowStageActive,
+            hostBaseSize = input.screenWidth,
         )
     }
 
@@ -221,6 +287,7 @@ object PlayerPageLayoutEngine {
     }
 
     private data class LowerLayoutPlan(
+        val showMetadata: Boolean,
         val spacing: PlayerLowerPanelSpacing,
         val chromeHeightAtRest: Dp,
         val chromeHeightAtFullImmersive: Dp,
@@ -232,6 +299,7 @@ object PlayerPageLayoutEngine {
         panelHeight: Dp,
         useCoverEdgeProgressSetting: Boolean,
         lyricsFocus: Float,
+        showMetadata: Boolean,
     ): LowerLayoutPlan {
         val infoLine = with(density) { typography.monoMd.lineHeight.toDp() }
         val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
@@ -246,17 +314,21 @@ object PlayerPageLayoutEngine {
         val minGap = HifiSpacing.xs
 
         val idealAfterCover = infoLine / 2
-        val idealAfterInfo = titleLine
+        val idealAfterInfo = if (showMetadata) titleLine else 0.dp
         val edgeWeight = if (useCoverEdgeProgressSetting) {
             1f - lyricsFocus
         } else {
             0f
         }
-        val idealAfterSubtitle = lerpDp(
-            subtitleLine,
-            subtitleLine + HifiSpacing.sm,
-            edgeWeight,
-        )
+        val idealAfterSubtitle = if (showMetadata) {
+            lerpDp(
+                subtitleLine,
+                subtitleLine + HifiSpacing.sm,
+                edgeWeight,
+            )
+        } else {
+            0.dp
+        }
         val idealBeforePlaybackChrome = lerpDp(
             iconGap,
             iconGap + HifiSpacing.md,
@@ -280,7 +352,11 @@ object PlayerPageLayoutEngine {
 
         val metaIdealGaps = idealAfterCover + idealAfterInfo + idealAfterSubtitle + idealBeforePlaybackChrome
         val metaGapCount = 4
-        val metaShellFixed = infoLine + titleLine + HifiSpacing.sm + subtitleLine * 2
+        val metaShellFixed = if (showMetadata) {
+            infoLine + titleLine + HifiSpacing.sm + subtitleLine * 2
+        } else {
+            0.dp
+        }
         val lyricCompactLine = maxOf(lyricLine, subtitleLine)
         val lyricsBlock3 = lyricLine * 3 + HifiSpacing.playerLyricLineGap * 2
         val idealMeta3 = metaShellFixed + metaIdealGaps + lyricsBlock3
@@ -348,6 +424,7 @@ object PlayerPageLayoutEngine {
         )
 
         return LowerLayoutPlan(
+            showMetadata = showMetadata,
             spacing = PlayerLowerPanelSpacing(
                 afterCover = metaGaps.afterCover,
                 afterInfo = metaGaps.afterInfo,

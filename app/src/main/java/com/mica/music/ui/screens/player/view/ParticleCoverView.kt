@@ -26,6 +26,9 @@ internal class ParticleCoverView @JvmOverloads constructor(
     private var fallbackColor: Int = 0xff202020.toInt()
     private var motionEnabled: Boolean = true
     private var tuning: ParticleCoverTuning = ParticleCoverTuning()
+    private var playbackDisintegrationProgress: Float? = null
+    private var lyricsProgress: Float = 0f
+    private var coverTransform: ParticleCoverTransform = ParticleCoverTransform()
 
     init {
         isOpaque = false
@@ -53,6 +56,26 @@ internal class ParticleCoverView @JvmOverloads constructor(
         renderThread?.setTuning(next)
     }
 
+    fun setPlaybackDisintegrationProgress(progress: Float?) {
+        playbackDisintegrationProgress = progress
+        renderThread?.setPlaybackDisintegrationProgress(progress)
+    }
+
+    fun setLyricsProgress(progress: Float) {
+        lyricsProgress = progress
+        renderThread?.setLyricsProgress(progress)
+    }
+
+    fun setCoverTransform(centerX: Float, centerY: Float, halfWidth: Float, halfHeight: Float) {
+        coverTransform = ParticleCoverTransform(
+            centerX = centerX,
+            centerY = centerY,
+            halfWidth = halfWidth,
+            halfHeight = halfHeight,
+        )
+        renderThread?.setCoverTransform(coverTransform)
+    }
+
     fun release() {
         renderThread?.requestStopAndJoin()
         renderThread = null
@@ -68,6 +91,9 @@ internal class ParticleCoverView @JvmOverloads constructor(
         ).also { thread ->
             thread.start()
             thread.setTuning(tuning)
+            thread.setPlaybackDisintegrationProgress(playbackDisintegrationProgress)
+            thread.setLyricsProgress(lyricsProgress)
+            thread.setCoverTransform(coverTransform)
             coverId?.let { thread.setCover(it, coverBitmap, fallbackColor, motionEnabled) }
         }
     }
@@ -91,6 +117,13 @@ private data class PendingParticleCover(
     val motionEnabled: Boolean,
 )
 
+private data class ParticleCoverTransform(
+    val centerX: Float = 0f,
+    val centerY: Float = 0f,
+    val halfWidth: Float = 1f,
+    val halfHeight: Float = 1f,
+)
+
 private class ParticleCoverRenderThread(
     private val appContext: Context,
     surfaceTexture: SurfaceTexture,
@@ -105,6 +138,12 @@ private class ParticleCoverRenderThread(
     private var running = true
     private var pendingCover: PendingParticleCover? = null
     private var pendingTuning: ParticleCoverTuning? = null
+    private var pendingPlaybackDisintegrationProgress: Float? = null
+    private var playbackProgressChanged = false
+    private var pendingLyricsProgress = 0f
+    private var lyricsProgressChanged = false
+    private var pendingCoverTransform = ParticleCoverTransform()
+    private var coverTransformChanged = false
     private var width = initialWidth
     private var height = initialHeight
     private var sizeChanged = true
@@ -139,6 +178,30 @@ private class ParticleCoverRenderThread(
         }
     }
 
+    fun setPlaybackDisintegrationProgress(progress: Float?) {
+        synchronized(lock) {
+            pendingPlaybackDisintegrationProgress = progress
+            playbackProgressChanged = true
+            lock.notifyAll()
+        }
+    }
+
+    fun setLyricsProgress(progress: Float) {
+        synchronized(lock) {
+            pendingLyricsProgress = progress.coerceIn(0f, 1f)
+            lyricsProgressChanged = true
+            lock.notifyAll()
+        }
+    }
+
+    fun setCoverTransform(transform: ParticleCoverTransform) {
+        synchronized(lock) {
+            pendingCoverTransform = transform
+            coverTransformChanged = true
+            lock.notifyAll()
+        }
+    }
+
     fun requestStopAndJoin() {
         running = false
         synchronized(lock) { lock.notifyAll() }
@@ -155,6 +218,12 @@ private class ParticleCoverRenderThread(
             while (running) {
                 var cover: PendingParticleCover?
                 var tuning: ParticleCoverTuning?
+                var playbackProgress: Float?
+                var applyPlaybackProgress: Boolean
+                var lyricsProgress: Float
+                var applyLyricsProgress: Boolean
+                var coverTransform: ParticleCoverTransform
+                var applyCoverTransform: Boolean
                 var nextWidth: Int
                 var nextHeight: Int
                 var applySize: Boolean
@@ -163,6 +232,15 @@ private class ParticleCoverRenderThread(
                     pendingCover = null
                     tuning = pendingTuning
                     pendingTuning = null
+                    playbackProgress = pendingPlaybackDisintegrationProgress
+                    applyPlaybackProgress = playbackProgressChanged
+                    playbackProgressChanged = false
+                    lyricsProgress = pendingLyricsProgress
+                    applyLyricsProgress = lyricsProgressChanged
+                    lyricsProgressChanged = false
+                    coverTransform = pendingCoverTransform
+                    applyCoverTransform = coverTransformChanged
+                    coverTransformChanged = false
                     nextWidth = width
                     nextHeight = height
                     applySize = sizeChanged
@@ -181,6 +259,20 @@ private class ParticleCoverRenderThread(
                     )
                 }
                 tuning?.let { renderer.setTuning(it) }
+                if (applyPlaybackProgress) {
+                    renderer.setPlaybackDisintegrationProgress(playbackProgress)
+                }
+                if (applyLyricsProgress) {
+                    renderer.setLyricsProgress(lyricsProgress)
+                }
+                if (applyCoverTransform) {
+                    renderer.setCoverTransform(
+                        centerX = coverTransform.centerX,
+                        centerY = coverTransform.centerY,
+                        halfWidth = coverTransform.halfWidth,
+                        halfHeight = coverTransform.halfHeight,
+                    )
+                }
                 renderer.render()
                 EGL14.eglSwapBuffers(eglDisplay, eglSurface)
                 sleepFrame(renderer.isAnimating())
