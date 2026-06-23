@@ -115,6 +115,7 @@ internal fun PlayerLowerPanelSection(
                         LyricsSection(
                             lyrics = lyrics,
                             positionMs = progressState.positionMs,
+                            isPlaying = surfaceState.isPlaying,
                             colors = colors,
                             lineSlots = lower.lyricLineSlots,
                             onClick = onOpenLyrics,
@@ -130,6 +131,7 @@ internal fun PlayerLowerPanelSection(
                 ExpandedLyricsPanel(
                     lyrics = lyrics,
                     positionMs = progressState.positionMs,
+                    isPlaying = surfaceState.isPlaying,
                     colors = colors,
                     onLineClick = { timeMs ->
                         if (timeMs >= 0) onSeekToMs(timeMs)

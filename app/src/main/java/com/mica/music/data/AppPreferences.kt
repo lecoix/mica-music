@@ -39,6 +39,7 @@ object AppPreferences {
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
+    private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
     private const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
     private const val KEY_EQUALIZER_PRESET = "equalizer_preset"
@@ -258,6 +259,14 @@ object AppPreferences {
 
     fun setLyricSplitEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_LYRIC_SPLIT_ENABLED, enabled).apply()
+    }
+
+    /** Whether line-timed lyrics without word cues use karaoke-style text fill. */
+    fun lyricLineFillEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_LYRIC_LINE_FILL_ENABLED, false)
+
+    fun setLyricLineFillEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_LYRIC_LINE_FILL_ENABLED, enabled).apply()
     }
 
     internal fun lyricsParserVersion(context: Context): Int =

@@ -21,6 +21,7 @@ fun MicaAppRoot(
             micaBackgroundPreset = uiSettings.micaBackgroundPreset,
             coverDisplayMode = uiSettings.coverDisplayMode,
             lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+            lyricLineFillEnabled = uiSettings.lyricLineFillEnabled,
         ) {
             StatusBarEffect(
                 hideStatusBar = uiSettings.hideStatusBar,

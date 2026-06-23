@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppPreferences
 import com.mica.music.data.EqSelection
@@ -56,6 +57,7 @@ import com.mica.music.ui.theme.micaAppBackground
 fun EqualizerScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
+    bottomContentClearance: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     var enabled by remember { mutableStateOf(AppPreferences.equalizerEnabled(context)) }
@@ -129,7 +131,7 @@ fun EqualizerScreen(
                 },
             )
 
-            Spacer(Modifier.height(HifiSpacing.xxl))
+            Spacer(Modifier.height(HifiSpacing.xxl + bottomContentClearance))
         }
     }
 

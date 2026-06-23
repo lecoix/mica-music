@@ -53,6 +53,9 @@ class AppUiSettings(context: Context) {
     var lyricSplitEnabled by mutableStateOf(AppPreferences.lyricSplitEnabled(appContext))
         private set
 
+    var lyricLineFillEnabled by mutableStateOf(AppPreferences.lyricLineFillEnabled(appContext))
+        private set
+
     var spectrumEnabled by mutableStateOf(AppPreferences.spectrumEnabled(appContext))
         private set
 
@@ -122,6 +125,11 @@ class AppUiSettings(context: Context) {
     fun updateLyricSplitEnabled(enabled: Boolean) {
         lyricSplitEnabled = enabled
         AppPreferences.setLyricSplitEnabled(appContext, enabled)
+    }
+
+    fun updateLyricLineFillEnabled(enabled: Boolean) {
+        lyricLineFillEnabled = enabled
+        AppPreferences.setLyricLineFillEnabled(appContext, enabled)
     }
 
     fun updateSpectrumEnabled(enabled: Boolean) {

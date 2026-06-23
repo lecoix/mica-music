@@ -20,6 +20,7 @@ val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
 val LocalMicaBackgroundPreset = staticCompositionLocalOf { MicaPreset.Dawn }
 val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
 val LocalLyricSplitEnabled = staticCompositionLocalOf { true }
+val LocalLyricLineFillEnabled = staticCompositionLocalOf { false }
 
 @Composable
 fun MicaTheme(
@@ -28,6 +29,7 @@ fun MicaTheme(
     micaBackgroundPreset: MicaPreset = MicaPreset.Dawn,
     coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     lyricSplitEnabled: Boolean = true,
+    lyricLineFillEnabled: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val accent = rememberAppAccent(accentColor, darkTheme)
@@ -92,6 +94,7 @@ fun MicaTheme(
         LocalMicaBackgroundPreset provides micaBackgroundPreset,
         LocalCoverDisplayMode provides coverDisplayMode,
         LocalLyricSplitEnabled provides lyricSplitEnabled,
+        LocalLyricLineFillEnabled provides lyricLineFillEnabled,
         LocalContentColor provides hifiColors.textPrimary,
     ) {
         MaterialTheme(

@@ -32,6 +32,7 @@ import com.mica.music.ui.theme.PlayerContentColors
 internal fun ExpandedLyricsPanel(
     lyrics: List<LyricLine>,
     positionMs: Int,
+    isPlaying: Boolean,
     colors: PlayerContentColors,
     onLineClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -100,7 +101,9 @@ internal fun ExpandedLyricsPanel(
                     colorSpec = colorSpec,
                     maxLines = Int.MAX_VALUE,
                     lyricLine = line,
+                    nextLineTimeMs = lyrics.getOrNull(index + 1)?.timeMs,
                     positionMs = positionMs,
+                    isPlaying = isPlaying,
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(

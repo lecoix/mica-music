@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -35,6 +37,7 @@ import com.mica.music.util.DiagnosticLog
 fun AboutScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
+    bottomContentClearance: Dp = 0.dp,
 ) {
     Column(
         modifier = Modifier
@@ -124,7 +127,7 @@ fun AboutScreen(
                     "不保证完全能用。",
             )
 
-            Spacer(Modifier.height(HifiSpacing.xxl))
+            Spacer(Modifier.height(HifiSpacing.xxl + bottomContentClearance))
         }
     }
 }

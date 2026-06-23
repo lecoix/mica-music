@@ -39,6 +39,7 @@ internal fun safeLyricDisplayIndex(lyricsSize: Int, displayIndex: Int): Int? =
 internal fun LyricsSection(
     lyrics: List<LyricLine>,
     positionMs: Int,
+    isPlaying: Boolean,
     colors: PlayerContentColors,
     lineSlots: Int,
     onClick: () -> Unit,
@@ -77,6 +78,7 @@ internal fun LyricsSection(
                         colorSpec = colorSpec,
                         lineStepPx = lineStepPx,
                         positionMs = positionMs,
+                        isPlaying = isPlaying,
                     )
                 }
             }
@@ -110,6 +112,7 @@ private fun CompactLyricsRows(
     colorSpec: AnimationSpec<Color>,
     lineStepPx: Float,
     positionMs: Int,
+    isPlaying: Boolean,
 ) {
     val safeTargetIndex = targetIndex.coerceIn(0, lyrics.lastIndex.coerceAtLeast(0))
     PlayerLyricsIndexRoll(
@@ -128,6 +131,7 @@ private fun CompactLyricsRows(
                 textStyle = textStyle,
                 colorSpec = colorSpec,
                 positionMs = positionMs,
+                isPlaying = isPlaying,
             )
             displayIndex < 0 -> Text(
                 text = lyrics.firstOrNull()?.text ?: EmptyLyricsText,
@@ -145,6 +149,7 @@ private fun CompactLyricsRows(
                 textStyle = textStyle,
                 colorSpec = colorSpec,
                 positionMs = positionMs,
+                isPlaying = isPlaying,
             )
         }
     }
@@ -158,6 +163,7 @@ private fun CompactSingleLyricLine(
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
     positionMs: Int,
+    isPlaying: Boolean,
 ) {
     val lineText = when {
         displayIndex in lyrics.indices -> lyrics[displayIndex].text
@@ -170,7 +176,9 @@ private fun CompactSingleLyricLine(
         textStyle = textStyle,
         colorSpec = colorSpec,
         lyricLine = lyrics.getOrNull(displayIndex),
+        nextLineTimeMs = lyrics.getOrNull(displayIndex + 1)?.timeMs,
         positionMs = positionMs,
+        isPlaying = isPlaying,
     )
 }
 
@@ -182,6 +190,7 @@ private fun CompactThreeLyricLines(
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
     positionMs: Int,
+    isPlaying: Boolean,
 ) {
     val safeIndex = safeLyricDisplayIndex(lyrics.size, displayIndex) ?: return
     LyricLineBlock(
@@ -191,7 +200,9 @@ private fun CompactThreeLyricLines(
         textStyle = textStyle,
         colorSpec = colorSpec,
         lyricLine = lyrics.getOrNull(safeIndex - 1),
+        nextLineTimeMs = lyrics.getOrNull(safeIndex)?.timeMs,
         positionMs = positionMs,
+        isPlaying = false,
     )
     LyricLineBlock(
         text = lyrics[safeIndex].text,
@@ -200,7 +211,9 @@ private fun CompactThreeLyricLines(
         textStyle = textStyle,
         colorSpec = colorSpec,
         lyricLine = lyrics[safeIndex],
+        nextLineTimeMs = lyrics.getOrNull(safeIndex + 1)?.timeMs,
         positionMs = positionMs,
+        isPlaying = isPlaying,
     )
     LyricLineBlock(
         text = lyrics.getOrNull(safeIndex + 1)?.text,
@@ -209,6 +222,8 @@ private fun CompactThreeLyricLines(
         textStyle = textStyle,
         colorSpec = colorSpec,
         lyricLine = lyrics.getOrNull(safeIndex + 1),
+        nextLineTimeMs = lyrics.getOrNull(safeIndex + 2)?.timeMs,
         positionMs = positionMs,
+        isPlaying = false,
     )
 }

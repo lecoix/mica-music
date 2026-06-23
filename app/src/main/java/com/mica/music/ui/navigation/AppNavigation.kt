@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -22,6 +23,7 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.data.SleepTimerController
 import com.mica.music.ui.components.PlayerSheetHost
+import com.mica.music.ui.components.miniPlayerListClearance
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.AboutScreen
@@ -78,6 +80,11 @@ fun AppNavigationMain(
     val motionEnabled = rememberMicaMotionEnabled()
     val navFade = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)
     val navSlide = MicaMotion.tweenIntOffset(motionEnabled, MicaMotion.DurationMediumMs)
+    val bottomOverlayClearance = if (playerController.currentSong != null) {
+        miniPlayerListClearance(uiSettings.miniPlayerStyle)
+    } else {
+        0.dp
+    }
 
     DisposableEffect(navController) {
         coordinator.attachNavController(navController)
@@ -150,13 +157,11 @@ fun AppNavigationMain(
                 uiSettings = uiSettings,
                 onBack = { navController.popBackStack() },
                 onOpenMetadataDebug = { coordinator.navigate(Routes.MetadataDebug) },
-                onOpenParticleCoverPreview = {
-                    coordinator.navigate(Routes.ParticleCoverPreview)
-                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
+                bottomContentClearance = bottomOverlayClearance,
             )
         }
         composable(Routes.ParticleCoverPreview) {
@@ -192,6 +197,7 @@ fun AppNavigationMain(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
+                bottomContentClearance = bottomOverlayClearance,
             )
         }
         composable(Routes.About) {
@@ -202,6 +208,7 @@ fun AppNavigationMain(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
+                bottomContentClearance = bottomOverlayClearance,
             )
         }
     }
