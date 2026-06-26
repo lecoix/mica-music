@@ -84,15 +84,6 @@ private data class PendingRestorePosition(
     val positionMs: Int,
 )
 
-private data class QueueOrderSignature(
-    val mediaIds: List<String>,
-)
-
-private data class QueueMirrorBuild(
-    val signature: QueueOrderSignature,
-    val songs: List<Song>?,
-)
-
 /**
  * 把 MediaController 桥接成 Compose State，同时承载队列。
  */
@@ -102,6 +93,7 @@ class PlayerController internal constructor(
     private val sessionStorage: PlaybackSessionStorage,
     dispatcher: CoroutineDispatcher,
     private val queueMirrorDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val monotonicNowMs: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
     constructor(context: Context) : this(
         context = context,
@@ -136,6 +128,8 @@ class PlayerController internal constructor(
 
     /** 开始播放某曲时回调（用于统计播放次数）。 */
     var onSongPlayStarted: ((songId: String) -> Unit)? = null
+
+    var onSongListenSecondsAdded: ((songId: String, seconds: Long) -> Unit)? = null
 
     /** 从曲库按 ID 补全 [MediaItem] 镜像时缺失的 [Song] 元数据。 */
     var songResolver: ((String) -> Song?)? = null
@@ -414,6 +408,8 @@ class PlayerController internal constructor(
     private var connectStarted = false
     private var pendingRestorePosition: PendingRestorePosition? = null
     private var pendingPlayCountSongId: String? = null
+    private var listenSessionSongId: String? = null
+    private var listenSessionStartedAtMs: Long = 0L
     private var lastSessionPersistMs: Long = 0L
 
     private fun releasePendingRestorePosition(songId: String?) {
@@ -462,6 +458,7 @@ class PlayerController internal constructor(
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val previousSongId = currentSong?.id
                 if (!syncIndexFromPlayer(c)) return
+                updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
                 val currentSongChanged = previousSongId != currentSong?.id
                 val shouldResetPosition =
                     reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
@@ -489,6 +486,7 @@ class PlayerController internal constructor(
 
             override fun onPlayerError(error: PlaybackException) {
                 if (!pendingMediaSelection.accepts(c.currentMediaItem?.mediaId)) return
+                updateListenSession(c.currentMediaItem?.mediaId, false)
                 val song = c.currentMediaItem?.let { SongMediaItemCodec.decode(it) }
                 val presentation = song
                     ?.let(PlaybackRouter::unsupportedMessage)
@@ -509,6 +507,7 @@ class PlayerController internal constructor(
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
+                updateListenSession(c.currentMediaItem?.mediaId, playing)
                 isPlaying = playing
                 if (playing) {
                     releasePendingRestorePosition(c.currentMediaItem?.mediaId)
@@ -523,6 +522,9 @@ class PlayerController internal constructor(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
+                    updateListenSession(c.currentMediaItem?.mediaId, false)
+                }
                 isBuffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_READY && c.duration > 0) {
                     durationSec = (c.duration / 1000).toInt()
@@ -566,12 +568,14 @@ class PlayerController internal constructor(
 
         syncIndexFromPlayer(c)
         isPlaying = c.isPlaying
+        updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
         if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
         syncPosition()
         publishPlaybackStates()
     }
 
     private fun onControllerDisconnected() {
+        updateListenSession(controller?.currentMediaItem?.mediaId, false)
         cancelQueueMirrorRefresh()
         lastQueueOrderSignature = null
         pendingMediaSelection.clear()
@@ -591,6 +595,21 @@ class PlayerController internal constructor(
                 pendingPlayCountSongId = null
                 onSongPlayStarted?.invoke(songId)
             }
+    }
+
+    private fun updateListenSession(songId: String?, playing: Boolean) {
+        val now = monotonicNowMs()
+        val activeSongId = listenSessionSongId
+        if (activeSongId != null && (!playing || songId != activeSongId)) {
+            val seconds = ((now - listenSessionStartedAtMs).coerceAtLeast(0L)) / 1_000L
+            listenSessionSongId = null
+            listenSessionStartedAtMs = 0L
+            if (seconds > 0L) onSongListenSecondsAdded?.invoke(activeSongId, seconds)
+        }
+        if (playing && songId != null && listenSessionSongId == null) {
+            listenSessionSongId = songId
+            listenSessionStartedAtMs = now
+        }
     }
 
     private fun syncIndexFromPlayer(c: MediaController): Boolean {
@@ -614,37 +633,15 @@ class PlayerController internal constructor(
         return true
     }
 
-    private fun snapshotQueueItems(c: Player): List<MediaItem> {
-        if (c.mediaItemCount <= 0) return emptyList()
-        return buildList(c.mediaItemCount) {
-            for (index in 0 until c.mediaItemCount) {
-                runCatching { c.getMediaItemAt(index) }.getOrNull()?.let(::add)
-            }
-        }
-    }
-
-    private fun queueOrderSignature(items: List<MediaItem>): QueueOrderSignature =
-        QueueOrderSignature(items.map { it.mediaId })
-
-    private fun rebuildQueueFromItems(
-        items: List<MediaItem>,
-        resolver: ((String) -> Song?)?,
-    ): List<Song> = buildList(items.size) {
-        for (item in items) {
-            val song = resolveMirroredSong(item, resolver)
-            if (song != null) add(song)
-        }
-    }
-
     /** 从服务侧权威队列镜像到 UI 状态（[songQueue] / [currentIndex]）。 */
     private fun syncQueueMirrorFromPlayer(c: Player) {
         if (c.mediaItemCount <= 0) return
         val mirrorStartedNs = SystemClock.elapsedRealtimeNanos()
-        val items = snapshotQueueItems(c)
-        val mirrored = rebuildQueueFromItems(items, songResolver)
+        val items = PlaybackQueueMirror.snapshotItems(c)
+        val mirrored = PlaybackQueueMirror.rebuildSongs(items, songResolver)
         if (mirrored.isNotEmpty()) {
             songQueue = mirrored
-            lastQueueOrderSignature = queueOrderSignature(items)
+            lastQueueOrderSignature = PlaybackQueueMirror.orderSignature(items)
         }
         if (c is MediaController) {
             syncIndexFromPlayer(c)
@@ -665,24 +662,17 @@ class PlayerController internal constructor(
 
             // MediaController is looper-bound: take an immutable snapshot before leaving main.
             val mirrorStartedNs = SystemClock.elapsedRealtimeNanos()
-            val items = snapshotQueueItems(c)
+            val items = PlaybackQueueMirror.snapshotItems(c)
             if (items.isEmpty()) return@launch
             val previousSignature = lastQueueOrderSignature
             val localQueue = songQueue
             val fallbackResolver = songResolver
             val build = withContext(queueMirrorDispatcher) {
-                val signature = queueOrderSignature(items)
-                val localSongsById = localQueue.associateBy { it.id }
-                val resolver: (String) -> Song? = { id ->
-                    localSongsById[id] ?: fallbackResolver?.invoke(id)
-                }
-                QueueMirrorBuild(
-                    signature = signature,
-                    songs = if (signature == previousSignature) {
-                        null
-                    } else {
-                        rebuildQueueFromItems(items, resolver)
-                    },
+                PlaybackQueueMirror.buildIfChanged(
+                    items = items,
+                    previousSignature = previousSignature,
+                    localQueue = localQueue,
+                    fallbackResolver = fallbackResolver,
                 )
             }
             if (requestId != queueMirrorRefreshRequestId || controller !== c) return@launch
@@ -781,6 +771,7 @@ class PlayerController internal constructor(
         val c = controller ?: return
         if (!syncIndexFromPlayer(c)) return
         syncPosition()
+        updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
         isPlaying = c.isPlaying
         isBuffering = c.playbackState == Player.STATE_BUFFERING
         if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
@@ -928,6 +919,7 @@ class PlayerController internal constructor(
             return
         }
         notifyPlaybackProgress(c.currentPosition.toInt().coerceAtLeast(0))
+        updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
         isPlaying = c.isPlaying
         isBuffering = c.playbackState == Player.STATE_BUFFERING
         publishSurfaceState()
@@ -1020,7 +1012,7 @@ class PlayerController internal constructor(
         val queueBeforeMove = songQueue
         val activeController = controller
         val canMoveIncrementally = activeController?.let { c ->
-            canMoveQueueItemIncrementally(c, queueBeforeMove, fromIndex, toIndex)
+            MediaControllerQueueSync.canMoveItemIncrementally(c, queueBeforeMove, fromIndex, toIndex)
         } == true
         val list = queueBeforeMove.toMutableList()
         val moved = list.removeAt(fromIndex)
@@ -1054,23 +1046,6 @@ class PlayerController internal constructor(
             pendingQueue = list
         }
         publishPlaybackStates()
-    }
-
-    private fun canMoveQueueItemIncrementally(
-        c: Player,
-        queueBeforeMove: List<Song>,
-        fromIndex: Int,
-        toIndex: Int,
-    ): Boolean {
-        if (!c.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return false
-        if (c.mediaItemCount != queueBeforeMove.size) return false
-        val sourceMatches = runCatching {
-            c.getMediaItemAt(fromIndex).mediaId == queueBeforeMove[fromIndex].id
-        }.getOrDefault(false)
-        val destinationMatches = runCatching {
-            c.getMediaItemAt(toIndex).mediaId == queueBeforeMove[toIndex].id
-        }.getOrDefault(false)
-        return sourceMatches && destinationMatches
     }
 
     fun removeFromQueue(index: Int) {
@@ -1252,46 +1227,29 @@ class PlayerController internal constructor(
         preserveCurrentPlayback: Boolean,
         prebuiltItems: List<MediaItem>? = null,
     ) {
-        if (songQueue.isEmpty()) return
-        val safeTarget = targetIndex.coerceIn(0, songQueue.lastIndex)
-        val startIndex = if (preserveCurrentPlayback) {
-            val currentId = c.currentMediaItem?.mediaId
-            currentId?.let { id ->
-                songQueue.indexOfFirst { it.id == id }.takeIf { it >= 0 }
-            } ?: safeTarget
-        } else {
-            safeTarget
-        }
-        val startPosition = if (preserveCurrentPlayback) {
-            runCatching { c.currentPosition }.getOrDefault(0L).coerceAtLeast(0L)
-        } else {
-            positionMs.coerceAtLeast(0L)
-        }
-        val targetSongId = songQueue.getOrNull(safeTarget)?.id
-        val serviceIdAtTarget = runCatching { c.getMediaItemAt(safeTarget).mediaId }.getOrNull()
-        val targetMismatch = targetSongId != null && targetSongId != serviceIdAtTarget
-        val queueAligned = c.mediaItemCount == songQueue.size &&
-            songQueue.indices.all { idx ->
-                runCatching { c.getMediaItemAt(idx).mediaId == songQueue[idx].id }
-                    .getOrDefault(false)
-            }
-        if (preserveCurrentPlayback && queueAligned && !targetMismatch) {
+        val syncStartedNs = SystemClock.elapsedRealtimeNanos()
+        val result = MediaControllerQueueSync.syncToPlayer(
+            player = c,
+            queue = songQueue,
+            targetIndex = targetIndex,
+            positionMs = positionMs,
+            preserveCurrentPlayback = preserveCurrentPlayback,
+            prebuiltItems = prebuiltItems,
+        ) ?: return
+        if (preserveCurrentPlayback && result.queueAligned && !result.targetMismatch) {
             DiagnosticLog.event(
                 "QueueSync",
-                "controller-sync-skipped items=${songQueue.size} serviceItems=${c.mediaItemCount} " +
-                    "target=$safeTarget",
+                "controller-sync-skipped items=${result.itemsCount} serviceItems=${c.mediaItemCount} " +
+                    "target=${result.startIndex}",
             )
             return
         }
-        val items = prebuiltItems ?: songQueue.map { it.toMediaItem() }
-        val setStartedNs = SystemClock.elapsedRealtimeNanos()
-        c.setMediaItems(items, startIndex, startPosition)
         logQueueSyncMs(
             action = "controller-setMediaItems",
-            setStartedNs,
-            "items=${items.size} startIndex=$startIndex preserve=$preserveCurrentPlayback " +
-                "aligned=$queueAligned targetMismatch=$targetMismatch " +
-                "reusedMap=${prebuiltItems != null}",
+            syncStartedNs,
+            "items=${result.itemsCount} startIndex=${result.startIndex} " +
+                "preserve=${result.preserveCurrentPlayback} aligned=${result.queueAligned} " +
+                "targetMismatch=${result.targetMismatch} reusedMap=${result.reusedMap}",
         )
     }
 
@@ -1481,6 +1439,7 @@ class PlayerController internal constructor(
     }
 
     fun release() {
+        updateListenSession(controller?.currentMediaItem?.mediaId, false)
         cancelQueueMirrorRefresh()
         clearPendingMediaSelection()
         deferredPlaybackPublish?.let { mainHandler.removeCallbacks(it) }
@@ -1526,7 +1485,7 @@ internal fun evaluatePendingSeekClear(
     return null
 }
 
-private fun Song.toMediaItem(): MediaItem =
+internal fun Song.toMediaItem(): MediaItem =
     com.mica.music.media.SongMediaItemCodec.encode(this)
 
 /**

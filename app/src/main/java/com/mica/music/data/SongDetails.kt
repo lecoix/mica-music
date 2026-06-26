@@ -18,6 +18,7 @@ object SongDetails {
         SongDetailRow("专辑艺术家", song.albumArtist.ifBlank { "—" }),
         SongDetailRow("媒体来源", mediaSourceLabel(song, library)),
         SongDetailRow("播放次数", song.playCount.toString()),
+        SongDetailRow("累计播放时长", formatListenMinutes(song.totalListenSeconds)),
         SongDetailRow("时长", song.durationLabel),
         SongDetailRow("比特率", song.metadata.bitrateLabel),
         SongDetailRow("采样率", sampleRateLabel(song.metadata)),
@@ -77,6 +78,11 @@ object SongDetails {
         if (ms <= 0L) return "—"
         val pattern = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         return pattern.format(Date(ms))
+    }
+
+    fun formatListenMinutes(seconds: Long): String {
+        val minutes = seconds.coerceAtLeast(0L) / 60L
+        return "$minutes 分钟"
     }
 
     fun displayPath(song: Song): String {

@@ -99,6 +99,7 @@ fun SettingsScreen(
     uiSettings: AppUiSettings,
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
+    onOpenPhotoStackShadowPreview: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
 ) {
@@ -248,11 +249,21 @@ fun SettingsScreen(
                 },
             )
 
+            if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.PHOTO_STACK) {
+                SettingsToggleRow(
+                    title = "曝光灼烧实验",
+                    subtitle = "仅拍立得回忆主题使用；开启后少量切歌会尝试 mask 灼烧转场",
+                    checked = uiSettings.photoStackBurnEnabled,
+                    onCheckedChange = { uiSettings.updatePhotoStackBurnEnabled(it) },
+                )
+            }
+
             SettingsToggleRow(
                 title = "封面底边进度",
                 subtitle = when (uiSettings.playerLowerBackground) {
                     PlayerLowerBackgroundMode.THEME,
                     PlayerLowerBackgroundMode.COVER_GLOW,
+                    PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
                     -> "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
                     else -> "标准主题仅「主题色」「封面模糊」下生效；特殊主题仍可在普通与底边布局间切换"
                 },
@@ -440,6 +451,12 @@ fun SettingsScreen(
                 title = "系统权限与应用信息",
                 subtitle = "管理存储/音频读取、通知等权限",
                 onClick = { openAppSettings(context) },
+            )
+
+            SettingsActionRow(
+                title = "Photo Stack Shadow Preview",
+                subtitle = "Open a local preview page for the same View-based photo stack shadow renderer",
+                onClick = onOpenPhotoStackShadowPreview,
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))

@@ -37,7 +37,9 @@ fun rememberPlayerScreenAppearance(
         else -> mica.gradientEnd
     }
     val contentColors = when (lowerBackground) {
-        PlayerLowerBackgroundMode.COVER_GLOW ->
+        PlayerLowerBackgroundMode.COVER_GLOW,
+        PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
+        ->
             remember { blurredCoverPlayerContentColors() }
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             remember(lowerSurface) { PlayerBackgroundBlend.readableTextColors(lowerSurface) }

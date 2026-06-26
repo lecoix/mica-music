@@ -13,6 +13,7 @@ object SongFixtures {
         durationSec: Int = 240,
         queueOrder: Int = 0,
         fileExtension: String? = null,
+        totalListenSeconds: Long = 0L,
     ): Song = Song(
         id = id,
         title = title,
@@ -41,6 +42,7 @@ object SongFixtures {
         dateAddedMs = 1_000L + queueOrder,
         dateModifiedMs = 2_000L + queueOrder,
         playCount = queueOrder,
+        totalListenSeconds = totalListenSeconds,
         lyrics = listOf(
             LyricLine(0, "intro"),
             LyricLine(1_000, "line"),

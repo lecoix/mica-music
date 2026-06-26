@@ -20,6 +20,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         playerController.onSongPlayStarted = { songId -> library.onSongPlayed(songId) }
+        playerController.onSongListenSecondsAdded = { songId, seconds ->
+            library.onSongListened(songId, seconds)
+        }
         viewModelScope.launch {
             library.loadCachedLibrary()
             val songs = library.songs

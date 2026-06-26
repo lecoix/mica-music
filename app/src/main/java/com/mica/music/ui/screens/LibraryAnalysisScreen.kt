@@ -177,7 +177,7 @@ private fun AnalysisOverviewPanel(analysis: LibraryAnalysis) {
                 unit = "次",
                 caption = "播放次数",
                 subCaption = if (analysis.playedSongCount > 0) {
-                    "${formatSongCount(analysis.playedSongCount)} 首有记录"
+                    "${formatSongCount(analysis.playedSongCount)} 首有记录 · ${formatListenMinutes(analysis.totalListenSeconds)}"
                 } else {
                     "暂无播放记录"
                 },
@@ -518,6 +518,9 @@ private fun AnalysisHairlineVertical() {
 
 private fun formatSongCount(count: Int): String =
     String.format(Locale.getDefault(), "%,d", count)
+
+private fun formatListenMinutes(seconds: Long): String =
+    "${seconds.coerceAtLeast(0L) / 60L} 分钟"
 
 private fun formatCountPercent(count: Int, percent: Int): String =
     String.format(Locale.getDefault(), "%,d · %d%%", count, percent)

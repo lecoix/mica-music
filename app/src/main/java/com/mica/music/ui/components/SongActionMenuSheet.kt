@@ -117,7 +117,7 @@ fun SongActionMenuSheet(
             )
             SongMenuItem(
                 icon = Icons.Outlined.Edit,
-                label = "使用音乐标签编辑应用",
+                label = "使用Lyrico编辑音乐标签",
                 onClick = { onAction(SongMenuAction.EditTags) },
             )
             SongMenuItem(

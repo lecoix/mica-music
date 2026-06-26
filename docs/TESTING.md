@@ -1,5 +1,13 @@
 # Mica 测试指南
 
+## Windows 终端编码
+
+Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
+
+```powershell
+. .\scripts\use-utf8-console.ps1
+```
+
 ## 单命令质量门
 
 ```powershell
@@ -46,6 +54,8 @@
 这些是新增和修改风险模块的合并要求。遗留模块在触及时补齐，不能通过降低阈值掩盖缺口。
 
 ## 发布前设备验收
+
+当前真机协同与设备矩阵维护成本较高，设备验收暂时保留为人工清单，不纳入自动化门禁改造项。
 
 - Android 8/8.1 与 Android 14+ 各至少一台真机。
 - MP3、FLAC、ALAC、DSF 实际播放；DFF 播放应被拒绝并提示；长曲 seek 与连续切歌。

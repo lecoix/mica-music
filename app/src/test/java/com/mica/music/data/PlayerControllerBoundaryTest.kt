@@ -331,12 +331,14 @@ class PlayerControllerBoundaryTest {
         storage: FakeSessionStorage = FakeSessionStorage(),
         dispatcher: CoroutineDispatcher = StandardTestDispatcher(),
         queueMirrorDispatcher: CoroutineDispatcher = dispatcher,
+        monotonicNowMs: () -> Long = { 0L },
     ): PlayerController = PlayerController(
         context = ApplicationProvider.getApplicationContext(),
         mediaControllerConnector = connector,
         sessionStorage = storage,
         dispatcher = dispatcher,
         queueMirrorDispatcher = queueMirrorDispatcher,
+        monotonicNowMs = monotonicNowMs,
     )
 
     @Test
@@ -380,6 +382,81 @@ class PlayerControllerBoundaryTest {
         listener.captured.onIsPlayingChanged(true)
 
         assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
+    fun listenSecondsArePublishedWhenPlaybackPauses() {
+        val connector = FakeConnector()
+        var nowMs = 1_000L
+        val controller = controller(connector = connector, monotonicNowMs = { nowMs })
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        var playing = false
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.isPlaying } answers { playing }
+        val listened = mutableListOf<Pair<String, Long>>()
+        controller.onSongListenSecondsAdded = { songId, seconds -> listened += songId to seconds }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        listener.captured.onMediaItemTransition(
+            item,
+            Player.MEDIA_ITEM_TRANSITION_REASON_SEEK,
+        )
+        playing = true
+        listener.captured.onIsPlayingChanged(true)
+        nowMs += 65_400L
+        playing = false
+        listener.captured.onIsPlayingChanged(false)
+
+        assertEquals(listOf("song-1" to 65L), listened)
+        controller.release()
+    }
+
+    @Test
+    fun listenSecondsAreClosedAgainstPreviousSongOnTransition() {
+        val connector = FakeConnector()
+        var nowMs = 0L
+        val controller = controller(connector = connector, monotonicNowMs = { nowMs })
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val first = MediaItem.Builder().setMediaId("song-a").build()
+        val second = MediaItem.Builder().setMediaId("song-b").build()
+        var currentItem = first
+        var currentIndex = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns 2
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.isPlaying } returns true
+        every { mediaController.getMediaItemAt(0) } returns first
+        every { mediaController.getMediaItemAt(1) } returns second
+        val listened = mutableListOf<Pair<String, Long>>()
+        controller.onSongListenSecondsAdded = { songId, seconds -> listened += songId to seconds }
+        controller.setQueue(listOf(SongFixtures.song("song-a"), SongFixtures.song("song-b")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        listener.captured.onMediaItemTransition(first, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+
+        listener.captured.onIsPlayingChanged(true)
+        nowMs += 90_000L
+        currentItem = second
+        currentIndex = 1
+        listener.captured.onMediaItemTransition(second, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+        nowMs += 10_000L
+        listener.captured.onIsPlayingChanged(false)
+
+        assertEquals(listOf("song-a" to 90L, "song-b" to 10L), listened)
         controller.release()
     }
 

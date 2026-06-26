@@ -12,6 +12,7 @@
 3. [`TODO.md`](TODO.md) — 已实现 / 待办  
 4. [`MOTION.md`](MOTION.md) — 动效规范 + **§七 Compose/View 岛**  
 5. 按任务：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)、[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)、[`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md)
+6. 参考拆解：[`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) — Apple Music 动态背景逆向分析与 Mica 复刻方案
 
 ---
 
@@ -40,6 +41,7 @@
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面从 `WebView + Three.js` 迁到原生 `TextureView + GLES20` 的视觉保真迁移施工单 |
+| [`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) | Apple Music Now Playing 动态背景拆解：自定义 View、三层封面旋转、mesh、blur、crossfade 与 Mica 实现路线 |
 | [`REASONIX.md`](../REASONIX.md) | AI/工具代码库速览（须与 `libs.versions.toml` 对齐） |
 
 ---
@@ -92,3 +94,4 @@
 | 2026-06-18 | 新增 `DSD_EXO_PLAYBACK.md`（Exo DSD 扩展与音效说明） |
 | 2026-06-19 | 更新 `reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`：exoplayer-only / fe2457a Bugbot 第三轮 |
 | 2026-06-20 | 新增 `PERFORMANCE_INVESTIGATION_02.md`；更新 `PERFORMANCE_INVESTIGATION.md` 封面流发热结论 |
+| 2026-06-27 | 新增 `APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`：Apple Music 动态背景逆向分析与 Mica 复刻方案 |

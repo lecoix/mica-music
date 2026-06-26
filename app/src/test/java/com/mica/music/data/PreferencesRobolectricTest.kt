@@ -62,6 +62,17 @@ class PreferencesRobolectricTest {
     }
 
     @Test
+    fun photoStackModeAndBurnPreferenceRoundTrip() {
+        assertEquals(PlayerCoverFlowMode.PHOTO_STACK, PlayerCoverFlowMode.fromStorage("photo_stack"))
+        assertEquals(PlayerCoverFlowMode.STANDARD, PlayerCoverFlowMode.fromStorage("missing"))
+        assertEquals(false, AppPreferences.photoStackBurnEnabled(context))
+
+        AppPreferences.setPhotoStackBurnEnabled(context, true)
+
+        assertTrue(AppPreferences.photoStackBurnEnabled(context))
+    }
+
+    @Test
     fun corruptProfilesAndSessionValuesDoNotEscape() {
         context.getSharedPreferences("mica_eq_profiles", Context.MODE_PRIVATE)
             .edit()

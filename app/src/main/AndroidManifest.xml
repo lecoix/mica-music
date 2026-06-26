@@ -15,6 +15,14 @@
 
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <queries>
+        <package android:name="com.lonx.lyrico" />
+        <intent>
+            <action android:name="com.lonx.lyrico.action.EDIT_TAG" />
+            <data android:mimeType="audio/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".MicaApp"
         android:allowBackup="true"

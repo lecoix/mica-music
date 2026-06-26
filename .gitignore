@@ -20,6 +20,21 @@ ffmpeg/build/
 .codex-tmp/
 .codex-push-*/
 .codex/
+.codex-android-sdk/
+.scratch/
+
+# Reference checkouts / local comparison material
+.icey-ref/
+.lunabeat-ref/
+.pixelplayer-ref/
+
+# Local media fixtures and prototypes
+.test-music/
+particle-theme.html
+particle-theme-*.bundle.js
+
+# Alternate Gradle build directories
+app/build-hybrid*/
 
 # OS
 .DS_Store

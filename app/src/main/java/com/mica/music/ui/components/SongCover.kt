@@ -80,6 +80,7 @@ fun SongCover(
     holdoverAlbumArtUri: String? = null,
     stableMemoryCacheKey: String? = null,
     decodeTarget: CoverDecodeTarget? = null,
+    allowPreviousImageUnderlay: Boolean = true,
 ) {
     val context = LocalContext.current
     val displayMode = LocalCoverDisplayMode.current
@@ -133,16 +134,20 @@ fun SongCover(
         }
     }
 
-    val underlayUri = when {
-        albumArtUri.isNullOrBlank() -> null
-        holdoverAlbumArtUri != null && holdoverAlbumArtUri != albumArtUri -> holdoverAlbumArtUri
-        lastPaintedUri != null && lastPaintedUri != albumArtUri -> lastPaintedUri
-        !isPainted -> coverHoldoverUri(
-            albumArtUri = albumArtUri,
-            imageReady = false,
-            allowSameUri = holdoverUntilImageReady,
-        )
-        else -> null
+    val underlayUri = if (!allowPreviousImageUnderlay) {
+        null
+    } else {
+        when {
+            albumArtUri.isNullOrBlank() -> null
+            holdoverAlbumArtUri != null && holdoverAlbumArtUri != albumArtUri -> holdoverAlbumArtUri
+            lastPaintedUri != null && lastPaintedUri != albumArtUri -> lastPaintedUri
+            !isPainted -> coverHoldoverUri(
+                albumArtUri = albumArtUri,
+                imageReady = false,
+                allowSameUri = holdoverUntilImageReady,
+            )
+            else -> null
+        }
     }
 
     val effectiveBackdropColor = when {

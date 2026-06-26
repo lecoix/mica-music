@@ -366,7 +366,8 @@ class MicaMediaService : MediaSessionService() {
 
     private fun spectrumTapEnabled(): Boolean =
         AppPreferences.spectrumEnabled(this) ||
-            AppPreferences.miniPlayerStyle(this) == MiniPlayerStyle.AUDIOPHILE
+            AppPreferences.miniPlayerStyle(this) == MiniPlayerStyle.AUDIOPHILE ||
+            AppPreferences.playerCoverFlowMode(this).usesPhotoStack
 
     private fun flushAudioPipeline(reason: String) {
         val player = compositePlayer ?: return

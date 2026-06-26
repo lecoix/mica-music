@@ -34,6 +34,7 @@ import com.mica.music.ui.screens.HomeScreen
 import com.mica.music.ui.screens.HomeSection
 import com.mica.music.ui.screens.MetadataDebugScreen
 import com.mica.music.ui.screens.ParticleCoverPreviewScreen
+import com.mica.music.ui.screens.PhotoStackShadowPreviewScreen
 import com.mica.music.ui.screens.SettingsScreen
 import com.mica.music.ui.screens.SongDetailScreen
 import com.mica.music.ui.system.homeStatusBarTopPadding
@@ -45,6 +46,7 @@ object Routes {
     const val About = "about"
     const val MetadataDebug = "metadata_debug"
     const val ParticleCoverPreview = "particle_cover_preview"
+    const val PhotoStackShadowPreview = "photo_stack_shadow_preview"
     const val SongDetail = "song_detail/{songId}"
 
     fun songDetail(songId: String): String =
@@ -157,6 +159,9 @@ fun AppNavigationMain(
                 uiSettings = uiSettings,
                 onBack = { navController.popBackStack() },
                 onOpenMetadataDebug = { coordinator.navigate(Routes.MetadataDebug) },
+                onOpenPhotoStackShadowPreview = {
+                    coordinator.navigate(Routes.PhotoStackShadowPreview)
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
@@ -182,6 +187,17 @@ fun AppNavigationMain(
             MetadataDebugScreen(
                 library = library,
                 playerController = playerController,
+                onBack = { navController.popBackStack() },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+            )
+        }
+        composable(Routes.PhotoStackShadowPreview) {
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            PhotoStackShadowPreviewScreen(
+                library = library,
                 onBack = { navController.popBackStack() },
                 contentPadding = PaddingValues(
                     top = statusTop,

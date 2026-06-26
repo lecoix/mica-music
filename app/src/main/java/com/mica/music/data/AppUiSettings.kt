@@ -41,6 +41,9 @@ class AppUiSettings(context: Context) {
     var playerCoverFlowMode by mutableStateOf(AppPreferences.playerCoverFlowMode(appContext))
         private set
 
+    var photoStackBurnEnabled by mutableStateOf(AppPreferences.photoStackBurnEnabled(appContext))
+        private set
+
     var particleCoverTuning by mutableStateOf(AppPreferences.particleCoverTuning(appContext))
         private set
 
@@ -105,6 +108,12 @@ class AppUiSettings(context: Context) {
     fun updatePlayerCoverFlowMode(mode: PlayerCoverFlowMode) {
         playerCoverFlowMode = mode
         AppPreferences.setPlayerCoverFlowMode(appContext, mode)
+        syncSpectrumAnalyzer(notifyPipeline = true)
+    }
+
+    fun updatePhotoStackBurnEnabled(enabled: Boolean) {
+        photoStackBurnEnabled = enabled
+        AppPreferences.setPhotoStackBurnEnabled(appContext, enabled)
     }
 
     fun updateParticleCoverTuning(tuning: ParticleCoverTuning) {
@@ -152,7 +161,7 @@ class AppUiSettings(context: Context) {
     fun useCoverEdgeProgressNow(): Boolean {
         if (!coverEdgeProgress) return false
         return playerLowerBackground == PlayerLowerBackgroundMode.THEME ||
-            playerLowerBackground == PlayerLowerBackgroundMode.COVER_GLOW
+            playerLowerBackground.usesBlurredArtwork
     }
 
     @Composable
@@ -164,7 +173,9 @@ class AppUiSettings(context: Context) {
 
     private fun syncSpectrumAnalyzer(notifyPipeline: Boolean = false) {
         MicaSpectrumAnalyzer.setEnabled(
-            spectrumEnabled || miniPlayerStyle == MiniPlayerStyle.AUDIOPHILE,
+            spectrumEnabled ||
+                miniPlayerStyle == MiniPlayerStyle.AUDIOPHILE ||
+                playerCoverFlowMode.usesPhotoStack,
             notifyPipeline = notifyPipeline,
         )
     }

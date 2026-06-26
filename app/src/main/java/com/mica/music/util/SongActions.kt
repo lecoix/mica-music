@@ -10,6 +10,10 @@ import androidx.core.net.toUri
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 
+internal const val LYRICO_PACKAGE_NAME = "com.lonx.lyrico"
+internal const val LYRICO_EDIT_TAG_ACTION = "com.lonx.lyrico.action.EDIT_TAG"
+private const val LYRICO_EDIT_TAG_MIME = "audio/*"
+
 fun shareSong(context: Context, song: Song): Boolean {
     val shareText = buildSongShareText(song)
     val uri = song.mediaUri.toUri()
@@ -79,28 +83,54 @@ private fun launchShareChooser(context: Context, intent: Intent): Boolean =
 fun openSongInTagEditor(context: Context, song: Song): Boolean {
     val uri = song.mediaUri.toUri()
     val mime = resolveShareMimeType(context, song, uri)
+    val lyricoIntent = buildLyricoEditTagIntent(context, song.title, uri)
+    if (lyricoIntent.resolveActivity(context.packageManager) != null) {
+        return runCatching {
+            context.startActivity(lyricoIntent.withActivityLaunchFlags(context))
+            true
+        }.getOrDefault(false)
+    }
+
     val candidates = listOf(
         Intent(Intent.ACTION_EDIT).apply {
             setDataAndType(uri, mime)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            clipData = ClipData.newUri(context.contentResolver, song.title, uri)
         },
         Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mime)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            clipData = ClipData.newUri(context.contentResolver, song.title, uri)
         },
     )
     for (intent in candidates) {
         if (intent.resolveActivity(context.packageManager) != null) {
             return runCatching {
                 val chooser = Intent.createChooser(intent, "编辑音乐标签")
-                if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(chooser)
+                context.startActivity(chooser.withActivityLaunchFlags(context))
                 true
             }.getOrDefault(false)
         }
     }
     return false
 }
+
+internal fun buildLyricoEditTagIntent(
+    context: Context,
+    title: String,
+    uri: Uri,
+): Intent =
+    Intent(LYRICO_EDIT_TAG_ACTION).apply {
+        setPackage(LYRICO_PACKAGE_NAME)
+        setDataAndType(uri, LYRICO_EDIT_TAG_MIME)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        clipData = ClipData.newUri(context.contentResolver, title, uri)
+    }
+
+private fun Intent.withActivityLaunchFlags(context: Context): Intent =
+    apply {
+        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
 
 /** 尝试从设备删除音频文件；SAF 与 MediaStore 分别处理。 */
 fun deleteSongFile(context: Context, song: Song): Boolean {

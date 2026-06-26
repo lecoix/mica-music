@@ -27,6 +27,12 @@
 .\gradlew.bat :app:assembleDebug
 ```
 
+Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
+
+```powershell
+. .\scripts\use-utf8-console.ps1
+```
+
 ### 首次使用
 
 1. 授予**音频读取**权限（Android 13+ 为 `READ_MEDIA_AUDIO`）

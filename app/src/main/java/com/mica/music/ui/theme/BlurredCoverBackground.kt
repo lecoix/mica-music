@@ -1,10 +1,17 @@
 package com.mica.music.ui.theme
 
 import android.os.Build
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -14,9 +21,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +50,7 @@ fun BlurredCoverBackground(
     albumArtUri: String?,
     coverColor: Color,
     mica: MicaSurfaceColors,
+    dynamicLight: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isDark = MicaTheme.colors.isDark
@@ -128,6 +138,14 @@ fun BlurredCoverBackground(
                     readyBackgroundUri = albumArtUri
                 },
             )
+            if (dynamicLight) {
+                DynamicLightOverlay(
+                    albumArtUri = albumArtUri,
+                    foregroundAlpha = foregroundAlpha,
+                    blurRadius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 96f else 0f,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         } else {
             AmbientPaletteBackground(
                 accent = accent,
@@ -176,6 +194,159 @@ fun BlurredCoverBackground(
                 ),
         )
     }
+}
+
+@Composable
+private fun DynamicLightOverlay(
+    albumArtUri: String,
+    foregroundAlpha: Float,
+    blurRadius: Float,
+    modifier: Modifier = Modifier,
+) {
+    val transition = rememberInfiniteTransition(label = "dynamicLight")
+    val topLeftRotation by transition.animateFloat(
+        initialValue = -42f,
+        targetValue = 42f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 35_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dynamicLightTopLeft",
+    )
+    val topRightRotation by transition.animateFloat(
+        initialValue = 48f,
+        targetValue = -48f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 40_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dynamicLightTopRight",
+    )
+    val bottomLeftRotation by transition.animateFloat(
+        initialValue = 54f,
+        targetValue = -54f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 45_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dynamicLightBottomLeft",
+    )
+    val bottomRightRotation by transition.animateFloat(
+        initialValue = -60f,
+        targetValue = 60f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 50_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dynamicLightBottomRight",
+    )
+
+    Box(
+        modifier.graphicsLayer {
+            alpha = foregroundAlpha * 0.36f
+            renderEffect = if (blurRadius > 0f) {
+                BlurEffect(blurRadius, blurRadius, TileMode.Clamp)
+            } else {
+                null
+            }
+        },
+    ) {
+        DynamicLightTile(
+            albumArtUri = albumArtUri,
+            alignment = DynamicLightTileAlignment.TopLeft,
+            rotation = topLeftRotation,
+        )
+        DynamicLightTile(
+            albumArtUri = albumArtUri,
+            alignment = DynamicLightTileAlignment.TopRight,
+            rotation = topRightRotation,
+        )
+        DynamicLightTile(
+            albumArtUri = albumArtUri,
+            alignment = DynamicLightTileAlignment.BottomLeft,
+            rotation = bottomLeftRotation,
+        )
+        DynamicLightTile(
+            albumArtUri = albumArtUri,
+            alignment = DynamicLightTileAlignment.BottomRight,
+            rotation = bottomRightRotation,
+        )
+    }
+}
+
+@Composable
+private fun DynamicLightTile(
+    albumArtUri: String,
+    alignment: DynamicLightTileAlignment,
+    rotation: Float,
+) {
+    val backgroundKey = MicaImageLoaders.backgroundCacheKey(albumArtUri)
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .clip(RectangleShape),
+    ) {
+        val offsetX = when (alignment.horizontal) {
+            DynamicLightHorizontal.Left -> -maxWidth / 2f
+            DynamicLightHorizontal.Right -> maxWidth / 2f
+        }
+        val offsetY = when (alignment.vertical) {
+            DynamicLightVertical.Top -> -maxHeight / 2f
+            DynamicLightVertical.Bottom -> maxHeight / 2f
+        }
+        val transformOrigin = TransformOrigin(
+            pivotFractionX = when (alignment.horizontal) {
+                DynamicLightHorizontal.Left -> 1f
+                DynamicLightHorizontal.Right -> 0f
+            },
+            pivotFractionY = when (alignment.vertical) {
+                DynamicLightVertical.Top -> 1f
+                DynamicLightVertical.Bottom -> 0f
+            },
+        )
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(albumArtUri)
+                .size(BlurredBackgroundSourcePx)
+                .memoryCacheKey(backgroundKey)
+                .placeholderMemoryCacheKey(backgroundKey)
+                .crossfade(0)
+                .build(),
+            imageLoader = remember { MicaImageLoaders.background },
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = offsetX.toPx()
+                    translationY = offsetY.toPx()
+                    scaleX = 1.55f
+                    scaleY = 1.55f
+                    rotationZ = rotation
+                    this.transformOrigin = transformOrigin
+                },
+        )
+    }
+}
+
+private enum class DynamicLightHorizontal {
+    Left,
+    Right,
+}
+
+private enum class DynamicLightVertical {
+    Top,
+    Bottom,
+}
+
+private enum class DynamicLightTileAlignment(
+    val horizontal: DynamicLightHorizontal,
+    val vertical: DynamicLightVertical,
+) {
+    TopLeft(DynamicLightHorizontal.Left, DynamicLightVertical.Top),
+    TopRight(DynamicLightHorizontal.Right, DynamicLightVertical.Top),
+    BottomLeft(DynamicLightHorizontal.Left, DynamicLightVertical.Bottom),
+    BottomRight(DynamicLightHorizontal.Right, DynamicLightVertical.Bottom),
 }
 
 /** API &lt; 31 或无封面：用专辑主色做柔和光晕底。 */

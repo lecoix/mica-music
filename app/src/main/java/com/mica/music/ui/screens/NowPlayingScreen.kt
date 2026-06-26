@@ -54,6 +54,7 @@ import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.ParticleCoverHost
+import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.theme.NowPlayingBackground
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.util.TrackSwitchPerformance
@@ -73,6 +74,8 @@ data class NowPlayingActions(
     val togglePlay: () -> Unit,
     val previous: () -> Unit,
     val next: () -> Unit,
+    val coverFlowPreviousTarget: () -> Int?,
+    val coverFlowNextTarget: () -> Int?,
     val cyclePlaybackQueueMode: () -> Unit,
     val toggleImmersiveLower: () -> Unit,
     val insertPlayNext: (Song) -> Unit,
@@ -111,6 +114,8 @@ fun rememberNowPlayingActions(
             togglePlay = playerController::togglePlay,
             previous = playerController::previous,
             next = playerController::next,
+            coverFlowPreviousTarget = playerController::manualPreviousTarget,
+            coverFlowNextTarget = playerController::manualNextTarget,
             cyclePlaybackQueueMode = playerController::cyclePlaybackQueueMode,
             toggleImmersiveLower = uiSettings::togglePlayerImmersiveLower,
             insertPlayNext = playerController::insertPlayNext,
@@ -140,7 +145,6 @@ fun NowPlayingScreen(
         queueState = playerController.playbackQueueState,
         sleepTimer = sleepTimer,
         actions = rememberNowPlayingActions(playerController, uiSettings),
-        playerController = playerController,
         uiSettings = uiSettings,
         onClose = onClose,
         onOpenEqualizer = onOpenEqualizer,
@@ -161,7 +165,6 @@ fun NowPlayingContent(
     queueState: PlaybackQueueState,
     sleepTimer: SleepTimerController,
     actions: NowPlayingActions,
-    playerController: PlayerController,
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
@@ -283,7 +286,7 @@ fun NowPlayingContent(
 
     val lowerBackground = uiSettings.playerLowerBackground
     val immersiveLower = uiSettings.playerImmersiveLower
-    val preloadBlurredBackground = lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW
+    val preloadBlurredBackground = lowerBackground.usesBlurredArtwork
 
     LaunchedEffect(song.id, song.albumArtUri, preloadBlurredBackground) {
         TrackSwitchPerformance.mark(
@@ -302,6 +305,7 @@ fun NowPlayingContent(
     }
     var coverMotionActive by remember { mutableStateOf(false) }
     val coverFlowNavigation = remember { CoverFlowCarouselNavigationBridge() }
+    val photoStackNavigation = remember { PhotoStackCarouselNavigationBridge() }
 
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
     BackHandler(enabled = !lyricsExpanded) { onClose() }
@@ -366,18 +370,26 @@ fun NowPlayingContent(
             }
 
             val coverFlowStageActive = previewModel.frame.coverFlowStageActive
+            val photoStackStageActive = uiSettings.playerCoverFlowMode.usesPhotoStack &&
+                previewModel.frame.photoStack.normalLayerVisible
             val onPlayerNext: () -> Unit = {
                 if (coverFlowStageActive) {
-                    val target = playerController.manualNextTarget()
+                    val target = actions.coverFlowNextTarget()
                     if (target != null) coverFlowNavigation.skipToIndex(target)
+                } else if (photoStackStageActive) {
+                    val target = actions.coverFlowNextTarget()
+                    if (target != null) photoStackNavigation.skipToIndex(target)
                 } else {
                     actions.next()
                 }
             }
             val onPlayerPrevious: () -> Unit = {
                 if (coverFlowStageActive) {
-                    val target = playerController.manualPreviousTarget()
+                    val target = actions.coverFlowPreviousTarget()
                     if (target != null) coverFlowNavigation.skipToIndex(target)
+                } else if (photoStackStageActive) {
+                    val target = actions.coverFlowPreviousTarget()
+                    if (target != null) photoStackNavigation.skipToIndex(target)
                 } else {
                     actions.previous()
                 }
@@ -474,6 +486,7 @@ fun NowPlayingContent(
                         onCoverLongPress = { openSongActionMenu(song) },
                         onCoverMotionActiveChanged = { coverMotionActive = it },
                         coverFlowNavigation = coverFlowNavigation,
+                        photoStackNavigation = photoStackNavigation,
                         screenWidth = screenWidth,
                     )
                     BoxWithConstraints(

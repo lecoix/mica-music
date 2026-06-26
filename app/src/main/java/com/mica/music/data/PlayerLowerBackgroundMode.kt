@@ -13,7 +13,13 @@ enum class PlayerLowerBackgroundMode(
 
     /** 全屏强模糊封面（Android 12+）；低版本为取色渐变兜底 */
     COVER_GLOW("cover_glow", "封面模糊"),
+
+    /** 将封面色彩抽成低分辨率纹理，由 GLES 以 30fps 渲染动态烟云背景。 */
+    DYNAMIC_LIGHT("dynamic_light", "动态烟云"),
     ;
+
+    val usesBlurredArtwork: Boolean
+        get() = this == COVER_GLOW || this == DYNAMIC_LIGHT
 
     companion object {
         fun fromStorage(value: String?): PlayerLowerBackgroundMode =

@@ -50,6 +50,41 @@ internal fun PlayerLowerPanelSection(
 ) {
     val spacing = lower.spacing
     val lyricsFocus = lower.lyricsLayoutFocus
+    val hideInfoAndLyrics = lower.hideInfoAndLyrics
+
+    if (hideInfoAndLyrics) {
+        Column(modifier.fillMaxSize()) {
+            SongTitleSection(
+                title = activeSong.title,
+                artist = activeSong.artist,
+                album = activeSong.album,
+                isBuffering = surfaceState.isBuffering,
+                playbackError = surfaceState.playbackError,
+                colors = colors,
+                immersiveProgress = lower.immersiveProgress,
+                modifier = Modifier.graphicsLayer {
+                    translationY = lower.titleSlideDown.toPx()
+                },
+                onLongPress = if (!immersiveLower) onToggleImmersive else null,
+            )
+            Spacer(Modifier.height(lower.photoStackTitleToControlsGap))
+            PlayerLowerPanelChrome(
+                surfaceState = surfaceState,
+                colors = colors,
+                seekState = seekState,
+                lower = lower,
+                spectrumEnabled = spectrumEnabled,
+                onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+                onPrevious = onPrevious,
+                onTogglePlay = onTogglePlay,
+                onNext = onNext,
+                onOpenEqualizer = onOpenEqualizer,
+                onOpenQueue = onOpenQueue,
+            )
+            Spacer(Modifier.weight(1f))
+        }
+        return
+    }
 
     Column(modifier.fillMaxSize()) {
         Box(
@@ -74,22 +109,24 @@ internal fun PlayerLowerPanelSection(
             ) {
                 Spacer(Modifier.height(spacing.afterCover))
                 if (lower.showMetadata) {
-                    Box(
-                        Modifier.graphicsLayer {
-                            alpha = lower.metaAlpha * (1f - lower.immersiveProgress)
-                            translationY = -lower.immersiveProgress * 12f
-                        },
-                    ) {
-                        HiFiBadgeSection(
-                            song = activeSong,
-                            colors = if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
-                                hifiBadgeColors
-                            } else {
-                                colors
+                    if (!hideInfoAndLyrics) {
+                        Box(
+                            Modifier.graphicsLayer {
+                                alpha = lower.metaAlpha * (1f - lower.immersiveProgress)
+                                translationY = -lower.immersiveProgress * 12f
                             },
-                        )
+                        ) {
+                            HiFiBadgeSection(
+                                song = activeSong,
+                                colors = if (lowerBackground.usesBlurredArtwork) {
+                                    hifiBadgeColors
+                                } else {
+                                    colors
+                                },
+                            )
+                        }
+                        Spacer(Modifier.height(spacing.afterInfo))
                     }
-                    Spacer(Modifier.height(spacing.afterInfo))
                     SongTitleSection(
                         title = activeSong.title,
                         artist = activeSong.artist,
@@ -105,7 +142,7 @@ internal fun PlayerLowerPanelSection(
                     )
                     Spacer(Modifier.height(spacing.afterSubtitle))
                 }
-                if (!immersiveLower) {
+                if (!immersiveLower && !hideInfoAndLyrics) {
                     Box(
                         Modifier
                             .weight(1f)
@@ -122,12 +159,20 @@ internal fun PlayerLowerPanelSection(
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                } else {
+                } else if (!hideInfoAndLyrics) {
                     Spacer(Modifier.weight(1f))
                 }
-                Spacer(Modifier.height(spacing.beforePlaybackChrome))
+                Spacer(
+                    Modifier.height(
+                        if (hideInfoAndLyrics) {
+                            12.dp
+                        } else {
+                            spacing.beforePlaybackChrome
+                        },
+                    ),
+                )
             }
-            if (lyricsFocus > 0.01f) {
+            if (lyricsFocus > 0.01f && !hideInfoAndLyrics) {
                 ExpandedLyricsPanel(
                     lyrics = lyrics,
                     positionMs = progressState.positionMs,

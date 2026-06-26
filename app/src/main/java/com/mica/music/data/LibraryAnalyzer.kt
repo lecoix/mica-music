@@ -15,6 +15,8 @@ data class LibraryAnalysis(
     val totalPlayCount: Int,
     /** 至少播放过一次的曲目数 */
     val playedSongCount: Int,
+    val totalListenSeconds: Long,
+    val listenedSongCount: Int,
     val formatBreakdown: List<LabeledCount>,
     /** HR / SQ / HQ / 其他（合并原采样率与码率分布） */
     val qualityTierBreakdown: List<LabeledCount>,
@@ -41,6 +43,8 @@ object LibraryAnalyzer {
                 hiResPercent = 0,
                 totalPlayCount = 0,
                 playedSongCount = 0,
+                totalListenSeconds = 0L,
+                listenedSongCount = 0,
                 formatBreakdown = emptyList(),
                 qualityTierBreakdown = emptyList(),
             )
@@ -50,6 +54,8 @@ object LibraryAnalyzer {
         val hiRes = songs.count { it.isHiRes }
         val playedSongs = songs.count { it.playCount > 0 }
         val totalPlays = songs.sumOf { it.playCount.coerceAtLeast(0) }
+        val listenedSongs = songs.count { it.totalListenSeconds > 0L }
+        val totalListenSeconds = songs.sumOf { it.totalListenSeconds.coerceAtLeast(0L) }
         val tierCounts = songs.groupingBy { qualityTierLabel(it) }.eachCount()
 
         return LibraryAnalysis(
@@ -60,6 +66,8 @@ object LibraryAnalyzer {
             hiResPercent = (hiRes * 100 / songs.size),
             totalPlayCount = totalPlays,
             playedSongCount = playedSongs,
+            totalListenSeconds = totalListenSeconds,
+            listenedSongCount = listenedSongs,
             formatBreakdown = songs.groupingBy { it.metadata.containerName.uppercase() }
                 .eachCount()
                 .entries

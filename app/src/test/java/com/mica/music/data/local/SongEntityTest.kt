@@ -17,7 +17,7 @@ class SongEntityTest {
         val entity = song.toEntity(queueOrder = 7)
         val restored = entity.toSong()
 
-        assertEquals(song.copy(lastPlayedAtMs = 0), restored)
+        assertEquals(song.copy(totalListenSeconds = 0L, lastPlayedAtMs = 0), restored)
         assertEquals(7, entity.queueOrder)
     }
 

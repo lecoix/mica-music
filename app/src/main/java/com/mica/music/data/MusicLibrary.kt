@@ -145,11 +145,22 @@ class MusicLibrary internal constructor(
         }
     }
 
+    fun onSongListened(songId: String, seconds: Long) {
+        if (seconds <= 0L) return
+        ioScope.launch {
+            val stats = PlayHistoryStore.recordListenSeconds(context, songId, seconds)
+            withContext(Dispatchers.Main.immediate) {
+                applyPlayStats(songId, stats)
+            }
+        }
+    }
+
     private fun applyPlayStats(songId: String, stats: PlayStats) {
         val scannedIndex = scannedSongs.indexOfFirst { it.id == songId }
         if (scannedIndex < 0) return
         val updatedScanned = scannedSongs[scannedIndex].copy(
             playCount = stats.count,
+            totalListenSeconds = stats.totalListenSeconds,
             lastPlayedAtMs = stats.lastPlayedAtMs,
         )
         scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updatedScanned }
@@ -418,6 +429,7 @@ class MusicLibrary internal constructor(
         val stats = scanEnvironment.playStats(id)
         return copy(
             playCount = stats.count,
+            totalListenSeconds = stats.totalListenSeconds,
             lastPlayedAtMs = stats.lastPlayedAtMs,
             artist = ArtistNames.normalizeDisplay(artist),
         )

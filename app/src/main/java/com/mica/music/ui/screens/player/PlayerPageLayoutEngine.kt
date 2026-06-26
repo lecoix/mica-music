@@ -17,6 +17,9 @@ import com.mica.music.ui.theme.HifiTypography
  */
 object PlayerPageLayoutEngine {
     private const val ParticleCoverScreenFraction = 0.78f
+    private const val PhotoStackScreenFraction = 0.80f
+    private const val PhotoStackAspectRatio = 0.78f
+    private const val PhotoStackEdgeFraction = 0.10f
     private val ParticleCoverDrop = 24.dp
     private val ParticleInfoBlockHeight = 96.dp
     internal val ParticleInfoTopExtraPadding = HifiSpacing.lg
@@ -52,15 +55,24 @@ object PlayerPageLayoutEngine {
         }
         val coverFlowStageActive = coverFlowProgress > 0.001f
 
+        val photoStackTitleBlockHeight = computePhotoStackTitleBlockHeight(density, typography)
+        val photoStackControlsHeight = HifiSize.touchTarget
         val cover = computeCoverFrame(
             input = input,
             lyricsFocus = lyricsFocus,
             lyricsChromeFade = lyricsChromeFade,
+            photoStackTitleBlockHeight = photoStackTitleBlockHeight,
+            photoStackControlsHeight = photoStackControlsHeight,
         )
         val particleCover = computeParticleCoverFrame(
             input = input,
             lyricsFocus = lyricsFocus,
             coverFlowStageActive = coverFlowStageActive,
+        )
+        val photoStack = computePhotoStackFrame(
+            input = input,
+            lyricsFocus = lyricsFocus,
+            cover = cover,
         )
 
         val lowerPlan = computeLowerLayoutPlan(
@@ -72,13 +84,33 @@ object PlayerPageLayoutEngine {
             showMetadata = !input.particleCoverMode,
         )
 
-        val chromeHeight = lerpDp(
-            lowerPlan.chromeHeightAtRest,
-            lowerPlan.chromeHeightAtFullImmersive,
-            immersiveProgress,
-        )
-        val controlsBottomPadding =
+        val photoStackLayout = if (input.photoStackMode) {
+            computePhotoStackVerticalLayout(
+                screenHeight = input.screenHeight,
+                photoStackHeight = cover.height,
+                titleBlockHeight = photoStackTitleBlockHeight,
+                controlsHeight = photoStackControlsHeight,
+            )
+        } else {
+            PhotoStackVerticalLayout(
+                edgeGap = 0.dp,
+                middleGap = 0.dp,
+            )
+        }
+        val chromeHeight = if (input.photoStackMode) {
+            photoStackControlsHeight + photoStackLayout.edgeGap
+        } else {
+            lerpDp(
+                lowerPlan.chromeHeightAtRest,
+                lowerPlan.chromeHeightAtFullImmersive,
+                immersiveProgress,
+            )
+        }
+        val controlsBottomPadding = if (input.photoStackMode) {
+            photoStackLayout.edgeGap
+        } else {
             lowerPlan.spacing.afterControls * lyricsChromeBottomInsetScale(lyricsFocus)
+        }
 
         val immersiveInTransition =
             input.immersiveLower || immersiveProgress > ImmersiveProgressEpsilon
@@ -96,7 +128,7 @@ object PlayerPageLayoutEngine {
             useCoverEdgePlayback &&
                 chromeProgressAlpha > ImmersiveProgressEpsilon
         val showStandardProgress =
-            !useCoverEdgePlayback || showChromeProgressInTransition
+            !input.photoStackMode && (!useCoverEdgePlayback || showChromeProgressInTransition)
 
         val metaAlpha = 1f - lyricsFocus
         val compactContentAlpha = if (input.particleCoverMode && lyricsFocus > ImmersiveProgressEpsilon) {
@@ -111,8 +143,11 @@ object PlayerPageLayoutEngine {
                 lyricsFocus <= ImmersiveProgressEpsilon &&
                 !input.immersiveLower &&
                 immersiveProgress <= ImmersiveProgressEpsilon
+        val liveSpectrumRequested =
+            input.spectrumSettingEnabled ||
+                input.photoStackMode
         val spectrumEnabled =
-            input.spectrumSettingEnabled &&
+            liveSpectrumRequested &&
                 !input.spectrumDeferred &&
                 !input.coverSwitching &&
                 stablePlaybackScene
@@ -138,10 +173,13 @@ object PlayerPageLayoutEngine {
             spectrumEnabled = spectrumEnabled,
             cover = cover,
             particleCover = particleCover,
+            photoStack = photoStack,
             lower = LowerPanelFrame(
                 spacing = lowerPlan.spacing,
                 chromeHeight = maxOf(0.dp, chromeHeight - lyricsChromeDrop(lyricsFocus)),
                 controlsBottomPadding = controlsBottomPadding,
+                photoStackTitleBlockHeight = photoStackTitleBlockHeight,
+                photoStackTitleToControlsGap = photoStackLayout.middleGap,
                 titleSlideDown = titleSlideDown,
                 showMetadata = lowerPlan.showMetadata,
                 metaAlpha = metaAlpha,
@@ -155,6 +193,7 @@ object PlayerPageLayoutEngine {
                 chromeProgressAlpha = chromeProgressAlpha,
                 spectrumOverlayAlpha = spectrumOverlayAlpha,
                 lyricLineSlots = lowerPlan.spacing.lyricLineSlots,
+                hideInfoAndLyrics = input.photoStackMode,
             ),
         )
     }
@@ -163,19 +202,21 @@ object PlayerPageLayoutEngine {
         input: PlayerPageLayoutInput,
         lyricsFocus: Float,
         lyricsChromeFade: Float,
+        photoStackTitleBlockHeight: Dp,
+        photoStackControlsHeight: Dp,
     ): CoverFrame {
         val particleInfoTopPadding = input.statusBarTop + ParticleInfoTopExtraPadding
         val particleCoverTopPadding = particleInfoTopPadding +
             ParticleInfoBlockHeight +
             HifiSpacing.lg +
             ParticleCoverDrop
-        val coverTopPadding = when {
-            input.particleCoverMode -> lerpDp(particleCoverTopPadding, input.statusBarTop, lyricsFocus)
-            else -> lerpDp(0.dp, input.statusBarTop, lyricsFocus)
-        }
         val particleCoverSize = input.screenWidth * ParticleCoverScreenFraction
         val (expandedCoverWidth, expandedCoverHeight) = when {
             input.particleCoverMode -> particleCoverSize to particleCoverSize
+            input.photoStackMode -> {
+                val cardWidth = input.screenWidth * PhotoStackScreenFraction
+                cardWidth to cardWidth / PhotoStackAspectRatio
+            }
             input.fitOriginal -> measurePlayerCoverFitOriginal(
                 input.coverAspectRatio,
                 input.screenWidth,
@@ -194,7 +235,22 @@ object PlayerPageLayoutEngine {
         } else {
             lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsFocus)
         }
-        val expandedCoverStartPadding = if (input.fitOriginal || input.particleCoverMode) {
+        val photoStackLayout = if (input.photoStackMode) {
+            computePhotoStackVerticalLayout(
+                screenHeight = input.screenHeight,
+                photoStackHeight = expandedCoverHeight,
+                titleBlockHeight = photoStackTitleBlockHeight,
+                controlsHeight = photoStackControlsHeight,
+            )
+        } else {
+            PhotoStackVerticalLayout(edgeGap = 0.dp, middleGap = 0.dp)
+        }
+        val coverTopPadding = when {
+            input.particleCoverMode -> lerpDp(particleCoverTopPadding, input.statusBarTop, lyricsFocus)
+            input.photoStackMode -> lerpDp(photoStackLayout.edgeGap, input.statusBarTop, lyricsFocus)
+            else -> lerpDp(0.dp, input.statusBarTop, lyricsFocus)
+        }
+        val expandedCoverStartPadding = if (input.fitOriginal || input.particleCoverMode || input.photoStackMode) {
             Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
         } else {
             0.dp
@@ -208,11 +264,20 @@ object PlayerPageLayoutEngine {
                 lyricsFocus,
             )
         }
-        val particleCoverBottomPadding = if (input.particleCoverMode) HifiSpacing.lg else 0.dp
+        val particleCoverBottomPadding = when {
+            input.particleCoverMode -> HifiSpacing.lg
+            input.photoStackMode -> photoStackLayout.middleGap
+            else -> 0.dp
+        }
         val coverBlockHeight = when {
             input.particleCoverMode -> lerpDp(
                 coverHeight + coverTopPadding + particleCoverBottomPadding,
                 input.statusBarTop,
+                lyricsFocus,
+            )
+            input.photoStackMode -> lerpDp(
+                coverHeight + coverTopPadding + particleCoverBottomPadding,
+                input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm,
                 lyricsFocus,
             )
             else -> lerpDp(
@@ -260,6 +325,64 @@ object PlayerPageLayoutEngine {
                 (input.lyricsExpanded || lyricsFocus > ImmersiveProgressEpsilon) &&
                 !coverFlowStageActive,
             hostBaseSize = input.screenWidth,
+        )
+    }
+
+    private fun computePhotoStackFrame(
+        input: PlayerPageLayoutInput,
+        lyricsFocus: Float,
+        cover: CoverFrame,
+    ): PhotoStackFrame {
+        val enabled = input.photoStackMode
+        val normalLayerVisible =
+            enabled &&
+                !input.lyricsExpanded &&
+                lyricsFocus <= ImmersiveProgressEpsilon &&
+                !input.immersiveLower
+        val cardWidth = cover.width
+        val cardHeight = cover.height
+        return PhotoStackFrame(
+            enabled = enabled,
+            normalLayerVisible = normalLayerVisible,
+            slotWidth = cover.width,
+            slotHeight = cover.height,
+            cardWidth = cardWidth,
+            cardHeight = cardHeight,
+            artworkInsetTop = cardWidth * 0.055f,
+            artworkInsetHorizontal = cardWidth * 0.038f,
+            artworkBottomBand = cardHeight - cardWidth - cardWidth * 0.055f,
+            waveformHeight = 24.dp,
+        )
+    }
+
+    private data class PhotoStackVerticalLayout(
+        val edgeGap: Dp,
+        val middleGap: Dp,
+    )
+
+    private fun computePhotoStackTitleBlockHeight(
+        density: Density,
+        typography: HifiTypography,
+    ): Dp {
+        val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
+        val subtitleLine = with(density) { typography.bodyMd.lineHeight.toDp() }
+        return titleLine + HifiSpacing.sm + subtitleLine * 2
+    }
+
+    private fun computePhotoStackVerticalLayout(
+        screenHeight: Dp,
+        photoStackHeight: Dp,
+        titleBlockHeight: Dp,
+        controlsHeight: Dp,
+    ): PhotoStackVerticalLayout {
+        val fixedHeight = photoStackHeight + titleBlockHeight + controlsHeight
+        val availableGap = (screenHeight - fixedHeight).coerceAtLeast(0.dp)
+        val desiredEdgeGap = screenHeight * PhotoStackEdgeFraction
+        val edgeGap = minOf(desiredEdgeGap, availableGap / 2)
+        val middleGap = ((availableGap - edgeGap * 2) / 2).coerceAtLeast(0.dp)
+        return PhotoStackVerticalLayout(
+            edgeGap = edgeGap,
+            middleGap = middleGap,
         )
     }
 

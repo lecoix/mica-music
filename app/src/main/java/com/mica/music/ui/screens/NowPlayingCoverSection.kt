@@ -61,6 +61,7 @@ import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
+import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHaloFraction
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
@@ -98,6 +99,7 @@ internal fun NowPlayingCoverSection(
     onCoverLongPress: (() -> Unit)?,
     onCoverMotionActiveChanged: (Boolean) -> Unit,
     coverFlowNavigation: CoverFlowCarouselNavigationBridge,
+    photoStackNavigation: PhotoStackCarouselNavigationBridge,
     screenWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -134,7 +136,10 @@ internal fun NowPlayingCoverSection(
     }
     val cameraDistancePx = with(density) { 18.dp.toPx() }
 
-    val standardMode = !coverFlowMode.usesCoverFlowStage && !frame.coverFlowStageActive
+    val standardMode =
+        !coverFlowMode.usesCoverFlowStage &&
+            !coverFlowMode.usesPhotoStack &&
+            !frame.coverFlowStageActive
     val useNativeParticleCover = nativeParticleCoverActive
     val gestureState = rememberCoverGestureState(
         gesturesEnabled = frame.gesturesEnabled,
@@ -161,7 +166,7 @@ internal fun NowPlayingCoverSection(
         for (offset in listOf(-1, 1)) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
             MicaImageLoaders.preloadCover(context, uri, coverDecodeTarget)
-            if (lowerBackground == PlayerLowerBackgroundMode.COVER_GLOW) {
+            if (lowerBackground.usesBlurredArtwork) {
                 MicaImageLoaders.preloadBackground(context, uri)
             }
         }
@@ -287,7 +292,37 @@ internal fun NowPlayingCoverSection(
                     )
                 }
             }
-            if (!frame.coverFlowStageActive && coverSlotVisible) {
+            if (!frame.coverFlowStageActive && coverSlotVisible && frame.photoStack.normalLayerVisible) {
+                Box(
+                    modifier = Modifier
+                        .padding(start = cover.startPadding, top = cover.topPadding)
+                        .size(cover.width, cover.height)
+                        .graphicsLayer {
+                            alpha = coverContentAlpha
+                            clip = false
+                        }
+                        .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
+                        .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverLongPress)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PhotoStackThemeHost(
+                        queue = queue,
+                        currentIndex = currentIndex,
+                        frame = frame.photoStack,
+                        seekState = seekState,
+                        isPlaying = isPlaying,
+                        spectrumEnabled = frame.spectrumEnabled,
+                        gesturesEnabled = frame.gesturesEnabled,
+                        onPrevious = onPrevious,
+                        onNext = onNext,
+                        onCoverMotionActiveChanged = onCoverMotionActiveChanged,
+                        navigationBridge = photoStackNavigation,
+                        onPlayQueueIndex = onPlayQueueIndex,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                }
+            }
+            if (!frame.coverFlowStageActive && coverSlotVisible && !frame.photoStack.normalLayerVisible) {
             Box(
                 modifier = Modifier
                     .padding(start = cover.startPadding, top = cover.topPadding)

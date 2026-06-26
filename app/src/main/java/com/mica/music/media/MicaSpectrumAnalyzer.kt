@@ -30,6 +30,9 @@ object MicaSpectrumAnalyzer {
     private val _levels = MutableStateFlow(List(BandCount) { 0f })
     val levels: StateFlow<List<Float>> = _levels.asStateFlow()
 
+    private val _envelope = MutableStateFlow(0f)
+    val envelope: StateFlow<Float> = _envelope.asStateFlow()
+
     @Volatile
     private var enabled = false
 
@@ -181,6 +184,7 @@ object MicaSpectrumAnalyzer {
             hopRemainder = 0.0
             resetProbe()
             _levels.value = List(BandCount) { 0f }
+            _envelope.value = 0f
         }
     }
 
@@ -190,6 +194,7 @@ object MicaSpectrumAnalyzer {
     private fun runAnalysis(snapshot: RingSnapshot, sampleRateHz: Int, nowMs: Long) {
         val analyzeStart = if (ProbeEnabled) System.nanoTime() else 0L
         copyWindowedSamplesFromSnapshot(snapshot)
+        _envelope.value = analyzeEnvelope(windowed)
         val next = shapeBands(analyzeBands(windowed, sampleRateHz))
         if (ProbeEnabled) {
             probeAnalyzeNanos += System.nanoTime() - analyzeStart
@@ -197,6 +202,24 @@ object MicaSpectrumAnalyzer {
             reportProbeIfNeeded(nowMs, sampleRateHz)
         }
         _levels.value = next.map { it.coerceIn(0f, 1f) }
+    }
+
+    private fun analyzeEnvelope(samples: FloatArray): Float {
+        val start = (samples.size * 0.25f).toInt().coerceIn(0, samples.lastIndex)
+        var sumSquares = 0f
+        var peak = 0f
+        var count = 0
+        for (index in start until samples.size) {
+            val sample = samples[index]
+            sumSquares += sample * sample
+            peak = maxOf(peak, kotlin.math.abs(sample))
+            count++
+        }
+        if (count == 0) return 0f
+        val rms = sqrt(sumSquares / count).coerceIn(0f, 1f)
+        val compressedRms = (ln(1f + rms * 18f) / ln(19f)).coerceIn(0f, 1f)
+        val compressedPeak = (ln(1f + peak * 9f) / ln(10f)).coerceIn(0f, 1f)
+        return (compressedRms * 0.72f + compressedPeak * 0.28f).coerceIn(0f, 1f)
     }
 
     private fun copyWindowedSamplesFromSnapshot(snapshot: RingSnapshot) {

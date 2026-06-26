@@ -43,10 +43,26 @@ data class ParticleCoverFrame(
 )
 
 @Immutable
+data class PhotoStackFrame(
+    val enabled: Boolean,
+    val normalLayerVisible: Boolean,
+    val slotWidth: Dp,
+    val slotHeight: Dp,
+    val cardWidth: Dp,
+    val cardHeight: Dp,
+    val artworkInsetTop: Dp,
+    val artworkInsetHorizontal: Dp,
+    val artworkBottomBand: Dp,
+    val waveformHeight: Dp,
+)
+
+@Immutable
 data class LowerPanelFrame(
     val spacing: PlayerLowerPanelSpacing,
     val chromeHeight: Dp,
     val controlsBottomPadding: Dp,
+    val photoStackTitleBlockHeight: Dp,
+    val photoStackTitleToControlsGap: Dp,
     val titleSlideDown: Dp,
     val showMetadata: Boolean,
     val metaAlpha: Float,
@@ -60,6 +76,7 @@ data class LowerPanelFrame(
     val chromeProgressAlpha: Float,
     val spectrumOverlayAlpha: Float,
     val lyricLineSlots: Int,
+    val hideInfoAndLyrics: Boolean,
 )
 
 @Immutable
@@ -73,6 +90,7 @@ data class PlayerPageFrame(
     val spectrumEnabled: Boolean,
     val cover: CoverFrame,
     val particleCover: ParticleCoverFrame,
+    val photoStack: PhotoStackFrame,
     val lower: LowerPanelFrame,
 )
 
@@ -91,6 +109,7 @@ data class PlayerPageLayoutInput(
     val coverFlowModeEnabled: Boolean,
     val useCoverEdgeProgress: Boolean,
     val particleCoverMode: Boolean,
+    val photoStackMode: Boolean,
     val fitOriginal: Boolean,
     val coverAspectRatio: Float,
     val spectrumSettingEnabled: Boolean,

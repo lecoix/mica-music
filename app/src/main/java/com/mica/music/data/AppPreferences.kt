@@ -28,6 +28,7 @@ object AppPreferences {
     private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     private const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
+    private const val KEY_PHOTO_STACK_BURN_ENABLED = "photo_stack_burn_enabled"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -185,6 +186,13 @@ object AppPreferences {
 
     fun setPlayerCoverFlowMode(context: Context, mode: PlayerCoverFlowMode) {
         prefs(context).edit().putString(KEY_PLAYER_COVER_FLOW_MODE, mode.storageValue).apply()
+    }
+
+    fun photoStackBurnEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PHOTO_STACK_BURN_ENABLED, false)
+
+    fun setPhotoStackBurnEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_PHOTO_STACK_BURN_ENABLED, enabled).apply()
     }
 
     fun particleCoverTuning(context: Context): ParticleCoverTuning {

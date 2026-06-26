@@ -22,8 +22,8 @@
 - [x] **歌词聚焦**：播放页内点击歌词区，封面动画缩至左上角，展开大字歌词；无独立页面；底部控制条不变
 
 ### 播放
-- [x] Media3 **ExoPlayer** + 前台 `MediaService`（会话/元数据；出声走 FFmpeg → 裸 PCM → AudioTrack）
-- [x] **全格式软件播**：FFmpeg 裸 PCM muxer（s16le/s24le/s32le）→ 整首缓存 → AudioTrack；同曲 seek 跳字节
+- [x] Media3 **ExoPlayer** + 前台 `MediaService`（会话/元数据；播放出声统一走 ExoPlayer）
+- [x] **ExoPlayer 单链路播放**：普通格式、ALAC/DSF 等均由 ExoPlayer / Media3 扩展链路处理；不再走整首 `.pcm` 落盘 + `AudioTrack` 自建播放管线
 - [x] 播放队列、上一首 / 下一首、拖动进度条 seek、缓冲与错误提示
 - [ ] **累计播放时长**统计（按曲 / 全库；切歌与暂停时落盘；音乐库分析或统计栏展示）
 - [x] **播放模式**：顺序 / 列表循环 / 单曲循环 / 随机（单按钮切换）
@@ -123,12 +123,12 @@
   - **封面底边进度模式**：全宽封面 `SongCover` 底缘、`CoverEdgeProgressBar` **上方** **16–24dp** 律动竖条（向上生长），与底边细进度条同一视觉语言；与标准模式二选一展示或分模式开关，避免两处同时闪。
   - **组件**：单一 `PlayerSpectrumStrip`，按 `useCoverEdgeProgress` / 锚点切换位置；颜色走现有播放页对比度（封面模糊下半屏用白 @ alpha）。
   - **显隐**：**歌词聚焦**时随 `lyricsFocus` 淡出或关闭；**下半屏沉浸**关闭；不遮挡五按钮触控区、不铺满封面、不嵌入歌词列表。
-  - **数据**：已接入统一 FFmpeg → PCM → `AudioTrack` 路径，直接分析播放 PCM；避免额外录音权限。
+  - **数据**：跟随当前 ExoPlayer 播放链路取样 / 分析，避免额外录音权限。
   - **次选（仅弱装饰）**：歌词区与底栏间 `beforePlaybackChrome` 留白极低透明度氛围带——非主方案。
 
 ### 音频 · 播放架构（长期）
-- [ ] **系统/原生解码优先**：MP3/AAC/FLAC 等能用 `MediaExtractor` + `MediaCodec` 的尽量直通 `AudioTrack`（无需 Exo 出声）；**FFmpeg 仅兜底** ALAC、APE、非常见容器或机型无 codec 时
-- [ ] **内存流式解码**（可选）：减少整首 `.pcm` 落盘；seek 与进度条需单独设计（见架构讨论）
+- [x] **ExoPlayer 单链路优先**：普通格式与扩展格式统一走 ExoPlayer / Media3 解码播放，避免旧的多播放管线分叉
+- [x] **内存流式解码**：已移除整首 `.pcm` 落盘播放路径；seek 与进度状态跟随 ExoPlayer 当前播放状态
 
 ### 音频与其它
 - [x] **EQ** 均衡器（10 段软件 EQ、系统/自定义预设、保存配置；界面已重做为横向推子布局）
@@ -141,7 +141,7 @@
 ### 远期 · 低优先级
 - [ ] **瘦身**（APK / 运行时占用）
   - **FFmpeg**：按实际曲库格式再裁剪 demuxer/decoder/muxer；评估是否可去掉未用组件
-  - **播放缓存**：减少整首 `.pcm` 落盘（与「内存流式解码」可一并考虑）；清理策略与上限
+  - **播放缓存**：复查 ExoPlayer / 扩展解码缓存与临时文件上限，避免大曲库长期占用膨胀
   - **依赖与资源**：ProGuard/R8、未用资源与 so；设置项说明占用
 - [x] **平行封面带**（播放页特殊主题；见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §0）
   - **观感**：启用后播放页常驻平行封面带；上一张 / 当前 / 下一张以同尺寸平行并排展开，播放 / 暂停不再触发布局放大缩小。

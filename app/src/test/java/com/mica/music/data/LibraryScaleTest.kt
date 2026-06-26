@@ -30,6 +30,7 @@ class LibraryScaleTest {
             fileName = "library-track-$index.audio",
             folderPath = "Music/${index % 50}",
             playCount = index % 20,
+            totalListenSeconds = (index % 12).toLong() * 60L,
             lastPlayedAtMs = index.toLong() * 1_000,
             year = 1990 + index % 35,
         )
@@ -81,6 +82,8 @@ class LibraryScaleTest {
         assertEquals(10_000, analysis.totalSongs)
         assertEquals(9_500, analysis.playedSongCount)
         assertEquals(95_000, analysis.totalPlayCount)
+        assertEquals(9_166, analysis.listenedSongCount)
+        assertEquals(3_299_040L, analysis.totalListenSeconds)
         assertEquals(4, analysis.formatBreakdown.size)
         assertEquals(10_000, analysis.formatBreakdown.sumOf { it.count })
         assertEquals(10_000, analysis.qualityTierBreakdown.sumOf { it.count })

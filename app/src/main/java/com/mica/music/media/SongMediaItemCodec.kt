@@ -37,6 +37,7 @@ object SongMediaItemCodec {
             putLong("${PREFIX}dateAddedMs", song.dateAddedMs)
             putLong("${PREFIX}dateModifiedMs", song.dateModifiedMs)
             putInt("${PREFIX}playCount", song.playCount)
+            putLong("${PREFIX}totalListenSeconds", song.totalListenSeconds)
             putLong("${PREFIX}lastPlayedAtMs", song.lastPlayedAtMs)
         }
         val metadata = MediaMetadata.Builder()
@@ -102,6 +103,7 @@ object SongMediaItemCodec {
             dateAddedMs = extras.getLong("${PREFIX}dateAddedMs", 0L),
             dateModifiedMs = extras.getLong("${PREFIX}dateModifiedMs", 0L),
             playCount = extras.getInt("${PREFIX}playCount", 0),
+            totalListenSeconds = extras.getLong("${PREFIX}totalListenSeconds", 0L).coerceAtLeast(0L),
             lastPlayedAtMs = extras.getLong("${PREFIX}lastPlayedAtMs", 0L),
         )
     }

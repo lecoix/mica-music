@@ -15,6 +15,7 @@ class SongMediaItemCodecTest {
             id = "dsd",
             container = "DSD",
             mime = "audio/dsf",
+            totalListenSeconds = 3_661L,
         )
 
         val decoded = SongMediaItemCodec.decode(SongMediaItemCodec.encode(song))

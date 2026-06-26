@@ -56,10 +56,11 @@ fun rememberPlayerPageUiModel(
     val immersiveLower = uiSettings.playerImmersiveLower
     val coverFlowMode = uiSettings.playerCoverFlowMode
     val coverFlowModeEnabled = coverFlowMode.usesCoverFlowStage
-    val useCoverEdgeProgress = if (coverFlowMode.usesCoverFlowStage) {
-        uiSettings.coverEdgeProgress
-    } else {
-        uiSettings.useCoverEdgeProgressNow()
+    val photoStackMode = coverFlowMode.usesPhotoStack
+    val useCoverEdgeProgress = when {
+        photoStackMode -> true
+        coverFlowMode.usesCoverFlowStage -> uiSettings.coverEdgeProgress
+        else -> uiSettings.useCoverEdgeProgressNow()
     }
 
     val lyricsChromeFade by animateFloatAsState(
@@ -141,6 +142,7 @@ fun rememberPlayerPageUiModel(
             coverFlowModeEnabled = coverFlowModeEnabled,
             useCoverEdgeProgress = useCoverEdgeProgress,
             particleCoverMode = coverFlowMode.usesParticleCover,
+            photoStackMode = photoStackMode,
             fitOriginal = fitOriginal,
             coverAspectRatio = coverAspectRatio,
             spectrumSettingEnabled = uiSettings.spectrumEnabled,

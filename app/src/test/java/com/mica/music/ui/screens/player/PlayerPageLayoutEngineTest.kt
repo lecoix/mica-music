@@ -20,8 +20,10 @@ class PlayerPageLayoutEngineTest {
         lyricsExpanded: Boolean = lyricsProgress > 0.5f,
         useCoverEdgeProgress: Boolean = false,
         particleCoverMode: Boolean = false,
+        photoStackMode: Boolean = false,
         coverFlowModeEnabled: Boolean = false,
         coverSwitching: Boolean = false,
+        spectrumSettingEnabled: Boolean = true,
     ) = PlayerPageLayoutInput(
         panelHeight = panelHeight,
         screenHeight = 800.dp,
@@ -36,9 +38,10 @@ class PlayerPageLayoutEngineTest {
         coverFlowModeEnabled = coverFlowModeEnabled,
         useCoverEdgeProgress = useCoverEdgeProgress,
         particleCoverMode = particleCoverMode,
+        photoStackMode = photoStackMode,
         fitOriginal = false,
         coverAspectRatio = 1f,
-        spectrumSettingEnabled = true,
+        spectrumSettingEnabled = spectrumSettingEnabled,
         spectrumDeferred = false,
         coverSwitching = coverSwitching,
     )
@@ -287,5 +290,99 @@ class PlayerPageLayoutEngineTest {
         assertEquals(400.dp, frame.particleCover.hostBaseSize)
         assertEquals(24.dp, frame.cover.blockHeight)
         assertTrue(frame.cover.width > LyricsFocusMiniCoverSize)
+    }
+
+    @Test
+    fun photoStackMode_outputsPhotoStackFrameAndPaperProgressLayout() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.photoStack.enabled)
+        assertTrue(frame.photoStack.normalLayerVisible)
+        assertEquals(false, frame.lower.showStandardProgress)
+        assertTrue(frame.photoStack.cardWidth < 400.dp)
+        assertTrue(frame.photoStack.cardHeight > frame.photoStack.cardWidth)
+        assertTrue(frame.spectrumEnabled)
+    }
+
+    @Test
+    fun photoStackMode_placesPhotoAndControlsWithSymmetricGaps() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        val titleBlock = frame.lower.photoStackTitleBlockHeight
+        val controls = 48.dp
+        val edgeGap = frame.cover.topPadding
+        val middleGap = frame.lower.photoStackTitleToControlsGap
+        val fixed = frame.photoStack.cardHeight + titleBlock + controls
+        val availableGap = 800.dp - fixed
+        val expectedEdgeGap = minOf(80.dp, availableGap / 2)
+        val expectedMiddleGap = (availableGap - expectedEdgeGap * 2) / 2
+
+        assertEquals(expectedEdgeGap, edgeGap)
+        assertEquals(expectedMiddleGap, middleGap)
+        assertEquals(expectedEdgeGap, frame.lower.controlsBottomPadding)
+        assertEquals(frame.photoStack.cardHeight + edgeGap + middleGap, frame.cover.blockHeight)
+    }
+
+    @Test
+    fun photoStackSpectrumUsesExistingGuards() {
+        val switching = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+                coverSwitching = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val lyrics = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+                lyricsProgress = 0.01f,
+                lyricsExpanded = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, switching.spectrumEnabled)
+        assertEquals(false, lyrics.spectrumEnabled)
+    }
+
+    @Test
+    fun photoStackSpectrumDoesNotRequireStandardSpectrumSetting() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+                spectrumSettingEnabled = false,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val normal = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                spectrumSettingEnabled = false,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.spectrumEnabled)
+        assertEquals(false, normal.spectrumEnabled)
     }
 }
