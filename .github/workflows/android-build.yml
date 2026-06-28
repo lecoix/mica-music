@@ -1,0 +1,38 @@
+name: Android build
+
+on:
+  push:
+    branches:
+      - main
+      - exoplayer-only
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --no-configuration-cache
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mica-debug-apk-${{ github.ref_name }}-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
