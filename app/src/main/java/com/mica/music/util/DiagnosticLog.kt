@@ -108,10 +108,15 @@ object DiagnosticLog {
         )
     }
 
-    fun shareReport(context: Context): Boolean {
+    fun shareReport(context: Context, extraReportSection: String? = null): Boolean {
         AudioEnvironmentDiagnostics.logEnvironment(context, "export")
         val report = synchronized(lock) {
-            runCatching { buildReport(context.applicationContext) }.getOrNull()
+            runCatching {
+                buildReport(
+                    context = context.applicationContext,
+                    extraReportSection = extraReportSection,
+                )
+            }.getOrNull()
         } ?: return false
         val uri = runCatching {
             FileProvider.getUriForFile(
@@ -161,7 +166,7 @@ object DiagnosticLog {
         }
     }
 
-    private fun buildReport(context: Context): File {
+    private fun buildReport(context: Context, extraReportSection: String? = null): File {
         val dir = diagnosticsDir(context)
         val report = dir.resolve("mica-diagnostics.txt")
         val crashes = dir.listFiles { file ->
@@ -173,6 +178,10 @@ object DiagnosticLog {
                 appendLine(deviceSummary(context))
                 appendLine("Generated: ${timestampFormat.format(Date())}")
                 appendLine()
+                if (!extraReportSection.isNullOrBlank()) {
+                    appendLine(extraReportSection.trimEnd())
+                    appendLine()
+                }
                 appendLine("Current session:")
                 appendLine(dir.resolve("current-session.log").takeIf(File::exists)?.readText().orEmpty())
                 crashes.forEach { crash ->

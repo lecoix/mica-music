@@ -53,6 +53,7 @@ object MediaStoreScanner {
             onProgress?.invoke(drafts.size, drafts.size)
             drafts.map { draft ->
                 draft.reusableCachedSong(
+                    context = context,
                     cachedById = cachedById,
                     requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
@@ -76,6 +77,7 @@ object MediaStoreScanner {
                     async {
                         semaphore.withPermit {
                             val song = draft.reusableCachedSong(
+                                context = context,
                                 cachedById = cachedById,
                                 requireDeepMetadata = true,
                                 requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),

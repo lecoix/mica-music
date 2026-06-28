@@ -12,6 +12,8 @@ captures/
 *.apk
 *.aab
 *.keystore
+*.jks
+keystore.properties
 
 # FFmpeg 本地构建产物（保留 ffmpeg/docker 脚本）
 ffmpeg/build/

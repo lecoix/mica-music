@@ -1,5 +1,6 @@
 package com.mica.music.data.scanner
 
+import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.mica.music.data.DsdSupport
@@ -53,6 +54,7 @@ internal fun TrackDraft.scanSongId(): String =
     if (mediaStoreId > 0) "ms_$mediaStoreId" else "doc_${mediaUri.hashCode()}"
 
 internal fun TrackDraft.reusableCachedSong(
+    context: Context,
     cachedById: Map<String, Song>,
     requireDeepMetadata: Boolean = false,
     requireDirectLyrics: Boolean = false,
@@ -60,6 +62,7 @@ internal fun TrackDraft.reusableCachedSong(
 ): Song? {
     val cached = unchangedCachedSong(cachedById) ?: return null
     return cached.takeIf {
+        AlbumArtCache.hasReadableCachedArt(context, it) &&
         (!requireDeepMetadata || it.hasDeepMetadata()) &&
             (!requireDeepMetadata || !isDsdDraft() || DsdSupport.isDsdMetadata(it.metadata)) &&
             (!requireDirectLyrics || it.lyrics.isNotEmpty()) &&

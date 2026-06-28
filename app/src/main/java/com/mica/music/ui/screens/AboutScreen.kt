@@ -26,6 +26,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.data.Song
+import com.mica.music.data.scanner.AlbumArtCache
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -35,6 +37,7 @@ import com.mica.music.util.DiagnosticLog
 
 @Composable
 fun AboutScreen(
+    songs: List<Song>,
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
@@ -110,7 +113,17 @@ fun AboutScreen(
             AboutLinkRow(
                 title = "导出诊断日志",
                 url = "包含闪退、切歌阶段、掉帧和封面绘制耗时",
-                onClick = { DiagnosticLog.shareReport(context) },
+                onClick = {
+                    val health = AlbumArtCache.health(context, songs)
+                    DiagnosticLog.event("AlbumArtCache", "about-export ${health.toLogMessage()}")
+                    DiagnosticLog.shareReport(
+                        context = context,
+                        extraReportSection = buildString {
+                            appendLine("Album art cache health:")
+                            appendLine(health.toLogMessage())
+                        },
+                    )
+                },
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))

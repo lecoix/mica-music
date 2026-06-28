@@ -1,4 +1,6 @@
-﻿plugins {
+﻿import java.util.Properties
+
+plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
@@ -23,6 +25,16 @@ val media3FfmpegLocalJniCandidates = listOf(
 )
 val media3FfmpegLocalJni = media3FfmpegLocalJniCandidates.firstOrNull { it.exists() }
 
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        load(keystorePropertiesFile.inputStream())
+    }
+}
+
+fun readReleaseSigningEnv(name: String): String? =
+    System.getenv(name)?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.mica.music"
     compileSdk = 35
@@ -31,8 +43,8 @@ android {
         applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 22
-        versionName = "0.1.9-Exo-only" + if (qaSideBySide) "-qa" else ""
+        versionCode = 23
+        versionName = "0.1.9.1-Exo-only" + if (qaSideBySide) "-qa" else ""
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")
@@ -44,6 +56,26 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 
+    signingConfigs {
+        create("release") {
+            val ciKeystoreFile = readReleaseSigningEnv("MICA_KEYSTORE_FILE")?.let(::file)
+            when {
+                ciKeystoreFile?.exists() == true -> {
+                    storeFile = ciKeystoreFile
+                    storePassword = readReleaseSigningEnv("MICA_KEYSTORE_PASSWORD")
+                    keyAlias = readReleaseSigningEnv("MICA_KEY_ALIAS")
+                    keyPassword = readReleaseSigningEnv("MICA_KEY_PASSWORD")
+                }
+                keystorePropertiesFile.exists() -> {
+                    storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                    storePassword = keystoreProperties.getProperty("storePassword")
+                    keyAlias = keystoreProperties.getProperty("keyAlias")
+                    keyPassword = keystoreProperties.getProperty("keyPassword")
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -51,6 +83,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfigs.findByName("release")
+                ?.takeIf { it.storeFile?.exists() == true }
+                ?.let { signingConfig = it }
         }
         create("perf") {
             initWith(getByName("release"))

@@ -222,6 +222,7 @@ fun AppNavigationMain(
         composable(Routes.About) {
             val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             AboutScreen(
+                songs = library.songs,
                 onBack = { navController.popBackStack() },
                 contentPadding = PaddingValues(
                     top = statusTop,
