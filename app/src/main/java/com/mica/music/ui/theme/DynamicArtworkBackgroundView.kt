@@ -335,8 +335,12 @@ internal class DynamicArtworkBackgroundView @JvmOverloads constructor(
         val textured = applyMesh(source, pair.other(source))
         applyScrims(Canvas(textured))
         DynamicArtworkBoxBlur.blurInPlace(textured, DynamicArtworkBlurRadius, blurScratch)
-        currentShaderBitmap = textured
-        currentShader = createShader(textured)
+        val shaderBitmap = runCatching {
+            textured.copy(Bitmap.Config.ARGB_8888, false)
+        }.getOrNull() ?: return
+        clearCurrentShader()
+        currentShaderBitmap = shaderBitmap
+        currentShader = createShader(shaderBitmap)
     }
 
     private fun drawArtworkLayers(
@@ -470,9 +474,13 @@ internal class DynamicArtworkBackgroundView @JvmOverloads constructor(
     }
 
     private fun clearCurrentShader() {
+        val oldBitmap = currentShaderBitmap
         currentShader = null
-        currentShaderBitmap = null
         currentPaint.shader = null
+        currentShaderBitmap = null
+        oldBitmap?.let { bitmap ->
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
     }
 
     private fun clearPreviousFrame() {
