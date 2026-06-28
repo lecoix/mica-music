@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,12 +20,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -41,7 +36,6 @@ import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
-import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
@@ -52,8 +46,8 @@ import com.mica.music.ui.components.SongMenuAction
 import com.mica.music.ui.components.cachedCoverAspectRatio
 import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
-import com.mica.music.ui.screens.player.view.ParticleCoverHost
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.theme.NowPlayingBackground
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
@@ -182,8 +176,6 @@ fun NowPlayingContent(
     }
 
     val context = LocalContext.current
-    val density = LocalDensity.current
-    val layoutDirection = LocalLayoutDirection.current
     val playlistStore = remember { PlaylistStore(context) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -403,56 +395,19 @@ fun NowPlayingContent(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            val nativeParticlePageLayer =
-                UseNativeParticleCoverInPlayer &&
-                    previewModel.frame.particleCover.enabled &&
-                    !previewModel.frame.coverFlowStageActive
-            if (nativeParticlePageLayer) {
-                val fullWidthPx = with(density) { fullWidth.coerceAtLeast(1.dp).toPx() }
-                val fullHeightPx = with(density) { fullHeight.coerceAtLeast(1.dp).toPx() }
-                val coverDecodeTarget = remember(fullWidthPx) {
-                    CoverDecodeTarget.forSpecialTheme(fullWidthPx)
-                }
-                val playbackDisintegrationProgress =
-                    ((seekState.sliderValue - ParticleCoverHoldSec) /
-                        (seekState.valueRange.endInclusive - ParticleCoverHoldSec)
-                            .coerceAtLeast(1f))
-                        .coerceIn(0f, 1f)
-                val coverLeftPx = with(density) {
-                    (
-                        contentPadding.calculateStartPadding(layoutDirection) +
-                            previewModel.frame.cover.startPadding
-                        ).toPx()
-                }
-                val coverTopPx = with(density) {
-                    (contentPadding.calculateTopPadding() + previewModel.frame.cover.topPadding).toPx()
-                }
-                val coverWidthPx = with(density) { previewModel.frame.cover.width.toPx() }
-                val coverHeightPx = with(density) { previewModel.frame.cover.height.toPx() }
-                val coverCenter = Offset(
-                    x = ((coverLeftPx + coverWidthPx / 2f) / fullWidthPx) * 2f - 1f,
-                    y = 1f - ((coverTopPx + coverHeightPx / 2f) / fullHeightPx) * 2f,
-                )
-                val coverHalfSize = Offset(
-                    x = coverWidthPx / fullWidthPx,
-                    y = coverHeightPx / fullHeightPx,
-                )
-                ParticleCoverHost(
-                    song = previewModel.song,
-                    coverDecodeTarget = coverDecodeTarget,
-                    motionEnabled = motionEnabled,
-                    coverColor = appearance.coverColor,
-                    tuning = uiSettings.particleCoverTuning,
-                    playbackDisintegrationProgress = playbackDisintegrationProgress,
-                    lyricsProgress = previewModel.frame.lyricsProgress,
-                    coverCenter = coverCenter,
-                    coverHalfSize = coverHalfSize,
-                    onAspectRatioChanged = { coverAspectRatio = it },
-                    onMotionActiveChanged = { coverMotionActive = it },
-                    modifier = Modifier
-                        .fillMaxSize(),
-                )
-            }
+            ParticleCoverPlayerLayer(
+                song = previewModel.song,
+                frame = previewModel.frame,
+                seekState = seekState,
+                screenWidth = fullWidth,
+                screenHeight = fullHeight,
+                contentPadding = contentPadding,
+                motionEnabled = motionEnabled,
+                coverColor = appearance.coverColor,
+                tuning = uiSettings.particleCoverTuning,
+                onAspectRatioChanged = { coverAspectRatio = it },
+                onMotionActiveChanged = { coverMotionActive = it },
+            )
 
             Column(
                 Modifier
@@ -488,6 +443,7 @@ fun NowPlayingContent(
                         coverFlowNavigation = coverFlowNavigation,
                         photoStackNavigation = photoStackNavigation,
                         screenWidth = screenWidth,
+                        stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                     )
                     BoxWithConstraints(
                         modifier = Modifier
@@ -517,6 +473,7 @@ fun NowPlayingContent(
                             lower = pageModel.frame.lower,
                             seekState = seekState,
                             immersiveLower = immersiveLower,
+                            stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                             spectrumEnabled = pageModel.frame.spectrumEnabled,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                             onPrevious = onPlayerPrevious,

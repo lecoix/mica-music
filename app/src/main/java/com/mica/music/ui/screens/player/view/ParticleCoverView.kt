@@ -29,6 +29,9 @@ internal class ParticleCoverView @JvmOverloads constructor(
     private var playbackDisintegrationProgress: Float? = null
     private var lyricsProgress: Float = 0f
     private var coverTransform: ParticleCoverTransform = ParticleCoverTransform()
+    private var previewOptions: ParticleCoverPreviewOptions = ParticleCoverPreviewOptions()
+    private var musicEnergy: Float = 0f
+    private var musicBands: ParticleCoverMusicBands = ParticleCoverMusicBands()
 
     init {
         isOpaque = false
@@ -56,9 +59,24 @@ internal class ParticleCoverView @JvmOverloads constructor(
         renderThread?.setTuning(next)
     }
 
+    fun setPreviewOptions(options: ParticleCoverPreviewOptions) {
+        previewOptions = options
+        renderThread?.setPreviewOptions(options)
+    }
+
     fun setPlaybackDisintegrationProgress(progress: Float?) {
         playbackDisintegrationProgress = progress
         renderThread?.setPlaybackDisintegrationProgress(progress)
+    }
+
+    fun setMusicEnergy(energy: Float) {
+        musicEnergy = energy.coerceIn(0f, 1f)
+        renderThread?.setMusicEnergy(musicEnergy)
+    }
+
+    fun setMusicBands(bands: ParticleCoverMusicBands) {
+        musicBands = bands.coerced()
+        renderThread?.setMusicBands(musicBands)
     }
 
     fun setLyricsProgress(progress: Float) {
@@ -91,7 +109,10 @@ internal class ParticleCoverView @JvmOverloads constructor(
         ).also { thread ->
             thread.start()
             thread.setTuning(tuning)
+            thread.setPreviewOptions(previewOptions)
             thread.setPlaybackDisintegrationProgress(playbackDisintegrationProgress)
+            thread.setMusicEnergy(musicEnergy)
+            thread.setMusicBands(musicBands)
             thread.setLyricsProgress(lyricsProgress)
             thread.setCoverTransform(coverTransform)
             coverId?.let { thread.setCover(it, coverBitmap, fallbackColor, motionEnabled) }
@@ -124,6 +145,13 @@ private data class ParticleCoverTransform(
     val halfHeight: Float = 1f,
 )
 
+private fun ParticleCoverMusicBands.coerced(): ParticleCoverMusicBands =
+    ParticleCoverMusicBands(
+        bass = bass.coerceIn(0f, 1f),
+        mid = mid.coerceIn(0f, 1f),
+        treble = treble.coerceIn(0f, 1f),
+    )
+
 private class ParticleCoverRenderThread(
     private val appContext: Context,
     surfaceTexture: SurfaceTexture,
@@ -138,8 +166,13 @@ private class ParticleCoverRenderThread(
     private var running = true
     private var pendingCover: PendingParticleCover? = null
     private var pendingTuning: ParticleCoverTuning? = null
+    private var pendingPreviewOptions: ParticleCoverPreviewOptions? = null
     private var pendingPlaybackDisintegrationProgress: Float? = null
     private var playbackProgressChanged = false
+    private var pendingMusicEnergy = 0f
+    private var musicEnergyChanged = false
+    private var pendingMusicBands = ParticleCoverMusicBands()
+    private var musicBandsChanged = false
     private var pendingLyricsProgress = 0f
     private var lyricsProgressChanged = false
     private var pendingCoverTransform = ParticleCoverTransform()
@@ -178,10 +211,33 @@ private class ParticleCoverRenderThread(
         }
     }
 
+    fun setPreviewOptions(options: ParticleCoverPreviewOptions) {
+        synchronized(lock) {
+            pendingPreviewOptions = options
+            lock.notifyAll()
+        }
+    }
+
     fun setPlaybackDisintegrationProgress(progress: Float?) {
         synchronized(lock) {
             pendingPlaybackDisintegrationProgress = progress
             playbackProgressChanged = true
+            lock.notifyAll()
+        }
+    }
+
+    fun setMusicEnergy(energy: Float) {
+        synchronized(lock) {
+            pendingMusicEnergy = energy.coerceIn(0f, 1f)
+            musicEnergyChanged = true
+            lock.notifyAll()
+        }
+    }
+
+    fun setMusicBands(bands: ParticleCoverMusicBands) {
+        synchronized(lock) {
+            pendingMusicBands = bands.coerced()
+            musicBandsChanged = true
             lock.notifyAll()
         }
     }
@@ -218,8 +274,13 @@ private class ParticleCoverRenderThread(
             while (running) {
                 var cover: PendingParticleCover?
                 var tuning: ParticleCoverTuning?
+                var previewOptions: ParticleCoverPreviewOptions?
                 var playbackProgress: Float?
                 var applyPlaybackProgress: Boolean
+                var musicEnergy: Float
+                var applyMusicEnergy: Boolean
+                var musicBands: ParticleCoverMusicBands
+                var applyMusicBands: Boolean
                 var lyricsProgress: Float
                 var applyLyricsProgress: Boolean
                 var coverTransform: ParticleCoverTransform
@@ -232,9 +293,17 @@ private class ParticleCoverRenderThread(
                     pendingCover = null
                     tuning = pendingTuning
                     pendingTuning = null
+                    previewOptions = pendingPreviewOptions
+                    pendingPreviewOptions = null
                     playbackProgress = pendingPlaybackDisintegrationProgress
                     applyPlaybackProgress = playbackProgressChanged
                     playbackProgressChanged = false
+                    musicEnergy = pendingMusicEnergy
+                    applyMusicEnergy = musicEnergyChanged
+                    musicEnergyChanged = false
+                    musicBands = pendingMusicBands
+                    applyMusicBands = musicBandsChanged
+                    musicBandsChanged = false
                     lyricsProgress = pendingLyricsProgress
                     applyLyricsProgress = lyricsProgressChanged
                     lyricsProgressChanged = false
@@ -259,8 +328,15 @@ private class ParticleCoverRenderThread(
                     )
                 }
                 tuning?.let { renderer.setTuning(it) }
+                previewOptions?.let { renderer.setPreviewOptions(it) }
                 if (applyPlaybackProgress) {
                     renderer.setPlaybackDisintegrationProgress(playbackProgress)
+                }
+                if (applyMusicEnergy) {
+                    renderer.setMusicEnergy(musicEnergy)
+                }
+                if (applyMusicBands) {
+                    renderer.setMusicBands(musicBands)
                 }
                 if (applyLyricsProgress) {
                     renderer.setLyricsProgress(lyricsProgress)

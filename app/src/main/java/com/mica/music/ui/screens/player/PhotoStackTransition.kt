@@ -4,9 +4,6 @@ import com.mica.music.data.Song
 import com.mica.music.data.TrackSkipDirection
 
 internal const val PhotoStackPullAwayDurationMs = 620
-internal const val PhotoStackBurnDurationMs = 760
-internal const val PhotoStackRapidSkipWindowMs = 300L
-internal const val PhotoStackBurnProbability = 0.12f
 
 internal data class PhotoStackSteadyStack(
     val front: Song?,
@@ -196,18 +193,4 @@ internal fun photoStackTransitionPlan(
             fadingBack = queue.getOrNull(currentIndex + 3),
         )
     }
-}
-
-fun shouldUsePhotoStackBurn(
-    enabled: Boolean,
-    motionEnabled: Boolean,
-    stableScene: Boolean,
-    elapsedSincePreviousMs: Long?,
-    randomValue: Float,
-): Boolean {
-    if (!enabled || !motionEnabled || !stableScene) return false
-    if (elapsedSincePreviousMs != null && elapsedSincePreviousMs < PhotoStackRapidSkipWindowMs) {
-        return false
-    }
-    return randomValue.coerceIn(0f, 1f) < PhotoStackBurnProbability
 }

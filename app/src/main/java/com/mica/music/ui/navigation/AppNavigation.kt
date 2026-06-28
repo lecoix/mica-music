@@ -159,6 +159,9 @@ fun AppNavigationMain(
                 uiSettings = uiSettings,
                 onBack = { navController.popBackStack() },
                 onOpenMetadataDebug = { coordinator.navigate(Routes.MetadataDebug) },
+                onOpenParticleCoverPreview = {
+                    coordinator.navigate(Routes.ParticleCoverPreview)
+                },
                 onOpenPhotoStackShadowPreview = {
                     coordinator.navigate(Routes.PhotoStackShadowPreview)
                 },

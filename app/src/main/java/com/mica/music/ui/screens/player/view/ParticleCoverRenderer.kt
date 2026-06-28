@@ -28,6 +28,8 @@ internal class ParticleCoverRenderer(context: Context) {
     ).toFloatBuffer()
     private val edgeParticles = buildEdgeParticles()
     private val transitionParticles = buildTransitionParticles()
+    private val fullCoverParticles = buildFullCoverParticles()
+    private val lyricsRandomParticles = buildLyricsRandomParticles()
 
     private var width = 1
     private var height = 1
@@ -45,7 +47,15 @@ internal class ParticleCoverRenderer(context: Context) {
     private var fullCoverHoldUntilMs = 0L
     private var scatterDirection = 1f
     private var tuning = ParticleCoverTuning()
+    private var previewOptions = ParticleCoverPreviewOptions()
     private var playbackDisintegrationProgress: Float? = null
+    private var musicEnergy = 0f
+    private var musicBands = ParticleCoverMusicBands()
+    private var musicEnergySmooth = 0f
+    private var musicPulseStartMs = -MusicPulseDurationMs
+    private var musicPulseStrength = 0f
+    private var musicPulseSeed = 0.37f
+    private var lastMusicPulseAtMs = 0L
     private var lyricsProgress = 0f
     private var coverCenterX = 0f
     private var coverCenterY = 0f
@@ -121,8 +131,24 @@ internal class ParticleCoverRenderer(context: Context) {
         tuning = next
     }
 
+    fun setPreviewOptions(next: ParticleCoverPreviewOptions) {
+        previewOptions = next
+    }
+
     fun setPlaybackDisintegrationProgress(progress: Float?) {
         playbackDisintegrationProgress = progress?.coerceIn(0f, 1f)
+    }
+
+    fun setMusicEnergy(energy: Float) {
+        musicEnergy = energy.coerceIn(0f, 1f)
+    }
+
+    fun setMusicBands(bands: ParticleCoverMusicBands) {
+        musicBands = ParticleCoverMusicBands(
+            bass = bands.bass.coerceIn(0f, 1f),
+            mid = bands.mid.coerceIn(0f, 1f),
+            treble = bands.treble.coerceIn(0f, 1f),
+        )
     }
 
     fun setLyricsProgress(progress: Float) {
@@ -149,6 +175,14 @@ internal class ParticleCoverRenderer(context: Context) {
                 deleteTexture(previousTexture)
                 previousTexture = 0
                 fullCoverHoldUntilMs = SystemClock.uptimeMillis() + FullCoverHoldAfterRegroupMs
+            }
+            if (previewOptions.fullCoverParticles && lyricsProgress > 0.01f) {
+                drawLyricsParticleField()
+                return
+            }
+            if (previewOptions.fullCoverParticles) {
+                drawFullCoverParticlePreview()
+                return
             }
             if (SystemClock.uptimeMillis() < fullCoverHoldUntilMs && lyricsProgress <= 0.01f) {
                 drawQuad(
@@ -180,7 +214,7 @@ internal class ParticleCoverRenderer(context: Context) {
         }
 
         if (lyricsProgress > 0.01f) {
-            drawLyricsTextureTransition(elapsed, edgeAlphaPeak)
+            drawLyricsTextureTransition(elapsed)
             return
         }
 
@@ -306,27 +340,162 @@ internal class ParticleCoverRenderer(context: Context) {
 
     fun isAnimating(): Boolean =
         (previousTexture != 0 && transitionElapsedMs() < TransitionDurationMs) ||
-            playbackDisintegrationProgress != null
+            playbackDisintegrationProgress != null ||
+            musicEnergy > 0.01f ||
+            musicBands.bass > 0.01f ||
+            musicBands.mid > 0.01f ||
+            musicBands.treble > 0.01f ||
+            (SystemClock.uptimeMillis() - musicPulseStartMs < MusicPulseDurationMs) ||
+            (previewOptions.fullCoverParticles &&
+                (previewOptions.fullCoverWobble > 0.001f || lyricsProgress > 0.01f))
+
+    private fun drawFullCoverParticlePreview(lyrics: Float = lyricsProgress) {
+        drawFullCoverTheme(lyrics)
+    }
+
+    private fun drawLyricsParticleField() {
+        val lyrics = lyricsProgress.coerceIn(0f, 1f)
+        val baseAlpha = previewOptions.fullCoverBaseAlpha.coerceIn(0f, 0.5f)
+        val particleBrightness = LyricsParticleAlpha
+        val density = previewOptions.fullCoverDensity.coerceIn(0.12f, 1f)
+        val pointScale = 0.72f * previewOptions.fullCoverParticleSize.coerceIn(0.7f, 2.4f)
+        val gridStrength = previewOptions.fullCoverGridStrength.coerceIn(0f, 1f).coerceAtLeast(0.92f)
+        val flow = smoothStep(0.12f, 1.0f, lyrics)
+        val travel = 1f
+        val wobble = 0f
+        val colorBoost = (particleBrightness * (1f + flow * 0.26f)).coerceIn(0.5f, 3.0f)
+        if (baseAlpha > 0.001f) {
+            drawQuad(
+                texture = currentTexture,
+                alpha = baseAlpha,
+                scale = 1f,
+                erosion = 0f,
+                breakup = 0f,
+                edgeOnlyBreakup = 0f,
+                residue = false,
+            )
+        }
+        drawParticles(
+            particleSet = lyricsRandomParticles,
+            texture = currentTexture,
+            travel = travel,
+            alpha = particleBrightness,
+            wobble = wobble,
+            scale = 1f,
+            density = density,
+            pointScale = pointScale,
+            feather = tuning.featherScale,
+            lyrics = lyrics,
+            gridStrength = gridStrength,
+            sizeVariance = 0f,
+            colorBoost = colorBoost,
+            lyricsSpread = LyricsSpreadScreenScale,
+            burstAmount = lyrics,
+            breathAmount = lyrics,
+        )
+    }
+
+    private fun drawFullCoverTheme(lyrics: Float = lyricsProgress) {
+        val baseAlpha = previewOptions.fullCoverBaseAlpha.coerceIn(0f, 0.5f)
+        val particleBrightness = previewOptions.fullCoverParticleAlpha.coerceIn(0.2f, 3.0f)
+        val wobble = TransitionWobble * previewOptions.fullCoverWobble.coerceIn(0f, 2.5f)
+        val density = previewOptions.fullCoverDensity.coerceIn(0.12f, 1f)
+        val pointScale = 0.72f * previewOptions.fullCoverParticleSize.coerceIn(0.7f, 2.4f)
+        val gridStrength = previewOptions.fullCoverGridStrength.coerceIn(0f, 1f)
+        val sizeVariance = previewOptions.fullCoverParticleSizeVariance.coerceIn(0f, 1f)
+        val lyricMotion = smoothStep(0.03f, 0.88f, lyrics)
+        val motionTravel = (0.12f + lyricMotion * 0.88f).coerceIn(0f, 1f)
+        val motionColorBoost = particleBrightness
+        val playbackScatter = playbackDisintegrationProgress?.coerceIn(0f, 1f) ?: 0f
+        if (baseAlpha > 0.001f) {
+            drawQuad(
+                texture = currentTexture,
+                alpha = baseAlpha,
+                scale = 1f,
+                erosion = 0f,
+                breakup = 0f,
+                edgeOnlyBreakup = 0f,
+                residue = false,
+            )
+        }
+        drawParticles(
+            particleSet = fullCoverParticles,
+            texture = currentTexture,
+            travel = motionTravel,
+            alpha = particleBrightness,
+            wobble = wobble,
+            scale = 1f,
+            density = density,
+            pointScale = pointScale,
+            feather = tuning.featherScale,
+            gridStrength = gridStrength,
+            sizeVariance = sizeVariance,
+            colorBoost = motionColorBoost,
+            lyricsSpread = LyricsSpreadScreenScale,
+            playbackScatter = playbackScatter,
+        )
+    }
+
+    private fun updateMusicPulse(nowMs: Long): MusicPulse {
+        val energy = musicBands.bass.coerceIn(0f, 1f)
+        val attack = energy - musicEnergySmooth
+        val smoothing = if (energy > musicEnergySmooth) 0.16f else 0.055f
+        musicEnergySmooth += (energy - musicEnergySmooth) * smoothing
+        val currentAge = ((nowMs - musicPulseStartMs).toFloat() / MusicPulseDurationMs)
+            .coerceIn(0f, 1.25f)
+
+        if (
+            energy > MusicPulseEnergyThreshold &&
+            attack > MusicPulseAttackThreshold &&
+            nowMs - lastMusicPulseAtMs > MusicPulseCooldownMs &&
+            currentAge > MusicPulseMinRetriggerAge
+        ) {
+            musicPulseStartMs = nowMs
+            musicPulseStrength = (0.28f + attack * 3.8f + energy * 0.55f).coerceIn(0.28f, 1f)
+            musicPulseSeed = (musicPulseSeed + 0.173f + energy * 0.097f).let { it - it.toInt() }
+            lastMusicPulseAtMs = nowMs
+        }
+
+        val age = ((nowMs - musicPulseStartMs).toFloat() / MusicPulseDurationMs)
+            .coerceIn(0f, 1.25f)
+        return if (age <= 1f && musicPulseStrength > 0.001f) {
+            MusicPulse(
+                age = age,
+                strength = musicPulseStrength * (1f - age * 0.35f),
+                seed = musicPulseSeed,
+            )
+        } else {
+            MusicPulse(age = 1f, strength = 0f, seed = musicPulseSeed)
+        }
+    }
 
     private fun drawLyricsTextureTransition(
         elapsed: Long,
-        edgeAlphaPeak: Float,
     ) {
         val p = easeInOutCubic(elapsed.toFloat() / TransitionDurationMs)
         val lyrics = lyricsProgress.coerceIn(0f, 1f)
+        val density = previewOptions.fullCoverDensity.coerceIn(0.12f, 1f)
+        val fullCoverPointScale = 0.72f * previewOptions.fullCoverParticleSize.coerceIn(0.7f, 2.4f)
+        val colorBoost = (LyricsParticleAlpha * (1f + smoothStep(0.12f, 1.0f, lyrics) * 0.26f))
+            .coerceIn(0.5f, 3.0f)
         drawParticles(
-            particleSet = transitionParticles,
+            particleSet = lyricsRandomParticles,
             texture = previousTexture,
             textureB = currentTexture,
             textureMix = p,
-            travel = LyricsParticleTravel,
-            alpha = edgeAlphaPeak * TransitionAlphaScale,
+            travel = 1f,
+            alpha = LyricsParticleAlpha,
             wobble = 0f,
             scale = 1f,
-            density = tuning.transitionParticleDensity,
-            pointScale = 1.0f,
+            density = density,
+            pointScale = fullCoverPointScale,
             feather = tuning.featherScale,
             lyrics = lyrics,
+            gridStrength = previewOptions.fullCoverGridStrength.coerceIn(0f, 1f).coerceAtLeast(0.92f),
+            sizeVariance = 0f,
+            colorBoost = colorBoost,
+            lyricsSpread = LyricsSpreadScreenScale,
+            breathAmount = lyrics,
         )
     }
 
@@ -370,6 +539,7 @@ internal class ParticleCoverRenderer(context: Context) {
             pointScale = 1.05f + breakup * 0.52f,
             feather = tuning.featherScale,
             lyrics = lyrics,
+            sizeVariance = 0f,
         )
     }
 
@@ -445,6 +615,20 @@ internal class ParticleCoverRenderer(context: Context) {
         pointScale: Float = 1f,
         feather: Float = 1f,
         lyrics: Float = 0f,
+        gridStrength: Float = 0f,
+        sizeVariance: Float = 1f,
+        colorBoost: Float = 1f,
+        lyricsSpread: Float = 1f,
+        burstAmount: Float = 0f,
+        breathAmount: Float = 0f,
+        musicEnergy: Float = 0f,
+        musicPulseAge: Float = 1f,
+        musicPulseStrength: Float = 0f,
+        musicPulseSeed: Float = 0f,
+        musicBass: Float = 0f,
+        musicMid: Float = 0f,
+        musicTreble: Float = 0f,
+        playbackScatter: Float = 0f,
     ) {
         if (alpha <= 0.001f || texture == 0) return
         val drawCount = (particleSet.count * density.coerceIn(0.12f, 1.35f))
@@ -473,6 +657,29 @@ internal class ParticleCoverRenderer(context: Context) {
         )
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uTime"), SystemClock.uptimeMillis() / 1000f)
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uDirection"), scatterDirection)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uGridStrength"), gridStrength.coerceIn(0f, 1f))
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uSizeVariance"), sizeVariance.coerceIn(0f, 1f))
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uColorBoost"), colorBoost.coerceIn(0.5f, 3.0f))
+        GLES20.glUniform1f(
+            GLES20.glGetUniformLocation(particleProgram, "uLyricsSpread"),
+            lyricsSpread.coerceIn(0.9f, 1.6f),
+        )
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uBurstAmount"), burstAmount.coerceIn(0f, 1f))
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uBreathAmount"), breathAmount.coerceIn(0f, 1f))
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicEnergy"), musicEnergy.coerceIn(0f, 1f))
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicBass"), musicBass.coerceIn(0f, 1f))
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicMid"), musicMid.coerceIn(0f, 1f))
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicTreble"), musicTreble.coerceIn(0f, 1f))
+        GLES20.glUniform1f(
+            GLES20.glGetUniformLocation(particleProgram, "uPlaybackScatter"),
+            playbackScatter.coerceIn(0f, 1f),
+        )
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicPulseAge"), musicPulseAge.coerceIn(0f, 1f))
+        GLES20.glUniform1f(
+            GLES20.glGetUniformLocation(particleProgram, "uMusicPulseStrength"),
+            musicPulseStrength.coerceIn(0f, 1f),
+        )
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicPulseSeed"), musicPulseSeed)
         GLES20.glUniform2f(GLES20.glGetUniformLocation(particleProgram, "uCoverCenter"), coverCenterX, coverCenterY)
         GLES20.glUniform2f(
             GLES20.glGetUniformLocation(particleProgram, "uCoverHalfSize"),
@@ -723,21 +930,14 @@ internal class ParticleCoverRenderer(context: Context) {
                 val edgeBias = (1f - (edgeDistance / 0.5f).coerceIn(0f, 1f)).toDouble()
                     .pow(0.55)
                     .toFloat()
-                val horizontal = random.nextFloat() < 0.58f
-                val direction = if (homeX < 0f) -1f else 1f
-                val scatterX: Float
-                val scatterY: Float
-                val scatterZ: Float
-                if (horizontal) {
-                    scatterX = homeX + direction * random.between(0.48f, 1.68f) * (0.72f + edgeBias * 0.42f)
-                    scatterY = homeY + random.between(-0.62f, 0.62f) * (0.70f + edgeBias * 0.36f)
-                    scatterZ = random.between(-1.10f, 1.10f) * (0.75f + edgeBias * 0.45f)
-                } else {
-                    val radial = random.between(0.34f, 2.18f) * (0.72f + edgeBias * 0.52f)
-                    scatterX = homeX * radial + random.between(-0.34f, 0.34f)
-                    scatterY = homeY * radial + random.between(-0.34f, 0.34f)
-                    scatterZ = random.between(-1.45f, 1.25f)
-                }
+                val burstAngle = random.between(0f, (Math.PI * 2.0).toFloat())
+                val burstRadius = random.between(0.42f, 1.72f) * (0.55f + edgeBias * 0.85f)
+                val burstX = kotlin.math.cos(burstAngle) * burstRadius
+                val burstY = kotlin.math.sin(burstAngle) * burstRadius
+                val outward = random.between(0.08f, 0.46f) * (0.25f + edgeBias * 0.85f)
+                val scatterX = homeX + burstX + homeX * outward
+                val scatterY = homeY + burstY + homeY * outward
+                val scatterZ = random.between(-1.35f, 1.25f) * (0.70f + edgeBias * 0.55f)
                 cursor = putParticle(
                     data = data,
                     cursor = cursor,
@@ -749,10 +949,84 @@ internal class ParticleCoverRenderer(context: Context) {
                     scatterZ = scatterZ,
                     u = u,
                     v = v,
-                    size = random.between(2.2f, 5.0f),
-                    detach = random.between(0.45f, 1f),
+                    size = random.between(1.35f, 2.35f),
+                    detach = random.between(0.18f, 0.92f),
                     seed = random.nextFloat(),
                 )
+        }
+        return ParticleSet(data.toFloatBuffer(), count)
+    }
+
+    private fun buildFullCoverParticles(): ParticleSet {
+        val random = Random(0xC0A7E11L)
+        val cols = FullCoverParticleGrid
+        val rows = FullCoverParticleGrid
+        val count = cols * rows
+        val data = FloatArray(count * ParticleStrideFloats)
+        val indices = IntArray(count) { it }
+        for (i in indices.lastIndex downTo 1) {
+            val j = random.nextInt(i + 1)
+            val swap = indices[i]
+            indices[i] = indices[j]
+            indices[j] = swap
+        }
+        var cursor = 0
+        for (index in indices) {
+            val row = index / cols
+            val col = index % cols
+            val u = (col + 0.5f) / cols
+            val v = (row + 0.5f) / rows
+            val homeX = u * 2f - 1f
+            val homeY = 1f - v * 2f
+            val radial = kotlin.math.sqrt(homeX * homeX + homeY * homeY).coerceIn(0f, 1.42f)
+            val angleSign = if (random.nextBoolean()) 1f else -1f
+            val swirlX = -homeY * angleSign * random.between(0.05f, 0.22f)
+            val swirlY = homeX * angleSign * random.between(0.05f, 0.22f)
+            val scatterPush = random.between(0.13f, 0.48f) * (0.35f + radial * 0.65f)
+            cursor = putParticle(
+                data = data,
+                cursor = cursor,
+                homeX = homeX,
+                homeY = homeY,
+                homeZ = random.between(-0.008f, 0.008f),
+                scatterX = homeX + homeX * scatterPush + swirlX,
+                scatterY = homeY + homeY * scatterPush + swirlY,
+                scatterZ = random.between(-0.24f, 0.24f),
+                u = u,
+                v = v,
+                size = random.between(1.35f, 2.35f),
+                detach = random.between(0.40f, 1f),
+                seed = random.nextFloat(),
+            )
+        }
+        return ParticleSet(data.toFloatBuffer(), count)
+    }
+
+    private fun buildLyricsRandomParticles(): ParticleSet {
+        val random = Random(0x17A6E11L)
+        val count = FullCoverParticleGrid * FullCoverParticleGrid
+        val data = FloatArray(count * ParticleStrideFloats)
+        var cursor = 0
+        repeat(count) {
+            val homeX = random.between(-0.98f, 0.98f)
+            val homeY = random.between(-0.98f, 0.98f)
+            val angle = random.between(0f, (Math.PI * 2.0).toFloat())
+            val push = random.between(0.08f, 0.34f)
+            cursor = putParticle(
+                data = data,
+                cursor = cursor,
+                homeX = homeX,
+                homeY = homeY,
+                homeZ = random.between(-0.008f, 0.008f),
+                scatterX = homeX + kotlin.math.cos(angle) * push,
+                scatterY = homeY + kotlin.math.sin(angle) * push,
+                scatterZ = random.between(-0.20f, 0.20f),
+                u = random.nextFloat(),
+                v = random.nextFloat(),
+                size = random.between(1.35f, 2.35f),
+                detach = random.between(0.18f, 1f),
+                seed = random.nextFloat(),
+            )
         }
         return ParticleSet(data.toFloatBuffer(), count)
     }
@@ -823,6 +1097,12 @@ internal class ParticleCoverRenderer(context: Context) {
         val count: Int,
     )
 
+    private data class MusicPulse(
+        val age: Float,
+        val strength: Float,
+        val seed: Float,
+    )
+
     companion object {
         const val TransitionDurationMs = 900L
         private const val FullCoverHoldAfterRegroupMs = 10_000L
@@ -841,6 +1121,13 @@ internal class ParticleCoverRenderer(context: Context) {
         private const val TransitionWobble = 0.010f
         private const val StableEdgeTravel = 0.18f
         private const val LyricsParticleTravel = 0.62f
+        private const val LyricsParticleAlpha = 0.70f
+        private const val LyricsSpreadScreenScale = 1.32f
+        private const val MusicPulseDurationMs = 720L
+        private const val MusicPulseCooldownMs = 620L
+        private const val MusicPulseMinRetriggerAge = 0.70f
+        private const val MusicPulseEnergyThreshold = 0.42f
+        private const val MusicPulseAttackThreshold = 0.14f
         private const val EdgeDepth = 0.145f
         private const val EdgeParticleBand = 0.050f
         private const val MaskFeather = 0.030f
@@ -848,6 +1135,7 @@ internal class ParticleCoverRenderer(context: Context) {
         private const val CoverPlaneScale = 1f
         private const val EdgeParticleCount = 11000
         private const val TransitionParticleGrid = 100
+        private const val FullCoverParticleGrid = 188
         private const val FloatBytes = 4
         private const val QuadStrideBytes = 4 * FloatBytes
         private const val ParticleStrideFloats = 11
@@ -979,11 +1267,36 @@ uniform float uFeather;
 uniform float uTime;
 uniform float uDirection;
 uniform float uLyrics;
+uniform float uGridStrength;
+uniform float uSizeVariance;
+uniform float uLyricsSpread;
+uniform float uBurstAmount;
+uniform float uBreathAmount;
+uniform float uMusicEnergy;
+uniform float uMusicBass;
+uniform float uMusicMid;
+uniform float uMusicTreble;
+uniform float uPlaybackScatter;
+uniform float uMusicPulseAge;
+uniform float uMusicPulseStrength;
+uniform float uMusicPulseSeed;
 varying vec2 vUv;
 varying float vDetach;
 varying float vSeed;
 varying float vAlpha;
 varying float vBoundsFade;
+
+float hash11(float p) {
+    return fract(sin(p) * 43758.5453);
+}
+
+float pulseRing(vec2 p, vec2 center, float delay, float width) {
+    float active = step(delay, uMusicPulseAge);
+    float age = clamp((uMusicPulseAge - delay) / max(0.001, 1.0 - delay), 0.0, 1.0);
+    float radius = age * 1.72;
+    float ring = 1.0 - smoothstep(0.0, width, abs(distance(p, center) - radius));
+    return ring * sin(age * 3.14159265) * active;
+}
 
 void main() {
     vec2 rawHome = aHome.xy;
@@ -996,36 +1309,108 @@ void main() {
     float featherTravel = 0.72 + (uFeather - 0.55) * 0.42;
     scatter = home + scatterDelta * featherTravel;
     float release = smoothstep(aDetach * 0.28, 0.48 + aDetach * 0.50, uTravel);
+    float edgeRank = 1.0 - max(abs(rawHome.x), abs(rawHome.y));
+    float playbackThreshold = edgeRank * 0.86 + hash11(aSeed * 613.1 + rawHome.x * 17.0) * 0.10;
+    float playbackRelease = smoothstep(playbackThreshold, playbackThreshold + 0.18, uPlaybackScatter);
+    release = max(release, playbackRelease);
     vec2 coverHome = uCoverCenter + home.xy * uCoverHalfSize;
     vec2 coverScatter = uCoverCenter + scatter.xy * uCoverHalfSize;
-    vec2 lyricsTarget = rawHome * mix(0.86, 0.98, uLyrics);
+    coverScatter = mix(coverScatter, coverHome, uGridStrength * 0.72);
+    vec2 albumLyricsTarget = rawHome * mix(0.86, uLyricsSpread, uLyrics);
+    vec2 randomLyricsTarget = vec2(
+        hash11(aSeed * 347.9 + rawHome.y * 71.3) * 2.0 - 1.0,
+        hash11(aSeed * 719.1 - rawHome.x * 53.7) * 2.0 - 1.0
+    ) * mix(0.82, 0.90, uLyrics);
+    vec2 randomUv = vec2(
+        hash11(aSeed * 937.1 + rawHome.x * 19.7),
+        hash11(aSeed * 593.3 + rawHome.y * 23.1)
+    );
+    vec2 lyricsTarget = mix(albumLyricsTarget, randomLyricsTarget, uLyrics);
+    vec2 randomOffset = vec2(
+        hash11(aSeed * 127.1 + rawHome.x * 31.7 + rawHome.y * 17.3) * 2.0 - 1.0,
+        hash11(aSeed * 269.5 + rawHome.y * 43.1 - rawHome.x * 11.9) * 2.0 - 1.0
+    );
+    lyricsTarget += randomOffset * mix(0.0, 0.030 + aDetach * 0.014, uLyrics);
+    float burstDelay = hash11(aSeed * 83.7 + aDetach * 19.1) * 0.30;
+    float burstDuration = mix(0.46, 0.78, hash11(aSeed * 211.9 + rawHome.x * 7.0));
+    float burstPhase = clamp((uBurstAmount - burstDelay) / burstDuration, 0.0, 1.0);
+    float burstPulse = sin(burstPhase * 3.14159265) * step(0.001, uBurstAmount);
     lyricsTarget += vec2(
-        sin(uTime * 0.13 + aSeed * 41.0),
-        cos(uTime * 0.11 + aSeed * 53.0)
-    ) * 0.026;
+        sin(uTime * mix(0.10, 0.19, aDetach) + aSeed * 41.0),
+        cos(uTime * mix(0.09, 0.17, aDetach) + aSeed * 53.0)
+    ) * mix(0.012, 0.036 + burstPulse * 0.035, uLyrics);
     vec2 travelTarget = mix(coverScatter, lyricsTarget, uLyrics);
+    vec2 radial = normalize((coverHome - uCoverCenter) * (1.0 + aDetach * 0.40) + randomOffset * 0.16 + vec2(0.001, -0.001));
+    float burstDistance = burstPulse * (0.26 + aDetach * 0.46 + hash11(aSeed * 317.3) * 0.22);
+    travelTarget += radial * burstDistance;
     vec2 pos = mix(coverHome, travelTarget, max(release, uLyrics));
     float z = mix(home.z, mix(scatter.z, scatter.z * 0.18, uLyrics), max(release, uLyrics));
     float homeWeight = 1.0 - uTravel;
     float driftWeight = max(homeWeight, uLyrics * 0.72);
-    pos.x += sin(uTime * 1.10 + aSeed * 19.0) * uWobble * (0.18 + aDetach * 0.82) * driftWeight;
-    pos.y += cos(uTime * 0.90 + aSeed * 27.0) * uWobble * (0.18 + aDetach * 0.82) * driftWeight;
-    z += sin(uTime * 0.70 + aSeed * 31.0) * uWobble * 2.4 * aDetach * driftWeight;
-    float perspective = 1.0 / clamp(1.0 + z * 0.18, 0.72, 1.38);
+    vec2 randomDrift = vec2(
+        sin(uTime * 1.10 + aSeed * 19.0),
+        cos(uTime * 0.90 + aSeed * 27.0)
+    ) * (0.18 + aDetach * 0.82);
+    float wave = sin((rawHome.x * 7.0 + rawHome.y * 5.0) + uTime * 1.35);
+    float crossWave = cos((rawHome.x * 4.0 - rawHome.y * 6.0) - uTime * 1.05);
+    vec2 gridDrift = vec2(wave * 0.60, crossWave * 0.42);
+    vec2 drift = mix(randomDrift, gridDrift, uGridStrength);
+    pos += drift * uWobble * driftWeight;
+    z += mix(
+        sin(uTime * 0.70 + aSeed * 31.0) * aDetach,
+        sin((rawHome.x + rawHome.y) * 6.0 + uTime * 1.10) * 0.38,
+        uGridStrength
+    ) * uWobble * 2.4 * driftWeight;
+    float perspective = mix(1.0, 1.0 / clamp(1.0 + z * 0.18, 0.72, 1.38), uSizeVariance);
     vec2 xy = mix(uCoverCenter, pos, uScale);
+    float musicActive = 1.0 - uLyrics;
+    float mid = uMusicMid * musicActive;
+    float treble = uMusicTreble * musicActive;
+    vec2 musicRadial = normalize(home.xy + vec2(0.001, -0.001));
+    vec2 clusterCoord = floor((rawHome + vec2(1.0)) * 6.0);
+    vec2 clusterCenter = (clusterCoord + vec2(0.5)) / 6.0 - vec2(1.0);
+    float clusterSeed = hash11(clusterCoord.x * 37.1 + clusterCoord.y * 91.7);
+    float clusterWave = max(0.0, sin(uTime * mix(4.8, 8.6, clusterSeed) + clusterSeed * 6.2831853));
+    float clusterGate = smoothstep(0.58, 0.95, clusterWave) * step(0.38, clusterSeed);
+    float clusterFalloff = 1.0 - smoothstep(0.02, 0.30, distance(rawHome, clusterCenter));
+    float clusterTexture = mix(0.82, 1.06, hash11(aSeed * 149.7 + clusterSeed * 53.0));
+    float midHop = mid * clusterGate * clusterGate * clusterFalloff * clusterTexture;
+    xy += musicRadial * uCoverHalfSize * midHop * (0.018 + aDetach * 0.008);
+    float trebleFlicker = treble * (0.45 + 0.55 * sin(uTime * 22.0 + aSeed * 83.0));
+    float musicPulse = midHop * 0.18 + trebleFlicker * 0.24;
+    float globalBreathWave = sin(uTime * 0.1300);
+    float localBreathWave = sin(uTime * mix(0.030, 0.060, aDetach) + aSeed * 6.2831853);
+    float breath = 0.5 + 0.5 * mix(globalBreathWave, localBreathWave, 0.38);
+    vec2 screenRadial = normalize(xy + randomOffset * 0.10 + vec2(0.001, -0.001));
+    xy += screenRadial * uBreathAmount * globalBreathWave * 0.050 * uLyrics;
+    vec2 breathDrift = normalize(randomOffset + vec2(0.001, -0.001)) *
+        uBreathAmount * localBreathWave * (0.018 + aDetach * 0.018);
+    xy += breathDrift * uLyrics;
+    float scatterBreath = playbackRelease * (1.0 - uLyrics) * smoothstep(0.01, 0.12, uPlaybackScatter);
+    float scatterParticleBreath = 0.5 + 0.5 * localBreathWave;
+    xy += normalize(randomOffset + vec2(0.001, -0.001)) *
+        scatterBreath * localBreathWave * (0.007 + aDetach * 0.008);
     gl_Position = vec4(xy, 0.0, 1.0);
     float bounds = max(abs(xy.x), abs(xy.y));
-    float fadeStart = mix(0.86, 0.94, uLyrics);
+    float fadeStart = mix(0.86, 0.98, uLyrics);
     vBoundsFade = 1.0 - smoothstep(fadeStart, 1.0, bounds);
     float burst = sin(release * 3.14159265);
+    float randomSize = mix(1.85, aSize, uSizeVariance);
+    float particleSize = mix(randomSize, 1.85, uGridStrength * 0.80);
     gl_PointSize = max(
         1.0,
-        aSize * uPointScale * (1.0 + burst * 0.24) * perspective
+        particleSize * uPointScale *
+            (1.0 + burst * 0.24 * uSizeVariance + uBreathAmount * mix(0.10, 0.24, breath) +
+                scatterBreath * mix(0.060, 0.150, scatterParticleBreath) +
+                trebleFlicker * 0.08) *
+            perspective
     );
-    vUv = aUv;
+    vUv = mix(aUv, randomUv, uLyrics);
     vDetach = aDetach;
     vSeed = aSeed;
-    vAlpha = uAlpha * (0.72 + 0.28 * aDetach);
+    vAlpha = uAlpha * mix(1.0, 0.72 + 0.28 * aDetach, uSizeVariance) *
+        (1.0 + uBreathAmount * (breath - 0.5) * 0.38 + musicPulse * 0.06 +
+            scatterBreath * (scatterParticleBreath - 0.5) * 0.28);
 }
 """
 
@@ -1035,6 +1420,8 @@ uniform sampler2D uTextureA;
 uniform sampler2D uTextureB;
 uniform float uTextureMix;
 uniform float uLyrics;
+uniform float uColorBoost;
+uniform float uSizeVariance;
 varying vec2 vUv;
 varying float vDetach;
 varying float vSeed;
@@ -1044,14 +1431,18 @@ varying float vBoundsFade;
 void main() {
     vec2 p = gl_PointCoord - vec2(0.5);
     float angleBucket = step(0.5, fract(vSeed * 5.13));
-    vec2 shard = mix(p, vec2(p.y, -p.x), angleBucket);
-    float aspect = mix(0.68, 1.26, fract(vSeed * 17.71));
-    vec2 halfSize = vec2(0.46 * aspect, 0.42 / aspect);
+    vec2 shard = mix(p, vec2(p.y, -p.x), angleBucket * uSizeVariance);
+    float randomAspect = mix(0.68, 1.26, fract(vSeed * 17.71));
+    float aspect = mix(1.0, randomAspect, uSizeVariance);
+    vec2 halfSize = vec2(0.44 * aspect, 0.44 / aspect);
     float shardMask = step(abs(shard.x), halfSize.x) * step(abs(shard.y), halfSize.y);
+    float uniformMask = smoothstep(0.50, 0.42, length(p));
+    float coverMask = mix(uniformMask, shardMask, uSizeVariance);
     float dustMask = smoothstep(0.50, 0.18, length(p));
-    float mask = mix(shardMask, dustMask, clamp(uLyrics, 0.0, 1.0));
+    float mask = mix(coverMask, dustMask, clamp(uLyrics, 0.0, 1.0));
     if (mask <= 0.01) discard;
     vec3 color = mix(texture2D(uTextureA, vUv).rgb, texture2D(uTextureB, vUv).rgb, uTextureMix);
+    color = min(color * uColorBoost, vec3(1.0));
     float alpha = min(vAlpha, 1.0) * vBoundsFade * mask;
     if (alpha <= 0.01) discard;
     gl_FragColor = vec4(color, alpha);

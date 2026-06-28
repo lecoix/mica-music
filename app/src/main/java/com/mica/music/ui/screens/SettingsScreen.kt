@@ -69,9 +69,9 @@ private val ThemeChoices = listOf(
     AppThemeMode.DARK.ordinal to "深色",
 )
 
-private val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries.map {
-    it.ordinal to it.settingsLabel
-}
+private val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries
+    .filterNot { it == PlayerLowerBackgroundMode.DYNAMIC_LIGHT }
+    .map { it.ordinal to it.settingsLabel }
 
 private val MiniPlayerStyleChoices = MiniPlayerStyle.entries.map {
     it.ordinal to it.settingsLabel
@@ -99,6 +99,7 @@ fun SettingsScreen(
     uiSettings: AppUiSettings,
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
+    onOpenParticleCoverPreview: () -> Unit,
     onOpenPhotoStackShadowPreview: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
@@ -249,21 +250,13 @@ fun SettingsScreen(
                 },
             )
 
-            if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.PHOTO_STACK) {
-                SettingsToggleRow(
-                    title = "曝光灼烧实验",
-                    subtitle = "仅拍立得回忆主题使用；开启后少量切歌会尝试 mask 灼烧转场",
-                    checked = uiSettings.photoStackBurnEnabled,
-                    onCheckedChange = { uiSettings.updatePhotoStackBurnEnabled(it) },
-                )
-            }
-
             SettingsToggleRow(
                 title = "封面底边进度",
                 subtitle = when (uiSettings.playerLowerBackground) {
                     PlayerLowerBackgroundMode.THEME,
                     PlayerLowerBackgroundMode.COVER_GLOW,
                     PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
+                    PlayerLowerBackgroundMode.DYNAMIC_ARTWORK,
                     -> "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
                     else -> "标准主题仅「主题色」「封面模糊」下生效；特殊主题仍可在普通与底边布局间切换"
                 },
@@ -276,6 +269,13 @@ fun SettingsScreen(
                 subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关",
                 checked = uiSettings.playerImmersiveLower,
                 onCheckedChange = { uiSettings.updatePlayerImmersiveLower(it) },
+            )
+
+            SettingsToggleRow(
+                title = "隐藏歌名括号内容",
+                subtitle = "播放页和歌词页仅显示括号前后的歌名；不修改曲库原始标题",
+                checked = uiSettings.stripSongTitleParentheses,
+                onCheckedChange = { uiSettings.updateStripSongTitleParentheses(it) },
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))
@@ -451,12 +451,6 @@ fun SettingsScreen(
                 title = "系统权限与应用信息",
                 subtitle = "管理存储/音频读取、通知等权限",
                 onClick = { openAppSettings(context) },
-            )
-
-            SettingsActionRow(
-                title = "Photo Stack Shadow Preview",
-                subtitle = "Open a local preview page for the same View-based photo stack shadow renderer",
-                onClick = onOpenPhotoStackShadowPreview,
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))

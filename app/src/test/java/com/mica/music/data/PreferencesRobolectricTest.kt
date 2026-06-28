@@ -62,14 +62,9 @@ class PreferencesRobolectricTest {
     }
 
     @Test
-    fun photoStackModeAndBurnPreferenceRoundTrip() {
+    fun photoStackModeFromStorage() {
         assertEquals(PlayerCoverFlowMode.PHOTO_STACK, PlayerCoverFlowMode.fromStorage("photo_stack"))
         assertEquals(PlayerCoverFlowMode.STANDARD, PlayerCoverFlowMode.fromStorage("missing"))
-        assertEquals(false, AppPreferences.photoStackBurnEnabled(context))
-
-        AppPreferences.setPhotoStackBurnEnabled(context, true)
-
-        assertTrue(AppPreferences.photoStackBurnEnabled(context))
     }
 
     @Test

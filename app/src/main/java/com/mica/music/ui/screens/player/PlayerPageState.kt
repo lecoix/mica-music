@@ -55,11 +55,11 @@ fun rememberPlayerPageUiModel(
     var spectrumDeferred by remember { mutableStateOf(false) }
     val immersiveLower = uiSettings.playerImmersiveLower
     val coverFlowMode = uiSettings.playerCoverFlowMode
-    val coverFlowModeEnabled = coverFlowMode.usesCoverFlowStage
+    val coverFlowModeEnabled = ParticleCoverThemePolicy.coverFlowStageEnabled(coverFlowMode)
     val photoStackMode = coverFlowMode.usesPhotoStack
     val useCoverEdgeProgress = when {
         photoStackMode -> true
-        coverFlowMode.usesCoverFlowStage -> uiSettings.coverEdgeProgress
+        coverFlowModeEnabled -> uiSettings.coverEdgeProgress
         else -> uiSettings.useCoverEdgeProgressNow()
     }
 
@@ -117,7 +117,8 @@ fun rememberPlayerPageUiModel(
 
     val coverDisplayMode = LocalCoverDisplayMode.current
     val fitOriginal =
-        !coverFlowMode.forcesSquareCrop && coverDisplayMode == CoverDisplayMode.FIT_ORIGINAL
+        !ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode) &&
+            coverDisplayMode == CoverDisplayMode.FIT_ORIGINAL
 
     val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
 
@@ -141,7 +142,7 @@ fun rememberPlayerPageUiModel(
             coverFlowProgress = coverFlowProgress,
             coverFlowModeEnabled = coverFlowModeEnabled,
             useCoverEdgeProgress = useCoverEdgeProgress,
-            particleCoverMode = coverFlowMode.usesParticleCover,
+            particleCoverMode = ParticleCoverThemePolicy.particleCoverMode(coverFlowMode),
             photoStackMode = photoStackMode,
             fitOriginal = fitOriginal,
             coverAspectRatio = coverAspectRatio,

@@ -28,7 +28,6 @@ object AppPreferences {
     private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     private const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
-    private const val KEY_PHOTO_STACK_BURN_ENABLED = "photo_stack_burn_enabled"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -39,6 +38,7 @@ object AppPreferences {
     private const val KEY_MICA_BACKGROUND_PRESET = "mica_background_preset"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
+    private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
     private const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
@@ -188,13 +188,6 @@ object AppPreferences {
         prefs(context).edit().putString(KEY_PLAYER_COVER_FLOW_MODE, mode.storageValue).apply()
     }
 
-    fun photoStackBurnEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_PHOTO_STACK_BURN_ENABLED, false)
-
-    fun setPhotoStackBurnEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_PHOTO_STACK_BURN_ENABLED, enabled).apply()
-    }
-
     fun particleCoverTuning(context: Context): ParticleCoverTuning {
         val p = prefs(context)
         val defaults = ParticleCoverTuning()
@@ -262,6 +255,13 @@ object AppPreferences {
     }
 
     /** 是否在播放页/歌词页将含细空格等的行拆成双语两行展示。 */
+    fun stripSongTitleParentheses(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_STRIP_SONG_TITLE_PARENTHESES, false)
+
+    fun setStripSongTitleParentheses(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_STRIP_SONG_TITLE_PARENTHESES, enabled).apply()
+    }
+
     fun lyricSplitEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_LYRIC_SPLIT_ENABLED, true)
 

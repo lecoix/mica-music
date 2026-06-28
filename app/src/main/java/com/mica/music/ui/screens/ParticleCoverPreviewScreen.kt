@@ -52,6 +52,8 @@ import com.mica.music.data.TrackMetadata
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.screens.player.view.ParticleCoverHost
+import com.mica.music.ui.screens.player.view.ParticleCoverPreviewOptions
+import com.mica.music.ui.screens.player.view.ParticleCoverThemePreset
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -88,6 +90,15 @@ fun ParticleCoverPreviewScreen(
     var transitionParticleDensity by remember(savedTuning) {
         mutableFloatStateOf(savedTuning.transitionParticleDensity)
     }
+    var fullCoverDensity by remember { mutableFloatStateOf(ParticleCoverThemePreset.fullCoverDensity) }
+    var fullCoverBaseAlpha by remember { mutableFloatStateOf(ParticleCoverThemePreset.fullCoverBaseAlpha) }
+    var fullCoverParticleAlpha by remember { mutableFloatStateOf(ParticleCoverThemePreset.fullCoverParticleAlpha) }
+    var fullCoverParticleSize by remember { mutableFloatStateOf(ParticleCoverThemePreset.fullCoverParticleSize) }
+    var fullCoverParticleSizeVariance by remember {
+        mutableFloatStateOf(ParticleCoverThemePreset.fullCoverParticleSizeVariance)
+    }
+    var fullCoverGridStrength by remember { mutableFloatStateOf(ParticleCoverThemePreset.fullCoverGridStrength) }
+    var fullCoverWobble by remember { mutableFloatStateOf(ParticleCoverThemePreset.fullCoverWobble) }
     var implementation by remember { mutableStateOf(ParticleCoverPreviewImplementation.NativeGl) }
     var playbackPreviewProgress by remember { mutableFloatStateOf(0f) }
     var playbackPreviewRunning by remember { mutableStateOf(false) }
@@ -203,6 +214,28 @@ fun ParticleCoverPreviewScreen(
                             modifier = Modifier.size(previewSize),
                         )
                     }
+                    ParticleCoverPreviewImplementation.FullCoverParticles -> {
+                        ParticleCoverHost(
+                            song = song,
+                            coverDecodeTarget = coverDecodeTarget,
+                            motionEnabled = motionEnabled,
+                            coverColor = song.coverColor,
+                            tuning = tuning,
+                            previewOptions = ParticleCoverPreviewOptions(
+                                fullCoverParticles = true,
+                                fullCoverDensity = fullCoverDensity,
+                                fullCoverBaseAlpha = fullCoverBaseAlpha,
+                                fullCoverParticleAlpha = fullCoverParticleAlpha,
+                                fullCoverParticleSize = fullCoverParticleSize,
+                                fullCoverParticleSizeVariance = fullCoverParticleSizeVariance,
+                                fullCoverGridStrength = fullCoverGridStrength,
+                                fullCoverWobble = fullCoverWobble,
+                            ),
+                            onAspectRatioChanged = {},
+                            onMotionActiveChanged = {},
+                            modifier = Modifier.size(previewSize),
+                        )
+                    }
                     ParticleCoverPreviewImplementation.PlaybackDisintegration -> {
                         ParticleCoverHost(
                             song = song,
@@ -233,6 +266,11 @@ fun ParticleCoverPreviewScreen(
                     label = "Native GL",
                     emphasized = implementation == ParticleCoverPreviewImplementation.NativeGl,
                     onClick = { implementation = ParticleCoverPreviewImplementation.NativeGl },
+                )
+                ParticleTextButton(
+                    label = "整图粒子",
+                    emphasized = implementation == ParticleCoverPreviewImplementation.FullCoverParticles,
+                    onClick = { implementation = ParticleCoverPreviewImplementation.FullCoverParticles },
                 )
                 ParticleTextButton(
                     label = "进度分解",
@@ -268,6 +306,59 @@ fun ParticleCoverPreviewScreen(
                 },
             )
 
+            if (implementation == ParticleCoverPreviewImplementation.FullCoverParticles) {
+                SettingsSectionTitle("整图粒子实验")
+                ParticleTuningSlider(
+                    label = "整图粒子密度",
+                    description = "控制用多少 GPU 点阵去拼出封面；当前上限约 35344 个粒子",
+                    value = fullCoverDensity,
+                    valueRange = 0.30f..1.0f,
+                    onValueChange = { fullCoverDensity = it },
+                )
+                ParticleTuningSlider(
+                    label = "底图透明度",
+                    description = "降低后更容易判断是否真由粒子拼出封面",
+                    value = fullCoverBaseAlpha,
+                    valueRange = 0f..0.35f,
+                    onValueChange = { fullCoverBaseAlpha = it },
+                )
+                ParticleTuningSlider(
+                    label = "整图粒子亮度",
+                    description = "只影响实验点阵，不会保存到播放页主题参数",
+                    value = fullCoverParticleAlpha,
+                    valueRange = 0.35f..3.0f,
+                    onValueChange = { fullCoverParticleAlpha = it },
+                )
+                ParticleTuningSlider(
+                    label = "整图粒子大小",
+                    description = "放大点阵颗粒；过大时封面会更糊但更有颗粒感",
+                    value = fullCoverParticleSize,
+                    valueRange = 0.70f..2.40f,
+                    onValueChange = { fullCoverParticleSize = it },
+                )
+                ParticleTuningSlider(
+                    label = "粒子大小随机度",
+                    description = "降到 0 时每个点大小一致；升高后保留当前这种轻微颗粒差异",
+                    value = fullCoverParticleSizeVariance,
+                    valueRange = 0f..1f,
+                    onValueChange = { fullCoverParticleSizeVariance = it },
+                )
+                ParticleTuningSlider(
+                    label = "网格规整度",
+                    description = "提高后粒子更像一张规则网，运动也会变成坐标波纹",
+                    value = fullCoverGridStrength,
+                    valueRange = 0f..1f,
+                    onValueChange = { fullCoverGridStrength = it },
+                )
+                ParticleTuningSlider(
+                    label = "规律运动",
+                    description = "用 shader 时间参数制造轻微波动；不会逐粒子走 CPU 更新",
+                    value = fullCoverWobble,
+                    valueRange = 0f..2.0f,
+                    onValueChange = { fullCoverWobble = it },
+                )
+            }
+
             SettingsSectionTitle("应用参数")
             ParticleActionRow {
                 ParticleTextButton(
@@ -284,6 +375,13 @@ fun ParticleCoverPreviewScreen(
                         edgeParticleAlpha = defaults.edgeParticleAlpha
                         edgeTravelScale = defaults.edgeTravelScale
                         transitionParticleDensity = defaults.transitionParticleDensity
+                        fullCoverDensity = ParticleCoverThemePreset.fullCoverDensity
+                        fullCoverBaseAlpha = ParticleCoverThemePreset.fullCoverBaseAlpha
+                        fullCoverParticleAlpha = ParticleCoverThemePreset.fullCoverParticleAlpha
+                        fullCoverParticleSize = ParticleCoverThemePreset.fullCoverParticleSize
+                        fullCoverParticleSizeVariance = ParticleCoverThemePreset.fullCoverParticleSizeVariance
+                        fullCoverGridStrength = ParticleCoverThemePreset.fullCoverGridStrength
+                        fullCoverWobble = ParticleCoverThemePreset.fullCoverWobble
                         savedNoticeVisible = false
                     },
                 )
@@ -548,5 +646,6 @@ private fun previewSong(
 private enum class ParticleCoverPreviewImplementation {
     WebView,
     NativeGl,
+    FullCoverParticles,
     PlaybackDisintegration,
 }

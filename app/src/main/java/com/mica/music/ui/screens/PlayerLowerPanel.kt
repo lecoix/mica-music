@@ -19,6 +19,7 @@ import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
+import com.mica.music.data.SongTitleDisplay
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.LowerPanelFrame
 import com.mica.music.ui.theme.PlayerContentColors
@@ -36,6 +37,7 @@ internal fun PlayerLowerPanelSection(
     lower: LowerPanelFrame,
     seekState: PlaybackSeekState,
     immersiveLower: Boolean,
+    stripSongTitleParentheses: Boolean,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -51,11 +53,12 @@ internal fun PlayerLowerPanelSection(
     val spacing = lower.spacing
     val lyricsFocus = lower.lyricsLayoutFocus
     val hideInfoAndLyrics = lower.hideInfoAndLyrics
+    val displayTitle = SongTitleDisplay.displayTitle(activeSong.title, stripSongTitleParentheses)
 
     if (hideInfoAndLyrics) {
         Column(modifier.fillMaxSize()) {
             SongTitleSection(
-                title = activeSong.title,
+                title = displayTitle,
                 artist = activeSong.artist,
                 album = activeSong.album,
                 isBuffering = surfaceState.isBuffering,
@@ -128,7 +131,7 @@ internal fun PlayerLowerPanelSection(
                         Spacer(Modifier.height(spacing.afterInfo))
                     }
                     SongTitleSection(
-                        title = activeSong.title,
+                        title = displayTitle,
                         artist = activeSong.artist,
                         album = activeSong.album,
                         isBuffering = surfaceState.isBuffering,

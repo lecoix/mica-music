@@ -49,6 +49,7 @@ import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
+import com.mica.music.data.SongTitleDisplay
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.CoverEdgeProgressBar
@@ -58,7 +59,9 @@ import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.CoverFlowMath
+import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
 import com.mica.music.ui.screens.player.PlayerPageFrame
+import com.mica.music.ui.screens.player.UseNativeParticleCoverInPlayer
 import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
@@ -101,6 +104,7 @@ internal fun NowPlayingCoverSection(
     coverFlowNavigation: CoverFlowCarouselNavigationBridge,
     photoStackNavigation: PhotoStackCarouselNavigationBridge,
     screenWidth: Dp,
+    stripSongTitleParentheses: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val cover = frame.cover
@@ -112,6 +116,7 @@ internal fun NowPlayingCoverSection(
     val coverHeightPx = with(density) { cover.height.toPx() }
     val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
     val particleFrame = frame.particleCover
+    val displayTitle = SongTitleDisplay.displayTitle(song.title, stripSongTitleParentheses)
     val nativeParticleCoverActive = particleFrame.enabled && UseNativeParticleCoverInPlayer
     val particleNormalLayerVisible = particleFrame.normalLayerVisible
     val coverSlotVisible = !particleFrame.lyricsBackgroundVisible || nativeParticleCoverActive
@@ -137,7 +142,7 @@ internal fun NowPlayingCoverSection(
     val cameraDistancePx = with(density) { 18.dp.toPx() }
 
     val standardMode =
-        !coverFlowMode.usesCoverFlowStage &&
+        !ParticleCoverThemePolicy.coverFlowStageEnabled(coverFlowMode) &&
             !coverFlowMode.usesPhotoStack &&
             !frame.coverFlowStageActive
     val useNativeParticleCover = nativeParticleCoverActive
@@ -174,7 +179,7 @@ internal fun NowPlayingCoverSection(
 
     val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
         frame.lyricsProgress < 0.5f
-    val effectiveCoverDisplayMode = if (coverFlowMode.forcesSquareCrop) {
+    val effectiveCoverDisplayMode = if (ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)) {
         CoverDisplayMode.CROP_FILL
     } else {
         LocalCoverDisplayMode.current
@@ -199,7 +204,7 @@ internal fun NowPlayingCoverSection(
         ) {
             if (particleFrame.normalLayerVisible) {
                 SongTitleSection(
-                    title = song.title,
+                    title = displayTitle,
                     artist = song.artist,
                     album = song.album,
                     isBuffering = false,
@@ -391,7 +396,7 @@ internal fun NowPlayingCoverSection(
                                 crossfadeMillis = if (motionEnabled) 200 else 0,
                                 onAspectRatioChanged = onCoverAspectRatioChanged,
                                 decodeTarget = coverDecodeTarget.takeIf {
-                                    coverFlowMode.forcesSquareCrop
+                                    ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)
                                 },
                             )
                         }
@@ -421,7 +426,7 @@ internal fun NowPlayingCoverSection(
             }
             if (frame.lyricsProgress > 0.01f && !particleFrame.enabled) {
                 LyricsFocusHeaderOverlay(
-                    title = song.title,
+                    title = displayTitle,
                     artist = song.artist,
                     coverWidth = cover.width,
                     coverHeight = cover.height,
@@ -497,9 +502,6 @@ private fun coverClickModifier(
         )
     else -> Modifier
 }
-
-internal const val UseNativeParticleCoverInPlayer = true
-internal const val ParticleCoverHoldSec = 10f
 
 @Composable
 private fun LyricsFocusHeaderOverlay(

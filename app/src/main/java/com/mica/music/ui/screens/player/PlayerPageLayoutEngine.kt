@@ -16,13 +16,9 @@ import com.mica.music.ui.theme.HifiTypography
  * 不含 freeze / 快照；歌词、沉浸、封面底边进度在同一函数内 lerp。
  */
 object PlayerPageLayoutEngine {
-    private const val ParticleCoverScreenFraction = 0.78f
     private const val PhotoStackScreenFraction = 0.80f
     private const val PhotoStackAspectRatio = 0.78f
     private const val PhotoStackEdgeFraction = 0.10f
-    private val ParticleCoverDrop = 24.dp
-    private val ParticleInfoBlockHeight = 96.dp
-    internal val ParticleInfoTopExtraPadding = HifiSpacing.lg
 
     fun computeFrame(
         input: PlayerPageLayoutInput,
@@ -67,7 +63,6 @@ object PlayerPageLayoutEngine {
         val particleCover = computeParticleCoverFrame(
             input = input,
             lyricsFocus = lyricsFocus,
-            coverFlowStageActive = coverFlowStageActive,
         )
         val photoStack = computePhotoStackFrame(
             input = input,
@@ -132,7 +127,7 @@ object PlayerPageLayoutEngine {
 
         val metaAlpha = 1f - lyricsFocus
         val compactContentAlpha = if (input.particleCoverMode && lyricsFocus > ImmersiveProgressEpsilon) {
-            0f
+            ParticleCoverPageLayout.compactContentAlpha(lyricsFocus, metaAlpha)
         } else {
             metaAlpha
         }
@@ -205,14 +200,13 @@ object PlayerPageLayoutEngine {
         photoStackTitleBlockHeight: Dp,
         photoStackControlsHeight: Dp,
     ): CoverFrame {
-        val particleInfoTopPadding = input.statusBarTop + ParticleInfoTopExtraPadding
-        val particleCoverTopPadding = particleInfoTopPadding +
-            ParticleInfoBlockHeight +
-            HifiSpacing.lg +
-            ParticleCoverDrop
-        val particleCoverSize = input.screenWidth * ParticleCoverScreenFraction
+        if (input.particleCoverMode) {
+            return ParticleCoverPageLayout.computeCoverFrame(
+                input = input,
+                lyricsFocus = lyricsFocus,
+            )
+        }
         val (expandedCoverWidth, expandedCoverHeight) = when {
-            input.particleCoverMode -> particleCoverSize to particleCoverSize
             input.photoStackMode -> {
                 val cardWidth = input.screenWidth * PhotoStackScreenFraction
                 cardWidth to cardWidth / PhotoStackAspectRatio
@@ -246,11 +240,10 @@ object PlayerPageLayoutEngine {
             PhotoStackVerticalLayout(edgeGap = 0.dp, middleGap = 0.dp)
         }
         val coverTopPadding = when {
-            input.particleCoverMode -> lerpDp(particleCoverTopPadding, input.statusBarTop, lyricsFocus)
             input.photoStackMode -> lerpDp(photoStackLayout.edgeGap, input.statusBarTop, lyricsFocus)
             else -> lerpDp(0.dp, input.statusBarTop, lyricsFocus)
         }
-        val expandedCoverStartPadding = if (input.fitOriginal || input.particleCoverMode || input.photoStackMode) {
+        val expandedCoverStartPadding = if (input.fitOriginal || input.photoStackMode) {
             Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
         } else {
             0.dp
@@ -265,16 +258,10 @@ object PlayerPageLayoutEngine {
             )
         }
         val particleCoverBottomPadding = when {
-            input.particleCoverMode -> HifiSpacing.lg
             input.photoStackMode -> photoStackLayout.middleGap
             else -> 0.dp
         }
         val coverBlockHeight = when {
-            input.particleCoverMode -> lerpDp(
-                coverHeight + coverTopPadding + particleCoverBottomPadding,
-                input.statusBarTop,
-                lyricsFocus,
-            )
             input.photoStackMode -> lerpDp(
                 coverHeight + coverTopPadding + particleCoverBottomPadding,
                 input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm,
@@ -303,7 +290,7 @@ object PlayerPageLayoutEngine {
             startPadding = coverStartPadding,
             topPadding = coverTopPadding,
             blockHeight = coverBlockHeight,
-            particleInfoTopPadding = particleInfoTopPadding,
+            particleInfoTopPadding = input.statusBarTop + HifiSpacing.lg,
             letterboxAlpha = letterboxAlpha,
             zoneStop = zoneStop,
         )
@@ -312,21 +299,11 @@ object PlayerPageLayoutEngine {
     private fun computeParticleCoverFrame(
         input: PlayerPageLayoutInput,
         lyricsFocus: Float,
-        coverFlowStageActive: Boolean,
-    ): ParticleCoverFrame {
-        val enabled = input.particleCoverMode
-        return ParticleCoverFrame(
-            enabled = enabled,
-            normalLayerVisible = enabled &&
-                !input.lyricsExpanded &&
-                lyricsFocus <= ImmersiveProgressEpsilon &&
-                !coverFlowStageActive,
-            lyricsBackgroundVisible = enabled &&
-                (input.lyricsExpanded || lyricsFocus > ImmersiveProgressEpsilon) &&
-                !coverFlowStageActive,
-            hostBaseSize = input.screenWidth,
+    ): ParticleCoverFrame =
+        ParticleCoverPageLayout.computeParticleFrame(
+            input = input,
+            lyricsFocus = lyricsFocus,
         )
-    }
 
     private fun computePhotoStackFrame(
         input: PlayerPageLayoutInput,

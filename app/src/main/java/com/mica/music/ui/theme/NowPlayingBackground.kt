@@ -54,6 +54,51 @@ fun NowPlayingBackground(
                 modifier = modifier,
             )
         }
+        PlayerLowerBackgroundMode.DYNAMIC_ARTWORK -> {
+            DynamicArtworkBackgroundContainer(
+                albumArtUri = albumArtUri,
+                coverColor = coverColor,
+                mica = mica,
+                modifier = modifier,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DynamicArtworkBackgroundContainer(
+    albumArtUri: String?,
+    coverColor: Color,
+    mica: MicaSurfaceColors,
+    modifier: Modifier = Modifier,
+) {
+    val isDark = MicaTheme.colors.isDark
+    val coverAccent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
+    Box(
+        modifier
+            .fillMaxSize()
+            .background(mica.gradientEnd),
+    ) {
+        DynamicArtworkBackground(
+            albumArtUri = albumArtUri,
+            fallbackColor = coverAccent,
+            isDark = isDark,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to mica.gradientStart.copy(alpha = if (isDark) 0.08f else 0.05f),
+                            0.34f to Color.Transparent,
+                            0.78f to mica.gradientEnd.copy(alpha = if (isDark) 0.18f else 0.12f),
+                            1f to mica.gradientEnd.copy(alpha = if (isDark) 0.38f else 0.26f),
+                        ),
+                    ),
+                ),
+        )
     }
 }
 

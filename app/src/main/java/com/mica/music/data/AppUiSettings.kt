@@ -32,6 +32,9 @@ class AppUiSettings(context: Context) {
     var playerImmersiveLower by mutableStateOf(AppPreferences.playerImmersiveLower(appContext))
         private set
 
+    var stripSongTitleParentheses by mutableStateOf(AppPreferences.stripSongTitleParentheses(appContext))
+        private set
+
     var miniPlayerStyle by mutableStateOf(AppPreferences.miniPlayerStyle(appContext))
         private set
 
@@ -39,9 +42,6 @@ class AppUiSettings(context: Context) {
         private set
 
     var playerCoverFlowMode by mutableStateOf(AppPreferences.playerCoverFlowMode(appContext))
-        private set
-
-    var photoStackBurnEnabled by mutableStateOf(AppPreferences.photoStackBurnEnabled(appContext))
         private set
 
     var particleCoverTuning by mutableStateOf(AppPreferences.particleCoverTuning(appContext))
@@ -94,6 +94,11 @@ class AppUiSettings(context: Context) {
         AppPreferences.setPlayerImmersiveLower(appContext, enabled)
     }
 
+    fun updateStripSongTitleParentheses(enabled: Boolean) {
+        stripSongTitleParentheses = enabled
+        AppPreferences.setStripSongTitleParentheses(appContext, enabled)
+    }
+
     fun updateMiniPlayerStyle(style: MiniPlayerStyle) {
         miniPlayerStyle = style
         AppPreferences.setMiniPlayerStyle(appContext, style)
@@ -109,11 +114,6 @@ class AppUiSettings(context: Context) {
         playerCoverFlowMode = mode
         AppPreferences.setPlayerCoverFlowMode(appContext, mode)
         syncSpectrumAnalyzer(notifyPipeline = true)
-    }
-
-    fun updatePhotoStackBurnEnabled(enabled: Boolean) {
-        photoStackBurnEnabled = enabled
-        AppPreferences.setPhotoStackBurnEnabled(appContext, enabled)
     }
 
     fun updateParticleCoverTuning(tuning: ParticleCoverTuning) {

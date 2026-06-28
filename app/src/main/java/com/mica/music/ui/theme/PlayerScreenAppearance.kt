@@ -39,6 +39,7 @@ fun rememberPlayerScreenAppearance(
     val contentColors = when (lowerBackground) {
         PlayerLowerBackgroundMode.COVER_GLOW,
         PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
+        PlayerLowerBackgroundMode.DYNAMIC_ARTWORK,
         ->
             remember { blurredCoverPlayerContentColors() }
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->

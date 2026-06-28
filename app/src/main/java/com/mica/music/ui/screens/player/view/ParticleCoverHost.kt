@@ -19,6 +19,34 @@ import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.delay
 
+internal data class ParticleCoverPreviewOptions(
+    val fullCoverParticles: Boolean = false,
+    val fullCoverDensity: Float = 1f,
+    val fullCoverBaseAlpha: Float = 0.12f,
+    val fullCoverParticleAlpha: Float = 1f,
+    val fullCoverParticleSize: Float = 1f,
+    val fullCoverParticleSizeVariance: Float = 1f,
+    val fullCoverGridStrength: Float = 0f,
+    val fullCoverWobble: Float = 0f,
+)
+
+internal val ParticleCoverThemePreset = ParticleCoverPreviewOptions(
+    fullCoverParticles = true,
+    fullCoverDensity = 1f,
+    fullCoverBaseAlpha = 0f,
+    fullCoverParticleAlpha = 1.1f,
+    fullCoverParticleSize = 2.4f,
+    fullCoverParticleSizeVariance = 0f,
+    fullCoverGridStrength = 1f,
+    fullCoverWobble = 0f,
+)
+
+internal data class ParticleCoverMusicBands(
+    val bass: Float = 0f,
+    val mid: Float = 0f,
+    val treble: Float = 0f,
+)
+
 @Composable
 internal fun ParticleCoverHost(
     song: Song,
@@ -30,9 +58,12 @@ internal fun ParticleCoverHost(
     modifier: Modifier = Modifier,
     tuning: ParticleCoverTuning = ParticleCoverTuning(),
     playbackDisintegrationProgress: Float? = null,
+    musicEnergy: Float = 0f,
+    musicBands: ParticleCoverMusicBands = ParticleCoverMusicBands(),
     lyricsProgress: Float = 0f,
     coverCenter: Offset = Offset.Zero,
     coverHalfSize: Offset = Offset(1f, 1f),
+    previewOptions: ParticleCoverPreviewOptions = ParticleCoverPreviewOptions(),
 ) {
     val context = LocalContext.current
     val fallbackColor = coverColor.toArgb()
@@ -82,7 +113,10 @@ internal fun ParticleCoverHost(
             view.setMotionEnabled(motionEnabled)
             view.setFallbackColor(fallbackColor)
             view.setTuning(tuning)
+            view.setPreviewOptions(previewOptions)
             view.setPlaybackDisintegrationProgress(playbackDisintegrationProgress)
+            view.setMusicEnergy(musicEnergy)
+            view.setMusicBands(musicBands)
             view.setLyricsProgress(lyricsProgress)
             view.setCoverTransform(
                 centerX = coverCenter.x,

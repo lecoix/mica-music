@@ -16,10 +16,15 @@ enum class PlayerLowerBackgroundMode(
 
     /** 将封面色彩抽成低分辨率纹理，由 GLES 以 30fps 渲染动态烟云背景。 */
     DYNAMIC_LIGHT("dynamic_light", "动态烟云"),
+
+    /** Apple Music-style dynamic artwork texture: low-res artwork layers, blur, shader crossfade. */
+    DYNAMIC_ARTWORK("dynamic_artwork", "流光溢彩"),
     ;
 
     val usesBlurredArtwork: Boolean
-        get() = this == COVER_GLOW || this == DYNAMIC_LIGHT
+        get() = this == COVER_GLOW ||
+            this == DYNAMIC_LIGHT ||
+            this == DYNAMIC_ARTWORK
 
     companion object {
         fun fromStorage(value: String?): PlayerLowerBackgroundMode =
