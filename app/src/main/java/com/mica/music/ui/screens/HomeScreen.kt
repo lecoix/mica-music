@@ -85,7 +85,10 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
+import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.SongSortField
+import com.mica.music.data.SortDirection
+import com.mica.music.ui.components.BrowseGroupDisplaySheet
 import com.mica.music.ui.components.EmptyStatePresets
 import com.mica.music.ui.components.HomeDrawerPanel
 import com.mica.music.ui.components.HomeDrawerWidthFraction
@@ -144,12 +147,27 @@ private sealed interface HomePaneKey {
 /** 主页分区栈深度：用于前进/返回滑动方向。 */
 private fun homePaneDepth(key: HomePaneKey): Int = when (key) {
     HomePaneKey.Songs, HomePaneKey.Search -> 0
-    HomePaneKey.Folders, is HomePaneKey.Analysis, is HomePaneKey.Playlist -> 1
-    is HomePaneKey.Browse -> when (key.destination) {
-        BrowseDestination.Root -> 1
-        is BrowseDestination.Folder -> 1 + key.destination.depth
-        else -> 2
-    }
+    is HomePaneKey.Browse -> homeSectionOrder(key.section) * 10 + browseDestinationDepth(key.destination)
+    HomePaneKey.Folders -> homeSectionOrder(HomeSection.Folders) * 10
+    HomePaneKey.Analysis -> homeSectionOrder(HomeSection.LibraryAnalysis) * 10
+    is HomePaneKey.Playlist -> homeSectionOrder(HomeSection.Playlist) * 10
+}
+
+private fun browseDestinationDepth(destination: BrowseDestination): Int = when (destination) {
+    BrowseDestination.Root -> 0
+    is BrowseDestination.Folder -> 1 + destination.depth
+    else -> 1
+}
+
+private fun homeSectionOrder(section: HomeSection): Int = when (section) {
+    HomeSection.Songs -> 0
+    HomeSection.Artists -> 1
+    HomeSection.Albums -> 2
+    HomeSection.Folders -> 3
+    HomeSection.Recent -> 4
+    HomeSection.Playlist -> 5
+    HomeSection.LibraryAnalysis -> 6
+    HomeSection.Settings -> 7
 }
 
 private fun resolveHomePaneKey(
@@ -218,6 +236,11 @@ fun HomeScreen(
     var section by rememberSaveable { mutableStateOf(HomeSection.Songs) }
     var activePlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
     var sortSheetOpen by remember { mutableStateOf(false) }
+    var albumSortField by rememberSaveable { mutableStateOf(AlbumBrowseSortField.TITLE) }
+    var albumSortDirection by rememberSaveable { mutableStateOf(SortDirection.ASC) }
+    var albumGridColumns by rememberSaveable { mutableIntStateOf(1) }
+    var artistSortDirection by rememberSaveable { mutableStateOf(SortDirection.ASC) }
+    var artistGridColumns by rememberSaveable { mutableIntStateOf(1) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var browseDestination by rememberSaveable(stateSaver = BrowseDestinationSaver) {
@@ -558,6 +581,11 @@ fun HomeScreen(
             playlistSongCount = activePlaylistSongCount,
             playlistSortField = activePlaylist?.sortField,
             playlistSortDirection = activePlaylist?.sortDirection,
+            albumSortField = albumSortField,
+            albumSortDirection = albumSortDirection,
+            albumGridColumns = albumGridColumns,
+            artistSortDirection = artistSortDirection,
+            artistGridColumns = artistGridColumns,
             songListInfoVisibility = uiSettings.songListInfoVisibility,
         )
     } else {
@@ -570,6 +598,10 @@ fun HomeScreen(
     }
 
     val isPlaylistSort = section == HomeSection.Playlist && activePlaylistId != null
+    val isAlbumRootSort =
+        section == HomeSection.Albums && visibleBrowseDestination == BrowseDestination.Root
+    val isArtistRootSort =
+        section == HomeSection.Artists && visibleBrowseDestination == BrowseDestination.Root
 
     val miniPlayerStyle = uiSettings.miniPlayerStyle
     val currentSong = playerController.currentSong
@@ -680,28 +712,61 @@ fun HomeScreen(
             }
 
             if (sortSheetOpen) {
-                SongSortSheet(
-                    currentField = if (isPlaylistSort) {
-                        activePlaylist?.sortField ?: library.sortField
-                    } else {
-                        library.sortField
-                    },
-                    currentDirection = if (isPlaylistSort) {
-                        activePlaylist?.sortDirection ?: library.sortDirection
-                    } else {
-                        library.sortDirection
-                    },
-                    includeCustomSort = isPlaylistSort,
-                    onDismiss = { sortSheetOpen = false },
-                    onApply = { field, direction ->
-                        if (isPlaylistSort && activePlaylistId != null) {
-                            playlistStore.updateSort(activePlaylistId!!, field, direction)
-                        } else if (field != SongSortField.CUSTOM) {
-                            library.updateSort(field, direction)
-                        }
-                        sortSheetOpen = false
-                    },
-                )
+                when {
+                    isAlbumRootSort -> {
+                        val albumSortFields = AlbumBrowseSortField.entries
+                        BrowseGroupDisplaySheet(
+                            sortFieldLabels = albumSortFields.map { it.label },
+                            selectedSortFieldIndex = albumSortFields.indexOf(albumSortField),
+                            currentDirection = albumSortDirection,
+                            currentColumns = albumGridColumns,
+                            onDismiss = { sortSheetOpen = false },
+                            onSortFieldSelected = { index ->
+                                albumSortField = albumSortFields.getOrElse(index) {
+                                    AlbumBrowseSortField.TITLE
+                                }
+                            },
+                            onDirectionSelected = { albumSortDirection = it },
+                            onColumnsSelected = { albumGridColumns = it.coerceIn(1, 4) },
+                        )
+                    }
+                    isArtistRootSort -> {
+                        BrowseGroupDisplaySheet(
+                            sortFieldLabels = emptyList(),
+                            selectedSortFieldIndex = 0,
+                            currentDirection = artistSortDirection,
+                            currentColumns = artistGridColumns,
+                            onDismiss = { sortSheetOpen = false },
+                            onSortFieldSelected = {},
+                            onDirectionSelected = { artistSortDirection = it },
+                            onColumnsSelected = { artistGridColumns = it.coerceIn(1, 4) },
+                        )
+                    }
+                    else -> {
+                        SongSortSheet(
+                            currentField = if (isPlaylistSort) {
+                                activePlaylist?.sortField ?: library.sortField
+                            } else {
+                                library.sortField
+                            },
+                            currentDirection = if (isPlaylistSort) {
+                                activePlaylist?.sortDirection ?: library.sortDirection
+                            } else {
+                                library.sortDirection
+                            },
+                            includeCustomSort = isPlaylistSort,
+                            onDismiss = { sortSheetOpen = false },
+                            onApply = { field, direction ->
+                                if (isPlaylistSort && activePlaylistId != null) {
+                                    playlistStore.updateSort(activePlaylistId!!, field, direction)
+                                } else if (field != SongSortField.CUSTOM) {
+                                    library.updateSort(field, direction)
+                                }
+                                sortSheetOpen = false
+                            },
+                        )
+                    }
+                }
             }
 
             val paneKey = resolveHomePaneKey(
@@ -773,6 +838,11 @@ fun HomeScreen(
                         playerController = playerController,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
+                        albumSortField = albumSortField,
+                        albumSortDirection = albumSortDirection,
+                        albumGridColumns = albumGridColumns,
+                        artistSortDirection = artistSortDirection,
+                        artistGridColumns = artistGridColumns,
                         listBottomPadding = listBottomPadding,
                         motionEnabled = motionEnabled,
                         modifier = Modifier.fillMaxSize(),
@@ -785,6 +855,11 @@ fun HomeScreen(
                         playerController = playerController,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
+                        albumSortField = albumSortField,
+                        albumSortDirection = albumSortDirection,
+                        albumGridColumns = albumGridColumns,
+                        artistSortDirection = artistSortDirection,
+                        artistGridColumns = artistGridColumns,
                         listBottomPadding = listBottomPadding,
                         motionEnabled = motionEnabled,
                         modifier = Modifier.fillMaxSize(),

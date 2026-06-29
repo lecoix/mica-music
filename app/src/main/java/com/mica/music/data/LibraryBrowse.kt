@@ -3,11 +3,24 @@ package com.mica.music.data
 import java.text.Collator
 import java.util.Locale
 
+private const val BrowseFallbackColorArgb: Int = 0xFF334455.toInt()
+
 data class BrowseGroup(
     val title: String,
     val subtitle: String,
     val songCount: Int,
+    val artist: String = subtitle,
+    val year: Int = 0,
+    val albumArtUri: String? = null,
+    val coverColorArgb: Int = BrowseFallbackColorArgb,
 )
+
+enum class AlbumBrowseSortField(val label: String) {
+    TITLE("标题"),
+    YEAR("年份"),
+    SONG_COUNT("歌曲数量"),
+    ARTIST("艺术家"),
+}
 
 data class FolderBrowseGroup(
     val title: String,
@@ -42,10 +55,15 @@ object LibraryBrowse {
             }
         }
         return buckets.map { (artist, list) ->
+            val artworkSong = artworkSong(list)
             BrowseGroup(
                 title = artist,
                 subtitle = "${list.size} 首",
                 songCount = list.size,
+                artist = artist,
+                year = albumYear(list),
+                albumArtUri = artworkSong?.albumArtUri,
+                coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
             )
         }.sortedWith(compareBy(collator) { it.title })
     }
@@ -53,15 +71,57 @@ object LibraryBrowse {
     fun groupByAlbum(songs: List<Song>): List<BrowseGroup> =
         songs.groupBy { it.album.ifBlank { "未知专辑" } }
             .map { (album, list) ->
+                val artistSummary = summarizeAlbumArtists(list)
+                val artworkSong = artworkSong(list)
                 BrowseGroup(
                     title = album,
-                    subtitle = summarizeAlbumArtists(list),
+                    subtitle = artistSummary,
                     songCount = list.size,
+                    artist = artistSummary,
+                    year = albumYear(list),
+                    albumArtUri = artworkSong?.albumArtUri,
+                    coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
                 )
             }
             .sortedWith { a, b -> collator.compare(a.title, b.title) }
 
-    /** 汇总专辑内各曲目的艺术家（一曲一艺术家也可不同） */
+    fun sortArtistGroups(groups: List<BrowseGroup>, direction: SortDirection): List<BrowseGroup> {
+        val sorted = groups.sortedWith { a, b -> collator.compare(a.title, b.title) }
+        return if (direction == SortDirection.DESC) sorted.reversed() else sorted
+    }
+
+    fun sortAlbumGroups(
+        groups: List<BrowseGroup>,
+        field: AlbumBrowseSortField,
+        direction: SortDirection,
+    ): List<BrowseGroup> {
+        if (field == AlbumBrowseSortField.SONG_COUNT && direction == SortDirection.DESC) {
+            return groups.sortedWith(
+                compareByDescending<BrowseGroup> { it.songCount }
+                    .then(compareBy(collator) { it.title }),
+            )
+        }
+        val sorted = when (field) {
+            AlbumBrowseSortField.TITLE -> groups.sortedWith(
+                compareBy<BrowseGroup, String>(collator) { it.title },
+            )
+            AlbumBrowseSortField.YEAR -> groups.sortedWith(albumYearComparator(direction))
+            AlbumBrowseSortField.SONG_COUNT -> groups.sortedWith(
+                compareBy<BrowseGroup> { it.songCount }
+                    .then(compareBy(collator) { it.title }),
+            )
+            AlbumBrowseSortField.ARTIST -> groups.sortedWith(
+                compareBy<BrowseGroup, String>(collator) { it.artist }
+                    .then(compareBy(collator) { it.title }),
+            )
+        }
+        return if (direction == SortDirection.DESC && field != AlbumBrowseSortField.YEAR) {
+            sorted.reversed()
+        } else {
+            sorted
+        }
+    }
+
     private fun summarizeAlbumArtists(songs: List<Song>): String {
         val names = linkedSetOf<String>()
         songs.forEach { song ->
@@ -145,6 +205,26 @@ object LibraryBrowse {
         val byId = songs.associateBy { it.id }
         return recentIds.mapNotNull { byId[it] }
     }
+
+    private fun artworkSong(songs: List<Song>): Song? =
+        songs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: songs.firstOrNull()
+
+    private fun albumYear(songs: List<Song>): Int =
+        songs.mapNotNull { it.year.takeIf { year -> year > 0 } }.minOrNull() ?: 0
+
+    private fun albumYearComparator(direction: SortDirection): Comparator<BrowseGroup> =
+        Comparator { a, b ->
+            val aUnknown = a.year <= 0
+            val bUnknown = b.year <= 0
+            when {
+                aUnknown && bUnknown -> collator.compare(a.title, b.title)
+                aUnknown -> 1
+                bUnknown -> -1
+                direction == SortDirection.DESC && a.year != b.year -> b.year.compareTo(a.year)
+                a.year != b.year -> a.year.compareTo(b.year)
+                else -> collator.compare(a.title, b.title)
+            }
+        }
 
     private fun String.folderSegments(): List<String> =
         split('/', '\\')

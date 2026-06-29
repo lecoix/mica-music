@@ -2,6 +2,7 @@ package com.mica.music.ui.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
@@ -28,6 +29,11 @@ internal fun rememberLibraryStatsBarModel(
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
     playlistSortDirection: SortDirection?,
+    albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
+    albumSortDirection: SortDirection = SortDirection.ASC,
+    albumGridColumns: Int = 1,
+    artistSortDirection: SortDirection = SortDirection.ASC,
+    artistGridColumns: Int = 1,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
 ): LibraryStatsBarModel? {
     val songs = library.songs
@@ -38,6 +44,11 @@ internal fun rememberLibraryStatsBarModel(
         playlistSongCount,
         playlistSortField,
         playlistSortDirection,
+        albumSortField,
+        albumSortDirection,
+        albumGridColumns,
+        artistSortDirection,
+        artistGridColumns,
         songListInfoVisibility,
         songs,
         library.totalSizeMb,
@@ -55,12 +66,18 @@ internal fun rememberLibraryStatsBarModel(
             playlistSongCount,
             playlistSortField,
             playlistSortDirection,
+            albumSortField,
+            albumSortDirection,
+            albumGridColumns,
+            artistSortDirection,
+            artistGridColumns,
             songListInfoVisibility,
         )
     }
 }
 
-private fun sortSegment(library: MusicLibrary): String = formatSortLabel(library.sortField, library.sortDirection)
+private fun sortSegment(library: MusicLibrary): String =
+    formatSortLabel(library.sortField, library.sortDirection)
 
 internal fun resolveLibraryStatsBarModel(
     section: HomeSection,
@@ -70,6 +87,11 @@ internal fun resolveLibraryStatsBarModel(
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
     playlistSortDirection: SortDirection?,
+    albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
+    albumSortDirection: SortDirection = SortDirection.ASC,
+    albumGridColumns: Int = 1,
+    artistSortDirection: SortDirection = SortDirection.ASC,
+    artistGridColumns: Int = 1,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
 ): LibraryStatsBarModel? {
     if (section == HomeSection.Settings) {
@@ -127,10 +149,13 @@ internal fun resolveLibraryStatsBarModel(
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
                     "${library.artistGroups().size} 位歌手",
+                    formatBrowseSortLabel(null, artistSortDirection),
+                    formatGridColumnsLabel(artistGridColumns),
                 ) + scanSegments,
                 isScanning = library.isScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
+                showSortAction = true,
                 showRescanAction = true,
             )
             is BrowseDestination.Artist -> {
@@ -143,10 +168,13 @@ internal fun resolveLibraryStatsBarModel(
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
                     "${library.albumGroups().size} 张专辑",
+                    formatBrowseSortLabel(albumSortField, albumSortDirection),
+                    formatGridColumnsLabel(albumGridColumns),
                 ) + scanSegments,
                 isScanning = library.isScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
+                showSortAction = true,
                 showRescanAction = true,
             )
             is BrowseDestination.Album -> {
@@ -210,7 +238,7 @@ private fun buildSongListSegments(
 
 private fun songListScanSegments(library: MusicLibrary, showLastScanTime: Boolean): List<String> =
     when {
-        library.isScanning -> listOf("扫描中…")
+        library.isScanning -> listOf("扫描中")
         !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
         showLastScanTime && library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
         else -> emptyList()
@@ -230,11 +258,19 @@ private fun subsetStats(songs: List<Song>, library: MusicLibrary): LibraryStatsB
 
 private fun libraryScanSegments(library: MusicLibrary): List<String> =
     when {
-        library.isScanning -> listOf("扫描中…")
+        library.isScanning -> listOf("扫描中")
         !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
         library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
         else -> emptyList()
     }
+
+private fun formatBrowseSortLabel(
+    field: AlbumBrowseSortField?,
+    direction: SortDirection,
+): String = listOfNotNull(field?.label ?: "标题", direction.label).joinToString(" · ")
+
+private fun formatGridColumnsLabel(columns: Int): String =
+    "${columns.coerceIn(1, 4)}列"
 
 private fun songCountLabel(count: Int, lastScanAtMs: Long?): String =
     if (count == 0 && lastScanAtMs == null) "未扫描" else "$count 首歌曲"

@@ -1,11 +1,19 @@
 package com.mica.music.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -19,16 +27,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.BrowseGroup
 import com.mica.music.data.FolderBrowseGroup
+import com.mica.music.data.LibraryBrowse
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
+import com.mica.music.data.SortDirection
 import com.mica.music.ui.components.BrowseGroupRow
-import com.mica.music.ui.components.SongRow
+import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.SongListPanel
+import com.mica.music.ui.components.SongRow
 import com.mica.music.ui.motion.MicaMotion
+import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 
 sealed class BrowseDestination {
@@ -62,11 +78,15 @@ internal fun HomeBrowseContent(
     playerController: PlayerController,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
+    albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
+    albumSortDirection: SortDirection = SortDirection.ASC,
+    albumGridColumns: Int = 1,
+    artistSortDirection: SortDirection = SortDirection.ASC,
+    artistGridColumns: Int = 1,
     listBottomPadding: Dp = 0.dp,
     motionEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    // 列表滚动状态在 Root / 详情切换间保留，避免返回时回到顶部
     val artistListState = rememberLazyListState()
     val albumListState = rememberLazyListState()
     val folderListState = rememberLazyListState()
@@ -96,6 +116,8 @@ internal fun HomeBrowseContent(
                             library = library,
                             listState = artistListState,
                             onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
+                            sortDirection = artistSortDirection,
+                            gridColumns = artistGridColumns,
                             listBottomPadding = listBottomPadding,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -135,6 +157,9 @@ internal fun HomeBrowseContent(
                             library = library,
                             listState = albumListState,
                             onSelect = { onDestinationChange(BrowseDestination.Album(it)) },
+                            sortField = albumSortField,
+                            sortDirection = albumSortDirection,
+                            gridColumns = albumGridColumns,
                             listBottomPadding = listBottomPadding,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -210,12 +235,12 @@ internal fun HomeBrowseContent(
                     )
                 }.collect { (page, scrolling, isProgrammatic) ->
                     if (!scrolling && !isProgrammatic && page != folderDestination.depth) {
-                            onDestinationChange(
-                                BrowseDestination.Folder(
-                                    depth = page,
-                                    scopePathSegments = folderDestination.scopePathSegments.scopeForFolderDepth(page),
-                                ),
-                            )
+                        onDestinationChange(
+                            BrowseDestination.Folder(
+                                depth = page,
+                                scopePathSegments = folderDestination.scopePathSegments.scopeForFolderDepth(page),
+                            ),
+                        )
                     }
                 }
             }
@@ -261,7 +286,6 @@ internal fun HomeBrowseContent(
     }
 }
 
-/** 按歌手/专辑 key 保存详情歌曲列表滚动，返回同一详情时恢复位置。 */
 @Composable
 private fun rememberBrowseDetailSongListState(key: String): LazyListState =
     rememberSaveable(key, saver = LazyListState.Saver) { LazyListState() }
@@ -345,27 +369,26 @@ private fun ArtistGroupList(
     library: MusicLibrary,
     listState: LazyListState,
     onSelect: (String) -> Unit,
+    sortDirection: SortDirection,
+    gridColumns: Int,
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val groups = library.artistGroups()
+    val groups = remember(library.songs, sortDirection) {
+        LibraryBrowse.sortArtistGroups(library.artistGroups(), sortDirection)
+    }
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无歌手", modifier)
         return
     }
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = listBottomPadding),
-    ) {
-        items(groups, key = { it.title }) { group ->
-            BrowseGroupRow(
-                title = group.title,
-                subtitle = group.subtitle,
-                onClick = { onSelect(group.title) },
-            )
-        }
-    }
+    BrowseGroupList(
+        groups = groups,
+        listState = listState,
+        gridColumns = gridColumns,
+        onSelect = onSelect,
+        listBottomPadding = listBottomPadding,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -373,14 +396,63 @@ private fun AlbumGroupList(
     library: MusicLibrary,
     listState: LazyListState,
     onSelect: (String) -> Unit,
+    sortField: AlbumBrowseSortField,
+    sortDirection: SortDirection,
+    gridColumns: Int,
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val groups = library.albumGroups()
+    val groups = remember(library.songs, sortField, sortDirection) {
+        LibraryBrowse.sortAlbumGroups(library.albumGroups(), sortField, sortDirection)
+    }
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无专辑", modifier)
         return
     }
+    BrowseGroupList(
+        groups = groups,
+        listState = listState,
+        gridColumns = gridColumns,
+        onSelect = onSelect,
+        rowSubtitle = ::albumRowSubtitle,
+        listBottomPadding = listBottomPadding,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun BrowseGroupList(
+    groups: List<BrowseGroup>,
+    listState: LazyListState,
+    gridColumns: Int,
+    onSelect: (String) -> Unit,
+    rowSubtitle: (BrowseGroup) -> String = { it.subtitle },
+    listBottomPadding: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val columns = gridColumns.coerceIn(1, 4)
+    if (columns > 1) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = HifiSpacing.lg,
+                end = HifiSpacing.lg,
+                bottom = listBottomPadding,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
+        ) {
+            gridItems(groups, key = { it.title }) { group ->
+                BrowseGroupGridTile(
+                    group = group,
+                    onClick = { onSelect(group.title) },
+                )
+            }
+        }
+        return
+    }
+
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize(),
@@ -389,10 +461,55 @@ private fun AlbumGroupList(
         items(groups, key = { it.title }) { group ->
             BrowseGroupRow(
                 title = group.title,
-                subtitle = "${group.subtitle} · ${group.songCount} 首",
+                subtitle = rowSubtitle(group),
+                albumArtUri = group.albumArtUri,
+                fallbackColor = Color(group.coverColorArgb),
                 onClick = { onSelect(group.title) },
             )
         }
+    }
+}
+
+private fun albumRowSubtitle(group: BrowseGroup): String =
+    listOfNotNull(
+        group.artist.takeIf { it.isNotBlank() },
+        group.year.takeIf { it > 0 }?.toString(),
+        "${group.songCount} 首",
+    ).joinToString(" · ")
+
+@Composable
+private fun BrowseGroupGridTile(
+    group: BrowseGroup,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+    ) {
+        SongCover(
+            albumArtUri = group.albumArtUri,
+            fallbackColor = Color(group.coverColorArgb),
+            contentDescription = group.title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f),
+        )
+        Text(
+            text = group.title,
+            style = MicaTheme.typography.bodyMd,
+            color = MicaTheme.colors.textPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "${group.songCount} 首",
+            style = MicaTheme.typography.bodySm,
+            color = MicaTheme.colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

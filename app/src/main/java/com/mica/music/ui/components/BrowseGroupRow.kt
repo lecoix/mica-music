@@ -31,6 +31,8 @@ fun BrowseGroupRow(
     subtitle: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    albumArtUri: String? = null,
+    fallbackColor: Color? = null,
 ) {
     Column(modifier = modifier) {
         Row(
@@ -48,6 +50,15 @@ fun BrowseGroupRow(
                     .background(Color.Transparent),
             )
             Spacer(Modifier.width(HifiSpacing.md))
+            if (fallbackColor != null) {
+                SongCover(
+                    albumArtUri = albumArtUri,
+                    fallbackColor = fallbackColor,
+                    contentDescription = title,
+                    modifier = Modifier.size(HifiSize.coverSm),
+                )
+                Spacer(Modifier.width(HifiSpacing.md))
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
