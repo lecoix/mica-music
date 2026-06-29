@@ -8,6 +8,7 @@ enum class PlayerCoverFlowMode(
     val usesParticleCover: Boolean = false,
     val usesPhotoStack: Boolean = false,
     val forcesSquareCrop: Boolean = false,
+    val supportsImmersiveLower: Boolean = true,
 ) {
     STANDARD("standard", "标准"),
 
@@ -16,6 +17,7 @@ enum class PlayerCoverFlowMode(
         settingsLabel = "粒子封面",
         usesParticleCover = true,
         forcesSquareCrop = true,
+        supportsImmersiveLower = false,
     ),
 
     PAUSE_FOLD(
@@ -37,6 +39,7 @@ enum class PlayerCoverFlowMode(
         settingsLabel = "拍立得回忆",
         usesPhotoStack = true,
         forcesSquareCrop = true,
+        supportsImmersiveLower = false,
     ),
     ;
 

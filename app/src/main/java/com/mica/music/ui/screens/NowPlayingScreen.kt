@@ -277,7 +277,8 @@ fun NowPlayingContent(
     )
 
     val lowerBackground = uiSettings.playerLowerBackground
-    val immersiveLower = uiSettings.playerImmersiveLower
+    val immersiveLower = uiSettings.playerImmersiveLower &&
+        uiSettings.playerCoverFlowMode.supportsImmersiveLower
     val preloadBlurredBackground = lowerBackground.usesBlurredArtwork
 
     LaunchedEffect(song.id, song.albumArtUri, preloadBlurredBackground) {

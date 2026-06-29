@@ -53,8 +53,8 @@ fun rememberPlayerPageUiModel(
     val typography = MicaTheme.typography
 
     var spectrumDeferred by remember { mutableStateOf(false) }
-    val immersiveLower = uiSettings.playerImmersiveLower
     val coverFlowMode = uiSettings.playerCoverFlowMode
+    val immersiveLower = uiSettings.playerImmersiveLower && coverFlowMode.supportsImmersiveLower
     val coverFlowModeEnabled = ParticleCoverThemePolicy.coverFlowStageEnabled(coverFlowMode)
     val photoStackMode = coverFlowMode.usesPhotoStack
     val useCoverEdgeProgress = when {

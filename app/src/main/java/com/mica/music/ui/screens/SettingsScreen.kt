@@ -266,9 +266,14 @@ fun SettingsScreen(
 
             SettingsToggleRow(
                 title = "下半屏沉浸",
-                subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关",
-                checked = uiSettings.playerImmersiveLower,
-                onCheckedChange = { uiSettings.updatePlayerImmersiveLower(it) },
+                subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关，粒子封面&拍立得回忆不适用（制作中）",
+                checked = uiSettings.playerImmersiveLower &&
+                    uiSettings.playerCoverFlowMode.supportsImmersiveLower,
+                onCheckedChange = {
+                    if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
+                        uiSettings.updatePlayerImmersiveLower(it)
+                    }
+                },
             )
 
             SettingsToggleRow(
