@@ -26,7 +26,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $soCandidates = @(
     Join-Path $Root "third_party\media3-ffmpeg-decoder\src\main\jniLibs\arm64-v8a\libffmpegJNI.so"
-    Join-Path $Root "third_party\media3-ffmpeg-decoder\jniLibs\arm64-v8a\libffmpegJNI.so"
 )
 $so = $soCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 $aar = Join-Path $Root "app\libs\media3-ffmpeg-decoder-dsd.aar"

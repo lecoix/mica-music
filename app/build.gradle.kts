@@ -19,11 +19,8 @@ val qaSideBySide = providers.gradleProperty("mica.qaSideBySide")
 val media3FfmpegLocalAar = file("libs/media3-ffmpeg-decoder-dsd.aar")
 val media3FfmpegGeneratedAar =
     layout.buildDirectory.file("generated/media3-ffmpeg/media3-ffmpeg-decoder-dsd.aar").get().asFile
-val media3FfmpegLocalJniCandidates = listOf(
-    rootProject.file("third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so"),
-    rootProject.file("third_party/media3-ffmpeg-decoder/jniLibs/arm64-v8a/libffmpegJNI.so"),
-)
-val media3FfmpegLocalJni = media3FfmpegLocalJniCandidates.firstOrNull { it.exists() }
+val media3FfmpegLocalJni =
+    rootProject.file("third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so")
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
@@ -166,7 +163,7 @@ dependencies {
     when {
         media3FfmpegLocalAar.exists() -> implementation(files(media3FfmpegLocalAar))
         media3FfmpegGeneratedAar.exists() -> implementation(files(media3FfmpegGeneratedAar))
-        media3FfmpegLocalJni != null -> implementation(project(":media3-ffmpeg-decoder-dsd"))
+        media3FfmpegLocalJni.exists() -> implementation(project(":media3-ffmpeg-decoder-dsd"))
         else -> {
             logger.warn(
                 """
@@ -211,7 +208,7 @@ tasks.named("preBuild") {
         if (
             !media3FfmpegLocalAar.exists() &&
             !media3FfmpegGeneratedAar.exists() &&
-            media3FfmpegLocalJni == null
+            !media3FfmpegLocalJni.exists()
         ) {
             logger.warn(
                 """

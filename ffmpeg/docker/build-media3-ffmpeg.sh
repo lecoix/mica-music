@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build libffmpegJNI.so (arm64-v8a) with dsd_lsbf for Media3 ExoPlayer extension.
-# Output: third_party/media3-ffmpeg-decoder/jniLibs/arm64-v8a/libffmpegJNI.so
+# Output: third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so
 #         app/libs/media3-ffmpeg-decoder-dsd.aar (optional)
 #
 # Run inside Linux / Docker (/tmp build). Do NOT compile on Windows bind mount.
@@ -8,7 +8,6 @@ set -eu
 
 ROOT="${ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 OUT_SO_DIR="$ROOT/third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a"
-OUT_SO_DIR_LEGACY="$ROOT/third_party/media3-ffmpeg-decoder/jniLibs/arm64-v8a"
 OUT_AAR_DIR="$ROOT/app/libs"
 HOST_CACHE="$ROOT/ffmpeg/build"
 BUILD_DIR="/tmp/mica-media3-ffmpeg-build"
@@ -23,7 +22,7 @@ VENDORED_JNI="$ROOT/third_party/media3-ffmpeg-decoder/src/main/jni"
 WORK_MOD="$BUILD_DIR/decoder_ffmpeg/src/main"
 WORK_JNI="$WORK_MOD/jni"
 
-mkdir -p "$OUT_SO_DIR" "$OUT_SO_DIR_LEGACY" "$OUT_AAR_DIR" "$BUILD_DIR" "$WORK_JNI"
+mkdir -p "$OUT_SO_DIR" "$OUT_AAR_DIR" "$BUILD_DIR" "$WORK_JNI"
 
 if [ ! -f "$VENDORED_JNI/CMakeLists.txt" ] || [ ! -f "$VENDORED_JNI/ffmpeg_jni.cc" ]; then
   echo "ERROR: missing vendored JNI sources under $VENDORED_JNI" >&2
@@ -93,8 +92,7 @@ cmake -S "$WORK_JNI" -B "$CMAKE_BUILD" \
 cmake --build "$CMAKE_BUILD" -j"$(nproc)"
 
 cp -f "$CMAKE_BUILD/libffmpegJNI.so" "$OUT_SO_DIR/libffmpegJNI.so"
-cp -f "$OUT_SO_DIR/libffmpegJNI.so" "$OUT_SO_DIR_LEGACY/libffmpegJNI.so"
-chmod 644 "$OUT_SO_DIR/libffmpegJNI.so" "$OUT_SO_DIR_LEGACY/libffmpegJNI.so"
+chmod 644 "$OUT_SO_DIR/libffmpegJNI.so"
 
 echo ">> Verify ffmpegHasDecoder(dsd_lsbf) symbol in libffmpegJNI.so..."
 if command -v nm >/dev/null 2>&1; then
