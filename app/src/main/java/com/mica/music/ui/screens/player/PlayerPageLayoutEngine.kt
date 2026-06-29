@@ -39,17 +39,9 @@ object PlayerPageLayoutEngine {
             useCoverEdgePlayback &&
                 chromeProgressAlpha < 1f - ImmersiveProgressEpsilon
 
-        val coverFlowAvailable =
-            input.coverFlowModeEnabled &&
-                !input.lyricsExpanded &&
-                !input.immersiveLower &&
-                lyricsFocus < 0.01f
-        val coverFlowProgress = if (coverFlowAvailable) {
-            input.coverFlowProgress.coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-        val coverFlowStageActive = coverFlowProgress > 0.001f
+        val coverFlowStage = resolveCoverFlowStage(input, lyricsFocus)
+        val coverFlowProgress = coverFlowStage.progress
+        val coverFlowStageActive = coverFlowStage.active
 
         val photoStackTitleBlockHeight = computePhotoStackTitleBlockHeight(density, typography)
         val photoStackControlsHeight = HifiSize.touchTarget
@@ -191,6 +183,36 @@ object PlayerPageLayoutEngine {
                 hideInfoAndLyrics = input.photoStackMode,
             ),
         )
+    }
+
+    private data class CoverFlowStagePlan(
+        val progress: Float,
+        val active: Boolean,
+    )
+
+    private fun resolveCoverFlowStage(
+        input: PlayerPageLayoutInput,
+        lyricsFocus: Float,
+    ): CoverFlowStagePlan {
+        val inLyricsTransition =
+            input.coverFlowModeEnabled &&
+                !input.immersiveLower &&
+                (input.lyricsExpanded || lyricsFocus > ImmersiveProgressEpsilon)
+        val playbackAvailable =
+            input.coverFlowModeEnabled &&
+                !input.lyricsExpanded &&
+                !input.immersiveLower &&
+                lyricsFocus < 0.01f
+        val progress = when {
+            inLyricsTransition -> 1f - lyricsFocus
+            playbackAvailable -> input.coverFlowProgress
+            else -> 0f
+        }.coerceIn(0f, 1f)
+        val active = when {
+            inLyricsTransition -> lyricsFocus < 1f - ImmersiveProgressEpsilon
+            else -> progress > 0.001f
+        }
+        return CoverFlowStagePlan(progress = progress, active = active)
     }
 
     private fun computeCoverFrame(

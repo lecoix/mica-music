@@ -87,31 +87,30 @@ fun rememberPlayerPageUiModel(
         label = "immersiveProgress",
     )
 
-    val coverFlowAvailable =
+    val coverFlowTargetAvailable =
         coverFlowModeEnabled &&
             queueState.queue.isNotEmpty() &&
             !lyricsExpanded &&
-            !immersiveLower &&
-            lyricsProgress < 0.01f
+            !immersiveLower
     val coverFlowProgress by animateFloatAsState(
-        targetValue = if (coverFlowAvailable) 1f else 0f,
+        targetValue = if (coverFlowTargetAvailable) 1f else 0f,
         animationSpec = MicaMotion.tweenFloat(
             motionEnabled,
-            if (coverFlowAvailable) MicaMotion.DurationLongMs else MicaMotion.DurationMediumMs,
+            if (coverFlowTargetAvailable) MicaMotion.DurationLongMs else MicaMotion.DurationMediumMs,
         ),
         label = "coverFlowProgress",
         finishedListener = { finalValue ->
             TrackSwitchPerformance.mark(
                 "ui-cover-flow-progress-end",
-                "value=$finalValue available=$coverFlowAvailable",
+                "value=$finalValue available=$coverFlowTargetAvailable",
             )
         },
     )
 
-    LaunchedEffect(song.id, coverFlowAvailable) {
+    LaunchedEffect(song.id, coverFlowTargetAvailable) {
         TrackSwitchPerformance.mark(
             "ui-cover-flow-progress-start",
-            "available=$coverFlowAvailable target=${if (coverFlowAvailable) 1f else 0f}",
+            "available=$coverFlowTargetAvailable target=${if (coverFlowTargetAvailable) 1f else 0f}",
         )
     }
 

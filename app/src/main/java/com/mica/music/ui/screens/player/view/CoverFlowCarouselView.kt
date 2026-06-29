@@ -150,11 +150,17 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             val newAspect = w / h
             coverWidthPx = w
             coverHeightPx = h
-            coverDecodeTarget = CoverDecodeTarget.fromPixels(w, h)
             if (abs(oldAspect - newAspect) > 0.001f) {
                 scheduleReflectionRebakeForWindow()
             }
             invalidateFor("cover-size")
+        }
+    }
+
+    fun setCoverDecodeTarget(target: CoverDecodeTarget) {
+        if (coverDecodeTarget != target) {
+            coverDecodeTarget = target
+            invalidateFor("cover-decode-target")
         }
     }
 
@@ -581,13 +587,18 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         slotH: Float,
         slotAlphaByte: Int,
     ) {
+        val reflectionAlphaMultiplier = CoverFlowMath.reflectionAlphaMultiplier(foldProgress)
+        if (reflectionAlphaMultiplier <= 0f) return
+        val reflectionSlotAlphaByte = (slotAlphaByte * reflectionAlphaMultiplier)
+            .toInt()
+            .coerceIn(0, 255)
         val reflH = slotH * CoverFlowMath.ReflectionHeightFraction
         val gap = reflectionGapPx
         val coverBottom = slotH * 0.5f
         val top = coverBottom + gap
         val bottom = top + reflH
         reflectionRect.set(-slotW * 0.5f, top, slotW * 0.5f, bottom)
-        val combinedAlpha = ((CoverFlowMath.ReflectionAlpha * slotAlphaByte / 255f) * 255f)
+        val combinedAlpha = ((CoverFlowMath.ReflectionAlpha * reflectionSlotAlphaByte / 255f) * 255f)
             .toInt()
             .coerceIn(0, 255)
         canvas.save()
@@ -604,7 +615,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         }
         if (bakedReflection != null) {
             // ReflectionAlpha 已烘焙进位图；此处只应用槽位透明度。
-            paint.alpha = slotAlphaByte
+            paint.alpha = reflectionSlotAlphaByte
             canvas.drawBitmap(bakedReflection, null, reflectionRect, paint)
             paint.alpha = 255
             canvas.restore()
@@ -657,7 +668,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             gradientPaint.shader = null
             canvas.restoreToCount(layerId)
         } else {
-            val baseAlpha = CoverFlowMath.ReflectionAlpha * slotAlphaByte / 255f
+            val baseAlpha = CoverFlowMath.ReflectionAlpha * reflectionSlotAlphaByte / 255f
             gradientPaint.shader = LinearGradient(
                 0f,
                 top,

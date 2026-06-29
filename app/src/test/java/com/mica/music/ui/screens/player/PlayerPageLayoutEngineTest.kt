@@ -117,6 +117,69 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun coverFlowLyricsTransition_keepsStageMountedUntilLyricsSettles() {
+        val opening = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0.5f,
+                lyricsExpanded = true,
+                coverFlowModeEnabled = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val settledLyrics = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 1f,
+                lyricsExpanded = true,
+                coverFlowModeEnabled = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(opening.coverFlowStageActive)
+        assertEquals(0.5f, opening.coverFlowProgress, 0.001f)
+        assertEquals(false, settledLyrics.coverFlowStageActive)
+        assertEquals(0f, settledLyrics.coverFlowProgress, 0.001f)
+    }
+
+    @Test
+    fun coverFlowLyricsTransition_ignoresPlaybackFoldAnimation() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0.75f,
+                lyricsExpanded = false,
+                coverFlowModeEnabled = true,
+                useCoverEdgeProgress = true,
+            ).copy(coverFlowProgress = 1f),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.coverFlowStageActive)
+        assertEquals(0.25f, frame.coverFlowProgress, 0.001f)
+    }
+
+    @Test
+    fun coverFlowLyricsTransition_handsOffToWarmPlaybackProgress() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 0f,
+                lyricsExpanded = false,
+                coverFlowModeEnabled = true,
+                useCoverEdgeProgress = true,
+            ).copy(coverFlowProgress = 1f),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.coverFlowStageActive)
+        assertEquals(1f, frame.coverFlowProgress, 0.001f)
+    }
+
+    @Test
     fun coverEdgeProgress_keepsStandardProgressMountedDuringLyricsTransition() {
         val opening = PlayerPageLayoutEngine.computeFrame(
             input = baseInput(

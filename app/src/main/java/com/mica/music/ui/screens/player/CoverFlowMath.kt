@@ -25,6 +25,8 @@ internal object CoverFlowMath {
     fun shouldRenderReflection(laneIndex: Int): Boolean =
         laneIndex in -ReflectionLaneRadius..ReflectionLaneRadius
 
+    fun reflectionAlphaMultiplier(foldProgress: Float): Float =
+        if (foldProgress > 0.5f) 1f else 0f
 
     fun laneStepFraction(mode: PlayerCoverFlowMode): Float =
         when (mode) {

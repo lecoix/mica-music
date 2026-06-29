@@ -17,6 +17,14 @@ class CoverFlowMathTest {
     }
 
     @Test
+    fun reflectionAlphaMultiplier_disappearsAtHalfFoldProgress() {
+        assertEquals(1f, CoverFlowMath.reflectionAlphaMultiplier(1f), 0.0001f)
+        assertEquals(1f, CoverFlowMath.reflectionAlphaMultiplier(0.51f), 0.0001f)
+        assertEquals(0f, CoverFlowMath.reflectionAlphaMultiplier(0.5f), 0.0001f)
+        assertEquals(0f, CoverFlowMath.reflectionAlphaMultiplier(0.25f), 0.0001f)
+    }
+
+    @Test
     fun pauseFold_slotTranslationLinearWithOffset() {
         val screenWidthPx = 1080f
         val offset = 0.42f
