@@ -380,7 +380,7 @@ fun SettingsScreen(
                 onValueChange = { text ->
                     updateSongListInfo { it.copy(customText = text) }
                 },
-                placeholder = "输入自定义文字",
+                placeholder = "输入自定义文本",
                 enabled = songListInfo.showCustomText,
             )
 
