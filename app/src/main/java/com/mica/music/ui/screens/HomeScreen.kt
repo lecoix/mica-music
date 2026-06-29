@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -121,6 +122,7 @@ enum class HomeSection {
     Songs,
     Artists,
     Albums,
+    Folders,
     Recent,
     Playlist,
     LibraryAnalysis,
@@ -131,6 +133,7 @@ private sealed interface HomePaneKey {
     data object Search : HomePaneKey
     data object Songs : HomePaneKey
     data object Analysis : HomePaneKey
+    data object Folders : HomePaneKey
     data class Playlist(val id: String) : HomePaneKey
     data class Browse(
         val section: HomeSection,
@@ -141,9 +144,10 @@ private sealed interface HomePaneKey {
 /** 主页分区栈深度：用于前进/返回滑动方向。 */
 private fun homePaneDepth(key: HomePaneKey): Int = when (key) {
     HomePaneKey.Songs, HomePaneKey.Search -> 0
-    is HomePaneKey.Analysis, is HomePaneKey.Playlist -> 1
+    HomePaneKey.Folders, is HomePaneKey.Analysis, is HomePaneKey.Playlist -> 1
     is HomePaneKey.Browse -> when (key.destination) {
         BrowseDestination.Root -> 1
+        is BrowseDestination.Folder -> 1 + key.destination.depth
         else -> 2
     }
 }
@@ -156,6 +160,7 @@ private fun resolveHomePaneKey(
 ): HomePaneKey = when {
     searchOpen -> HomePaneKey.Search
     section == HomeSection.Songs -> HomePaneKey.Songs
+    section == HomeSection.Folders -> HomePaneKey.Folders
     section == HomeSection.LibraryAnalysis -> HomePaneKey.Analysis
     section == HomeSection.Playlist && activePlaylistId != null -> HomePaneKey.Playlist(activePlaylistId)
     section == HomeSection.Artists ||
@@ -171,12 +176,20 @@ private val BrowseDestinationSaver = Saver<BrowseDestination, List<String>>(
             BrowseDestination.Root -> listOf("root", "")
             is BrowseDestination.Artist -> listOf("artist", destination.name)
             is BrowseDestination.Album -> listOf("album", destination.title)
+            is BrowseDestination.Folder -> listOf(
+                "folder",
+                destination.depth.toString(),
+            ) + destination.scopePathSegments
         }
     },
     restore = { saved ->
         when (saved.getOrNull(0)) {
             "artist" -> BrowseDestination.Artist(saved.getOrNull(1).orEmpty())
             "album" -> BrowseDestination.Album(saved.getOrNull(1).orEmpty())
+            "folder" -> BrowseDestination.Folder(
+                depth = saved.getOrNull(1)?.toIntOrNull() ?: 0,
+                scopePathSegments = saved.drop(2),
+            )
             else -> BrowseDestination.Root
         }
     },
@@ -210,6 +223,8 @@ fun HomeScreen(
     var browseDestination by rememberSaveable(stateSaver = BrowseDestinationSaver) {
         mutableStateOf<BrowseDestination>(BrowseDestination.Root)
     }
+    var folderVisibleDepth by rememberSaveable { mutableIntStateOf(0) }
+    var folderVisibleScope by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     /** 进入「最近播放 / 音乐库分析」前的分区，返回时恢复（从哪来回哪去）。 */
     var returnSection by rememberSaveable { mutableStateOf(HomeSection.Songs) }
     var actionMenuSong by remember { mutableStateOf<Song?>(null) }
@@ -395,7 +410,20 @@ fun HomeScreen(
                 keyboardController?.hide()
             }
             browseDestination != BrowseDestination.Root -> {
-                browseDestination = BrowseDestination.Root
+                browseDestination = when (val destination = browseDestination) {
+                    is BrowseDestination.Folder -> {
+                        val previousDepth = destination.depth - 1
+                        if (previousDepth < 0) {
+                            BrowseDestination.Root
+                        } else {
+                            BrowseDestination.Folder(
+                                depth = previousDepth,
+                                scopePathSegments = destination.scopePathSegments.take(previousDepth),
+                            )
+                        }
+                    }
+                    else -> BrowseDestination.Root
+                }
             }
             section == HomeSection.Recent || section == HomeSection.LibraryAnalysis -> {
                 section = returnSection
@@ -478,10 +506,19 @@ fun HomeScreen(
         onHomeNavigationIntentConsumed()
     }
 
+    LaunchedEffect(section, browseDestination) {
+        if (section == HomeSection.Folders) {
+            val folder = browseDestination as? BrowseDestination.Folder
+            folderVisibleDepth = folder?.depth ?: 0
+            folderVisibleScope = folder?.scopePathSegments.orEmpty()
+        }
+    }
+
     val canNavigateBack = searchOpen ||
         browseDestination != BrowseDestination.Root ||
         section == HomeSection.Recent ||
         section == HomeSection.LibraryAnalysis
+    val showFolderMenuButton = section == HomeSection.Folders && !searchOpen
 
     BackHandler(enabled = drawerOpen) {
         drawerOpen = false
@@ -495,18 +532,27 @@ fun HomeScreen(
     }
     val activePlaylistSongCount = activePlaylist?.songIds?.size ?: 0
 
+    val visibleBrowseDestination = if (section == HomeSection.Folders) {
+        BrowseDestination.Folder(
+            depth = folderVisibleDepth,
+            scopePathSegments = folderVisibleScope,
+        )
+    } else {
+        browseDestination
+    }
+
     val topBarTitle = resolveTopBarTitle(
         appName = appName,
         section = section,
         playlistName = activePlaylist?.name,
         searchOpen = searchOpen,
-        browseDestination = browseDestination,
+        browseDestination = visibleBrowseDestination,
     )
 
     val statsBarModel = if (!searchOpen) {
         rememberLibraryStatsBarModel(
             section = section,
-            browseDestination = browseDestination,
+            browseDestination = visibleBrowseDestination,
             library = library,
             activePlaylistId = activePlaylistId,
             playlistSongCount = activePlaylistSongCount,
@@ -590,13 +636,14 @@ fun HomeScreen(
         ) {
             HomeTopBar(
                 title = topBarTitle,
-                showBack = canNavigateBack,
+                showBack = canNavigateBack && !showFolderMenuButton,
                 searchOpen = searchOpen,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
                 motionEnabled = motionEnabled,
                 onLeadingClick = {
                     when {
+                        showFolderMenuButton -> drawerOpen = !drawerOpen
                         canNavigateBack -> navigateBack()
                         drawerOpen -> drawerOpen = false
                         else -> drawerOpen = true
@@ -712,6 +759,22 @@ fun HomeScreen(
                             playlistStore.moveSongInPlaylist(key.id, from, to)
                         },
                         listBottomPadding = listBottomPadding,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    HomePaneKey.Folders -> HomeBrowseContent(
+                        section = HomeSection.Folders,
+                        destination = browseDestination,
+                        onDestinationChange = { browseDestination = it },
+                        onFolderPageChange = { depth, scopePathSegments ->
+                            folderVisibleDepth = depth
+                            folderVisibleScope = scopePathSegments
+                        },
+                        library = library,
+                        playerController = playerController,
+                        onSongClick = onSongClick,
+                        onSongOpenMenu = ::openSongActionMenu,
+                        listBottomPadding = listBottomPadding,
+                        motionEnabled = motionEnabled,
                         modifier = Modifier.fillMaxSize(),
                     )
                     is HomePaneKey.Browse -> HomeBrowseContent(
@@ -888,11 +951,18 @@ private fun resolveTopBarTitle(
     searchOpen -> "搜索"
     browseDestination is BrowseDestination.Artist -> browseDestination.name
     browseDestination is BrowseDestination.Album -> browseDestination.title
+    browseDestination is BrowseDestination.Folder -> when {
+        browseDestination.scopePathSegments.isNotEmpty() ->
+            browseDestination.scopePathSegments.joinToString(" / ")
+        browseDestination.depth > 0 -> "第 ${browseDestination.depth + 1} 层文件夹"
+        else -> "文件夹"
+    }
     section == HomeSection.Playlist && playlistName != null -> playlistName
     else -> when (section) {
         HomeSection.Songs -> appName
         HomeSection.Artists -> "歌手"
         HomeSection.Albums -> "专辑"
+        HomeSection.Folders -> "文件夹"
         HomeSection.Recent -> "最近播放"
         HomeSection.LibraryAnalysis -> "音乐库分析"
         HomeSection.Settings -> "设置"

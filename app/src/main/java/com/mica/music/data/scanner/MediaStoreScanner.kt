@@ -207,10 +207,7 @@ object MediaStoreScanner {
                 val dateModifiedMs = if (dateModifiedCol >= 0) c.getLong(dateModifiedCol) * 1000L else 0L
                 val relativePath = if (relativePathCol >= 0) c.getString(relativePathCol).orEmpty() else ""
                 val folderPath = when {
-                    relativePathCol >= 0 -> relativePath
-                        ?.trimEnd('/')
-                        ?.substringBeforeLast('/', "")
-                        .orEmpty()
+                    relativePathCol >= 0 -> relativePath.trim('/')
                     dataCol >= 0 -> c.getString(dataCol)
                         ?.substringBeforeLast('/', "")
                         .orEmpty()

@@ -3,6 +3,7 @@ package com.mica.music.media
 
 
 import android.Manifest
+import android.app.PendingIntent
 
 import android.content.BroadcastReceiver
 
@@ -41,6 +42,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 
 import androidx.media3.session.MediaSessionService
+
+import com.mica.music.MainActivity
 
 import com.mica.music.util.DiagnosticLog
 
@@ -260,7 +263,9 @@ class MicaMediaService : MediaSessionService() {
 
         }
 
-        mediaSession = MediaSession.Builder(this, player).build()
+        mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(createSessionActivityPendingIntent())
+            .build()
 
         registerNoisyReceiver()
 
@@ -360,6 +365,17 @@ class MicaMediaService : MediaSessionService() {
 
         noisyReceiverRegistered = true
 
+    }
+
+    private fun createSessionActivityPendingIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
 

@@ -155,6 +155,34 @@ internal fun resolveLibraryStatsBarModel(
             }
             else -> null
         }
+        HomeSection.Folders -> when (browseDestination) {
+            BrowseDestination.Root -> LibraryStatsBarModel(
+                segments = listOfNotNull(
+                    "${library.folderGroupsAtDepth(0).size} 个文件夹",
+                ) + scanSegments,
+                isScanning = library.isScanning,
+                scanProgressLabel = library.scanProgressLabel,
+                scanError = library.lastScanError,
+                showRescanAction = true,
+            )
+            is BrowseDestination.Folder -> {
+                val scope = browseDestination.scopePathSegments
+                val groups = library.folderGroupsAtDepth(browseDestination.depth, scope)
+                val songs = if (scope.isNotEmpty()) library.songsForFolder(scope) else emptyList()
+                if (groups.isEmpty() && songs.isNotEmpty()) {
+                    subsetStats(songs, library)
+                } else {
+                    LibraryStatsBarModel(
+                        segments = listOfNotNull(
+                            "${groups.size} 个文件夹",
+                            if (scope.isNotEmpty()) "${songs.size} 首歌曲" else null,
+                        ),
+                        showRescanAction = true,
+                    )
+                }
+            }
+            else -> null
+        }
         else -> null
     }
 }

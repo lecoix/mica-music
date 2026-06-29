@@ -197,10 +197,24 @@ class MusicLibrary internal constructor(
 
     fun albumGroups(): List<BrowseGroup> = LibraryBrowse.groupByAlbum(songs)
 
+    fun folderGroups(pathSegments: List<String> = emptyList()): List<FolderBrowseGroup> =
+        LibraryBrowse.folderGroups(songs, pathSegments)
+
+    fun folderGroupsAtDepth(depth: Int, scopePathSegments: List<String> = emptyList()): List<FolderBrowseGroup> =
+        LibraryBrowse.folderGroupsAtDepth(songs, depth, scopePathSegments)
+
+    fun maxFolderDepth(): Int = LibraryBrowse.maxFolderDepth(songs)
+
     fun songsForArtist(artist: String): List<Song> = LibraryBrowse.songsForArtist(songs, artist)
 
     fun songsForAlbum(album: String): List<Song> =
         LibraryBrowse.songsForAlbum(songs, album)
+
+    fun songsForFolder(pathSegments: List<String>): List<Song> =
+        LibraryBrowse.songsForFolder(songs, pathSegments)
+
+    fun songsInFolder(pathSegments: List<String>): List<Song> =
+        LibraryBrowse.songsInFolder(songs, pathSegments)
 
     fun reloadLibraryFolderFromPrefs() {
         val uri = AppPreferences.libraryTreeUri(context)

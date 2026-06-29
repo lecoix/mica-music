@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,10 +71,5 @@ fun BrowseGroupRow(
                 modifier = Modifier.size(HifiSize.iconMd),
             )
         }
-        HorizontalDivider(
-            thickness = HifiSize.dividerHairline,
-            color = MicaTheme.colors.divider,
-            modifier = Modifier.padding(start = HifiSpacing.lg),
-        )
     }
 }

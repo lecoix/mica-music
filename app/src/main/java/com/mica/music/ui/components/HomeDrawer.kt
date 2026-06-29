@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryMusic
@@ -103,6 +104,12 @@ fun HomeDrawerPanel(
                     icon = Icons.Outlined.Album,
                     selected = selectedSection == HomeSection.Albums,
                     onClick = { onSectionSelected(HomeSection.Albums) },
+                )
+                DrawerNavItem(
+                    label = "文件夹",
+                    icon = Icons.Outlined.Folder,
+                    selected = selectedSection == HomeSection.Folders,
+                    onClick = { onSectionSelected(HomeSection.Folders) },
                 )
 
                 Spacer(Modifier.height(HifiSpacing.xl))
