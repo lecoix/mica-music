@@ -8,14 +8,18 @@ and copyright notice required by each dependency.
 
 | Component | License |
 |---|---|
-| AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette | Apache License 2.0 |
+| AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette / Annotation | Apache License 2.0 |
 | Jetpack Compose UI / Material 3 / Material Icons | Apache License 2.0 |
 | AndroidX Media3 | Apache License 2.0 |
+| Media3 FFmpeg extension Java / JNI layer | Apache License 2.0 |
 | Kotlin / Kotlinx Coroutines | Apache License 2.0 |
 | Coil | Apache License 2.0 |
+| Guava | Apache License 2.0 |
 | Calvin Reorderable | Apache License 2.0 |
 | BlurView 3.x (`com.github.Dimezis:BlurView`, JitPack) | Apache License 2.0 |
 | Kyant Taglib (metadata) | Apache License 2.0 |
+| jAudiotagger | LGPL 2.1 |
+| Three.js (`app/src/main/assets/particle_cover/mica-particle-cover.js`) | MIT License |
 | FFmpeg | LGPL 2.1+ by default; current build script does not enable GPL or nonfree components |
 
 ## Release Notes
@@ -26,5 +30,8 @@ and copyright notice required by each dependency.
   via JitPack — verify `version-3.2.0` tag notice at release time.
 - FFmpeg binary distribution requires preserving FFmpeg / LGPL notices and
   providing a way to obtain the corresponding source or build scripts.
+- The current FFmpeg build scripts pass selected decoder flags and do not pass
+  `--enable-gpl` or `--enable-nonfree`; re-check this if the build scripts are
+  changed before release.
 - If FFmpeg build flags change to include GPL or nonfree components, update this
   notice and the app distribution terms before release.

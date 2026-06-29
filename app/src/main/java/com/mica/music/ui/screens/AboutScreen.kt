@@ -91,21 +91,24 @@ fun AboutScreen(
 
             SettingsSectionTitle("开源许可证")
             AboutParagraph(
-                "本应用使用 FFmpeg 进行本地音频解码。FFmpeg 按 LGPL 2.1 或更高版本授权发布；" +
-                    "随 APK 分发的 libffmpegJNI.so 由项目内构建脚本生成，当前构建未启用 GPL 或 nonfree 组件。" +
-                    "源码与构建说明见 https://ffmpeg.org 及仓库中的 ffmpeg/ 与 scripts/ 目录。",
+                "本应用使用以下主要开源组件",
             )
-            LicenseRow("AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette", "Apache License 2.0")
+            LicenseRow("AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette / Annotation", "Apache License 2.0")
             LicenseRow("Jetpack Compose / Material 3 / Material Icons", "Apache License 2.0")
             LicenseRow("AndroidX Media3", "Apache License 2.0")
-            LicenseRow("Media3 FFmpeg 扩展（libffmpegJNI.so）", "Apache License 2.0（Java 层）· FFmpeg LGPL 2.1+（原生库）")
+            LicenseRow("Media3 FFmpeg 扩展（Java / JNI 层）", "Apache License 2.0")
+            LicenseRow("FFmpeg（libffmpegJNI.so 内静态链接）", "LGPL 2.1+；当前仓库构建脚本未启用 GPL 或 nonfree 组件")
             LicenseRow("Kotlin / Kotlinx Coroutines", "Apache License 2.0")
             LicenseRow("Coil", "Apache License 2.0")
+            LicenseRow("Guava", "Apache License 2.0")
             LicenseRow("Calvin Reorderable", "Apache License 2.0")
             LicenseRow("BlurView（Dimezis）", "Apache License 2.0")
             LicenseRow("Kyant Taglib（元数据 JNI）", "Apache License 2.0")
             LicenseRow("jAudiotagger", "LGPL 2.1")
-            LicenseRow("FFmpeg", "LGPL 2.1+")
+            LicenseRow("Three.js（粒子封面 WebView 资产）", "MIT License")
+            AboutParagraph(
+                "完整开源声明维护在仓库 docs/OPEN_SOURCE_NOTICES.md" ,
+            )
 
             Spacer(Modifier.height(HifiSpacing.lg))
 
