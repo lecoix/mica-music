@@ -5,11 +5,15 @@
 基于 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md) 实现的 **本地 HiFi 播放器**：多种主题样式、Media3 ExoPlayer 播放、Room 持久化、内嵌歌词与 ALAC/DSF 支持。
 
 ---
-![标准主题](docs/images/standard_theme.jpg)
-![拍立得主题](docs/images/photo_theme.jpg)
-![封面带主题](docs/images/flow1_theme.jpg)
-![复古立体封面主题](docs/images/flow2_theme.jpg)
-![粒子封面主题歌词页](docs/images/lizi_theme.jpg)
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/standard_theme.jpg" width="180" alt="标准主题" /><br><sub>标准主题</sub></td>
+    <td align="center"><img src="docs/images/photo_theme.jpg" width="180" alt="拍立得主题" /><br><sub>拍立得</sub></td>
+    <td align="center"><img src="docs/images/flow1_theme.jpg" width="180" alt="封面带主题" /><br><sub>封面带</sub></td>
+    <td align="center"><img src="docs/images/flow2_theme.jpg" width="180" alt="复古立体封面" /><br><sub>复古立体</sub></td>
+    <td align="center"><img src="docs/images/lizi_theme.jpg" width="180" alt="粒子封面歌词页" /><br><sub>粒子歌词</sub></td>
+  </tr>
+</table>
 ---
 
 ### 环境要求
