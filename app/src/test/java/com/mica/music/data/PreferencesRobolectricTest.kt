@@ -37,11 +37,13 @@ class PreferencesRobolectricTest {
             .putString("theme_mode", "not-a-theme")
             .putString("song_sort_field", "not-a-sort")
             .putString("equalizer_band_levels", "100,bad,-200")
+            .putInt("equalizer_global_gain", 1_200)
             .commit()
 
         assertEquals(AppThemeMode.SYSTEM, AppPreferences.themeMode(context))
         assertEquals(SongSortField.TITLE, AppPreferences.songSortField(context))
         assertEquals(listOf<Short>(100, -200), AppPreferences.equalizerBandLevels(context))
+        assertEquals(1_200, AppPreferences.equalizerGlobalGainMillibels(context).toInt())
         assertEquals(ParticleCoverTuning(), AppPreferences.particleCoverTuning(context))
     }
 

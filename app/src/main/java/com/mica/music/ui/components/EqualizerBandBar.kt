@@ -12,18 +12,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -41,18 +45,28 @@ fun EqualizerBandBar(
     enabled: Boolean,
     onLevelChange: (Short) -> Unit,
     modifier: Modifier = Modifier,
-    barHeight: Dp = 280.dp,
-    barWidth: Dp = 30.dp,
+    barHeight: Dp = 176.dp,
+    barWidth: Dp = 48.dp,
     trackWidth: Dp = 3.dp,
 ) {
     val trackColor = MicaTheme.colors.divider
     val fillColor = if (enabled) MicaTheme.colors.accent else MicaTheme.colors.textTertiary
     val thumbColor = if (enabled) MicaTheme.colors.accent else MicaTheme.colors.textTertiary
+    val haptic = LocalHapticFeedback.current
     val rangeMb = (maxMillibels - minMillibels).toFloat().coerceAtLeast(1f)
     val zeroMb = (minMillibels.toInt() + maxMillibels.toInt()) / 2f
     val levelDb = levelMillibels / 100f
+    val tickMillibels = listOf(
+        maxMillibels,
+        (maxMillibels.toInt() / 2).toShort(),
+        zeroMb.toInt().toShort(),
+        (minMillibels.toInt() / 2).toShort(),
+        minMillibels,
+    )
+        .distinct()
 
     var heightPx by remember { mutableFloatStateOf(0f) }
+    var lastHapticBucket by remember { mutableIntStateOf(Int.MIN_VALUE) }
 
     fun yToLevel(y: Float): Short {
         if (heightPx <= 0f) return levelMillibels
@@ -61,9 +75,16 @@ fun EqualizerBandBar(
         return mb.roundToInt().toShort().coerceIn(minMillibels, maxMillibels)
     }
 
+    fun performTick(level: Short) {
+        val bucket = level.toInt() / 100
+        if (bucket == lastHapticBucket) return
+        lastHapticBucket = bucket
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.width(barWidth),
+        modifier = modifier.widthIn(min = barWidth),
     ) {
         Text(
             text = formatDbLabel(levelDb),
@@ -73,19 +94,23 @@ fun EqualizerBandBar(
         Box(
             modifier = Modifier
                 .height(barHeight)
-                .width(22.dp)
+                .fillMaxWidth()
                 .onSizeChanged { heightPx = it.height.toFloat() }
                 .pointerInput(enabled, minMillibels, maxMillibels) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
-                        onLevelChange(yToLevel(offset.y))
+                        val level = yToLevel(offset.y)
+                        performTick(level)
+                        onLevelChange(level)
                     }
                 }
                 .pointerInput(enabled, minMillibels, maxMillibels) {
                     if (!enabled) return@pointerInput
                     detectDragGestures { change, _ ->
                         change.consume()
-                        onLevelChange(yToLevel(change.position.y))
+                        val level = yToLevel(change.position.y)
+                        performTick(level)
+                        onLevelChange(level)
                     }
                 },
             contentAlignment = Alignment.Center,
@@ -95,12 +120,24 @@ fun EqualizerBandBar(
                 val cx = size.width / 2f
                 val zeroY = size.height * (1f - (zeroMb - minMillibels) / rangeMb)
                 val levelY = size.height * (1f - (levelMillibels - minMillibels) / rangeMb)
+                val tickStart = size.width * 0.24f
+                val tickEnd = size.width * 0.76f
 
                 drawRect(
                     color = trackColor,
                     topLeft = Offset(cx - trackW / 2f, 0f),
                     size = Size(trackW, size.height),
                 )
+                tickMillibels.forEach { tick ->
+                    val tickY = size.height * (1f - (tick - minMillibels) / rangeMb)
+                    val isZero = tick.toFloat() == zeroMb
+                    drawLine(
+                        color = trackColor.copy(alpha = if (isZero) 0.85f else 0.55f),
+                        start = Offset(if (isZero) tickStart * 0.75f else tickStart, tickY),
+                        end = Offset(if (isZero) size.width - tickStart * 0.75f else tickEnd, tickY),
+                        strokeWidth = if (isZero) 2f else 1f,
+                    )
+                }
 
                 val top = minOf(levelY, zeroY)
                 val bottom = maxOf(levelY, zeroY)
@@ -112,8 +149,8 @@ fun EqualizerBandBar(
                     )
                 }
 
-                val thumbW = 4f
-                val thumbH = 14f
+                val thumbW = 22f
+                val thumbH = 4f
                 drawRect(
                     color = thumbColor,
                     topLeft = Offset(cx - thumbW / 2f, levelY - thumbH / 2f),
@@ -148,17 +185,26 @@ fun EqualizerBandSlider(
     val trackColor = MicaTheme.colors.divider
     val fillColor = if (enabled) MicaTheme.colors.accent else MicaTheme.colors.textTertiary
     val thumbColor = if (enabled) MicaTheme.colors.accent else MicaTheme.colors.textTertiary
+    val haptic = LocalHapticFeedback.current
     val rangeMb = (maxMillibels - minMillibels).toFloat().coerceAtLeast(1f)
     val zeroMb = (minMillibels.toInt() + maxMillibels.toInt()) / 2f
     val levelDb = levelMillibels / 100f
 
     var widthPx by remember { mutableFloatStateOf(0f) }
+    var lastHapticBucket by remember { mutableIntStateOf(Int.MIN_VALUE) }
 
     fun xToLevel(x: Float): Short {
         if (widthPx <= 0f) return levelMillibels
         val t = (x / widthPx).coerceIn(0f, 1f)
         val mb = minMillibels + t * rangeMb
         return mb.roundToInt().toShort().coerceIn(minMillibels, maxMillibels)
+    }
+
+    fun performTick(level: Short) {
+        val bucket = level.toInt() / 100
+        if (bucket == lastHapticBucket) return
+        lastHapticBucket = bucket
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
     Row(
@@ -180,14 +226,18 @@ fun EqualizerBandSlider(
                 .pointerInput(enabled, minMillibels, maxMillibels) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
-                        onLevelChange(xToLevel(offset.x))
+                        val level = xToLevel(offset.x)
+                        performTick(level)
+                        onLevelChange(level)
                     }
                 }
                 .pointerInput(enabled, minMillibels, maxMillibels) {
                     if (!enabled) return@pointerInput
                     detectDragGestures { change, _ ->
                         change.consume()
-                        onLevelChange(xToLevel(change.position.x))
+                        val level = xToLevel(change.position.x)
+                        performTick(level)
+                        onLevelChange(level)
                     }
                 },
             contentAlignment = Alignment.Center,

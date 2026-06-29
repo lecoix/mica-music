@@ -1,6 +1,5 @@
 package com.mica.music.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -43,8 +42,10 @@ import com.mica.music.media.EqualizerSnapshot
 import com.mica.music.media.MicaEqualizerManager
 import com.mica.music.media.eq.EqBandConstants
 import com.mica.music.ui.components.AccentTextChoice
+import com.mica.music.ui.components.EqualizerBandBar
 import com.mica.music.ui.components.EqualizerBandSlider
 import com.mica.music.ui.components.EqualizerCurveChart
+import com.mica.music.ui.components.EqualizerDbScale
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.TextToggle
 import com.mica.music.ui.components.formatEqBandLabel
@@ -121,6 +122,16 @@ fun EqualizerScreen(
                 },
             )
 
+            SettingsSectionTitle("全局增益")
+            EqGlobalGainPanel(
+                snapshot = snapshot,
+                enabled = enabled,
+                onGainChanged = { gain ->
+                    MicaEqualizerManager.setGlobalGainMillibels(context, gain)
+                    revision++
+                },
+            )
+
             SettingsSectionTitle("10 段推子")
             EqBandsPanel(
                 snapshot = snapshot,
@@ -180,9 +191,7 @@ private fun EqualizerStatusPanel(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm)
-            .background(MicaTheme.colors.surfaceGlass)
-            .padding(HifiSpacing.lg),
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.md),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -209,8 +218,6 @@ private fun EqualizerStatusPanel(
         }
 
         Spacer(Modifier.height(HifiSpacing.md))
-        HorizontalDivider(color = MicaTheme.colors.divider)
-        Spacer(Modifier.height(HifiSpacing.md))
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
@@ -235,6 +242,8 @@ private fun EqualizerStatusPanel(
                 modifier = Modifier.weight(1f),
             )
         }
+        Spacer(Modifier.height(HifiSpacing.md))
+        HorizontalDivider(color = MicaTheme.colors.divider)
     }
 }
 
@@ -359,10 +368,37 @@ private fun EqCommand(
         style = MicaTheme.typography.bodyMd,
         color = color,
         modifier = Modifier
-            .background(color.copy(alpha = 0.10f))
             .clickable(onClick = onClick)
             .padding(horizontal = HifiSpacing.md, vertical = HifiSpacing.sm),
     )
+}
+
+@Composable
+private fun EqGlobalGainPanel(
+    snapshot: EqualizerSnapshot,
+    enabled: Boolean,
+    onGainChanged: (Short) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
+    ) {
+        EqualizerBandSlider(
+            freqLabel = "增益",
+            levelMillibels = snapshot.globalGainMillibels,
+            minMillibels = snapshot.globalGainMinMillibels,
+            maxMillibels = snapshot.globalGainMaxMillibels,
+            enabled = enabled,
+            onLevelChange = onGainChanged,
+        )
+        Text(
+            text = "独立于预设保存；用于整体抬高或降低 EQ 输出，正增益会经过限幅保护。",
+            style = MicaTheme.typography.caption,
+            color = MicaTheme.colors.textTertiary,
+            modifier = Modifier.padding(top = HifiSpacing.xs),
+        )
+    }
 }
 
 private fun selectionLabel(snapshot: EqualizerSnapshot): String = when (val sel = snapshot.selection) {
@@ -385,6 +421,7 @@ private fun EqBandsPanel(
     enabled: Boolean,
     onBandChanged: (bandIndex: Int, levelMillibels: Short) -> Unit,
 ) {
+    val barHeight = 176.dp
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -394,21 +431,37 @@ private fun EqBandsPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = HifiSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
         ) {
-            snapshot.bands.forEachIndexed { index, band ->
-                EqualizerBandSlider(
-                    freqLabel = formatEqBandLabel(band.centerHz),
-                    levelMillibels = band.levelMillibels,
-                    minMillibels = snapshot.levelMinMillibels,
-                    maxMillibels = snapshot.levelMaxMillibels,
-                    enabled = enabled,
-                    onLevelChange = { level -> onBandChanged(index, level) },
-                )
+            snapshot.bands.chunked(5).forEachIndexed { rowIndex, rowBands ->
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(HifiSpacing.xs),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    EqualizerDbScale(
+                        minMillibels = snapshot.levelMinMillibels,
+                        maxMillibels = snapshot.levelMaxMillibels,
+                        barHeight = barHeight,
+                    )
+                    rowBands.forEachIndexed { columnIndex, band ->
+                        val bandIndex = rowIndex * 5 + columnIndex
+                        EqualizerBandBar(
+                            freqLabel = formatEqBandLabel(band.centerHz),
+                            levelMillibels = band.levelMillibels,
+                            minMillibels = snapshot.levelMinMillibels,
+                            maxMillibels = snapshot.levelMaxMillibels,
+                            enabled = enabled,
+                            barHeight = barHeight,
+                            onLevelChange = { level -> onBandChanged(bandIndex, level) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
         }
         Text(
-            text = "每一行从左到右对应 -12 dB 到 +12 dB；拖动任一推子会进入当前编辑配置",
+            text = "没想好做成什么样式，将就用",
             style = MicaTheme.typography.caption,
             color = MicaTheme.colors.textTertiary,
             modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),

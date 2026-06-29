@@ -5,6 +5,9 @@ object EqBandConstants {
     const val BAND_COUNT = 10
     const val MIN_MILLIBELS: Short = -1200
     const val MAX_MILLIBELS: Short = 1200
+    const val MIN_GLOBAL_GAIN_MILLIBELS: Short = -1200
+    const val MAX_GLOBAL_GAIN_MILLIBELS: Short = 1200
+    const val DEFAULT_GLOBAL_GAIN_MILLIBELS: Short = 0
 
     val CENTER_HZ: IntArray = intArrayOf(
         32, 64, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000,

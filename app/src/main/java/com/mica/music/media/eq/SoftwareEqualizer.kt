@@ -26,6 +26,8 @@ class SoftwareEqualizer {
     private val levelsMillibels = EqBandConstants.defaultLevels()
     private var filters = createFilters(channelCount)
     private var preampGain = 1.0
+    private var globalGainMillibels: Short = EqBandConstants.DEFAULT_GLOBAL_GAIN_MILLIBELS
+    private var globalGain = 1.0
     private var ditherState = 0x4D494341
 
     fun setEnabled(value: Boolean) = lock.withLock { enabled = value }
@@ -53,6 +55,16 @@ class SoftwareEqualizer {
     }
 
     fun currentLevels(): ShortArray = lock.withLock { levelsMillibels.copyOf() }
+
+    fun setGlobalGainMillibels(millibels: Short) = lock.withLock {
+        globalGainMillibels = millibels.coerceIn(
+            EqBandConstants.MIN_GLOBAL_GAIN_MILLIBELS,
+            EqBandConstants.MAX_GLOBAL_GAIN_MILLIBELS,
+        )
+        globalGain = 10.0.pow(globalGainMillibels / 2_000.0)
+    }
+
+    fun currentGlobalGainMillibels(): Short = lock.withLock { globalGainMillibels }
 
     fun resetFilters() = lock.withLock { resetFiltersLocked() }
 
@@ -179,6 +191,7 @@ class SoftwareEqualizer {
     private fun processSampleLocked(source: Double, channel: Int): Double {
         var sample = source * preampGain
         filters[channel.coerceIn(filters.indices)].forEach { sample = it.process(sample) }
+        sample *= globalGain
         return softLimit(sample)
     }
 

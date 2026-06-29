@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
 import com.mica.music.data.scanner.ScanOptions
+import com.mica.music.media.eq.EqBandConstants
 import com.mica.music.ui.theme.MicaPreset
 
 /**
@@ -45,6 +46,7 @@ object AppPreferences {
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
     private const val KEY_EQUALIZER_PRESET = "equalizer_preset"
     private const val KEY_EQUALIZER_BAND_LEVELS = "equalizer_band_levels"
+    private const val KEY_EQUALIZER_GLOBAL_GAIN = "equalizer_global_gain"
     private const val KEY_SONG_LIST_INFO_SHOW_COUNT = "song_list_info_show_count"
     private const val KEY_SONG_LIST_INFO_SHOW_SIZE = "song_list_info_show_size"
     private const val KEY_SONG_LIST_INFO_SHOW_SORT = "song_list_info_show_sort"
@@ -314,6 +316,25 @@ object AppPreferences {
     fun setEqualizerBandLevels(context: Context, levels: List<Short>) {
         prefs(context).edit()
             .putString(KEY_EQUALIZER_BAND_LEVELS, levels.joinToString(","))
+            .apply()
+    }
+
+    fun equalizerGlobalGainMillibels(context: Context): Short =
+        prefs(context)
+            .getInt(KEY_EQUALIZER_GLOBAL_GAIN, EqBandConstants.DEFAULT_GLOBAL_GAIN_MILLIBELS.toInt())
+            .coerceIn(
+                EqBandConstants.MIN_GLOBAL_GAIN_MILLIBELS.toInt(),
+                EqBandConstants.MAX_GLOBAL_GAIN_MILLIBELS.toInt(),
+            )
+            .toShort()
+
+    fun setEqualizerGlobalGainMillibels(context: Context, gainMillibels: Short) {
+        val clamped = gainMillibels.coerceIn(
+            EqBandConstants.MIN_GLOBAL_GAIN_MILLIBELS,
+            EqBandConstants.MAX_GLOBAL_GAIN_MILLIBELS,
+        )
+        prefs(context).edit()
+            .putInt(KEY_EQUALIZER_GLOBAL_GAIN, clamped.toInt())
             .apply()
     }
 

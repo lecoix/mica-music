@@ -105,6 +105,22 @@ class AudioMathTest {
     }
 
     @Test
+    fun globalGainScalesSamplesBeforeLimiter() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 1)
+        equalizer.setGlobalGainMillibels(600)
+        equalizer.setEnabled(true)
+        val buffer = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.putFloat(0.25f)
+        val bytes = buffer.array()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        assertEquals(600, equalizer.currentGlobalGainMillibels().toInt())
+        assertEquals(0.5f, ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).float, 0.01f)
+    }
+
+    @Test
     fun dsdOutputPolicyAvoidsUltrahighRatesOnBluetooth() {
         val bluetooth = DsdOutputPolicy.candidates(
             channelCount = 2,

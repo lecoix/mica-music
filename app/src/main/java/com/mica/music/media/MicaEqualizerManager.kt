@@ -64,6 +64,9 @@ object MicaEqualizerManager {
             presets = presets,
             savedProfiles = EqCustomProfileStore.listProfiles(context),
             bands = currentBands(),
+            globalGainMillibels = softwareEqualizer.currentGlobalGainMillibels(),
+            globalGainMinMillibels = EqBandConstants.MIN_GLOBAL_GAIN_MILLIBELS,
+            globalGainMaxMillibels = EqBandConstants.MAX_GLOBAL_GAIN_MILLIBELS,
             levelMinMillibels = EqBandConstants.MIN_MILLIBELS,
             levelMaxMillibels = EqBandConstants.MAX_MILLIBELS,
             sessionReady = attachedSessionId != 0,
@@ -99,6 +102,15 @@ object MicaEqualizerManager {
         softwareEqualizer.setBandLevel(bandIndex, clamped)
         EqCustomProfileStore.setSelection(context, EqSelection.Draft)
         persistCurrentBands(context)
+    }
+
+    fun setGlobalGainMillibels(context: Context, gainMillibels: Short) {
+        val clamped = gainMillibels.coerceIn(
+            EqBandConstants.MIN_GLOBAL_GAIN_MILLIBELS,
+            EqBandConstants.MAX_GLOBAL_GAIN_MILLIBELS,
+        )
+        softwareEqualizer.setGlobalGainMillibels(clamped)
+        AppPreferences.setEqualizerGlobalGainMillibels(context, clamped)
     }
 
     fun resetFlat(context: Context) {
@@ -155,6 +167,7 @@ object MicaEqualizerManager {
     private fun syncSoftwareFromPreferences(context: Context) {
         val enabled = AppPreferences.equalizerEnabled(context)
         softwareEqualizer.setEnabled(enabled)
+        softwareEqualizer.setGlobalGainMillibels(AppPreferences.equalizerGlobalGainMillibels(context))
         onEnabledChanged?.invoke(enabled)
         when (val selection = EqCustomProfileStore.getSelection(context)) {
             is EqSelection.System -> applySystemPreset(context, selection.index)
@@ -198,6 +211,9 @@ data class EqualizerSnapshot(
     val presets: List<EqualizerPresetOption>,
     val savedProfiles: List<EqCustomProfile>,
     val bands: List<EqualizerBand>,
+    val globalGainMillibels: Short,
+    val globalGainMinMillibels: Short,
+    val globalGainMaxMillibels: Short,
     val levelMinMillibels: Short,
     val levelMaxMillibels: Short,
     val sessionReady: Boolean,
