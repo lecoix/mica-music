@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -17,6 +19,8 @@ import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
+import com.mica.music.ui.motion.MicaMotion
+import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.LowerPanelFrame
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.PlayerContentColors
@@ -39,8 +43,15 @@ internal fun PlayerLowerPanelChrome(
     onOpenEqualizer: () -> Unit,
     onOpenQueue: () -> Unit,
 ) {
-    if (hidden) return
+    val motionEnabled = rememberMicaMotionEnabled()
+    val chromeVisibility by animateFloatAsState(
+        targetValue = if (hidden) 0f else 1f,
+        animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
+        label = "lyricsPageChromeVisibility",
+    )
+    if (hidden && chromeVisibility <= 0.01f) return
 
+    val chromeProgress = chromeVisibility.coerceIn(0f, 1f)
     val lyricsFocus = lower.lyricsLayoutFocus
     val density = LocalDensity.current
     val spectrumAlpha = (1f - lyricsFocus).coerceIn(0f, 1f)
@@ -52,19 +63,27 @@ internal fun PlayerLowerPanelChrome(
         .fillMaxWidth()
         .padding(horizontal = HifiSpacing.lg)
         .padding(bottom = lower.controlsBottomPadding)
+    val chromeSlidePx = with(density) {
+        HifiSpacing.md.toPx() * (1f - chromeProgress)
+    }
+    val shouldClipChrome = chromeProgress < 0.99f ||
+        lower.coverEdgeOnPlaySurface && !lower.showChromeProgressInTransition
 
     Box(
         Modifier
             .fillMaxWidth()
-            .height(lower.chromeHeight)
+            .height(lower.chromeHeight * chromeProgress)
             .then(
-                if (lower.coverEdgeOnPlaySurface && !lower.showChromeProgressInTransition) {
+                if (shouldClipChrome) {
                     Modifier.clipToBounds()
                 } else {
                     Modifier
                 },
             )
-            .graphicsLayer { alpha = 1f - lower.immersiveProgress },
+            .graphicsLayer {
+                alpha = (1f - lower.immersiveProgress) * chromeProgress
+                translationY = chromeSlidePx
+            },
     ) {
         if (lower.showStandardProgress) {
             Column(
