@@ -36,6 +36,7 @@ object AppPreferences {
     private const val KEY_PARTICLE_COVER_EDGE_TRAVEL = "particle_cover_edge_travel"
     private const val KEY_PARTICLE_COVER_TRANSITION_DENSITY = "particle_cover_transition_density"
     private const val KEY_APP_ACCENT_COLOR = "app_accent_color"
+    private const val KEY_CUSTOM_ACCENT_COLOR = "custom_accent_color"
     private const val KEY_MICA_BACKGROUND_PRESET = "mica_background_preset"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
@@ -230,6 +231,13 @@ object AppPreferences {
         prefs(context).edit().putString(KEY_APP_ACCENT_COLOR, accent.storageValue).apply()
     }
 
+    fun customAccentColorArgb(context: Context): Int =
+        prefs(context).getInt(KEY_CUSTOM_ACCENT_COLOR, DEFAULT_CUSTOM_ACCENT_COLOR_ARGB)
+
+    fun setCustomAccentColorArgb(context: Context, colorArgb: Int) {
+        prefs(context).edit().putInt(KEY_CUSTOM_ACCENT_COLOR, colorArgb).apply()
+    }
+
     fun micaBackgroundPreset(context: Context): MicaPreset =
         MicaPreset.fromStorage(prefs(context).getString(KEY_MICA_BACKGROUND_PRESET, null))
 
@@ -369,4 +377,6 @@ object AppPreferences {
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private const val DEFAULT_CUSTOM_ACCENT_COLOR_ARGB = 0xFF8B7AFF.toInt()
 }

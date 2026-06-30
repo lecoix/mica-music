@@ -26,13 +26,14 @@ val LocalLyricLineFillEnabled = staticCompositionLocalOf { false }
 fun MicaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     accentColor: AppAccentColor = AppAccentColor.PURPLE,
+    customAccentColorArgb: Int = 0xFF8B7AFF.toInt(),
     micaBackgroundPreset: MicaPreset = MicaPreset.Dawn,
     coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     lyricSplitEnabled: Boolean = true,
     lyricLineFillEnabled: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val accent = rememberAppAccent(accentColor, darkTheme)
+    val accent = rememberAppAccent(accentColor, customAccentColorArgb, darkTheme)
     val baseColors = if (darkTheme) DarkHifiColors else LightHifiColors
     val targetColors = baseColors.copy(accent = accent)
     val hifiColors = rememberAnimatedHifiColors(targetColors)

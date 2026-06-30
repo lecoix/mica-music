@@ -3,6 +3,7 @@ package com.mica.music.data
 import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -48,6 +49,9 @@ class AppUiSettings(context: Context) {
         private set
 
     var accentColor by mutableStateOf(AppPreferences.appAccentColor(appContext))
+        private set
+
+    var customAccentColorArgb by mutableIntStateOf(AppPreferences.customAccentColorArgb(appContext))
         private set
 
     var micaBackgroundPreset by mutableStateOf(AppPreferences.micaBackgroundPreset(appContext))
@@ -124,6 +128,12 @@ class AppUiSettings(context: Context) {
     fun updateAccentColor(accent: AppAccentColor) {
         accentColor = accent
         AppPreferences.setAppAccentColor(appContext, accent)
+    }
+
+    fun updateCustomAccentColorArgb(colorArgb: Int) {
+        customAccentColorArgb = colorArgb
+        AppPreferences.setCustomAccentColorArgb(appContext, colorArgb)
+        updateAccentColor(AppAccentColor.CUSTOM)
     }
 
     fun updateMicaBackgroundPreset(preset: MicaPreset) {

@@ -64,6 +64,17 @@ class PreferencesRobolectricTest {
     }
 
     @Test
+    fun customAccentColorRoundTrips() {
+        val customColor = 0xFF2F80ED.toInt()
+
+        AppPreferences.setAppAccentColor(context, AppAccentColor.CUSTOM)
+        AppPreferences.setCustomAccentColorArgb(context, customColor)
+
+        assertEquals(AppAccentColor.CUSTOM, AppPreferences.appAccentColor(context))
+        assertEquals(customColor, AppPreferences.customAccentColorArgb(context))
+    }
+
+    @Test
     fun photoStackModeFromStorage() {
         assertEquals(PlayerCoverFlowMode.PHOTO_STACK, PlayerCoverFlowMode.fromStorage("photo_stack"))
         assertEquals(PlayerCoverFlowMode.STANDARD, PlayerCoverFlowMode.fromStorage("missing"))

@@ -18,9 +18,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppAccentColor
 
-fun resolveAppAccent(accent: AppAccentColor, context: Context, isDark: Boolean): Color =
+fun resolveAppAccent(
+    accent: AppAccentColor,
+    customAccentColorArgb: Int,
+    context: Context,
+    isDark: Boolean,
+): Color =
     when (accent) {
         AppAccentColor.DYNAMIC -> systemDynamicAccent(context, isDark)
+        AppAccentColor.CUSTOM -> Color(customAccentColorArgb)
         else -> accent.resolve(isDark)
     }
 
@@ -59,12 +65,16 @@ private fun rememberWallpaperColorVersion(enabled: Boolean): Int {
 }
 
 @Composable
-fun rememberAppAccent(accent: AppAccentColor, darkTheme: Boolean): Color {
+fun rememberAppAccent(
+    accent: AppAccentColor,
+    customAccentColorArgb: Int,
+    darkTheme: Boolean,
+): Color {
     val context = LocalContext.current
     val wallpaperColorVersion = rememberWallpaperColorVersion(
         accent == AppAccentColor.DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
     )
-    return remember(accent, darkTheme, context, wallpaperColorVersion) {
-        resolveAppAccent(accent, context, darkTheme)
+    return remember(accent, customAccentColorArgb, darkTheme, context, wallpaperColorVersion) {
+        resolveAppAccent(accent, customAccentColorArgb, context, darkTheme)
     }
 }

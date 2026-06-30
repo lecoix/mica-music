@@ -1,15 +1,24 @@
 package com.mica.music.ui.screens
 
 import android.Manifest
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,18 +27,29 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,7 +73,7 @@ import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.openAppSettings
-import kotlinx.coroutines.launch
+import java.util.Locale
 
 private val DurationChoices = listOf(
     0 to "不限",
@@ -106,11 +126,11 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val activity = context as ComponentActivity
-    val scope = rememberCoroutineScope()
 
     var includeNonMusic by remember { mutableStateOf(com.mica.music.data.AppPreferences.includeNonMusicAudio(context)) }
     var deepProbe by remember { mutableStateOf(com.mica.music.data.AppPreferences.deepMetadataProbe(context)) }
     var minDurationSec by remember { mutableIntStateOf(com.mica.music.data.AppPreferences.minTrackDurationSec(context)) }
+    var showCustomAccentDialog by remember { mutableStateOf(false) }
 
     val audioPermission = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -145,6 +165,17 @@ fun SettingsScreen(
             return
         }
         library.launchRescan()
+    }
+
+    if (showCustomAccentDialog) {
+        CustomAccentColorDialog(
+            initialColorArgb = uiSettings.customAccentColorArgb,
+            onDismiss = { showCustomAccentDialog = false },
+            onConfirm = { colorArgb ->
+                uiSettings.updateCustomAccentColorArgb(colorArgb)
+                showCustomAccentDialog = false
+            },
+        )
     }
 
     Column(
@@ -192,11 +223,20 @@ fun SettingsScreen(
 
             SettingsChoiceRow(
                 title = "强调色",
-                subtitle = "动态取色：Android 12+ 跟随系统主题色",
+                subtitle = if (uiSettings.accentColor == AppAccentColor.CUSTOM) {
+                    "自定义：${formatAccentHex(uiSettings.customAccentColorArgb)}"
+                } else {
+                    "动态取色：Android 12+ 跟随系统主题色"
+                },
                 choices = AccentColorChoices,
                 selectedValue = uiSettings.accentColor.ordinal,
                 onSelect = { ordinal ->
-                    uiSettings.updateAccentColor(AppAccentColor.entries[ordinal])
+                    val accent = AppAccentColor.entries[ordinal]
+                    if (accent == AppAccentColor.CUSTOM) {
+                        showCustomAccentDialog = true
+                    } else {
+                        uiSettings.updateAccentColor(accent)
+                    }
                 },
             )
 
@@ -464,3 +504,234 @@ fun SettingsScreen(
         }
     }
 }
+
+@Composable
+private fun CustomAccentColorDialog(
+    initialColorArgb: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    val initialHsv = remember(initialColorArgb) {
+        FloatArray(3).also { AndroidColor.colorToHSV(initialColorArgb, it) }
+    }
+    var hue by remember(initialColorArgb) { mutableFloatStateOf(initialHsv[0]) }
+    var saturation by remember(initialColorArgb) { mutableFloatStateOf(initialHsv[1]) }
+    var brightness by remember(initialColorArgb) { mutableFloatStateOf(initialHsv[2]) }
+    var hexValue by remember(initialColorArgb) { mutableStateOf(formatAccentHex(initialColorArgb)) }
+    val parsedColorArgb = parseAccentHex(hexValue)
+    val previewColorArgb = AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness))
+    val previewColor = Color(previewColorArgb)
+
+    fun setHsv(newHue: Float = hue, newSaturation: Float = saturation, newBrightness: Float = brightness) {
+        hue = newHue.coerceIn(0f, 360f)
+        saturation = newSaturation.coerceIn(0f, 1f)
+        brightness = newBrightness.coerceIn(0f, 1f)
+        hexValue = formatAccentHex(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness)))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RectangleShape,
+        title = {
+            Text(
+                text = "自定义强调色",
+                style = MicaTheme.typography.titleMd,
+                color = MicaTheme.colors.textPrimary,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(HifiSpacing.md)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(previewColor)
+                            .border(1.dp, MicaTheme.colors.divider),
+                    )
+                    Text(
+                        text = formatAccentHex(previewColorArgb),
+                        style = MicaTheme.typography.monoSm,
+                        color = MicaTheme.colors.textSecondary,
+                    )
+                }
+
+                HsvColorSlider(
+                    label = "色相",
+                    value = hue,
+                    valueRange = 0f..360f,
+                    valueText = "${hue.toInt()}°",
+                    colors = hueGradientColors(),
+                    onValueChange = { setHsv(newHue = it) },
+                )
+                HsvColorSlider(
+                    label = "饱和度",
+                    value = saturation,
+                    valueRange = 0f..1f,
+                    valueText = "${(saturation * 100).toInt()}%",
+                    colors = listOf(
+                        Color(AndroidColor.HSVToColor(floatArrayOf(hue, 0f, brightness))),
+                        Color(AndroidColor.HSVToColor(floatArrayOf(hue, 1f, brightness))),
+                    ),
+                    onValueChange = { setHsv(newSaturation = it) },
+                )
+                HsvColorSlider(
+                    label = "明度",
+                    value = brightness,
+                    valueRange = 0f..1f,
+                    valueText = "${(brightness * 100).toInt()}%",
+                    colors = listOf(
+                        Color.Black,
+                        Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, 1f))),
+                    ),
+                    onValueChange = { setHsv(newBrightness = it) },
+                )
+
+                OutlinedTextField(
+                    value = hexValue,
+                    onValueChange = { value ->
+                        hexValue = value
+                        parseAccentHex(value)?.let { colorArgb ->
+                            val hsv = FloatArray(3)
+                            AndroidColor.colorToHSV(colorArgb, hsv)
+                            hue = hsv[0]
+                            saturation = hsv[1]
+                            brightness = hsv[2]
+                        }
+                    },
+                    singleLine = true,
+                    isError = parsedColorArgb == null,
+                    label = {
+                        Text(
+                            text = "#RRGGBB",
+                            style = MicaTheme.typography.caption,
+                        )
+                    },
+                    supportingText = {
+                        if (parsedColorArgb == null) {
+                            Text(
+                                text = "请输入 6 位十六进制颜色",
+                                style = MicaTheme.typography.caption,
+                            )
+                        }
+                    },
+                    textStyle = MicaTheme.typography.bodyMd.copy(color = MicaTheme.colors.textPrimary),
+                    shape = RectangleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = parsedColorArgb != null,
+                onClick = { onConfirm(previewColorArgb) },
+            ) {
+                Text("应用")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
+}
+
+@Composable
+private fun HsvColorSlider(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    valueText: String,
+    colors: List<Color>,
+    onValueChange: (Float) -> Unit,
+) {
+    val min = valueRange.start
+    val max = valueRange.endInclusive.coerceAtLeast(min + 0.001f)
+    val fraction = ((value - min) / (max - min)).coerceIn(0f, 1f)
+    var widthPx by remember { mutableFloatStateOf(0f) }
+
+    fun positionToValue(x: Float): Float {
+        if (widthPx <= 0f) return value
+        return min + (x / widthPx).coerceIn(0f, 1f) * (max - min)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(HifiSpacing.xs)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MicaTheme.typography.caption,
+                color = MicaTheme.colors.textSecondary,
+            )
+            Text(
+                text = valueText,
+                style = MicaTheme.typography.monoSm,
+                color = MicaTheme.colors.textTertiary,
+            )
+        }
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp)
+                .onSizeChanged { widthPx = it.width.toFloat() }
+                .pointerInput(min, max) {
+                    detectTapGestures { offset -> onValueChange(positionToValue(offset.x)) }
+                }
+                .pointerInput(min, max) {
+                    detectDragGestures { change, _ ->
+                        change.consume()
+                        onValueChange(positionToValue(change.position.x))
+                    }
+                },
+        ) {
+            val centerY = size.height / 2f
+            drawLine(
+                brush = Brush.horizontalGradient(colors),
+                start = Offset(0f, centerY),
+                end = Offset(size.width, centerY),
+                strokeWidth = 10.dp.toPx(),
+                cap = StrokeCap.Butt,
+            )
+            val thumbSize = 16.dp.toPx()
+            drawRect(
+                color = Color.White,
+                topLeft = Offset(
+                    x = (size.width * fraction - thumbSize / 2f).coerceIn(0f, size.width - thumbSize),
+                    y = centerY - thumbSize / 2f,
+                ),
+                size = Size(thumbSize, thumbSize),
+            )
+            drawRect(
+                color = Color.Black.copy(alpha = 0.28f),
+                topLeft = Offset(
+                    x = (size.width * fraction - thumbSize / 2f).coerceIn(0f, size.width - thumbSize),
+                    y = centerY - thumbSize / 2f,
+                ),
+                size = Size(thumbSize, thumbSize),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
+            )
+        }
+    }
+}
+
+private fun formatAccentHex(colorArgb: Int): String =
+    String.format(Locale.US, "#%06X", colorArgb and 0x00FFFFFF)
+
+private fun parseAccentHex(value: String): Int? {
+    val hex = value.trim().removePrefix("#")
+    if (hex.length != 6 || hex.any { it !in '0'..'9' && it.uppercaseChar() !in 'A'..'F' }) {
+        return null
+    }
+    return (0xFF000000 or hex.toLong(16)).toInt()
+}
+
+private fun hueGradientColors(): List<Color> =
+    listOf(0f, 60f, 120f, 180f, 240f, 300f, 360f).map { hue ->
+        Color(AndroidColor.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+    }

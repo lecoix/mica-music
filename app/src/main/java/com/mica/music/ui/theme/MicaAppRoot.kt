@@ -18,6 +18,7 @@ fun MicaAppRoot(
         MicaTheme(
             darkTheme = darkTheme,
             accentColor = uiSettings.accentColor,
+            customAccentColorArgb = uiSettings.customAccentColorArgb,
             micaBackgroundPreset = uiSettings.micaBackgroundPreset,
             coverDisplayMode = uiSettings.coverDisplayMode,
             lyricSplitEnabled = uiSettings.lyricSplitEnabled,

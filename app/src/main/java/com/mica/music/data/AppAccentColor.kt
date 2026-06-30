@@ -16,6 +16,7 @@ enum class AppAccentColor(
     CORAL("coral", "珊瑚", Color(0xFFE07A7A)),
     /** Android 12+ 跟随系统 Material You 主色；低版本回退紫韵。 */
     DYNAMIC("dynamic", "动态取色", HifiPalette.PurplePrimary),
+    CUSTOM("custom", "自定义", HifiPalette.PurplePrimary),
     ;
 
     fun resolve(isDark: Boolean): Color = if (isDark && darkColor != null) darkColor else lightColor
