@@ -13,8 +13,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -32,6 +38,7 @@ import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.PlayerContentColors
+import kotlin.math.roundToInt
 
 @Composable
 internal fun ExpandedLyricsPanel(
@@ -44,6 +51,7 @@ internal fun ExpandedLyricsPanel(
     lyricsAlignment: LyricsPageAlignment = LyricsPageAlignment.CENTER,
     lyricsFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+    currentLineAnchorYPx: Float? = null,
 ) {
     val textStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsFontSizeSp)
     val colorSpec = rememberLyricLineColorSpec()
@@ -78,10 +86,12 @@ internal fun ExpandedLyricsPanel(
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     val lineHeightPx = with(density) { textStyle.lineHeight.toPx().toInt() }
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
+    var currentLineInitiallyPlaced by remember(lyrics) { mutableStateOf(false) }
 
-    LaunchedEffect(currentIndex, timed, lyrics) {
+    LaunchedEffect(currentIndex, timed, lyrics, currentLineAnchorYPx, viewportHeightPx) {
         if (!timed || currentIndex < 0) return@LaunchedEffect
-        val viewport = listState.layoutInfo.viewportSize.height
+        if (viewportHeightPx <= 0) return@LaunchedEffect
         val currentRows = lyrics.getOrNull(currentIndex)?.text
             ?.let {
                 LyricDisplayRows.rowsForBilingualDisplayMode(
@@ -92,14 +102,25 @@ internal fun ExpandedLyricsPanel(
             } ?: 1
         val bilingualGapPx = with(density) { HifiSpacing.lyricBilingualGap.roundToPx() }
         val itemHeightPx = lineHeightPx * currentRows + bilingualGapPx * (currentRows - 1).coerceAtLeast(0)
-        val offset = -((viewport - itemHeightPx) / 2).coerceAtLeast(0)
-        listState.animateScrollToItem(currentIndex, scrollOffset = offset)
+        val offset = expandedLyricsScrollOffset(
+            viewportHeightPx = viewportHeightPx,
+            itemHeightPx = itemHeightPx,
+            currentLineAnchorYPx = currentLineAnchorYPx,
+        )
+        if (currentLineInitiallyPlaced) {
+            listState.animateScrollToItem(currentIndex, scrollOffset = offset)
+        } else {
+            listState.scrollToItem(currentIndex, scrollOffset = offset)
+            currentLineInitiallyPlaced = true
+        }
     }
 
     LyricsAreaEdgeFade(modifier = modifier) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { viewportHeightPx = it.height },
             contentPadding = PaddingValues(
                 start = horizontalPadding,
                 end = horizontalPadding,
@@ -141,6 +162,18 @@ internal fun ExpandedLyricsPanel(
             }
         }
     }
+}
+
+internal fun expandedLyricsScrollOffset(
+    viewportHeightPx: Int,
+    itemHeightPx: Int,
+    currentLineAnchorYPx: Float?,
+): Int {
+    if (viewportHeightPx <= 0) return 0
+    val anchor = currentLineAnchorYPx
+        ?.takeIf { it.isFinite() && it > 0f }
+        ?: (viewportHeightPx / 2f)
+    return -((anchor - itemHeightPx / 2f).coerceAtLeast(0f)).roundToInt()
 }
 
 private fun TextStyle.withFontSizeSp(fontSizeSp: Int): TextStyle {

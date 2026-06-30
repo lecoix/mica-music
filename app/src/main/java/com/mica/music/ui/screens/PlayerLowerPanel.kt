@@ -10,9 +10,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
@@ -64,6 +70,7 @@ internal fun PlayerLowerPanelSection(
     val displayTitle = SongTitleDisplay.displayTitle(activeSong.title, stripSongTitleParentheses)
     val hideLyricsPageChrome = lyricsPageOpen && lyricsPageImmersive
     val playLongPress = if (lyricsPageOpen) onToggleLyricsPageImmersive else null
+    var compactLyricsCenterYPx by remember { mutableFloatStateOf(Float.NaN) }
 
     if (hideInfoAndLyrics) {
         Column(modifier.fillMaxSize()) {
@@ -161,7 +168,13 @@ internal fun PlayerLowerPanelSection(
                     Box(
                         Modifier
                             .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .onGloballyPositioned { coordinates ->
+                                if (!lyricsPageOpen && lyricsFocus <= 0.01f) {
+                                    compactLyricsCenterYPx =
+                                        coordinates.positionInParent().y + coordinates.size.height / 2f
+                                }
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         LyricsSection(
@@ -200,6 +213,7 @@ internal fun PlayerLowerPanelSection(
                     lyricsAlignment = lyricsAlignment,
                     lyricsFontSizeSp = lyricsFontSizeSp,
                     bilingualDisplayMode = lyricsBilingualDisplayMode,
+                    currentLineAnchorYPx = compactLyricsCenterYPx.takeIf { it.isFinite() },
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = lower.lyricsChromeFade },
