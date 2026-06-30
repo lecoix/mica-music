@@ -57,6 +57,8 @@ object MediaStoreScanner {
                     cachedById = cachedById,
                     requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
+                    forceRefreshLyrics = options.forceRefreshLyrics,
+                    forceRefreshArtwork = options.forceRefreshArtwork,
                 )?.also { reused.incrementAndGet() }
                     ?: profiler.measure("quickSong") {
                         probed.incrementAndGet()
@@ -64,7 +66,10 @@ object MediaStoreScanner {
                             context = context,
                             draft = draft,
                             profiler = profiler,
-                            cachedSong = draft.unchangedCachedSong(cachedById),
+                            cachedSong = draft.unchangedCachedSongForProbe(
+                                cachedById,
+                                options.forceRefreshLyrics,
+                            ),
                         )
                     }
             }
@@ -82,6 +87,8 @@ object MediaStoreScanner {
                                 requireDeepMetadata = true,
                                 requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                                 requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
+                                forceRefreshLyrics = options.forceRefreshLyrics,
+                                forceRefreshArtwork = options.forceRefreshArtwork,
                             )
                                 ?.also { reused.incrementAndGet() }
                                 ?: profiler.measure("probeTrack") {
@@ -90,7 +97,10 @@ object MediaStoreScanner {
                                         context = context,
                                         draft = draft,
                                         profiler = profiler,
-                                        cachedSong = draft.unchangedCachedSong(cachedById),
+                                        cachedSong = draft.unchangedCachedSongForProbe(
+                                            cachedById,
+                                            options.forceRefreshLyrics,
+                                        ),
                                     )
                                 }
                             onProgress?.invoke(done.incrementAndGet(), total)
@@ -221,13 +231,14 @@ object MediaStoreScanner {
                     }
                     else -> ""
                 }
-                val externalLyricsUris = displayName
+                val externalLyricsRefs = displayName
                     ?.substringBeforeLast('.')
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { baseName ->
                         lyricsByAudioKey[lyricsKey(lyricsFolderPath(relativePath, filePath), baseName)]
                     }.orEmpty()
+                val externalLyricsUris = externalLyricsRefs.externalLyricsUris()
                 val uri = ContentUris.withAppendedId(collection, id)
 
                 drafts += TrackDraft(
@@ -247,6 +258,7 @@ object MediaStoreScanner {
                     folderPath = folderPath,
                     filePath = filePath,
                     externalLyricsUris = externalLyricsUris,
+                    externalLyricsSignature = externalLyricsRefs.externalLyricsSignature(),
                     dateAddedMs = dateAddedMs,
                     dateModifiedMs = dateModifiedMs,
                 )
@@ -261,7 +273,7 @@ object MediaStoreScanner {
 
     private fun loadDsdFileDrafts(
         context: Context,
-        lyricsByAudioKey: Map<String, List<String>>,
+        lyricsByAudioKey: Map<String, List<ExternalLyricsRef>>,
         existingKeys: MutableSet<String>,
     ): List<TrackDraft> = runCatching {
         val filesUri = MediaStore.Files.getContentUri("external")
@@ -327,6 +339,7 @@ object MediaStoreScanner {
                 if (!existingKeys.add(key)) continue
                 val folderPath = lyricsFolderPath(relativePath, filePath)
                 val baseName = name.substringBeforeLast('.').trim()
+                val externalLyricsRefs = lyricsByAudioKey[lyricsKey(folderPath, baseName)].orEmpty()
                 out += TrackDraft(
                     mediaStoreId = id,
                     title = baseName.ifBlank { name },
@@ -342,7 +355,8 @@ object MediaStoreScanner {
                     coverColorArgb = CoverColorExtractor.FALLBACK_ARGB,
                     folderPath = folderPath,
                     filePath = filePath,
-                    externalLyricsUris = lyricsByAudioKey[lyricsKey(folderPath, baseName)].orEmpty(),
+                    externalLyricsUris = externalLyricsRefs.externalLyricsUris(),
+                    externalLyricsSignature = externalLyricsRefs.externalLyricsSignature(),
                     dateAddedMs = if (dateAddedCol >= 0) c.getLong(dateAddedCol) * 1000L else 0L,
                     dateModifiedMs = if (dateModifiedCol >= 0) c.getLong(dateModifiedCol) * 1000L else 0L,
                 )
@@ -351,11 +365,13 @@ object MediaStoreScanner {
         out
     }.getOrDefault(emptyList())
 
-    private fun loadLyricsIndex(context: Context): Map<String, List<String>> = runCatching {
+    private fun loadLyricsIndex(context: Context): Map<String, List<ExternalLyricsRef>> = runCatching {
         val filesUri = MediaStore.Files.getContentUri("external")
         val projection = mutableListOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
         )
 
         val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -371,7 +387,7 @@ object MediaStoreScanner {
             projection += dataColumn
         }
 
-        val out = LinkedHashMap<String, MutableList<String>>()
+        val out = LinkedHashMap<String, MutableList<ExternalLyricsRef>>()
         context.contentResolver.query(
             filesUri,
             projection.toTypedArray(),
@@ -382,6 +398,8 @@ object MediaStoreScanner {
         )?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val sizeCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+            val dateModifiedCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
             val relativePathCol = relativePathColumn?.let { cursor.getColumnIndex(it) } ?: -1
             @Suppress("DEPRECATION")
             val dataCol = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -402,10 +420,14 @@ object MediaStoreScanner {
                     else -> ""
                 }
                 val uri = ContentUris.withAppendedId(filesUri, cursor.getLong(idCol)).toString()
-                out.getOrPut(lyricsKey(folderPath, baseName)) { mutableListOf() } += uri
+                out.getOrPut(lyricsKey(folderPath, baseName)) { mutableListOf() } += ExternalLyricsRef(
+                    uri = uri,
+                    sizeBytes = cursor.getLongOrZero(sizeCol),
+                    dateModifiedMs = if (dateModifiedCol >= 0) cursor.getLong(dateModifiedCol) * 1000L else 0L,
+                )
             }
         }
-        out.mapValues { (_, uris) -> uris.distinct() }
+        out.mapValues { (_, refs) -> refs.distinctBy { it.uri } }
     }.getOrDefault(emptyMap())
 
     private fun lyricsFolderPath(relativePath: String, absolutePath: String): String = when {

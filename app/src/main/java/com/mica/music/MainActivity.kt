@@ -203,7 +203,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val libraryQueueIds = remember { androidx.compose.runtime.mutableStateOf<List<String>>(emptyList()) }
-                LaunchedEffect(library.songIds) {
+                LaunchedEffect(library.songs) {
                     val songs = library.songs
                     if (songs.isEmpty()) return@LaunchedEffect
 
@@ -220,6 +220,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         currentQueueWasLibrary -> playerController.setQueue(songs)
+                        else -> playerController.refreshQueueMetadata(songs)
                     }
                 }
 

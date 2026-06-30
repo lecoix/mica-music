@@ -795,6 +795,10 @@ class PlayerController internal constructor(
         }
 
         if (playbackUnchanged) {
+            if (songQueue != newQueue) {
+                songQueue = newQueue
+                publishPlaybackStates()
+            }
             controller?.let { c ->
                 if (c.mediaItemCount > 0) {
                     syncQueueToService(
@@ -830,6 +834,14 @@ class PlayerController internal constructor(
             return
         }
         applyQueue(c, newQueue, preservePlayback = true, preserveSongId = preserveId)
+    }
+
+    fun refreshQueueMetadata(latestSongs: List<Song>) {
+        if (songQueue.isEmpty() || latestSongs.isEmpty()) return
+        val latestById = latestSongs.associateBy { it.id }
+        val refreshed = songQueue.map { queued -> latestById[queued.id] ?: queued }
+        if (refreshed == songQueue) return
+        setQueue(refreshed)
     }
 
     private fun applyPreserveIndexForQueue(newQueue: List<Song>, preserveSongId: String?) {

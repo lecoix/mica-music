@@ -71,6 +71,8 @@ object FolderScanner {
                     cachedById = cachedById,
                     requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
+                    forceRefreshLyrics = options.forceRefreshLyrics,
+                    forceRefreshArtwork = options.forceRefreshArtwork,
                 )?.also { reused.incrementAndGet() }
                     ?: profiler.measure("quickSong") {
                         probed.incrementAndGet()
@@ -78,7 +80,10 @@ object FolderScanner {
                             context = context,
                             draft = draft,
                             profiler = profiler,
-                            cachedSong = draft.unchangedCachedSong(cachedById),
+                            cachedSong = draft.unchangedCachedSongForProbe(
+                                cachedById,
+                                options.forceRefreshLyrics,
+                            ),
                         )
                     }
             }
@@ -96,6 +101,8 @@ object FolderScanner {
                                 requireDeepMetadata = true,
                                 requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                                 requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
+                                forceRefreshLyrics = options.forceRefreshLyrics,
+                                forceRefreshArtwork = options.forceRefreshArtwork,
                             )
                                 ?.also { reused.incrementAndGet() }
                                 ?: profiler.measure("probeTrack") {
@@ -104,7 +111,10 @@ object FolderScanner {
                                         context = context,
                                         draft = draft,
                                         profiler = profiler,
-                                        cachedSong = draft.unchangedCachedSong(cachedById),
+                                        cachedSong = draft.unchangedCachedSongForProbe(
+                                            cachedById,
+                                            options.forceRefreshLyrics,
+                                        ),
                                     )
                                 }
                             onProgress?.invoke(done.incrementAndGet(), total)
@@ -188,9 +198,8 @@ object FolderScanner {
             if (!mime.startsWith("audio/") && ext !in audioExtensions) continue
 
             val title = name.substringBeforeLast('.').ifBlank { name }
-            val externalLyricsUris = lyricsByAudioKey[lyricsKey(entry.folderPath, title)]
-                .orEmpty()
-                .map { it.uri.toString() }
+            val externalLyricsRefs = lyricsByAudioKey[lyricsKey(entry.folderPath, title)].orEmpty()
+            val externalLyricsUris = externalLyricsRefs.map { it.uri.toString() }.distinct()
             if (externalLyricsUris.isNotEmpty()) {
                 DiagnosticLog.event(
                     LYRICS_TRACE,
@@ -226,6 +235,7 @@ object FolderScanner {
                 dateModifiedMs = modifiedMs,
                 externalLyricsParent = null,
                 externalLyricsUris = externalLyricsUris,
+                externalLyricsSignature = externalLyricsRefs.toExternalLyricsRefs().externalLyricsSignature(),
             )
         }
 
@@ -245,6 +255,8 @@ object FolderScanner {
         val uri: Uri,
         val folderPath: String,
         val baseName: String,
+        val sizeBytes: Long,
+        val lastModifiedMs: Long,
     )
 
     private fun collectLibraryFiles(
@@ -346,11 +358,26 @@ object FolderScanner {
             ext == "lrc" || ext == "ttml" -> {
                 val baseName = name.substringBeforeLast('.').trim()
                 if (baseName.isNotEmpty()) {
-                    lyricOut += LyricFileEntry(uri = uri, folderPath = folderPath, baseName = baseName)
+                    lyricOut += LyricFileEntry(
+                        uri = uri,
+                        folderPath = folderPath,
+                        baseName = baseName,
+                        sizeBytes = size,
+                        lastModifiedMs = lastModified,
+                    )
                 }
             }
         }
     }
+
+    private fun List<LyricFileEntry>.toExternalLyricsRefs(): List<ExternalLyricsRef> =
+        map { entry ->
+            ExternalLyricsRef(
+                uri = entry.uri.toString(),
+                sizeBytes = entry.sizeBytes,
+                dateModifiedMs = entry.lastModifiedMs,
+            )
+        }
 
     private fun android.database.Cursor.getStringOrEmpty(columnIndex: Int): String =
         if (columnIndex >= 0 && !isNull(columnIndex)) getString(columnIndex).orEmpty() else ""

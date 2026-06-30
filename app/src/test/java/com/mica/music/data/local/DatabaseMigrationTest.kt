@@ -59,7 +59,42 @@ class DatabaseMigrationTest {
     }
 
     @Test
-    fun freshVersionTwoDatabaseMatchesExportedEntitySchema() {
+    fun migrationTwoToThreeAddsExternalLyricsSignatureDefault() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(2) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                            db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_2_3.migrate(db)
+
+        val columns = tableColumns(db, "songs")
+        assertTrue(columns.contains("externalLyricsSignature"))
+        db.query("SELECT externalLyricsSignature FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+        helper.close()
+    }
+
+    @Test
+    fun freshDatabaseMatchesExportedEntitySchema() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, MicaDatabase::class.java)
             .allowMainThreadQueries()
@@ -78,6 +113,7 @@ class DatabaseMigrationTest {
                     "filePath",
                     "copyright",
                     "codecLabel",
+                    "externalLyricsSignature",
                     "lyricsJson",
                     "queueOrder",
                 ),

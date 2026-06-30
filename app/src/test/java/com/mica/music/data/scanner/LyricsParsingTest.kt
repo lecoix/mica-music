@@ -116,6 +116,47 @@ class LyricsParsingTest {
     }
 
     @Test
+    fun sameTimestampWordTimedOriginalAndPlainTranslationMergeIntoBilingualLine() {
+        val parsed = LrcParser.parse(
+            """
+            [00:25.560]<00:25.560>You <00:25.776>can <00:25.976>go
+            [00:25.560]translation line
+            [00:27.000]<00:27.000>Next
+            """.trimIndent(),
+        )
+
+        assertEquals(2, parsed.size)
+        assertEquals("You can go\ntranslation line", parsed[0].text)
+        assertEquals(listOf("You ", "can ", "go"), parsed[0].cues.map { it.text })
+        assertEquals(0, LyricsSync.indexForPosition(parsed, 25_560))
+    }
+
+    @Test
+    fun nearbyPlainLineDoesNotMergeWithWordTimedLine() {
+        val parsed = LrcParser.parse(
+            """
+            [00:25.560]<00:25.560>Main
+            [00:25.650]nearby harmony or ad lib
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("Main", "nearby harmony or ad lib"), parsed.map { it.text })
+    }
+
+    @Test
+    fun sameTimestampTwoWordTimedLinesDoNotMerge() {
+        val parsed = LrcParser.parse(
+            """
+            [00:25.560]<00:25.560>Main
+            [00:25.560]<00:25.560>Harmony
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("Main", "Harmony"), parsed.map { it.text })
+        assertTrue(parsed.all { it.cues.isNotEmpty() })
+    }
+
+    @Test
     fun ttmlParsesTimedSpansAndRejectsDoctype() {
         val parsed = LrcParser.parse(
             """

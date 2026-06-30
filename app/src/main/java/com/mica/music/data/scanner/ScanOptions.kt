@@ -7,4 +7,6 @@ data class ScanOptions(
     val minDurationMs: Long = 60_000L,
     val includeNonMusicByMime: Boolean = true,
     val deepMetadataProbe: Boolean = true,
+    val forceRefreshLyrics: Boolean = false,
+    val forceRefreshArtwork: Boolean = false,
 )

@@ -29,6 +29,7 @@ data class Song(
     val codecLabel: String = "",
     val dateAddedMs: Long = 0L,
     val dateModifiedMs: Long = 0L,
+    val externalLyricsSignature: String = "",
     val playCount: Int = 0,
     val totalListenSeconds: Long = 0L,
     /** 最近一次开始播放的时间戳（毫秒），未播放过为 0 */

@@ -37,6 +37,39 @@ class AlbumArtCacheTest {
     }
 
     @Test
+    fun forcedArtworkRefreshRejectsSongsWithoutArtworkOrWithCachedEmbeddedArtwork() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val embedded = File(context.cacheDir, "${ScanCacheManager.DIR_ALBUM_ART}/embedded.jpg")
+        embedded.parentFile?.mkdirs()
+        embedded.writeBytes(byteArrayOf(1, 2, 3))
+        val draft = matchingDraft()
+
+        assertNull(
+            draft.reusableCachedSong(
+                context = context,
+                cachedById = mapOf(draft.scanSongId() to matchingCachedSong(null)),
+                forceRefreshArtwork = true,
+            ),
+        )
+        assertNull(
+            draft.reusableCachedSong(
+                context = context,
+                cachedById = mapOf(draft.scanSongId() to matchingCachedSong(embedded.toUri().toString())),
+                forceRefreshArtwork = true,
+            ),
+        )
+        val storeArt = matchingCachedSong("content://media/external/audio/albums/1")
+        assertSame(
+            storeArt,
+            draft.reusableCachedSong(
+                context = context,
+                cachedById = mapOf(draft.scanSongId() to storeArt),
+                forceRefreshArtwork = true,
+            ),
+        )
+    }
+
+    @Test
     fun healthCountsMissingCachedAlbumArtFiles() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val existing = File(context.cacheDir, "${ScanCacheManager.DIR_ALBUM_ART}/health-existing.jpg")
@@ -58,7 +91,7 @@ class AlbumArtCacheTest {
         assertEquals(listOf("missing:health-missing.jpg"), health.missingSamples)
     }
 
-    private fun matchingCachedSong(albumArtUri: String) =
+    private fun matchingCachedSong(albumArtUri: String?) =
         SongFixtures.song(id = "ms_42").copy(
             mediaUri = "content://media/external/audio/media/42",
             sizeBytes = 1234L,

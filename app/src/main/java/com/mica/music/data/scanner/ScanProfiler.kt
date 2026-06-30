@@ -59,8 +59,12 @@ internal fun TrackDraft.reusableCachedSong(
     requireDeepMetadata: Boolean = false,
     requireDirectLyrics: Boolean = false,
     requireFreshEmbeddedLyrics: Boolean = false,
+    forceRefreshLyrics: Boolean = false,
+    forceRefreshArtwork: Boolean = false,
 ): Song? {
     val cached = unchangedCachedSong(cachedById) ?: return null
+    if (forceRefreshLyrics && cached.lyrics.isNotEmpty()) return null
+    if (forceRefreshArtwork && cached.hasRefreshableArtwork(context)) return null
     return cached.takeIf {
         AlbumArtCache.hasReadableCachedArt(context, it) &&
         (!requireDeepMetadata || it.hasDeepMetadata()) &&
@@ -73,16 +77,29 @@ internal fun TrackDraft.reusableCachedSong(
 internal fun TrackDraft.unchangedCachedSong(cachedById: Map<String, Song>): Song? {
     val cached = cachedById[scanSongId()] ?: return null
     return cached.takeIf {
-        it.mediaUri == mediaUri &&
+            it.mediaUri == mediaUri &&
             it.sizeBytes == sizeBytes &&
-            it.dateModifiedMs == dateModifiedMs
+            it.dateModifiedMs == dateModifiedMs &&
+            it.externalLyricsSignature == externalLyricsSignature
     }
 }
+
+internal fun TrackDraft.unchangedCachedSongForProbe(
+    cachedById: Map<String, Song>,
+    forceRefreshLyrics: Boolean,
+): Song? =
+    unchangedCachedSong(cachedById)?.let { cached ->
+        if (forceRefreshLyrics) cached.copy(lyrics = emptyList()) else cached
+    }
 
 private fun Song.hasDeepMetadata(): Boolean =
     metadata.sampleRateHz > 0 ||
         metadata.bitsPerSample != null ||
         codecLabel.isNotBlank()
+
+private fun Song.hasRefreshableArtwork(context: Context): Boolean =
+    albumArtUri.isNullOrBlank() ||
+        AlbumArtCache.isCachedArtUri(context, albumArtUri)
 
 internal fun TrackDraft.mayContainMp4EmbeddedLyrics(): Boolean {
     val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()

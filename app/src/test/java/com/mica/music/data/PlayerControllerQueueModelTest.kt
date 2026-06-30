@@ -93,21 +93,56 @@ class PlayerControllerQueueModelTest {
     }
 
     @Test
-    fun setQueueWithUnchangedPlaybackContentIsNoOp() {
+    fun setQueueWithUnchangedPlaybackContentRefreshesQueueMetadata() {
         val controller = PlayerController(ApplicationProvider.getApplicationContext())
         val songs = listOf(
             SongFixtures.song(id = "a", title = "Alpha"),
             SongFixtures.song(id = "b", title = "Beta"),
         )
         controller.setQueue(songs)
-        val queueBefore = controller.songQueue
 
         val metadataOnly = songs.map { song ->
-            if (song.id == "a") song.copy(title = "Alpha (remastered)") else song
+            if (song.id == "a") {
+                song.copy(
+                    title = "Alpha (remastered)",
+                    lyrics = listOf(LyricLine(0, "updated lyric")),
+                )
+            } else {
+                song
+            }
         }
         controller.setQueue(metadataOnly)
 
-        assertEquals(queueBefore, controller.songQueue)
+        assertEquals(metadataOnly, controller.songQueue)
+        assertEquals("Alpha (remastered)", controller.songQueue[0].title)
+        assertEquals("updated lyric", controller.songQueue[0].lyrics.single().text)
+        controller.release()
+    }
+
+    @Test
+    fun refreshQueueMetadataReplacesMatchingSongsInSpecialQueue() {
+        val controller = PlayerController(ApplicationProvider.getApplicationContext())
+        val specialQueue = listOf(
+            SongFixtures.song(id = "b", title = "Beta"),
+            SongFixtures.song(id = "missing", title = "Not in library"),
+            SongFixtures.song(id = "a", title = "Alpha"),
+        )
+        controller.setQueue(specialQueue)
+
+        controller.refreshQueueMetadata(
+            listOf(
+                SongFixtures.song(id = "a", title = "Alpha (rescanned)"),
+                SongFixtures.song(id = "b", title = "Beta (rescanned)").copy(
+                    lyrics = listOf(LyricLine(0, "fresh lyric")),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("b", "missing", "a"), controller.songQueue.map { it.id })
+        assertEquals("Beta (rescanned)", controller.songQueue[0].title)
+        assertEquals("fresh lyric", controller.songQueue[0].lyrics.single().text)
+        assertEquals("Not in library", controller.songQueue[1].title)
+        assertEquals("Alpha (rescanned)", controller.songQueue[2].title)
         controller.release()
     }
 

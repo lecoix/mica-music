@@ -231,7 +231,6 @@ fun LyricLineBlock(
         enabled = lyricSplitEnabled,
         mode = bilingualDisplayMode,
     )
-    val syncDisplayRows = rows.size > 1
     val bilingualGap = if (rows.size > 1) HifiSpacing.lyricBilingualGap else 0.dp
     val cueRanges = remember(lyricLine) { lyricLine?.let(::lyricCueRanges).orEmpty() }
     val canFillLineTimed = lyricLineFillEnabled &&
@@ -248,7 +247,8 @@ fun LyricLineBlock(
         verticalArrangement = Arrangement.spacedBy(bilingualGap),
     ) {
         rows.forEach { row ->
-            if (cueRanges.isNotEmpty()) {
+            val rowHasCueRanges = cueRanges.any { it.overlaps(row) }
+            if (cueRanges.isNotEmpty() && rowHasCueRanges) {
                 KaraokeLyricLineText(
                     text = row.text,
                     isCurrent = isCurrent,
@@ -261,7 +261,6 @@ fun LyricLineBlock(
                             cueRanges = cueRanges,
                             positionMs = fillPositionMs,
                             nextLineTimeMs = nextLineTimeMs,
-                            syncDisplayRowFill = syncDisplayRows,
                         )
                     } else {
                         0f
@@ -283,7 +282,7 @@ fun LyricLineBlock(
                         row = row,
                         positionMs = fillPositionMs,
                         nextLineTimeMs = nextLineTimeMs,
-                        syncDisplayRowFill = syncDisplayRows,
+                        syncDisplayRowFill = rows.size > 1,
                     ),
                     maxLines = maxLines,
                     textAlign = textAlign,
@@ -304,6 +303,9 @@ fun LyricLineBlock(
 }
 
 private data class LyricCueRange(val cueIndex: Int, val start: Int, val endExclusive: Int)
+
+private fun LyricCueRange.overlaps(row: LyricDisplayRows.DisplayRow): Boolean =
+    endExclusive > row.start && start < row.endExclusive
 
 private fun lyricCueRanges(line: LyricLine): List<LyricCueRange> {
     var searchFrom = 0
@@ -363,7 +365,6 @@ private fun wordSyncedFillFraction(
     cueRanges: List<LyricCueRange>,
     positionMs: Int,
     nextLineTimeMs: Int?,
-    syncDisplayRowFill: Boolean,
 ): Float {
     val cueCount = line.cues.size
     if (cueCount == 0) return 0f
@@ -385,10 +386,6 @@ private fun wordSyncedFillFraction(
         1f
     } else {
         ((t - cueStart).toFloat() / (cueEnd - cueStart)).coerceIn(0f, 1f)
-    }
-    if (syncDisplayRowFill) {
-        val cueBase = activeCueIndex.toFloat() / cueCount.coerceAtLeast(1)
-        return (cueBase + cueProgress / cueCount.coerceAtLeast(1)).coerceIn(0f, 1f)
     }
     val filledChars = activeRange.start + (activeRange.endExclusive - activeRange.start) * cueProgress
     return rowFillFraction(row, filledChars / line.text.length.coerceAtLeast(1), line.text.length)

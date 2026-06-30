@@ -203,6 +203,8 @@ class MusicLibraryTest {
         override suspend fun scanDevice(
             cachedSongs: List<Song>,
             onProgress: (Int, Int) -> Unit,
+            forceRefreshLyrics: Boolean,
+            forceRefreshArtwork: Boolean,
         ): ScanResult {
             onProgress(0, cachedSongs.size)
             return ScanRequest(cachedSongs).also(deviceRequests::add).result.await()
@@ -212,6 +214,8 @@ class MusicLibraryTest {
             treeUri: Uri,
             cachedSongs: List<Song>,
             onProgress: (Int, Int) -> Unit,
+            forceRefreshLyrics: Boolean,
+            forceRefreshArtwork: Boolean,
         ): ScanResult = error("folder scan not expected")
     }
 

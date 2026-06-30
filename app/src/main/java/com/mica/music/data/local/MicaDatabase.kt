@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [SongEntity::class, LibraryMetaEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -27,7 +27,7 @@ abstract class MicaDatabase : RoomDatabase() {
                     MicaDatabase::class.java,
                     "mica_library.db",
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { instance = it }
             }
     }

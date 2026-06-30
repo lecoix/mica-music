@@ -19,6 +19,7 @@ import java.io.File
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
 import java.util.concurrent.ConcurrentHashMap
+import java.security.MessageDigest
 
 internal data class TrackDraft(
     val mediaStoreId: Long,
@@ -43,6 +44,7 @@ internal data class TrackDraft(
     val dateModifiedMs: Long = 0L,
     val externalLyricsParent: DocumentFile? = null,
     val externalLyricsUris: List<String> = emptyList(),
+    val externalLyricsSignature: String = "",
 )
 
 internal data class TagInfo(
@@ -53,6 +55,7 @@ internal data class TagInfo(
     val copyright: String,
     val durationSec: Int,
     val year: Int,
+    val frontCoverBytes: ByteArray? = null,
 )
 
 internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInfo(
@@ -63,6 +66,7 @@ internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInf
     copyright = primary.copyright.ifBlank { fallback.copyright },
     durationSec = primary.durationSec.takeIf { it > 0 } ?: fallback.durationSec,
     year = primary.year.takeIf { it > 0 } ?: fallback.year,
+    frontCoverBytes = primary.frontCoverBytes ?: fallback.frontCoverBytes,
 )
 
 object AudioMetadataProbe {
@@ -152,7 +156,10 @@ object AudioMetadataProbe {
             TagLibReader.read(appCtx, uri)
         }
         if (tagLibResult != null) {
-            val wavFallback = if (draft.isWav() && tagLibResult.hasCoreTagGaps()) {
+            val wavFallback = if (
+                draft.isWav() &&
+                (tagLibResult.hasCoreTagGaps() || tagLibResult.frontCoverBytes?.isEmpty() != false)
+            ) {
                 profiler.measureOptional("jaudiotagger.wav") {
                     readWavTagsViaJAudioTagger(appCtx, uri)
                 }
@@ -212,8 +219,13 @@ object AudioMetadataProbe {
                 codecLabel = trackProbe?.trackMime ?: metadata.playbackMimeType,
             )
             val artKey = artCacheKey(withMeta)
+            val wavCoverBytes = wavFallback?.frontCoverBytes?.takeIf { it.isNotEmpty() }
             val albumArtUri = profiler.measureOptional("albumArt") {
-                resolveAlbumArt(appCtx, retriever, artKey, withMeta.albumId, uri)
+                if (wavCoverBytes != null) {
+                    resolveAlbumArtFromBytes(appCtx, wavCoverBytes, artKey, withMeta.albumId, uri)
+                } else {
+                    resolveAlbumArt(appCtx, retriever, artKey, withMeta.albumId, uri)
+                }
             }
             val lyrics = profiler.measureOptional("lyrics") {
                 readScanLyrics(
@@ -224,7 +236,8 @@ object AudioMetadataProbe {
                 )
             }
             val coverArgb = profiler.measureOptional("coverColor") {
-                resolveCoverColor(appCtx, retriever, uri, withMeta.albumId, albumArtUri)
+                wavCoverBytes?.let { CoverColorExtractor.fromBytes(it) }
+                    ?: resolveCoverColor(appCtx, retriever, uri, withMeta.albumId, albumArtUri)
             }
                 ?: withMeta.coverColorArgb
             withMeta.copy(coverColorArgb = coverArgb).toSong(appCtx, metadata, albumArtUri, lyrics)
@@ -294,6 +307,7 @@ object AudioMetadataProbe {
             copyright = tagLib.copyright,
             durationSec = tagLib.durationSec,
             year = tagLib.year,
+            frontCoverBytes = tagLib.frontCoverBytes,
         )
         // 必须在 Retriever/MediaStore 写入默认值之前合并，否则 WAV 兜底永远不会触发。
         val tagsWithWavFallback = wavFallback?.let { mergeTagInfo(primaryTags, it) } ?: primaryTags
@@ -319,7 +333,7 @@ object AudioMetadataProbe {
         val tags = retriever?.let { mergeTagInfo(tagsWithWavFallback, readTags(it, draft)) }
             ?: tagsWithWavFallback
 
-        val coverBytes = tagLib.frontCoverBytes?.takeIf { it.isNotEmpty() }
+        val coverBytes = tagsWithWavFallback.frontCoverBytes?.takeIf { it.isNotEmpty() }
             ?: retriever?.embeddedPicture?.takeIf { it.isNotEmpty() }
         try {
         val title = MetadataTextFix.titleFromTagsOrFilename(
@@ -690,7 +704,7 @@ object AudioMetadataProbe {
         mediaUri: Uri,
     ): String? {
         val trackKey = trackArtCacheKey(mediaUri)
-        saveEmbeddedPicture(context, retriever, trackKey, mediaUri)?.let { embedded ->
+        saveEmbeddedPicture(context, retriever, trackKey)?.let { embedded ->
             albumArtCache[artKey] = embedded
             return embedded
         }
@@ -741,17 +755,9 @@ object AudioMetadataProbe {
         context: Context,
         retriever: MediaMetadataRetriever,
         cacheKey: String,
-        mediaUri: Uri,
     ): String? {
-        val cacheFile = AlbumArtCache.fileForKey(context, cacheKey)
-        if (cacheFile.exists() && cacheFile.length() > 0) {
-            return cacheFile.toUri().toString()
-        }
         val bytes = retriever.embeddedPicture ?: return null
-        if (bytes.size < 256) return null
-        cacheFile.parentFile?.mkdirs()
-        cacheFile.writeBytes(bytes)
-        return cacheFile.toUri().toString()
+        return saveEmbeddedPictureBytes(context, bytes, cacheKey)
     }
 
     private fun saveEmbeddedPictureBytes(
@@ -760,7 +766,7 @@ object AudioMetadataProbe {
         cacheKey: String,
     ): String? {
         if (bytes == null || bytes.size < 256) return null
-        val cacheFile = AlbumArtCache.fileForKey(context, cacheKey)
+        val cacheFile = AlbumArtCache.fileForKey(context, embeddedArtCacheKey(cacheKey, bytes))
         if (cacheFile.exists() && cacheFile.length() > 0) {
             return cacheFile.toUri().toString()
         }
@@ -768,6 +774,9 @@ object AudioMetadataProbe {
         cacheFile.writeBytes(bytes)
         return cacheFile.toUri().toString()
     }
+
+    private fun embeddedArtCacheKey(cacheKey: String, bytes: ByteArray): String =
+        "$cacheKey:${MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }}"
 
     private fun canOpen(context: Context, uri: Uri): Boolean =
         runCatching {
@@ -830,6 +839,7 @@ object AudioMetadataProbe {
             codecLabel = codecLabel,
             dateAddedMs = dateAddedMs,
             dateModifiedMs = dateModifiedMs,
+            externalLyricsSignature = externalLyricsSignature,
             lyrics = lyrics,
         )
     }
@@ -862,6 +872,7 @@ object AudioMetadataProbe {
             val album = tag.getFirst(FieldKey.ALBUM)?.trim().orEmpty()
             val albumArtist = tag.getFirst(FieldKey.ALBUM_ARTIST)?.trim().orEmpty()
             val copyright = tag.getFirst(FieldKey.COPYRIGHT)?.trim().orEmpty()
+            val frontCoverBytes = tag.firstArtwork?.binaryData?.takeIf { it.isNotEmpty() }
             val year = Regex("""\d{4}""")
                 .find(tag.getFirst(FieldKey.YEAR).orEmpty())
                 ?.value
@@ -878,6 +889,7 @@ object AudioMetadataProbe {
                 copyright = copyright,
                 durationSec = audioFile.audioHeader?.trackLength?.coerceAtLeast(0) ?: 0,
                 year = year,
+                frontCoverBytes = frontCoverBytes,
             )
         } catch (error: Exception) {
             Log.w(TAG, "JAudioTagger failed to read WAV metadata: $uri", error)

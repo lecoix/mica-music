@@ -72,11 +72,37 @@ internal object LrcParser {
                 return plain.map { LyricLine(timeMs = 0, it) }
             }
         }
-        return timed.sortedBy { it.timeMs }
+        return mergeSameTimestampWordTranslationLines(timed)
     }
 
     private data class ParsedBody(val text: String, val cues: List<LyricCue>) {
         fun toLyricLine(lineTimeMs: Int): LyricLine = LyricLine(lineTimeMs, text, cues)
+    }
+
+    private fun mergeSameTimestampWordTranslationLines(lines: List<LyricLine>): List<LyricLine> {
+        if (lines.size < 2) return lines.sortedBy { it.timeMs }
+        val sorted = lines.sortedBy { it.timeMs }
+        return buildList {
+            var index = 0
+            while (index < sorted.size) {
+                val group = sorted.drop(index).takeWhile { it.timeMs == sorted[index].timeMs }
+                if (group.size == 2) {
+                    val wordLine = group.singleOrNull { it.cues.isNotEmpty() }
+                    val translationLine = group.singleOrNull { it.cues.isEmpty() }
+                    if (wordLine != null && translationLine != null) {
+                        add(
+                            wordLine.copy(
+                                text = "${wordLine.text}\n${translationLine.text}",
+                            ),
+                        )
+                        index += group.size
+                        continue
+                    }
+                }
+                addAll(group)
+                index += group.size
+            }
+        }
     }
 
     private fun shouldKeepParsedLine(line: LyricLine): Boolean {

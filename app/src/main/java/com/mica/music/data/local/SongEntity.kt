@@ -35,6 +35,7 @@ data class SongEntity(
     val codecLabel: String = "",
     val dateAddedMs: Long,
     val dateModifiedMs: Long,
+    val externalLyricsSignature: String = "",
     val playCount: Int,
     val lyricsJson: String,
     val queueOrder: Int,
@@ -77,6 +78,7 @@ fun SongEntity.toSong(): Song = Song(
     codecLabel = codecLabel,
     dateAddedMs = dateAddedMs,
     dateModifiedMs = dateModifiedMs,
+    externalLyricsSignature = externalLyricsSignature,
     playCount = playCount,
     lyrics = decodeLyrics(lyricsJson),
 )
@@ -95,6 +97,7 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(bitsPerSample); append('\u0001')
     append(bitrateKbps); append('\u0001')
     append(albumArtUri); append('\u0001')
+    append(externalLyricsSignature); append('\u0001')
     append(lyricsJson)
 }
 
@@ -123,6 +126,7 @@ fun Song.toEntity(queueOrder: Int): SongEntity = SongEntity(
     codecLabel = codecLabel,
     dateAddedMs = dateAddedMs,
     dateModifiedMs = dateModifiedMs,
+    externalLyricsSignature = externalLyricsSignature,
     playCount = playCount,
     lyricsJson = encodeLyrics(lyrics),
     queueOrder = queueOrder,

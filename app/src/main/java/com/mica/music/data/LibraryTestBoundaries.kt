@@ -14,12 +14,16 @@ internal interface LibraryScanner {
     suspend fun scanDevice(
         cachedSongs: List<Song>,
         onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean = false,
+        forceRefreshArtwork: Boolean = false,
     ): ScanResult
 
     suspend fun scanFolder(
         treeUri: Uri,
         cachedSongs: List<Song>,
         onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean = false,
+        forceRefreshArtwork: Boolean = false,
     ): ScanResult
 }
 
@@ -43,7 +47,7 @@ internal interface LibraryStore {
     suspend fun clear()
 }
 
-internal const val CURRENT_LYRICS_PARSER_VERSION = 2
+internal const val CURRENT_LYRICS_PARSER_VERSION = 3
 
 internal interface ScanEnvironment {
     fun hasAudioReadPermission(): Boolean
@@ -62,9 +66,14 @@ internal class AndroidLibraryScanner(
     override suspend fun scanDevice(
         cachedSongs: List<Song>,
         onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean,
+        forceRefreshArtwork: Boolean,
     ): ScanResult = MediaStoreScanner.scan(
         context = context,
-        options = AppPreferences.scanOptions(context),
+        options = AppPreferences.scanOptions(context).copy(
+            forceRefreshLyrics = forceRefreshLyrics,
+            forceRefreshArtwork = forceRefreshArtwork,
+        ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,
     )
@@ -73,10 +82,15 @@ internal class AndroidLibraryScanner(
         treeUri: Uri,
         cachedSongs: List<Song>,
         onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean,
+        forceRefreshArtwork: Boolean,
     ): ScanResult = FolderScanner.scan(
         context = context,
         treeUri = treeUri,
-        options = AppPreferences.scanOptions(context),
+        options = AppPreferences.scanOptions(context).copy(
+            forceRefreshLyrics = forceRefreshLyrics,
+            forceRefreshArtwork = forceRefreshArtwork,
+        ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,
     )

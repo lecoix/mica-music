@@ -326,7 +326,12 @@ class MusicLibrary internal constructor(
     suspend fun scanDeviceWide() {
         if (!hasAudioReadPermission()) return
         performScan(ScanSource.DEVICE) { onProgress, cachedSongs ->
-            libraryScanner.scanDevice(cachedSongs, onProgress)
+            libraryScanner.scanDevice(
+                cachedSongs = cachedSongs,
+                onProgress = onProgress,
+                forceRefreshLyrics = true,
+                forceRefreshArtwork = true,
+            )
         }
     }
 
@@ -339,7 +344,13 @@ class MusicLibrary internal constructor(
             return
         }
         performScan(ScanSource.FOLDER) { onProgress, cachedSongs ->
-            libraryScanner.scanFolder(treeUri, cachedSongs, onProgress)
+            libraryScanner.scanFolder(
+                treeUri = treeUri,
+                cachedSongs = cachedSongs,
+                onProgress = onProgress,
+                forceRefreshLyrics = true,
+                forceRefreshArtwork = true,
+            )
         }
     }
 
