@@ -42,6 +42,7 @@ object AppPreferences {
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
+    private const val KEY_LYRICS_BILINGUAL_DISPLAY_MODE = "lyrics_bilingual_display_mode"
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
     private const val KEY_LYRICS_PAGE_ALIGNMENT = "lyrics_page_alignment"
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
@@ -280,6 +281,15 @@ object AppPreferences {
 
     fun setLyricSplitEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_LYRIC_SPLIT_ENABLED, enabled).apply()
+    }
+
+    fun lyricsBilingualDisplayMode(context: Context): LyricsBilingualDisplayMode =
+        LyricsBilingualDisplayMode.fromStorage(
+            prefs(context).getString(KEY_LYRICS_BILINGUAL_DISPLAY_MODE, null),
+        )
+
+    fun setLyricsBilingualDisplayMode(context: Context, mode: LyricsBilingualDisplayMode) {
+        prefs(context).edit().putString(KEY_LYRICS_BILINGUAL_DISPLAY_MODE, mode.storageValue).apply()
     }
 
     /** Whether line-timed lyrics without word cues use karaoke-style text fill. */

@@ -56,6 +56,20 @@ object LyricDisplayRows {
         }
     }
 
+    fun rowsForBilingualDisplayMode(
+        text: String,
+        enabled: Boolean = true,
+        mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+    ): List<DisplayRow> {
+        val rows = splitForDisplayRows(text, enabled)
+        if (!enabled || rows.size < 2) return rows
+        return when (mode) {
+            LyricsBilingualDisplayMode.ALL -> rows
+            LyricsBilingualDisplayMode.ORIGINAL -> rows.take(1)
+            LyricsBilingualDisplayMode.TRANSLATION -> rows.drop(1).take(1)
+        }
+    }
+
     fun isBilingualLine(text: String, enabled: Boolean = true): Boolean =
         splitForDisplay(text, enabled).size > 1
 

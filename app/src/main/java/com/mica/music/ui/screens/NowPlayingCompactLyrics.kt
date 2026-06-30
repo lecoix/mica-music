@@ -17,6 +17,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.components.LyricLineBlock
 import com.mica.music.ui.components.LyricsAreaEdgeFade
@@ -44,6 +45,7 @@ internal fun LyricsSection(
     lineSlots: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
 ) {
     val index = LyricsSync.indexForPosition(lyrics, positionMs)
     val compact = lineSlots <= 1
@@ -79,6 +81,7 @@ internal fun LyricsSection(
                         lineStepPx = lineStepPx,
                         positionMs = positionMs,
                         isPlaying = isPlaying,
+                        bilingualDisplayMode = bilingualDisplayMode,
                     )
                 }
             }
@@ -113,6 +116,7 @@ private fun CompactLyricsRows(
     lineStepPx: Float,
     positionMs: Int,
     isPlaying: Boolean,
+    bilingualDisplayMode: LyricsBilingualDisplayMode,
 ) {
     val safeTargetIndex = targetIndex.coerceIn(0, lyrics.lastIndex.coerceAtLeast(0))
     PlayerLyricsIndexRoll(
@@ -132,6 +136,7 @@ private fun CompactLyricsRows(
                 colorSpec = colorSpec,
                 positionMs = positionMs,
                 isPlaying = isPlaying,
+                bilingualDisplayMode = bilingualDisplayMode,
             )
             displayIndex < 0 -> Text(
                 text = lyrics.firstOrNull()?.text ?: EmptyLyricsText,
@@ -150,6 +155,7 @@ private fun CompactLyricsRows(
                 colorSpec = colorSpec,
                 positionMs = positionMs,
                 isPlaying = isPlaying,
+                bilingualDisplayMode = bilingualDisplayMode,
             )
         }
     }
@@ -164,6 +170,7 @@ private fun CompactSingleLyricLine(
     colorSpec: AnimationSpec<Color>,
     positionMs: Int,
     isPlaying: Boolean,
+    bilingualDisplayMode: LyricsBilingualDisplayMode,
 ) {
     val lineText = when {
         displayIndex in lyrics.indices -> lyrics[displayIndex].text
@@ -179,6 +186,7 @@ private fun CompactSingleLyricLine(
         nextLineTimeMs = lyrics.getOrNull(displayIndex + 1)?.timeMs,
         positionMs = positionMs,
         isPlaying = isPlaying,
+        bilingualDisplayMode = bilingualDisplayMode,
     )
 }
 
@@ -191,6 +199,7 @@ private fun CompactThreeLyricLines(
     colorSpec: AnimationSpec<Color>,
     positionMs: Int,
     isPlaying: Boolean,
+    bilingualDisplayMode: LyricsBilingualDisplayMode,
 ) {
     val safeIndex = safeLyricDisplayIndex(lyrics.size, displayIndex) ?: return
     LyricLineBlock(
@@ -203,6 +212,7 @@ private fun CompactThreeLyricLines(
         nextLineTimeMs = lyrics.getOrNull(safeIndex)?.timeMs,
         positionMs = positionMs,
         isPlaying = false,
+        bilingualDisplayMode = bilingualDisplayMode,
     )
     LyricLineBlock(
         text = lyrics[safeIndex].text,
@@ -214,6 +224,7 @@ private fun CompactThreeLyricLines(
         nextLineTimeMs = lyrics.getOrNull(safeIndex + 1)?.timeMs,
         positionMs = positionMs,
         isPlaying = isPlaying,
+        bilingualDisplayMode = bilingualDisplayMode,
     )
     LyricLineBlock(
         text = lyrics.getOrNull(safeIndex + 1)?.text,
@@ -225,5 +236,6 @@ private fun CompactThreeLyricLines(
         nextLineTimeMs = lyrics.getOrNull(safeIndex + 2)?.timeMs,
         positionMs = positionMs,
         isPlaying = false,
+        bilingualDisplayMode = bilingualDisplayMode,
     )
 }

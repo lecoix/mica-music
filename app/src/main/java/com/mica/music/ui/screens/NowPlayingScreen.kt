@@ -480,6 +480,7 @@ fun NowPlayingContent(
                             lyricsPageImmersive = uiSettings.lyricsPageImmersive,
                             lyricsAlignment = uiSettings.lyricsPageAlignment,
                             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
+                            lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                             spectrumEnabled = pageModel.frame.spectrumEnabled,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,

@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.components.LyricLineBlock
@@ -42,6 +43,7 @@ internal fun ExpandedLyricsPanel(
     modifier: Modifier = Modifier,
     lyricsAlignment: LyricsPageAlignment = LyricsPageAlignment.CENTER,
     lyricsFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
+    bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
 ) {
     val textStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsFontSizeSp)
     val colorSpec = rememberLyricLineColorSpec()
@@ -81,7 +83,13 @@ internal fun ExpandedLyricsPanel(
         if (!timed || currentIndex < 0) return@LaunchedEffect
         val viewport = listState.layoutInfo.viewportSize.height
         val currentRows = lyrics.getOrNull(currentIndex)?.text
-            ?.let { LyricDisplayRows.splitForDisplay(it, lyricSplitEnabled).size } ?: 1
+            ?.let {
+                LyricDisplayRows.rowsForBilingualDisplayMode(
+                    text = it,
+                    enabled = lyricSplitEnabled,
+                    mode = bilingualDisplayMode,
+                ).size
+            } ?: 1
         val bilingualGapPx = with(density) { HifiSpacing.lyricBilingualGap.roundToPx() }
         val itemHeightPx = lineHeightPx * currentRows + bilingualGapPx * (currentRows - 1).coerceAtLeast(0)
         val offset = -((viewport - itemHeightPx) / 2).coerceAtLeast(0)
@@ -119,6 +127,7 @@ internal fun ExpandedLyricsPanel(
                     isPlaying = isPlaying,
                     textAlign = textAlign,
                     horizontalAlignment = horizontalAlignment,
+                    bilingualDisplayMode = bilingualDisplayMode,
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(

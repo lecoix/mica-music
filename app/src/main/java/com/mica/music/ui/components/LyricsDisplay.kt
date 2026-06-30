@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
@@ -221,10 +222,15 @@ fun LyricLineBlock(
     isPlaying: Boolean = false,
     textAlign: TextAlign = TextAlign.Center,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+    bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
 ) {
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
-    val rows = LyricDisplayRows.splitForDisplayRows(text.orEmpty(), lyricSplitEnabled)
+    val rows = LyricDisplayRows.rowsForBilingualDisplayMode(
+        text = text.orEmpty(),
+        enabled = lyricSplitEnabled,
+        mode = bilingualDisplayMode,
+    )
     val syncDisplayRows = rows.size > 1
     val bilingualGap = if (rows.size > 1) HifiSpacing.lyricBilingualGap else 0.dp
     val cueRanges = remember(lyricLine) { lyricLine?.let(::lyricCueRanges).orEmpty() }

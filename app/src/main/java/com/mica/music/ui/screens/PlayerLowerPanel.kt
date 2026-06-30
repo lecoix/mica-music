@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackSurfaceState
@@ -42,6 +43,7 @@ internal fun PlayerLowerPanelSection(
     lyricsPageImmersive: Boolean,
     lyricsAlignment: LyricsPageAlignment,
     lyricsFontSizeSp: Int,
+    lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
     stripSongTitleParentheses: Boolean,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
@@ -169,6 +171,7 @@ internal fun PlayerLowerPanelSection(
                             colors = colors,
                             lineSlots = lower.lyricLineSlots,
                             onClick = onOpenLyrics,
+                            bilingualDisplayMode = lyricsBilingualDisplayMode,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -196,6 +199,7 @@ internal fun PlayerLowerPanelSection(
                     },
                     lyricsAlignment = lyricsAlignment,
                     lyricsFontSizeSp = lyricsFontSizeSp,
+                    bilingualDisplayMode = lyricsBilingualDisplayMode,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = lower.lyricsChromeFade },
