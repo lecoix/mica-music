@@ -1,7 +1,8 @@
 package com.mica.music.ui.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -17,10 +18,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SharpPlayPauseButton(
     isPlaying: Boolean,
     onToggle: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     size: Dp = 40.dp,
     color: Color = Color.White,
@@ -33,7 +36,10 @@ fun SharpPlayPauseButton(
                 contentDescription = if (isPlaying) "暂停" else "播放"
                 role = Role.Button
             }
-            .clickable(onClick = onToggle),
+            .combinedClickable(
+                onClick = onToggle,
+                onLongClick = onLongPress,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (isPlaying) {

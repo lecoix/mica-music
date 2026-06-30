@@ -57,6 +57,9 @@ import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.LyricsPageAlignment
+import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
@@ -64,6 +67,7 @@ import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.MusicLibrary
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
+import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsTextFieldRow
 import com.mica.music.ui.components.SettingsToggleRow
@@ -112,6 +116,13 @@ private val CoverDisplayChoices = CoverDisplayMode.entries.map {
 private val PlayerCoverFlowChoices = PlayerCoverFlowMode.entries.map {
     it.ordinal to it.settingsLabel
 }
+
+private val LyricsPageAlignmentChoices = LyricsPageAlignment.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+private val LyricsPageFontSizeChoices = (MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP)
+    .map { it to "$it sp" }
 
 @Composable
 fun SettingsScreen(
@@ -359,6 +370,29 @@ fun SettingsScreen(
                 subtitle = "对没有逐字时间轴的歌词，当前句按本句到下一句的播放进度从左到右填充",
                 checked = uiSettings.lyricLineFillEnabled,
                 onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
+            )
+
+            SettingsChoiceRow(
+                title = "歌词页对齐",
+                choices = LyricsPageAlignmentChoices,
+                selectedValue = uiSettings.lyricsPageAlignment.ordinal,
+                onSelect = { ordinal ->
+                    uiSettings.updateLyricsPageAlignment(LyricsPageAlignment.entries[ordinal])
+                },
+            )
+
+            SettingsDropdownRow(
+                title = "歌词页字号",
+                choices = LyricsPageFontSizeChoices,
+                selectedValue = uiSettings.lyricsPageFontSizeSp,
+                onSelect = { uiSettings.updateLyricsPageFontSizeSp(it) },
+            )
+
+            SettingsToggleRow(
+                title = "歌词页沉浸模式",
+                subtitle = "开启后歌词页隐藏进度条和底部五个按钮；在歌词页长按播放按钮也可切换",
+                checked = uiSettings.lyricsPageImmersive,
+                onCheckedChange = { uiSettings.updateLyricsPageImmersive(it) },
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))

@@ -43,6 +43,9 @@ object AppPreferences {
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
+    private const val KEY_LYRICS_PAGE_ALIGNMENT = "lyrics_page_alignment"
+    private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
+    private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
     private const val KEY_EQUALIZER_PRESET = "equalizer_preset"
@@ -285,6 +288,43 @@ object AppPreferences {
 
     fun setLyricLineFillEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_LYRIC_LINE_FILL_ENABLED, enabled).apply()
+    }
+
+    fun lyricsPageAlignment(context: Context): LyricsPageAlignment =
+        LyricsPageAlignment.fromStorage(prefs(context).getString(KEY_LYRICS_PAGE_ALIGNMENT, null))
+
+    fun setLyricsPageAlignment(context: Context, alignment: LyricsPageAlignment) {
+        prefs(context).edit().putString(KEY_LYRICS_PAGE_ALIGNMENT, alignment.storageValue).apply()
+    }
+
+    fun lyricsPageFontSizeSp(context: Context): Int {
+        val p = prefs(context)
+        return when (val stored = p.all[KEY_LYRICS_PAGE_FONT_SIZE]) {
+            is Int -> stored
+            is String -> when (stored) {
+                "small" -> 17
+                "large" -> 22
+                "extra_large" -> 25
+                else -> DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
+            }
+            else -> DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
+        }.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP)
+    }
+
+    fun setLyricsPageFontSizeSp(context: Context, fontSizeSp: Int) {
+        prefs(context).edit()
+            .putInt(
+                KEY_LYRICS_PAGE_FONT_SIZE,
+                fontSizeSp.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP),
+            )
+            .apply()
+    }
+
+    fun lyricsPageImmersive(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_LYRICS_PAGE_IMMERSIVE, false)
+
+    fun setLyricsPageImmersive(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_LYRICS_PAGE_IMMERSIVE, enabled).apply()
     }
 
     internal fun lyricsParserVersion(context: Context): Int =

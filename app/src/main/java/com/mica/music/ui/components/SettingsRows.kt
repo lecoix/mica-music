@@ -2,6 +2,7 @@ package com.mica.music.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -10,9 +11,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.mica.music.ui.theme.HifiSpacing
@@ -134,6 +141,66 @@ fun SettingsChoiceRow(
                     selected = value == selectedValue,
                     onClick = { onSelect(value) },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsDropdownRow(
+    title: String,
+    choices: List<Pair<Int, String>>,
+    selectedValue: Int,
+    onSelect: (Int) -> Unit,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = choices.firstOrNull { it.first == selectedValue }?.second ?: selectedValue.toString()
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.md),
+    ) {
+        Text(
+            text = title,
+            style = MicaTheme.typography.bodyLg,
+            color = MicaTheme.colors.textPrimary,
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MicaTheme.typography.caption,
+                color = MicaTheme.colors.textTertiary,
+                modifier = Modifier.padding(top = HifiSpacing.xxs, bottom = HifiSpacing.sm),
+            )
+        } else {
+            Spacer(Modifier.height(HifiSpacing.sm))
+        }
+        Box {
+            AccentTextChoice(
+                label = selectedLabel,
+                selected = true,
+                onClick = { expanded = true },
+            )
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                choices.forEach { (value, label) ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = label,
+                                style = MicaTheme.typography.bodyMd,
+                            )
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelect(value)
+                        },
+                    )
+                }
             }
         }
     }

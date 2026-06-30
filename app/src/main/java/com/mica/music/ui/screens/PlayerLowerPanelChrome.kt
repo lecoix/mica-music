@@ -30,13 +30,17 @@ internal fun PlayerLowerPanelChrome(
     seekState: PlaybackSeekState,
     lower: LowerPanelFrame,
     spectrumEnabled: Boolean,
+    hidden: Boolean = false,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
+    onPlayLongPress: (() -> Unit)? = null,
     onNext: () -> Unit,
     onOpenEqualizer: () -> Unit,
     onOpenQueue: () -> Unit,
 ) {
+    if (hidden) return
+
     val lyricsFocus = lower.lyricsLayoutFocus
     val density = LocalDensity.current
     val spectrumAlpha = (1f - lyricsFocus).coerceIn(0f, 1f)
@@ -103,6 +107,7 @@ internal fun PlayerLowerPanelChrome(
             onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
             onPrevious = onPrevious,
             onTogglePlay = onTogglePlay,
+            onPlayLongPress = onPlayLongPress,
             onNext = onNext,
             onOpenEqualizer = onOpenEqualizer,
             onOpenQueue = onOpenQueue,

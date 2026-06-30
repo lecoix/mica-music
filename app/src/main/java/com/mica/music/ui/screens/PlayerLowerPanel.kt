@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlayerLowerBackgroundMode
@@ -37,6 +38,10 @@ internal fun PlayerLowerPanelSection(
     lower: LowerPanelFrame,
     seekState: PlaybackSeekState,
     immersiveLower: Boolean,
+    lyricsPageOpen: Boolean,
+    lyricsPageImmersive: Boolean,
+    lyricsAlignment: LyricsPageAlignment,
+    lyricsFontSizeSp: Int,
     stripSongTitleParentheses: Boolean,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
@@ -44,6 +49,7 @@ internal fun PlayerLowerPanelSection(
     onNext: () -> Unit,
     onSeekToMs: (Int) -> Unit,
     onToggleImmersive: () -> Unit,
+    onToggleLyricsPageImmersive: () -> Unit,
     onOpenEqualizer: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenQueue: () -> Unit,
@@ -54,6 +60,8 @@ internal fun PlayerLowerPanelSection(
     val lyricsFocus = lower.lyricsLayoutFocus
     val hideInfoAndLyrics = lower.hideInfoAndLyrics
     val displayTitle = SongTitleDisplay.displayTitle(activeSong.title, stripSongTitleParentheses)
+    val hideLyricsPageChrome = lyricsPageOpen && lyricsPageImmersive
+    val playLongPress = if (lyricsPageOpen) onToggleLyricsPageImmersive else null
 
     if (hideInfoAndLyrics) {
         Column(modifier.fillMaxSize()) {
@@ -77,9 +85,11 @@ internal fun PlayerLowerPanelSection(
                 seekState = seekState,
                 lower = lower,
                 spectrumEnabled = spectrumEnabled,
+                hidden = hideLyricsPageChrome,
                 onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
                 onPrevious = onPrevious,
                 onTogglePlay = onTogglePlay,
+                onPlayLongPress = playLongPress,
                 onNext = onNext,
                 onOpenEqualizer = onOpenEqualizer,
                 onOpenQueue = onOpenQueue,
@@ -184,6 +194,8 @@ internal fun PlayerLowerPanelSection(
                     onLineClick = { timeMs ->
                         if (timeMs >= 0) onSeekToMs(timeMs)
                     },
+                    lyricsAlignment = lyricsAlignment,
+                    lyricsFontSizeSp = lyricsFontSizeSp,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = lower.lyricsChromeFade },
@@ -197,9 +209,11 @@ internal fun PlayerLowerPanelSection(
             seekState = seekState,
             lower = lower,
             spectrumEnabled = spectrumEnabled,
+            hidden = hideLyricsPageChrome,
             onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
             onPrevious = onPrevious,
             onTogglePlay = onTogglePlay,
+            onPlayLongPress = playLongPress,
             onNext = onNext,
             onOpenEqualizer = onOpenEqualizer,
             onOpenQueue = onOpenQueue,

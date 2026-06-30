@@ -44,6 +44,7 @@ internal fun PlayerPlaybackBottomSection(
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
+    onPlayLongPress: (() -> Unit)? = null,
     onNext: () -> Unit,
     onOpenEqualizer: (() -> Unit)? = null,
     onOpenQueue: () -> Unit,
@@ -64,6 +65,7 @@ internal fun PlayerPlaybackBottomSection(
             onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
             onPrevious = onPrevious,
             onTogglePlay = onTogglePlay,
+            onPlayLongPress = onPlayLongPress,
             onNext = onNext,
             onOpenEqualizer = onOpenEqualizer,
             onOpenQueue = onOpenQueue,
@@ -151,6 +153,7 @@ internal fun PlayerPlaybackControlsSection(
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
+    onPlayLongPress: (() -> Unit)? = null,
     onNext: () -> Unit,
     onOpenEqualizer: (() -> Unit)? = null,
     onOpenQueue: () -> Unit,
@@ -188,6 +191,7 @@ internal fun PlayerPlaybackControlsSection(
         SharpPlayPauseButton(
             isPlaying = surfaceState.isPlaying,
             onToggle = onTogglePlay,
+            onLongPress = onPlayLongPress,
             size = HifiSize.iconXxl,
             color = colors.primary,
         )

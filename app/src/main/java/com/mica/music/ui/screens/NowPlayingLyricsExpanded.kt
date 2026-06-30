@@ -16,9 +16,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
+import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.components.LyricLineBlock
 import com.mica.music.ui.components.LyricsAreaEdgeFade
@@ -36,23 +40,32 @@ internal fun ExpandedLyricsPanel(
     colors: PlayerContentColors,
     onLineClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    lyricsAlignment: LyricsPageAlignment = LyricsPageAlignment.CENTER,
+    lyricsFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
 ) {
-    val textStyle = rememberLyricUniformStyle()
+    val textStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsFontSizeSp)
     val colorSpec = rememberLyricLineColorSpec()
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
+    val textAlign = lyricsAlignment.toTextAlign()
+    val horizontalAlignment = lyricsAlignment.toHorizontalAlignment()
+    val horizontalPadding = if (lyricsAlignment == LyricsPageAlignment.CENTER) {
+        HifiSpacing.lg
+    } else {
+        HifiSpacing.lg * 1.5f
+    }
 
     if (!lyrics.hasDisplayableLyrics()) {
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .padding(horizontal = HifiSpacing.lg),
+                .padding(horizontal = horizontalPadding),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = EmptyLyricsText,
                 style = textStyle,
                 color = colors.secondary,
-                textAlign = TextAlign.Center,
+                textAlign = textAlign,
             )
         }
         return
@@ -80,13 +93,13 @@ internal fun ExpandedLyricsPanel(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = HifiSpacing.lg,
-                end = HifiSpacing.lg,
+                start = horizontalPadding,
+                end = horizontalPadding,
                 top = HifiSpacing.sm,
                 bottom = HifiSpacing.xl,
             ),
             verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            horizontalAlignment = horizontalAlignment,
         ) {
             itemsIndexed(
                 lyrics,
@@ -104,6 +117,8 @@ internal fun ExpandedLyricsPanel(
                     nextLineTimeMs = lyrics.getOrNull(index + 1)?.timeMs,
                     positionMs = positionMs,
                     isPlaying = isPlaying,
+                    textAlign = textAlign,
+                    horizontalAlignment = horizontalAlignment,
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
@@ -117,4 +132,24 @@ internal fun ExpandedLyricsPanel(
             }
         }
     }
+}
+
+private fun TextStyle.withFontSizeSp(fontSizeSp: Int): TextStyle {
+    val lineHeightRatio = if (fontSize.value > 0f) lineHeight.value / fontSize.value else 1.45f
+    return copy(
+        fontSize = fontSizeSp.sp,
+        lineHeight = (fontSizeSp * lineHeightRatio).sp,
+    )
+}
+
+private fun LyricsPageAlignment.toTextAlign(): TextAlign = when (this) {
+    LyricsPageAlignment.START -> TextAlign.Start
+    LyricsPageAlignment.CENTER -> TextAlign.Center
+    LyricsPageAlignment.END -> TextAlign.End
+}
+
+private fun LyricsPageAlignment.toHorizontalAlignment(): Alignment.Horizontal = when (this) {
+    LyricsPageAlignment.START -> Alignment.Start
+    LyricsPageAlignment.CENTER -> Alignment.CenterHorizontally
+    LyricsPageAlignment.END -> Alignment.End
 }

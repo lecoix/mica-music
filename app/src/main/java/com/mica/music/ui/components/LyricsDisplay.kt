@@ -219,6 +219,8 @@ fun LyricLineBlock(
     nextLineTimeMs: Int? = null,
     positionMs: Int = 0,
     isPlaying: Boolean = false,
+    textAlign: TextAlign = TextAlign.Center,
+    horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
 ) {
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
@@ -236,7 +238,7 @@ fun LyricLineBlock(
     )
     Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = horizontalAlignment,
         verticalArrangement = Arrangement.spacedBy(bilingualGap),
     ) {
         rows.forEach { row ->
@@ -259,6 +261,7 @@ fun LyricLineBlock(
                         0f
                     },
                     maxLines = maxLines,
+                    textAlign = textAlign,
                 )
             } else if (
                 isCurrent &&
@@ -277,6 +280,7 @@ fun LyricLineBlock(
                         syncDisplayRowFill = syncDisplayRows,
                     ),
                     maxLines = maxLines,
+                    textAlign = textAlign,
                 )
             } else {
                 AnimatedLyricLineText(
@@ -286,6 +290,7 @@ fun LyricLineBlock(
                     textStyle = textStyle,
                     colorSpec = colorSpec,
                     maxLines = maxLines,
+                    textAlign = textAlign,
                 )
             }
         }
@@ -391,6 +396,7 @@ private fun KaraokeLyricLineText(
     textStyle: TextStyle,
     fillFraction: Float,
     maxLines: Int,
+    textAlign: TextAlign = TextAlign.Center,
 ) {
     val lineText = text.takeIf { it.isNotBlank() } ?: LYRIC_LINE_PLACEHOLDER
     val overflow = if (maxLines == 1) TextOverflow.Ellipsis else TextOverflow.Clip
@@ -405,7 +411,7 @@ private fun KaraokeLyricLineText(
             text = lineText,
             style = style,
             color = colors.tertiary,
-            textAlign = TextAlign.Center,
+            textAlign = textAlign,
             maxLines = maxLines,
             overflow = overflow,
             modifier = Modifier.fillMaxWidth(),
@@ -415,7 +421,7 @@ private fun KaraokeLyricLineText(
             text = lineText,
             style = style,
             color = colors.primary,
-            textAlign = TextAlign.Center,
+            textAlign = textAlign,
             maxLines = maxLines,
             overflow = overflow,
             modifier = Modifier
@@ -471,6 +477,7 @@ fun AnimatedLyricLineText(
     modifier: Modifier = Modifier,
     colorSpec: androidx.compose.animation.core.AnimationSpec<Color> = rememberLyricLineColorSpec(),
     maxLines: Int = 1,
+    textAlign: TextAlign = TextAlign.Center,
 ) {
     val color by animateColorAsState(
         targetValue = if (isCurrent) colors.primary else colors.tertiary,
@@ -483,7 +490,7 @@ fun AnimatedLyricLineText(
             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
         ),
         color = color,
-        textAlign = TextAlign.Center,
+        textAlign = textAlign,
         maxLines = maxLines,
         overflow = if (maxLines == 1) TextOverflow.Ellipsis else TextOverflow.Clip,
         modifier = modifier.fillMaxWidth(),

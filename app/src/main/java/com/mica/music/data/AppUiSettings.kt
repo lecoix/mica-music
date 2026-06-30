@@ -63,6 +63,15 @@ class AppUiSettings(context: Context) {
     var lyricLineFillEnabled by mutableStateOf(AppPreferences.lyricLineFillEnabled(appContext))
         private set
 
+    var lyricsPageAlignment by mutableStateOf(AppPreferences.lyricsPageAlignment(appContext))
+        private set
+
+    var lyricsPageFontSizeSp by mutableIntStateOf(AppPreferences.lyricsPageFontSizeSp(appContext))
+        private set
+
+    var lyricsPageImmersive by mutableStateOf(AppPreferences.lyricsPageImmersive(appContext))
+        private set
+
     var spectrumEnabled by mutableStateOf(AppPreferences.spectrumEnabled(appContext))
         private set
 
@@ -151,6 +160,24 @@ class AppUiSettings(context: Context) {
         AppPreferences.setLyricLineFillEnabled(appContext, enabled)
     }
 
+    fun updateLyricsPageAlignment(alignment: LyricsPageAlignment) {
+        lyricsPageAlignment = alignment
+        AppPreferences.setLyricsPageAlignment(appContext, alignment)
+    }
+
+    fun updateLyricsPageFontSizeSp(fontSizeSp: Int) {
+        lyricsPageFontSizeSp = fontSizeSp.coerceIn(
+            MIN_LYRICS_PAGE_FONT_SIZE_SP,
+            MAX_LYRICS_PAGE_FONT_SIZE_SP,
+        )
+        AppPreferences.setLyricsPageFontSizeSp(appContext, lyricsPageFontSizeSp)
+    }
+
+    fun updateLyricsPageImmersive(enabled: Boolean) {
+        lyricsPageImmersive = enabled
+        AppPreferences.setLyricsPageImmersive(appContext, enabled)
+    }
+
     fun updateSpectrumEnabled(enabled: Boolean) {
         spectrumEnabled = enabled
         AppPreferences.setSpectrumEnabled(appContext, enabled)
@@ -165,6 +192,10 @@ class AppUiSettings(context: Context) {
 
     fun togglePlayerImmersiveLower() {
         updatePlayerImmersiveLower(!playerImmersiveLower)
+    }
+
+    fun toggleLyricsPageImmersive() {
+        updateLyricsPageImmersive(!lyricsPageImmersive)
     }
 
     /** 当前背景下是否使用封面底边进度（仅主题色 / 封面模糊）。 */
