@@ -65,7 +65,7 @@ object LibraryBrowse {
                 albumArtUri = artworkSong?.albumArtUri,
                 coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
             )
-        }.sortedWith(compareBy(collator) { it.title })
+        }.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
     }
 
     fun groupByAlbum(songs: List<Song>): List<BrowseGroup> =
@@ -83,10 +83,10 @@ object LibraryBrowse {
                     coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
                 )
             }
-            .sortedWith { a, b -> collator.compare(a.title, b.title) }
+            .sortedWith(AlphabeticalText.comparator({ it.title }, collator))
 
     fun sortArtistGroups(groups: List<BrowseGroup>, direction: SortDirection): List<BrowseGroup> {
-        val sorted = groups.sortedWith { a, b -> collator.compare(a.title, b.title) }
+        val sorted = groups.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
         return if (direction == SortDirection.DESC) sorted.reversed() else sorted
     }
 
@@ -98,21 +98,19 @@ object LibraryBrowse {
         if (field == AlbumBrowseSortField.SONG_COUNT && direction == SortDirection.DESC) {
             return groups.sortedWith(
                 compareByDescending<BrowseGroup> { it.songCount }
-                    .then(compareBy(collator) { it.title }),
+                    .then(AlphabeticalText.comparator({ it.title }, collator)),
             )
         }
         val sorted = when (field) {
-            AlbumBrowseSortField.TITLE -> groups.sortedWith(
-                compareBy<BrowseGroup, String>(collator) { it.title },
-            )
+            AlbumBrowseSortField.TITLE -> groups.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
             AlbumBrowseSortField.YEAR -> groups.sortedWith(albumYearComparator(direction))
             AlbumBrowseSortField.SONG_COUNT -> groups.sortedWith(
                 compareBy<BrowseGroup> { it.songCount }
-                    .then(compareBy(collator) { it.title }),
+                    .then(AlphabeticalText.comparator({ it.title }, collator)),
             )
             AlbumBrowseSortField.ARTIST -> groups.sortedWith(
-                compareBy<BrowseGroup, String>(collator) { it.artist }
-                    .then(compareBy(collator) { it.title }),
+                AlphabeticalText.comparator<BrowseGroup>({ it.artist }, collator)
+                    .then(AlphabeticalText.comparator({ it.title }, collator)),
             )
         }
         return if (direction == SortDirection.DESC && field != AlbumBrowseSortField.YEAR) {
@@ -127,7 +125,10 @@ object LibraryBrowse {
         songs.forEach { song ->
             ArtistNames.split(song.artist).forEach { names.add(it) }
         }
-        val sorted = names.sortedWith { a, b -> collator.compare(a, b) }
+        val sorted = names.sortedWith { a, b ->
+            val keyCompare = AlphabeticalText.sortKey(a).compareTo(AlphabeticalText.sortKey(b))
+            if (keyCompare != 0) keyCompare else collator.compare(a, b)
+        }
         return when {
             sorted.isEmpty() -> "未知艺术家"
             sorted.size == 1 -> sorted.first()
@@ -175,8 +176,8 @@ object LibraryBrowse {
                 pathSegments = pathSegments,
             )
         }.sortedWith(
-            compareBy<FolderBrowseGroup, String>(collator) { it.title }
-                .then(compareBy(collator) { it.pathSegments.dropLast(1).joinToString("/") }),
+            AlphabeticalText.comparator<FolderBrowseGroup>({ it.title }, collator)
+                .then(AlphabeticalText.comparator({ it.pathSegments.dropLast(1).joinToString("/") }, collator)),
         )
     }
 
@@ -217,14 +218,19 @@ object LibraryBrowse {
             val aUnknown = a.year <= 0
             val bUnknown = b.year <= 0
             when {
-                aUnknown && bUnknown -> collator.compare(a.title, b.title)
+                aUnknown && bUnknown -> compareText(a.title, b.title)
                 aUnknown -> 1
                 bUnknown -> -1
                 direction == SortDirection.DESC && a.year != b.year -> b.year.compareTo(a.year)
                 a.year != b.year -> a.year.compareTo(b.year)
-                else -> collator.compare(a.title, b.title)
+                else -> compareText(a.title, b.title)
             }
         }
+
+    private fun compareText(a: String, b: String): Int {
+        val keyCompare = AlphabeticalText.sortKey(a).compareTo(AlphabeticalText.sortKey(b))
+        return if (keyCompare != 0) keyCompare else collator.compare(a, b)
+    }
 
     private fun String.folderSegments(): List<String> =
         split('/', '\\')

@@ -27,6 +27,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
+import com.mica.music.data.SongSortField
+import com.mica.music.data.SortDirection
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -43,6 +45,8 @@ fun PlaylistSongListPanel(
     onSongOpenMenu: (Song) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
     emptyMessage: String,
+    sortField: SongSortField = library.sortField,
+    sortDirection: SortDirection = library.sortDirection,
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
@@ -65,6 +69,8 @@ fun PlaylistSongListPanel(
             onSongClick = onSongClick,
             onSongOpenMenu = onSongOpenMenu,
             emptyMessage = emptyMessage,
+            fastScrollSortField = sortField,
+            fastScrollSortDirection = sortDirection,
             listBottomPadding = listBottomPadding,
             modifier = modifier,
         )

@@ -73,6 +73,8 @@ internal fun HomePlaylistContent(
         },
         onSongOpenMenu = onSongOpenMenu,
         onMoveSong = onMoveSong,
+        sortField = playlist.sortField,
+        sortDirection = playlist.sortDirection,
         emptyMessage = "歌单为空",
         listBottomPadding = listBottomPadding,
         modifier = modifier,

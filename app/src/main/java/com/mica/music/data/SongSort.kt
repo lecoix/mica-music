@@ -59,7 +59,7 @@ object SongSorter {
     }
 
     private fun text(selector: (Song) -> String): Comparator<Song> =
-        Comparator { a, b -> collator.compare(selector(a), selector(b)) }
+        AlphabeticalText.comparator(selector, collator)
 
     private fun comparatorFor(field: SongSortField): Comparator<Song> = when (field) {
         SongSortField.TITLE -> text { it.title }

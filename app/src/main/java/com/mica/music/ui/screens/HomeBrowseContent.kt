@@ -39,6 +39,7 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.SortDirection
+import com.mica.music.ui.components.AlphabetFastScroller
 import com.mica.music.ui.components.BrowseGroupRow
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.SongListPanel
@@ -197,6 +198,7 @@ internal fun HomeBrowseContent(
                     onSongClick(songId)
                 },
                 onSongOpenMenu = onSongOpenMenu,
+                fastScrollSortField = null,
                 emptyMessage = "暂无播放记录",
                 listBottomPadding = listBottomPadding,
                 modifier = modifier,
@@ -386,6 +388,8 @@ private fun ArtistGroupList(
         listState = listState,
         gridColumns = gridColumns,
         onSelect = onSelect,
+        fastScrollLabels = groups.map { it.title },
+        fastScrollDescending = sortDirection == SortDirection.DESC,
         listBottomPadding = listBottomPadding,
         modifier = modifier,
     )
@@ -415,6 +419,14 @@ private fun AlbumGroupList(
         gridColumns = gridColumns,
         onSelect = onSelect,
         rowSubtitle = ::albumRowSubtitle,
+        fastScrollLabels = when (sortField) {
+            AlbumBrowseSortField.TITLE -> groups.map { it.title }
+            AlbumBrowseSortField.ARTIST -> groups.map { it.artist }
+            AlbumBrowseSortField.YEAR,
+            AlbumBrowseSortField.SONG_COUNT,
+            -> null
+        },
+        fastScrollDescending = sortDirection == SortDirection.DESC,
         listBottomPadding = listBottomPadding,
         modifier = modifier,
     )
@@ -427,6 +439,8 @@ private fun BrowseGroupList(
     gridColumns: Int,
     onSelect: (String) -> Unit,
     rowSubtitle: (BrowseGroup) -> String = { it.subtitle },
+    fastScrollLabels: List<String>? = groups.map { it.title },
+    fastScrollDescending: Boolean = false,
     listBottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -453,19 +467,45 @@ private fun BrowseGroupList(
         return
     }
 
-    LazyColumn(
-        state = listState,
+    if (fastScrollLabels == null) {
+        LazyColumn(
+            state = listState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            items(groups, key = { it.title }) { group ->
+                BrowseGroupRow(
+                    title = group.title,
+                    subtitle = rowSubtitle(group),
+                    albumArtUri = group.albumArtUri,
+                    fallbackColor = Color(group.coverColorArgb),
+                    onClick = { onSelect(group.title) },
+                )
+            }
+        }
+        return
+    }
+
+    AlphabetFastScroller(
+        labels = fastScrollLabels,
+        listState = listState,
+        descending = fastScrollDescending,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = listBottomPadding),
     ) {
-        items(groups, key = { it.title }) { group ->
-            BrowseGroupRow(
-                title = group.title,
-                subtitle = rowSubtitle(group),
-                albumArtUri = group.albumArtUri,
-                fallbackColor = Color(group.coverColorArgb),
-                onClick = { onSelect(group.title) },
-            )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            items(groups, key = { it.title }) { group ->
+                BrowseGroupRow(
+                    title = group.title,
+                    subtitle = rowSubtitle(group),
+                    albumArtUri = group.albumArtUri,
+                    fallbackColor = Color(group.coverColorArgb),
+                    onClick = { onSelect(group.title) },
+                )
+            }
         }
     }
 }

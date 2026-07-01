@@ -63,6 +63,23 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun albumArtistSortMixesChineseByPinyinInitial() {
+        val groups = LibraryBrowse.groupByAlbum(
+            listOf(
+                SongFixtures.song(id = "a").copy(album = "A Album", artist = "阿杜"),
+                SongFixtures.song(id = "b").copy(album = "B Album", artist = "Beatles"),
+                SongFixtures.song(id = "z").copy(album = "Z Album", artist = "Zoo"),
+            ),
+        )
+
+        assertEquals(
+            listOf("A Album", "B Album", "Z Album"),
+            LibraryBrowse.sortAlbumGroups(groups, AlbumBrowseSortField.ARTIST, SortDirection.ASC)
+                .map { it.title },
+        )
+    }
+
+    @Test
     fun artistGroupsSortByDirection() {
         val groups = LibraryBrowse.groupByArtist(
             listOf(
