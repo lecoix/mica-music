@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,7 +40,7 @@ private val AlphabetFastScrollHeight = 384.dp
 @Composable
 fun AlphabetFastScroller(
     labels: List<String>,
-    listState: LazyListState,
+    scrollToIndex: suspend (Int) -> Unit,
     descending: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
@@ -95,7 +94,7 @@ fun AlphabetFastScroller(
                             lastSection = section
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             sectionTargets[section]?.let { index ->
-                                scope.launch { listState.scrollToItem(index) }
+                                scope.launch { scrollToIndex(index) }
                             }
                         }
 

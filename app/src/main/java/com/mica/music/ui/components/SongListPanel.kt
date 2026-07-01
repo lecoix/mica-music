@@ -62,7 +62,7 @@ fun SongListPanel(
     } else {
         AlphabetFastScroller(
             labels = fastScrollLabels,
-            listState = lazyListState,
+            scrollToIndex = { lazyListState.scrollToItem(it) },
             descending = fastScrollSortDirection == SortDirection.DESC,
             modifier = modifier.fillMaxSize(),
         ) {

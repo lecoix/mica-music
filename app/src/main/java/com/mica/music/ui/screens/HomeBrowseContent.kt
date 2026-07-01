@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -446,22 +447,53 @@ private fun BrowseGroupList(
 ) {
     val columns = gridColumns.coerceIn(1, 4)
     if (columns > 1) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(columns),
-            modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = HifiSpacing.lg,
-                end = HifiSpacing.lg,
-                bottom = listBottomPadding,
-            ),
-            horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
-        ) {
-            gridItems(groups, key = { it.title }) { group ->
-                BrowseGroupGridTile(
-                    group = group,
-                    onClick = { onSelect(group.title) },
-                )
+        val gridState = rememberLazyGridState()
+        if (fastScrollLabels == null) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                state = gridState,
+                modifier = modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = HifiSpacing.lg,
+                    end = HifiSpacing.lg,
+                    bottom = listBottomPadding,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
+            ) {
+                gridItems(groups, key = { it.title }) { group ->
+                    BrowseGroupGridTile(
+                        group = group,
+                        onClick = { onSelect(group.title) },
+                    )
+                }
+            }
+        } else {
+            AlphabetFastScroller(
+                labels = fastScrollLabels,
+                scrollToIndex = { gridState.scrollToItem(it) },
+                descending = fastScrollDescending,
+                modifier = modifier.fillMaxSize(),
+            ) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = HifiSpacing.lg,
+                        end = HifiSpacing.lg,
+                        bottom = listBottomPadding,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
+                ) {
+                    gridItems(groups, key = { it.title }) { group ->
+                        BrowseGroupGridTile(
+                            group = group,
+                            onClick = { onSelect(group.title) },
+                        )
+                    }
+                }
             }
         }
         return
@@ -488,7 +520,7 @@ private fun BrowseGroupList(
 
     AlphabetFastScroller(
         labels = fastScrollLabels,
-        listState = listState,
+        scrollToIndex = { listState.scrollToItem(it) },
         descending = fastScrollDescending,
         modifier = modifier.fillMaxSize(),
     ) {
