@@ -180,6 +180,7 @@ fun SettingsScreen(
     var deepProbe by remember { mutableStateOf(com.mica.music.data.AppPreferences.deepMetadataProbe(context)) }
     var minDurationSec by remember { mutableIntStateOf(com.mica.music.data.AppPreferences.minTrackDurationSec(context)) }
     var showCustomAccentDialog by remember { mutableStateOf(false) }
+    var showCustomMicaDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
 
     BackHandler(enabled = selectedCategory != null) {
@@ -228,6 +229,19 @@ fun SettingsScreen(
             onConfirm = { colorArgb ->
                 uiSettings.updateCustomAccentColorArgb(colorArgb)
                 showCustomAccentDialog = false
+            },
+        )
+    }
+
+    if (showCustomMicaDialog) {
+        CustomMicaBackgroundDialog(
+            initialStartArgb = uiSettings.customMicaStartArgb,
+            initialEndArgb = uiSettings.customMicaEndArgb,
+            initialSingleColor = uiSettings.customMicaSingleColor,
+            onDismiss = { showCustomMicaDialog = false },
+            onConfirm = { startArgb, endArgb, singleColor ->
+                uiSettings.updateCustomMicaBackground(startArgb, endArgb, singleColor)
+                showCustomMicaDialog = false
             },
         )
     }
@@ -323,11 +337,25 @@ fun SettingsScreen(
 
                         SettingsChoiceRow(
                             title = "云母背景",
-                            subtitle = "主页与各页面的渐变底色",
+                            subtitle = when {
+                                uiSettings.micaBackgroundPreset == MicaPreset.CUSTOM && uiSettings.customMicaSingleColor -> {
+                                    "自定义：${formatAccentHex(uiSettings.customMicaStartArgb)}"
+                                }
+                                uiSettings.micaBackgroundPreset == MicaPreset.CUSTOM -> {
+                                    "自定义：${formatAccentHex(uiSettings.customMicaStartArgb)} → " +
+                                        formatAccentHex(uiSettings.customMicaEndArgb)
+                                }
+                                else -> "主页与各页面的渐变底色"
+                            },
                             choices = MicaBackgroundChoices,
                             selectedValue = uiSettings.micaBackgroundPreset.ordinal,
                             onSelect = { ordinal ->
-                                uiSettings.updateMicaBackgroundPreset(MicaPreset.entries[ordinal])
+                                val preset = MicaPreset.entries[ordinal]
+                                if (preset == MicaPreset.CUSTOM) {
+                                    showCustomMicaDialog = true
+                                } else {
+                                    uiSettings.updateMicaBackgroundPreset(preset)
+                                }
                             },
                         )
 
@@ -638,10 +666,109 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun CustomAccentColorDialog(
-    initialColorArgb: Int,
+private fun CustomMicaBackgroundDialog(
+    initialStartArgb: Int,
+    initialEndArgb: Int,
+    initialSingleColor: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit,
+    onConfirm: (Int, Int, Boolean) -> Unit,
+) {
+    var singleColor by remember(initialSingleColor) { mutableStateOf(initialSingleColor) }
+    var startArgb by remember(initialStartArgb) { mutableIntStateOf(initialStartArgb) }
+    var endArgb by remember(initialEndArgb) { mutableIntStateOf(initialEndArgb) }
+    val previewStart = Color(startArgb)
+    val previewEnd = if (singleColor) previewStart else Color(endArgb)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RectangleShape,
+        title = {
+            Text(
+                text = "自定义云母背景",
+                style = MicaTheme.typography.titleMd,
+                color = MicaTheme.colors.textPrimary,
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm)) {
+                    MicaColorModeChip(
+                        label = "双色",
+                        selected = !singleColor,
+                        onClick = { singleColor = false },
+                    )
+                    MicaColorModeChip(
+                        label = "单色",
+                        selected = singleColor,
+                        onClick = { singleColor = true },
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .background(Brush.verticalGradient(listOf(previewStart, previewEnd)))
+                        .border(1.dp, MicaTheme.colors.divider),
+                )
+
+                HsvColorEditor(
+                    title = if (singleColor) "背景色" else "顶部色",
+                    initialColorArgb = initialStartArgb,
+                    onColorChange = { startArgb = it },
+                )
+
+                if (!singleColor) {
+                    HsvColorEditor(
+                        title = "底部色",
+                        initialColorArgb = initialEndArgb,
+                        onColorChange = { endArgb = it },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(startArgb, endArgb, singleColor) }) {
+                Text("应用")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
+}
+
+@Composable
+private fun MicaColorModeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = if (selected) {
+            Modifier.background(MicaTheme.colors.accent.copy(alpha = 0.18f))
+        } else {
+            Modifier
+        },
+    ) {
+        Text(
+            text = label,
+            color = if (selected) MicaTheme.colors.accent else MicaTheme.colors.textSecondary,
+        )
+    }
+}
+
+@Composable
+private fun HsvColorEditor(
+    title: String,
+    initialColorArgb: Int,
+    onColorChange: (Int) -> Unit,
 ) {
     val initialHsv = remember(initialColorArgb) {
         FloatArray(3).also { AndroidColor.colorToHSV(initialColorArgb, it) }
@@ -658,8 +785,108 @@ private fun CustomAccentColorDialog(
         hue = newHue.coerceIn(0f, 360f)
         saturation = newSaturation.coerceIn(0f, 1f)
         brightness = newBrightness.coerceIn(0f, 1f)
-        hexValue = formatAccentHex(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness)))
+        val updated = AndroidColor.HSVToColor(floatArrayOf(hue, saturation, brightness))
+        hexValue = formatAccentHex(updated)
+        onColorChange(updated)
     }
+
+    Column(verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm)) {
+        Text(
+            text = title,
+            style = MicaTheme.typography.titleSm,
+            color = MicaTheme.colors.textPrimary,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(previewColor)
+                    .border(1.dp, MicaTheme.colors.divider),
+            )
+            Text(
+                text = formatAccentHex(previewColorArgb),
+                style = MicaTheme.typography.monoSm,
+                color = MicaTheme.colors.textSecondary,
+            )
+        }
+
+        HsvColorSlider(
+            label = "色相",
+            value = hue,
+            valueRange = 0f..360f,
+            valueText = "${hue.toInt()}°",
+            colors = hueGradientColors(),
+            onValueChange = { setHsv(newHue = it) },
+        )
+        HsvColorSlider(
+            label = "饱和度",
+            value = saturation,
+            valueRange = 0f..1f,
+            valueText = "${(saturation * 100).toInt()}%",
+            colors = listOf(
+                Color(AndroidColor.HSVToColor(floatArrayOf(hue, 0f, brightness))),
+                Color(AndroidColor.HSVToColor(floatArrayOf(hue, 1f, brightness))),
+            ),
+            onValueChange = { setHsv(newSaturation = it) },
+        )
+        HsvColorSlider(
+            label = "明度",
+            value = brightness,
+            valueRange = 0f..1f,
+            valueText = "${(brightness * 100).toInt()}%",
+            colors = listOf(
+                Color.Black,
+                Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, 1f))),
+            ),
+            onValueChange = { setHsv(newBrightness = it) },
+        )
+
+        OutlinedTextField(
+            value = hexValue,
+            onValueChange = { value ->
+                hexValue = value
+                parseAccentHex(value)?.let { updated ->
+                    val hsv = FloatArray(3)
+                    AndroidColor.colorToHSV(updated, hsv)
+                    hue = hsv[0]
+                    saturation = hsv[1]
+                    brightness = hsv[2]
+                    onColorChange(updated)
+                }
+            },
+            singleLine = true,
+            isError = parsedColorArgb == null,
+            label = {
+                Text(
+                    text = "#RRGGBB",
+                    style = MicaTheme.typography.caption,
+                )
+            },
+            supportingText = {
+                if (parsedColorArgb == null) {
+                    Text(
+                        text = "请输入 6 位十六进制颜色",
+                        style = MicaTheme.typography.caption,
+                    )
+                }
+            },
+            textStyle = MicaTheme.typography.bodyMd.copy(color = MicaTheme.colors.textPrimary),
+            shape = RectangleShape,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun CustomAccentColorDialog(
+    initialColorArgb: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    var colorArgb by remember(initialColorArgb) { mutableIntStateOf(initialColorArgb) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -672,94 +899,14 @@ private fun CustomAccentColorDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(HifiSpacing.md)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(previewColor)
-                            .border(1.dp, MicaTheme.colors.divider),
-                    )
-                    Text(
-                        text = formatAccentHex(previewColorArgb),
-                        style = MicaTheme.typography.monoSm,
-                        color = MicaTheme.colors.textSecondary,
-                    )
-                }
-
-                HsvColorSlider(
-                    label = "色相",
-                    value = hue,
-                    valueRange = 0f..360f,
-                    valueText = "${hue.toInt()}°",
-                    colors = hueGradientColors(),
-                    onValueChange = { setHsv(newHue = it) },
-                )
-                HsvColorSlider(
-                    label = "饱和度",
-                    value = saturation,
-                    valueRange = 0f..1f,
-                    valueText = "${(saturation * 100).toInt()}%",
-                    colors = listOf(
-                        Color(AndroidColor.HSVToColor(floatArrayOf(hue, 0f, brightness))),
-                        Color(AndroidColor.HSVToColor(floatArrayOf(hue, 1f, brightness))),
-                    ),
-                    onValueChange = { setHsv(newSaturation = it) },
-                )
-                HsvColorSlider(
-                    label = "明度",
-                    value = brightness,
-                    valueRange = 0f..1f,
-                    valueText = "${(brightness * 100).toInt()}%",
-                    colors = listOf(
-                        Color.Black,
-                        Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, 1f))),
-                    ),
-                    onValueChange = { setHsv(newBrightness = it) },
-                )
-
-                OutlinedTextField(
-                    value = hexValue,
-                    onValueChange = { value ->
-                        hexValue = value
-                        parseAccentHex(value)?.let { colorArgb ->
-                            val hsv = FloatArray(3)
-                            AndroidColor.colorToHSV(colorArgb, hsv)
-                            hue = hsv[0]
-                            saturation = hsv[1]
-                            brightness = hsv[2]
-                        }
-                    },
-                    singleLine = true,
-                    isError = parsedColorArgb == null,
-                    label = {
-                        Text(
-                            text = "#RRGGBB",
-                            style = MicaTheme.typography.caption,
-                        )
-                    },
-                    supportingText = {
-                        if (parsedColorArgb == null) {
-                            Text(
-                                text = "请输入 6 位十六进制颜色",
-                                style = MicaTheme.typography.caption,
-                            )
-                        }
-                    },
-                    textStyle = MicaTheme.typography.bodyMd.copy(color = MicaTheme.colors.textPrimary),
-                    shape = RectangleShape,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            HsvColorEditor(
+                title = "强调色",
+                initialColorArgb = initialColorArgb,
+                onColorChange = { colorArgb = it },
+            )
         },
         confirmButton = {
-            TextButton(
-                enabled = parsedColorArgb != null,
-                onClick = { onConfirm(previewColorArgb) },
-            ) {
+            TextButton(onClick = { onConfirm(colorArgb) }) {
                 Text("应用")
             }
         },

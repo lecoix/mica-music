@@ -37,6 +37,7 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.Song
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
+import com.mica.music.ui.theme.LocalCustomMicaBackground
 import com.mica.music.ui.theme.LocalMicaBackgroundPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.bottomThemeColor
@@ -253,7 +254,10 @@ private fun AudiophileMiniPlayer(
     modifier: Modifier = Modifier,
 ) {
     val colors = MicaTheme.colors
-    val barSurface = LocalMicaBackgroundPreset.current.bottomThemeColor(colors.isDark)
+    val barSurface = LocalMicaBackgroundPreset.current.bottomThemeColor(
+        colors.isDark,
+        LocalCustomMicaBackground.current,
+    )
     LaunchedEffect(Unit) {
         onCoverBoundsChanged(null)
     }

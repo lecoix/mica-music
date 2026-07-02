@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import com.mica.music.data.scanner.ScanOptions
 import com.mica.music.media.eq.EqBandConstants
+import com.mica.music.ui.theme.CustomMicaBackground
 import com.mica.music.ui.theme.MicaPreset
 
 /**
@@ -38,6 +39,9 @@ object AppPreferences {
     private const val KEY_APP_ACCENT_COLOR = "app_accent_color"
     private const val KEY_CUSTOM_ACCENT_COLOR = "custom_accent_color"
     private const val KEY_MICA_BACKGROUND_PRESET = "mica_background_preset"
+    private const val KEY_CUSTOM_MICA_START = "custom_mica_start"
+    private const val KEY_CUSTOM_MICA_END = "custom_mica_end"
+    private const val KEY_CUSTOM_MICA_SINGLE_COLOR = "custom_mica_single_color"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
@@ -250,6 +254,27 @@ object AppPreferences {
         prefs(context).edit().putString(KEY_MICA_BACKGROUND_PRESET, preset.storageValue).apply()
     }
 
+    fun customMicaStartArgb(context: Context): Int =
+        prefs(context).getInt(KEY_CUSTOM_MICA_START, DEFAULT_CUSTOM_MICA_START_ARGB)
+
+    fun setCustomMicaStartArgb(context: Context, colorArgb: Int) {
+        prefs(context).edit().putInt(KEY_CUSTOM_MICA_START, colorArgb).apply()
+    }
+
+    fun customMicaEndArgb(context: Context): Int =
+        prefs(context).getInt(KEY_CUSTOM_MICA_END, DEFAULT_CUSTOM_MICA_END_ARGB)
+
+    fun setCustomMicaEndArgb(context: Context, colorArgb: Int) {
+        prefs(context).edit().putInt(KEY_CUSTOM_MICA_END, colorArgb).apply()
+    }
+
+    fun customMicaSingleColor(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_CUSTOM_MICA_SINGLE_COLOR, false)
+
+    fun setCustomMicaSingleColor(context: Context, singleColor: Boolean) {
+        prefs(context).edit().putBoolean(KEY_CUSTOM_MICA_SINGLE_COLOR, singleColor).apply()
+    }
+
     /**
      * 封面底边进度：进度条叠在专辑封面下缘，仅显示已播放段。
      * 仅在播放页背景为「主题色」或「封面模糊」时生效。
@@ -437,4 +462,6 @@ object AppPreferences {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private const val DEFAULT_CUSTOM_ACCENT_COLOR_ARGB = 0xFF8B7AFF.toInt()
+    private const val DEFAULT_CUSTOM_MICA_START_ARGB = CustomMicaBackground.DEFAULT_START_ARGB
+    private const val DEFAULT_CUSTOM_MICA_END_ARGB = CustomMicaBackground.DEFAULT_END_ARGB
 }

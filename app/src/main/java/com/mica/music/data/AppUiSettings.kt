@@ -57,6 +57,15 @@ class AppUiSettings(context: Context) {
     var micaBackgroundPreset by mutableStateOf(AppPreferences.micaBackgroundPreset(appContext))
         private set
 
+    var customMicaStartArgb by mutableIntStateOf(AppPreferences.customMicaStartArgb(appContext))
+        private set
+
+    var customMicaEndArgb by mutableIntStateOf(AppPreferences.customMicaEndArgb(appContext))
+        private set
+
+    var customMicaSingleColor by mutableStateOf(AppPreferences.customMicaSingleColor(appContext))
+        private set
+
     var lyricSplitEnabled by mutableStateOf(AppPreferences.lyricSplitEnabled(appContext))
         private set
 
@@ -154,6 +163,16 @@ class AppUiSettings(context: Context) {
     fun updateMicaBackgroundPreset(preset: MicaPreset) {
         micaBackgroundPreset = preset
         AppPreferences.setMicaBackgroundPreset(appContext, preset)
+    }
+
+    fun updateCustomMicaBackground(startArgb: Int, endArgb: Int, singleColor: Boolean) {
+        customMicaStartArgb = startArgb
+        customMicaEndArgb = endArgb
+        customMicaSingleColor = singleColor
+        AppPreferences.setCustomMicaStartArgb(appContext, startArgb)
+        AppPreferences.setCustomMicaEndArgb(appContext, endArgb)
+        AppPreferences.setCustomMicaSingleColor(appContext, singleColor)
+        updateMicaBackgroundPreset(MicaPreset.CUSTOM)
     }
 
     fun updateLyricSplitEnabled(enabled: Boolean) {

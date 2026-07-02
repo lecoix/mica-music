@@ -32,8 +32,9 @@ private fun supportsFloatingIslandRenderEffect(): Boolean =
 @Composable
 fun rememberFloatingIslandListBackdropColor(): Color {
     val preset = LocalMicaBackgroundPreset.current
+    val custom = LocalCustomMicaBackground.current
     val isDark = MicaTheme.colors.isDark
-    return remember(preset, isDark) { preset.bottomThemeColor(isDark) }
+    return remember(preset, custom, isDark) { preset.bottomThemeColor(isDark, custom) }
 }
 
 private fun configureMicaBlurViewOnce(

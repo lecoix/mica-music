@@ -20,6 +20,11 @@ fun MicaAppRoot(
             accentColor = uiSettings.accentColor,
             customAccentColorArgb = uiSettings.customAccentColorArgb,
             micaBackgroundPreset = uiSettings.micaBackgroundPreset,
+            customMicaBackground = CustomMicaBackground(
+                startArgb = uiSettings.customMicaStartArgb,
+                endArgb = uiSettings.customMicaEndArgb,
+                singleColor = uiSettings.customMicaSingleColor,
+            ),
             coverDisplayMode = uiSettings.coverDisplayMode,
             lyricSplitEnabled = uiSettings.lyricSplitEnabled,
             lyricLineFillEnabled = uiSettings.lyricLineFillEnabled,

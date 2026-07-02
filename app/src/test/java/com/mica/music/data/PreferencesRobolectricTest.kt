@@ -10,6 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import com.mica.music.ui.theme.MicaPreset
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 34])
@@ -72,6 +73,22 @@ class PreferencesRobolectricTest {
 
         assertEquals(AppAccentColor.CUSTOM, AppPreferences.appAccentColor(context))
         assertEquals(customColor, AppPreferences.customAccentColorArgb(context))
+    }
+
+    @Test
+    fun customMicaBackgroundRoundTrips() {
+        val startColor = 0xFFFFF6EE.toInt()
+        val endColor = 0xFFE3EEF8.toInt()
+
+        AppPreferences.setMicaBackgroundPreset(context, MicaPreset.CUSTOM)
+        AppPreferences.setCustomMicaStartArgb(context, startColor)
+        AppPreferences.setCustomMicaEndArgb(context, endColor)
+        AppPreferences.setCustomMicaSingleColor(context, true)
+
+        assertEquals(MicaPreset.CUSTOM, AppPreferences.micaBackgroundPreset(context))
+        assertEquals(startColor, AppPreferences.customMicaStartArgb(context))
+        assertEquals(endColor, AppPreferences.customMicaEndArgb(context))
+        assertTrue(AppPreferences.customMicaSingleColor(context))
     }
 
     @Test

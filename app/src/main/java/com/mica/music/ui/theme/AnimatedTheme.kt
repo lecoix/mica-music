@@ -56,7 +56,8 @@ fun AnimatedMicaAppBackground(modifier: Modifier = Modifier) {
             androidx.compose.animation.core.tween(0)
         }
     }
-    val (targetStart, targetEnd) = preset.gradientColors(isDark)
+    val custom = LocalCustomMicaBackground.current
+    val (targetStart, targetEnd) = preset.gradientColors(isDark, custom)
     val start = animateColorAsState(targetStart, spec, label = "micaGradStart").value
     val end = animateColorAsState(targetEnd, spec, label = "micaGradEnd").value
     Box(

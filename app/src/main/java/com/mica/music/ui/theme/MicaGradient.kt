@@ -34,6 +34,8 @@ enum class MicaPreset(
 
     Fog("fog", "雾霭"),
 
+    CUSTOM("custom", "自定义"),
+
     ;
 
 
@@ -50,9 +52,34 @@ enum class MicaPreset(
 
 
 
-/** 按浅色/深色主题返回云母渐变起止色 */
+/** 用户自定义云母渐变（浅/深主题共用同一套色）。 */
+data class CustomMicaBackground(
+    val startArgb: Int,
+    val endArgb: Int,
+    val singleColor: Boolean,
+) {
+    companion object {
+        val Default = CustomMicaBackground(
+            startArgb = DEFAULT_START_ARGB,
+            endArgb = DEFAULT_END_ARGB,
+            singleColor = false,
+        )
 
-fun MicaPreset.gradientColors(isDark: Boolean): Pair<Color, Color> = when (this) {
+        const val DEFAULT_START_ARGB = 0xFFFFF6EE.toInt()
+        const val DEFAULT_END_ARGB = 0xFFE3EEF8.toInt()
+    }
+}
+
+/** 按浅色/深色主题返回云母渐变起止色；[CUSTOM] 时使用 [custom]。 */
+fun MicaPreset.gradientColors(
+    isDark: Boolean,
+    custom: CustomMicaBackground = CustomMicaBackground.Default,
+): Pair<Color, Color> = when (this) {
+    MicaPreset.CUSTOM -> {
+        val start = Color(custom.startArgb)
+        val end = if (custom.singleColor) start else Color(custom.endArgb)
+        start to end
+    }
 
     MicaPreset.Dawn -> if (isDark) {
 
@@ -116,9 +143,10 @@ fun MicaPreset.colors(): Pair<Color, Color> = gradientColors(isDark = false)
 
 /** 垂直渐变在屏幕底边的主题色（终点色，与 [Modifier.micaBackground] 底边一致）。 */
 
-fun MicaPreset.bottomThemeColor(isDark: Boolean): Color =
-
-    gradientColors(isDark).second
+fun MicaPreset.bottomThemeColor(
+    isDark: Boolean,
+    custom: CustomMicaBackground = CustomMicaBackground.Default,
+): Color = gradientColors(isDark, custom).second
 
 
 
@@ -143,21 +171,14 @@ fun micaFloatingCardBottomEdge(bottomSurface: Color, isDark: Boolean): Color {
 
 
 @Composable
-
 fun Modifier.micaBackground(preset: MicaPreset): Modifier {
-
-    val (start, end) = preset.gradientColors(MicaTheme.colors.isDark)
-
+    val custom = LocalCustomMicaBackground.current
+    val (start, end) = preset.gradientColors(MicaTheme.colors.isDark, custom)
     return this.background(Brush.verticalGradient(listOf(start, end)))
-
 }
 
-
-
 /** 使用 [LocalMicaBackgroundPreset] 的页面背景渐变。 */
-
 @Composable
-
 fun Modifier.micaAppBackground(): Modifier = micaBackground(LocalMicaBackgroundPreset.current)
 
 data class MicaSurfaceColors(
@@ -169,9 +190,10 @@ data class MicaSurfaceColors(
 @Composable
 fun rememberMicaSurfaceColors(): MicaSurfaceColors {
     val preset = LocalMicaBackgroundPreset.current
+    val custom = LocalCustomMicaBackground.current
     val isDark = MicaTheme.colors.isDark
-    val (start, end) = preset.gradientColors(isDark)
-    return androidx.compose.runtime.remember(preset, isDark) {
+    val (start, end) = preset.gradientColors(isDark, custom)
+    return androidx.compose.runtime.remember(preset, custom, isDark) {
         MicaSurfaceColors(gradientStart = start, gradientEnd = end)
     }
 }

@@ -18,6 +18,7 @@ import com.mica.music.data.CoverDisplayMode
 val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
 val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
 val LocalMicaBackgroundPreset = staticCompositionLocalOf { MicaPreset.Dawn }
+val LocalCustomMicaBackground = staticCompositionLocalOf { CustomMicaBackground.Default }
 val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
 val LocalLyricSplitEnabled = staticCompositionLocalOf { true }
 val LocalLyricLineFillEnabled = staticCompositionLocalOf { false }
@@ -28,6 +29,7 @@ fun MicaTheme(
     accentColor: AppAccentColor = AppAccentColor.PURPLE,
     customAccentColorArgb: Int = 0xFF8B7AFF.toInt(),
     micaBackgroundPreset: MicaPreset = MicaPreset.Dawn,
+    customMicaBackground: CustomMicaBackground = CustomMicaBackground.Default,
     coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     lyricSplitEnabled: Boolean = true,
     lyricLineFillEnabled: Boolean = false,
@@ -38,7 +40,7 @@ fun MicaTheme(
     val targetColors = baseColors.copy(accent = accent)
     val hifiColors = rememberAnimatedHifiColors(targetColors)
     val typography = HifiTypography()
-    val (micaStart, _) = micaBackgroundPreset.gradientColors(darkTheme)
+    val (micaStart, _) = micaBackgroundPreset.gradientColors(darkTheme, customMicaBackground)
     val motionEnabled = rememberMicaMotionEnabled()
     val animatedPrimary = animateColorAsState(
         hifiColors.accent,
@@ -93,6 +95,7 @@ fun MicaTheme(
         LocalHifiColors provides hifiColors,
         LocalHifiTypography provides typography,
         LocalMicaBackgroundPreset provides micaBackgroundPreset,
+        LocalCustomMicaBackground provides customMicaBackground,
         LocalCoverDisplayMode provides coverDisplayMode,
         LocalLyricSplitEnabled provides lyricSplitEnabled,
         LocalLyricLineFillEnabled provides lyricLineFillEnabled,
