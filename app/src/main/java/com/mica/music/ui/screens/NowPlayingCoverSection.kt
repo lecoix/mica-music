@@ -320,6 +320,7 @@ internal fun NowPlayingCoverSection(
                         gesturesEnabled = frame.gesturesEnabled,
                         onPrevious = onPrevious,
                         onNext = onNext,
+                        onCoverLongPress = onCoverLongPress,
                         onCoverMotionActiveChanged = onCoverMotionActiveChanged,
                         navigationBridge = photoStackNavigation,
                         onPlayQueueIndex = onPlayQueueIndex,

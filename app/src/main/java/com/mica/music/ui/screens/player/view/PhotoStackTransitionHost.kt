@@ -27,6 +27,7 @@ internal fun PhotoStackTransitionHost(
     gesturesEnabled: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onCoverLongPress: (() -> Unit)? = null,
     onPlayQueueIndex: (Int) -> Unit,
     onMotionActiveChanged: (Boolean) -> Unit,
     navigationBridge: PhotoStackCarouselNavigationBridge,
@@ -96,6 +97,7 @@ internal fun PhotoStackTransitionHost(
                     onPrevious = onPrevious,
                     onNext = onNext,
                     onMotionActiveChanged = onMotionActiveChanged,
+                    onCoverLongPress = onCoverLongPress,
                 )
             }
         },
@@ -130,6 +132,7 @@ internal fun PhotoStackTransitionHost(
                 onPrevious = onPrevious,
                 onNext = onNext,
                 onMotionActiveChanged = onMotionActiveChanged,
+                onCoverLongPress = onCoverLongPress,
             )
             view.applyHostUpdate(
                 songs = queue,

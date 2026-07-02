@@ -12,6 +12,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.os.SystemClock
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
@@ -146,6 +147,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private var onPlayQueueIndex: ((Int) -> Unit)? = null
     private var onPrevious: (() -> Unit)? = null
     private var onNext: (() -> Unit)? = null
+    private var onCoverLongPress: (() -> Unit)? = null
     private var onMotionActiveChanged: ((Boolean) -> Unit)? = null
     private var motionActive = false
 
@@ -159,6 +161,17 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
 
     private val bitmapByKey = mutableMapOf<String, Bitmap>()
     private val pendingLoads = mutableSetOf<String>()
+
+    private val gestureDetector = GestureDetector(
+        context,
+        object : GestureDetector.SimpleOnGestureListener() {
+            override fun onLongPress(e: MotionEvent) {
+                if (pointToFrontCardLocal(e.x, e.y) == null) return
+                cancelTouchGesture()
+                onCoverLongPress?.invoke()
+            }
+        },
+    )
 
     init {
         setWillNotDraw(false)
@@ -214,11 +227,13 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         onPrevious: () -> Unit,
         onNext: () -> Unit,
         onMotionActiveChanged: (Boolean) -> Unit,
+        onCoverLongPress: (() -> Unit)? = null,
     ) {
         this.onPlayQueueIndex = onPlayQueueIndex
         this.onPrevious = onPrevious
         this.onNext = onNext
         this.onMotionActiveChanged = onMotionActiveChanged
+        this.onCoverLongPress = onCoverLongPress
     }
 
     fun applyHostUpdate(
@@ -865,6 +880,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!gesturesEnabled || activeTransitionCards.isNotEmpty()) return false
+        gestureDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -922,6 +938,15 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    private fun cancelTouchGesture() {
+        parent?.requestDisallowInterceptTouchEvent(false)
+        dragging = false
+        touchMode = TouchMode.None
+        dragFraction = 0f
+        setMotionActive(false)
+        invalidate()
     }
 
     private fun handleSwipeRelease() {
@@ -1187,6 +1212,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         onPlayQueueIndex = null
         onPrevious = null
         onNext = null
+        onCoverLongPress = null
         onMotionActiveChanged = null
         setMotionActive(false)
     }
