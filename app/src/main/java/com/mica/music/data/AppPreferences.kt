@@ -63,6 +63,13 @@ object AppPreferences {
     private const val KEY_SONG_LIST_INFO_SHOW_LAST_SCAN = "song_list_info_show_last_scan"
     private const val KEY_SONG_LIST_INFO_SHOW_CUSTOM = "song_list_info_show_custom"
     private const val KEY_SONG_LIST_INFO_CUSTOM_TEXT = "song_list_info_custom_text"
+    private const val KEY_PLAYER_INFO_SHOW_FORMAT = "player_info_show_format"
+    private const val KEY_PLAYER_INFO_SHOW_SAMPLE_RATE = "player_info_show_sample_rate"
+    private const val KEY_PLAYER_INFO_SHOW_BITRATE = "player_info_show_bitrate"
+    private const val KEY_PLAYER_INFO_SHOW_DURATION = "player_info_show_duration"
+    private const val KEY_PLAYER_INFO_SHOW_CURRENT_TIME = "player_info_show_current_time"
+    private const val KEY_PLAYER_INFO_SHOW_CUSTOM = "player_info_show_custom"
+    private const val KEY_PLAYER_INFO_CUSTOM_TEXT = "player_info_custom_text"
     private const val KEY_LYRICS_PARSER_VERSION = "lyrics_parser_version"
 
     /** [equalizerPresetIndex] 为自定义频段时的占位值 */
@@ -455,6 +462,35 @@ object AppPreferences {
             .putBoolean(KEY_SONG_LIST_INFO_SHOW_LAST_SCAN, visibility.showLastScanTime)
             .putBoolean(KEY_SONG_LIST_INFO_SHOW_CUSTOM, visibility.showCustomText)
             .putString(KEY_SONG_LIST_INFO_CUSTOM_TEXT, visibility.customText)
+            .apply()
+    }
+
+    fun playerInfoVisibility(context: Context): PlayerInfoVisibility {
+        val p = prefs(context)
+        return PlayerInfoVisibility(
+            showFormat = p.getBoolean(KEY_PLAYER_INFO_SHOW_FORMAT, true),
+            showSampleRate = p.getBoolean(KEY_PLAYER_INFO_SHOW_SAMPLE_RATE, true),
+            showBitrate = p.getBoolean(KEY_PLAYER_INFO_SHOW_BITRATE, true),
+            showCurrentTime = when {
+                p.contains(KEY_PLAYER_INFO_SHOW_CURRENT_TIME) ->
+                    p.getBoolean(KEY_PLAYER_INFO_SHOW_CURRENT_TIME, false)
+                p.contains(KEY_PLAYER_INFO_SHOW_DURATION) ->
+                    p.getBoolean(KEY_PLAYER_INFO_SHOW_DURATION, false)
+                else -> false
+            },
+            showCustomText = p.getBoolean(KEY_PLAYER_INFO_SHOW_CUSTOM, false),
+            customText = p.getString(KEY_PLAYER_INFO_CUSTOM_TEXT, "") ?: "",
+        )
+    }
+
+    fun setPlayerInfoVisibility(context: Context, visibility: PlayerInfoVisibility) {
+        prefs(context).edit()
+            .putBoolean(KEY_PLAYER_INFO_SHOW_FORMAT, visibility.showFormat)
+            .putBoolean(KEY_PLAYER_INFO_SHOW_SAMPLE_RATE, visibility.showSampleRate)
+            .putBoolean(KEY_PLAYER_INFO_SHOW_BITRATE, visibility.showBitrate)
+            .putBoolean(KEY_PLAYER_INFO_SHOW_CURRENT_TIME, visibility.showCurrentTime)
+            .putBoolean(KEY_PLAYER_INFO_SHOW_CUSTOM, visibility.showCustomText)
+            .putString(KEY_PLAYER_INFO_CUSTOM_TEXT, visibility.customText)
             .apply()
     }
 

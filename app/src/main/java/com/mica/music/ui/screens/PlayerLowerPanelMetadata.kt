@@ -11,13 +11,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.mica.music.data.ArtistNames
+import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.Song
+import com.mica.music.data.buildPlayerInfoSegments
+import com.mica.music.data.formatPlayerInfoCurrentTime
+import com.mica.music.data.millisUntilNextMinuteBoundary
 import com.mica.music.ui.components.HiFiInfoRow
 import com.mica.music.ui.components.HiResIndicator
 import com.mica.music.ui.components.MarqueeTitleText
@@ -30,7 +41,23 @@ import com.mica.music.ui.theme.PlayerContentColors
 internal fun HiFiBadgeSection(
     song: Song,
     colors: PlayerContentColors,
+    playerInfoVisibility: PlayerInfoVisibility,
 ) {
+    val locale = LocalContext.current.resources.configuration.locales[0]
+    var currentTimeLabel by remember { mutableStateOf(formatPlayerInfoCurrentTime(locale = locale)) }
+    LaunchedEffect(playerInfoVisibility.showCurrentTime, locale) {
+        if (!playerInfoVisibility.showCurrentTime) return@LaunchedEffect
+        while (true) {
+            currentTimeLabel = formatPlayerInfoCurrentTime(locale = locale)
+            delay(millisUntilNextMinuteBoundary())
+        }
+    }
+    val segments = buildPlayerInfoSegments(
+        song = song,
+        visibility = playerInfoVisibility,
+        currentTimeLabel = currentTimeLabel.takeIf { playerInfoVisibility.showCurrentTime },
+    )
+    if (segments.isEmpty()) return
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -38,9 +65,7 @@ internal fun HiFiBadgeSection(
             .padding(horizontal = HifiSpacing.lg),
     ) {
         HiFiInfoRow(
-            format = song.metadata.containerName,
-            quality = song.sampleRateLabel,
-            bitrate = song.bitrateLabel,
+            segments = segments,
             modifier = Modifier.weight(1f),
             textColor = colors.tertiary,
         )

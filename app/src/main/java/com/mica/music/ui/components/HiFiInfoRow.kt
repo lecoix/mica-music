@@ -8,14 +8,13 @@ import com.mica.music.ui.theme.MicaTheme
 
 @Composable
 fun HiFiInfoRow(
-    format: String,
-    quality: String,
-    bitrate: String,
+    segments: List<String>,
     modifier: Modifier = Modifier,
     textColor: Color = MicaTheme.colors.textTertiary,
 ) {
+    if (segments.isEmpty()) return
     Text(
-        text = "$format · $quality · $bitrate",
+        text = segments.joinToString(" · "),
         style = MicaTheme.typography.monoMd,
         color = textColor,
         modifier = modifier,

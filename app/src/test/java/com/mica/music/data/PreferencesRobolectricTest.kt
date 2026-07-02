@@ -98,6 +98,22 @@ class PreferencesRobolectricTest {
     }
 
     @Test
+    fun playerInfoVisibilityRoundTrips() {
+        val visibility = PlayerInfoVisibility(
+            showFormat = false,
+            showSampleRate = true,
+            showBitrate = false,
+            showCurrentTime = true,
+            showCustomText = true,
+            customText = "Hi-Res",
+        )
+
+        AppPreferences.setPlayerInfoVisibility(context, visibility)
+
+        assertEquals(visibility, AppPreferences.playerInfoVisibility(context))
+    }
+
+    @Test
     fun corruptProfilesAndSessionValuesDoNotEscape() {
         context.getSharedPreferences("mica_eq_profiles", Context.MODE_PRIVATE)
             .edit()

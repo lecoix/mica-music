@@ -93,6 +93,9 @@ class AppUiSettings(context: Context) {
     var songListInfoVisibility by mutableStateOf(AppPreferences.songListInfoVisibility(appContext))
         private set
 
+    var playerInfoVisibility by mutableStateOf(AppPreferences.playerInfoVisibility(appContext))
+        private set
+
     init {
         syncSpectrumAnalyzer()
     }
@@ -223,6 +226,11 @@ class AppUiSettings(context: Context) {
     fun updateSongListInfoVisibility(visibility: SongListInfoVisibility) {
         songListInfoVisibility = visibility
         AppPreferences.setSongListInfoVisibility(appContext, visibility)
+    }
+
+    fun updatePlayerInfoVisibility(visibility: PlayerInfoVisibility) {
+        playerInfoVisibility = visibility
+        AppPreferences.setPlayerInfoVisibility(appContext, visibility)
     }
 
     fun togglePlayerImmersiveLower() {

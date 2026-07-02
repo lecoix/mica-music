@@ -25,6 +25,7 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
@@ -51,6 +52,7 @@ internal fun PlayerLowerPanelSection(
     lyricsFontSizeSp: Int,
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
     stripSongTitleParentheses: Boolean,
+    playerInfoVisibility: PlayerInfoVisibility,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -71,6 +73,7 @@ internal fun PlayerLowerPanelSection(
     val hideLyricsPageChrome = lyricsPageOpen && lyricsPageImmersive
     val playLongPress = if (lyricsPageOpen) onToggleLyricsPageImmersive else null
     var compactLyricsCenterYPx by remember { mutableFloatStateOf(Float.NaN) }
+    val showPlayerInfoRow = playerInfoVisibility.hasAnyEnabledSegment()
 
     if (hideInfoAndLyrics) {
         Column(modifier.fillMaxSize()) {
@@ -131,7 +134,7 @@ internal fun PlayerLowerPanelSection(
             ) {
                 Spacer(Modifier.height(spacing.afterCover))
                 if (lower.showMetadata) {
-                    if (!hideInfoAndLyrics) {
+                    if (!hideInfoAndLyrics && showPlayerInfoRow) {
                         Box(
                             Modifier.graphicsLayer {
                                 alpha = lower.metaAlpha * (1f - lower.immersiveProgress)
@@ -145,6 +148,7 @@ internal fun PlayerLowerPanelSection(
                                 } else {
                                     colors
                                 },
+                                playerInfoVisibility = playerInfoVisibility,
                             )
                         }
                         Spacer(Modifier.height(spacing.afterInfo))

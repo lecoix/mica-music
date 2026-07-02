@@ -65,6 +65,7 @@ import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.MusicLibrary
 import com.mica.music.ui.components.SettingsActionRow
@@ -142,7 +143,7 @@ private enum class SettingsCategory(
     ),
     PLAYBACK(
         title = "播放页",
-        subtitle = "封面、播放页背景、特殊主题、频谱",
+        subtitle = "封面、播放页背景、信息行、特殊主题、频谱",
     ),
     LYRICS(
         title = "歌词页",
@@ -443,6 +444,69 @@ fun SettingsScreen(
                             subtitle = "播放页和歌词页仅显示括号前后的歌名；不修改曲库原始标题",
                             checked = uiSettings.stripSongTitleParentheses,
                             onCheckedChange = { uiSettings.updateStripSongTitleParentheses(it) },
+                        )
+
+                        Spacer(Modifier.height(HifiSpacing.lg))
+
+                        SettingsSectionTitle("播放页信息行自定义")
+
+                        val playerInfo = uiSettings.playerInfoVisibility
+                        fun updatePlayerInfo(transform: (PlayerInfoVisibility) -> PlayerInfoVisibility) {
+                            uiSettings.updatePlayerInfoVisibility(transform(uiSettings.playerInfoVisibility))
+                        }
+
+                        SettingsToggleRow(
+                            title = "格式",
+                            subtitle = "显示容器格式，如 FLAC、MP3",
+                            checked = playerInfo.showFormat,
+                            onCheckedChange = { checked ->
+                                updatePlayerInfo { it.copy(showFormat = checked) }
+                            },
+                        )
+
+                        SettingsToggleRow(
+                            title = "位深/采样率",
+                            subtitle = "显示如 24bit/96kHz",
+                            checked = playerInfo.showSampleRate,
+                            onCheckedChange = { checked ->
+                                updatePlayerInfo { it.copy(showSampleRate = checked) }
+                            },
+                        )
+
+                        SettingsToggleRow(
+                            title = "比特率",
+                            subtitle = "显示如 320 kbps",
+                            checked = playerInfo.showBitrate,
+                            onCheckedChange = { checked ->
+                                updatePlayerInfo { it.copy(showBitrate = checked) }
+                            },
+                        )
+
+                        SettingsToggleRow(
+                            title = "时间",
+                            subtitle = "显示当前系统时间",
+                            checked = playerInfo.showCurrentTime,
+                            onCheckedChange = { checked ->
+                                updatePlayerInfo { it.copy(showCurrentTime = checked) }
+                            },
+                        )
+
+                        SettingsToggleRow(
+                            title = "自定义",
+                            subtitle = "在信息行末尾追加自定义文字",
+                            checked = playerInfo.showCustomText,
+                            onCheckedChange = { checked ->
+                                updatePlayerInfo { it.copy(showCustomText = checked) }
+                            },
+                        )
+
+                        SettingsTextFieldRow(
+                            value = playerInfo.customText,
+                            onValueChange = { text ->
+                                updatePlayerInfo { it.copy(customText = text) }
+                            },
+                            placeholder = "输入自定义文本",
+                            enabled = playerInfo.showCustomText,
                         )
 
                         Spacer(Modifier.height(HifiSpacing.lg))

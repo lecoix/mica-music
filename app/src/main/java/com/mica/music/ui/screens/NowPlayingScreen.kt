@@ -482,6 +482,7 @@ fun NowPlayingContent(
                             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
                             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
+                            playerInfoVisibility = uiSettings.playerInfoVisibility,
                             spectrumEnabled = pageModel.frame.spectrumEnabled,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                             onPrevious = onPlayerPrevious,
