@@ -100,6 +100,10 @@ internal class ParticleCoverView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        DiagnosticLog.event(
+            "ParticleCover",
+            "surface-available diag=surface size=${width}x$height opaque=$isOpaque",
+        )
         release()
         renderThread = ParticleCoverRenderThread(
             appContext = context.applicationContext,
@@ -120,10 +124,12 @@ internal class ParticleCoverView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+        DiagnosticLog.event("ParticleCover", "surface-size diag=surface size=${width}x$height")
         renderThread?.resize(width, height)
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        DiagnosticLog.event("ParticleCover", "surface-destroyed diag=surface")
         release()
         return true
     }
@@ -185,6 +191,8 @@ private class ParticleCoverRenderThread(
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var eglConfig: EGLConfig? = null
+    private var firstSwapLogged = false
+    private var swapFailureLogged = false
 
     private val renderer = ParticleCoverRenderer(appContext)
 
@@ -269,7 +277,14 @@ private class ParticleCoverRenderThread(
 
     override fun run() {
         try {
-            if (!initEgl()) return
+            DiagnosticLog.event(
+                "ParticleCover",
+                "render-thread-start diag=thread initialSize=${width}x$height",
+            )
+            if (!initEgl()) {
+                DiagnosticLog.event("ParticleCover", "render-thread-stop diag=egl-init-failed")
+                return
+            }
             renderer.onSurfaceCreated()
             while (running) {
                 var cover: PendingParticleCover?
@@ -350,7 +365,17 @@ private class ParticleCoverRenderThread(
                     )
                 }
                 renderer.render()
-                EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+                val swapped = EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+                if (swapped && !firstSwapLogged) {
+                    firstSwapLogged = true
+                    DiagnosticLog.event("ParticleCover", "first-swap diag=egl ok=true")
+                } else if (!swapped && !swapFailureLogged) {
+                    swapFailureLogged = true
+                    DiagnosticLog.event(
+                        "ParticleCover",
+                        "swap-failed diag=egl error=${eglErrorHex()}",
+                    )
+                }
                 sleepFrame(renderer.isAnimating())
             }
         } catch (throwable: Throwable) {
@@ -370,9 +395,15 @@ private class ParticleCoverRenderThread(
 
     private fun initEgl(): Boolean {
         eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        if (eglDisplay == EGL14.EGL_NO_DISPLAY) return false
+        if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
+            DiagnosticLog.event("ParticleCover", "egl-get-display-failed diag=egl error=${eglErrorHex()}")
+            return false
+        }
         val version = IntArray(2)
-        if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) return false
+        if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) {
+            DiagnosticLog.event("ParticleCover", "egl-initialize-failed diag=egl error=${eglErrorHex()}")
+            return false
+        }
 
         val configs = arrayOfNulls<EGLConfig>(1)
         val numConfigs = IntArray(1)
@@ -387,8 +418,18 @@ private class ParticleCoverRenderThread(
             EGL14.EGL_STENCIL_SIZE, 0,
             EGL14.EGL_NONE,
         )
-        if (!EGL14.eglChooseConfig(eglDisplay, attribs, 0, configs, 0, 1, numConfigs, 0)) return false
-        val config = configs[0] ?: return false
+        if (!EGL14.eglChooseConfig(eglDisplay, attribs, 0, configs, 0, 1, numConfigs, 0)) {
+            DiagnosticLog.event("ParticleCover", "egl-choose-config-failed diag=egl error=${eglErrorHex()}")
+            return false
+        }
+        val config = configs[0]
+        if (config == null) {
+            DiagnosticLog.event(
+                "ParticleCover",
+                "egl-choose-config-empty diag=egl count=${numConfigs[0]} error=${eglErrorHex()}",
+            )
+            return false
+        }
         eglConfig = config
 
         eglContext = EGL14.eglCreateContext(
@@ -398,7 +439,10 @@ private class ParticleCoverRenderThread(
             intArrayOf(EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE),
             0,
         )
-        if (eglContext == EGL14.EGL_NO_CONTEXT) return false
+        if (eglContext == EGL14.EGL_NO_CONTEXT) {
+            DiagnosticLog.event("ParticleCover", "egl-create-context-failed diag=egl error=${eglErrorHex()}")
+            return false
+        }
 
         eglSurface = EGL14.eglCreateWindowSurface(
             eglDisplay,
@@ -407,9 +451,24 @@ private class ParticleCoverRenderThread(
             intArrayOf(EGL14.EGL_NONE),
             0,
         )
-        if (eglSurface == EGL14.EGL_NO_SURFACE) return false
-        return EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+        if (eglSurface == EGL14.EGL_NO_SURFACE) {
+            DiagnosticLog.event("ParticleCover", "egl-create-window-surface-failed diag=egl error=${eglErrorHex()}")
+            return false
+        }
+        val current = EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+        if (!current) {
+            DiagnosticLog.event("ParticleCover", "egl-make-current-failed diag=egl error=${eglErrorHex()}")
+            return false
+        }
+        DiagnosticLog.event(
+            "ParticleCover",
+            "egl-ready diag=egl version=${version[0]}.${version[1]} configs=${numConfigs[0]} alpha=8",
+        )
+        return true
     }
+
+    private fun eglErrorHex(): String =
+        "0x${Integer.toHexString(EGL14.eglGetError())}"
 
     private fun releaseEgl() {
         if (eglDisplay != EGL14.EGL_NO_DISPLAY) {

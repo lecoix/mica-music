@@ -10,6 +10,7 @@ import android.opengl.GLES20
 import android.opengl.GLUtils
 import android.os.SystemClock
 import com.mica.music.data.ParticleCoverTuning
+import com.mica.music.util.DiagnosticLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -61,19 +62,35 @@ internal class ParticleCoverRenderer(context: Context) {
     private var coverCenterY = 0f
     private var coverHalfWidth = 1f
     private var coverHalfHeight = 1f
+    private var firstRenderLogged = false
+    private var noTextureLogged = false
+    private var firstQuadDrawLogged = false
+    private var firstParticleDrawLogged = false
 
     fun onSurfaceCreated() {
-        quadProgram = createProgram(QuadVertexShader, QuadFragmentShader)
-        particleProgram = createProgram(ParticleVertexShader, ParticleFragmentShader)
+        DiagnosticLog.event(
+            "ParticleCover",
+            "gl-surface-created diag=gl vendor=${GLES20.glGetString(GLES20.GL_VENDOR)} " +
+                "renderer=${GLES20.glGetString(GLES20.GL_RENDERER)} " +
+                "version=${GLES20.glGetString(GLES20.GL_VERSION)}",
+        )
+        quadProgram = createProgram("quad", QuadVertexShader, QuadFragmentShader)
+        particleProgram = createProgram("particle", ParticleVertexShader, ParticleFragmentShader)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        logGlError("surface-created")
+        DiagnosticLog.event(
+            "ParticleCover",
+            "gl-programs-ready diag=shader quad=$quadProgram particle=$particleProgram",
+        )
     }
 
     fun onSurfaceChanged(surfaceWidth: Int, surfaceHeight: Int) {
         width = surfaceWidth.coerceAtLeast(1)
         height = surfaceHeight.coerceAtLeast(1)
+        DiagnosticLog.event("ParticleCover", "gl-surface-size diag=gl size=${width}x$height")
     }
 
     fun setCover(
@@ -91,6 +108,12 @@ internal class ParticleCoverRenderer(context: Context) {
                 currentBitmapGeneration != generation ||
                 (!hasBitmap && currentFallbackColor != fallbackColor)
             ) {
+                DiagnosticLog.event(
+                    "ParticleCover",
+                    "cover-texture-rebuild diag=texture reason=same-song-change " +
+                        "song=${songId.takeLast(12)} bitmap=${bitmap.describeForLog()} " +
+                        "fallback=${fallbackColor.toUIntHex()}",
+                )
                 deleteTexture(currentTexture)
                 currentTexture = createTexture(bitmap, fallbackColor)
                 currentHasBitmap = hasBitmap
@@ -102,6 +125,13 @@ internal class ParticleCoverRenderer(context: Context) {
 
         deleteTexture(previousTexture)
         previousTexture = currentTexture
+        DiagnosticLog.event(
+            "ParticleCover",
+            "cover-texture-rebuild diag=texture reason=new-song " +
+                "song=${songId.takeLast(12)} prevTexture=$previousTexture " +
+                "bitmap=${bitmap.describeForLog()} fallback=${fallbackColor.toUIntHex()} " +
+                "motion=$motionEnabled",
+        )
         currentTexture = createTexture(bitmap, fallbackColor)
         currentSongId = songId
         currentHasBitmap = hasBitmap
@@ -165,7 +195,22 @@ internal class ParticleCoverRenderer(context: Context) {
     fun render() {
         GLES20.glClearColor(0f, 0f, 0f, 0f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-        if (currentTexture == 0) return
+        if (currentTexture == 0) {
+            if (!noTextureLogged) {
+                noTextureLogged = true
+                DiagnosticLog.event("ParticleCover", "render-skip diag=draw reason=no-texture")
+            }
+            return
+        }
+        if (!firstRenderLogged) {
+            firstRenderLogged = true
+            DiagnosticLog.event(
+                "ParticleCover",
+                "first-render diag=draw texture=$currentTexture previous=$previousTexture " +
+                    "fullParticles=${previewOptions.fullCoverParticles} lyrics=$lyricsProgress " +
+                    "coverCenter=$coverCenterX,$coverCenterY coverHalf=$coverHalfWidth,$coverHalfHeight",
+            )
+        }
 
         val elapsed = transitionElapsedMs()
         val edgeAlphaPeak = EdgeAlphaPeak * tuning.edgeParticleAlpha
@@ -598,6 +643,14 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glEnableVertexAttribArray(aUv)
         GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, QuadStrideBytes, quadBuffer)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        if (!firstQuadDrawLogged) {
+            firstQuadDrawLogged = true
+            DiagnosticLog.event(
+                "ParticleCover",
+                "first-quad-draw diag=draw texture=$texture alpha=$alpha scale=$scale erosion=$erosion",
+            )
+            logGlError("first-quad-draw")
+        }
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aUv)
     }
@@ -714,6 +767,16 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glVertexAttribPointer(aSeed, 1, GLES20.GL_FLOAT, false, ParticleStrideBytes, buffer)
 
         GLES20.glDrawArrays(GLES20.GL_POINTS, 0, drawCount)
+        if (!firstParticleDrawLogged) {
+            firstParticleDrawLogged = true
+            DiagnosticLog.event(
+                "ParticleCover",
+                "first-particle-draw diag=draw texture=$texture textureB=$textureB " +
+                    "setCount=${particleSet.count} drawCount=$drawCount density=$density " +
+                    "pointScale=$pointScale alpha=$alpha lyrics=$lyrics grid=$gridStrength",
+            )
+            logGlError("first-particle-draw")
+        }
         GLES20.glDisableVertexAttribArray(aHome)
         GLES20.glDisableVertexAttribArray(aScatter)
         GLES20.glDisableVertexAttribArray(aUv)
@@ -733,16 +796,34 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
         val uploadBitmap = bitmap?.takeIf { !it.isRecycled }?.asGlUploadBitmap()
         if (uploadBitmap != null) {
-            runCatching {
+            val uploaded = runCatching {
                 GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, uploadBitmap, 0)
-            }.onFailure {
+            }.onFailure { throwable ->
+                DiagnosticLog.event(
+                    "ParticleCover",
+                    "texture-upload-failed diag=texture id=$texture bitmap=${uploadBitmap.describeForLog()} " +
+                        "fallback=${fallbackColor.toUIntHex()}",
+                    throwable,
+                )
                 uploadFallbackColor(fallbackColor)
-            }
+            }.isSuccess
+            DiagnosticLog.event(
+                "ParticleCover",
+                "texture-ready diag=texture id=$texture source=${if (uploaded) "bitmap" else "fallback-after-failure"} " +
+                    "bitmap=${uploadBitmap.describeForLog()} fallback=${fallbackColor.toUIntHex()}",
+            )
+            logGlError("texture-upload")
             if (uploadBitmap !== bitmap) {
                 uploadBitmap.recycle()
             }
         } else {
             uploadFallbackColor(fallbackColor)
+            DiagnosticLog.event(
+                "ParticleCover",
+                "texture-ready diag=texture id=$texture source=fallback bitmap=${bitmap.describeForLog()} " +
+                    "fallback=${fallbackColor.toUIntHex()}",
+            )
+            logGlError("texture-fallback")
         }
         return texture
     }
@@ -804,30 +885,76 @@ internal class ParticleCoverRenderer(context: Context) {
         }
     }
 
-    private fun createProgram(vertexSource: String, fragmentSource: String): Int {
-        val vertex = compileShader(GLES20.GL_VERTEX_SHADER, vertexSource)
-        val fragment = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
+    private fun createProgram(label: String, vertexSource: String, fragmentSource: String): Int {
+        val vertex = compileShader("$label-vertex", GLES20.GL_VERTEX_SHADER, vertexSource)
+        val fragment = compileShader("$label-fragment", GLES20.GL_FRAGMENT_SHADER, fragmentSource)
         val program = GLES20.glCreateProgram()
         GLES20.glAttachShader(program, vertex)
         GLES20.glAttachShader(program, fragment)
         GLES20.glLinkProgram(program)
         val status = IntArray(1)
         GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, status, 0)
+        val log = GLES20.glGetProgramInfoLog(program).orEmpty()
         GLES20.glDeleteShader(vertex)
         GLES20.glDeleteShader(fragment)
-        check(status[0] == GLES20.GL_TRUE) { "Particle cover GL program link failed" }
+        if (status[0] != GLES20.GL_TRUE) {
+            DiagnosticLog.event(
+                "ParticleCover",
+                "program-link-failed diag=shader label=$label program=$program log=${log.takeForLog()}",
+            )
+        }
+        check(status[0] == GLES20.GL_TRUE) { "Particle cover GL program link failed: $log" }
+        DiagnosticLog.event(
+            "ParticleCover",
+            "program-linked diag=shader label=$label program=$program log=${log.takeForLog()}",
+        )
         return program
     }
 
-    private fun compileShader(type: Int, source: String): Int {
+    private fun compileShader(label: String, type: Int, source: String): Int {
         val shader = GLES20.glCreateShader(type)
         GLES20.glShaderSource(shader, source)
         GLES20.glCompileShader(shader)
         val status = IntArray(1)
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, status, 0)
-        check(status[0] == GLES20.GL_TRUE) { "Particle cover GL shader compile failed" }
+        val log = GLES20.glGetShaderInfoLog(shader).orEmpty()
+        if (status[0] != GLES20.GL_TRUE) {
+            DiagnosticLog.event(
+                "ParticleCover",
+                "shader-compile-failed diag=shader label=$label shader=$shader log=${log.takeForLog()}",
+            )
+        }
+        check(status[0] == GLES20.GL_TRUE) { "Particle cover GL shader compile failed: $log" }
+        DiagnosticLog.event(
+            "ParticleCover",
+            "shader-compiled diag=shader label=$label shader=$shader log=${log.takeForLog()}",
+        )
         return shader
     }
+
+    private fun logGlError(stage: String) {
+        var error = GLES20.glGetError()
+        if (error == GLES20.GL_NO_ERROR) return
+        val errors = mutableListOf<String>()
+        while (error != GLES20.GL_NO_ERROR) {
+            errors += "0x${Integer.toHexString(error)}"
+            error = GLES20.glGetError()
+        }
+        DiagnosticLog.event("ParticleCover", "gl-error diag=gl stage=$stage errors=${errors.joinToString(",")}")
+    }
+
+    private fun Bitmap?.describeForLog(): String =
+        if (this == null) {
+            "null"
+        } else {
+            "${width}x$height config=$config recycled=$isRecycled generation=$generationId"
+        }
+
+    private fun Int.toUIntHex(): String =
+        "0x${Integer.toHexString(this)}"
+
+    private fun String.takeForLog(): String =
+        if (isBlank()) "empty" else replace('\n', ' ').take(240)
 
     private fun buildEdgeParticles(): ParticleSet {
         val random = Random(0xE06ED957L)
@@ -1266,9 +1393,9 @@ uniform float uPointScale;
 uniform float uFeather;
 uniform float uTime;
 uniform float uDirection;
-uniform float uLyrics;
+uniform mediump float uLyrics;
 uniform float uGridStrength;
-uniform float uSizeVariance;
+uniform mediump float uSizeVariance;
 uniform float uLyricsSpread;
 uniform float uBurstAmount;
 uniform float uBreathAmount;
@@ -1419,9 +1546,9 @@ precision mediump float;
 uniform sampler2D uTextureA;
 uniform sampler2D uTextureB;
 uniform float uTextureMix;
-uniform float uLyrics;
+uniform mediump float uLyrics;
 uniform float uColorBoost;
-uniform float uSizeVariance;
+uniform mediump float uSizeVariance;
 varying vec2 vUv;
 varying float vDetach;
 varying float vSeed;
