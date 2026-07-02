@@ -75,6 +75,9 @@ class AppUiSettings(context: Context) {
     var lyricsPageImmersive by mutableStateOf(AppPreferences.lyricsPageImmersive(appContext))
         private set
 
+    var notificationLyricsEnabled by mutableStateOf(AppPreferences.notificationLyricsEnabled(appContext))
+        private set
+
     var spectrumEnabled by mutableStateOf(AppPreferences.spectrumEnabled(appContext))
         private set
 
@@ -184,6 +187,11 @@ class AppUiSettings(context: Context) {
     fun updateLyricsPageImmersive(enabled: Boolean) {
         lyricsPageImmersive = enabled
         AppPreferences.setLyricsPageImmersive(appContext, enabled)
+    }
+
+    fun updateNotificationLyricsEnabled(enabled: Boolean) {
+        notificationLyricsEnabled = enabled
+        AppPreferences.setNotificationLyricsEnabled(appContext, enabled)
     }
 
     fun updateSpectrumEnabled(enabled: Boolean) {

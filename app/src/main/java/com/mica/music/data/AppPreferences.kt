@@ -47,6 +47,7 @@ object AppPreferences {
     private const val KEY_LYRICS_PAGE_ALIGNMENT = "lyrics_page_alignment"
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
+    private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
     private const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
     private const val KEY_EQUALIZER_ENABLED = "equalizer_enabled"
     private const val KEY_EQUALIZER_PRESET = "equalizer_preset"
@@ -335,6 +336,13 @@ object AppPreferences {
 
     fun setLyricsPageImmersive(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_LYRICS_PAGE_IMMERSIVE, enabled).apply()
+    }
+
+    fun notificationLyricsEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_NOTIFICATION_LYRICS_ENABLED, true)
+
+    fun setNotificationLyricsEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_NOTIFICATION_LYRICS_ENABLED, enabled).apply()
     }
 
     internal fun lyricsParserVersion(context: Context): Int =

@@ -19,6 +19,7 @@ internal class ServicePlaybackStateCoordinator(
     private var released = false
     private var queueRevision = pendingRestore?.queueRevision ?: 0L
     private var lastPersistedPositionMs = Long.MIN_VALUE
+    private var lastPersistedQueueIds: List<String>? = null
     private val persistenceExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "mica-playback-state").apply { isDaemon = true }
     }
@@ -26,8 +27,12 @@ internal class ServicePlaybackStateCoordinator(
     private val listener = object : Player.Listener {
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
             if (!tryRestore()) {
-                queueRevision++
-                persistQueue()
+                val songIds = currentSongIds()
+                if (songIds.isNotEmpty() && songIds != lastPersistedQueueIds) {
+                    queueRevision++
+                    lastPersistedQueueIds = songIds
+                    persistQueue()
+                }
                 persistCursor(force = true)
             }
         }
@@ -102,6 +107,7 @@ internal class ServicePlaybackStateCoordinator(
         )
         persistQueue()
         persistCursor(force = true)
+        lastPersistedQueueIds = currentSongIds()
         return true
     }
 

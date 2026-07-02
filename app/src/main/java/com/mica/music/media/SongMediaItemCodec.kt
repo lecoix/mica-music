@@ -11,8 +11,11 @@ import com.mica.music.data.TrackMetadata
 object SongMediaItemCodec {
     private const val PREFIX = "mica.song."
 
+    internal fun canonicalTitleExtraKey(): String = "${PREFIX}title"
+
     fun encode(song: Song, includeUri: Boolean = true): MediaItem {
         val extras = Bundle().apply {
+            putString(canonicalTitleExtraKey(), song.title)
             putString("${PREFIX}artist", song.artist)
             putString("${PREFIX}album", song.album)
             putString("${PREFIX}albumArtist", song.albumArtist)
@@ -76,7 +79,8 @@ object SongMediaItemCodec {
         val bits = extras.getInt("${PREFIX}bitsPerSample", -1).takeIf { it > 0 }
         return Song(
             id = item.mediaId,
-            title = metadata.title?.toString().orEmpty(),
+            title = extras.getString(canonicalTitleExtraKey())
+                ?: metadata.title?.toString().orEmpty(),
             artist = extras.getString("${PREFIX}artist").orEmpty(),
             album = extras.getString("${PREFIX}album").orEmpty(),
             albumArtist = extras.getString("${PREFIX}albumArtist").orEmpty(),

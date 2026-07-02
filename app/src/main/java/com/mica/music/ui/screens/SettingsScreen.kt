@@ -473,6 +473,13 @@ fun SettingsScreen(
                             checked = uiSettings.lyricsPageImmersive,
                             onCheckedChange = { uiSettings.updateLyricsPageImmersive(it) },
                         )
+
+                        SettingsToggleRow(
+                            title = "通知栏歌词",
+                            subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
+                            checked = uiSettings.notificationLyricsEnabled,
+                            onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
+                        )
                     }
 
                     SettingsCategory.LIST_INFO -> {

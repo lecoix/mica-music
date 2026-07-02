@@ -71,6 +71,8 @@ class MicaMediaService : MediaSessionService() {
 
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
 
+    private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
+
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
 
     private var noisyReceiverRegistered = false
@@ -247,6 +249,16 @@ class MicaMediaService : MediaSessionService() {
 
         ).also { it.start() }
 
+        notificationLyricsCoordinator = NotificationLyricsCoordinator(
+
+            context = this,
+
+            player = player,
+
+            handler = mainHandler,
+
+        ).also { it.start() }
+
         exoPlayer.addListener(object : Player.Listener {
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -322,6 +334,10 @@ class MicaMediaService : MediaSessionService() {
         playbackStateCoordinator?.release()
 
         playbackStateCoordinator = null
+
+        notificationLyricsCoordinator?.release()
+
+        notificationLyricsCoordinator = null
 
         playbackEngineCoordinator?.release()
 

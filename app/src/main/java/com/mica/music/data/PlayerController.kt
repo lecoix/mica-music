@@ -18,6 +18,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import com.mica.music.media.NotificationLyricsCatalog
 import com.mica.music.media.PendingPlaybackNavigation
 import com.mica.music.media.PlaybackRouter
 import com.mica.music.media.ServicePlaybackStateStore
@@ -250,6 +251,15 @@ class PlayerController internal constructor(
         reconcilePendingSeekAfterProgress(rawMs)
     }
 
+    private fun syncNotificationLyricsCatalog() {
+        NotificationLyricsCatalog.sync(songQueue)
+    }
+
+    private fun commitSongQueue(queue: List<Song>) {
+        songQueue = queue
+        syncNotificationLyricsCatalog()
+    }
+
     private fun reconcilePendingSeekAfterProgress(reportedMs: Int) {
         val pending = pendingSeekMs
         if (pending < 0) return
@@ -422,7 +432,7 @@ class PlayerController internal constructor(
         } else {
             order.withQueue(orderedSongs.map { it.id })
         }
-        songQueue = orderedSongs
+        commitSongQueue(orderedSongs)
         currentIndex = if (songQueue.isEmpty()) {
             0
         } else {
@@ -488,9 +498,12 @@ class PlayerController internal constructor(
         c.addListener(object : Player.Listener {
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 if (c.mediaItemCount <= 0) return
-                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED ||
-                    !isQueueMirrorAligned(c)
-                ) {
+                if (!isQueueMirrorAligned(c)) {
+                    scheduleQueueMirrorFromPlayer(c)
+                    return
+                }
+                val signature = PlaybackQueueMirror.orderSignature(PlaybackQueueMirror.snapshotItems(c))
+                if (signature != lastQueueOrderSignature) {
                     scheduleQueueMirrorFromPlayer(c)
                 } else {
                     syncQueueIndexFromPlayer(c)
@@ -685,7 +698,7 @@ class PlayerController internal constructor(
         val items = PlaybackQueueMirror.snapshotItems(c)
         val mirrored = PlaybackQueueMirror.rebuildSongs(items, songResolver)
         if (mirrored.isNotEmpty()) {
-            songQueue = mirrored
+            commitSongQueue(mirrored)
             playbackOrderState = PlaybackOrderState(
                 sourceIds = mirrored.map { it.id },
                 playbackIds = mirrored.map { it.id },
@@ -739,7 +752,7 @@ class PlayerController internal constructor(
                 return@launch
             }
             if (mirrored.isNotEmpty()) {
-                songQueue = mirrored
+                commitSongQueue(mirrored)
                 playbackOrderState = PlaybackOrderState(
                     sourceIds = mirrored.map { it.id },
                     playbackIds = mirrored.map { it.id },
@@ -862,7 +875,7 @@ class PlayerController internal constructor(
 
         if (playbackUnchanged) {
             if (songQueue != newQueue) {
-                songQueue = newQueue
+                commitSongQueue(newQueue)
                 preserveId?.let { playbackOrderState = playbackOrderState.moveTo(it) }
                 publishPlaybackStates()
             }
@@ -1144,7 +1157,7 @@ class PlayerController internal constructor(
             fromIndex > currentIndex && toIndex <= currentIndex -> currentIndex + 1
             else -> currentIndex
         }.coerceIn(0, list.lastIndex)
-        songQueue = list
+        commitSongQueue(list)
         currentIndex = newCurrent
         playbackOrderState = PlaybackOrderState(
             sourceIds = list.map { it.id },
@@ -1182,7 +1195,7 @@ class PlayerController internal constructor(
         val list = songQueue.toMutableList()
         list.removeAt(index)
         if (list.isEmpty()) {
-            songQueue = emptyList()
+            commitSongQueue(emptyList())
             currentIndex = 0
             isPlaying = false
             playbackError = null
@@ -1209,7 +1222,7 @@ class PlayerController internal constructor(
     /** 更新内存队列；经 [MediaController] 同步服务侧 Exo 播放列表。 */
     private fun applyQueueOrder(list: List<Song>, newIndex: Int) {
         currentIndex = newIndex
-        songQueue = list
+        commitSongQueue(list)
         playbackOrderState = PlaybackOrderState(
             sourceIds = list.map { it.id },
             playbackIds = list.map { it.id },
@@ -1603,7 +1616,7 @@ class PlayerController internal constructor(
         deferredPlaybackPublish = null
         scope.cancel()
         releaseConnectionOnly()
-        songQueue = emptyList()
+        commitSongQueue(emptyList())
         currentIndex = 0
         isPlaying = false
         playbackError = null
