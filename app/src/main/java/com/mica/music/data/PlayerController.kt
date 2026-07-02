@@ -534,6 +534,7 @@ class PlayerController internal constructor(
                     playbackError = null
                 }
                 pendingPlayCountSongId = mediaItem?.mediaId
+                    ?.takeIf { shouldArmPlayCount(reason, previousSongId, currentSong?.id) }
                 if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
                 publishPlaybackStates()
                 publishPlayCountIfStarted(c, c.isPlaying)
@@ -650,6 +651,23 @@ class PlayerController internal constructor(
                 pendingPlayCountSongId = null
                 onSongPlayStarted?.invoke(songId)
             }
+    }
+
+    /** 仅在真正切歌/重播时预备计数；seek、同曲队列刷新、暂停后恢复不算新播放。 */
+    private fun shouldArmPlayCount(
+        reason: Int,
+        previousSongId: String?,
+        newSongId: String?,
+    ): Boolean {
+        val newId = newSongId ?: return false
+        return when (reason) {
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+            -> true
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED ->
+                previousSongId != newId
+            else -> false
+        }
     }
 
     private fun updateListenSession(songId: String?, playing: Boolean) {

@@ -73,6 +73,7 @@ import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsNavigationRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsTextFieldRow
+import com.mica.music.ui.components.SettingsTipRow
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -280,6 +281,12 @@ fun SettingsScreen(
                         onClick = { selectedCategory = category },
                     )
                 }
+
+                Spacer(Modifier.height(HifiSpacing.lg))
+
+                SettingsSectionTitle("使用技巧")
+                SettingsTipRow("长按迷你播放栏可以定位当前歌曲")
+                SettingsTipRow("在播放页长按专辑封面可以打开菜单，里面有睡眠定时")
             } else {
                 when (selectedCategory) {
                     SettingsCategory.APPEARANCE -> {

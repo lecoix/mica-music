@@ -375,13 +375,79 @@ class PlayerControllerBoundaryTest {
 
         listener.captured.onMediaItemTransition(
             item,
-            Player.MEDIA_ITEM_TRANSITION_REASON_SEEK,
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
         )
         assertEquals(0, count)
         listener.captured.onIsPlayingChanged(true)
         listener.captured.onIsPlayingChanged(true)
 
         assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
+    fun playCountIsNotPublishedOnSeekOrResumeFromPause() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        var playing = false
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } answers { playing }
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        listener.captured.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+        playing = true
+        listener.captured.onIsPlayingChanged(true)
+        assertEquals(1, count)
+
+        playing = false
+        listener.captured.onIsPlayingChanged(false)
+        listener.captured.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+        playing = true
+        listener.captured.onIsPlayingChanged(true)
+
+        assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
+    fun playCountIsNotPublishedOnPlaylistRefreshForSameSong() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        var playing = false
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } answers { playing }
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        listener.captured.onMediaItemTransition(
+            item,
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
+        )
+        playing = true
+        listener.captured.onIsPlayingChanged(true)
+
+        assertEquals(0, count)
         controller.release()
     }
 

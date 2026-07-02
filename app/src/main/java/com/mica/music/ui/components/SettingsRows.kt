@@ -249,6 +249,21 @@ fun SettingsDropdownRow(
 }
 
 @Composable
+fun SettingsTipRow(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = "· $text",
+        style = MicaTheme.typography.bodyMd,
+        color = MicaTheme.colors.textSecondary,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
+    )
+}
+
+@Composable
 fun SettingsActionRow(
     title: String,
     subtitle: String,
