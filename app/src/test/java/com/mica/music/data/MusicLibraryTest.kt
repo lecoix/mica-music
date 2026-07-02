@@ -232,11 +232,17 @@ class MusicLibraryTest {
             lastScanAtMs: Long,
             lastScanSource: ScanSource,
             totalSizeMb: Int,
+            sortField: SongSortField?,
+            sortDirection: SortDirection?,
+            fastScrollSectionTargets: Map<String, Int>?,
         ): LibrarySyncResult = syncIncremental(
             songs,
             lastScanAtMs,
             lastScanSource,
             totalSizeMb,
+            sortField,
+            sortDirection,
+            fastScrollSectionTargets,
         )
 
         override suspend fun syncIncremental(
@@ -244,6 +250,9 @@ class MusicLibraryTest {
             lastScanAtMs: Long,
             lastScanSource: ScanSource,
             totalSizeMb: Int,
+            sortField: SongSortField?,
+            sortDirection: SortDirection?,
+            fastScrollSectionTargets: Map<String, Int>?,
         ): LibrarySyncResult {
             syncedSongs = songs
             syncedSource = lastScanSource
@@ -271,11 +280,17 @@ class MusicLibraryTest {
             lastScanAtMs: Long,
             lastScanSource: ScanSource,
             totalSizeMb: Int,
+            sortField: SongSortField?,
+            sortDirection: SortDirection?,
+            fastScrollSectionTargets: Map<String, Int>?,
         ): LibrarySyncResult = syncIncremental(
             songs,
             lastScanAtMs,
             lastScanSource,
             totalSizeMb,
+            sortField,
+            sortDirection,
+            fastScrollSectionTargets,
         )
 
         override suspend fun syncIncremental(
@@ -283,6 +298,9 @@ class MusicLibraryTest {
             lastScanAtMs: Long,
             lastScanSource: ScanSource,
             totalSizeMb: Int,
+            sortField: SongSortField?,
+            sortDirection: SortDirection?,
+            fastScrollSectionTargets: Map<String, Int>?,
         ): LibrarySyncResult {
             val request = StoreRequest(songs)
             requests += request

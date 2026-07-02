@@ -94,6 +94,52 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun migrationThreeToFourAddsSortCacheDefaults() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(3) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                "CREATE TABLE library_meta (" +
+                                    "id INTEGER NOT NULL PRIMARY KEY, " +
+                                    "lastScanAtMs INTEGER NOT NULL, " +
+                                    "lastScanSource TEXT NOT NULL, " +
+                                    "totalSizeMb INTEGER NOT NULL, " +
+                                    "songCount INTEGER NOT NULL" +
+                                    ")",
+                            )
+                            db.execSQL(
+                                "INSERT INTO library_meta(id, lastScanAtMs, lastScanSource, totalSizeMb, songCount) " +
+                                    "VALUES (1, 100, 'DEVICE', 1, 1)",
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_3_4.migrate(db)
+
+        val columns = tableColumns(db, "library_meta")
+        assertTrue(columns.containsAll(listOf("sortField", "sortDirection", "fastScrollSectionsJson")))
+        db.query("SELECT sortField, sortDirection, fastScrollSectionsJson FROM library_meta WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            repeat(3) { index -> assertEquals("", cursor.getString(index)) }
+        }
+        helper.close()
+    }
+
+    @Test
     fun freshDatabaseMatchesExportedEntitySchema() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, MicaDatabase::class.java)
@@ -120,7 +166,16 @@ class DatabaseMigrationTest {
             ),
         )
         assertEquals(
-            setOf("id", "lastScanAtMs", "lastScanSource", "totalSizeMb", "songCount"),
+            setOf(
+                "id",
+                "lastScanAtMs",
+                "lastScanSource",
+                "totalSizeMb",
+                "songCount",
+                "sortField",
+                "sortDirection",
+                "fastScrollSectionsJson",
+            ),
             metaColumns,
         )
         database.close()

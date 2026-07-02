@@ -1,5 +1,6 @@
 package com.mica.music.ui.components
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -29,8 +30,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.mica.music.data.AlphabeticalText
+import com.mica.music.data.LibraryFastScrollIndex
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
 import kotlin.math.floor
 
@@ -40,12 +42,29 @@ private val AlphabetFastScrollHeight = 384.dp
 @Composable
 fun AlphabetFastScroller(
     labels: List<String>,
+    sectionTargetsOverride: Map<String, Int>? = null,
     scrollToIndex: suspend (Int) -> Unit,
     descending: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val sectionTargets = remember(labels) { alphabetSectionTargets(labels) }
+    val sectionTargets = remember(labels, sectionTargetsOverride) {
+        sectionTargetsOverride?.also { targets ->
+            DiagnosticLog.event(
+                "LibraryUi",
+                "alphabetSectionTargets cached labels=${labels.size} sections=${targets.size}",
+            )
+        } ?: run {
+            val startedMs = SystemClock.elapsedRealtime()
+            alphabetSectionTargets(labels).also { targets ->
+                DiagnosticLog.event(
+                    "LibraryUi",
+                    "alphabetSectionTargets durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                        "labels=${labels.size} sections=${targets.size}",
+                )
+            }
+        }
+    }
     val sectionLabels = remember(descending) { alphabetFastScrollLabels(descending) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -147,11 +166,7 @@ internal fun alphabetFastScrollLabels(descending: Boolean): List<String> =
     if (descending) listOf("#") + ('Z' downTo 'A').map(Char::toString) else AlphabetFastScrollLabels
 
 internal fun alphabetSectionTargets(labels: List<String>): Map<String, Int> {
-    val targets = linkedMapOf<String, Int>()
-    labels.forEachIndexed { index, label ->
-        targets.putIfAbsent(AlphabeticalText.sectionFor(label), index)
-    }
-    return targets
+    return LibraryFastScrollIndex.sectionTargets(labels)
 }
 
 private fun alphabetSectionAt(

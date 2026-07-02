@@ -3,6 +3,7 @@ package com.mica.music.ui.screens
 import android.Manifest
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -118,6 +119,7 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import kotlinx.coroutines.delay
 import com.mica.music.ui.theme.micaAppBackground
+import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.launch
 
@@ -355,11 +357,21 @@ fun HomeScreen(
     var audioRequestAttempted by remember { mutableStateOf(false) }
     var shouldOpenSettings by remember { mutableStateOf(false) }
 
-    fun refreshPermissionState() {
+    fun refreshPermissionState(reason: String): Boolean {
+        val startedMs = SystemClock.elapsedRealtime()
+        val previousGranted = library.permissionGranted
         val granted = library.hasAudioReadPermission()
         library.updatePermission(granted)
         shouldOpenSettings = !granted && audioRequestAttempted &&
             !activity.shouldShowRequestPermissionRationale(audioPermission)
+        DiagnosticLog.event(
+            "LibraryResume",
+            "permissionRefresh reason=$reason durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "granted=$granted previous=$previousGranted attempted=$audioRequestAttempted " +
+                "shouldOpenSettings=$shouldOpenSettings hasScanned=${library.hasScanned} " +
+                "songs=${library.songs.size} hasFolder=${library.hasLibraryFolder()}",
+        )
+        return granted
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -383,15 +395,21 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        refreshPermissionState()
+        refreshPermissionState("initial")
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                refreshPermissionState()
-                if (library.hasAudioReadPermission() && library.hasScanned) {
+                val granted = refreshPermissionState("onResume")
+                if (granted && library.hasScanned) {
+                    val syncStartedMs = SystemClock.elapsedRealtime()
                     playerController.syncPlaybackState()
+                    DiagnosticLog.event(
+                        "LibraryResume",
+                        "syncPlaybackState durMs=${SystemClock.elapsedRealtime() - syncStartedMs} " +
+                            "queue=${playerController.songQueue.size} current=${playerController.currentSong?.id}",
+                    )
                 }
             }
         }
@@ -1196,6 +1214,9 @@ private fun LibraryContent(
         library.isScanning && library.songs.isEmpty() -> {
             EmptyStatePresets.Scanning(progressLabel = library.scanProgressLabel)
         }
+        library.isLoadingCachedLibrary && library.songs.isEmpty() -> {
+            EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库...")
+        }
         !library.hasScanned && !library.permissionGranted && !library.hasLibraryFolder() -> {
             EmptyStatePresets.InitialLibrarySetup(
                 onPickFolderClick = onPickLibraryFolder,
@@ -1227,6 +1248,8 @@ private fun LibraryContent(
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "暂无歌曲",
                 listState = listState,
+                fastScrollLabels = library.songFastScrollLabels,
+                fastScrollSectionTargets = library.songFastScrollSectionTargets,
                 listBottomPadding = listBottomPadding,
                 modifier = Modifier.fillMaxSize(),
             )

@@ -17,3 +17,11 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("ALTER TABLE songs ADD COLUMN externalLyricsSignature TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN sortField TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN sortDirection TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN fastScrollSectionsJson TEXT NOT NULL DEFAULT ''")
+    }
+}

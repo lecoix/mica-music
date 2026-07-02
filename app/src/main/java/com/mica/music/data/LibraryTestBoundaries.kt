@@ -35,6 +35,9 @@ internal interface LibraryStore {
         lastScanAtMs: Long,
         lastScanSource: ScanSource,
         totalSizeMb: Int,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
     ): LibrarySyncResult
 
     suspend fun syncIncremental(
@@ -42,6 +45,9 @@ internal interface LibraryStore {
         lastScanAtMs: Long,
         lastScanSource: ScanSource,
         totalSizeMb: Int,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
     ): LibrarySyncResult
 
     suspend fun clear()
@@ -108,15 +114,37 @@ internal class RoomLibraryStore(
         lastScanAtMs: Long,
         lastScanSource: ScanSource,
         totalSizeMb: Int,
-    ): LibrarySyncResult = repository.save(songs, lastScanAtMs, lastScanSource, totalSizeMb)
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ): LibrarySyncResult = repository.save(
+        songs,
+        lastScanAtMs,
+        lastScanSource,
+        totalSizeMb,
+        sortField,
+        sortDirection,
+        fastScrollSectionTargets,
+    )
 
     override suspend fun syncIncremental(
         songs: List<Song>,
         lastScanAtMs: Long,
         lastScanSource: ScanSource,
         totalSizeMb: Int,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
     ): LibrarySyncResult =
-        repository.syncIncremental(songs, lastScanAtMs, lastScanSource, totalSizeMb)
+        repository.syncIncremental(
+            songs,
+            lastScanAtMs,
+            lastScanSource,
+            totalSizeMb,
+            sortField,
+            sortDirection,
+            fastScrollSectionTargets,
+        )
 
     override suspend fun clear() = repository.clear()
 }

@@ -4,12 +4,14 @@ import android.Manifest
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import com.mica.music.data.scanner.ScanResult
+import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +23,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private data class PreparedLibrarySongs(
+    val scanned: List<Song>,
+    val visible: List<Song>,
+    val fastScrollIndex: FastScrollIndex?,
+)
 
 class MusicLibrary internal constructor(
     private val context: Context,
@@ -60,6 +68,9 @@ class MusicLibrary internal constructor(
     var sortDirection by mutableStateOf(AppPreferences.songSortDirection(context))
         private set
 
+    var isLoadingCachedLibrary by mutableStateOf(false)
+        private set
+
     var isScanning by mutableStateOf(false)
         private set
 
@@ -93,6 +104,12 @@ class MusicLibrary internal constructor(
     var scanProgressLabel by mutableStateOf<String?>(null)
         private set
 
+    var songFastScrollLabels by mutableStateOf<List<String>?>(null)
+        private set
+
+    var songFastScrollSectionTargets by mutableStateOf<Map<String, Int>?>(null)
+        private set
+
     private var scannedSongs: List<Song> = emptyList()
 
     init {
@@ -115,14 +132,25 @@ class MusicLibrary internal constructor(
         sortDirection = AppPreferences.songSortDirection(context)
     }
 
-    private fun publishVisibleSongs(list: List<Song>) {
+    private fun publishVisibleSongs(list: List<Song>, fastScrollIndex: FastScrollIndex? = null) {
         songs = list
         songIds = list.map { it.id }
+        songFastScrollLabels = fastScrollIndex?.labels
+        songFastScrollSectionTargets = fastScrollIndex?.sectionTargets
     }
 
-    private fun applyCurrentSort() {
+    private fun applyCurrentSort(diagnosticReason: String? = null) {
         if (scannedSongs.isEmpty()) return
-        publishVisibleSongs(SongSorter.sort(scannedSongs, sortField, sortDirection))
+        val startedMs = SystemClock.elapsedRealtime()
+        val visible = SongSorter.sort(scannedSongs, sortField, sortDirection)
+        publishVisibleSongs(visible, LibraryFastScrollIndex.forSongs(visible, sortField))
+        if (diagnosticReason != null) {
+            DiagnosticLog.event(
+                "LibraryLoad",
+                "$diagnosticReason sort+publish durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                    "raw=${scannedSongs.size} visible=${songs.size} sort=$sortField/$sortDirection",
+            )
+        }
     }
 
     private fun persistSongsAsync() {
@@ -131,8 +159,11 @@ class MusicLibrary internal constructor(
         val scanAt = lastScanAtMs!!
         val source = lastScanSource
         val sizeMb = totalSizeMb
+        val field = sortField
+        val direction = sortDirection
+        val sectionTargets = songFastScrollSectionTargets
         ioScope.launch {
-            libraryStore.save(snapshot, scanAt, source, sizeMb)
+            libraryStore.save(snapshot, scanAt, source, sizeMb, field, direction, sectionTargets)
         }
     }
 
@@ -247,6 +278,11 @@ class MusicLibrary internal constructor(
     }
 
     fun updatePermission(granted: Boolean) {
+        DiagnosticLog.event(
+            "LibraryResume",
+            "updatePermission granted=$granted previous=$permissionGranted hasFolder=${hasLibraryFolder()} " +
+                "hasScanned=$hasScanned songs=${songs.size}",
+        )
         permissionGranted = granted
         if (!granted && !hasLibraryFolder()) {
             clearLibrary()
@@ -264,6 +300,11 @@ class MusicLibrary internal constructor(
         scanEnvironment.hasAudioReadPermission()
 
     fun clearLibrary() {
+        DiagnosticLog.event(
+            "LibraryResume",
+            "clearLibrary start songs=${songs.size} scanned=${scannedSongs.size} " +
+                "hasScanned=$hasScanned lastScanAtMs=$lastScanAtMs",
+        )
         publishVisibleSongs(emptyList())
         scannedSongs = emptyList()
         hasScanned = false
@@ -272,22 +313,70 @@ class MusicLibrary internal constructor(
         lastScanError = null
         scanProgressLabel = null
         isScanning = false
-        ioScope.launch { libraryStore.clear() }
+        isLoadingCachedLibrary = false
+        ioScope.launch {
+            val startedMs = SystemClock.elapsedRealtime()
+            libraryStore.clear()
+            DiagnosticLog.event(
+                "LibraryResume",
+                "clearLibrary storeClear end durMs=${SystemClock.elapsedRealtime() - startedMs}",
+            )
+        }
     }
 
     /** 启动时从 Room 恢复上次扫描结果，避免每次冷启动都要重扫。 */
     suspend fun loadCachedLibrary() {
-        if (released || hasScanned || isScanning) return
-        val cached = withContext(ioDispatcher) { libraryStore.loadCached() } ?: return
-        if (released) return
-        reloadSortFromPrefs()
-        scannedSongs = cached.songs.map { song -> song.withPlayStats() }
-        applyCurrentSort()
-        totalSizeMb = cached.totalSizeMb
-        lastScanAtMs = cached.lastScanAtMs
-        lastScanSource = cached.lastScanSource
-        hasScanned = true
-        lastScanError = null
+        if (released || hasScanned || isScanning) {
+            DiagnosticLog.event(
+                "LibraryLoad",
+                "loadCached skipped released=$released hasScanned=$hasScanned isScanning=$isScanning",
+            )
+            return
+        }
+        val startedMs = SystemClock.elapsedRealtime()
+        DiagnosticLog.event("LibraryLoad", "loadCached begin")
+        isLoadingCachedLibrary = true
+        try {
+            val dbStartedMs = SystemClock.elapsedRealtime()
+            val cached = withContext(ioDispatcher) { libraryStore.loadCached() }
+            DiagnosticLog.event(
+                "LibraryLoad",
+                "loadCached db durMs=${SystemClock.elapsedRealtime() - dbStartedMs} songs=${cached?.songs?.size ?: 0}",
+            )
+            if (cached == null) {
+                DiagnosticLog.event("LibraryLoad", "loadCached empty durMs=${SystemClock.elapsedRealtime() - startedMs}")
+                return
+            }
+            if (released) return
+            reloadSortFromPrefs()
+            val sortCanUseStoredOrder = cached.sortField == sortField && cached.sortDirection == sortDirection
+            val prepared = prepareLibrarySongs(
+                raw = cached.songs,
+                field = sortField,
+                direction = sortDirection,
+                diagnosticTag = "LibraryLoad",
+                diagnosticReason = "loadCached",
+                useInputOrder = sortCanUseStoredOrder,
+                cachedSectionTargets = cached.fastScrollSectionTargets,
+            )
+            scannedSongs = prepared.scanned
+            publishVisibleSongs(prepared.visible, prepared.fastScrollIndex)
+            totalSizeMb = cached.totalSizeMb
+            lastScanAtMs = cached.lastScanAtMs
+            lastScanSource = cached.lastScanSource
+            hasScanned = true
+            lastScanError = null
+            if (!sortCanUseStoredOrder || cached.fastScrollSectionTargets == null) {
+                persistSongsAsync()
+            }
+            DiagnosticLog.event(
+                "LibraryLoad",
+                "loadCached end durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                    "songs=${songs.size} sizeMb=$totalSizeMb source=$lastScanSource cachedOrder=$sortCanUseStoredOrder",
+            )
+        } finally {
+            isLoadingCachedLibrary = false
+        }
     }
 
     suspend fun rescan() {
@@ -363,11 +452,17 @@ class MusicLibrary internal constructor(
     ) {
         if (released) return
         val generation = ++scanGeneration
+        val scanStartedMs = SystemClock.elapsedRealtime()
+        DiagnosticLog.event(
+            "LibraryScan",
+            "performScan start source=$source generation=$generation currentSongs=${songs.size}",
+        )
         isScanning = true
         lastScanError = null
         scanProgressLabel = "正在读取歌曲列表…"
         scanEnvironment.clearTransientCache()
         try {
+            val cacheStartedMs = SystemClock.elapsedRealtime()
             val cachedSongs = if (scannedSongs.isNotEmpty()) {
                 scannedSongs
             } else {
@@ -375,6 +470,11 @@ class MusicLibrary internal constructor(
                     libraryStore.loadCached()?.songs.orEmpty()
                 }
             }
+            DiagnosticLog.event(
+                "LibraryScan",
+                "performScan cachedSongs durMs=${SystemClock.elapsedRealtime() - cacheStartedMs} " +
+                    "songs=${cachedSongs.size} generation=$generation",
+            )
             val lyricsParserUpgrade =
                 scanEnvironment.lyricsParserVersion() < CURRENT_LYRICS_PARSER_VERSION
             val scanCachedSongs = if (lyricsParserUpgrade) {
@@ -389,6 +489,11 @@ class MusicLibrary internal constructor(
                     }
                 },
                 scanCachedSongs,
+            )
+            DiagnosticLog.event(
+                "LibraryScan",
+                "performScan scannerResult durMs=${SystemClock.elapsedRealtime() - scanStartedMs} " +
+                    "songs=${result.songs.size} generation=$generation",
             )
             if (!isActiveGeneration(generation)) return
             totalSizeMb = result.totalSizeMb
@@ -406,19 +511,33 @@ class MusicLibrary internal constructor(
             if (!isActiveGeneration(generation)) return
             hasScanned = true
             lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+            DiagnosticLog.event("LibraryScan", "performScan failed generation=$generation", e)
         } finally {
             if (isActiveGeneration(generation)) {
                 isScanning = false
                 scanProgressLabel = null
+                DiagnosticLog.event(
+                    "LibraryScan",
+                    "performScan end durMs=${SystemClock.elapsedRealtime() - scanStartedMs} " +
+                        "generation=$generation songs=${songs.size} error=${lastScanError != null}",
+                )
             }
         }
     }
 
     private suspend fun publishSongs(raw: List<Song>, generation: Int) {
         if (!isActiveGeneration(generation)) return
-        scannedSongs = raw.map { song -> song.withPlayStats() }
-        applyCurrentSort()
+        val prepared = prepareLibrarySongs(
+            raw = raw,
+            field = sortField,
+            direction = sortDirection,
+            diagnosticTag = "LibraryScan",
+            diagnosticReason = "scanPublish",
+        )
+        scannedSongs = prepared.scanned
+        publishVisibleSongs(prepared.visible, prepared.fastScrollIndex)
         val scanAt = lastScanAtMs ?: return
+        val syncStartedMs = SystemClock.elapsedRealtime()
         val sync = storeSyncMutex.withLock {
             if (!isActiveGeneration(generation)) return
             withContext(ioDispatcher) {
@@ -427,9 +546,17 @@ class MusicLibrary internal constructor(
                     lastScanAtMs = scanAt,
                     lastScanSource = lastScanSource,
                     totalSizeMb = totalSizeMb,
+                    sortField = sortField,
+                    sortDirection = sortDirection,
+                    fastScrollSectionTargets = prepared.fastScrollIndex?.sectionTargets,
                 )
             }
         }
+        DiagnosticLog.event(
+            "LibraryScan",
+            "publishSongs dbSync durMs=${SystemClock.elapsedRealtime() - syncStartedMs} " +
+                "generation=$generation visible=${songs.size}",
+        )
         if (isActiveGeneration(generation)) {
             lastScanSyncSummary = sync.toSummary()
         }
@@ -445,6 +572,7 @@ class MusicLibrary internal constructor(
         scanJob?.cancel()
         scanJob = null
         isScanning = false
+        isLoadingCachedLibrary = false
         scanProgressLabel = null
         scanScope.cancel()
         ioScope.cancel()
@@ -462,4 +590,50 @@ class MusicLibrary internal constructor(
 
     private fun isActiveGeneration(generation: Int): Boolean =
         !released && generation == scanGeneration
+
+    private suspend fun prepareLibrarySongs(
+        raw: List<Song>,
+        field: SongSortField,
+        direction: SortDirection,
+        diagnosticTag: String,
+        diagnosticReason: String,
+        useInputOrder: Boolean = false,
+        cachedSectionTargets: Map<String, Int>? = null,
+    ): PreparedLibrarySongs = withContext(ioDispatcher) {
+        val statsStartedMs = SystemClock.elapsedRealtime()
+        val scanned = raw.map { song -> song.withPlayStats() }
+        DiagnosticLog.event(
+            diagnosticTag,
+            "$diagnosticReason stats durMs=${SystemClock.elapsedRealtime() - statsStartedMs} songs=${scanned.size}",
+        )
+
+        val sortStartedMs = SystemClock.elapsedRealtime()
+        val visible = if (useInputOrder) scanned else SongSorter.sort(scanned, field, direction)
+        DiagnosticLog.event(
+            diagnosticTag,
+            "$diagnosticReason sort durMs=${SystemClock.elapsedRealtime() - sortStartedMs} " +
+                "raw=${scanned.size} visible=${visible.size} sort=$field/$direction cachedOrder=$useInputOrder",
+        )
+
+        val indexStartedMs = SystemClock.elapsedRealtime()
+        val labels = LibraryFastScrollIndex.labelsForSongs(visible, field)
+        val fastScrollIndex = labels?.let { resolvedLabels ->
+            FastScrollIndex(
+                labels = resolvedLabels,
+                sectionTargets = cachedSectionTargets ?: LibraryFastScrollIndex.sectionTargets(resolvedLabels),
+            )
+        }
+        DiagnosticLog.event(
+            diagnosticTag,
+            "$diagnosticReason fastScrollIndex durMs=${SystemClock.elapsedRealtime() - indexStartedMs} " +
+                "labels=${labels?.size ?: 0} sections=${fastScrollIndex?.sectionTargets?.size ?: 0} " +
+                "cachedSections=${cachedSectionTargets != null}",
+        )
+
+        PreparedLibrarySongs(
+            scanned = scanned,
+            visible = visible,
+            fastScrollIndex = fastScrollIndex,
+        )
+    }
 }

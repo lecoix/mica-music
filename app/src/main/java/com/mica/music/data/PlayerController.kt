@@ -845,6 +845,8 @@ class PlayerController internal constructor(
     fun setQueue(newQueue: List<Song>) {
         if (newQueue.isEmpty() && songQueue.isEmpty()) return
 
+        val startedMs = SystemClock.elapsedRealtime()
+        val previousQueueSize = songQueue.size
         val preserveId = preserveSongIdForQueue()
         val sameOrderAndIds = songQueue.isNotEmpty() &&
             newQueue.size == songQueue.size &&
@@ -875,6 +877,11 @@ class PlayerController internal constructor(
                 }
             }
             controller?.let { syncPlaybackState() }
+            DiagnosticLog.event(
+                "LibraryQueue",
+                "setQueue playbackUnchanged durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${controller?.mediaItemCount ?: 0}",
+            )
             return
         }
 
@@ -886,6 +893,11 @@ class PlayerController internal constructor(
             controller?.let {
                 applyQueue(it, orderedQueue, preservePlayback = true, preserveSongId = preserveId)
             }
+            DiagnosticLog.event(
+                "LibraryQueue",
+                "setQueue sameOrderApply durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${controller?.mediaItemCount ?: 0}",
+            )
             return
         }
         val c = controller
@@ -897,16 +909,46 @@ class PlayerController internal constructor(
                 applyPreserveIndexForQueue(orderedQueue, preserveId, previousIndex)
             }
             publishPlaybackStates()
+            DiagnosticLog.event(
+                "LibraryQueue",
+                "setQueue pendingController durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                    "previous=$previousQueueSize new=${newQueue.size}",
+            )
             return
         }
         applyQueue(c, orderedQueue, preservePlayback = true, preserveSongId = preserveId)
+        DiagnosticLog.event(
+            "LibraryQueue",
+            "setQueue applyQueue durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "previous=$previousQueueSize new=${newQueue.size} controllerItems=${c.mediaItemCount}",
+        )
     }
 
     fun refreshQueueMetadata(latestSongs: List<Song>) {
-        if (songQueue.isEmpty() || latestSongs.isEmpty()) return
+        val startedMs = SystemClock.elapsedRealtime()
+        if (songQueue.isEmpty() || latestSongs.isEmpty()) {
+            DiagnosticLog.event(
+                "LibraryQueue",
+                "refreshQueueMetadata skipped durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                    "queue=${songQueue.size} latest=${latestSongs.size}",
+            )
+            return
+        }
         val latestById = latestSongs.associateBy { it.id }
         val refreshed = songQueue.map { queued -> latestById[queued.id] ?: queued }
-        if (refreshed == songQueue) return
+        if (refreshed == songQueue) {
+            DiagnosticLog.event(
+                "LibraryQueue",
+                "refreshQueueMetadata unchanged durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                    "queue=${songQueue.size} latest=${latestSongs.size}",
+            )
+            return
+        }
+        DiagnosticLog.event(
+            "LibraryQueue",
+            "refreshQueueMetadata changed durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "queue=${songQueue.size} latest=${latestSongs.size}",
+        )
         setQueue(refreshed)
     }
 

@@ -69,6 +69,12 @@
 ## 尚未实现
 
 ### 曲库 / 数据
+- [ ] **大曲库启动后续优化（低优先级）**：当前 `cachedOrder=true` 后测试反馈不卡；仅当实机再次报告冷启动/回后台恢复慢，或日志出现明确瓶颈时再推进。
+  - 单一 `LibraryUiSnapshot` / sealed library state 一次发布，减少 `songs`、`songIds`、fast-scroll 数据、scan flags 等多个 Compose state 连续更新。
+  - 持久化多字段 `sortKey` / `section`（标题、歌手、专辑、文件夹），用于非当前排序切换时避免现场 `Collator` 排序。
+  - 拆分列表行模型与完整歌曲详情模型；如果超大曲库日志显示 `toSong`、lyrics decode 或 payload map 成为瓶颈，再按需读取歌词/复杂 metadata。
+  - 首屏 Ready 之后再延后非首帧任务，如 album-art prune、player connect/bootstrap、歌手/专辑/文件夹分组。
+  - 缓存或延迟歌手、专辑、文件夹派生分组；只在大曲库导航日志显示 group/sort 成本明显时启动。
 - [ ] **扫描完成提示样式待讨论**：当前使用首页 Snackbar 展示新增/更新/移除摘要；后续确认是否保留、改为页面内状态，或采用更符合整体视觉的非打断式样式。
 - [x] 外挂 **`.lrc`** 文件（与音频同目录、同名 `.lrc`；扫描时与内嵌歌词取优）
 - [ ] 外挂歌词：**指定目录** / 多候选命名（artist-title.lrc 等）

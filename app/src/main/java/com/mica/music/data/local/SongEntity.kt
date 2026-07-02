@@ -48,6 +48,9 @@ data class LibraryMetaEntity(
     val lastScanSource: String,
     val totalSizeMb: Int,
     val songCount: Int,
+    val sortField: String = "",
+    val sortDirection: String = "",
+    val fastScrollSectionsJson: String = "",
 )
 
 fun SongEntity.toSong(): Song = Song(

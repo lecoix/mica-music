@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -44,6 +45,7 @@ import com.mica.music.ui.theme.AnimatedMicaAppBackground
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
+import com.mica.music.util.DiagnosticLog
 import eightbitlab.com.blurview.BlurTarget
 
 @Composable
@@ -204,24 +206,47 @@ class MainActivity : ComponentActivity() {
 
                 val libraryQueueIds = remember { androidx.compose.runtime.mutableStateOf<List<String>>(emptyList()) }
                 LaunchedEffect(library.songs) {
+                    val effectStartedMs = SystemClock.elapsedRealtime()
                     val songs = library.songs
-                    if (songs.isEmpty()) return@LaunchedEffect
+                    if (songs.isEmpty()) {
+                        DiagnosticLog.event(
+                            "LibraryQueue",
+                            "librarySongs effect skipped empty hasScanned=${library.hasScanned}",
+                        )
+                        return@LaunchedEffect
+                    }
 
                     val previousLibraryIds = libraryQueueIds.value
                     val currentQueueIds = playerController.songQueue.map { it.id }
                     val currentQueueWasLibrary = previousLibraryIds.isNotEmpty() &&
                         currentQueueIds == previousLibraryIds
                     libraryQueueIds.value = library.songIds
+                    DiagnosticLog.event(
+                        "LibraryQueue",
+                        "librarySongs effect start songs=${songs.size} queue=${currentQueueIds.size} " +
+                            "previousLibrary=${previousLibraryIds.size} currentQueueWasLibrary=$currentQueueWasLibrary",
+                    )
 
                     when {
                         currentQueueIds.isEmpty() -> {
-                            if (!playerController.bootstrapQueue(library::songById)) {
+                            val bootstrapped = playerController.bootstrapQueue(library::songById)
+                            DiagnosticLog.event(
+                                "LibraryQueue",
+                                "librarySongs bootstrap result=$bootstrapped " +
+                                    "durMs=${SystemClock.elapsedRealtime() - effectStartedMs}",
+                            )
+                            if (!bootstrapped) {
                                 playerController.setQueue(songs)
                             }
                         }
                         currentQueueWasLibrary -> playerController.setQueue(songs)
                         else -> playerController.refreshQueueMetadata(songs)
                     }
+                    DiagnosticLog.event(
+                        "LibraryQueue",
+                        "librarySongs effect end durMs=${SystemClock.elapsedRealtime() - effectStartedMs} " +
+                            "queue=${playerController.songQueue.size}",
+                    )
                 }
 
                 MainAppSurface(
