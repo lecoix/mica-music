@@ -14,11 +14,13 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.media.MicaSpectrumAnalyzer
 import androidx.compose.runtime.withFrameNanos
+import com.mica.music.ui.MicaScreenshotGoldenMode
 import com.mica.music.ui.theme.MicaTheme
 import kotlin.math.exp
 import kotlin.math.sqrt
@@ -58,12 +60,37 @@ private fun downsampleBands(bands: List<Float>, targetCount: Int): FloatArray {
     return result
 }
 
+private val GoldenPlayingSpectrumFractions = floatArrayOf(
+    0.28f, 0.42f, 0.58f, 0.72f, 0.82f, 0.88f, 0.82f, 0.72f, 0.58f, 0.42f, 0.28f,
+)
+
 @Composable
 fun MiniPlayerSpectrumBars(
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
     height: Dp = SpectrumHeight,
 ) {
+    val accent = MicaTheme.colors.accent
+    val spectrumWidth = BarWidth * BarCount + BarGap * (BarCount - 1)
+    if (MicaScreenshotGoldenMode.enabled) {
+        val envelope = remember { FloatArray(BarCount) { bimodalEnvelope(it, BarCount) } }
+        val fractions = remember(isPlaying) {
+            if (isPlaying) {
+                GoldenPlayingSpectrumFractions
+            } else {
+                FloatArray(BarCount) { idleHeight(envelope[it]) }
+            }
+        }
+        GoldenSpectrumBars(
+            fractions = fractions,
+            accent = accent,
+            height = height,
+            spectrumWidth = spectrumWidth,
+            modifier = modifier,
+        )
+        return
+    }
+
     val liveLevels by MicaSpectrumAnalyzer.levels.collectAsState()
     val currentLevels by rememberUpdatedState(liveLevels)
 
@@ -73,8 +100,6 @@ fun MiniPlayerSpectrumBars(
     val barHeights = remember {
         mutableStateListOf(*FloatArray(BarCount) { idleHeight(envelope[it]) }.toTypedArray())
     }
-    val accent = MicaTheme.colors.accent
-    val spectrumWidth = BarWidth * BarCount + BarGap * (BarCount - 1)
 
     LaunchedEffect(isPlaying) {
         if (!isPlaying) {
@@ -110,6 +135,37 @@ fun MiniPlayerSpectrumBars(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             barHeights.forEach { fraction ->
+                val barH = height * fraction
+                Box(
+                    modifier = Modifier
+                        .width(BarWidth)
+                        .height(barH)
+                        .background(accent.copy(alpha = 0.48f + fraction * 0.52f)),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoldenSpectrumBars(
+    fractions: FloatArray,
+    accent: Color,
+    height: Dp,
+    spectrumWidth: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .width(spectrumWidth)
+            .height(height),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(BarGap, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            fractions.forEach { fraction ->
                 val barH = height * fraction
                 Box(
                     modifier = Modifier

@@ -255,6 +255,7 @@ val fullScreenshotsRequested = nightlyRequested || gradle.startParameter.taskNam
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     systemProperty("mica.nightly", nightlyRequested.toString())
     systemProperty("mica.fullScreenshots", fullScreenshotsRequested.toString())
+    systemProperty("mica.screenshotGolden", fullScreenshotsRequested.toString())
 }
 
 tasks.register("micaNightlyCheck") {

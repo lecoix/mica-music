@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -20,6 +21,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.mica.music.ui.MicaScreenshotGoldenMode
 import eightbitlab.com.blurview.BlurTarget
 import eightbitlab.com.blurview.BlurView
 
@@ -72,7 +74,7 @@ fun FloatingIslandShadowHalo(
     isDark: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (!supportsFloatingIslandRenderEffect()) {
+    if (MicaScreenshotGoldenMode.enabled || !supportsFloatingIslandRenderEffect()) {
         return
     }
     val density = LocalDensity.current
@@ -104,8 +106,11 @@ fun MicaMaterialBackdrop(
     val density = LocalDensity.current
     val radiusPx = with(density) { blurRadius.toPx() }
     val listBackdropColor = rememberFloatingIslandListBackdropColor()
-    if (!supportsFloatingIslandRenderEffect() || blurTarget == null) {
-        Box(modifier.background(listBackdropColor))
+    if (MicaScreenshotGoldenMode.enabled || !supportsFloatingIslandRenderEffect() || blurTarget == null) {
+        Box(modifier) {
+            Box(Modifier.fillMaxSize().background(listBackdropColor))
+            Box(Modifier.fillMaxSize().background(overlayColor))
+        }
         return
     }
 

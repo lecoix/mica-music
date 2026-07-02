@@ -12,6 +12,20 @@ internal data class QueueSyncResult(
     val reusedMap: Boolean,
 )
 
+internal sealed class PlaybackQueueSyncPlan {
+    abstract val result: QueueSyncResult
+
+    data class Skip(
+        override val result: QueueSyncResult,
+    ) : PlaybackQueueSyncPlan()
+
+    data class SetMediaItems(
+        val items: List<MediaItem>,
+        val startPositionMs: Long,
+        override val result: QueueSyncResult,
+    ) : PlaybackQueueSyncPlan()
+}
+
 internal object MediaControllerQueueSync {
     fun canMoveItemIncrementally(
         player: Player,
@@ -30,14 +44,14 @@ internal object MediaControllerQueueSync {
         return sourceMatches && destinationMatches
     }
 
-    fun syncToPlayer(
+    fun planSync(
         player: Player,
         queue: List<Song>,
         targetIndex: Int,
         positionMs: Long,
         preserveCurrentPlayback: Boolean,
         prebuiltItems: List<MediaItem>? = null,
-    ): QueueSyncResult? {
+    ): PlaybackQueueSyncPlan? {
         if (queue.isEmpty()) return null
         val safeTarget = targetIndex.coerceIn(0, queue.lastIndex)
         val startIndex = if (preserveCurrentPlayback) {
@@ -62,24 +76,55 @@ internal object MediaControllerQueueSync {
                     .getOrDefault(false)
             }
         if (preserveCurrentPlayback && queueAligned && !targetMismatch) {
-            return QueueSyncResult(
-                itemsCount = queue.size,
-                startIndex = safeTarget,
+            return PlaybackQueueSyncPlan.Skip(
+                QueueSyncResult(
+                    itemsCount = queue.size,
+                    startIndex = safeTarget,
+                    preserveCurrentPlayback = preserveCurrentPlayback,
+                    queueAligned = queueAligned,
+                    targetMismatch = targetMismatch,
+                    reusedMap = prebuiltItems != null,
+                ),
+            )
+        }
+        val items = prebuiltItems ?: queue.map { it.toMediaItem() }
+        return PlaybackQueueSyncPlan.SetMediaItems(
+            items = items,
+            startPositionMs = startPosition,
+            result = QueueSyncResult(
+                itemsCount = items.size,
+                startIndex = startIndex,
                 preserveCurrentPlayback = preserveCurrentPlayback,
                 queueAligned = queueAligned,
                 targetMismatch = targetMismatch,
                 reusedMap = prebuiltItems != null,
-            )
-        }
-        val items = prebuiltItems ?: queue.map { it.toMediaItem() }
-        player.setMediaItems(items, startIndex, startPosition)
-        return QueueSyncResult(
-            itemsCount = items.size,
-            startIndex = startIndex,
-            preserveCurrentPlayback = preserveCurrentPlayback,
-            queueAligned = queueAligned,
-            targetMismatch = targetMismatch,
-            reusedMap = prebuiltItems != null,
+            ),
         )
     }
+
+    fun executeSyncPlan(player: Player, plan: PlaybackQueueSyncPlan): QueueSyncResult {
+        if (plan is PlaybackQueueSyncPlan.SetMediaItems) {
+            player.setMediaItems(plan.items, plan.result.startIndex, plan.startPositionMs)
+        }
+        return plan.result
+    }
+
+    fun syncToPlayer(
+        player: Player,
+        queue: List<Song>,
+        targetIndex: Int,
+        positionMs: Long,
+        preserveCurrentPlayback: Boolean,
+        prebuiltItems: List<MediaItem>? = null,
+    ): QueueSyncResult? =
+        planSync(
+            player = player,
+            queue = queue,
+            targetIndex = targetIndex,
+            positionMs = positionMs,
+            preserveCurrentPlayback = preserveCurrentPlayback,
+            prebuiltItems = prebuiltItems,
+        )?.let { plan ->
+            executeSyncPlan(player, plan)
+        }
 }

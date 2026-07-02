@@ -6,6 +6,7 @@ import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -46,6 +47,24 @@ class MediaControllerQueueSyncTest {
     }
 
     @Test
+    fun planSyncSeparatesAlignedSkipFromExecution() {
+        val queue = SongFixtures.queue(2)
+        val player = mockPlayer(queue.map { item(it.id) }, currentIndex = 0, currentPosition = 12_000L)
+
+        val plan = MediaControllerQueueSync.planSync(
+            player = player,
+            queue = queue,
+            targetIndex = 0,
+            positionMs = 0L,
+            preserveCurrentPlayback = true,
+        )
+
+        assertTrue(plan is PlaybackQueueSyncPlan.Skip)
+        assertEquals(0, plan?.result?.startIndex)
+        verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+    }
+
+    @Test
     fun syncToPlayerSetsMediaItemsWhenQueueIsMisaligned() {
         val queue = SongFixtures.queue(2)
         val player = mockPlayer(listOf(item(queue[0].id), item("stale")), currentIndex = 0, currentPosition = 12_000L)
@@ -57,6 +76,29 @@ class MediaControllerQueueSyncTest {
             positionMs = 0L,
             preserveCurrentPlayback = true,
         )
+
+        verify(exactly = 1) {
+            player.setMediaItems(match { it.map(MediaItem::mediaId) == queue.map(Song::id) }, 0, 12_000L)
+        }
+    }
+
+    @Test
+    fun setMediaItemsPlanRunsOnlyWhenExecuted() {
+        val queue = SongFixtures.queue(2)
+        val player = mockPlayer(listOf(item(queue[0].id), item("stale")), currentIndex = 0, currentPosition = 12_000L)
+
+        val plan = MediaControllerQueueSync.planSync(
+            player = player,
+            queue = queue,
+            targetIndex = 1,
+            positionMs = 0L,
+            preserveCurrentPlayback = true,
+        )
+
+        assertTrue(plan is PlaybackQueueSyncPlan.SetMediaItems)
+        verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+
+        MediaControllerQueueSync.executeSyncPlan(player, plan!!)
 
         verify(exactly = 1) {
             player.setMediaItems(match { it.map(MediaItem::mediaId) == queue.map(Song::id) }, 0, 12_000L)

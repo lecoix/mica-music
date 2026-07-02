@@ -35,7 +35,6 @@ class MiniPlayerScreenshotTest {
     @Before
     fun requireFullScreenshotMatrix() {
         assumeTrue(System.getProperty("mica.fullScreenshots") == "true")
-        composeRule.mainClock.autoAdvance = false
     }
 
     @Test
@@ -108,7 +107,6 @@ class MiniPlayerScreenshotTest {
                 }
             }
         }
-        composeRule.mainClock.advanceTimeByFrame()
         composeRule.onRoot().captureRoboImage(fileName)
     }
 }
