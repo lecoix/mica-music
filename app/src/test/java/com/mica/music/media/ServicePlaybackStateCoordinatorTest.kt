@@ -41,7 +41,7 @@ class ServicePlaybackStateCoordinatorTest {
 
         verifyOrder {
             player.repeatMode = Player.REPEAT_MODE_ALL
-            player.shuffleModeEnabled = true
+            player.shuffleModeEnabled = false
             player.playWhenReady = false
             player.seekTo(1, 12_345L)
             player.prepare()

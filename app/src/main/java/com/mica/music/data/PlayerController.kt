@@ -33,7 +33,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.random.Random
 
 data class PlaybackSurfaceState(
     val currentSong: Song? = null,
@@ -125,6 +124,7 @@ class PlayerController internal constructor(
     private var queueMirrorRefreshJob: Job? = null
     private var queueMirrorRefreshRequestId = 0L
     private var lastQueueOrderSignature: QueueOrderSignature? = null
+    private var playbackOrderState = PlaybackOrderState()
 
     /** 开始播放某曲时回调（用于统计播放次数）。 */
     var onSongPlayStarted: ((songId: String) -> Unit)? = null
@@ -292,7 +292,11 @@ class PlayerController internal constructor(
     private fun savePlaybackSession(sync: Boolean) {
         val song = currentSong ?: return
         sessionStorage.save(
-            PlaybackSession(songId = song.id, positionMs = uiPositionMs()),
+            PlaybackSession(
+                songId = song.id,
+                positionMs = uiPositionMs(),
+                shuffleEnabled = playbackOrderState.shuffleEnabled,
+            ),
             sync = sync,
         )
     }
@@ -306,13 +310,20 @@ class PlayerController internal constructor(
             sessionStorage.clear()
             return
         }
-        currentIndex = index
+        playbackOrderState = playbackOrderState
+            .withQueue(songQueue.map { it.id }, preserveId = session.songId)
+            .setShuffleEnabled(session.shuffleEnabled)
+        if (session.shuffleEnabled) {
+            applyPlaybackOrderState(playbackOrderState, songQueue)
+        } else {
+            currentIndex = index
+        }
         publishPlaybackStates()
         val pos = session.positionMs.coerceAtLeast(0)
         if (pos > 0) {
             pendingRestorePosition = PendingRestorePosition(session.songId, pos)
             setPositionMsClamped(pos)
-            val durSec = songQueue[index].durationSec
+            val durSec = currentSong?.durationSec ?: 0
             if (durSec > 0) durationSec = durSec
         }
     }
@@ -398,6 +409,37 @@ class PlayerController internal constructor(
             queue = songQueue,
             currentIndex = currentIndex,
         )
+    }
+
+    private fun applyPlaybackOrderState(
+        order: PlaybackOrderState,
+        candidates: List<Song> = songQueue,
+    ) {
+        val byId = (songQueue + candidates).associateBy { it.id }
+        val orderedSongs = order.playbackIds.mapNotNull { byId[it] }
+        playbackOrderState = if (orderedSongs.size == order.playbackIds.size) {
+            order
+        } else {
+            order.withQueue(orderedSongs.map { it.id })
+        }
+        songQueue = orderedSongs
+        currentIndex = if (songQueue.isEmpty()) {
+            0
+        } else {
+            playbackOrderState.currentOrderIndex.coerceIn(0, songQueue.lastIndex)
+        }
+    }
+
+    private fun resetPlaybackOrderFromQueue(
+        queue: List<Song>,
+        preserveSongId: String?,
+    ): List<Song> {
+        val order = playbackOrderState.withQueue(
+            ids = queue.map { it.id },
+            preserveId = preserveSongId,
+        )
+        applyPlaybackOrderState(order, queue)
+        return songQueue
     }
 
     private var controller: MediaController? = null
@@ -629,6 +671,9 @@ class PlayerController internal constructor(
             idx in songQueue.indices -> idx
             else -> currentIndex.coerceIn(0, songQueue.lastIndex)
         }
+        songQueue.getOrNull(currentIndex)?.id?.let { id ->
+            playbackOrderState = playbackOrderState.moveTo(id)
+        }
         publishPlaybackStates()
         return true
     }
@@ -641,6 +686,12 @@ class PlayerController internal constructor(
         val mirrored = PlaybackQueueMirror.rebuildSongs(items, songResolver)
         if (mirrored.isNotEmpty()) {
             songQueue = mirrored
+            playbackOrderState = PlaybackOrderState(
+                sourceIds = mirrored.map { it.id },
+                playbackIds = mirrored.map { it.id },
+                currentId = mirrored.getOrNull(c.currentMediaItemIndex)?.id,
+                shuffleEnabled = playbackOrderState.shuffleEnabled,
+            )
             lastQueueOrderSignature = PlaybackQueueMirror.orderSignature(items)
         }
         if (c is MediaController) {
@@ -689,6 +740,12 @@ class PlayerController internal constructor(
             }
             if (mirrored.isNotEmpty()) {
                 songQueue = mirrored
+                playbackOrderState = PlaybackOrderState(
+                    sourceIds = mirrored.map { it.id },
+                    playbackIds = mirrored.map { it.id },
+                    currentId = mirrored.getOrNull(c.currentMediaItemIndex)?.id,
+                    shuffleEnabled = playbackOrderState.shuffleEnabled,
+                )
                 lastQueueOrderSignature = build.signature
             }
             syncIndexFromPlayer(c)
@@ -738,18 +795,25 @@ class PlayerController internal constructor(
             return true
         }
         val snapshot = ServicePlaybackStateStore(appCtx).load() ?: return false
+        val session = sessionStorage.load()
         val hydrated = snapshot.queueSongIds.mapNotNull(resolveSong)
         if (hydrated.isEmpty()) return false
         val preserveId = snapshot.currentSongId.ifBlank {
             snapshot.queueSongIds.getOrNull(snapshot.currentIndex).orEmpty()
         }
+        playbackOrderState = PlaybackOrderState(
+            sourceIds = hydrated.map { it.id },
+            playbackIds = hydrated.map { it.id },
+            currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } },
+            shuffleEnabled = session?.shuffleEnabled == true,
+        )
         setQueue(hydrated)
-        val index = hydrated.indexOfFirst { it.id == preserveId }.takeIf { it >= 0 }
-            ?: snapshot.currentIndex.coerceIn(0, hydrated.lastIndex)
+        val index = songQueue.indexOfFirst { it.id == preserveId }.takeIf { it >= 0 }
+            ?: snapshot.currentIndex.coerceIn(0, songQueue.lastIndex)
         currentIndex = index
         if (snapshot.positionMs > 0) {
             pendingRestorePosition = PendingRestorePosition(
-                songId = hydrated[index].id,
+                songId = songQueue[index].id,
                 positionMs = snapshot.positionMs.toInt(),
             )
             setPositionMsClamped(snapshot.positionMs.toInt())
@@ -797,6 +861,7 @@ class PlayerController internal constructor(
         if (playbackUnchanged) {
             if (songQueue != newQueue) {
                 songQueue = newQueue
+                preserveId?.let { playbackOrderState = playbackOrderState.moveTo(it) }
                 publishPlaybackStates()
             }
             controller?.let { c ->
@@ -813,27 +878,28 @@ class PlayerController internal constructor(
             return
         }
 
-        songQueue = newQueue
+        val previousIndex = currentIndex
+        val orderedQueue = resetPlaybackOrderFromQueue(newQueue, preserveId)
         publishPlaybackStates()
 
         if (sameOrderAndIds) {
             controller?.let {
-                applyQueue(it, newQueue, preservePlayback = true, preserveSongId = preserveId)
+                applyQueue(it, orderedQueue, preservePlayback = true, preserveSongId = preserveId)
             }
             return
         }
         val c = controller
         if (c == null) {
-            pendingQueue = newQueue
-            if (newQueue.isEmpty()) {
+            pendingQueue = orderedQueue
+            if (orderedQueue.isEmpty()) {
                 currentIndex = 0
             } else {
-                applyPreserveIndexForQueue(newQueue, preserveId)
+                applyPreserveIndexForQueue(orderedQueue, preserveId, previousIndex)
             }
             publishPlaybackStates()
             return
         }
-        applyQueue(c, newQueue, preservePlayback = true, preserveSongId = preserveId)
+        applyQueue(c, orderedQueue, preservePlayback = true, preserveSongId = preserveId)
     }
 
     fun refreshQueueMetadata(latestSongs: List<Song>) {
@@ -844,7 +910,11 @@ class PlayerController internal constructor(
         setQueue(refreshed)
     }
 
-    private fun applyPreserveIndexForQueue(newQueue: List<Song>, preserveSongId: String?) {
+    private fun applyPreserveIndexForQueue(
+        newQueue: List<Song>,
+        preserveSongId: String?,
+        fallbackIndex: Int = currentIndex,
+    ) {
         if (newQueue.isEmpty()) {
             currentIndex = 0
             publishPlaybackStates()
@@ -856,7 +926,10 @@ class PlayerController internal constructor(
         currentIndex = if (keepIndex >= 0) {
             keepIndex
         } else {
-            currentIndex.coerceIn(0, newQueue.lastIndex)
+            fallbackIndex.coerceIn(0, newQueue.lastIndex)
+        }
+        newQueue.getOrNull(currentIndex)?.id?.let { id ->
+            playbackOrderState = playbackOrderState.moveTo(id)
         }
         publishPlaybackStates()
     }
@@ -870,6 +943,7 @@ class PlayerController internal constructor(
     ) {
         if (newQueue.isEmpty()) {
             c.clearMediaItems()
+            playbackOrderState = PlaybackOrderState(shuffleEnabled = playbackOrderState.shuffleEnabled)
             currentIndex = 0
             isPlaying = false
             playbackError = null
@@ -985,34 +1059,27 @@ class PlayerController internal constructor(
             return
         }
 
-        val list = songQueue.toMutableList()
-        var playIndex = currentIndex.coerceIn(0, list.lastIndex)
-        val existing = list.indexOfFirst { it.id == song.id }
-        if (existing >= 0) {
-            if (existing == playIndex) {
-                postUserMessage("正在播放该歌曲")
-                return
-            }
-            list.removeAt(existing)
-            if (existing < playIndex) playIndex--
+        if (songQueue.getOrNull(currentIndex)?.id == song.id) {
+            postUserMessage("正在播放该歌曲")
+            return
         }
-        val insertAt = (playIndex + 1).coerceAtMost(list.size)
-        list.add(insertAt, song)
-        songQueue = list
-        currentIndex = playIndex
-        val activeController = controller
+        applyPlaybackOrderState(playbackOrderState.insertPlayNext(song.id), songQueue + song)
+        val updatedList = songQueue
+        val updatedIndex = currentIndex
+        val insertedAt = updatedList.indexOfFirst { it.id == song.id }
+        val active = controller
         when {
-            activeController == null -> pendingQueue = list
+            active == null -> pendingQueue = updatedList
             else -> syncQueueToService(
-                c = activeController,
-                targetIndex = playIndex,
-                positionMs = activeController.currentPosition.coerceAtLeast(0L),
+                c = active,
+                targetIndex = updatedIndex,
+                positionMs = active.currentPosition.coerceAtLeast(0L),
                 preserveCurrentPlayback = true,
             )
         }
         DiagnosticLog.event(
             "Player",
-            "insertPlayNext song=${song.id} insertAt=$insertAt playIndex=$playIndex; ${playbackSnapshot()}",
+            "insertPlayNext song=${song.id} insertAt=$insertedAt playIndex=$updatedIndex; ${playbackSnapshot()}",
         )
         publishPlaybackStates()
         postUserMessage("已加入下一首播放")
@@ -1037,6 +1104,12 @@ class PlayerController internal constructor(
         }.coerceIn(0, list.lastIndex)
         songQueue = list
         currentIndex = newCurrent
+        playbackOrderState = PlaybackOrderState(
+            sourceIds = list.map { it.id },
+            playbackIds = list.map { it.id },
+            currentId = list.getOrNull(newCurrent)?.id,
+            shuffleEnabled = playbackOrderState.shuffleEnabled,
+        )
         activeController?.let { c ->
             if (canMoveIncrementally) {
                 val moveStartedNs = SystemClock.elapsedRealtimeNanos()
@@ -1083,7 +1156,7 @@ class PlayerController internal constructor(
         applyQueueOrder(list, newIndex)
         if (removingCurrent) {
             if (wasPlaying) {
-                playSong(newIndex)
+                playSong(newIndex, anchorPlaybackOrder = false)
             } else {
                 currentIndex = newIndex
                 publishPlaybackStates()
@@ -1095,6 +1168,12 @@ class PlayerController internal constructor(
     private fun applyQueueOrder(list: List<Song>, newIndex: Int) {
         currentIndex = newIndex
         songQueue = list
+        playbackOrderState = PlaybackOrderState(
+            sourceIds = list.map { it.id },
+            playbackIds = list.map { it.id },
+            currentId = list.getOrNull(newIndex)?.id,
+            shuffleEnabled = playbackOrderState.shuffleEnabled,
+        )
         publishPlaybackStates()
         if (controller == null) {
             pendingQueue = list
@@ -1103,17 +1182,20 @@ class PlayerController internal constructor(
         syncExoQueuePreservingPlayback()
     }
 
-    fun playSong(index: Int) {
+    fun playSong(index: Int) = playSong(index, anchorPlaybackOrder = false)
+
+    private fun playSong(index: Int, anchorPlaybackOrder: Boolean) {
         if (songQueue.isEmpty()) return
         val c = controller ?: run {
             connectIfNeeded()
             postUserMessage("播放服务未就绪")
             return
         }
-        val safe = index.coerceIn(0, songQueue.lastIndex)
+        var safe = index.coerceIn(0, songQueue.lastIndex)
         val previousIndex = currentIndex
         playbackError = null
-        val song = songQueue[safe]
+        var song = songQueue[safe]
+        playbackOrderState = playbackOrderState.moveTo(song.id)
         PlaybackRouter.unsupportedMessage(song)?.let { message ->
             playbackError = message
             postUserMessage(message)
@@ -1298,27 +1380,54 @@ class PlayerController internal constructor(
     private fun applyPlaybackQueueMode(c: MediaController, mode: PlaybackQueueMode = playbackQueueMode) {
         when (mode) {
             PlaybackQueueMode.OFF -> {
+                setAppShuffleEnabled(false, c)
                 c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_OFF
             }
             PlaybackQueueMode.REPEAT_ALL -> {
+                setAppShuffleEnabled(false, c)
                 c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_ALL
             }
             PlaybackQueueMode.REPEAT_ONE -> {
+                setAppShuffleEnabled(false, c)
                 c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_ONE
             }
             PlaybackQueueMode.SHUFFLE -> {
-                c.shuffleModeEnabled = true
+                setAppShuffleEnabled(true, c)
+                c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_OFF
             }
         }
     }
 
+    private fun setAppShuffleEnabled(enabled: Boolean, c: MediaController) {
+        if (songQueue.isNotEmpty() && playbackOrderState.shuffleEnabled != enabled) {
+            val order = playbackOrderState
+                .withQueue(songQueue.map { it.id }, preserveSongIdForQueue())
+                .setShuffleEnabled(enabled)
+            applyPlaybackOrderState(order, songQueue)
+            syncQueueToService(
+                c = c,
+                targetIndex = currentIndex,
+                positionMs = runCatching { c.currentPosition }.getOrDefault(0L),
+                preserveCurrentPlayback = true,
+            )
+        } else {
+            playbackOrderState = playbackOrderState.copy(shuffleEnabled = enabled)
+        }
+        if (enabled) {
+            playbackQueueMode = PlaybackQueueMode.SHUFFLE
+        } else if (playbackQueueMode == PlaybackQueueMode.SHUFFLE) {
+            playbackQueueMode = PlaybackQueueMode.OFF
+        }
+        publishPlaybackStates()
+    }
+
     private fun syncPlaybackQueueModeFromPlayer(c: Player) {
         playbackQueueMode = when {
-            c.shuffleModeEnabled -> PlaybackQueueMode.SHUFFLE
+            playbackOrderState.shuffleEnabled -> PlaybackQueueMode.SHUFFLE
             c.repeatMode == Player.REPEAT_MODE_ALL -> PlaybackQueueMode.REPEAT_ALL
             c.repeatMode == Player.REPEAT_MODE_ONE -> PlaybackQueueMode.REPEAT_ONE
             else -> PlaybackQueueMode.OFF
@@ -1336,35 +1445,29 @@ class PlayerController internal constructor(
         if (playbackQueueMode == PlaybackQueueMode.OFF && next == currentIndex) return
         TrackSwitchPerformance.armTrigger("auto-next")
         trackSkipDirection = TrackSkipDirection.TO_NEXT
-        playSong(next)
+        playSong(next, anchorPlaybackOrder = false)
     }
 
     private fun resolveNextIndex(forManualSkip: Boolean): Int {
-        return PlaybackQueueNavigator.nextIndex(
-            mode = playbackQueueMode,
-            currentIndex = currentIndex,
-            queueSize = songQueue.size,
-            manualSkip = forManualSkip,
-            randomIndex = ::randomIndexExcept,
-        )
+        val currentId = currentSong?.id ?: return currentIndex
+        val nextId = playbackOrderState
+            .moveTo(currentId)
+            .nextId(
+                manualSkip = forManualSkip,
+                repeatAll = playbackQueueMode == PlaybackQueueMode.REPEAT_ALL,
+                repeatOne = playbackQueueMode == PlaybackQueueMode.REPEAT_ONE,
+            )
+            ?: return currentIndex
+        return songQueue.indexOfFirst { it.id == nextId }.takeIf { it >= 0 } ?: currentIndex
     }
 
     private fun resolvePreviousIndex(): Int {
-        return PlaybackQueueNavigator.previousIndex(
-            mode = playbackQueueMode,
-            currentIndex = currentIndex,
-            queueSize = songQueue.size,
-            randomIndex = ::randomIndexExcept,
-        )
-    }
-
-    private fun randomIndexExcept(exclude: Int): Int {
-        if (songQueue.size <= 1) return exclude.coerceIn(0, (songQueue.size - 1).coerceAtLeast(0))
-        var pick = exclude
-        while (pick == exclude) {
-            pick = Random.nextInt(songQueue.size)
-        }
-        return pick
+        val currentId = currentSong?.id ?: return currentIndex
+        val previousId = playbackOrderState
+            .moveTo(currentId)
+            .previousId(repeatAll = true)
+            ?: return currentIndex
+        return songQueue.indexOfFirst { it.id == previousId }.takeIf { it >= 0 } ?: currentIndex
     }
 
 
@@ -1397,11 +1500,11 @@ class PlayerController internal constructor(
     }
 
     fun next() {
-        manualNextTarget()?.let { playSong(it) }
+        manualNextTarget()?.let { playSong(it, anchorPlaybackOrder = false) }
     }
 
     fun previous() {
-        manualPreviousTarget()?.let { playSong(it) }
+        manualPreviousTarget()?.let { playSong(it, anchorPlaybackOrder = false) }
     }
 
     private fun playbackSnapshot(): String =

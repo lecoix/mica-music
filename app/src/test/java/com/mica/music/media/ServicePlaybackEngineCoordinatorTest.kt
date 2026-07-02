@@ -131,6 +131,21 @@ class ServicePlaybackEngineCoordinatorTest {
     }
 
     @Test
+    fun skipToNextUsesAdjacentPlaylistItem() {
+        val items = listOf("first", "second", "third", "fourth")
+            .map { SongMediaItemCodec.encode(SongFixtures.song(it)) }
+        val exo = mockExoWithQueue(items, currentIndex = 1)
+        val player = MicaCompositePlayer(exo)
+        val coordinator = ServicePlaybackEngineCoordinator(player = player)
+        coordinator.start()
+
+        coordinator.onSkipToNext()
+
+        verify(exactly = 1) { exo.seekTo(2, 0L) }
+        coordinator.release()
+    }
+
+    @Test
     fun decodeFailureInvokesCallbackAndAutoSkipsWhenPossible() {
         val songs = listOf(
             SongFixtures.song("first", container = "FLAC", mime = "audio/flac"),

@@ -31,19 +31,25 @@ class PlayerControllerQueueModelTest {
         val model = QueueReferenceModel()
         val random = Random(SEED)
         var nextSongId = 0
+        var lastOperation = ""
+        var beforeState = ""
 
         repeat(10_000) { step ->
+            beforeState = "beforeModel=${model.queue.getOrNull(model.currentIndex)}@${model.currentIndex} " +
+                "beforeController=${controller.currentSong?.id}@${controller.currentIndex}"
             when (random.nextInt(6)) {
                 0 -> {
                     val songs = List(random.nextInt(0, 12)) {
                         SongFixtures.song(id = "reset-${nextSongId++}")
                     }
+                    lastOperation = "setQueue(${songs.map { it.id }})"
                     controller.setQueue(songs)
                     model.setQueue(songs.map { it.id })
                 }
                 1 -> if (model.queue.isNotEmpty()) {
                     val selected = random.nextInt(model.queue.size)
                     val session = PlaybackSession(model.queue[selected], random.nextInt(0, 30_000))
+                    lastOperation = "restoreSession(index=$selected id=${session.songId})"
                     controller.restoreSession(session)
                     model.select(selected)
                 }
@@ -54,9 +60,11 @@ class PlayerControllerQueueModelTest {
                         SongFixtures.song(id = "insert-${nextSongId++}")
                     }
                     if (model.queue.isEmpty()) {
+                        lastOperation = "setQueue(single=${song.id})"
                         controller.setQueue(listOf(song))
                         model.setQueue(listOf(song.id))
                     } else {
+                        lastOperation = "insertPlayNext(${song.id})"
                         controller.insertPlayNext(song)
                         model.insertNext(song.id)
                     }
@@ -64,26 +72,37 @@ class PlayerControllerQueueModelTest {
                 3 -> if (model.queue.size >= 2) {
                     val from = random.nextInt(model.queue.size)
                     val to = random.nextInt(model.queue.size)
+                    lastOperation = "move(from=$from,to=$to)"
                     controller.moveInQueue(from, to)
                     model.move(from, to)
                 }
                 4 -> if (model.queue.isNotEmpty()) {
                     val index = random.nextInt(model.queue.size)
+                    lastOperation = "remove(index=$index)"
                     controller.removeFromQueue(index)
                     model.remove(index)
                 }
                 5 -> {
+                    lastOperation = "cyclePlaybackQueueMode()"
                     controller.cyclePlaybackQueueMode()
                     // Playback mode is now mirrored from MediaController callbacks. This
                     // disconnected queue model test should keep mode unchanged.
                 }
             }
 
-            assertEquals("queue mismatch at step=$step seed=$SEED", model.queue, controller.songQueue.map { it.id })
-            assertEquals("index mismatch at step=$step seed=$SEED", model.currentIndex, controller.currentIndex)
-            assertEquals("mode mismatch at step=$step seed=$SEED", model.mode, controller.playbackQueueMode)
             assertEquals(
-                "current song mismatch at step=$step seed=$SEED",
+                "queue mismatch at step=$step seed=$SEED operation=$lastOperation $beforeState",
+                model.queue,
+                controller.songQueue.map { it.id },
+            )
+            assertEquals(
+                "index mismatch at step=$step seed=$SEED operation=$lastOperation $beforeState",
+                model.currentIndex,
+                controller.currentIndex,
+            )
+            assertEquals("mode mismatch at step=$step seed=$SEED operation=$lastOperation", model.mode, controller.playbackQueueMode)
+            assertEquals(
+                "current song mismatch at step=$step seed=$SEED operation=$lastOperation",
                 model.queue.getOrNull(model.currentIndex),
                 controller.currentSong?.id,
             )
@@ -116,6 +135,41 @@ class PlayerControllerQueueModelTest {
         assertEquals(metadataOnly, controller.songQueue)
         assertEquals("Alpha (remastered)", controller.songQueue[0].title)
         assertEquals("updated lyric", controller.songQueue[0].lyrics.single().text)
+        controller.release()
+    }
+
+    @Test
+    fun metadataOnlySetQueuePreservesHiddenShuffleOrder() {
+        val controller = PlayerController(ApplicationProvider.getApplicationContext())
+        val source = listOf(
+            SongFixtures.song(id = "a", title = "Alpha"),
+            SongFixtures.song(id = "b", title = "Beta"),
+            SongFixtures.song(id = "c", title = "Gamma"),
+            SongFixtures.song(id = "d", title = "Delta"),
+        )
+        val playback = listOf(source[2], source[0], source[3], source[1])
+        controller.setQueue(playback)
+        controller.restoreSession(PlaybackSession("a", 0))
+        setPlaybackOrderState(
+            controller,
+            PlaybackOrderState(
+                sourceIds = source.map { it.id },
+                playbackIds = playback.map { it.id },
+                currentId = "a",
+                shuffleEnabled = true,
+            ),
+        )
+
+        val metadataOnly = playback.map { song ->
+            song.copy(title = "${song.title} (updated)")
+        }
+        controller.setQueue(metadataOnly)
+
+        val state = playbackOrderState(controller)
+        assertEquals(source.map { it.id }, state.sourceIds)
+        assertEquals(playback.map { it.id }, state.playbackIds)
+        assertEquals("a", state.currentId)
+        assertEquals(metadataOnly, controller.songQueue)
         controller.release()
     }
 
@@ -225,5 +279,20 @@ class PlayerControllerQueueModelTest {
 
     private companion object {
         const val SEED = 0x4D494341
+
+        private fun playbackOrderState(controller: PlayerController): PlaybackOrderState {
+            val field = PlayerController::class.java.getDeclaredField("playbackOrderState")
+            field.isAccessible = true
+            return field.get(controller) as PlaybackOrderState
+        }
+
+        private fun setPlaybackOrderState(
+            controller: PlayerController,
+            state: PlaybackOrderState,
+        ) {
+            val field = PlayerController::class.java.getDeclaredField("playbackOrderState")
+            field.isAccessible = true
+            field.set(controller, state)
+        }
     }
 }

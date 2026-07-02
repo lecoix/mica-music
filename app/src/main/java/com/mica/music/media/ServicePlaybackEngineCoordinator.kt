@@ -3,11 +3,9 @@ package com.mica.music.media
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import com.mica.music.data.PlaybackQueueNavigator
 import com.mica.music.data.PlaybackQueueMode
 import com.mica.music.data.Song
 import com.mica.music.util.DiagnosticLog
-import kotlin.random.Random
 
 internal class ServicePlaybackEngineCoordinator(
     private val player: MicaCompositePlayer,
@@ -126,10 +124,7 @@ internal class ServicePlaybackEngineCoordinator(
         ) {
             return
         }
-        requestState.begin(
-            song,
-            player.currentPosition.coerceAtLeast(0L),
-        )
+        beginAutoTransition(song)
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -181,6 +176,32 @@ internal class ServicePlaybackEngineCoordinator(
             "start request=${request.id} source=${request.sourceRevision}",
         )
         player.startExoPlayback(items, index, positionMs, playWhenReady = playWhenReady)
+    }
+
+    private fun beginAutoTransition(song: Song) {
+        val index = player.currentMediaItemIndex.coerceIn(0, (player.mediaItemCount - 1).coerceAtLeast(0))
+        val position = player.currentPosition.coerceAtLeast(0L)
+        when (val route = PlaybackRouter.decide(song)) {
+            is PlaybackRouteDecision.Unsupported -> {
+                player.selectExistingWithoutPlayback(index, position)
+                val request = requestState.begin(song, position)
+                handleFailure(
+                    request.id,
+                    PlaybackFailure(
+                        PlaybackFailureKind.EXTRACTOR_UNSUPPORTED,
+                        route.userMessage,
+                    ),
+                    allowAutomaticSkip = false,
+                )
+            }
+            is PlaybackRouteDecision.Supported -> {
+                DiagnosticLog.event(
+                    "PlaybackEngine",
+                    "auto-transition route=${route.reason} song=${song.id}",
+                )
+                requestState.begin(song, position)
+            }
+        }
     }
 
     private fun startExistingAt(
@@ -312,50 +333,40 @@ internal class ServicePlaybackEngineCoordinator(
 
     private fun resolveNextIndex(manual: Boolean): Int {
         val queueSize = player.mediaItemCount
-        return PlaybackQueueNavigator.nextIndex(
-            mode = queueMode(),
-            currentIndex = player.currentMediaItemIndex,
-            queueSize = queueSize,
-            manualSkip = manual,
-            randomIndex = { randomIndexExcept(queueSize, it) },
-        )
+        if (queueSize <= 0) return 0
+        val current = player.currentMediaItemIndex.coerceIn(0, queueSize - 1)
+        if (queueMode() == PlaybackQueueMode.REPEAT_ONE && !manual) return current
+        if (current < queueSize - 1) return current + 1
+        return when {
+            manual -> 0
+            queueMode() == PlaybackQueueMode.REPEAT_ALL -> 0
+            else -> current
+        }
     }
 
     private fun resolvePreviousIndex(): Int {
         val queueSize = player.mediaItemCount
-        return PlaybackQueueNavigator.previousIndex(
-            mode = queueMode(),
-            currentIndex = player.currentMediaItemIndex,
-            queueSize = queueSize,
-            randomIndex = { randomIndexExcept(queueSize, it) },
-        )
+        if (queueSize <= 0) return 0
+        val current = player.currentMediaItemIndex.coerceIn(0, queueSize - 1)
+        return if (current > 0) current - 1 else queueSize - 1
     }
 
     private fun resolveFailureIndex(
         queue: PlaybackQueueSnapshot = player.playbackQueueSnapshot(),
     ): Int? {
         if (queue.items.size <= 1) return null
-        val mode = queueMode()
-        val effectiveMode = if (mode == PlaybackQueueMode.REPEAT_ONE) PlaybackQueueMode.OFF else mode
-        val next = PlaybackQueueNavigator.nextIndex(
-            mode = effectiveMode,
-            currentIndex = queue.currentIndex,
-            queueSize = queue.items.size,
-            manualSkip = false,
-            randomIndex = { randomIndexExcept(queue.items.size, it) },
-        )
+        val current = queue.currentIndex.coerceIn(0, queue.items.lastIndex)
+        val next = if (current < queue.items.lastIndex) {
+            current + 1
+        } else if (queueMode() == PlaybackQueueMode.REPEAT_ALL) {
+            0
+        } else {
+            current
+        }
         return next.takeIf { it != queue.currentIndex }
     }
 
-    private fun randomIndexExcept(queueSize: Int, exclude: Int): Int {
-        if (queueSize <= 1) return exclude
-        var result = exclude
-        while (result == exclude) result = Random.nextInt(queueSize)
-        return result
-    }
-
     private fun queueMode(): PlaybackQueueMode = when {
-        player.shuffleModeEnabled -> PlaybackQueueMode.SHUFFLE
         player.repeatMode == Player.REPEAT_MODE_ALL -> PlaybackQueueMode.REPEAT_ALL
         player.repeatMode == Player.REPEAT_MODE_ONE -> PlaybackQueueMode.REPEAT_ONE
         else -> PlaybackQueueMode.OFF

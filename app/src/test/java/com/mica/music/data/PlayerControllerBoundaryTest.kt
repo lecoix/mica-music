@@ -493,6 +493,126 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun shuffleModeBuildsAppPlaybackOrderWithoutEnablingMedia3Shuffle() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = SongFixtures.queue(6)
+        var repeatMode = Player.REPEAT_MODE_OFF
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.repeatMode } answers { repeatMode }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[2].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 2
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 10_000L
+        every { mediaController.playWhenReady } returns true
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+        }
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.playSong(2)
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+
+        controller.cyclePlaybackQueueMode()
+        repeatMode = Player.REPEAT_MODE_ALL
+        listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ALL)
+        controller.cyclePlaybackQueueMode()
+        repeatMode = Player.REPEAT_MODE_ONE
+        listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ONE)
+        controller.cyclePlaybackQueueMode()
+
+        verify { mediaController.shuffleModeEnabled = false }
+        verify { mediaController.repeatMode = Player.REPEAT_MODE_OFF }
+        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackQueueMode)
+        assertEquals(queue[2].id, controller.currentSong?.id)
+        assertEquals(queue.map { it.id }.toSet(), controller.songQueue.map { it.id }.toSet())
+        assertEquals(queue.size, controller.songQueue.distinctBy { it.id }.size)
+        controller.release()
+    }
+
+    @Test
+    fun shuffleNextKeepsAdjacentTargetIndexInsteadOfReanchoringToZero() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = SongFixtures.queue(6)
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.repeatMode } returns Player.REPEAT_MODE_OFF
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[2].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 2
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 10_000L
+        every { mediaController.playWhenReady } returns true
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(controller.songQueue[firstArg()].id).build()
+        }
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.playSong(2)
+        controller.cyclePlaybackQueueMode()
+        val target = controller.manualNextTarget()
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+
+        controller.next()
+
+        verify { mediaController.seekTo(target ?: -1, 0L) }
+        assertEquals(target, controller.currentIndex)
+        controller.release()
+    }
+
+    @Test
+    fun shuffleModeCanBeTurnedOffWithoutWaitingForPlayerCallback() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val queue = SongFixtures.queue(4)
+        var repeatMode = Player.REPEAT_MODE_OFF
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[0].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.playWhenReady } returns false
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.repeatMode } answers { repeatMode }
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(controller.songQueue[firstArg()].id).build()
+        }
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.cyclePlaybackQueueMode()
+        repeatMode = Player.REPEAT_MODE_ALL
+        listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ALL)
+        controller.cyclePlaybackQueueMode()
+        repeatMode = Player.REPEAT_MODE_ONE
+        listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ONE)
+        controller.cyclePlaybackQueueMode()
+        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackQueueMode)
+
+        controller.cyclePlaybackQueueMode()
+
+        assertEquals(PlaybackQueueMode.OFF, controller.playbackQueueMode)
+        verify(atLeast = 1) { mediaController.shuffleModeEnabled = false }
+        controller.release()
+    }
+
+    @Test
     fun insertingExistingSongNextReplacesAuthoritativeQueueWithoutDuplicatingServiceItem() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)

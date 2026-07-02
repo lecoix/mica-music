@@ -45,6 +45,7 @@ internal class ServicePlaybackStateCoordinator(
         }
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            if (shuffleModeEnabled) player.shuffleModeEnabled = false
             persistCursor(force = true)
         }
     }
@@ -90,7 +91,7 @@ internal class ServicePlaybackStateCoordinator(
             return false
         }
         player.repeatMode = restore.repeatMode
-        player.shuffleModeEnabled = restore.shuffleEnabled
+        player.shuffleModeEnabled = false
         player.playWhenReady = false
         player.seekTo(restore.currentIndex, restore.positionMs)
         player.prepare()
@@ -125,7 +126,7 @@ internal class ServicePlaybackStateCoordinator(
             currentSongId = currentId,
             positionMs = position,
             repeatMode = player.repeatMode,
-            shuffleEnabled = player.shuffleModeEnabled,
+            shuffleEnabled = false,
             playWhenReady = player.playWhenReady,
             qualityMode = qualityMode,
             queueRevision = queueRevision,
