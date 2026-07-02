@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
@@ -30,9 +31,12 @@ import com.mica.music.ui.screens.AboutScreen
 import com.mica.music.ui.screens.EqualizerScreen
 import com.mica.music.ui.screens.BrowseDestination
 import com.mica.music.ui.screens.HomeNavigationIntent
+import com.mica.music.ui.screens.HomePlaybackActions
+import com.mica.music.ui.screens.HomePlaybackState
 import com.mica.music.ui.screens.HomeScreen
 import com.mica.music.ui.screens.HomeSection
 import com.mica.music.ui.screens.MetadataDebugScreen
+import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.ParticleCoverPreviewScreen
 import com.mica.music.ui.screens.PhotoStackShadowPreviewScreen
 import com.mica.music.ui.screens.SettingsScreen
@@ -107,9 +111,15 @@ fun AppNavigationMain(
         modifier = Modifier.fillMaxSize(),
     ) {
         composable(Routes.Home) {
+            val homePlaybackActions = rememberHomePlaybackActions(playerController)
             HomeScreen(
                 library = library,
-                playerController = playerController,
+                playbackState = HomePlaybackState(
+                    currentSong = playerController.currentSong,
+                    isPlaying = playerController.playbackSurfaceState.isPlaying,
+                    queue = playerController.songQueue,
+                ),
+                playbackActions = homePlaybackActions,
                 uiSettings = uiSettings,
                 onSongClick = { songId ->
                     playerController.playSongById(songId)
@@ -244,10 +254,14 @@ fun PlayerSheetOverlay(
     contentPadding: PaddingValues = PaddingValues(),
     modifier: Modifier = Modifier,
 ) {
+    val actions = rememberNowPlayingActions(playerController, uiSettings)
     PlayerSheetHost(
         library = library,
-        playerController = playerController,
+        surfaceState = playerController.playbackSurfaceState,
+        progressState = playerController.playbackProgressState,
+        queueState = playerController.playbackQueueState,
         sleepTimer = sleepTimer,
+        actions = actions,
         uiSettings = uiSettings,
         expanded = coordinator.playerExpanded,
         onExpandedChange = { coordinator.playerExpanded = it },
@@ -281,3 +295,43 @@ fun PlayerSheetOverlay(
         modifier = modifier,
     )
 }
+
+@Composable
+private fun rememberNowPlayingActions(
+    playerController: PlayerController,
+    uiSettings: AppUiSettings,
+): NowPlayingActions =
+    remember(playerController, uiSettings) {
+        NowPlayingActions(
+            syncPosition = playerController::syncPosition,
+            setSeekUiActive = playerController::setSeekUiActive,
+            seekToMs = playerController::seekToMs,
+            playQueueIndex = playerController::playSong,
+            moveQueueItem = playerController::moveInQueue,
+            removeQueueItem = playerController::removeFromQueue,
+            togglePlay = playerController::togglePlay,
+            previous = playerController::previous,
+            next = playerController::next,
+            coverFlowPreviousTarget = playerController::manualPreviousTarget,
+            coverFlowNextTarget = playerController::manualNextTarget,
+            cyclePlaybackQueueMode = playerController::cyclePlaybackQueueMode,
+            toggleImmersiveLower = uiSettings::togglePlayerImmersiveLower,
+            toggleLyricsPageImmersive = uiSettings::toggleLyricsPageImmersive,
+            insertPlayNext = playerController::insertPlayNext,
+            setQueue = playerController::setQueue,
+        )
+    }
+
+@Composable
+private fun rememberHomePlaybackActions(
+    playerController: PlayerController,
+): HomePlaybackActions =
+    remember(playerController) {
+        HomePlaybackActions(
+            syncPlaybackState = playerController::syncPlaybackState,
+            insertPlayNext = playerController::insertPlayNext,
+            setQueue = playerController::setQueue,
+            togglePlay = playerController::togglePlay,
+            next = playerController::next,
+        )
+    }

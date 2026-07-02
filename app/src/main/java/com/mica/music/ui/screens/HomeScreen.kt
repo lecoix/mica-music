@@ -59,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -84,7 +85,6 @@ import com.mica.music.R
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaylistStore
-import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.SongSortField
@@ -215,10 +215,25 @@ private val BrowseDestinationSaver = Saver<BrowseDestination, List<String>>(
     },
 )
 
+data class HomePlaybackState(
+    val currentSong: Song?,
+    val isPlaying: Boolean,
+    val queue: List<Song>,
+)
+
+data class HomePlaybackActions(
+    val syncPlaybackState: () -> Unit,
+    val insertPlayNext: (Song) -> Unit,
+    val setQueue: (List<Song>) -> Unit,
+    val togglePlay: () -> Unit,
+    val next: () -> Unit,
+)
+
 @Composable
 fun HomeScreen(
     library: MusicLibrary,
-    playerController: PlayerController,
+    playbackState: HomePlaybackState,
+    playbackActions: HomePlaybackActions,
     uiSettings: AppUiSettings,
     onSongClick: (String) -> Unit,
     onMiniPlayerExpand: () -> Unit,
@@ -281,7 +296,7 @@ fun HomeScreen(
                 addToPlaylistSong = song
             }
             SongMenuAction.PlayNext -> {
-                library.songById(song.id)?.let { playerController.insertPlayNext(it) }
+                library.songById(song.id)?.let { playbackActions.insertPlayNext(it) }
                 actionMenuSong = null
             }
             SongMenuAction.Share -> {
@@ -321,8 +336,8 @@ fun HomeScreen(
             val deleted = deleteSongFile(context, song)
             library.removeSongFromLibrary(song.id)
             playlistStore.removeSongFromAllPlaylists(song.id)
-            val remaining = playerController.songQueue.filterNot { it.id == song.id }
-            playerController.setQueue(remaining)
+            val remaining = playbackState.queue.filterNot { it.id == song.id }
+            playbackActions.setQueue(remaining)
             val message = if (deleted) "已从设备删除" else "已从曲库移除（无法删除文件）"
             snackbarHostState.showSnackbar(message)
         }
@@ -398,17 +413,19 @@ fun HomeScreen(
         refreshPermissionState("initial")
     }
 
+    val latestPlaybackState by rememberUpdatedState(playbackState)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val granted = refreshPermissionState("onResume")
                 if (granted && library.hasScanned) {
                     val syncStartedMs = SystemClock.elapsedRealtime()
-                    playerController.syncPlaybackState()
+                    playbackActions.syncPlaybackState()
+                    val state = latestPlaybackState
                     DiagnosticLog.event(
                         "LibraryResume",
                         "syncPlaybackState durMs=${SystemClock.elapsedRealtime() - syncStartedMs} " +
-                            "queue=${playerController.songQueue.size} current=${playerController.currentSong?.id}",
+                            "queue=${state.queue.size} current=${state.currentSong?.id}",
                     )
                 }
             }
@@ -500,7 +517,7 @@ fun HomeScreen(
     }
 
     fun locateCurrentSongInLibrary() {
-        val song = playerController.currentSong ?: return
+        val song = playbackState.currentSong ?: return
         val index = library.songs.indexOfFirst { it.id == song.id }
         if (index < 0) {
             scope.launch { snackbarHostState.showSnackbar("当前播放歌曲不在歌曲列表中") }
@@ -622,7 +639,7 @@ fun HomeScreen(
         section == HomeSection.Artists && visibleBrowseDestination == BrowseDestination.Root
 
     val miniPlayerStyle = uiSettings.miniPlayerStyle
-    val currentSong = playerController.currentSong
+    val currentSong = playbackState.currentSong
     val listBottomPadding = if (currentSong != null) {
         miniPlayerListClearance(miniPlayerStyle)
     } else {
@@ -806,7 +823,9 @@ fun HomeScreen(
                     HomePaneKey.Search -> LibrarySearchPanel(
                         query = searchQuery,
                         library = library,
-                        playerController = playerController,
+                        currentSongId = currentSong?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onQueueSongs = playbackActions.setQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         listBottomPadding = listBottomPadding,
@@ -814,7 +833,9 @@ fun HomeScreen(
                     )
                     HomePaneKey.Songs -> LibraryContent(
                         library = library,
-                        playerController = playerController,
+                        currentSongId = currentSong?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onQueueSongs = playbackActions.setQueue,
                         shouldOpenSettings = shouldOpenSettings,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
@@ -835,7 +856,9 @@ fun HomeScreen(
                         playlistId = key.id,
                         playlistStore = playlistStore,
                         library = library,
-                        playerController = playerController,
+                        currentSongId = currentSong?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onQueueSongs = playbackActions.setQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = { openSongActionMenu(it, key.id) },
                         onMoveSong = { from, to ->
@@ -853,7 +876,9 @@ fun HomeScreen(
                             folderVisibleScope = scopePathSegments
                         },
                         library = library,
-                        playerController = playerController,
+                        currentSongId = currentSong?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onQueueSongs = playbackActions.setQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         albumSortField = albumSortField,
@@ -870,7 +895,9 @@ fun HomeScreen(
                         destination = key.destination,
                         onDestinationChange = { browseDestination = it },
                         library = library,
-                        playerController = playerController,
+                        currentSongId = currentSong?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onQueueSongs = playbackActions.setQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         albumSortField = albumSortField,
@@ -916,9 +943,9 @@ fun HomeScreen(
                     MiniPlayer(
                         style = miniPlayerStyle,
                         song = song,
-                        isPlaying = playerController.playbackSurfaceState.isPlaying,
-                        onPlayPause = { playerController.togglePlay() },
-                        onNext = { playerController.next() },
+                        isPlaying = playbackState.isPlaying,
+                        onPlayPause = playbackActions.togglePlay,
+                        onNext = playbackActions.next,
                         onExpand = onMiniPlayerExpand,
                         onLongPress = ::locateCurrentSongInLibrary,
                         coverAlpha = miniPlayerCoverAlpha,
@@ -1194,7 +1221,9 @@ private fun HomeTopBar(
 @Composable
 private fun LibraryContent(
     library: MusicLibrary,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    onQueueSongs: (List<Song>) -> Unit,
     shouldOpenSettings: Boolean,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
@@ -1240,9 +1269,10 @@ private fun LibraryContent(
             SongListPanel(
                 songs = library.songs,
                 library = library,
-                playerController = playerController,
+                currentSongId = currentSongId,
+                isPlaying = isPlaying,
                 onSongClick = { songId ->
-                    playerController.setQueue(library.songs)
+                    onQueueSongs(library.songs)
                     onSongClick(songId)
                 },
                 onSongOpenMenu = onSongOpenMenu,

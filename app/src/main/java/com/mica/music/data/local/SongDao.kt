@@ -12,6 +12,9 @@ interface SongDao {
     @Query("SELECT * FROM songs ORDER BY queueOrder ASC")
     suspend fun getAllOrdered(): List<SongEntity>
 
+    @Query("SELECT * FROM songs WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): SongEntity?
+
     @Query("SELECT COUNT(*) FROM songs")
     suspend fun count(): Int
 

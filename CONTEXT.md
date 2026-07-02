@@ -205,3 +205,19 @@ _Avoid_: player theme、background preset
 **Shared cover transition（共享封面转场）**：
 迷你播放栏与播放页之间同一封面矩形的连续转场（共享元素动画）。
 _Avoid_: hero animation（无专名时）
+
+## UI 播放适配层
+
+**Playback UI adapter（播放 UI 适配层）**：
+`MainActivity` / `AppNavigation` 中把 `PlayerController`、`AppUiSettings` 等 App 侧对象翻译成页面需要的 state/actions 的装配代码；它可以持有 `PlayerController`，但不承载播放业务规则。
+_Avoid_: 把适配层拆成只有一个实现的 interface
+
+**HomePlaybackState**：
+主页、曲库浏览、搜索、歌单列表只读的播放摘要：当前 `Song`、播放中状态与当前播放队列。列表 UI 只用它判断高亮、迷你播放栏显示和删除后队列修正。
+_Avoid_: 在列表组件里直接读取 `PlayerController.currentSong` / `isPlaying`
+
+**HomePlaybackActions**：
+主页输出到播放门面的最小动作集合：同步播放状态、插播下一首、替换播放队列、播放/暂停、下一首。主页子组件通过显式 action 触发播放，不直接接收 `PlayerController`。
+_Avoid_: 在 `HomeScreen`、`SongListPanel`、`LibrarySearchPanel`、`HomeBrowseContent` 中散落 `playerController.xxx()`
+
+播放页 UI 以 `PlaybackSurfaceState`、`PlaybackProgressState`、`PlaybackQueueState` 和 `NowPlayingActions` 为接口；主页 UI 以 `HomePlaybackState` 和 `HomePlaybackActions` 为接口。`PlayerSheetHost`、`NowPlayingScreen`、`HomeScreen`、歌曲列表和搜索面板不得直接接收 `PlayerController`；`AppNavigation` 和 `MainActivity` 作为装配层例外。

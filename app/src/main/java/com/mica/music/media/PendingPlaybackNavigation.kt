@@ -9,10 +9,7 @@ import androidx.media3.common.MediaItem
  */
 internal object PendingPlaybackNavigation {
     @Volatile
-    private var targetSongId: String? = null
-
-    @Volatile
-    private var queueItems: List<MediaItem>? = null
+    private var payload: PendingNavigationPayload? = null
 
     data class NavigationOverride(
         val queue: PlaybackQueueSnapshot,
@@ -20,27 +17,32 @@ internal object PendingPlaybackNavigation {
     )
 
     fun prepare(targetSongId: String, items: List<MediaItem>) {
-        this.targetSongId = targetSongId
-        this.queueItems = items
+        payload = PendingNavigationPayload(targetSongId, items)
     }
 
     fun clear() {
-        targetSongId = null
-        queueItems = null
+        payload = null
     }
 
     fun consumeNavigationOverride(): NavigationOverride? {
-        val items = queueItems ?: return null
-        val songId = targetSongId
-        queueItems = null
-        targetSongId = null
+        val current = payload ?: return null
+        payload = null
+        return current.toNavigationOverride()
+    }
+}
+
+internal data class PendingNavigationPayload(
+    val targetSongId: String,
+    val items: List<MediaItem>,
+) {
+    fun toNavigationOverride(): PendingPlaybackNavigation.NavigationOverride? {
         if (items.isEmpty()) return null
-        val index = songId
-            ?.let { id -> items.indexOfFirst { it.mediaId == id }.takeIf { it >= 0 } }
+        val index = items.indexOfFirst { it.mediaId == targetSongId }
+            .takeIf { it >= 0 }
             ?: 0
-        return NavigationOverride(
+        return PendingPlaybackNavigation.NavigationOverride(
             queue = PlaybackQueueSnapshot(items, index, revision = Long.MAX_VALUE),
-            targetSongId = songId,
+            targetSongId = targetSongId,
         )
     }
 }

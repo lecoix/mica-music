@@ -6,14 +6,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 
 @Composable
 fun LibrarySearchPanel(
     query: String,
     library: MusicLibrary,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    onQueueSongs: (List<Song>) -> Unit,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: ((Song) -> Unit)? = null,
     listBottomPadding: Dp = 0.dp,
@@ -29,9 +30,10 @@ fun LibrarySearchPanel(
     SongListPanel(
         songs = results,
         library = library,
-        playerController = playerController,
+        currentSongId = currentSongId,
+        isPlaying = isPlaying,
         onSongClick = { songId ->
-            playerController.setQueue(results)
+            onQueueSongs(results)
             onSongClick(songId)
         },
         onSongOpenMenu = onSongOpenMenu,

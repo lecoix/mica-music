@@ -68,6 +68,17 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun songByIdLoadsSingleSongWithLyrics() = runTest {
+        val song = SongFixtures.song("with-lyrics")
+        repository.save(listOf(song), 100, ScanSource.DEVICE, 1)
+
+        val loaded = repository.songById(song.id)
+
+        assertEquals(song.lyrics, loaded?.lyrics)
+        assertEquals(song.id, loaded?.id)
+    }
+
+    @Test
     fun daoReplaceAllIsAtomicFromCallerPerspective() = runTest {
         val dao = database.songDao()
         dao.replaceAll(SongFixtures.queue(2).mapIndexed { index, song -> song.toEntity(index) })

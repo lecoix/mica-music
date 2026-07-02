@@ -19,6 +19,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerController = (application as MicaApp).playerController
     val uiSettings = AppUiSettings(application)
     val sleepTimer = SleepTimerController(viewModelScope, playerController)
+    private val libraryQueueSyncPolicy = LibraryQueueSyncPolicy()
 
     init {
         playerController.onSongPlayStarted = { songId -> library.onSongPlayed(songId) }
@@ -65,9 +66,89 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun syncPlaybackQueueWithLibrarySongs() {
+        val effectStartedMs = SystemClock.elapsedRealtime()
+        val songs = library.songs
+        val currentQueueIds = playerController.songQueue.map { it.id }
+        when (
+            val plan = libraryQueueSyncPolicy.plan(
+                songs = songs,
+                libraryIds = library.songIds,
+                currentQueueIds = currentQueueIds,
+            )
+        ) {
+            LibraryQueueSyncPlan.SkipEmpty -> {
+                DiagnosticLog.event(
+                    "LibraryQueue",
+                    "librarySongs effect skipped empty hasScanned=${library.hasScanned}",
+                )
+            }
+            is LibraryQueueSyncPlan.BootstrapOrSetQueue -> {
+                logLibraryQueueEffectStart(plan, songs.size, currentQueueIds.size)
+                val bootstrapped = playerController.bootstrapQueue(library::songById)
+                DiagnosticLog.event(
+                    "LibraryQueue",
+                    "librarySongs bootstrap result=$bootstrapped " +
+                        "durMs=${SystemClock.elapsedRealtime() - effectStartedMs}",
+                )
+                if (!bootstrapped) {
+                    playerController.setQueue(plan.songs)
+                }
+                logLibraryQueueEffectEnd(effectStartedMs)
+            }
+            is LibraryQueueSyncPlan.SetQueue -> {
+                logLibraryQueueEffectStart(plan, songs.size, currentQueueIds.size)
+                playerController.setQueue(plan.songs)
+                logLibraryQueueEffectEnd(effectStartedMs)
+            }
+            is LibraryQueueSyncPlan.RefreshMetadata -> {
+                logLibraryQueueEffectStart(plan, songs.size, currentQueueIds.size)
+                playerController.refreshQueueMetadata(plan.songs)
+                logLibraryQueueEffectEnd(effectStartedMs)
+            }
+        }
+    }
+
+    private fun logLibraryQueueEffectStart(
+        plan: LibraryQueueSyncPlan,
+        songsSize: Int,
+        currentQueueSize: Int,
+    ) {
+        DiagnosticLog.event(
+            "LibraryQueue",
+            "librarySongs effect start songs=$songsSize queue=$currentQueueSize " +
+                "previousLibrary=${plan.previousLibraryIdsSize()} " +
+                "currentQueueWasLibrary=${plan.currentQueueWasLibrary()}",
+        )
+    }
+
+    private fun logLibraryQueueEffectEnd(startedMs: Long) {
+        DiagnosticLog.event(
+            "LibraryQueue",
+            "librarySongs effect end durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "queue=${playerController.songQueue.size}",
+        )
+    }
+
     override fun onCleared() {
         sleepTimer.cancel()
         library.release()
         super.onCleared()
     }
 }
+
+private fun LibraryQueueSyncPlan.previousLibraryIdsSize(): Int =
+    when (this) {
+        LibraryQueueSyncPlan.SkipEmpty -> 0
+        is LibraryQueueSyncPlan.BootstrapOrSetQueue -> previousLibraryIdsSize
+        is LibraryQueueSyncPlan.SetQueue -> previousLibraryIdsSize
+        is LibraryQueueSyncPlan.RefreshMetadata -> previousLibraryIdsSize
+    }
+
+private fun LibraryQueueSyncPlan.currentQueueWasLibrary(): Boolean =
+    when (this) {
+        LibraryQueueSyncPlan.SkipEmpty -> false
+        is LibraryQueueSyncPlan.BootstrapOrSetQueue -> currentQueueWasLibrary
+        is LibraryQueueSyncPlan.SetQueue -> currentQueueWasLibrary
+        is LibraryQueueSyncPlan.RefreshMetadata -> currentQueueWasLibrary
+    }

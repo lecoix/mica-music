@@ -10,7 +10,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
@@ -22,7 +21,9 @@ internal fun HomePlaylistContent(
     playlistId: String,
     playlistStore: PlaylistStore,
     library: MusicLibrary,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    onQueueSongs: (List<Song>) -> Unit,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
@@ -66,9 +67,10 @@ internal fun HomePlaylistContent(
         songs = songs,
         customOrder = playlist.sortField == SongSortField.CUSTOM,
         library = library,
-        playerController = playerController,
+        currentSongId = currentSongId,
+        isPlaying = isPlaying,
         onSongClick = { songId ->
-            playerController.setQueue(songs)
+            onQueueSongs(songs)
             onSongClick(songId)
         },
         onSongOpenMenu = onSongOpenMenu,

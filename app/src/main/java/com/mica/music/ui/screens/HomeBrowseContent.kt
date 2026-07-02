@@ -37,7 +37,6 @@ import com.mica.music.data.BrowseGroup
 import com.mica.music.data.FolderBrowseGroup
 import com.mica.music.data.LibraryBrowse
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.SortDirection
 import com.mica.music.ui.components.AlphabetFastScroller
@@ -77,7 +76,9 @@ internal fun HomeBrowseContent(
     onDestinationChange: (BrowseDestination) -> Unit,
     onFolderPageChange: (depth: Int, scopePathSegments: List<String>) -> Unit = { _, _ -> },
     library: MusicLibrary,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    onQueueSongs: (List<Song>) -> Unit,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
@@ -130,9 +131,10 @@ internal fun HomeBrowseContent(
                         SongListPanel(
                             songs = songs,
                             library = library,
-                            playerController = playerController,
+                            currentSongId = currentSongId,
+                            isPlaying = isPlaying,
                             onSongClick = { songId ->
-                                playerController.setQueue(songs)
+                                onQueueSongs(songs)
                                 onSongClick(songId)
                             },
                             onSongOpenMenu = onSongOpenMenu,
@@ -172,9 +174,10 @@ internal fun HomeBrowseContent(
                         SongListPanel(
                             songs = songs,
                             library = library,
-                            playerController = playerController,
+                            currentSongId = currentSongId,
+                            isPlaying = isPlaying,
                             onSongClick = { songId ->
-                                playerController.setQueue(songs)
+                                onQueueSongs(songs)
                                 onSongClick(songId)
                             },
                             onSongOpenMenu = onSongOpenMenu,
@@ -193,9 +196,10 @@ internal fun HomeBrowseContent(
             SongListPanel(
                 songs = songs,
                 library = library,
-                playerController = playerController,
+                currentSongId = currentSongId,
+                isPlaying = isPlaying,
                 onSongClick = { songId ->
-                    playerController.setQueue(songs)
+                    onQueueSongs(songs)
                     onSongClick(songId)
                 },
                 onSongOpenMenu = onSongOpenMenu,
@@ -267,7 +271,9 @@ internal fun HomeBrowseContent(
                     depth = page,
                     scopePathSegments = scopePathSegments,
                     library = library,
-                    playerController = playerController,
+                    currentSongId = currentSongId,
+                    isPlaying = isPlaying,
+                    onQueueSongs = onQueueSongs,
                     rootListState = folderListState,
                     onFolderSelect = { group ->
                         onFolderPageChange(group.pathSegments.size, group.pathSegments)
@@ -304,7 +310,9 @@ private fun FolderDepthPage(
     depth: Int,
     scopePathSegments: List<String>,
     library: MusicLibrary,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    onQueueSongs: (List<Song>) -> Unit,
     rootListState: LazyListState,
     onFolderSelect: (FolderBrowseGroup) -> Unit,
     onSongClick: (String) -> Unit,
@@ -330,7 +338,8 @@ private fun FolderDepthPage(
             FolderContentList(
                 groups = groups,
                 songs = songsInScope,
-                playerController = playerController,
+                currentSongId = currentSongId,
+                isPlaying = isPlaying,
                 listState = listState,
                 onSelect = onFolderSelect,
                 onSongClick = { songId ->
@@ -339,7 +348,7 @@ private fun FolderDepthPage(
                     } else {
                         songsInScope
                     }
-                    playerController.setQueue(queue)
+                    onQueueSongs(queue)
                     onSongClick(songId)
                 },
                 onSongOpenMenu = onSongOpenMenu,
@@ -352,9 +361,10 @@ private fun FolderDepthPage(
             SongListPanel(
                 songs = songs,
                 library = library,
-                playerController = playerController,
+                currentSongId = currentSongId,
+                isPlaying = isPlaying,
                 onSongClick = { songId ->
-                    playerController.setQueue(songs)
+                    onQueueSongs(songs)
                     onSongClick(songId)
                 },
                 onSongOpenMenu = onSongOpenMenu,
@@ -589,7 +599,8 @@ private fun BrowseGroupGridTile(
 private fun FolderContentList(
     groups: List<FolderBrowseGroup>,
     songs: List<Song>,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
     listState: LazyListState,
     onSelect: (FolderBrowseGroup) -> Unit,
     onSongClick: (String) -> Unit,
@@ -610,11 +621,11 @@ private fun FolderContentList(
             )
         }
         items(songs, key = { "song:${it.id}" }) { song ->
-            val isCurrent = playerController.currentSong?.id == song.id
+            val isCurrent = currentSongId == song.id
             SongRow(
                 song = song,
                 isCurrent = isCurrent,
-                isPlaying = isCurrent && playerController.isPlaying,
+                isPlaying = isCurrent && isPlaying,
                 onClick = { onSongClick(song.id) },
                 onLongClick = { onSongOpenMenu(song) },
             )

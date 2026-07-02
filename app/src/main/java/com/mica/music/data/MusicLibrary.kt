@@ -142,8 +142,8 @@ class MusicLibrary internal constructor(
     private fun applyCurrentSort(diagnosticReason: String? = null) {
         if (scannedSongs.isEmpty()) return
         val startedMs = SystemClock.elapsedRealtime()
-        val visible = SongSorter.sort(scannedSongs, sortField, sortDirection)
-        publishVisibleSongs(visible, LibraryFastScrollIndex.forSongs(visible, sortField))
+        val presentation = LibraryPresentationBuilder.prepare(scannedSongs, sortField, sortDirection)
+        publishVisibleSongs(presentation.visible, presentation.fastScrollIndex)
         if (diagnosticReason != null) {
             DiagnosticLog.event(
                 "LibraryLoad",
@@ -198,7 +198,10 @@ class MusicLibrary internal constructor(
         when (sortField) {
             SongSortField.PLAY_COUNT,
             SongSortField.LAST_PLAYED,
-            -> publishVisibleSongs(SongSorter.sort(scannedSongs, sortField, sortDirection))
+            -> {
+                val presentation = LibraryPresentationBuilder.prepare(scannedSongs, sortField, sortDirection)
+                publishVisibleSongs(presentation.visible, presentation.fastScrollIndex)
+            }
             else -> {
                 val visibleIndex = songs.indexOfFirst { it.id == songId }
                 if (visibleIndex >= 0) {
@@ -607,33 +610,27 @@ class MusicLibrary internal constructor(
             "$diagnosticReason stats durMs=${SystemClock.elapsedRealtime() - statsStartedMs} songs=${scanned.size}",
         )
 
-        val sortStartedMs = SystemClock.elapsedRealtime()
-        val visible = if (useInputOrder) scanned else SongSorter.sort(scanned, field, direction)
-        DiagnosticLog.event(
-            diagnosticTag,
-            "$diagnosticReason sort durMs=${SystemClock.elapsedRealtime() - sortStartedMs} " +
-                "raw=${scanned.size} visible=${visible.size} sort=$field/$direction cachedOrder=$useInputOrder",
+        val presentationStartedMs = SystemClock.elapsedRealtime()
+        val presentation = LibraryPresentationBuilder.prepare(
+            scannedSongs = scanned,
+            field = field,
+            direction = direction,
+            useInputOrder = useInputOrder,
+            cachedSectionTargets = cachedSectionTargets,
         )
-
-        val indexStartedMs = SystemClock.elapsedRealtime()
-        val labels = LibraryFastScrollIndex.labelsForSongs(visible, field)
-        val fastScrollIndex = labels?.let { resolvedLabels ->
-            FastScrollIndex(
-                labels = resolvedLabels,
-                sectionTargets = cachedSectionTargets ?: LibraryFastScrollIndex.sectionTargets(resolvedLabels),
-            )
-        }
         DiagnosticLog.event(
             diagnosticTag,
-            "$diagnosticReason fastScrollIndex durMs=${SystemClock.elapsedRealtime() - indexStartedMs} " +
-                "labels=${labels?.size ?: 0} sections=${fastScrollIndex?.sectionTargets?.size ?: 0} " +
+            "$diagnosticReason presentation durMs=${SystemClock.elapsedRealtime() - presentationStartedMs} " +
+                "raw=${scanned.size} visible=${presentation.visible.size} sort=$field/$direction " +
+                "cachedOrder=$useInputOrder labels=${presentation.fastScrollIndex?.labels?.size ?: 0} " +
+                "sections=${presentation.fastScrollIndex?.sectionTargets?.size ?: 0} " +
                 "cachedSections=${cachedSectionTargets != null}",
         )
 
         PreparedLibrarySongs(
             scanned = scanned,
-            visible = visible,
-            fastScrollIndex = fastScrollIndex,
+            visible = presentation.visible,
+            fastScrollIndex = presentation.fastScrollIndex,
         )
     }
 }

@@ -8,7 +8,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.mica.music.data.PlaybackProgressState
-import com.mica.music.data.PlayerController
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -24,15 +23,6 @@ internal class PlaybackSeekState(
 /**
  * 拖动进度条时与播放器进度解耦，避免 ALAC/时长变化导致条在手指下乱跳。
  */
-@Composable
-internal fun rememberPlaybackSeekState(playerController: PlayerController): PlaybackSeekState {
-    return rememberPlaybackSeekState(
-        progressState = playerController.playbackProgressState,
-        onSeekUiActiveChanged = playerController::setSeekUiActive,
-        onSeekToMs = playerController::seekToMs,
-    )
-}
-
 @Composable
 internal fun rememberPlaybackSeekState(
     progressState: PlaybackProgressState,

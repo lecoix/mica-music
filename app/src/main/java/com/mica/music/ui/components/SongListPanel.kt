@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LibraryFastScrollIndex
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
@@ -27,7 +26,8 @@ import com.mica.music.util.DiagnosticLog
 fun SongListPanel(
     songs: List<Song>,
     library: MusicLibrary,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: ((Song) -> Unit)? = null,
     emptyMessage: String,
@@ -60,7 +60,8 @@ fun SongListPanel(
     if (resolvedFastScrollLabels == null) {
         SongRows(
             songs = songs,
-            playerController = playerController,
+            currentSongId = currentSongId,
+            isPlaying = isPlaying,
             onSongClick = onSongClick,
             onSongOpenMenu = onSongOpenMenu,
             listState = lazyListState,
@@ -77,7 +78,8 @@ fun SongListPanel(
         ) {
             SongRows(
                 songs = songs,
-                playerController = playerController,
+                currentSongId = currentSongId,
+                isPlaying = isPlaying,
                 onSongClick = onSongClick,
                 onSongOpenMenu = onSongOpenMenu,
                 listState = lazyListState,
@@ -102,7 +104,8 @@ private fun List<Song>.timedFastScrollLabels(field: SongSortField): List<String>
 @Composable
 private fun SongRows(
     songs: List<Song>,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: ((Song) -> Unit)?,
     listState: LazyListState,
@@ -115,11 +118,11 @@ private fun SongRows(
         contentPadding = PaddingValues(bottom = listBottomPadding),
     ) {
         items(songs, key = { it.id }) { song ->
-            val isCurrent = playerController.currentSong?.id == song.id
+            val isCurrent = currentSongId == song.id
             SongRow(
                 song = song,
                 isCurrent = isCurrent,
-                isPlaying = isCurrent && playerController.isPlaying,
+                isPlaying = isCurrent && isPlaying,
                 onClick = { onSongClick(song.id) },
                 onLongClick = onSongOpenMenu?.let { open -> { open(song) } },
             )

@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
@@ -40,7 +39,8 @@ fun PlaylistSongListPanel(
     songs: List<Song>,
     customOrder: Boolean,
     library: MusicLibrary,
-    playerController: PlayerController,
+    currentSongId: String?,
+    isPlaying: Boolean,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
@@ -65,7 +65,8 @@ fun PlaylistSongListPanel(
         SongListPanel(
             songs = songs,
             library = library,
-            playerController = playerController,
+            currentSongId = currentSongId,
+            isPlaying = isPlaying,
             onSongClick = onSongClick,
             onSongOpenMenu = onSongOpenMenu,
             emptyMessage = emptyMessage,
@@ -101,7 +102,7 @@ fun PlaylistSongListPanel(
     ) {
         itemsIndexed(items, key = { _, song -> song.id }) { index, song ->
             ReorderableItem(reorderState, key = song.id) { isDragging ->
-                val isCurrent = playerController.currentSong?.id == song.id
+                val isCurrent = currentSongId == song.id
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -109,7 +110,7 @@ fun PlaylistSongListPanel(
                     SongRow(
                         song = song,
                         isCurrent = isCurrent,
-                        isPlaying = isCurrent && playerController.isPlaying,
+                        isPlaying = isCurrent && isPlaying,
                         onClick = { onSongClick(song.id) },
                         onLongClick = { onSongOpenMenu(song) },
                         modifier = Modifier.weight(1f),

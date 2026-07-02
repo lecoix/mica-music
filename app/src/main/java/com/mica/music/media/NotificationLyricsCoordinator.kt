@@ -8,6 +8,11 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.AppPreferences
 import com.mica.music.data.Song
+import com.mica.music.data.local.LibraryRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 /**
  * 在播放服务进程内按歌词行更新媒体通知元数据。
@@ -18,10 +23,19 @@ internal class NotificationLyricsCoordinator(
     private val context: Context,
     private val player: Player,
     private val handler: Handler,
+    private val songLoader: suspend (String) -> Song? = { id ->
+        LibraryRepository(context.applicationContext).songById(id)
+    },
 ) {
     private var released = false
     private var lastSignature: String? = null
     private var syncing = false
+    private val lyricsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val songCache = NotificationLyricsSongCache(
+        scope = lyricsScope,
+        handler = handler,
+        loadSong = songLoader,
+    )
 
     private val tick = object : Runnable {
         override fun run() {
@@ -76,6 +90,8 @@ internal class NotificationLyricsCoordinator(
         released = true
         handler.removeCallbacks(tick)
         player.removeListener(listener)
+        lyricsScope.cancel()
+        songCache.clear()
     }
 
     private fun maybeSync() {
@@ -147,7 +163,9 @@ internal class NotificationLyricsCoordinator(
     private fun currentSong(): Song? {
         val item = player.currentMediaItem ?: return null
         val decoded = SongMediaItemCodec.decode(item) ?: return null
-        return decoded.copy(lyrics = NotificationLyricsCatalog.lyricsFor(item.mediaId))
+        return songCache.songWithLyrics(decoded) {
+            if (!released) maybeSync()
+        }
     }
 
     private fun metadataMatches(current: MediaMetadata, target: MediaMetadata): Boolean =

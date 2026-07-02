@@ -20,18 +20,23 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
+import com.mica.music.data.PlaybackProgressState
+import com.mica.music.data.PlaybackQueueState
+import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.SleepTimerController
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.NowPlayingContent
-import com.mica.music.ui.screens.rememberNowPlayingActions
 
 @Composable
 fun PlayerSheetHost(
     library: MusicLibrary,
-    playerController: PlayerController,
+    surfaceState: PlaybackSurfaceState,
+    progressState: PlaybackProgressState,
+    queueState: PlaybackQueueState,
     sleepTimer: SleepTimerController,
+    actions: NowPlayingActions,
     uiSettings: AppUiSettings,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
@@ -44,10 +49,6 @@ fun PlayerSheetHost(
     contentPadding: PaddingValues = PaddingValues(),
     modifier: Modifier = Modifier,
 ) {
-    val surfaceState = playerController.playbackSurfaceState
-    val progressState = playerController.playbackProgressState
-    val queueState = playerController.playbackQueueState
-    val actions = rememberNowPlayingActions(playerController, uiSettings)
     val song = surfaceState.currentSong
     if (song == null) {
         SideEffect { onOverlayFullScreenChange(false) }

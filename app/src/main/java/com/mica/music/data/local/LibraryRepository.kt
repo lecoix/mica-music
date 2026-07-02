@@ -85,6 +85,9 @@ class LibraryRepository internal constructor(
         )
     }
 
+    suspend fun songById(id: String): Song? =
+        songDao.getById(id)?.toSong()
+
     suspend fun save(
         songs: List<Song>,
         lastScanAtMs: Long,

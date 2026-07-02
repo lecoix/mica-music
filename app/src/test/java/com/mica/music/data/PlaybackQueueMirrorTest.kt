@@ -5,8 +5,11 @@ import androidx.media3.common.Player
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackQueueMirrorTest {
@@ -51,13 +54,42 @@ class PlaybackQueueMirrorTest {
         assertEquals(listOf(local, fallback), build.songs)
     }
 
+    @Test
+    fun coordinatorRebuildNowAppliesMirrorAndRemembersSignature() {
+        val dispatcher = StandardTestDispatcher()
+        val coordinator = PlaybackQueueMirrorCoordinator(
+            scope = TestScope(dispatcher),
+            workerDispatcher = dispatcher,
+            debounceMs = 0L,
+        )
+        val song = SongFixtures.song("song-a")
+        val items = listOf(item(song.id))
+        var applied: List<Song>? = null
+        var appliedIndex: Int? = null
+
+        val result = coordinator.rebuildNow(
+            player = mockPlayer(items, currentIndex = 0),
+            resolver = { id -> song.takeIf { it.id == id } },
+        ) { songs, playerIndex ->
+            applied = songs
+            appliedIndex = playerIndex
+        }
+
+        assertEquals(1, result.itemsCount)
+        assertEquals(1, result.resolvedCount)
+        assertEquals(listOf(song), applied)
+        assertEquals(0, appliedIndex)
+        assertTrue(coordinator.hasSignature(PlaybackQueueMirror.orderSignature(items)))
+    }
+
     private fun item(id: String): MediaItem =
         MediaItem.Builder().setMediaId(id).build()
 
-    private fun mockPlayer(items: List<MediaItem>): Player {
+    private fun mockPlayer(items: List<MediaItem>, currentIndex: Int = 0): Player {
         val player = mockk<Player>()
         every { player.mediaItemCount } returns items.size
         every { player.getMediaItemAt(any()) } answers { items[firstArg()] }
+        every { player.currentMediaItemIndex } returns currentIndex
         return player
     }
 }

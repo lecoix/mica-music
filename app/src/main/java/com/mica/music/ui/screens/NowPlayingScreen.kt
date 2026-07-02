@@ -30,7 +30,6 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
-import com.mica.music.data.PlayerController
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlaylistStore
@@ -94,36 +93,13 @@ internal fun nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics: Boolean): Lon
     if (hasWordSyncedLyrics) 100L else 500L
 
 @Composable
-fun rememberNowPlayingActions(
-    playerController: PlayerController,
-    uiSettings: AppUiSettings,
-): NowPlayingActions =
-    remember(playerController, uiSettings) {
-        NowPlayingActions(
-            syncPosition = playerController::syncPosition,
-            setSeekUiActive = playerController::setSeekUiActive,
-            seekToMs = playerController::seekToMs,
-            playQueueIndex = playerController::playSong,
-            moveQueueItem = playerController::moveInQueue,
-            removeQueueItem = playerController::removeFromQueue,
-            togglePlay = playerController::togglePlay,
-            previous = playerController::previous,
-            next = playerController::next,
-            coverFlowPreviousTarget = playerController::manualPreviousTarget,
-            coverFlowNextTarget = playerController::manualNextTarget,
-            cyclePlaybackQueueMode = playerController::cyclePlaybackQueueMode,
-            toggleImmersiveLower = uiSettings::togglePlayerImmersiveLower,
-            toggleLyricsPageImmersive = uiSettings::toggleLyricsPageImmersive,
-            insertPlayNext = playerController::insertPlayNext,
-            setQueue = playerController::setQueue,
-        )
-    }
-
-@Composable
 fun NowPlayingScreen(
     library: MusicLibrary,
-    playerController: PlayerController,
+    surfaceState: PlaybackSurfaceState,
+    progressState: PlaybackProgressState,
+    queueState: PlaybackQueueState,
     sleepTimer: SleepTimerController,
+    actions: NowPlayingActions,
     uiSettings: AppUiSettings,
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
@@ -136,11 +112,11 @@ fun NowPlayingScreen(
 ) {
     NowPlayingContent(
         library = library,
-        surfaceState = playerController.playbackSurfaceState,
-        progressState = playerController.playbackProgressState,
-        queueState = playerController.playbackQueueState,
+        surfaceState = surfaceState,
+        progressState = progressState,
+        queueState = queueState,
         sleepTimer = sleepTimer,
-        actions = rememberNowPlayingActions(playerController, uiSettings),
+        actions = actions,
         uiSettings = uiSettings,
         onClose = onClose,
         onOpenEqualizer = onOpenEqualizer,
