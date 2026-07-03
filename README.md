@@ -2,7 +2,7 @@
 
 > 极简直角 · 多种主题 · Jetpack Compose
 
-基于 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md) 实现的 **本地 HiFi 播放器**：多种主题样式、Media3 ExoPlayer 播放、Room 持久化、内嵌歌词与 ALAC/DSF 支持。
+基于 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md) 实现的 **本地 HiFi 播放器**：多种主题样式、Media3 ExoPlayer 单链路播放、Room 持久化、内嵌/外挂歌词与 ALAC/DSF 支持。
 
 ---
 <table>
@@ -35,6 +35,12 @@
 .\gradlew.bat :app:assembleDebug
 ```
 
+质量门（编译 + Lint + 单测 + 截图比对，无需真机）：
+
+```powershell
+.\gradlew :app:micaCheck --no-configuration-cache
+```
+
 Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 ```powershell
@@ -49,12 +55,14 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 | 模块 | 说明 |
 |------|------|
 | **曲库扫描** | MediaStore 或 SAF；深度元数据、封面缓存与取色、增量同步 |
-| **持久化** | Room；冷启动恢复队列与播放进度 |
-| **播放** | Media3 ExoPlayer 单链路；FFmpeg 扩展解码 ALAC/DSF；顺序/循环/随机；10 段软件 EQ |
-| **歌词** | 内嵌 + 外挂 `.lrc`；三行歌词、展开歌词页 |
+| **持久化** | Room 曲库；`ServicePlaybackStateStore` 冷启动恢复队列与进度 |
+| **播放** | Media3 ExoPlayer 单链路；Jellyfin FFmpeg 扩展解码 ALAC/DSF；顺序/循环/随机；10 段软件 EQ；通知歌词（可选） |
+| **歌词** | 内嵌 + 外挂 `.lrc`；三行歌词、展开歌词页、双语/逐字等设置 |
 | **浏览** | 歌曲 / 歌手 / 专辑 / 最近 / 歌单 / 音乐库分析 |
-| **播放页** | 多种背景；多种播放主题；沉浸模式；频谱条（可选） |
-| **迷你栏** | 浮岛毛玻璃（BlurView）/极简 Hi‑Fi 底栏 |
+| **播放页背景** | 主题色、封面渐变、封面模糊、动态烟云（UI 暂藏）、流光溢彩 |
+| **播放页封面行为** | 标准 / **粒子封面**（GLES）/ 平行封面带 / 复古立体 / **拍立得回忆** |
+| **播放页** | 沉浸模式、频谱条（可选）、封面底边进度、共享封面转场（第一版） |
+| **迷你栏** | 浮岛毛玻璃（BlurView）/ 极简 Hi‑Fi 底栏 |
 | **界面** | 云母渐变背景、可配置强调色、全局动效（`MicaMotion`） |
 
 ---
@@ -62,11 +70,12 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 ## 项目结构（概要）
 
 ```
+├── CONTEXT.md              # 领域词汇
 ├── DESIGN_SPEC.md
+├── REASONIX.md             # AI/工具速览
 ├── docs/
-│   ├── DOC_INDEX.md        # 文档索引与阅读顺序
+│   ├── DOC_INDEX.md
 │   ├── TODO.md
-│   ├── MOTION.md
 │   ├── PLAYER_PAGE_CONTRACT.md
 │   ├── COVER_FLOW_IMPLEMENTATION.md
 │   └── …
@@ -85,10 +94,12 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 ## 相关文件
 
 - 文档索引：[`docs/DOC_INDEX.md`](./docs/DOC_INDEX.md)
+- 领域词汇：[`CONTEXT.md`](./CONTEXT.md)
 - 设计规范：[`DESIGN_SPEC.md`](./DESIGN_SPEC.md)
 - 动效与 Compose/View 分工：[`docs/MOTION.md`](./docs/MOTION.md)
 - 功能清单：[`docs/TODO.md`](./docs/TODO.md)
+- 测试：[`docs/TESTING.md`](./docs/TESTING.md)
 
 ---
 
-**Made with care · 2026-06**
+**Made with care · 2026-07**

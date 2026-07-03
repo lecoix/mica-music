@@ -27,10 +27,14 @@
 
 | 模式 | 实现 | 行为 |
 |------|------|------|
+| **标准**（`STANDARD`） | [`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt) | 横向轻扫 → `onPrevious` / `onNext` |
 | **封面流**（平行 / 复古） | [`CoverFlowCarouselView`](../app/src/main/java/com/mica/music/ui/screens/player/view/CoverFlowCarouselView.kt) | 拖动跟手；松手超阈值 → `onPlayQueueIndex` / `onNext` / `onPrevious`；点击侧槽 → `onPlayQueueIndex` |
-| **标准主题** | [`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt) | 横向轻扫 → `onPrevious` / `onNext` |
+| **拍立得**（`PHOTO_STACK`） | [`PhotoStackTransitionView`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackTransitionView.kt) | 轻扫最前卡切歌；前卡底带 seek；转场中禁触。详见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §13 |
+| **粒子封面**（`PARTICLE_COVER`） | [`ParticleCoverPlayerLayer`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt) + [`ParticleCoverHost`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverHost.kt) | 全屏 GLES 层；切歌分解动画；**不**走标准轻扫/封面流。详见 [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0 |
 
-不新增 Controller API。封面流切歌动画由 View 监听 `currentIndex`（`CoverFlowCarouselHost.update` → `updateCurrentIndex`）驱动，详见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §4。
+不新增 Controller API。封面流切歌动画由 View 监听 `currentIndex`（`CoverFlowCarouselHost.update` → `updateCurrentIndex`）驱动；拍立得经 `PhotoStackCarouselNavigationBridge`；粒子封面切歌由 `ParticleCoverHost` 内部阶段动画 + 播放器 `currentIndex` 同步。
+
+**互斥**：同一时刻仅一种封面行为层挂载（`NowPlayingCoverSection` 分支）。`PARTICLE_COVER` / `PHOTO_STACK` **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。
 
 ## 布局
 
@@ -65,7 +69,13 @@
 | 文件 | 职责 |
 |------|------|
 | `NowPlayingScreen.kt` | 播放页壳：背景、封面区、下半屏、队列 Sheet |
-| `NowPlayingCoverSection.kt` | 封面尺寸、原样比例、封面流 `AndroidView`、底边进度 overlay |
+| `NowPlayingCoverSection.kt` | 封面尺寸、原样比例；封面流 / 拍立得 / 粒子 / 标准 分支挂载；底边进度 overlay |
+| `PhotoStackTheme.kt` | 拍立得 Compose 入口 → `PhotoStackTransitionHost` |
+| `player/ParticleCoverPlayerLayer.kt` | 粒子封面全屏 GLES 层（现网 `UseNativeParticleCoverInPlayer = true`） |
+| `player/ParticleCoverPageLayout.kt` | 粒子模式布局帧与歌词区 alpha |
+| `player/view/PhotoStackTransition*.kt` | 拍立得 View 岛 |
+| `player/view/ParticleCoverHost.kt` | 粒子封面 GLES 宿主（现网热路径） |
+| `player/view/ThreeParticleCoverHost.kt` | 粒子 WebView 回退（`UseNativeParticleCoverInPlayer = false` 时） |
 | `PlayerLowerPanel.kt` | 下半屏组合：元数据、紧凑/展开歌词、chrome |
 | `PlayerLowerPanelMetadata.kt` | Hi‑Fi 元数据、标题/副标题 |
 | `PlayerLowerPanelChrome.kt` | 进度条、播放控制、频谱条 |
@@ -74,8 +84,9 @@
 | `player/PlayerPageLayoutEngine.kt` | 单帧布局；`PlayerLowerPanelSpacing` |
 | `player/PlayerPageState.kt` | 沉浸/歌词聚焦等动画 progress 与冻结状态 |
 | `player/PlayerPageTypes.kt` | `PlayerPageFrame` 等布局数据类型 |
-| `player/view/CoverFlowCarousel*.kt` | 封面流 View 岛（`COVER_FLOW_IMPLEMENTATION.md`） |
+| `player/view/CoverFlowCarousel*.kt` | 封面流 View 岛（[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §1–§12） |
 | `player/CoverGestureCoordinator.kt` | 标准封面横向轻扫 |
+| `player/ParticleCoverThemePolicy.kt` | 粒子 vs 封面流 stage 互斥、强制裁切填充 |
 
 **约束**：新逻辑优先落入上表专用文件，**避免**再把 `NowPlayingScreen.kt` 撑大。
 
@@ -131,6 +142,9 @@
 - [ ] 封面底边进度模式 ↔ 歌词页返回无跳变
 - [ ] 原样比例横/竖封面无两步位移
 - [ ] 封面流：平行 / 复古 × 拖动与按钮切歌，无闪帧（`CoverFlowRailsTest`）
+- [ ] 拍立得：轻扫切歌、前卡 seek、转场中不可 seek；× 各播放页背景
+- [ ] 粒子封面：切歌分解/重组、歌词聚焦几何时 `ParticleCoverPlayerLayer` 与布局一致；预览页调参后播放页一致
+- [ ] 粒子 / 拍立得：确认沉浸模式入口不可用或无效
 - [ ] 手势导航条设备：背景铺满底边，控件避让 `navigationBars`
 - [ ] 迷你栏 → 播放页共享封面（含搜索/键盘场景，见共享元素文档）
 
@@ -143,3 +157,4 @@
 | 2026-05 | 初版契约 |
 | 2026-06 | 合并原 `REVIEW_NOTES.md` 模块地图与回归清单；删除独立审查笔记 |
 | 2026-06 | 记录封面底边进度与歌词页切换跳变的根因、错误修法及布局不变量 |
+| 2026-07 | 补充拍立得 / 粒子封面手势、模块地图与回归项；粒子现网 GLES 路径 |

@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-06  
+> 最后整理：2026-07  
 > 范围：本仓库 **Mica Android** 文档（不含 `.icey-ref/`、`.codex-push-*` 副本）。
 
 ---
@@ -8,11 +8,12 @@
 ## 阅读顺序
 
 1. [`README.md`](../README.md) — 环境、功能概览  
-2. [`DESIGN_SPEC.md`](../DESIGN_SPEC.md) — 设计语言（动效/毛玻璃见专项文档）  
-3. [`TODO.md`](TODO.md) — 已实现 / 待办  
-4. [`MOTION.md`](MOTION.md) — 动效规范 + **§七 Compose/View 岛**  
-5. 按任务：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)、[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)、[`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md)
-6. 参考拆解：[`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) — Apple Music 动态背景逆向分析与 Mica 复刻方案
+2. [`CONTEXT.md`](../CONTEXT.md) — 领域词汇（播放队列、封面行为、持久化等）  
+3. [`DESIGN_SPEC.md`](../DESIGN_SPEC.md) — 设计语言（§十五 规范与现网对照）  
+4. [`TODO.md`](TODO.md) — 已实现 / 待办  
+5. [`MOTION.md`](MOTION.md) — 动效规范 + **§七 Compose/View 岛**  
+6. 按任务：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)、[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)、[`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0、[`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md)
+7. 参考拆解：[`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md)
 
 ---
 
@@ -21,10 +22,10 @@
 | 文档 | 角色 |
 |------|------|
 | [`README.md`](../README.md) | 项目入口 |
-| [`DESIGN_SPEC.md`](../DESIGN_SPEC.md) | 设计规范 v1.2 |
+| [`DESIGN_SPEC.md`](../DESIGN_SPEC.md) | 设计规范 v1.3（含 §十五 规范与现网对照） |
 | [`TODO.md`](TODO.md) | 功能 living list |
 | [`MOTION.md`](MOTION.md) | 动效权威 + View 岛分工 |
-| [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) | 封面流 **产品 §0 + 实现 §1–12** |
+| [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) | 播放页封面行为 **产品 §0 + 封面流 §1–12 + 拍立得 §13** |
 | [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md) | 播放页契约、模块地图、回归清单 |
 | [`OPEN_SOURCE_NOTICES.md`](OPEN_SOURCE_NOTICES.md) | 开源合规（含 BlurView） |
 | [`DOC_INDEX.md`](DOC_INDEX.md) | 本索引 |
@@ -40,9 +41,12 @@
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
-| [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面从 `WebView + Three.js` 迁到原生 `TextureView + GLES20` 的视觉保真迁移施工单 |
-| [`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) | Apple Music Now Playing 动态背景拆解：自定义 View、三层封面旋转、mesh、blur、crossfade 与 Mica 实现路线 |
-| [`REASONIX.md`](../REASONIX.md) | AI/工具代码库速览（须与 `libs.versions.toml` 对齐） |
+| [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
+| [`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) | Apple Music 动态背景逆向（`DYNAMIC_ARTWORK` 参考） |
+| [`REASONIX.md`](../REASONIX.md) | AI/工具速览（须与 `libs.versions.toml` 对齐） |
+| [`CONTEXT.md`](../CONTEXT.md) | 领域词汇权威来源 |
+
+**历史快照（勿作现行 bug 清单）**：[`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md)、[`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) 及 `_02` — 文首已说明 hybrid 调查背景。
 
 ---
 
@@ -61,12 +65,13 @@
 ## 文档层级
 
 ```text
-入口     README · DOC_INDEX
+入口     README · DOC_INDEX · CONTEXT
 设计     DESIGN_SPEC
 进度     TODO
 动效     MOTION（含 §七 岛分工）
 播放页   PLAYER_PAGE_CONTRACT
-         COVER_FLOW_IMPLEMENTATION（§0 产品 + §1+ 实现）
+         COVER_FLOW_IMPLEMENTATION（§0 + §1–12 封面流 + §13 拍立得）
+         PARTICLE_COVER_OPENGL_MIGRATION（§0 粒子产品 + GLES parity）
          SHARED_ELEMENT_ANIMATION_NOTES
 合规     OPEN_SOURCE_NOTICES
 工具     REASONIX
@@ -94,4 +99,5 @@
 | 2026-06-18 | 新增 `DSD_EXO_PLAYBACK.md`（Exo DSD 扩展与音效说明） |
 | 2026-06-19 | 更新 `reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`：exoplayer-only / fe2457a Bugbot 第三轮 |
 | 2026-06-20 | 新增 `PERFORMANCE_INVESTIGATION_02.md`；更新 `PERFORMANCE_INVESTIGATION.md` 封面流发热结论 |
-| 2026-06-27 | 新增 `APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`：Apple Music 动态背景逆向分析与 Mica 复刻方案 |
+| 2026-06-27 | 新增 `APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md` |
+| 2026-07-04 | 文档与现网对齐：`CONTEXT`、`TODO`、`REASONIX`、`DESIGN_SPEC` v1.3、`COVER_FLOW` §13 拍立得、`PLAYER_PAGE_CONTRACT` 粒子/拍立得、粒子 §0、`README` |

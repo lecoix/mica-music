@@ -1,4 +1,4 @@
-# HiFi 本地音乐播放器 · 设计规范 v1.2
+# HiFi 本地音乐播放器 · 设计规范 v1.3
 
 > Android Jetpack Compose · 云母材质（浮岛 blur）+ 氛围渐变 + 极简尖角 · 发烧友定位
 
@@ -36,6 +36,7 @@
 | 青釉     | `teal`    | `#5BA8A0`          | —                                                  |
 | 珊瑚     | `coral`   | `#E07A7A`          | —                                                  |
 | 动态取色   | `dynamic` | 系统 Material You 主色 | Android 12+；低版本回退紫韵                                |
+| 自定义     | `custom`  | 用户自选 Hex           | 设置对话框取色；与预设并列                                      |
 
 
 
@@ -76,30 +77,57 @@
 | `surface.glass.dark` | `#000000` @ 30% + blur 32 | 浅色背景上的深色玻璃叠层 |
 
 
-### 2.5 云母氛围渐变（背景）
+### 2.5 云母氛围渐变（全局 App 背景）
 
-> 这是产品的"灵魂层"——所有页面背景都从这套渐变库中取色，**饱和度故意偏低**避免干扰内容。
+> 设置 → **云母背景**（`MicaPreset` / `micaAppBackground()`）。这是**主页、侧栏、设置**等壳层的氛围渐变，**不是**播放页下半屏背景（见 §2.7）。饱和度故意偏低，避免干扰内容。
 
+| 预设（设置标签） | storage | 浅色起始 → 结束 | 深色起始 → 结束 | 说明 |
+| --- | --- | --- | --- | --- |
+| 晨曦 `dawn` | `dawn` | `#FFF6EE` → `#E3EEF8` | `#081420` → `#8B4E28` | 默认浅色；暖雾→天光蓝 |
+| 暮色 `dusk` | `dusk` | `#FFF4EB` → `#FFE8F2` | `#2A1810` → `#6B3A32` | 偏暖 |
+| 午夜 `midnight` | `midnight` | `#F7F2E8` → `#E8E0F2` | `#141022` → `#251A3D` | 浅色为奶白→淡紫 |
+| 极光 `aurora` | `aurora` | `#E6F5F0` → `#D8E8FF` | `#0A1F1A` → `#1E4A3D` | 青绿→浅蓝 |
+| 雾霭 `fog` | `fog` | `#F5F5F8` → `#E8EBF0` | `#12121A` → `#1E1E2A` | 最克制 |
+| 自定义 | `custom` | 用户自选起止色 | 同上 | 设置对话框 |
 
-| 渐变名                | 起始色       | 结束色       | 适用场景           |
-| ------------------ | --------- | --------- | -------------- |
-| `mica.dawn` 黎明     | `#F7F2E8` | `#E8E0F2` | 主页、文件夹页（默认浅色）  |
-| `mica.dusk` 黄昏     | `#FFE6CC` | `#FFCCD9` | 个人中心、温暖场景      |
-| `mica.midnight` 子夜 | `#0D1B2A` | `#D4823A` | 播放页（深色专辑取色后渲染） |
-| `mica.aurora` 极光   | `#1A0B2E` | `#3B2266` | 均衡器、深色模式默认     |
-| `mica.fog` 薄雾      | `#F5F5F8` | `#E8EBF0` | 搜索页、设置页（最克制）   |
+实现：`Color.kt`（`HifiPalette`）+ `MicaGradient.kt`。每预设均有浅色/深色两套端点。
 
-
-**动态规则**：播放页的氛围色应从专辑封面提取主色调动态生成（Palette API）。其他页面使用固定预设。
+> **v1.1 草案差异**：早期 spec 中「黎明/子夜/极光」的 hex 与语义已迭代（如「子夜」不再指 `#0D1B2A→#D4823A` 播放页专用渐变）。以 **`Color.kt` 现网值**为准；完整对照见 §十五。
 
 ### 2.6 语义色（最小化使用）
 
 
 | Token              | Hex       | 用途           |
 | ------------------ | --------- | ------------ |
-| `semantic.like`    | `#FF6B6B` | 心形已收藏（实心红）   |
-| `semantic.warning` | `#F5A623` | 错误的文件格式、扫描异常 |
-| `semantic.success` | `#52C41A` | 极少使用，扫描完成    |
+| `semantic.like`    | `#FF6B6B` | 心形已收藏（`HifiColors.like`） |
+| `semantic.warning` | `#F5A623` | 错误的文件格式、扫描异常（**规范色；主题 token 未落地**） |
+| `semantic.success` | `#52C41A` | 极少使用，扫描完成（**规范色；主题 token 未落地**） |
+
+### 2.7 播放页背景与封面行为（现网）
+
+与 §2.5 云母背景**并列、可任意组合**；枚举与领域词汇见 `CONTEXT.md`。
+
+**播放页背景**（`PlayerLowerBackgroundMode`，设置 → 播放页背景；默认 `COVER_GLOW`）：
+
+| 设置标签 | 枚举 | 要点 |
+| --- | --- | --- |
+| 主题色 | `THEME` | 云母渐变，不用专辑取色 |
+| 封面渐变 | `ARTWORK_GRADIENT` | Palette 取色，下半屏保持专辑色 |
+| 封面模糊 | `COVER_GLOW` | API 31+ 全屏模糊 + 取色；低版本渐变兜底 |
+| 动态烟云 | `DYNAMIC_LIGHT` | 低分辨率封面纹理 + GLES；**设置 UI 暂隐藏**，代码保留 |
+| 流光溢彩 | `DYNAMIC_ARTWORK` | 多层封面纹理 + shader 切歌 crossfade |
+
+**播放页封面行为**（`PlayerCoverFlowMode`，设置 → 播放页封面行为；默认 `STANDARD`）：
+
+| 设置标签 | 枚举 | 要点 |
+| --- | --- | --- |
+| 标准 | `STANDARD` | 大封面 + 横向轻扫切歌 |
+| 粒子封面 | `PARTICLE_COVER` | 边缘粒子化 + 切歌分解；现网 **GLES**（`ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 回退见 `ThreeParticleCoverHost` |
+| 平行封面带 | `PAUSE_FOLD` | 七轨 View 岛封面流 |
+| 复古立体封面 | `RETRO_3D` | 透视封面流 + 倒影 |
+| 拍立得回忆 | `PHOTO_STACK` | 拍立得叠放转场（**局部圆角**，见 §十五） |
+
+非 `STANDARD` 模式强制裁切填充；`PARTICLE_COVER` / `PHOTO_STACK` 不支持下半屏沉浸。
 
 
 ---
@@ -109,11 +137,13 @@
 ### 3.1 字体族
 
 
-| 角色       | 字体                  | 备用                                         |
-| -------- | ------------------- | ------------------------------------------ |
-| 中文（主）    | `HarmonyOS Sans SC` | `Noto Sans SC`, `PingFang SC`, `system-ui` |
-| 英文 / 数字  | `Inter`             | `SF Pro Display`, `Roboto Flex`            |
-| 等宽（技术参数） | `JetBrains Mono`    | `IBM Plex Mono`, `Roboto Mono`             |
+| 角色       | 规范字体                | 现网实现（`Type.kt`） |
+| -------- | ------------------- | ----------------- |
+| 中文（主）    | `HarmonyOS Sans SC` | `FontFamily.Default`（系统 sans） |
+| 英文 / 数字  | `Inter`             | 同上 |
+| 等宽（技术参数） | `JetBrains Mono`    | `FontFamily.Monospace`（系统 mono） |
+
+> **字体缺口**：内置字库与 `ui-text-google-fonts` 尚未接入；见 `docs/TODO.md`「内置第二套字体」。字号 token 数值已与 `HifiTypography` 对齐。
 
 
 ### 3.2 字号层级
@@ -191,7 +221,7 @@
 - 顶部 AppBar 高度：`56dp`
 - 底部导航高度：`72dp`（带文字）/ `56dp`（仅图标）
 - 列表行高度：`64dp`（带缩略图）/ `48dp`（无缩略图）
-- 迷你播放器高度：`56dp`
+- 迷你播放器高度：`56dp`（规范）；**现网浮岛/极简均为 `64dp`**（见 §十五）
 
 ---
 
@@ -244,7 +274,16 @@
 **现网（浮岛迷你栏 `FLOATING_ISLAND`）**
 
 - `MicaMaterialBackdrop`（`MicaMaterialCard.kt`）+ `MainActivity` 双 `ComposeView` / `BlurTarget` 兄弟结构。
-- 顶 hairline + `surface.glass` tint；极简 Hi‑Fi（`AUDIOPHILE`）仍为不透明通栏，未接 blur。
+- 顶 hairline + tint；极简 Hi‑Fi（`AUDIOPHILE`）为不透明通栏，未接 blur。
+- **参数与视觉目标的差距**（`MiniPlayer.kt` 有意压低 blur 以保性能/可读性）：
+
+| 项 | 规范（§8.1 视觉目标） | 现网 |
+| --- | --- | --- |
+| blur 半径 | 24dp / 32dp | **4dp / 5dp** |
+| glass alpha | `#FFFFFF` @ 60% | `surfaceGlass.alpha × 0.1375` |
+| 卡片高度 | 56dp | **64dp** |
+| 封面 | 32dp | **48dp** |
+| 柔影 | 几乎不用 | `FloatingIslandShadowHalo`（Compose 自绘，非 elevation） |
 
 ### 8.2 阴影
 
@@ -263,9 +302,10 @@
 |------|------|------|
 | 主页 / 浏览 / Nav / 主题 / 沉浸 | 已实现 | `MOTION.md` §六 |
 | 迷你栏 → 播放页共享封面 | 第一版已实现 | `SHARED_ELEMENT_ANIMATION_NOTES.md` |
+| 封面流（平行 / 复古）切歌 / 拖动 | 已实现（View 岛） | `COVER_FLOW_IMPLEMENTATION.md` |
+| 粒子封面 / 拍立得转场 | 已实现（View / GLES 岛） | `CONTEXT.md`、`PARTICLE_COVER_OPENGL_MIGRATION.md` §0、`COVER_FLOW_IMPLEMENTATION.md` §13 |
 | 列表项 → 播放共享元素 | 待做 | `TODO.md` |
-| 歌词行切换 / 双语 | 待做 | `TODO.md` |
-| 封面流切歌 / 拖动 | 已实现（View 岛） | `COVER_FLOW_IMPLEMENTATION.md` |
+| 歌词行切换 / 双语动效 | 待做 | `TODO.md` |
 
 ---
 
@@ -314,9 +354,9 @@
 ●  Hi-Res
 ```
 
-- 金色小圆点（`#D4AC4F`, 直径 6dp）
+- 金色标记（`#D4AC4F`, **6dp 方形**点；规范写「圆点」，现网为直角 `Box`）
 - 后接文字 "Hi-Res"（caption 字号）
-- **仅用于**：播放页右上、文件浏览中 DSD/24bit 以上的文件、设置中 Hi-Res 直通选项
+- **现网出现位置**：播放页 Hi‑Fi 信息行旁（`HiFiBadgeSection`）；音乐库分析页。**未**出现在列表行；**无**「Hi‑Res 直通」设置项
 - 永远不框起来，永远不变色
 
 ### 10.3 HiFi 信息行（播放页专用）
@@ -350,8 +390,10 @@
 - 进度线本身高度 2dp
 - 未播放部分：`text.tertiary` @ 30%
 - 已播放部分：纯色（深色背景上为白，浅色为黑）
-- 滑块/播放头：`2dp × 12dp` 矩形竖条，跟随当前位置
+- 滑块/播放头：`2dp × 12dp` 矩形竖条，跟随当前位置（**规范**）
 - 两侧时间戳 `mono.md`
+
+> **现网 `HiFiSeekBar`**：2dp（默认 3dp 可配）双色条，**无独立 thumb 竖条**；拖动时整条覆盖区高亮。见 §十五。
 
 ### 10.6 快捷操作（主页）
 
@@ -390,26 +432,31 @@
 
 ## 十一、Jetpack Compose 实现
 
-### 11.1 文件结构建议
+### 11.1 文件结构（现网）
 
 ```
 app/src/main/java/com/mica/music/
-├── data/AppAccentColor.kt      # 强调色预设枚举
+├── data/AppAccentColor.kt          # 强调色预设（含 CUSTOM）
+├── data/PlayerLowerBackgroundMode.kt
+├── data/PlayerCoverFlowMode.kt
+├── data/MiniPlayerStyle.kt
 ├── ui/theme/
-│   ├── Color.kt                # HifiPalette + HifiColors
-│   ├── AppAccent.kt            # accent 解析（含动态取色）
-│   ├── Type.kt
-│   ├── Spacing.kt
-│   ├── Shapes.kt
-│   ├── Theme.kt                # MicaTheme
-│   └── MicaGradient.kt
+│   ├── Color.kt                    # HifiPalette + HifiColors
+│   ├── AppAccent.kt                # accent 解析（含动态取色）
+│   ├── Type.kt                     # HifiTypography
+│   ├── Spacing.kt / Shapes.kt
+│   ├── Theme.kt                    # MicaTheme（非示例中的 HifiTheme）
+│   ├── MicaGradient.kt             # MicaPreset + micaAppBackground()
+│   └── MicaMaterialCard.kt         # BlurView 浮岛 backdrop
 └── ui/components/
-    ├── AccentTextChoice.kt     # 选项级激活态
-    ├── MinimalTabRow.kt        # 导航级 Tab
-    ├── TextToggle.kt
-    ├── EmptyState.kt           # 空状态 + CtaLink
+    ├── AccentTextChoice.kt
+    ├── HiResIndicator.kt
+    ├── EmptyState.kt
+    ├── MiniPlayer.kt
     └── …
 ```
+
+§11.2–11.7 为**结构参考示例**（包名 `com.yourapp` 需读作 `com.mica.music`）；运行时 API 以 **`MicaTheme`** 为准。
 
 ### 11.2 Color.kt
 
@@ -639,7 +686,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-enum class MicaPreset { Dawn, Dusk, Aurora, Fog }
+enum class MicaPreset { Dawn, Dusk, Midnight, Aurora, Fog, CUSTOM }
 
 fun Modifier.micaBackground(preset: MicaPreset): Modifier {
     val (start, end) = when (preset) {
@@ -896,53 +943,132 @@ fun MinimalTabRow(
 
 ---
 
-## 十三、依赖建议
+## 十三、依赖（版本真相源）
+
+> **以 `gradle/libs.versions.toml` + version catalog 为准**；下列为 2026-07 快照，升级后请同步本文。
+
+| 类别 | 坐标 / 插件 | 版本 |
+| --- | --- | --- |
+| Kotlin | `org.jetbrains.kotlin.android` | 2.2.21 |
+| AGP | `com.android.application` | 8.7.0 |
+| Gradle | wrapper | 8.9 |
+| Compose BOM | `androidx.compose:compose-bom` | 2024.10.00 |
+| Activity Compose | `androidx.activity:activity-compose` | 1.9.2 |
+| Lifecycle | `lifecycle-runtime-ktx` 等 | 2.8.6 |
+| Navigation Compose | `navigation-compose` | 2.8.2 |
+| Media3 ExoPlayer / Session / Decoder | `androidx.media3:*` | **1.9.0** |
+| Media3 FFmpeg 扩展 | `org.jellyfin.media3:media3-ffmpeg-decoder` | **1.9.0+1**（`third_party/media3-ffmpeg-decoder`） |
+| Room | `room-runtime` / KSP | 2.6.1 |
+| Coil | `coil-compose` | 2.7.0 |
+| Coroutines | `kotlinx-coroutines-android` | 1.8.1 |
+| Palette | `palette-ktx` | 1.0.0 |
+| BlurView | `com.github.Dimezis:BlurView` (JitPack) | 3.2.0 |
+| Reorderable | `sh.calvin.reorderable` | 2.4.3 |
+| Taglib / jAudiotagger | 元数据 | 1.0.5 / 3.0.1 |
+| 测试 | JUnit / Robolectric / MockK / Roborazzi | 4.13.2 / 4.13 / 1.13.13 / 1.34.0 |
+
+**平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 34`，**仅 arm64-v8a**。
+
+**v1.1 草案已移除或未采用的依赖**：直接 `implementation("androidx.media3:media3-exoplayer-hls")`、Compose `ui-text-google-fonts`（字体 spec 仍未落地）。
 
 ```kotlin
-// app/build.gradle.kts
+// app/build.gradle.kts — 声明方式示例（实际用 libs.xxx）
 dependencies {
-    // Compose BOM
-    implementation(platform("androidx.compose:compose-bom:2024.09.00"))
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.activity:activity-compose:1.9.2")
-
-    // 图片加载（封面）
-    implementation("io.coil-kt:coil-compose:2.7.0")
-
-    // 提取专辑封面主色（用于动态 mica）
-    implementation("androidx.palette:palette-ktx:1.0.0")
-
-    // Media3 / ExoPlayer（HiFi 解码）
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-session:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    // FLAC/DSD 等格式扩展
-    implementation("androidx.media3:media3-decoder:1.4.1")
-    implementation("androidx.media3:media3-extractor:1.4.1")
-    // 第三方 DSD 解码（可选）：例如 jaudiotagger 处理元数据
-
-    // 字体（可选，提升中文显示）
-    implementation("androidx.compose.ui:ui-text-google-fonts")
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.exoplayer.ffmpeg) // Jellyfin 扩展
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.palette.ktx)
+    implementation(libs.blurview)
+    // …见 libs.versions.toml
 }
 ```
 
 ---
 
-## 十四、待补充
+## 十四、页面规范进度
 
-以下页面的规范在迭代时补充：
-
-- [x] 设置页 · 外观（主题、强调色、云母背景、封面显示）— 选项用 `AccentTextChoice`
-- [ ] 设置页 · 音频（输出、独占模式、Hi-Res 直通、扫描路径）
-- [ ] 歌单管理（创建、智能歌单条件）
-- [ ] 专辑/歌手聚合页（九宫格、列表）
-- [x] 首次启动 / 扫描引导 · 空状态（`EmptyState` + 文字链接 CTA）
-- [ ] 其他错误状态
+| 页面 / 模块 | 状态 | 说明 |
+| --- | --- | --- |
+| 设置 · 外观与主题 | ✅ | `SettingsCategory.APPEARANCE`：主题、强调色、云母背景（含 CUSTOM）、隐藏状态栏、迷你播放栏 |
+| 设置 · 播放与界面 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（5 模式）、封面显示、沉浸、频谱、封面底边进度、通知歌词等 |
+| 设置 · 歌词 | ✅ | `LYRICS`：对齐、字号、双语、逐字/沉浸等 |
+| 设置 · 列表与信息 | ✅ | `LIST_INFO`：列表统计栏、Hi‑Fi 信息行显示 |
+| 设置 · 曲库与扫描 | ✅ | `LIBRARY`：文件夹、重扫、排除目录、最短时长（**非** spec 原「音频」分类） |
+| 设置 · 高级 | ✅ | `ADVANCED`：深度扫描、元数据调试、权限 |
+| 设置 · 音频（输出 / 独占 / Hi‑Res 直通） | ❌ | spec 原 §14 待办；**未**实现独立分类 |
+| 歌单管理 | ⚠️ | 创建 / 详情 / 删除已有；**无**智能歌单条件 |
+| 专辑 / 歌手聚合 | ⚠️ | 列表 + 九宫格已有；视觉规范未单独成文 |
+| 首次启动 / 空状态 | ✅ | `EmptyState` + 文字链接 CTA |
+| 统一错误状态页 | ❌ | 播放错误 inline + Snackbar；无全局错误 UI 规范 |
+| EQ | ✅ | 10 段软件 EQ；见 `EqualizerScreen`，不在本 spec 组件示例中 |
 
 ---
 
-**版本**：v1.1  
-**最后更新**：2026-06-11  
-**适用平台**：Android 7.0+ / Jetpack Compose 1.7+
+## 十五、规范与现网实现对照
+
+> 2026-07 对照 `app/src/main/java/com/mica/music/`。  
+> **已对齐**：不必改代码即可视为达标。**有意偏离**：产品/性能取舍，规范已更新或标注。**缺口**：规范仍有效但代码未做到。
+
+### 15.1 已对齐
+
+| 领域 | 说明 |
+| --- | --- |
+| 强调色 hex | 紫/鎏金/青/珊瑚与 `HifiPalette` 一致 |
+| 中性色 token | `text.*`、`divider`、`surface.glass` 与 `Light/DarkHifiColors` 一致 |
+| Hi‑Res 金色 | `#D4AC4F`，不随 accent |
+| 字号层级 | `HifiTypography` 与 §3.2 数值一致 |
+| 形状 | `Shapes.kt` 全档 0dp；Compose 主体直角 |
+| 间距 token | `HifiSpacing` / `HifiSize` 与 §四、§五一致 |
+| 动效时长 | `MicaMotion` 200 / 320 / 400 ms |
+| 封面显示 | `CROP_FILL` / `FIT_ORIGINAL` |
+| 激活态模式 | `AccentTextChoice` 纯字色；Tab 下划线 |
+| 空状态 | `EmptyState` + 扫描 `CircularProgressIndicator` |
+
+### 15.2 有意偏离（规范已修订或标注）
+
+| 领域 | 规范原意 | 现网 | 备注 |
+| --- | --- | --- | --- |
+| 云母 hex / 语义 | v1.1 黎明/子夜/极光表 | §2.5 现网表 + `Color.kt` | 晨曦/午夜等对调迭代 |
+| 播放页氛围 | 封面 Palette 动态 mica | 独立 `PlayerLowerBackgroundMode` 五选一 | §2.7 |
+| 全局 vs 播放背景 | 混为一谈 | `MicaPreset` 与播放页背景分离 | 可任意组合 |
+| 浮岛 blur 强度 | 24–32dp + 60% glass | 4–5dp blur + 低 alpha 缩放 | §8.1；性能/可读性 |
+| 迷你栏尺寸 | 56dp 高 / 32dp 封面 | 64dp / 48dp | `MiniPlayer.kt` |
+| Hi‑Res 标记形状 | 圆点 | 6dp 方形 | `HiResIndicator.kt` |
+| 进度条 thumb | 2×12dp 竖条 | 无 thumb，双色条 | `HiFiSeekBar.kt` |
+| 拍立得封面 | 全直角 | `PhotoStackTransitionView` 圆角 | 该主题专用 |
+| 紧凑歌词字号 | `lyric.current` 22sp | 播放页紧凑区约为 token × 2/3 | `LyricsDisplay.kt` |
+| 强调色 / 云母 | 四预设 | 各增 **CUSTOM** | 对话框取色 |
+
+### 15.3 规范仍有效、代码未做到（缺口）
+
+| 领域 | 规范要求 | 现网 | 优先级 |
+| --- | --- | --- | --- |
+| 字体族 | HarmonyOS Sans / Inter / JetBrains Mono | 系统 Default / Monospace | 中（见 TODO 内置字体） |
+| 语义 warning/success | §2.6 token | 未进 `HifiColors` | 低 |
+| Primary Glow | `#A89BFF` 发光 | 已定义未使用 | 低 |
+| Hi‑Res 列表行 | DSD/24bit+ 文件旁标记 | 仅播放页/分析页 | 中 |
+| Hi‑Res 直通设置 | 设置项 | 无 | 低（产品未做） |
+| 进度条播放头 | 矩形 thumb | 无 | 中（seek 仍可用） |
+| 设置 · 音频 | 输出/独占/直通 | 无独立分类 | 产品待定 |
+| 歌词切句动效 | §九待做 | 无 `AnimatedContent` | 低 |
+| 列表→播放共享元素 | §九待做 | 无 | 中 |
+
+### 15.4 现网超出 v1.1 草案（规范已补录）
+
+| 能力 | 位置 |
+| --- | --- |
+| 播放页背景 5 模式 | §2.7、`PlayerLowerBackgroundMode.kt` |
+| 封面行为 5 模式 | §2.7、`PlayerCoverFlowMode.kt` |
+| 设置 6 大类 | `SettingsScreen.kt` → `SettingsCategory` |
+| 通知歌词 | 设置 → 播放与界面 |
+| 粒子封面 GLES 现网 / WebView 回退 | `ParticleCoverHost`、`ThreeParticleCoverHost`（预览对比） |
+| 深色云母每预设双端点 | `Color.kt` `*DarkStart/*DarkEnd` |
+| `HifiColors.surfaceCard` / `like` / `isDark` | `Color.kt` |
+
+---
+
+**版本**：v1.3  
+**最后更新**：2026-07-04  
+**适用平台**：Android 8.0+（minSdk 26）/ Jetpack Compose BOM 2024.10+

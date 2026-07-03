@@ -1,7 +1,8 @@
-# 封面流手册（产品 + 实现 · View + Canvas 七轨）
+# 播放页封面行为手册（产品 + 实现）
 
-> **状态**：2026-06 现网热路径  
-> **读者**：改封面流交互、间距、倒影、切歌动画前必读。  
+> **状态**：2026-07 现网热路径  
+> **读者**：改播放页封面交互、间距、切歌动画前必读。  
+> **范围**：**平行 / 复古封面流**（七轨 `CoverFlowRails`）、**拍立得回忆**（`PhotoStack` 叠放转场）。粒子封面见 [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md)。  
 > 播放页边界见 [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)；动效 token 见 [`MOTION.md`](MOTION.md)。
 
 ---
@@ -10,11 +11,22 @@
 
 ### 0.1 定位
 
-**平行封面带**与**复古立体封面**是播放页特殊主题：启用后封面区常驻横向队列封面带，不再按播放/暂停放大回半屏大封面。
+设置 → **播放页封面行为**（`PlayerCoverFlowMode`）除「标准大封面」外，有三类 **View 岛**特殊主题：
 
-- 播放 / 暂停：不改变封面带布局。
-- 歌词聚焦或下半屏沉浸：临时退出封面流，回到普通播放页布局过渡。
-- 封面流主题下播放页强制**裁切填充**，忽略设置里「原样比例」。
+| 主题 | 枚举 | 实现族 |
+|------|------|--------|
+| 平行封面带 | `PAUSE_FOLD` | **封面流七轨**（§1–§12） |
+| 复古立体封面 | `RETRO_3D` | **封面流七轨**（§1–§12） |
+| 拍立得回忆 | `PHOTO_STACK` | **拍立得叠放栈**（§13） |
+
+共性：
+
+- 播放 / 暂停：不改变封面区布局形态。
+- 歌词聚焦：临时退出特殊主题层，回到普通播放页布局过渡（拍立得 **`normalLayerVisible=false`**，且**不支持**下半屏沉浸）。
+- 特殊主题下播放页强制**裁切填充**，忽略设置里「原样比例」。
+
+封面流（平行 / 复古）：启用后封面区常驻**横向七轨**队列带。  
+拍立得：启用后封面区为**三张叠放**的竖版卡片（当前 + 后两首），切歌时整组转场，**不是** `railOffset` 模型。
 
 ### 0.2 设置（已实现）
 
@@ -22,20 +34,38 @@
 
 | 选项 | 枚举 | 说明 |
 |------|------|------|
-| 标准 | `STANDARD` | 普通大封面；横向轻扫切歌 |
+| 标准 | `STANDARD` | 普通大封面；Compose 横向轻扫切歌 |
+| 粒子封面 | `PARTICLE_COVER` | 边缘粒子化 + 切歌分解（**GLES** View 岛，`ParticleCoverHost`）；**不在本文** — 见 [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0 |
 | 平行封面带 | `PAUSE_FOLD` | 同尺寸并排，暂停不折叠 |
 | 复古立体封面 | `RETRO_3D` | 两侧透视倾斜 + 倒影 |
+| 拍立得回忆 | `PHOTO_STACK` | 三张拍立得叠放 + 切歌抽换动画 |
 
 与「播放页背景」（主题色 / 封面渐变 / 封面模糊等）**并列、可任意组合**。
 
 ### 0.3 交互
 
-- 标准封面横向轻扫：超过约 **13%** 屏宽切歌（提交阈值 `0.13125`，较原设计降低 25%）。
+**标准封面**（Compose `CoverGestureCoordinator`）：
+
+- 横向轻扫：超过约 **13%** 屏宽切歌（提交阈值 `0.13125`）。
+
+**封面流**（平行 / 复古 · `CoverFlowCarouselView`）：
+
 - 点击侧槽封面 → 切到对应曲目。
-- 横向拖动 → 跟手；松手超过约 **26%** 的单轨步进切歌，否则回弹（提交阈值 `0.2625`，较原 `0.35` 降低 25%；见 §4.1、`CoverFlowCarouselView`）。
+- 横向拖动 → 跟手；松手超过约 **26%** 的单轨步进切歌，否则回弹（提交阈值 `0.2625`；见 §4.1）。
 - 特殊主题遵循「封面底边进度」开关：关闭时保留下方普通进度条与普通频谱条；开启时将进度条与已启用的频谱条移到中心专辑图底边，并隐藏普通进度区域。底边覆盖层由 Compose 按中心槽缩放对齐，封面/倒影/切歌动画仍由 View 绘制。
-- 播放 / 暂停、封面流内布局：**不**随播放状态切换。
-- 系统「减少动态效果」→ `0ms` 瞬切（`MicaMotion`）。
+
+**拍立得回忆**（`PhotoStackTransitionView` · 见 §13）：
+
+- 横向轻扫最前一张：跟手旋转/平移；松手 **\|fraction\| > 11%**（`SwipeCommitFraction`）切上一首 / 下一首，否则回弹（视觉钳制 ±15%）。
+- 点击最前一张卡片**底部波形/进度带** → 拖动 seek（`TouchMode.Seek`）；进度嵌在前卡底部，非下半屏 chrome。
+- 长按最前一张 → `onCoverLongPress`。
+- 转场动画进行中 **禁用**触摸（`activeTransitionCards` 非空）。
+- **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。
+
+**共用**：
+
+- 播放 / 暂停、特殊主题内布局：**不**随播放状态切换。
+- 系统「减少动态效果」→ `0ms` 瞬切（`MicaMotion` / `setMotionEnabled(false)`）。
 
 ### 0.4 动效（`MicaMotion`）
 
@@ -44,6 +74,7 @@
 | 进入 / 退出封面流布局 | Long `400ms` |
 | 切歌换位（平行） | Medium `320ms` |
 | 复古立体切歌 | Long `400ms`；沿连续中心索引，避免角度阶跃 |
+| 拍立得切歌转场 | **`620ms`**（`PhotoStackPullAwayDurationMs`）；`DecelerateInterpolator(1.65f)` |
 | 减少动态效果 | `0ms` |
 
 播放页通用约束：**先冻结布局 → 再算目标 → 单一 progress 驱动 lerp**（见 [`MOTION.md`](MOTION.md) §8.5）。
@@ -71,15 +102,29 @@
 
 底边进度与频谱启用时，其轻量倒影与中心专辑图共用 `ReflectionHeightFraction`、`ReflectionAlpha` 和倒影间隙，仅向下绘制矩形/柱条渐隐，不创建位图、模糊或额外离屏图层。
 
+**拍立得回忆**
+
+| 元素 | 设计参考 / 现网 |
+|------|----------------|
+| 卡片比例 | 屏宽 × **80%**（`PhotoStackScreenFraction`），高宽比 **0.78** |
+| 稳态栈 | 前 / 中 / 后：`queue[i]`、`queue[i+1]`、`queue[i+2]` |
+| 稳态位姿 | 前卡 `rotationZ ≈ -1.4°`；中卡 offset `(14,10)dp` + `3.2°` + scale `0.95`；后卡 `(28,22)dp` + `6.4°` + scale `0.90` |
+| 纸框 | 米白渐变 + 1dp 描边；封面 inset 约 **5.5%** 顶 / **3.8%** 左右 |
+| 阴影 | 预烘焙 `BlurMaskFilter` 圆角阴影（全局直角规则的**有意例外**） |
+| 前卡底带 | 86 条波形 + 进度（`waveformHeight = 24dp`） |
+| 垂直节奏 | 顶/底留白约屏高 **10%**（`PhotoStackEdgeFraction`） |
+
 ### 0.6 范围
 
-**已做**：播放页封面区；队列 ±3 轨；拖动 + 按钮切歌；平行 / 复古 × 各播放页背景。
+**已做**：播放页封面区；平行 / 复古七轨 ±3 + 拖动 + 按钮切歌；拍立得三卡栈 + 轻扫/seek；各主题 × 各播放页背景。
 
-**未做**：专辑浏览页 Cover Flow；强拟物舞台 / 皮革金属主题。
+**未做**：专辑浏览页 Cover Flow；强拟物舞台；拍立得 JVM 单测（封面流有 `CoverFlowRailsTest`）。
 
 ---
 
-## 1. 一句话结论
+## 1. 封面流一句话结论（平行 / 复古）
+
+> **以下 §1–§12 仅适用于 `PAUSE_FOLD` / `RETRO_3D`。** 拍立得见 §13。
 
 **七张图、七条固定轨道（lane ∈ [-3,3]），唯一动画量是 `stripFraction`，所有视觉量只查 `railOffset = laneIndex - stripFraction`。**
 
@@ -87,7 +132,7 @@
 
 ---
 
-## 2. 架构分层（热路径）
+## 2. 封面流架构分层（平行 / 复古）
 
 | 层 | 文件 | 职责 |
 |----|------|------|
@@ -288,7 +333,7 @@ stripFraction ← 0
 
 ---
 
-## 11. 数据流简图
+## 11. 封面流数据流简图（平行 / 复古）
 
 ```mermaid
 flowchart TB
@@ -318,9 +363,146 @@ flowchart TB
 
 ---
 
+## 13. 拍立得回忆（`PHOTO_STACK`）
+
+### 13.1 一句话结论
+
+**三张固定角色卡片（前 / 中 / 后），稳态用 `PhotoStackPose` 叠放；切歌时用 `PhotoStackTransitionSlot` + 单一 `transitionProgress` 做抽换，与封面流 `railOffset` 无关。**
+
+末帧：`commitTrackIndex` 更新 `logicalCenter`，清空 `activeTransitionCards`，`transitionProgress = 1` 回到稳态栈。
+
+### 13.2 架构分层
+
+| 层 | 文件 | 职责 |
+|----|------|------|
+| Compose 入口 | [`PhotoStackTheme.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackTheme.kt) | 薄包装 → `PhotoStackTransitionHost` |
+| Compose 挂载 | [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt) | `photoStack.normalLayerVisible` 时挂载；与标准/粒子/封面流互斥 |
+| View 宿主 | [`PhotoStackTransitionHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackTransitionHost.kt) | `AndroidView` factory/update、帧像素、`PhotoStackCarouselNavigationBridge` |
+| 绘制 + 手势 | [`PhotoStackTransitionView.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackTransitionView.kt) | 稳态/转场绘制、轻扫、前卡 seek、频谱波形 |
+| 转场规划 | [`PhotoStackTransition.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PhotoStackTransition.kt) | `PhotoStackTransitionPlan`、slot → card 列表 |
+| 布局帧 | [`PlayerPageLayoutEngine.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PlayerPageLayoutEngine.kt) | `PhotoStackFrame`、卡片尺寸、垂直留白 |
+| 类型 | [`PlayerPageTypes.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PlayerPageTypes.kt) | `PhotoStackFrame` 字段 |
+| 导航桥 | [`PhotoStackCarouselNavigationBridge.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackCarouselNavigationBridge.kt) | 外部 `updateCurrentIndex` → View |
+| 阴影调参 | [`PhotoStackShadowTuning.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackShadowTuning.kt) | 预览页可调；现网默认构造 |
+| 预览 | [`PhotoStackShadowPreviewScreen.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackShadowPreviewScreen.kt) | 设置 → 高级 → 阴影预览路由 |
+
+### 13.3 稳态 vs 转场槽位
+
+**稳态**（`photoStackSteadyCards`）：
+
+| Slot | 队列语义 | 进度/频谱 |
+|------|----------|-----------|
+| `SteadyFront` | `queue[currentIndex]` | `showProgress = true` |
+| `SteadyMiddle` | `queue[currentIndex + 1]` | 否 |
+| `SteadyBack` | `queue[currentIndex + 2]` | 否 |
+
+**切下一首**（`TrackSkipDirection.TO_NEXT`）：`NextEmergingBack` / `NextStackMiddle` / `NextStackFront` / `NextLeavingFront`（离场的旧前卡带进度）。
+
+**切上一首**（`TO_PREVIOUS`）：`PreviousFadingBack` / `PreviousStackBack` / `PreviousStackMiddle` / `PreviousIncomingFront`。
+
+各 slot 的 `PhotoStackPose` 由 `poseFor(slot, transitionProgress)` **lerp**；禁止在转场中途改 Compose 槽位 key。
+
+### 13.4 动画时序
+
+1. **外部切歌**：`PhotoStackTransitionHost` update → `navigationBridge.view?.applyHostUpdate` / `updateCurrentIndex`
+2. `|delta| != 1` 或无动画 → `resetToIndex` 瞬切
+3. 相邻切歌：构建 `activeTransitionCards`，`ValueAnimator` **0→1**，时长 **`620ms`**
+4. 每帧：`transitionProgress` + `invalidate()` only（**不**重组 Compose）
+5. `onAnimationEnd`：`commitTrackIndex` → 清空转场卡 → `flushPendingPlayQueueIndex`
+
+**跟手轻扫**（稳态、无转场卡）：
+
+- `dragFraction` 累加 `deltaX / width`，钳制 ±`SwipeVisualLimitFraction`（0.15）
+- 松手：`> 0.11` 上一首，`< -0.11` 下一首；否则 `animateDragFractionToZero`
+- 前卡 idle 位姿：`translationX = dragFraction × slotWidth × 0.35`，`rotationZ = -1.4° + dragFraction × 6°`
+
+**Host 索引守卫**：binder 延迟时 `pendingHostIndex` / `hostIndexGuardUntilMs`（1500ms）避免 UI 索引被旧回调打回。
+
+### 13.5 布局（`PlayerPageLayoutEngine`）
+
+| 常量 | 值 | 含义 |
+|------|-----|------|
+| `PhotoStackScreenFraction` | `0.80` | 卡片宽度 / 屏宽 |
+| `PhotoStackAspectRatio` | `0.78` | 高 / 宽 |
+| `PhotoStackEdgeFraction` | `0.10` | 期望顶/底留白 / 屏高 |
+
+`PhotoStackFrame` 输出 `slotWidth/Height`、`cardWidth/Height`、`artworkInset*`、`waveformHeight`（24dp）供 Host 转 px。
+
+`normalLayerVisible = photoStackMode && !lyricsExpanded && !immersiveLower && lyricsFocus≈0`。
+
+歌词聚焦时拍立得层隐藏，封面区走与普通模式相同的 shrink lerp。
+
+### 13.6 绘制管线
+
+单遍 `onDraw`（稳态或转场卡列表）：
+
+1. 按 slot 算 `PhotoStackPose`（含 alpha）
+2. `canvas.save` → translate / rotate / scale
+3. `drawShadowHalo`：预烘焙 Bitmap（三层 `BlurMaskFilter` + **`drawRoundRect` 阴影**）
+4. 纸框 **`drawRect`**（米白渐变 + 描边）——卡片本体直角，圆角仅阴影层
+5. 封面 `centerCrop` 位图（Coil → `bitmapByKey` 缓存）
+6. 若 `showProgress`：`drawProgressStrip`（波形 + 进度条）
+
+频谱：`MicaSpectrumAnalyzer` → 86 条 `spectrumDisplayLevels`；仅绑定前卡 `song.id`。
+
+### 13.7 与封面流七轨的差异
+
+| 维度 | 封面流 §1–§12 | 拍立得 §13 |
+|------|----------------|------------|
+| 可见队列深度 | ±3 lane | 稳态 3 张 |
+| 动画变量 | `stripFraction` / `railOffset` | `transitionProgress` + `dragFraction` |
+| 数学真相源 | `CoverFlowRails.kt` | `PhotoStackTransition.kt` + View 内 `poseFor` |
+| 倒影 | 28% 条带翻转 | 无；纸框 + 阴影 |
+| 进度 UI | 下半屏 chrome 或封面底边 | **前卡底带**内嵌 seek |
+| 点击侧槽切歌 | 有 | 无（轻扫 / 按钮 / 队列） |
+| 单测 | `CoverFlowRailsTest` | 暂无 |
+
+**勿**把拍立得硬套 `CoverFlowRails` 或 Compose 七槽 `AnimatedContent`。
+
+### 13.8 踩坑与调参
+
+| 现象 | 根因 | 做法 |
+|------|------|------|
+| 切歌后仍播旧曲 | Host index 与 View `logicalCenter` 竞态 | 查 `pendingHostIndex` / `playQueueIndexAfterVisualCommit` |
+| 转场中误触 seek | 未禁用手势 | `activeTransitionCards.isNotEmpty()` 时 `onTouchEvent` return false |
+| 阴影变更不刷新 | Bitmap 缓存 key 未变 | `setShadowTuning` → `clearShadowBitmapCache` |
+| 沉浸模式叠拍立得 | `supportsImmersiveLower=false` | 设置项应禁用；`normalLayerVisible` 已 guard |
+
+阴影预览：设置 → 高级 → **拍立得阴影预览**（`PhotoStackShadowPreviewScreen`）。
+
+### 13.9 数据流简图
+
+```mermaid
+flowchart TB
+    subgraph compose [Compose 壳]
+        NPC[NowPlayingCoverSection]
+        PSH[PhotoStackThemeHost]
+        Host[PhotoStackTransitionHost AndroidView]
+        PLE[PlayerPageLayoutEngine PhotoStackFrame]
+    end
+
+    subgraph view [View 热路径]
+        PST[PhotoStackTransitionView]
+        Plan[PhotoStackTransition.kt slots]
+        VA[ValueAnimator transitionProgress]
+        Draw[onDraw 1-4 cards]
+    end
+
+    PLE --> NPC
+    NPC --> PSH --> Host --> PST
+    Player[currentIndex] --> Host
+    Host -->|updateCurrentIndex| PST
+    Plan --> PST
+    VA --> PST
+    Touch[onTouchEvent swipe/seek] --> PST
+```
+
+---
+
 ## 12. 文档维护
 
 - 改产品交互 / 设置项 → 更新本文 §0
-- 改热路径架构 → 更新本文 §2、§4
-- 改间距常量 → 更新本文 §7 表格 + `CoverFlowRails.kt` 注释
-- 新踩坑 → 追加 §8
+- 改封面流热路径 → 更新本文 §2、§4
+- 改拍立得热路径 → 更新本文 §13
+- 改间距常量 → 更新 §7 表格 + `CoverFlowRails.kt` 注释
+- 新踩坑 → 封面流追加 §8；拍立得追加 §13.8

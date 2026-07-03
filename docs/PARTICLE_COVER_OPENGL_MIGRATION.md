@@ -1,8 +1,52 @@
-# Particle Cover OpenGL Migration
+# 粒子封面手册（产品 §0 + GLES 迁移施工）
 
-> Status: planning document
-> Last updated: 2026-06-22
-> Scope: migrate the current particle cover effect from `WebView + Three.js` to native `TextureView + GLES20` while preserving the shipped visual language.
+> **状态**：2026-07 — 播放页现网已走 **GLES**（`UseNativeParticleCoverInPlayer = true`）；本文 §0 为产品说明，§1+ 为 WebView 退役与视觉 parity 施工。  
+> **读者**：改粒子交互、切歌动画、调参前必读。  
+> 播放页契约：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)；领域词汇：[`CONTEXT.md`](../CONTEXT.md)。
+
+---
+
+## 0. 产品设计
+
+### 0.1 定位
+
+**粒子封面**（`PlayerCoverFlowMode.PARTICLE_COVER`）是播放页特殊封面行为：专辑封面以 **边缘粒子化 + 切歌分解/重组** 呈现，强调材质感而非静态大图。
+
+- 与平行/复古封面流、拍立得**互斥**（同一时刻只挂载一种封面行为层）。
+- 强制**裁切填充**；**不支持**下半屏沉浸（`supportsImmersiveLower = false`）。
+- 与播放页背景（主题色 / 封面渐变 / 流光溢彩等）**任意组合**。
+
+### 0.2 设置（已实现）
+
+设置 → **播放页封面行为** → **粒子封面**（`particle_cover`）。
+
+- 调参持久化：`ParticleCoverTuning`（`erosionScale`、`featherScale`、`edgeParticleDensity` 等），见 [`ParticleCoverTuning.kt`](../app/src/main/java/com/mica/music/data/ParticleCoverTuning.kt)。
+- **预览**：设置 → 高级 → 粒子封面预览（`ParticleCoverPreviewScreen`）；可对比 WebView / GLES 实现（开发用）。
+
+### 0.3 交互与布局
+
+| 项 | 现网行为 |
+|----|----------|
+| 切歌 | 约 **900ms** 分阶段分解旧封面 → 过渡粒子 → 新封面聚拢（非简单 crossfade） |
+| 稳态 | 封面可读；边缘持续轻微粒子侵蚀；振幅克制 |
+| 歌词聚焦 | `ParticleCoverPlayerLayer` 随 `lyricsProgress` 调整 cover 几何；歌词背景层与正常层分支见 `ParticleCoverFrame` |
+| 标准轻扫切歌 | **不使用** `CoverGestureCoordinator`（`ParticleCoverThemePolicy` 关闭 coverFlow stage） |
+| 播放 / 暂停 | 不改变粒子布局形态；seek 进度可驱动 `playbackDisintegrationProgress` |
+
+### 0.4 现网实现路径
+
+| 层 | 文件 | 说明 |
+|----|------|------|
+| 全屏层 | [`ParticleCoverPlayerLayer.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt) | `NowPlayingScreen` 挂载；`UseNativeParticleCoverInPlayer = true` |
+| GLES 宿主 | [`ParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverHost.kt) | `TextureView` + 渲染线程 |
+| 渲染 | [`ParticleCoverView.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverView.kt) / [`ParticleCoverRenderer.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverRenderer.kt) | 稳态边缘粒子 + 切歌过渡 |
+| 布局 | [`ParticleCoverPageLayout.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPageLayout.kt) | `ParticleCoverFrame`、紧凑歌词 alpha |
+| 策略 | [`ParticleCoverThemePolicy.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverThemePolicy.kt) | 与封面流 stage 互斥 |
+| **回退** | [`ThreeParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ThreeParticleCoverHost.kt) | WebView + Three.js；仅当 `UseNativeParticleCoverInPlayer = false` |
+
+### 0.5 与迁移文档的关系
+
+§1 及以下描述 **从 WebView 迁到 GLES 的 parity 施工**；播放页主路径已完成切换。剩余工作：删除 WebView 资产路径、真机 parity 验收、性能与温控复验（见 [`TODO.md`](TODO.md)）。
 
 ---
 
@@ -58,21 +102,23 @@ Source of truth today:
 
 ## 3. Current State
 
-### 3.1 Current shipped path
+### 3.1 Current shipped path（2026-07）
 
-The player page currently renders the particle cover through:
+**播放页主路径（`UseNativeParticleCoverInPlayer = true`）**：
 
-- [`app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt)
-- [`app/src/main/java/com/mica/music/ui/screens/player/view/ThreeParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ThreeParticleCoverHost.kt)
-- [`app/src/main/assets/particle_cover/index.html`](../app/src/main/assets/particle_cover/index.html)
-- [`app/src/main/assets/particle_cover/mica-particle-cover.js`](../app/src/main/assets/particle_cover/mica-particle-cover.js)
+- [`NowPlayingScreen.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingScreen.kt) → [`ParticleCoverPlayerLayer.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt)
+- [`ParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverHost.kt) → `ParticleCoverView` / `ParticleCoverRenderer`
 
-Important properties of the current shipped path:
+**Legacy WebView 回退**（`UseNativeParticleCoverInPlayer = false` 或预览对比）：
+
+- [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt) → [`ThreeParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ThreeParticleCoverHost.kt)
+- [`app/src/main/assets/particle_cover/`](../app/src/main/assets/particle_cover/) — `index.html` + `mica-particle-cover.js`
+
+WebView path properties (legacy):
 
 1. Host is `AndroidView -> WebView`.
 2. Cover art is converted into a data URL and passed into JS.
 3. Rendering is continuously driven by `requestAnimationFrame`.
-4. The effect logic is implemented in JS/Three.js and shader code embedded in the bundled asset.
 
 ### 3.2 Existing native scaffold
 

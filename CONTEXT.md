@@ -38,9 +38,13 @@ _Avoid_: player view model、media player（指底层引擎时）
 服务侧 `MicaCompositePlayer.playlistItems`（经 `playbackQueueSnapshot()` 暴露）为唯一真相源；`ServicePlaybackEngineCoordinator` 的 `onEnded` / `startAt` / 失败跳曲均读此快照。App 内 `PendingPlaybackNavigation` 在 binder 延迟时携带切歌意图。
 _Avoid_: 在 `PlayerController` 内维护与服务等长的并行队列并驱动出声
 
-**PlaybackSession（播放会话）**（legacy，逐步由 `ServicePlaybackStateStore` 替代）：
-上次退出时的「当前曲 ID + 进度毫秒」，用于曲库就绪后恢复，**不**自动开始播放。
-_Avoid_: session token、playback state（指 UI 三态时）
+**ServicePlaybackStateStore（服务播放状态存储）**：
+服务侧权威持久化：完整队列 `songId` 顺序、当前曲 ID、索引、进度毫秒、repeat/shuffle、`playWhenReady`、音质模式等 JSON 快照；由 `ServicePlaybackStateCoordinator` 刷盘。冷启动 `PlayerController.bootstrapQueue()` 的**主数据源**（service_wins），恢复后**不**自动开始播放。
+_Avoid_: 在 App 侧另存一套与服务等长的队列并当作恢复真相源
+
+**PlaybackSession（播放会话）** / **PlaybackSessionStore**：
+App 侧轻量持久化：当前曲 ID、进度毫秒、shuffle 开关；`PlayerController` 运行中仍会写入。`bootstrapQueue` 仅从中读取 shuffle 等 App 偏好，**不再**承担完整队列恢复。`restoreSession()` 已废弃。
+_Avoid_: 把 PlaybackSession 当作冷启动队列恢复的唯一来源、session token、playback state（指 UI 三态时）
 
 **Insert play next（插播下一首）**：
 将一首曲插入当前项之后；经 `MediaController` 更新 Exo 播放列表，当前曲不中断，曲终或用户显式切歌时出声到插入项。
@@ -160,13 +164,19 @@ _Avoid_: debounce、loading
 
 ## 封面与进度呈现
 
-**PlayerCoverFlowMode（封面流模式）**：
-封面区交互形态：`STANDARD`（标准大封面）、`PAUSE_FOLD`（平行封面带）、`RETRO_3D`（复古立体封面流）。
-_Avoid_: carousel（无专名时）、cover flow（小写泛指）
+**PlayerCoverFlowMode（播放页封面行为）**：
+封面区交互形态，设置 → 播放页封面行为：
+`STANDARD`（标准大封面，横向轻扫切歌）；
+`PARTICLE_COVER`（粒子封面，封面边缘粒子化与切歌分解动画；现网 **GLES** `TextureView` + `ParticleCoverRenderer`，`UseNativeParticleCoverInPlayer = true`；WebView 回退见 `ThreeParticleCoverHost`；产品说明见 `docs/PARTICLE_COVER_OPENGL_MIGRATION.md` §0）；
+`PAUSE_FOLD`（平行封面带）；
+`RETRO_3D`（复古立体封面流）；
+`PHOTO_STACK`（拍立得回忆，拍立得叠放转场）。
+非 `STANDARD` 模式均强制裁切填充、忽略「原样比例」；`PARTICLE_COVER` 与 `PHOTO_STACK` 不支持下半屏沉浸。
+_Avoid_: carousel（无专名时）、cover flow（小写泛指全部非标准模式时）
 
 **Cover flow（封面流）**：
-非标准封面模式下的邻曲封面带与手势切歌。
-_Avoid_: 3D cover（未指 RETRO_3D 时）
+`PAUSE_FOLD` / `RETRO_3D` 下的邻曲封面带与手势切歌；七轨 `CoverFlowRails` + `CoverFlowCarouselView` View 岛实现。不含粒子封面或拍立得主题。
+_Avoid_: 3D cover（未指 RETRO_3D 时）、把粒子/拍立得称作 cover flow
 
 **CoverDisplayMode（封面显示模式）**：
 列表 / 迷你栏 / 播放页封面的缩放策略：`CROP_FILL` 或 `FIT_ORIGINAL`（原样比例）。
@@ -198,9 +208,11 @@ _Avoid_: 根据 `lyricsProgress` 或 `showStandardProgress` 在组件层再判�
 界面偏好：主题、播放页下半背景、封面流、沉浸、封面底边进度、频谱、迷你栏样式等；播放页只读、经 `NowPlayingActions` 或设置页写入。
 _Avoid_: preferences（无专名时）、theme settings（仅颜色时）
 
-**PlayerLowerBackgroundMode（下半屏背景）**：
-播放页下半屏背景样式：主题色、封面渐变、封面模糊。
-_Avoid_: player theme、background preset
+**PlayerLowerBackgroundMode（播放页背景）**：
+播放页下半屏（及必要时全屏）背景样式，设置 → 播放页背景：
+`THEME`（主题色）、`ARTWORK_GRADIENT`（封面渐变）、`COVER_GLOW`（封面模糊）、`DYNAMIC_LIGHT`（动态烟云，低分辨率封面纹理 + GLES 渲染）、`DYNAMIC_ARTWORK`（流光溢彩，多层封面纹理 + shader 切歌 crossfade）。
+与 `PlayerCoverFlowMode` **并列、可任意组合**。
+_Avoid_: player theme、background preset、把播放页背景与封面行为混为一项设置
 
 **Shared cover transition（共享封面转场）**：
 迷你播放栏与播放页之间同一封面矩形的连续转场（共享元素动画）。

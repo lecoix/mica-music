@@ -41,6 +41,7 @@ val motionEnabled = rememberMicaMotionEnabled()
 - `rememberMicaMotionEnabled()` = 未开启系统减少动效 **且** `MicaMotion.LocalEnabled == true`。
 - `MainActivity` 通过 `CompositionLocalProvider(MicaMotion.LocalEnabled provides !reduceMotion)` 与系统设置联动。
 - `motionEnabled == false` 时：所有 `MicaMotion.tween*` 变为 `tween(0)`，过渡 API 应走 fade 0ms 分支。
+- **View 岛**（封面流 / 粒子 / 拍立得）：Compose 侧 `rememberMicaMotionEnabled()` 传入 Host 的 `motionEnabled` / `setMotionEnabled`；关则跳过切歌过渡或跟手装饰，**瞬时**到目标态（粒子见 `ParticleCoverRenderer.setCover` 无过渡分支）。
 
 **禁止**：在业务代码里绕过 `motionEnabled` 单独 `tween(320)`。
 
@@ -112,12 +113,14 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 播放页沉浸（下半屏） | ✅ | `NowPlayingScreen` | 先冻结间距与底栏起止，再 `lerp` + fade Long |
 | 播放页封面 lerp | ✅ | `NowPlayingScreen` | 单一 `lyricsFocus` 驱动多属性 Long |
 | 切歌擦除 | ✅ | `NowPlayingTrackWipe` | `tweenFloat` Medium |
-| 迷你播放器→播放共享封面 | ✅ | `AppNavigation` + `MiniPlayer` + `NowPlayingCoverSection` | 进入/返回用同一封面 overlay lerp；返回与页面下滑同步起跑；特殊封面流主题回退普通转场 |
+| 迷你播放器→播放共享封面 | ✅ | `AppNavigation` + `MiniPlayer` + `NowPlayingCoverSection` | 进入/返回用同一封面 overlay lerp；返回与页面下滑同步起跑；特殊封面行为（封面流 / 粒子 / 拍立得）回退普通转场 |
 | 列表→播放共享元素 | ⏳ | — | 待做；目标：列表项封面作为来源，来源不可见时回退迷你播放器或普通转场 |
 | BottomSheet / 对话框 | ⏳ | Material 默认 | 待对齐 Medium + 统一 expand |
 | 迷你栏展开全屏 | ⏳ | — | 待做 |
 | 歌词行切换 / 双语 | ⏳ | — | 规范建议 Long fade（见 §九） |
 | 封面流切歌 / 拖动 | ✅ | `CoverFlowCarouselView` | View 岛；见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)、§七 |
+| 粒子封面切歌 / 稳态侵蚀 | ✅ | `ParticleCoverHost` / `ParticleCoverRenderer` | View 岛 GLES；切歌 **900ms** 分阶段分解/重组（`TransitionDurationMs`）；`rememberMicaMotionEnabled()` → `setMotionEnabled`（关则瞬时换封面）；**不走** `MicaMotion` token |
+| 拍立得回忆切歌 / 拖动 | ✅ | `PhotoStackTransitionView` / `PhotoStackTransitionHost` | View 岛；切歌 **620ms**（`PhotoStackPullAwayDurationMs`）；跟手横拖 + 封面内 seek；`rememberMicaMotionEnabled()` 传入 Host |
 | 浮岛毛玻璃 | ✅ | `MicaMaterialBackdrop` | View 岛 + `BlurTarget`；见 `DESIGN_SPEC.md` §8.1、§七 |
 | 播放指示竖条 | ✅ | `PlayingIndicator` | **独立** 600ms 循环，不走 MicaMotion |
 | EQ 拖动 | — | `EqualizerScreen` | 跟手 + 松手回稳（设计稿 200ms，实现待统一） |
@@ -155,9 +158,10 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 条件 | 原因 | 本项目先例 |
 |------|------|------------|
 | **Backdrop blur**（透视毛玻璃） | Compose `Modifier.blur()` / 单层 `BlurEffect` 只糊**自身绘制内容**，不采背后列表像素 | 浮岛 `MicaMaterialBackdrop` + `BlurView`（`DESIGN_SPEC.md` §8.1） |
-| **60fps 跟手** + 多对象同一连续数学模型 | 声明式 `key()` / 每帧重组易导致闪帧、末帧跳变、双轨状态不同步 | 封面流 `CoverFlowCarouselView`（[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)） |
-| 动画帧**不能**触发子树重组 | `ValueAnimator` + `invalidate()` 比 `animate*AsState` 每帧改状态更可控 | 封面流切歌 / 拖动 |
-| 每帧 **Canvas** 自定义绘制（倒影、3D `Camera`、多槽位） | 单遍 `onDraw` + 统一公式，避免多 Composable `graphicsLayer` 分叉 | 封面流七轨 |
+| **60fps 跟手** + 多对象同一连续数学模型 | 声明式 `key()` / 每帧重组易导致闪帧、末帧跳变、双轨状态不同步 | 封面流 `CoverFlowCarouselView`（[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)）；拍立得 `PhotoStackTransitionView` |
+| 动画帧**不能**触发子树重组 | `ValueAnimator` + `invalidate()` 比 `animate*AsState` 每帧改状态更可控 | 封面流切歌 / 拖动；拍立得 `ValueAnimator` + `dragFraction` |
+| 每帧 **Canvas** 自定义绘制（倒影、3D `Camera`、多槽位） | 单遍 `onDraw` + 统一公式，避免多 Composable `graphicsLayer` 分叉 | 封面流七轨；拍立得叠放卡片 pose |
+| **GLES 粒子** + 切歌过渡 shader | 每帧 GPU 绘制 + 纹理生命周期；Compose 无法承载 | 粒子封面 `ParticleCoverHost` / `ParticleCoverRenderer` |
 | 稳定采样的 **View 树兄弟关系** | BlurView 3.x 等要求模糊源与消费方在 View 层有特定结构 | `MainActivity`：`BlurTarget` + 双 `ComposeView` |
 
 **禁止**：在 Compose 热路径上为上述场景反复堆 `animate*AsState`、`AnimatedContent`、`key(song.id)` 补丁——根因是栈选错，不是参数没调好。
@@ -183,6 +187,8 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 岛 | 文件 | 文档 |
 |----|------|------|
 | 封面流（七轨 + 切歌） | `CoverFlowCarouselView.kt` / `CoverFlowCarouselHost.kt` | [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) |
+| 粒子封面（GLES 切歌） | `ParticleCoverHost.kt` / `ParticleCoverRenderer.kt` / `ParticleCoverPlayerLayer.kt` | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0 |
+| 拍立得回忆 | `PhotoStackTransitionView.kt` / `PhotoStackTransitionHost.kt` | [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §13 |
 | 浮岛毛玻璃 | `MicaMaterialBackdrop` / `MainActivity` `BlurTarget` | `DESIGN_SPEC.md` §8.1 |
 | 浮岛柔影（自绘色块 blur） | `FloatingIslandShadowHalo` | Compose `BlurEffect` 仅糊**自身**阴影，非 backdrop |
 
@@ -254,7 +260,8 @@ val motionEnabled = rememberMicaMotionEnabled()
 | `ui/motion/MicaMotion.kt`（底部） | `rememberReduceMotion` / `rememberMicaMotionEnabled` |
 | `MainActivity.kt` | `LocalEnabled` |
 | `docs/MOTION.md` | 本规范（含 §七 Compose / View 岛分工） |
-| `docs/COVER_FLOW_IMPLEMENTATION.md` | 封面流 View 岛不变式 |
+| `docs/COVER_FLOW_IMPLEMENTATION.md` | 封面流 / 拍立得 View 岛不变式 |
+| `docs/PARTICLE_COVER_OPENGL_MIGRATION.md` | 粒子封面 §0 产品与 GLES 岛 |
 | `docs/SHARED_ELEMENT_ANIMATION_NOTES.md` | 共享元素 Compose 状态机 |
 | `docs/TODO.md` | 动效待办勾选 |
 
@@ -268,3 +275,4 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 2026-05 | 补入迷你播放器→播放页封面共享元素第一版；列表项封面来源仍列为待做 |
 | 2026-06 | 新增 §七 Compose 与 AndroidView 岛分工；封面流 / 浮岛毛玻璃判据与决策清单 |
 | 2026-06 | §8.5 播放页约束改指 `PLAYER_PAGE_CONTRACT.md`（移除不存在的 cursor rule） |
+| 2026-07 | §六 补粒子封面 / 拍立得场景；§七 岛判据与索引；§三 View 岛与 `motionEnabled` 联动 |
