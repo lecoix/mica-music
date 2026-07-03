@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
 import com.mica.music.ui.theme.HifiPalette
@@ -215,6 +216,7 @@ private fun QueueSongRow(
                 albumArtUri = song.albumArtUri,
                 fallbackColor = song.coverColor,
                 contentDescription = null,
+                noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                 modifier = Modifier
                     .padding(horizontal = HifiSpacing.sm)
                     .size(HifiSize.coverXs),

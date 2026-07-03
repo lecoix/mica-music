@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import com.mica.music.R
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -55,6 +56,7 @@ fun BrowseGroupRow(
                     albumArtUri = albumArtUri,
                     fallbackColor = fallbackColor,
                     contentDescription = title,
+                    noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                     modifier = Modifier.size(HifiSize.coverSm),
                 )
                 Spacer(Modifier.width(HifiSpacing.md))

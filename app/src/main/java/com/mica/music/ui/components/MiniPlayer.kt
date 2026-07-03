@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.Song
@@ -207,6 +208,7 @@ private fun FloatingIslandMiniPlayer(
                     albumArtUri = song.albumArtUri,
                     fallbackColor = song.coverColor,
                     contentDescription = song.title,
+                    noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                     modifier = Modifier
                         .size(FloatingCoverSize)
                         .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }

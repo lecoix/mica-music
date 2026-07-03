@@ -1,6 +1,8 @@
 package com.mica.music.ui.components
 
 import android.util.LruCache
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,10 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Scale
+import com.mica.music.R
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.MicaImageLoaders
@@ -81,6 +85,7 @@ fun SongCover(
     stableMemoryCacheKey: String? = null,
     decodeTarget: CoverDecodeTarget? = null,
     allowPreviousImageUnderlay: Boolean = true,
+    @DrawableRes noCoverPlaceholderResId: Int = R.drawable.no_cover_placeholder,
 ) {
     val context = LocalContext.current
     val displayMode = LocalCoverDisplayMode.current
@@ -158,6 +163,14 @@ fun SongCover(
     val coverImageLoader = remember { MicaImageLoaders.cover }
 
     Box(modifier = layoutModifier.background(effectiveBackdropColor)) {
+        if (albumArtUri.isNullOrBlank()) {
+            Image(
+                painter = painterResource(noCoverPlaceholderResId),
+                contentDescription = contentDescription,
+                contentScale = resolvedScale,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         if (!underlayUri.isNullOrBlank()) {
             val underlayMemoryCacheKey = decodeTarget?.memoryCacheKey(underlayUri) ?: underlayUri
             AsyncImage(

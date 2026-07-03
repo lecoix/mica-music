@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
 import com.mica.music.ui.theme.HifiSize
@@ -86,6 +87,7 @@ fun SongRow(
                 albumArtUri = song.albumArtUri,
                 fallbackColor = song.coverColor,
                 contentDescription = song.title,
+                noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                 modifier = Modifier.size(HifiSize.coverSm),
             )
 
