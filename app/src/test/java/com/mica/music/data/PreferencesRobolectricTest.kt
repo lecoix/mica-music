@@ -92,6 +92,31 @@ class PreferencesRobolectricTest {
     }
 
     @Test
+    fun keepScreenOnWhenPlayingRoundTrips() {
+        assertEquals(false, AppPreferences.keepScreenOnWhenPlaying(context))
+
+        AppPreferences.setKeepScreenOnWhenPlaying(context, true)
+
+        assertTrue(AppPreferences.keepScreenOnWhenPlaying(context))
+    }
+
+    @Test
+    fun lyricsPageTranslationFontSizeDefaultsToOriginalAndRoundTrips() {
+        context.getSharedPreferences("mica_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString("lyrics_page_font_size", "large")
+            .commit()
+
+        assertEquals(22, AppPreferences.lyricsPageFontSizeSp(context))
+        assertEquals(22, AppPreferences.lyricsPageTranslationFontSizeSp(context))
+
+        AppPreferences.setLyricsPageTranslationFontSizeSp(context, 14)
+
+        assertEquals(22, AppPreferences.lyricsPageFontSizeSp(context))
+        assertEquals(14, AppPreferences.lyricsPageTranslationFontSizeSp(context))
+    }
+
+    @Test
     fun photoStackModeFromStorage() {
         assertEquals(PlayerCoverFlowMode.PHOTO_STACK, PlayerCoverFlowMode.fromStorage("photo_stack"))
         assertEquals(PlayerCoverFlowMode.STANDARD, PlayerCoverFlowMode.fromStorage("missing"))

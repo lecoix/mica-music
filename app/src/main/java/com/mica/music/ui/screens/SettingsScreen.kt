@@ -428,6 +428,13 @@ fun SettingsScreen(
                         )
 
                         SettingsToggleRow(
+                            title = "播放时屏幕常亮",
+                            subtitle = "仅在播放页打开且正在播放时防止熄屏；暂停或离开播放页后恢复系统设置",
+                            checked = uiSettings.keepScreenOnWhenPlaying,
+                            onCheckedChange = { uiSettings.updateKeepScreenOnWhenPlaying(it) },
+                        )
+
+                        SettingsToggleRow(
                             title = "下半屏沉浸",
                             subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关，粒子封面&拍立得回忆不适用（制作中）",
                             checked = uiSettings.playerImmersiveLower &&
@@ -560,10 +567,17 @@ fun SettingsScreen(
                         )
 
                         SettingsDropdownRow(
-                            title = "歌词页字号",
+                            title = "原歌词字号",
                             choices = LyricsPageFontSizeChoices,
                             selectedValue = uiSettings.lyricsPageFontSizeSp,
                             onSelect = { uiSettings.updateLyricsPageFontSizeSp(it) },
+                        )
+
+                        SettingsDropdownRow(
+                            title = "翻译歌词字号",
+                            choices = LyricsPageFontSizeChoices,
+                            selectedValue = uiSettings.lyricsPageTranslationFontSizeSp,
+                            onSelect = { uiSettings.updateLyricsPageTranslationFontSizeSp(it) },
                         )
 
                         SettingsToggleRow(

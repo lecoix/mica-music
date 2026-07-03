@@ -43,6 +43,7 @@ object AppPreferences {
     private const val KEY_CUSTOM_MICA_END = "custom_mica_end"
     private const val KEY_CUSTOM_MICA_SINGLE_COLOR = "custom_mica_single_color"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
+    private const val KEY_KEEP_SCREEN_ON_WHEN_PLAYING = "keep_screen_on_when_playing"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
@@ -50,6 +51,7 @@ object AppPreferences {
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
     private const val KEY_LYRICS_PAGE_ALIGNMENT = "lyrics_page_alignment"
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
+    private const val KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE = "lyrics_page_translation_font_size"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
     private const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
@@ -293,6 +295,13 @@ object AppPreferences {
         prefs(context).edit().putBoolean(KEY_COVER_EDGE_PROGRESS, enabled).apply()
     }
 
+    fun keepScreenOnWhenPlaying(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_KEEP_SCREEN_ON_WHEN_PLAYING, false)
+
+    fun setKeepScreenOnWhenPlaying(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_KEEP_SCREEN_ON_WHEN_PLAYING, enabled).apply()
+    }
+
     /** 播放页下半屏沉浸：仅居中歌名与歌手，点击切换播放/暂停，长按可退出。 */
     fun playerImmersiveLower(context: Context): Boolean =
         prefs(context).getBoolean(KEY_PLAYER_IMMERSIVE_LOWER, false)
@@ -341,23 +350,25 @@ object AppPreferences {
     }
 
     fun lyricsPageFontSizeSp(context: Context): Int {
-        val p = prefs(context)
-        return when (val stored = p.all[KEY_LYRICS_PAGE_FONT_SIZE]) {
-            is Int -> stored
-            is String -> when (stored) {
-                "small" -> 17
-                "large" -> 22
-                "extra_large" -> 25
-                else -> DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
-            }
-            else -> DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
-        }.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP)
+        return lyricsPageFontSizeSp(context, KEY_LYRICS_PAGE_FONT_SIZE, DEFAULT_LYRICS_PAGE_FONT_SIZE_SP)
     }
 
     fun setLyricsPageFontSizeSp(context: Context, fontSizeSp: Int) {
         prefs(context).edit()
             .putInt(
                 KEY_LYRICS_PAGE_FONT_SIZE,
+                fontSizeSp.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP),
+            )
+            .apply()
+    }
+
+    fun lyricsPageTranslationFontSizeSp(context: Context): Int =
+        lyricsPageFontSizeSp(context, KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE, lyricsPageFontSizeSp(context))
+
+    fun setLyricsPageTranslationFontSizeSp(context: Context, fontSizeSp: Int) {
+        prefs(context).edit()
+            .putInt(
+                KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE,
                 fontSizeSp.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP),
             )
             .apply()
@@ -383,6 +394,18 @@ object AppPreferences {
     internal fun setLyricsParserVersion(context: Context, version: Int) {
         prefs(context).edit().putInt(KEY_LYRICS_PARSER_VERSION, version.coerceAtLeast(0)).apply()
     }
+
+    private fun lyricsPageFontSizeSp(context: Context, key: String, defaultValue: Int): Int =
+        when (val stored = prefs(context).all[key]) {
+            is Int -> stored
+            is String -> when (stored) {
+                "small" -> 17
+                "large" -> 22
+                "extra_large" -> 25
+                else -> defaultValue
+            }
+            else -> defaultValue
+        }.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP)
 
     fun spectrumEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_SPECTRUM_ENABLED, false)

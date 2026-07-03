@@ -223,6 +223,7 @@ fun LyricLineBlock(
     textAlign: TextAlign = TextAlign.Center,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+    translationTextStyle: TextStyle = textStyle,
 ) {
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
@@ -248,12 +249,13 @@ fun LyricLineBlock(
     ) {
         rows.forEach { row ->
             val rowHasCueRanges = cueRanges.any { it.overlaps(row) }
+            val rowTextStyle = if (row.splitIndex > 0) translationTextStyle else textStyle
             if (cueRanges.isNotEmpty() && rowHasCueRanges) {
                 KaraokeLyricLineText(
                     text = row.text,
                     isCurrent = isCurrent,
                     colors = colors,
-                    textStyle = textStyle,
+                    textStyle = rowTextStyle,
                     fillFraction = if (isCurrent && lyricLine != null) {
                         wordSyncedFillFraction(
                             line = lyricLine,
@@ -276,7 +278,7 @@ fun LyricLineBlock(
                     text = row.text,
                     isCurrent = true,
                     colors = colors,
-                    textStyle = textStyle,
+                    textStyle = rowTextStyle,
                     fillFraction = lineTimedFillFraction(
                         line = lyricLine,
                         row = row,
@@ -292,7 +294,7 @@ fun LyricLineBlock(
                     text = row.text,
                     isCurrent = isCurrent,
                     colors = colors,
-                    textStyle = textStyle,
+                    textStyle = rowTextStyle,
                     colorSpec = colorSpec,
                     maxLines = maxLines,
                     textAlign = textAlign,

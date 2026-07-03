@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -154,6 +156,13 @@ fun NowPlayingContent(
     }
 
     val context = LocalContext.current
+    val view = LocalView.current
+    val keepScreenOn = uiSettings.keepScreenOnWhenPlaying && surfaceState.isPlaying
+    DisposableEffect(view, keepScreenOn) {
+        view.keepScreenOn = keepScreenOn
+        onDispose { view.keepScreenOn = false }
+    }
+
     val playlistStore = remember { PlaylistStore(context) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -456,6 +465,7 @@ fun NowPlayingContent(
                             lyricsPageImmersive = uiSettings.lyricsPageImmersive,
                             lyricsAlignment = uiSettings.lyricsPageAlignment,
                             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
+                            lyricsTranslationFontSizeSp = uiSettings.lyricsPageTranslationFontSizeSp,
                             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                             playerInfoVisibility = uiSettings.playerInfoVisibility,

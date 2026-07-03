@@ -50,10 +50,12 @@ internal fun ExpandedLyricsPanel(
     modifier: Modifier = Modifier,
     lyricsAlignment: LyricsPageAlignment = LyricsPageAlignment.CENTER,
     lyricsFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
+    lyricsTranslationFontSizeSp: Int = lyricsFontSizeSp,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     currentLineAnchorYPx: Float? = null,
 ) {
     val textStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsFontSizeSp)
+    val translationTextStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsTranslationFontSizeSp)
     val colorSpec = rememberLyricLineColorSpec()
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val textAlign = lyricsAlignment.toTextAlign()
@@ -86,10 +88,19 @@ internal fun ExpandedLyricsPanel(
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     val lineHeightPx = with(density) { textStyle.lineHeight.toPx().toInt() }
+    val translationLineHeightPx = with(density) { translationTextStyle.lineHeight.toPx().toInt() }
     var viewportHeightPx by remember { mutableIntStateOf(0) }
     var currentLineInitiallyPlaced by remember(lyrics) { mutableStateOf(false) }
 
-    LaunchedEffect(currentIndex, timed, lyrics, currentLineAnchorYPx, viewportHeightPx) {
+    LaunchedEffect(
+        currentIndex,
+        timed,
+        lyrics,
+        currentLineAnchorYPx,
+        viewportHeightPx,
+        lineHeightPx,
+        translationLineHeightPx,
+    ) {
         if (!timed || currentIndex < 0) return@LaunchedEffect
         if (viewportHeightPx <= 0) return@LaunchedEffect
         val currentRows = lyrics.getOrNull(currentIndex)?.text
@@ -98,10 +109,16 @@ internal fun ExpandedLyricsPanel(
                     text = it,
                     enabled = lyricSplitEnabled,
                     mode = bilingualDisplayMode,
-                ).size
-            } ?: 1
+                )
+            }.orEmpty()
         val bilingualGapPx = with(density) { HifiSpacing.lyricBilingualGap.roundToPx() }
-        val itemHeightPx = lineHeightPx * currentRows + bilingualGapPx * (currentRows - 1).coerceAtLeast(0)
+        val itemHeightPx = if (currentRows.isEmpty()) {
+            lineHeightPx
+        } else {
+            currentRows.sumOf { row ->
+                if (row.splitIndex > 0) translationLineHeightPx else lineHeightPx
+            } + bilingualGapPx * (currentRows.size - 1).coerceAtLeast(0)
+        }
         val offset = expandedLyricsScrollOffset(
             viewportHeightPx = viewportHeightPx,
             itemHeightPx = itemHeightPx,
@@ -149,6 +166,7 @@ internal fun ExpandedLyricsPanel(
                     textAlign = textAlign,
                     horizontalAlignment = horizontalAlignment,
                     bilingualDisplayMode = bilingualDisplayMode,
+                    translationTextStyle = translationTextStyle,
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(

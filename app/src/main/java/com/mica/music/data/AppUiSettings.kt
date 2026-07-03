@@ -30,6 +30,9 @@ class AppUiSettings(context: Context) {
     var coverEdgeProgress by mutableStateOf(AppPreferences.coverEdgeProgress(appContext))
         private set
 
+    var keepScreenOnWhenPlaying by mutableStateOf(AppPreferences.keepScreenOnWhenPlaying(appContext))
+        private set
+
     var playerImmersiveLower by mutableStateOf(AppPreferences.playerImmersiveLower(appContext))
         private set
 
@@ -81,6 +84,11 @@ class AppUiSettings(context: Context) {
     var lyricsPageFontSizeSp by mutableIntStateOf(AppPreferences.lyricsPageFontSizeSp(appContext))
         private set
 
+    var lyricsPageTranslationFontSizeSp by mutableIntStateOf(
+        AppPreferences.lyricsPageTranslationFontSizeSp(appContext),
+    )
+        private set
+
     var lyricsPageImmersive by mutableStateOf(AppPreferences.lyricsPageImmersive(appContext))
         private set
 
@@ -118,6 +126,11 @@ class AppUiSettings(context: Context) {
     fun updateCoverEdgeProgress(enabled: Boolean) {
         coverEdgeProgress = enabled
         AppPreferences.setCoverEdgeProgress(appContext, enabled)
+    }
+
+    fun updateKeepScreenOnWhenPlaying(enabled: Boolean) {
+        keepScreenOnWhenPlaying = enabled
+        AppPreferences.setKeepScreenOnWhenPlaying(appContext, enabled)
     }
 
     fun updatePlayerImmersiveLower(enabled: Boolean) {
@@ -204,6 +217,14 @@ class AppUiSettings(context: Context) {
             MAX_LYRICS_PAGE_FONT_SIZE_SP,
         )
         AppPreferences.setLyricsPageFontSizeSp(appContext, lyricsPageFontSizeSp)
+    }
+
+    fun updateLyricsPageTranslationFontSizeSp(fontSizeSp: Int) {
+        lyricsPageTranslationFontSizeSp = fontSizeSp.coerceIn(
+            MIN_LYRICS_PAGE_FONT_SIZE_SP,
+            MAX_LYRICS_PAGE_FONT_SIZE_SP,
+        )
+        AppPreferences.setLyricsPageTranslationFontSizeSp(appContext, lyricsPageTranslationFontSizeSp)
     }
 
     fun updateLyricsPageImmersive(enabled: Boolean) {

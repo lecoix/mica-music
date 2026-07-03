@@ -50,6 +50,7 @@ internal fun PlayerLowerPanelSection(
     lyricsPageImmersive: Boolean,
     lyricsAlignment: LyricsPageAlignment,
     lyricsFontSizeSp: Int,
+    lyricsTranslationFontSizeSp: Int,
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
     stripSongTitleParentheses: Boolean,
     playerInfoVisibility: PlayerInfoVisibility,
@@ -216,6 +217,7 @@ internal fun PlayerLowerPanelSection(
                     },
                     lyricsAlignment = lyricsAlignment,
                     lyricsFontSizeSp = lyricsFontSizeSp,
+                    lyricsTranslationFontSizeSp = lyricsTranslationFontSizeSp,
                     bilingualDisplayMode = lyricsBilingualDisplayMode,
                     currentLineAnchorYPx = compactLyricsCenterYPx.takeIf { it.isFinite() },
                     modifier = Modifier
