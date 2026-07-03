@@ -16,10 +16,10 @@ object StatusBarController {
     fun apply(
         window: Window,
         hideStatusBar: Boolean,
-        lightStatusBarIcons: Boolean,
+        darkStatusBarIcons: Boolean,
     ) {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
-        controller.isAppearanceLightStatusBars = lightStatusBarIcons
+        controller.isAppearanceLightStatusBars = darkStatusBarIcons
         if (hideStatusBar) {
             controller.hide(WindowInsetsCompat.Type.statusBars())
             controller.systemBarsBehavior =
@@ -31,8 +31,8 @@ object StatusBarController {
 
     fun applyFromPreferences(context: Context, window: Window) {
         val hide = AppPreferences.hideStatusBar(context)
-        val lightIcons = !isDarkTheme(context)
-        apply(window, hide, lightIcons)
+        val darkIcons = !isDarkTheme(context)
+        apply(window, hide, darkIcons)
     }
 
     fun statusBarHeightDp(context: Context): Float {

@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
@@ -50,8 +51,10 @@ import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
+import com.mica.music.ui.system.StatusBarEffect
 import com.mica.music.ui.theme.NowPlayingBackground
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
+import com.mica.music.ui.theme.relativeLuminance
 import com.mica.music.util.TrackSwitchPerformance
 import com.mica.music.util.deleteSongFile
 import com.mica.music.util.openSongInTagEditor
@@ -311,6 +314,15 @@ fun NowPlayingContent(
             val screenWidth = fullWidth
 
             val appearance = rememberPlayerScreenAppearance(song, lowerBackground)
+            val darkTheme = uiSettings.isDarkTheme()
+            StatusBarEffect(
+                hideStatusBar = uiSettings.hideStatusBar,
+                darkStatusBarIcons = playerStatusBarUsesDarkIcons(
+                    coverColor = Color(song.coverColorArgb),
+                    lowerBackground = lowerBackground,
+                    darkTheme = darkTheme,
+                ),
+            )
 
             val previewModel = rememberPlayerPageUiModel(
                 surfaceState = surfaceState,
@@ -561,4 +573,13 @@ fun NowPlayingContent(
             )
         }
     }
+}
+
+private fun playerStatusBarUsesDarkIcons(
+    coverColor: Color,
+    lowerBackground: PlayerLowerBackgroundMode,
+    darkTheme: Boolean,
+): Boolean {
+    if (lowerBackground == PlayerLowerBackgroundMode.THEME) return !darkTheme
+    return coverColor.relativeLuminance() > 0.35f
 }

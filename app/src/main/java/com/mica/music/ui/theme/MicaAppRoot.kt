@@ -31,7 +31,7 @@ fun MicaAppRoot(
         ) {
             StatusBarEffect(
                 hideStatusBar = uiSettings.hideStatusBar,
-                darkTheme = darkTheme,
+                darkStatusBarIcons = !darkTheme,
             )
             content()
         }

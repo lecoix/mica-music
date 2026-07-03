@@ -12,13 +12,12 @@ import androidx.compose.ui.platform.LocalView
 @Composable
 fun StatusBarEffect(
     hideStatusBar: Boolean,
-    darkTheme: Boolean,
+    darkStatusBarIcons: Boolean,
 ) {
     val view = LocalView.current
-    val lightStatusBarIcons = !darkTheme
 
     SideEffect {
         val window = (view.context as Activity).window
-        StatusBarController.apply(window, hideStatusBar, lightStatusBarIcons)
+        StatusBarController.apply(window, hideStatusBar, darkStatusBarIcons)
     }
 }
