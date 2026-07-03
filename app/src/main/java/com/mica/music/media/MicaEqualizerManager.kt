@@ -9,6 +9,7 @@ import com.mica.music.data.EqCustomProfileStore
 import com.mica.music.data.EqSelection
 import com.mica.music.media.eq.EqBandConstants
 import com.mica.music.media.eq.EqBandMapper
+import com.mica.music.media.eq.EqPresetLabels
 import com.mica.music.media.eq.SoftwareEqualizer
 import com.mica.music.media.eq.SoftwareEqualizerAudioProcessor
 
@@ -194,7 +195,11 @@ object MicaEqualizerManager {
     private fun readSystemPresets(): List<EqualizerPresetOption> {
         val eq = systemEqualizer ?: return emptyList()
         return (0 until eq.numberOfPresets.toInt()).map { idx ->
-            EqualizerPresetOption(index = idx, name = eq.getPresetName(idx.toShort()))
+            val systemName = eq.getPresetName(idx.toShort())
+            EqualizerPresetOption(
+                index = idx,
+                name = EqPresetLabels.displayName(idx, systemName),
+            )
         }
     }
 
