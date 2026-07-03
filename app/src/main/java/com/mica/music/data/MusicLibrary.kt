@@ -268,12 +268,7 @@ class MusicLibrary internal constructor(
 
     fun clearLibraryFolder() {
         libraryFolderUri?.toUri()?.let { uri ->
-            runCatching {
-                context.contentResolver.releasePersistableUriPermission(
-                    uri,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
+            LibraryFolderStore.releaseTreeAccess(context, uri)
         }
         AppPreferences.clearLibraryFolder(context)
         libraryFolderUri = null
