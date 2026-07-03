@@ -51,7 +51,7 @@ object FolderScanner {
             )
         }
 
-        val drafts = profiler.measure("loadDrafts") { loadDrafts(context, treeUri, root, profiler) }
+        val drafts = profiler.measure("loadDrafts") { loadDrafts(context, treeUri, root, options, profiler) }
         if (drafts.isEmpty()) {
             return@withContext ScanResult(
                 songs = emptyList(),
@@ -149,6 +149,7 @@ object FolderScanner {
         context: Context,
         treeUri: Uri,
         root: DocumentFile,
+        options: ScanOptions,
         profiler: ScanProfiler,
     ): List<TrackDraft> {
         val files = mutableListOf<AudioFileEntry>()
@@ -156,14 +157,14 @@ object FolderScanner {
         val loadedByQuery = runCatching {
             profiler.measure("loadDrafts.query") {
                 val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
-                collectLibraryFiles(context, treeUri, rootDocumentId, "", files, lyricFiles)
+                collectLibraryFiles(context, treeUri, rootDocumentId, "", options, files, lyricFiles)
             }
         }.isSuccess
         if (!loadedByQuery) {
             files.clear()
             lyricFiles.clear()
             profiler.measure("loadDrafts.fallback") {
-                collectLibraryFilesFallback(root, "", files, lyricFiles)
+                collectLibraryFilesFallback(root, "", options, files, lyricFiles)
             }
         }
         val lyricsByAudioKey = lyricFiles.groupBy { lyricsKey(it.folderPath, it.baseName) }
@@ -264,6 +265,7 @@ object FolderScanner {
         treeUri: Uri,
         documentId: String,
         parentPath: String,
+        options: ScanOptions,
         audioOut: MutableList<AudioFileEntry>,
         lyricOut: MutableList<LyricFileEntry>,
     ) {
@@ -289,7 +291,9 @@ object FolderScanner {
                 val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocumentId)
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                     val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
-                    collectLibraryFiles(context, treeUri, childDocumentId, nextPath, audioOut, lyricOut)
+                    if (!ExcludedScanDirectories.isExcluded(nextPath, options.excludedDirectories)) {
+                        collectLibraryFiles(context, treeUri, childDocumentId, nextPath, options, audioOut, lyricOut)
+                    }
                 } else {
                     collectFileEntry(
                         uri = childUri,
@@ -309,6 +313,7 @@ object FolderScanner {
     private fun collectLibraryFilesFallback(
         dir: DocumentFile,
         parentPath: String,
+        options: ScanOptions,
         audioOut: MutableList<AudioFileEntry>,
         lyricOut: MutableList<LyricFileEntry>,
     ) {
@@ -317,7 +322,9 @@ object FolderScanner {
             val name = child.name ?: continue
             if (child.isDirectory) {
                 val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
-                collectLibraryFilesFallback(child, nextPath, audioOut, lyricOut)
+                if (!ExcludedScanDirectories.isExcluded(nextPath, options.excludedDirectories)) {
+                    collectLibraryFilesFallback(child, nextPath, options, audioOut, lyricOut)
+                }
             } else if (child.isFile) {
                 collectFileEntry(
                     uri = child.uri,

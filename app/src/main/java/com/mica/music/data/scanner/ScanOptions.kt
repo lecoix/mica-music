@@ -7,6 +7,31 @@ data class ScanOptions(
     val minDurationMs: Long = 60_000L,
     val includeNonMusicByMime: Boolean = true,
     val deepMetadataProbe: Boolean = true,
+    val excludedDirectories: List<String> = emptyList(),
     val forceRefreshLyrics: Boolean = false,
     val forceRefreshArtwork: Boolean = false,
 )
+
+object ExcludedScanDirectories {
+    fun normalize(path: String): String =
+        path.replace('\\', '/')
+            .trim()
+            .trim('/')
+            .split('/')
+            .filter { it.isNotBlank() }
+            .joinToString("/")
+
+    fun normalizeAll(paths: List<String>): List<String> =
+        paths.map(::normalize)
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+
+    fun isExcluded(path: String, excludedDirectories: List<String>): Boolean {
+        val normalizedPath = normalize(path)
+        if (normalizedPath.isBlank()) return false
+        return normalizeAll(excludedDirectories).any { excluded ->
+            normalizedPath.equals(excluded, ignoreCase = true) ||
+                normalizedPath.startsWith("$excluded/", ignoreCase = true)
+        }
+    }
+}

@@ -84,4 +84,28 @@ class LibraryQueueSyncPolicyTest {
         assertTrue(plan is LibraryQueueSyncPlan.RefreshMetadata)
         assertEquals(librarySongs, (plan as LibraryQueueSyncPlan.RefreshMetadata).songs)
     }
+
+    @Test
+    fun queueContainingRemovedLibrarySongIsRebuiltFromCurrentLibrary() {
+        val policy = LibraryQueueSyncPolicy()
+        val oldSongs = listOf(
+            SongFixtures.song("keep"),
+            SongFixtures.song("removed"),
+        )
+        val newSongs = listOf(SongFixtures.song("keep"))
+        policy.plan(
+            songs = oldSongs,
+            libraryIds = oldSongs.map { it.id },
+            currentQueueIds = emptyList(),
+        )
+
+        val plan = policy.plan(
+            songs = newSongs,
+            libraryIds = newSongs.map { it.id },
+            currentQueueIds = listOf("removed", "keep"),
+        )
+
+        assertTrue(plan is LibraryQueueSyncPlan.SetQueue)
+        assertEquals(newSongs, (plan as LibraryQueueSyncPlan.SetQueue).songs)
+    }
 }

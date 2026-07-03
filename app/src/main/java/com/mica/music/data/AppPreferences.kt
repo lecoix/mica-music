@@ -3,6 +3,7 @@ package com.mica.music.data
 import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
+import com.mica.music.data.scanner.ExcludedScanDirectories
 import com.mica.music.data.scanner.ScanOptions
 import com.mica.music.media.eq.EqBandConstants
 import com.mica.music.ui.theme.CustomMicaBackground
@@ -21,6 +22,7 @@ object AppPreferences {
     private const val KEY_MIN_TRACK_DURATION_SEC = "min_track_duration_sec"
     private const val KEY_INCLUDE_NON_MUSIC_AUDIO = "include_non_music_audio"
     private const val KEY_DEEP_METADATA_PROBE = "deep_metadata_probe"
+    private const val KEY_EXCLUDED_SCAN_DIRECTORIES = "excluded_scan_directories"
     private const val KEY_LIBRARY_TREE_URI = "library_tree_uri"
     private const val KEY_LIBRARY_FOLDER_LABEL = "library_folder_label"
     private const val KEY_LAST_SCAN_SOURCE = "last_scan_source"
@@ -135,6 +137,20 @@ object AppPreferences {
 
     fun setDeepMetadataProbe(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_DEEP_METADATA_PROBE, enabled).apply()
+    }
+
+    fun excludedScanDirectories(context: Context): List<String> =
+        prefs(context).getString(KEY_EXCLUDED_SCAN_DIRECTORIES, null)
+            ?.lineSequence()
+            ?.toList()
+            ?.let(ExcludedScanDirectories::normalizeAll)
+            ?: emptyList()
+
+    fun setExcludedScanDirectories(context: Context, directories: List<String>) {
+        val normalized = ExcludedScanDirectories.normalizeAll(directories)
+        prefs(context).edit()
+            .putString(KEY_EXCLUDED_SCAN_DIRECTORIES, normalized.joinToString("\n"))
+            .apply()
     }
 
     fun libraryTreeUri(context: Context): Uri? =
@@ -463,6 +479,7 @@ object AppPreferences {
         minDurationMs = minTrackDurationSec(context).coerceAtLeast(0) * 1000L,
         includeNonMusicByMime = includeNonMusicAudio(context),
         deepMetadataProbe = deepMetadataProbe(context),
+        excludedDirectories = excludedScanDirectories(context),
     )
 
     fun songListInfoVisibility(context: Context): SongListInfoVisibility {

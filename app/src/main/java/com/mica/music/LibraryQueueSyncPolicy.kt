@@ -32,6 +32,10 @@ internal class LibraryQueueSyncPolicy {
         if (songs.isEmpty()) return LibraryQueueSyncPlan.SkipEmpty
         val previousIds = previousLibraryIds
         val currentQueueWasLibrary = previousIds.isNotEmpty() && currentQueueIds == previousIds
+        val previousIdSet = previousIds.toSet()
+        val libraryIdSet = libraryIds.toSet()
+        val currentQueueHasRemovedLibrarySongs = previousIds != libraryIds &&
+            currentQueueIds.any { it in previousIdSet && it !in libraryIdSet }
         previousLibraryIds = libraryIds
         return when {
             currentQueueIds.isEmpty() -> LibraryQueueSyncPlan.BootstrapOrSetQueue(
@@ -39,7 +43,7 @@ internal class LibraryQueueSyncPolicy {
                 previousLibraryIdsSize = previousIds.size,
                 currentQueueWasLibrary = currentQueueWasLibrary,
             )
-            currentQueueWasLibrary -> LibraryQueueSyncPlan.SetQueue(
+            currentQueueWasLibrary || currentQueueHasRemovedLibrarySongs -> LibraryQueueSyncPlan.SetQueue(
                 songs = songs,
                 previousLibraryIdsSize = previousIds.size,
                 currentQueueWasLibrary = currentQueueWasLibrary,

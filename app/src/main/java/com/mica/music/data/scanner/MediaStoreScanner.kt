@@ -231,6 +231,9 @@ object MediaStoreScanner {
                     }
                     else -> ""
                 }
+                if (ExcludedScanDirectories.isExcluded(folderPath, options.excludedDirectories)) {
+                    continue
+                }
                 val externalLyricsRefs = displayName
                     ?.substringBeforeLast('.')
                     ?.trim()
@@ -267,12 +270,13 @@ object MediaStoreScanner {
         val existingKeys = drafts
             .map { draft -> mediaStoreDuplicateKey(draft.mediaUri, draft.filePath, draft.sizeBytes) }
             .toMutableSet()
-        drafts += loadDsdFileDrafts(context, lyricsByAudioKey, existingKeys)
+        drafts += loadDsdFileDrafts(context, options, lyricsByAudioKey, existingKeys)
         return drafts
     }
 
     private fun loadDsdFileDrafts(
         context: Context,
+        options: ScanOptions,
         lyricsByAudioKey: Map<String, List<ExternalLyricsRef>>,
         existingKeys: MutableSet<String>,
     ): List<TrackDraft> = runCatching {
@@ -338,6 +342,9 @@ object MediaStoreScanner {
                 val key = mediaStoreDuplicateKey(uri.toString(), filePath, size)
                 if (!existingKeys.add(key)) continue
                 val folderPath = lyricsFolderPath(relativePath, filePath)
+                if (ExcludedScanDirectories.isExcluded(folderPath, options.excludedDirectories)) {
+                    continue
+                }
                 val baseName = name.substringBeforeLast('.').trim()
                 val externalLyricsRefs = lyricsByAudioKey[lyricsKey(folderPath, baseName)].orEmpty()
                 out += TrackDraft(

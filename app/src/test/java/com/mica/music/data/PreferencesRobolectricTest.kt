@@ -101,6 +101,20 @@ class PreferencesRobolectricTest {
     }
 
     @Test
+    fun excludedScanDirectoriesRoundTripNormalizedPaths() {
+        AppPreferences.setExcludedScanDirectories(
+            context,
+            listOf(" Music/Live/ ", "Music\\Live", "Podcasts"),
+        )
+
+        assertEquals(listOf("Music/Live", "Podcasts"), AppPreferences.excludedScanDirectories(context))
+        assertEquals(
+            listOf("Music/Live", "Podcasts"),
+            AppPreferences.scanOptions(context).excludedDirectories,
+        )
+    }
+
+    @Test
     fun lyricsPageTranslationFontSizeDefaultsToOriginalAndRoundTrips() {
         context.getSharedPreferences("mica_settings", Context.MODE_PRIVATE)
             .edit()

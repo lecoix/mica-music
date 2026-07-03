@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -51,10 +52,12 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppAccentColor
+import com.mica.music.data.AppPreferences
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
@@ -68,6 +71,8 @@ import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.Song
+import com.mica.music.data.scanner.ExcludedScanDirectories
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
@@ -177,11 +182,13 @@ fun SettingsScreen(
     val context = LocalContext.current
     val activity = context as ComponentActivity
 
-    var includeNonMusic by remember { mutableStateOf(com.mica.music.data.AppPreferences.includeNonMusicAudio(context)) }
-    var deepProbe by remember { mutableStateOf(com.mica.music.data.AppPreferences.deepMetadataProbe(context)) }
-    var minDurationSec by remember { mutableIntStateOf(com.mica.music.data.AppPreferences.minTrackDurationSec(context)) }
+    var includeNonMusic by remember { mutableStateOf(AppPreferences.includeNonMusicAudio(context)) }
+    var deepProbe by remember { mutableStateOf(AppPreferences.deepMetadataProbe(context)) }
+    var minDurationSec by remember { mutableIntStateOf(AppPreferences.minTrackDurationSec(context)) }
+    var excludedDirectories by remember { mutableStateOf(AppPreferences.excludedScanDirectories(context)) }
     var showCustomAccentDialog by remember { mutableStateOf(false) }
     var showCustomMicaDialog by remember { mutableStateOf(false) }
+    var showExcludedDirectoriesDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
 
     BackHandler(enabled = selectedCategory != null) {
@@ -223,6 +230,14 @@ fun SettingsScreen(
         library.launchRescan()
     }
 
+    fun updateExcludedDirectories(directories: List<String>) {
+        val normalized = ExcludedScanDirectories.normalizeAll(directories)
+        if (normalized == excludedDirectories) return
+        AppPreferences.setExcludedScanDirectories(context, normalized)
+        excludedDirectories = normalized
+        requestRescan()
+    }
+
     if (showCustomAccentDialog) {
         CustomAccentColorDialog(
             initialColorArgb = uiSettings.customAccentColorArgb,
@@ -244,6 +259,19 @@ fun SettingsScreen(
                 uiSettings.updateCustomMicaBackground(startArgb, endArgb, singleColor)
                 showCustomMicaDialog = false
             },
+        )
+    }
+
+    if (showExcludedDirectoriesDialog) {
+        ExcludedDirectoriesDialog(
+            excludedDirectories = excludedDirectories,
+            candidateDirectories = scanDirectoryCandidates(library.songs),
+            isScanning = library.isScanning,
+            onConfirm = { directories ->
+                updateExcludedDirectories(directories)
+                showExcludedDirectoriesDialog = false
+            },
+            onDismiss = { showExcludedDirectoriesDialog = false },
         )
     }
 
@@ -683,6 +711,18 @@ fun SettingsScreen(
                             enabled = !library.isScanning,
                         )
 
+                        SettingsActionRow(
+                            title = "排除目录",
+                            subtitle = if (excludedDirectories.isEmpty()) {
+                                "未排除目录 · 从已扫描文件夹中选择"
+                            } else {
+                                "已排除 ${excludedDirectories.size} 个目录 · 更改后自动重扫"
+                            },
+                            onClick = { showExcludedDirectoriesDialog = true },
+                            enabled = !library.isScanning &&
+                                (library.songs.isNotEmpty() || excludedDirectories.isNotEmpty()),
+                        )
+
                         SettingsChoiceRow(
                             title = "最短曲目时长",
                             subtitle = "过滤铃声、提示音等极短音频",
@@ -690,7 +730,7 @@ fun SettingsScreen(
                             selectedValue = minDurationSec,
                             onSelect = { sec ->
                                 minDurationSec = sec
-                                com.mica.music.data.AppPreferences.setMinTrackDurationSec(context, sec)
+                                AppPreferences.setMinTrackDurationSec(context, sec)
                             },
                         )
                     }
@@ -704,7 +744,7 @@ fun SettingsScreen(
                             checked = includeNonMusic,
                             onCheckedChange = {
                                 includeNonMusic = it
-                                com.mica.music.data.AppPreferences.setIncludeNonMusicAudio(context, it)
+                                AppPreferences.setIncludeNonMusicAudio(context, it)
                             },
                         )
 
@@ -714,7 +754,7 @@ fun SettingsScreen(
                             checked = deepProbe,
                             onCheckedChange = {
                                 deepProbe = it
-                                com.mica.music.data.AppPreferences.setDeepMetadataProbe(context, it)
+                                AppPreferences.setDeepMetadataProbe(context, it)
                             },
                         )
 
@@ -742,6 +782,157 @@ fun SettingsScreen(
         }
     }
 }
+
+@Composable
+private fun ExcludedDirectoriesDialog(
+    excludedDirectories: List<String>,
+    candidateDirectories: List<String>,
+    isScanning: Boolean,
+    onConfirm: (List<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var pendingDirectories by remember(excludedDirectories) {
+        mutableStateOf(ExcludedScanDirectories.normalizeAll(excludedDirectories))
+    }
+    val listMaxHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.55f)
+        .coerceIn(180.dp, 360.dp)
+    val availableDirectories = candidateDirectories.filterNot {
+        ExcludedScanDirectories.isExcluded(it, pendingDirectories)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RectangleShape,
+        title = {
+            Text(
+                text = "排除目录",
+                style = MicaTheme.typography.titleMd,
+                color = MicaTheme.colors.textPrimary,
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+                modifier = Modifier
+                    .heightIn(max = listMaxHeight)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    text = "已排除",
+                    style = MicaTheme.typography.titleSm,
+                    color = MicaTheme.colors.textPrimary,
+                )
+                if (pendingDirectories.isEmpty()) {
+                    Text(
+                        text = "暂无",
+                        style = MicaTheme.typography.bodySm,
+                        color = MicaTheme.colors.textSecondary,
+                    )
+                } else {
+                    pendingDirectories.forEach { directory ->
+                        DirectoryActionRow(
+                            path = directory,
+                            action = "移除",
+                            destructive = true,
+                            enabled = !isScanning,
+                            onClick = {
+                                pendingDirectories = pendingDirectories - directory
+                            },
+                        )
+                    }
+                }
+
+                Text(
+                    text = "可添加",
+                    style = MicaTheme.typography.titleSm,
+                    color = MicaTheme.colors.textPrimary,
+                )
+                if (availableDirectories.isEmpty()) {
+                    Text(
+                        text = "没有可添加的已扫描目录",
+                        style = MicaTheme.typography.bodySm,
+                        color = MicaTheme.colors.textSecondary,
+                    )
+                } else {
+                    availableDirectories.forEach { directory ->
+                        DirectoryActionRow(
+                            path = directory,
+                            action = "添加",
+                            enabled = !isScanning,
+                            onClick = {
+                                pendingDirectories = ExcludedScanDirectories.normalizeAll(
+                                    pendingDirectories + directory,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !isScanning,
+                onClick = { onConfirm(pendingDirectories) },
+            ) {
+                Text("完成")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
+}
+
+@Composable
+private fun DirectoryActionRow(
+    path: String,
+    action: String,
+    destructive: Boolean = false,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = path,
+            style = MicaTheme.typography.bodySm,
+            color = MicaTheme.colors.textPrimary,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            enabled = enabled,
+            onClick = onClick,
+        ) {
+            Text(
+                text = action,
+                color = when {
+                    destructive && enabled -> Color(0xFFE5484D)
+                    destructive -> MicaTheme.colors.textSecondary
+                    else -> Color.Unspecified
+                },
+            )
+        }
+    }
+}
+
+private fun scanDirectoryCandidates(songs: List<Song>): List<String> =
+    ExcludedScanDirectories.normalizeAll(
+        songs.flatMap { song ->
+            val folder = ExcludedScanDirectories.normalize(song.folderPath)
+            if (folder.isBlank()) {
+                emptyList()
+            } else {
+                folder.split('/').runningFold("") { parent, segment ->
+                    if (parent.isBlank()) segment else "$parent/$segment"
+                }.drop(1)
+            }
+        },
+    )
 
 @Composable
 private fun CustomMicaBackgroundDialog(
