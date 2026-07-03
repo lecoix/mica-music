@@ -15,6 +15,7 @@ import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.media.AlacPlayback
+import com.mica.music.util.DiagnosticLog
 import java.io.File
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
@@ -72,6 +73,7 @@ internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInf
 object AudioMetadataProbe {
 
     private const val TAG = "AudioMetadataProbe"
+    private const val FLAC_METADATA_TRACE = "ScanFlacMeta"
 
     private val albumArtCache = ConcurrentHashMap<String, String?>()
     private val mp4CopyrightMarkers = listOf(
@@ -98,10 +100,12 @@ object AudioMetadataProbe {
     ): Song {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
-        profiler.measureOptional("dsdMetadata") {
-            DsdMetadataReader.read(appCtx, uri, draft)
-        }?.let { dsd ->
-            return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+        if (draft.isDsdDraft()) {
+            profiler.measureOptional("dsdMetadata") {
+                DsdMetadataReader.read(appCtx, uri, draft)
+            }?.let { dsd ->
+                return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+            }
         }
         val metadata = TrackMetadata.fallback(
             mimeType = draft.mimeType,
@@ -144,13 +148,20 @@ object AudioMetadataProbe {
     ): Song {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
-        profiler.measureOptional("dsdMetadata") {
-            DsdMetadataReader.read(appCtx, uri, draft)
-        }?.let { dsd ->
-            return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+        if (draft.isDsdDraft()) {
+            profiler.measureOptional("dsdMetadata") {
+                DsdMetadataReader.read(appCtx, uri, draft)
+            }?.let { dsd ->
+                return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+            }
         }
-        val trackProbe = profiler.measureOptional("mediaExtractor") {
-            AudioTrackProbe.probe(appCtx, uri, draft.mimeType, draft.displayName)
+        val requiresTrackProbe = draft.requiresAudioTrackProbe()
+        val trackProbe = if (requiresTrackProbe) {
+            profiler.measureOptional("mediaExtractor") {
+                AudioTrackProbe.probe(appCtx, uri, draft.mimeType, draft.displayName)
+            }
+        } else {
+            null
         }
         val tagLibResult = profiler.measureOptional("taglib") {
             TagLibReader.read(appCtx, uri)
@@ -171,6 +182,7 @@ object AudioMetadataProbe {
                 draft,
                 uri,
                 trackProbe,
+                requiresTrackProbe,
                 tagLibResult,
                 wavFallback,
                 profiler,
@@ -185,6 +197,19 @@ object AudioMetadataProbe {
         } else {
             null
         }
+        logFlacMetadataTrace(
+            draft = draft,
+            path = "taglib-miss",
+            requiresTrackProbe = requiresTrackProbe,
+            trackProbe = trackProbe,
+            sourceMime = draft.mimeType,
+            detectedContainer = trackProbe?.containerName
+                ?: TrackMetadata.containerFromMime(draft.mimeType, draft.displayName),
+            finalContainer = null,
+            bits = null,
+            sampleRateHz = null,
+            tagLibOk = false,
+        )
         val retriever = MediaMetadataRetriever()
         return try {
             profiler.measureOptional("retriever.setDataSource") {
@@ -294,6 +319,7 @@ object AudioMetadataProbe {
         draft: TrackDraft,
         uri: Uri,
         trackProbe: AudioTrackProbe.Result?,
+        requiresTrackProbe: Boolean,
         tagLib: TagLibReader.Result,
         wavFallback: TagInfo?,
         profiler: ScanProfiler?,
@@ -359,23 +385,17 @@ object AudioMetadataProbe {
 
         val detectedContainer = trackProbe?.containerName
             ?: TrackMetadata.containerFromMime(draft.mimeType, draft.displayName)
-        val bits = profiler.measureOptional("taglib.bits") {
-            TagLibReader.readBitsPerSample(
-                context,
-                uri,
-                detectedContainer,
-                draft.mimeType,
-                draft.displayName,
+        val technical = profiler.measureOptional("technical") {
+            AudioTechnicalProbe.probe(
+                context = context,
+                uri = uri,
+                detectedContainer = detectedContainer,
+                mimeType = draft.mimeType,
+                displayName = draft.displayName,
             )
         }
-        val container = if (
-            bits != null && detectedContainer != "ALAC" &&
-            TagLibReader.shouldProbeAlacBitDepth(detectedContainer, draft.mimeType, draft.displayName)
-        ) {
-            "ALAC"
-        } else {
-            detectedContainer
-        }
+        val container = technical.containerName ?: detectedContainer
+        val bits = technical.bitsPerSample
         val durationForBitrate = durationSec.coerceAtLeast(1)
         val bitrateKbps = when {
             tagLib.bitrateKbps > 0 -> tagLib.bitrateKbps
@@ -398,6 +418,18 @@ object AudioMetadataProbe {
             bitrateKbps = bitrateKbps,
             channelCount = tagLib.channelCount.coerceAtLeast(1),
             playbackMimeType = playbackMime,
+        )
+        logFlacMetadataTrace(
+            draft = draft,
+            path = "taglib",
+            requiresTrackProbe = requiresTrackProbe,
+            trackProbe = trackProbe,
+            sourceMime = draft.mimeType,
+            detectedContainer = detectedContainer,
+            finalContainer = container,
+            bits = bits,
+            sampleRateHz = metadata.sampleRateHz,
+            tagLibOk = true,
         )
         val copyright = MetadataTextFix.normalize(tags.copyright).ifBlank {
             profiler.measureOptional("copyright") {
@@ -624,7 +656,7 @@ object AudioMetadataProbe {
             mediaUri = draft.mediaUri,
             containerName = container,
         )
-        return TrackMetadata(
+        val metadata = TrackMetadata(
             containerName = container,
             sampleRateHz = sampleRate.coerceAtLeast(0),
             bitsPerSample = bits,
@@ -632,6 +664,70 @@ object AudioMetadataProbe {
             channelCount = channels.coerceAtLeast(1),
             playbackMimeType = playbackMime,
         )
+        logFlacMetadataTrace(
+            draft = draft,
+            path = "retriever",
+            requiresTrackProbe = draft.requiresAudioTrackProbe(),
+            trackProbe = trackProbe,
+            sourceMime = mime,
+            detectedContainer = container,
+            finalContainer = container,
+            bits = bits,
+            sampleRateHz = metadata.sampleRateHz,
+            tagLibOk = false,
+        )
+        return metadata
+    }
+
+    private fun logFlacMetadataTrace(
+        draft: TrackDraft,
+        path: String,
+        requiresTrackProbe: Boolean,
+        trackProbe: AudioTrackProbe.Result?,
+        sourceMime: String?,
+        detectedContainer: String?,
+        finalContainer: String?,
+        bits: Int?,
+        sampleRateHz: Int?,
+        tagLibOk: Boolean,
+    ) {
+        if (!shouldTraceFlacMetadata(draft, trackProbe, sourceMime, detectedContainer, finalContainer)) return
+        val ext = draft.displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        val reason = when {
+            bits != null -> "bits-ok"
+            !tagLibOk && path == "taglib-miss" -> "taglib-miss"
+            path == "retriever" -> "retriever-bits-null"
+            detectedContainer == "FLAC" || finalContainer == "FLAC" || ext == "flac" -> "flac-bits-null"
+            else -> "not-flac-detected"
+        }
+        DiagnosticLog.event(
+            FLAC_METADATA_TRACE,
+            "path=$path reason=$reason name=${draft.displayName.orEmpty()} ext=$ext " +
+                "draftMime=${draft.mimeType.ifBlank { "<blank>" }} " +
+                "sourceMime=${sourceMime.orEmpty().ifBlank { "<blank>" }} " +
+                "requiresExtractor=$requiresTrackProbe extractorRan=${trackProbe != null} " +
+                "trackMime=${trackProbe?.trackMime.orEmpty().ifBlank { "<none>" }} " +
+                "trackContainer=${trackProbe?.containerName.orEmpty().ifBlank { "<none>" }} " +
+                "detected=$detectedContainer final=$finalContainer bits=${bits ?: -1} " +
+                "sampleRate=${sampleRateHz ?: -1} taglibOk=$tagLibOk",
+        )
+    }
+
+    private fun shouldTraceFlacMetadata(
+        draft: TrackDraft,
+        trackProbe: AudioTrackProbe.Result?,
+        sourceMime: String?,
+        detectedContainer: String?,
+        finalContainer: String?,
+    ): Boolean {
+        val ext = draft.displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        return ext == "flac" ||
+            draft.mimeType.contains("flac", ignoreCase = true) ||
+            sourceMime?.contains("flac", ignoreCase = true) == true ||
+            trackProbe?.trackMime?.contains("flac", ignoreCase = true) == true ||
+            trackProbe?.containerName == "FLAC" ||
+            detectedContainer == "FLAC" ||
+            finalContainer == "FLAC"
     }
 
     private fun DsdMetadataReader.Result.toSong(

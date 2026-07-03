@@ -48,15 +48,41 @@ class BinaryParserGoldenTest {
     }
 
     @Test
+    fun flacStreamInfoRevealsBitDepthFromHeadBytes() {
+        val streamInfo = ByteArray(34).also {
+            it[12] = 0x01
+            it[13] = 0x70
+        }
+        val head = "fLaC".toByteArray(Charsets.US_ASCII) +
+            byteArrayOf(0x00) +
+            byteArrayOf(0x00, 0x00, 0x22) +
+            streamInfo
+
+        assertEquals(24, AudioTechnicalProbe.readFlacBitDepthFromHead(head))
+    }
+
+    @Test
+    fun alacContainerDetectedEvenWhenBitDepthMissing() {
+        val config = ByteArray(28).also {
+            it[9] = 99
+        }
+        val bytes = box("alac", config)
+
+        assertTrue(AudioTechnicalProbe.containsAlacSampleEntry(bytes))
+        assertNull(AudioTechnicalProbe.readAlacBitDepth(bytes))
+    }
+
+    @Test
     fun genericM4aCanRevealAlacBitDepthWithoutPriorCodecClassification() {
         val config = ByteArray(28).also {
             it[9] = 24 // compatibleVersion is payload[8], bitDepth is payload[9]
         }
         val bytes = box("alac", config)
 
-        assertTrue(TagLibReader.shouldProbeAlacBitDepth("AAC", "audio/mp4", "track.m4a"))
-        assertEquals(24, TagLibReader.readAlacBitDepth(bytes))
-        assertNull(TagLibReader.readAlacBitDepth(box("mp4a", ByteArray(28))))
+        assertTrue(AudioTechnicalProbe.shouldProbeAlac("AAC", "audio/mp4", "track.m4a"))
+        assertTrue(AudioTechnicalProbe.containsAlacSampleEntry(bytes))
+        assertEquals(24, AudioTechnicalProbe.readAlacBitDepth(bytes))
+        assertNull(AudioTechnicalProbe.readAlacBitDepth(box("mp4a", ByteArray(28))))
     }
 
     @Test(timeout = 2_000)

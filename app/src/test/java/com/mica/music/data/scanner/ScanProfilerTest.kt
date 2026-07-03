@@ -78,8 +78,36 @@ class ScanProfilerTest {
         assertTrue(probeCached?.lyrics?.isEmpty() == true)
     }
 
+    @Test
+    fun dsdDraftDetectionUsesExtensionOrMimeOnly() {
+        assertTrue(draft(displayName = "album.dsf", mimeType = "audio/*").isDsdDraft())
+        assertTrue(draft(displayName = "album.bin", mimeType = "audio/x-dsf").isDsdDraft())
+
+        assertTrue(!draft(displayName = "song.flac", mimeType = "audio/flac").isDsdDraft())
+        assertTrue(!draft(displayName = "song.wav", mimeType = "audio/wav").isDsdDraft())
+    }
+
+    @Test
+    fun audioTrackProbeIsSkippedForPlainContainersOnly() {
+        assertTrue(!draft(displayName = "song.mp3", mimeType = "audio/mpeg").requiresAudioTrackProbe())
+        assertTrue(!draft(displayName = "song.flac", mimeType = "audio/flac").requiresAudioTrackProbe())
+        assertTrue(!draft(displayName = "song.wav", mimeType = "audio/wav").requiresAudioTrackProbe())
+        assertTrue(!draft(displayName = "song.ogg", mimeType = "audio/ogg").requiresAudioTrackProbe())
+        assertTrue(!draft(displayName = "song.opus", mimeType = "audio/opus").requiresAudioTrackProbe())
+        assertTrue(!draft(displayName = "song.wma", mimeType = "audio/x-ms-wma").requiresAudioTrackProbe())
+        assertTrue(!draft(displayName = "song.dsf", mimeType = "audio/x-dsf").requiresAudioTrackProbe())
+
+        assertTrue(draft(displayName = "song.m4a", mimeType = "audio/mp4").requiresAudioTrackProbe())
+        assertTrue(draft(displayName = "song.aac", mimeType = "audio/aac").requiresAudioTrackProbe())
+        assertTrue(draft(displayName = "song.alac", mimeType = "audio/alac").requiresAudioTrackProbe())
+        assertTrue(draft(displayName = "song.bin", mimeType = "audio/*").requiresAudioTrackProbe())
+        assertTrue(draft(displayName = "song.ape", mimeType = "audio/x-ape").requiresAudioTrackProbe())
+    }
+
     private fun draft(
         externalLyricsSignature: String = "",
+        displayName: String = "song.flac",
+        mimeType: String = "audio/flac",
     ): TrackDraft = TrackDraft(
         mediaStoreId = 42L,
         title = "song",
@@ -87,8 +115,8 @@ class ScanProfilerTest {
         album = "album",
         albumId = 7L,
         durationSec = 180,
-        mimeType = "audio/flac",
-        displayName = "song.flac",
+        mimeType = mimeType,
+        displayName = displayName,
         sizeBytes = 1_000L,
         bitrateBpsFromStore = 0,
         mediaUri = "content://media/song",

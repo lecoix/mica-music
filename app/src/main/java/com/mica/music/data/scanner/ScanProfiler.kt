@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
+import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -41,7 +42,10 @@ internal class ScanProfiler(private val source: String) {
                 "$name=${totalStageMs}ms/${count}x(avg ${avgMs}ms)"
             }
         return "source=$source wall=${totalMs}ms tracks=$total reused=$reused probed=$probed stages(cumulative): $stageSummary"
-            .also { Log.i(ScanPerfTag, it) }
+            .also {
+                Log.i(ScanPerfTag, it)
+                DiagnosticLog.event(ScanPerfTag, it)
+            }
     }
 
     private class Stage {
@@ -107,6 +111,32 @@ internal fun TrackDraft.mayContainMp4EmbeddedLyrics(): Boolean {
     return ext in setOf("m4a", "m4b", "mp4", "aac", "alac") ||
         mime.contains("mp4") ||
         mime.contains("alac")
+}
+
+internal fun TrackDraft.requiresAudioTrackProbe(): Boolean {
+    val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+    if (ext in setOf("m4a", "m4b", "m4p", "mp4", "aac", "alac")) return true
+    if (DsdSupport.isDsdExtension(ext)) return false
+    if (ext in setOf("mp3", "flac", "wav", "wave", "ogg", "oga", "opus", "wma")) return false
+
+    val mime = mimeType.lowercase()
+    if (mime.isBlank() || mime == "audio/*" || mime == "application/octet-stream") return true
+    if (
+        mime.contains("mp4") ||
+        mime.contains("m4a") ||
+        mime.contains("aac") ||
+        mime.contains("alac")
+    ) return true
+    if (DsdSupport.isDsdMime(mime)) return false
+    return when {
+        mime == "audio/mpeg" || mime.contains("mp3") -> false
+        mime.contains("flac") -> false
+        mime.contains("wav") -> false
+        mime.contains("ogg") -> false
+        mime.contains("opus") -> false
+        mime.contains("wma") -> false
+        else -> true
+    }
 }
 
 internal fun TrackDraft.isDsdDraft(): Boolean {

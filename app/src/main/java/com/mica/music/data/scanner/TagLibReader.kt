@@ -1,15 +1,14 @@
 package com.mica.music.data.scanner
 
 import android.content.Context
-import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.os.Build
 import com.kyant.taglib.AudioPropertiesReadStyle
 import com.kyant.taglib.TagLib
 
 /**
  * 基于 TagLib（io.github.kyant0:taglib）的标签/封面/歌词/音频属性读取。
  * 任何失败（无法打开、native 异常、属性无效）返回 null，由调用方回退 MediaMetadataRetriever。
+ * 位深等技术参数见 [AudioTechnicalProbe]。
  */
 internal object TagLibReader {
 
@@ -54,29 +53,6 @@ internal object TagLibReader {
         }
     }.getOrNull()
 
-    /**
-     * Kyant taglib 绑定未暴露位深；无损格式从文件头自行解析（FLAC STREAMINFO /
-     * WAV fmt chunk / MP4 ALAC magic cookie），其余格式返回 null。
-     */
-    fun readBitsPerSample(
-        context: Context,
-        uri: Uri,
-        containerName: String,
-        mimeType: String,
-        displayName: String?,
-    ): Int? {
-        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
-        return runCatching {
-            when {
-                containerName == "FLAC" || ext == "flac" -> readFlacBits(context, uri)
-                containerName == "WAV" || ext == "wav" -> readWavBits(context, uri)
-                shouldProbeAlacBitDepth(containerName, mimeType, displayName) ->
-                    readAlacBits(context, uri, mimeType, displayName)
-                else -> null
-            }
-        }.getOrNull()
-    }
-
     private fun Map<String, Array<String>>.firstValue(vararg keys: String): String {
         for (key in keys) {
             this[key]?.firstOrNull { it.isNotBlank() }?.let { return it.trim() }
@@ -97,116 +73,4 @@ internal object TagLibReader {
 
     private fun parseYear(raw: String): Int =
         yearRegex.find(raw)?.value?.toIntOrNull()?.coerceAtLeast(0) ?: 0
-
-    private fun readHead(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.use { it.readNBytes(maxBytes) }
-        }.getOrNull()
-
-    private fun readFlacBits(context: Context, uri: Uri): Int? {
-        val head = readHead(context, uri, 64 * 1024) ?: return null
-        val start = Id3Binary.indexOf(head, "fLaC".toByteArray(Charsets.US_ASCII), 0)
-        if (start < 0) return null
-        var offset = start + 4
-        while (offset + 4 <= head.size) {
-            val header = head[offset].toInt() and 0xFF
-            val blockType = header and 0x7F
-            val blockLen = Id3Binary.readUInt24(head, offset + 1)
-            val body = offset + 4
-            if (blockType == 0) {
-                // STREAMINFO：bits-per-sample 为 5 bit，跨 body[12] 最低位与 body[13] 高 4 位
-                if (body + 14 > head.size) return null
-                val b12 = head[body + 12].toInt() and 0xFF
-                val b13 = head[body + 13].toInt() and 0xFF
-                val bits = (((b12 and 0x01) shl 4) or (b13 ushr 4)) + 1
-                return bits.takeIf { it in 4..32 }
-            }
-            if (header and 0x80 != 0) break
-            offset = body + blockLen
-        }
-        return null
-    }
-
-    private fun readWavBits(context: Context, uri: Uri): Int? {
-        val head = readHead(context, uri, 16 * 1024) ?: return null
-        if (head.size < 12) return null
-        if (String(head, 0, 4, Charsets.US_ASCII) != "RIFF") return null
-        if (String(head, 8, 4, Charsets.US_ASCII) != "WAVE") return null
-        var offset = 12
-        while (offset + 8 <= head.size) {
-            val id = String(head, offset, 4, Charsets.US_ASCII)
-            val len = Id3Binary.readUInt32Le(head, offset + 4).toInt()
-            if (len < 0) return null
-            if (id == "fmt ") {
-                if (offset + 8 + 16 > head.size) return null
-                val bits = (head[offset + 22].toInt() and 0xFF) or
-                    ((head[offset + 23].toInt() and 0xFF) shl 8)
-                return bits.takeIf { it in 4..64 }
-            }
-            offset += 8 + len + (len and 1)
-        }
-        return null
-    }
-
-    private fun readAlacBits(
-        context: Context,
-        uri: Uri,
-        mimeType: String,
-        displayName: String?,
-    ): Int? {
-        val bytes = AudioProbeBytes.readFastForLyrics(
-            context = context,
-            uri = uri,
-            mimeType = mimeType.ifBlank { "audio/mp4" },
-            displayName = displayName ?: "a.m4a",
-        )
-        return bytes?.let { readAlacBitDepth(it) }
-            ?: readRetrieverBitDepth(context, uri)
-    }
-
-    internal fun readAlacBitDepth(bytes: ByteArray): Int? {
-        val needle = "alac".toByteArray(Charsets.US_ASCII)
-        var from = 0
-        while (true) {
-            val idx = Id3Binary.indexOf(bytes, needle, from)
-            if (idx < 0) return null
-            if (idx >= 4) {
-                val boxSize = Id3Binary.readUInt32Be(bytes, idx - 4)
-                val depthIdx = idx + 13
-                if (boxSize in 24..256 && depthIdx < bytes.size) {
-                    val depth = bytes[depthIdx].toInt() and 0xFF
-                    if (depth == 16 || depth == 20 || depth == 24 || depth == 32) return depth
-                }
-            }
-            from = idx + 4
-        }
-    }
-
-
-    internal fun shouldProbeAlacBitDepth(
-        containerName: String,
-        mimeType: String,
-        displayName: String?,
-    ): Boolean {
-        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
-        val mime = mimeType.lowercase()
-        return containerName.equals("ALAC", ignoreCase = true) ||
-            ext in setOf("m4a", "m4b", "mp4", "alac") ||
-            "alac" in mime || "mp4" in mime || "m4a" in mime
-    }
-
-    private fun readRetrieverBitDepth(context: Context, uri: Uri): Int? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(context, uri)
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)
-                ?.toIntOrNull()
-                ?.takeIf { it in setOf(16, 20, 24, 32) }
-        } catch (_: Exception) {
-            null
-        } finally {
-            runCatching { retriever.release() }
-        }
-    }
 }
