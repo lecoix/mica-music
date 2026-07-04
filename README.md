@@ -5,17 +5,20 @@
 基于 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md) 实现的 **本地 HiFi 播放器**：多种主题样式、Media3 ExoPlayer 单链路播放、Room 持久化、内嵌/外挂歌词与 ALAC/DSF 支持。
 
 ---
-<table>
-  <tr>
-    <td align="center"><img src="docs/images/standard_theme.jpg" width="180" alt="标准主题" /><br><sub>标准主题</sub></td>
-    <td align="center"><img src="docs/images/photo_theme.jpg" width="180" alt="拍立得主题" /><br><sub>拍立得</sub></td>
-    <td align="center"><img src="docs/images/flow1_theme.jpg" width="180" alt="封面带主题" /><br><sub>封面带</sub></td>
-    <td align="center"><img src="docs/images/flow2_theme.jpg" width="180" alt="复古立体封面" /><br><sub>复古立体</sub></td>
-    <td align="center"><img src="docs/images/lizi_theme.jpg" width="180" alt="粒子封面歌词页" /><br><sub>粒子歌词</sub></td>
-  </tr>
-</table>
----
-
+<p align="center">
+  <img src="docs/images/ss01.jpg" alt="Screenshot 1" width="200" style="border-radius:26px;"/>
+  <img src="docs/images/ss02.jpg" alt="Screenshot 2" width="200" style="border-radius:26px;"/> 
+  <img src="docs/images/ss03.jpg" alt="Screenshot 3" width="200" style="border-radius:26px;"/> 
+  <img src="docs/images/ss04.jpg" alt="Screenshot 4" width="200" style="border-radius:26px;"/> 
+  <img src="docs/images/ss05.jpg" alt="Screenshot 5" width="200" style="border-radius:26px;"/> 
+</p>
+<p align="center">
+  <img src="docs/images/ss06.jpg" alt="Screenshot 6" width="200" style="border-radius:26px;"/>
+  <img src="docs/images/ss07.jpg" alt="Screenshot 7" width="200" style="border-radius:26px;"/> 
+  <img src="docs/images/ss08.jpg" alt="Screenshot 8" width="200" style="border-radius:26px;"/> 
+  <img src="docs/images/ss09.jpg" alt="Screenshot 9" width="200" style="border-radius:26px;"/> 
+  <img src="docs/images/ss10.jpg" alt="Screenshot 10" width="200" style="border-radius:26px;"/> 
+</p>
 ### 环境要求
 
 - **Android Studio**：Hedgehog (2023.1.1) 或更新

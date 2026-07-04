@@ -183,6 +183,7 @@ fun SettingsScreen(
     onOpenPhotoStackShadowPreview: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
+    playerOverlayOpen: Boolean = false,
 ) {
     val context = LocalContext.current
     val activity = context as ComponentActivity
@@ -196,7 +197,7 @@ fun SettingsScreen(
     var showExcludedDirectoriesDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
 
-    BackHandler(enabled = selectedCategory != null) {
+    BackHandler(enabled = selectedCategory != null && !playerOverlayOpen) {
         selectedCategory = null
     }
 
@@ -335,6 +336,7 @@ fun SettingsScreen(
                 SettingsSectionTitle("使用技巧")
                 SettingsTipRow("长按迷你播放栏可以定位当前歌曲")
                 SettingsTipRow("在播放页长按专辑封面可以打开菜单，里面有睡眠定时")
+                SettingsTipRow("在文件夹页可以通过左右滑动在不同深度的文件夹统合页切换")
             } else {
                 when (selectedCategory) {
                     SettingsCategory.APPEARANCE -> {
