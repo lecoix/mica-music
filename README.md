@@ -20,6 +20,8 @@
   <img src="docs/images/ss09.jpg" alt="Screenshot 9" width="160" style="border-radius:26px;"/> 
   <img src="docs/images/ss10.jpg" alt="Screenshot 10" width="160" style="border-radius:26px;"/> 
 </p>
+
+---
 ### 环境要求
 
 - **Android Studio**：Hedgehog (2023.1.1) 或更新
