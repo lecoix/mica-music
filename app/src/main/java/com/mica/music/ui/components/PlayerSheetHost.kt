@@ -93,6 +93,8 @@ fun PlayerSheetHost(
                 targetValue = 1f,
                 animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
             )
+            // Keep the owner state in sync after a canceled predictive-back gesture.
+            onExpandedChange(true)
         } finally {
             predictiveBackInProgress = false
         }

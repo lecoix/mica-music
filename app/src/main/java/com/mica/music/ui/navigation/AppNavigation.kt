@@ -181,6 +181,7 @@ fun AppNavigationMain(
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
                 bottomContentClearance = bottomOverlayClearance,
+                playerOverlayOpen = coordinator.playerExpanded || coordinator.overlayFullScreen,
             )
         }
         composable(Routes.ParticleCoverPreview) {
