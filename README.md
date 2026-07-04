@@ -10,9 +10,10 @@
   <img src="docs/images/ss02.jpg" alt="Screenshot 2" width="200" style="border-radius:26px;"/> 
   <img src="docs/images/ss03.jpg" alt="Screenshot 3" width="200" style="border-radius:26px;"/> 
   <img src="docs/images/ss04.jpg" alt="Screenshot 4" width="200" style="border-radius:26px;"/> 
-  <img src="docs/images/ss05.jpg" alt="Screenshot 5" width="200" style="border-radius:26px;"/> 
+  
 </p>
 <p align="center">
+  <img src="docs/images/ss05.jpg" alt="Screenshot 5" width="200" style="border-radius:26px;"/> 
   <img src="docs/images/ss06.jpg" alt="Screenshot 6" width="200" style="border-radius:26px;"/>
   <img src="docs/images/ss07.jpg" alt="Screenshot 7" width="200" style="border-radius:26px;"/> 
   <img src="docs/images/ss08.jpg" alt="Screenshot 8" width="200" style="border-radius:26px;"/> 
