@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -72,6 +73,34 @@ class MusicLibraryTest {
         scan.await()
 
         assertEquals(CURRENT_LYRICS_PARSER_VERSION, environment.parserVersion)
+        library.release()
+    }
+
+    @Test
+    fun artworkCacheRepairStartsForcedArtworkOnlyScanWhenCachedArtNeedsRepair() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val missingArt = File(context.cacheDir, "album_art/missing-startup.jpg")
+        val cached = SongFixtures.song("cached").copy(albumArtUri = missingArt.toURI().toString())
+        val scanner = ControlledScanner()
+        val library = library(
+            scanner = scanner,
+            store = FakeLibraryStore(CachedLibrary(listOf(cached), 100, ScanSource.DEVICE, 1)),
+        )
+
+        library.loadCachedLibrary()
+        library.launchArtworkCacheRepairIfNeeded("test")
+        runCurrent()
+
+        val request = scanner.deviceRequests.single()
+        assertTrue(request.forceRefreshArtwork)
+        assertFalse(request.forceRefreshLyrics)
+        request.result.complete(
+            ScanResult(listOf(cached.copy(albumArtUri = "content://media/external/audio/albums/1")), 1),
+        )
+        runCurrent()
+
+        assertFalse(library.isScanning)
+        assertEquals("content://media/external/audio/albums/1", library.songs.single().albumArtUri)
         library.release()
     }
 
@@ -194,6 +223,8 @@ class MusicLibraryTest {
 
     private data class ScanRequest(
         val cachedSongs: List<Song>,
+        val forceRefreshLyrics: Boolean,
+        val forceRefreshArtwork: Boolean,
         val result: CompletableDeferred<ScanResult> = CompletableDeferred(),
     )
 
@@ -207,7 +238,11 @@ class MusicLibraryTest {
             forceRefreshArtwork: Boolean,
         ): ScanResult {
             onProgress(0, cachedSongs.size)
-            return ScanRequest(cachedSongs).also(deviceRequests::add).result.await()
+            return ScanRequest(
+                cachedSongs = cachedSongs,
+                forceRefreshLyrics = forceRefreshLyrics,
+                forceRefreshArtwork = forceRefreshArtwork,
+            ).also(deviceRequests::add).result.await()
         }
 
         override suspend fun scanFolder(

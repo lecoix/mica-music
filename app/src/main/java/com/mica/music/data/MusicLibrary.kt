@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
+import com.mica.music.data.scanner.AlbumArtCache
 import com.mica.music.data.scanner.ScanResult
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
@@ -420,6 +421,17 @@ class MusicLibrary internal constructor(
         scanJob = scanScope.launch { scanLibraryFolder() }
     }
 
+    fun launchArtworkCacheRepairIfNeeded(reason: String = "startup") {
+        if (released || isScanning || songs.isEmpty()) return
+        val health = AlbumArtCache.health(context, songs)
+        DiagnosticLog.event("AlbumArtCache", "repair-check reason=$reason ${health.toLogMessage()}")
+        if (!health.needsRepair) return
+        scanJob?.cancel()
+        scanJob = scanScope.launch {
+            repairArtworkCache(reason, health)
+        }
+    }
+
     suspend fun scanDeviceWide() {
         if (!hasAudioReadPermission()) return
         performScan(ScanSource.DEVICE) { onProgress, cachedSongs ->
@@ -446,6 +458,62 @@ class MusicLibrary internal constructor(
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = true,
+                forceRefreshArtwork = true,
+            )
+        }
+    }
+
+    private suspend fun repairArtworkCache(
+        reason: String,
+        health: AlbumArtCache.Health,
+    ) {
+        DiagnosticLog.event("AlbumArtCache", "repair-start reason=$reason ${health.toLogMessage()}")
+        when (lastScanSource) {
+            ScanSource.FOLDER -> {
+                if (hasLibraryFolder()) {
+                    repairLibraryFolderArtwork()
+                } else if (hasAudioReadPermission()) {
+                    repairDeviceArtwork()
+                } else {
+                    DiagnosticLog.event("AlbumArtCache", "repair-skip reason=$reason no-readable-source")
+                }
+            }
+            ScanSource.DEVICE -> {
+                if (hasAudioReadPermission()) {
+                    repairDeviceArtwork()
+                } else if (hasLibraryFolder()) {
+                    repairLibraryFolderArtwork()
+                } else {
+                    DiagnosticLog.event("AlbumArtCache", "repair-skip reason=$reason no-readable-source")
+                }
+            }
+        }
+    }
+
+    private suspend fun repairDeviceArtwork() {
+        performScan(ScanSource.DEVICE) { onProgress, cachedSongs ->
+            libraryScanner.scanDevice(
+                cachedSongs = cachedSongs,
+                onProgress = onProgress,
+                forceRefreshLyrics = false,
+                forceRefreshArtwork = true,
+            )
+        }
+    }
+
+    private suspend fun repairLibraryFolderArtwork() {
+        val uriString = libraryFolderUri ?: return
+        val treeUri = uriString.toUri()
+        if (!scanEnvironment.canReadTree(treeUri)) {
+            DiagnosticLog.event("AlbumArtCache", "repair-folder-skip cannot-read-tree uri=$treeUri")
+            return
+        }
+        performScan(ScanSource.FOLDER) { onProgress, cachedSongs ->
+            libraryScanner.scanFolder(
+                treeUri = treeUri,
+                cachedSongs = cachedSongs,
+                onProgress = onProgress,
+                forceRefreshLyrics = false,
                 forceRefreshArtwork = true,
             )
         }

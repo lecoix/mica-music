@@ -15,16 +15,22 @@ internal object AlbumArtCache {
         val cachedArtUris: Int,
         val missingCachedArtUris: Int,
         val missingSamples: List<String>,
+        val currentCachedArtUris: Int = 0,
+        val legacyCachedArtUris: Int = 0,
     ) {
+        val needsRepair: Boolean
+            get() = missingCachedArtUris > 0 || legacyCachedArtUris > 0
+
         fun toLogMessage(): String =
             "songs=$songs albumArtUris=$albumArtUris cachedArtUris=$cachedArtUris " +
+                "currentCachedArtUris=$currentCachedArtUris legacyCachedArtUris=$legacyCachedArtUris " +
                 "missingCachedArtUris=$missingCachedArtUris " +
                 "missingSamples=${missingSamples.joinToString(limit = 8)}"
     }
 
     fun fileForKey(context: Context, cacheKey: String): File {
         val digest = digestForKey(cacheKey)
-        return File(context.cacheDir, "${ScanCacheManager.DIR_ALBUM_ART}/$digest.jpg")
+        return File(currentAlbumArtDir(context), "$digest.jpg")
     }
 
     fun digestForKey(cacheKey: String): String =
@@ -37,8 +43,20 @@ internal object AlbumArtCache {
         if (uriString.isNullOrBlank()) return false
         val file = albumArtFileFromUri(uriString) ?: return false
         val path = file.absolutePath
-        val root = albumArtDir(context).absolutePath.trimEnd(File.separatorChar, '/', '\\')
-        return path == root || path.startsWith("$root${File.separator}")
+        return path.isUnderDir(currentAlbumArtDir(context)) ||
+            path.isUnderDir(legacyAlbumArtDir(context))
+    }
+
+    fun isLegacyCachedArtUri(context: Context, uriString: String?): Boolean {
+        if (uriString.isNullOrBlank()) return false
+        val file = albumArtFileFromUri(uriString) ?: return false
+        return file.absolutePath.isUnderDir(legacyAlbumArtDir(context))
+    }
+
+    fun isCurrentCachedArtUri(context: Context, uriString: String?): Boolean {
+        if (uriString.isNullOrBlank()) return false
+        val file = albumArtFileFromUri(uriString) ?: return false
+        return file.absolutePath.isUnderDir(currentAlbumArtDir(context))
     }
 
     fun isCachedArtReadable(context: Context, uriString: String?): Boolean {
@@ -55,12 +73,16 @@ internal object AlbumArtCache {
         val missing = mutableListOf<String>()
         var albumArtUris = 0
         var cachedArtUris = 0
+        var currentCachedArtUris = 0
+        var legacyCachedArtUris = 0
         songs.forEach { song ->
             val uri = song.albumArtUri
             if (uri.isNullOrBlank()) return@forEach
             albumArtUris++
             if (isCachedArtUri(context, uri)) {
                 cachedArtUris++
+                if (isCurrentCachedArtUri(context, uri)) currentCachedArtUris++
+                if (isLegacyCachedArtUri(context, uri)) legacyCachedArtUris++
                 if (!isCachedArtReadable(context, uri)) {
                     val name = albumArtFileFromUri(uri)?.name
                         ?: Uri.parse(uri).lastPathSegment.orEmpty()
@@ -74,6 +96,8 @@ internal object AlbumArtCache {
             cachedArtUris = cachedArtUris,
             missingCachedArtUris = missing.size,
             missingSamples = missing.take(8),
+            currentCachedArtUris = currentCachedArtUris,
+            legacyCachedArtUris = legacyCachedArtUris,
         )
     }
 
@@ -85,8 +109,6 @@ internal object AlbumArtCache {
 
     /** 删除曲库未引用的封面文件（保留 [songs] 中 `albumArtUri` 仍指向的 jpg）。 */
     fun pruneUnreferenced(context: Context, songs: List<Song>) {
-        val dir = albumArtDir(context)
-        if (!dir.exists()) return
         val keep = buildSet {
             songs.forEach { song ->
                 if (isCachedArtUri(context, song.albumArtUri)) {
@@ -94,15 +116,21 @@ internal object AlbumArtCache {
                 }
             }
         }
-        dir.listFiles()?.forEach { file ->
-            if (!file.isFile) return@forEach
-            if (file.nameWithoutExtension !in keep) {
-                file.delete()
+        listOf(currentAlbumArtDir(context), legacyAlbumArtDir(context)).forEach { dir ->
+            if (!dir.exists()) return@forEach
+            dir.listFiles()?.forEach { file ->
+                if (!file.isFile) return@forEach
+                if (file.nameWithoutExtension !in keep) {
+                    file.delete()
+                }
             }
         }
     }
 
-    private fun albumArtDir(context: Context): File =
+    private fun currentAlbumArtDir(context: Context): File =
+        File(context.noBackupFilesDir, ScanCacheManager.DIR_ALBUM_ART)
+
+    private fun legacyAlbumArtDir(context: Context): File =
         File(context.cacheDir, ScanCacheManager.DIR_ALBUM_ART)
 
     private fun albumArtFileFromUri(uriString: String): File? {
@@ -110,5 +138,10 @@ internal object AlbumArtCache {
         if (uri.scheme != "file") return null
         return runCatching { File(java.net.URI(uriString)) }
             .getOrElse { uri.path?.let(::File) }
+    }
+
+    private fun String.isUnderDir(dir: File): Boolean {
+        val root = dir.absolutePath.trimEnd(File.separatorChar, '/', '\\')
+        return this == root || startsWith("$root${File.separator}")
     }
 }

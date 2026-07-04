@@ -62,6 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "queue=${playerController.songQueue.size}",
                     )
                 }
+                library.launchArtworkCacheRepairIfNeeded("startup")
             }
         }
     }

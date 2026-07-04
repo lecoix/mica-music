@@ -15,6 +15,17 @@ import org.robolectric.RobolectricTestRunner
 class AlbumArtCacheTest {
 
     @Test
+    fun fileForKeyUsesNoBackupDirectoryForNewArtwork() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val file = AlbumArtCache.fileForKey(context, "new-art")
+
+        assertEquals(
+            File(context.noBackupFilesDir, ScanCacheManager.DIR_ALBUM_ART).absolutePath,
+            file.parentFile?.absolutePath,
+        )
+    }
+
+    @Test
     fun reusableCachedSongRejectsMissingCachedAlbumArtFile() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val missing = File(context.cacheDir, "${ScanCacheManager.DIR_ALBUM_ART}/missing.jpg")
@@ -87,7 +98,10 @@ class AlbumArtCacheTest {
         assertEquals(3, health.songs)
         assertEquals(3, health.albumArtUris)
         assertEquals(2, health.cachedArtUris)
+        assertEquals(0, health.currentCachedArtUris)
+        assertEquals(2, health.legacyCachedArtUris)
         assertEquals(1, health.missingCachedArtUris)
+        assertEquals(true, health.needsRepair)
         assertEquals(listOf("missing:health-missing.jpg"), health.missingSamples)
     }
 
