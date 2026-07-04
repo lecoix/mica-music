@@ -114,6 +114,7 @@ fun NowPlayingScreen(
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
+    handleBackToClose: Boolean = true,
 ) {
     NowPlayingContent(
         library = library,
@@ -131,6 +132,7 @@ fun NowPlayingScreen(
         contentPadding = contentPadding,
         coverContentAlpha = coverContentAlpha,
         onCoverBoundsChanged = onCoverBoundsChanged,
+        handleBackToClose = handleBackToClose,
     )
 }
 
@@ -151,6 +153,7 @@ fun NowPlayingContent(
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
+    handleBackToClose: Boolean = true,
 ) {
     val song = surfaceState.currentSong
     if (song == null) {
@@ -291,7 +294,7 @@ fun NowPlayingContent(
     val photoStackNavigation = remember { PhotoStackCarouselNavigationBridge() }
 
     BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
-    BackHandler(enabled = !lyricsExpanded) { onClose() }
+    BackHandler(enabled = handleBackToClose && !lyricsExpanded) { onClose() }
 
     if (queueSheetOpen) {
         PlaybackQueueSheet(

@@ -1,6 +1,6 @@
 package com.mica.music.ui.components
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +31,7 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.NowPlayingContent
+import kotlinx.coroutines.CancellationException
 
 @Composable
 fun PlayerSheetHost(
@@ -56,8 +60,10 @@ fun PlayerSheetHost(
     }
     val motionEnabled = rememberMicaMotionEnabled()
     val expansion = remember { Animatable(if (expanded) 1f else 0f) }
+    var predictiveBackInProgress by remember { mutableStateOf(false) }
 
     LaunchedEffect(expanded, motionEnabled) {
+        if (predictiveBackInProgress) return@LaunchedEffect
         expansion.animateTo(
             targetValue = if (expanded) 1f else 0f,
             animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
@@ -71,8 +77,25 @@ fun PlayerSheetHost(
         onOverlayFullScreenChange(showFullPlayer)
     }
 
-    BackHandler(enabled = showFullPlayer) {
-        onExpandedChange(false)
+    PredictiveBackHandler(enabled = showFullPlayer) { backEvents ->
+        predictiveBackInProgress = true
+        try {
+            backEvents.collect { backEvent ->
+                expansion.snapTo(1f - backEvent.progress)
+            }
+            expansion.animateTo(
+                targetValue = 0f,
+                animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
+            )
+            onExpandedChange(false)
+        } catch (_: CancellationException) {
+            expansion.animateTo(
+                targetValue = 1f,
+                animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
+            )
+        } finally {
+            predictiveBackInProgress = false
+        }
     }
 
     Box(
@@ -118,6 +141,7 @@ fun PlayerSheetHost(
                     onOpenSongDetail = onOpenSongDetail,
                     onBrowseArtist = onBrowseArtist,
                     onBrowseAlbum = onBrowseAlbum,
+                    handleBackToClose = false,
                     contentPadding = contentPadding,
                 )
             }
