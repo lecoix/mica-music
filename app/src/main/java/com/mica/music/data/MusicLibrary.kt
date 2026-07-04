@@ -189,10 +189,20 @@ class MusicLibrary internal constructor(
     private fun applyPlayStats(songId: String, stats: PlayStats) {
         val scannedIndex = scannedSongs.indexOfFirst { it.id == songId }
         if (scannedIndex < 0) return
+        val oldScanned = scannedSongs[scannedIndex]
         val updatedScanned = scannedSongs[scannedIndex].copy(
             playCount = stats.count,
             totalListenSeconds = stats.totalListenSeconds,
             lastPlayedAtMs = stats.lastPlayedAtMs,
+        )
+        DiagnosticLog.event(
+            "LibraryMutation",
+            "diag=play-stats-song-update song=${songId.takeLast(12)} " +
+                "fields=${SongChangeDiagnostics.summarizeChangedFields(oldScanned, updatedScanned)} " +
+                "count=${oldScanned.playCount}->${updatedScanned.playCount} " +
+                "listen=${oldScanned.totalListenSeconds}->${updatedScanned.totalListenSeconds} " +
+                "lastPlayed=${oldScanned.lastPlayedAtMs}->${updatedScanned.lastPlayedAtMs} " +
+                "sort=$sortField/$sortDirection visibleIndex=${songs.indexOfFirst { it.id == songId }}",
         )
         scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updatedScanned }
         when (sortField) {

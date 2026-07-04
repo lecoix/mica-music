@@ -487,7 +487,16 @@ class PlayerController internal constructor(
         c.addListener(object : Player.Listener {
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 if (c.mediaItemCount <= 0) return
-                if (!isQueueMirrorAligned(c)) {
+                val mirrorAligned = isQueueMirrorAligned(c)
+                logPlayCountProbe(
+                    "timeline reason=${timelineChangeReasonForLog(reason)} " +
+                        "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
+                        "current=${currentSong?.id.shortSongIdOrNone()} " +
+                        "playerIndex=${c.currentMediaItemIndex} playerItems=${c.mediaItemCount} " +
+                        "queueSize=${songQueue.size} mirrorAligned=$mirrorAligned " +
+                        "pending=${pendingPlayCountSongId?.shortSongId() ?: "none"}",
+                )
+                if (!mirrorAligned) {
                     scheduleQueueMirrorFromPlayer(c)
                     return
                 }
@@ -501,9 +510,22 @@ class PlayerController internal constructor(
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val previousSongId = currentSong?.id
-                if (!syncIndexFromPlayer(c)) return
+                val transitionSongId = mediaItem?.mediaId
+                val pendingBefore = pendingPlayCountSongId
+                if (!syncIndexFromPlayer(c)) {
+                    logPlayCountProbe(
+                        "transition-skip reason=${mediaTransitionReasonForLog(reason)} " +
+                            "transitionSong=${transitionSongId.shortSongIdOrNone()} " +
+                            "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
+                            "previous=${previousSongId.shortSongIdOrNone()} " +
+                            "pendingBefore=${pendingBefore.shortSongIdOrNone()} " +
+                            "cause=sync-index-rejected",
+                    )
+                    return
+                }
                 updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
-                val currentSongChanged = previousSongId != currentSong?.id
+                val newSongId = currentSong?.id
+                val currentSongChanged = previousSongId != newSongId
                 val shouldResetPosition =
                     reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
                         reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO &&
@@ -522,8 +544,21 @@ class PlayerController internal constructor(
                 } else {
                     playbackError = null
                 }
-                pendingPlayCountSongId = mediaItem?.mediaId
-                    ?.takeIf { shouldArmPlayCount(reason, previousSongId, currentSong?.id) }
+                val shouldArmPlayCount = shouldArmPlayCount(reason, previousSongId, newSongId)
+                pendingPlayCountSongId = transitionSongId
+                    ?.takeIf { shouldArmPlayCount }
+                logPlayCountProbe(
+                    "transition reason=${mediaTransitionReasonForLog(reason)} " +
+                        "transitionSong=${transitionSongId.shortSongIdOrNone()} " +
+                        "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
+                        "previous=${previousSongId.shortSongIdOrNone()} " +
+                        "new=${newSongId.shortSongIdOrNone()} changed=$currentSongChanged " +
+                        "arm=$shouldArmPlayCount reset=$shouldResetPosition " +
+                        "isPlaying=${c.isPlaying} playerIndex=${c.currentMediaItemIndex} " +
+                        "playerItems=${c.mediaItemCount} queueIndex=$currentIndex queueSize=${songQueue.size} " +
+                        "pendingBefore=${pendingBefore.shortSongIdOrNone()} " +
+                        "pendingAfter=${pendingPlayCountSongId.shortSongIdOrNone()}",
+                )
                 if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
                 publishPlaybackStates()
                 publishPlayCountIfStarted(c, c.isPlaying)
@@ -554,6 +589,13 @@ class PlayerController internal constructor(
             override fun onIsPlayingChanged(playing: Boolean) {
                 updateListenSession(c.currentMediaItem?.mediaId, playing)
                 isPlaying = playing
+                if (pendingPlayCountSongId != null) {
+                    logPlayCountProbe(
+                        "is-playing-changed playing=$playing " +
+                            "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
+                            "pending=${pendingPlayCountSongId.shortSongIdOrNone()}",
+                    )
+                }
                 if (playing) {
                     releasePendingRestorePosition(c.currentMediaItem?.mediaId)
                     syncPosition()
@@ -632,13 +674,28 @@ class PlayerController internal constructor(
     }
 
     private fun publishPlayCountIfStarted(player: Player, playing: Boolean) {
-        if (!playing) return
-        pendingPlayCountSongId
-            ?.takeIf { it == player.currentMediaItem?.mediaId }
-            ?.let { songId ->
-                pendingPlayCountSongId = null
-                onSongPlayStarted?.invoke(songId)
-            }
+        val pendingSongId = pendingPlayCountSongId ?: return
+        val playerSongId = player.currentMediaItem?.mediaId
+        if (!playing) {
+            logPlayCountProbe(
+                "publish-skip reason=not-playing playerSong=${playerSongId.shortSongIdOrNone()} " +
+                    "pending=${pendingSongId.shortSongId()}",
+            )
+            return
+        }
+        if (pendingSongId != playerSongId) {
+            logPlayCountProbe(
+                "publish-skip reason=song-mismatch playerSong=${playerSongId.shortSongIdOrNone()} " +
+                    "pending=${pendingSongId.shortSongId()}",
+            )
+            return
+        }
+        pendingPlayCountSongId = null
+        logPlayCountProbe(
+            "publish-consume song=${pendingSongId.shortSongId()} " +
+                "playerIndex=${player.currentMediaItemIndex} playerItems=${player.mediaItemCount}",
+        )
+        onSongPlayStarted?.invoke(pendingSongId)
     }
 
     /** 仅在真正切歌/重播时预备计数；seek、同曲队列刷新、暂停后恢复不算新播放。 */
@@ -649,9 +706,9 @@ class PlayerController internal constructor(
     ): Boolean {
         val newId = newSongId ?: return false
         return when (reason) {
-            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
-            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
-            -> true
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ->
+                previousSongId != newId
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> true
             Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED ->
                 previousSongId != newId
             else -> false
@@ -829,6 +886,7 @@ class PlayerController internal constructor(
         }
 
         if (playbackUnchanged) {
+            val metadataDiff = summarizePlaybackUnchangedQueueDiff(songQueue, newQueue, currentIndex)
             if (songQueue != newQueue) {
                 commitSongQueue(newQueue)
                 preserveId?.let { playbackOrderState = playbackOrderState.moveTo(it) }
@@ -848,7 +906,8 @@ class PlayerController internal constructor(
             DiagnosticLog.event(
                 "LibraryQueue",
                 "setQueue playbackUnchanged durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${controller?.mediaItemCount ?: 0}",
+                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${controller?.mediaItemCount ?: 0} " +
+                    metadataDiff,
             )
             return
         }
@@ -1563,6 +1622,62 @@ class PlayerController internal constructor(
         controllerConnection?.cancel()
         controllerConnection = null
     }
+}
+
+private const val PLAY_COUNT_PROBE = "DEBUG-PLAYCOUNT-9D2A"
+
+private fun logPlayCountProbe(message: String) {
+    DiagnosticLog.event("PlayCountProbe", "$PLAY_COUNT_PROBE $message")
+}
+
+private fun mediaTransitionReasonForLog(reason: Int): String =
+    when (reason) {
+        Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> "repeat"
+        Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "auto"
+        Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "seek"
+        Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "playlist-changed"
+        else -> "unknown-$reason"
+    }
+
+private fun timelineChangeReasonForLog(reason: Int): String =
+    when (reason) {
+        Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED -> "playlist-changed"
+        Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE -> "source-update"
+        else -> "unknown-$reason"
+    }
+
+private fun String.shortSongId(): String =
+    takeLast(12)
+
+private fun String?.shortSongIdOrNone(): String =
+    this?.shortSongId() ?: "none"
+
+private fun summarizePlaybackUnchangedQueueDiff(
+    oldQueue: List<Song>,
+    newQueue: List<Song>,
+    currentIndex: Int,
+): String {
+    if (oldQueue == newQueue) return "diag=playback-unchanged-song-diff songDiff=none"
+    var changedCount = 0
+    var firstChangedIndex = -1
+    for (index in oldQueue.indices) {
+        if (oldQueue[index] != newQueue[index]) {
+            changedCount++
+            if (firstChangedIndex < 0) firstChangedIndex = index
+        }
+    }
+    val safeCurrent = currentIndex.takeIf { it in oldQueue.indices && it in newQueue.indices }
+    val currentFields = safeCurrent?.let { index ->
+        SongChangeDiagnostics.summarizeChangedFields(oldQueue[index], newQueue[index])
+    } ?: "n/a"
+    val firstFields = firstChangedIndex.takeIf { it >= 0 }?.let { index ->
+        SongChangeDiagnostics.summarizeChangedFields(oldQueue[index], newQueue[index])
+    } ?: "n/a"
+    val firstSongId = firstChangedIndex.takeIf { it >= 0 }
+        ?.let { newQueue[it].id.takeLast(12) }
+        ?: "none"
+    return "diag=playback-unchanged-song-diff songDiff=nonPlayback changedSongs=$changedCount firstIndex=$firstChangedIndex " +
+        "firstSong=$firstSongId firstFields=$firstFields currentFields=$currentFields"
 }
 
 /**
