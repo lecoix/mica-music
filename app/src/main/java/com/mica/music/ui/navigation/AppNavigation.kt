@@ -117,6 +117,7 @@ fun AppNavigationMain(
                 playbackState = HomePlaybackState(
                     currentSong = playerController.currentSong,
                     isPlaying = playerController.playbackSurfaceState.isPlaying,
+                    positionMs = playerController.playbackProgressState.positionMs,
                     queue = playerController.songQueue,
                 ),
                 playbackActions = homePlaybackActions,
@@ -332,6 +333,7 @@ private fun rememberHomePlaybackActions(
             insertPlayNext = playerController::insertPlayNext,
             setQueue = playerController::setQueue,
             togglePlay = playerController::togglePlay,
+            previous = playerController::previous,
             next = playerController::next,
         )
     }

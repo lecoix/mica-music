@@ -152,10 +152,18 @@ fun PlayerSheetHost(
                 style = uiSettings.miniPlayerStyle,
                 song = song,
                 isPlaying = surfaceState.isPlaying,
+                positionMs = progressState.positionMs,
                 onPlayPause = actions.togglePlay,
+                onPrevious = actions.previous,
                 onNext = actions.next,
                 onExpand = { onExpandedChange(true) },
                 onLongPress = onLocateCurrentSong,
+                miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
+                lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+                lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
+                leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
+                rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .graphicsLayer {

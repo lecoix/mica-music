@@ -2,7 +2,9 @@ package com.mica.music.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -19,23 +22,34 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.R
 import com.mica.music.data.ArtistNames
+import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.Song
+import com.mica.music.media.NotificationLyrics
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCustomMicaBackground
@@ -46,11 +60,16 @@ import com.mica.music.ui.theme.FloatingIslandShadowSpread
 import com.mica.music.ui.theme.FloatingIslandShadowVerticalExtra
 import com.mica.music.ui.theme.MicaMaterialBackdrop
 import com.mica.music.ui.theme.FloatingIslandShadowHalo
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.graphics.graphicsLayer
 
 private val FloatingCoverSize = 48.dp
 private val FloatingCardHeight = 64.dp
+private val MiniPlayerSwipeCommitDistance = 56.dp
+private const val MiniPlayerTestTag = "MiniPlayer"
+
+private data class MiniPlayerText(
+    val primary: String,
+    val secondary: String,
+)
 /**
  * 云母卡片左右距屏幕边缘相等（竖中线对称）。
  * 与 [SongRow] 列表专辑图横向三等分后，取左段右缘作为卡片左缘。
@@ -99,10 +118,18 @@ fun MiniPlayer(
     style: MiniPlayerStyle,
     song: Song,
     isPlaying: Boolean,
+    positionMs: Int = 0,
     onPlayPause: () -> Unit,
+    onPrevious: () -> Unit = {},
     onNext: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit = {},
+    miniPlayerLyricsEnabled: Boolean = true,
+    lyricSplitEnabled: Boolean = true,
+    lyricsBilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+    swipeEnabled: Boolean = false,
+    leftSwipeAction: MiniPlayerSwipeAction = MiniPlayerSwipeAction.NEXT,
+    rightSwipeAction: MiniPlayerSwipeAction = MiniPlayerSwipeAction.PREVIOUS,
     coverAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -115,29 +142,137 @@ fun MiniPlayer(
         MiniPlayerStyle.FLOATING_ISLAND -> HifiSpacing.sm
         MiniPlayerStyle.AUDIOPHILE -> 0.dp
     }
+    val swipeModifier = modifier
+        .testTag(MiniPlayerTestTag)
+        .miniPlayerSwipe(
+            enabled = swipeEnabled,
+            leftSwipeAction = leftSwipeAction,
+            rightSwipeAction = rightSwipeAction,
+            onPrevious = onPrevious,
+            onNext = onNext,
+        )
+    val displayText = miniPlayerText(
+        song = song,
+        isPlaying = isPlaying,
+        positionMs = positionMs,
+        enabled = miniPlayerLyricsEnabled,
+        lyricSplitEnabled = lyricSplitEnabled,
+        lyricsBilingualDisplayMode = lyricsBilingualDisplayMode,
+    )
     when (style) {
         MiniPlayerStyle.FLOATING_ISLAND -> FloatingIslandMiniPlayer(
             song = song,
             isPlaying = isPlaying,
+            text = displayText,
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
             coverAlpha = coverAlpha,
             onCoverBoundsChanged = onCoverBoundsChanged,
             bottomInset = bottomInset,
-            modifier = modifier,
+            modifier = swipeModifier,
         )
         MiniPlayerStyle.AUDIOPHILE -> AudiophileMiniPlayer(
             song = song,
             isPlaying = isPlaying,
+            text = displayText,
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
             onCoverBoundsChanged = onCoverBoundsChanged,
             bottomInset = bottomInset,
-            modifier = modifier,
+            modifier = swipeModifier,
         )
     }
+}
+
+private fun miniPlayerText(
+    song: Song,
+    isPlaying: Boolean,
+    positionMs: Int,
+    enabled: Boolean,
+    lyricSplitEnabled: Boolean,
+    lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
+): MiniPlayerText {
+    val artist = ArtistNames.normalizeDisplay(song.artist)
+    val fallback = MiniPlayerText(
+        primary = song.title,
+        secondary = artist,
+    )
+    if (!enabled || !isPlaying) return fallback
+
+    val lyricIndex = NotificationLyrics.lyricIndexForPosition(song.lyrics, positionMs)
+    if (lyricIndex < 0) return fallback
+
+    val lyric = NotificationLyrics.lyricLineText(
+        lyrics = song.lyrics,
+        index = lyricIndex,
+        display = NotificationLyrics.DisplayOptions(
+            splitEnabled = lyricSplitEnabled,
+            bilingualMode = lyricsBilingualDisplayMode,
+        ),
+    ) ?: return fallback
+
+    return MiniPlayerText(
+        primary = lyric,
+        secondary = NotificationLyrics.subtitle(song.title, artist),
+    )
+}
+
+@Composable
+private fun Modifier.miniPlayerSwipe(
+    enabled: Boolean,
+    leftSwipeAction: MiniPlayerSwipeAction,
+    rightSwipeAction: MiniPlayerSwipeAction,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+): Modifier {
+    if (!enabled) return this
+    val thresholdPx = with(LocalDensity.current) { MiniPlayerSwipeCommitDistance.toPx() }
+    var dragPx by remember { mutableFloatStateOf(0f) }
+
+    fun runAction(action: MiniPlayerSwipeAction) {
+        when (action) {
+            MiniPlayerSwipeAction.PREVIOUS -> onPrevious()
+            MiniPlayerSwipeAction.NEXT -> onNext()
+        }
+    }
+
+    return pointerInput(enabled, leftSwipeAction, rightSwipeAction, onPrevious, onNext, thresholdPx) {
+        detectHorizontalDragGestures(
+            onDragEnd = {
+                when {
+                    dragPx <= -thresholdPx -> runAction(leftSwipeAction)
+                    dragPx >= thresholdPx -> runAction(rightSwipeAction)
+                }
+                dragPx = 0f
+            },
+            onDragCancel = {
+                dragPx = 0f
+            },
+            onHorizontalDrag = { change, dragAmount ->
+                change.consume()
+                dragPx += dragAmount
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MiniPlayerMarqueeText(
+    text: String,
+    style: TextStyle,
+    color: androidx.compose.ui.graphics.Color,
+) {
+    Text(
+        text = text,
+        style = style,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.basicMarquee(),
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -145,6 +280,7 @@ fun MiniPlayer(
 private fun FloatingIslandMiniPlayer(
     song: Song,
     isPlaying: Boolean,
+    text: MiniPlayerText,
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
@@ -216,19 +352,15 @@ private fun FloatingIslandMiniPlayer(
                 )
                 Spacer(Modifier.width(HifiSpacing.md))
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        text = song.title,
+                    MiniPlayerMarqueeText(
+                        text = text.primary,
                         style = MicaTheme.typography.bodyLg,
                         color = colors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = ArtistNames.normalizeDisplay(song.artist),
+                    MiniPlayerMarqueeText(
+                        text = text.secondary,
                         style = MicaTheme.typography.bodySm,
                         color = colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 SharpPlayPauseButton(
@@ -248,6 +380,7 @@ private fun FloatingIslandMiniPlayer(
 private fun AudiophileMiniPlayer(
     song: Song,
     isPlaying: Boolean,
+    text: MiniPlayerText,
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
@@ -295,19 +428,15 @@ private fun AudiophileMiniPlayer(
                     .weight(1f)
                     .padding(end = HifiSpacing.sm),
             ) {
-                Text(
-                    text = song.title,
+                MiniPlayerMarqueeText(
+                    text = text.primary,
                     style = MicaTheme.typography.bodyMd,
                     color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = ArtistNames.normalizeDisplay(song.artist),
+                MiniPlayerMarqueeText(
+                    text = text.secondary,
                     style = MicaTheme.typography.bodySm,
                     color = colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
             MiniPlayerSpectrumBars(

@@ -101,6 +101,30 @@ class PreferencesRobolectricTest {
     }
 
     @Test
+    fun miniPlayerLyricsEnabledRoundTrips() {
+        assertTrue(AppPreferences.miniPlayerLyricsEnabled(context))
+
+        AppPreferences.setMiniPlayerLyricsEnabled(context, false)
+
+        assertEquals(false, AppPreferences.miniPlayerLyricsEnabled(context))
+    }
+
+    @Test
+    fun miniPlayerSwipeSettingsRoundTrip() {
+        assertEquals(false, AppPreferences.miniPlayerSwipeEnabled(context))
+        assertEquals(MiniPlayerSwipeAction.NEXT, AppPreferences.miniPlayerLeftSwipeAction(context))
+        assertEquals(MiniPlayerSwipeAction.PREVIOUS, AppPreferences.miniPlayerRightSwipeAction(context))
+
+        AppPreferences.setMiniPlayerSwipeEnabled(context, true)
+        AppPreferences.setMiniPlayerLeftSwipeAction(context, MiniPlayerSwipeAction.PREVIOUS)
+        AppPreferences.setMiniPlayerRightSwipeAction(context, MiniPlayerSwipeAction.NEXT)
+
+        assertTrue(AppPreferences.miniPlayerSwipeEnabled(context))
+        assertEquals(MiniPlayerSwipeAction.PREVIOUS, AppPreferences.miniPlayerLeftSwipeAction(context))
+        assertEquals(MiniPlayerSwipeAction.NEXT, AppPreferences.miniPlayerRightSwipeAction(context))
+    }
+
+    @Test
     fun excludedScanDirectoriesRoundTripNormalizedPaths() {
         AppPreferences.setExcludedScanDirectories(
             context,

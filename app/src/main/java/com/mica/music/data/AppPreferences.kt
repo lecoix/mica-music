@@ -30,6 +30,10 @@ object AppPreferences {
     private const val KEY_SONG_SORT_DIRECTION = "song_sort_direction"
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
     private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
+    private const val KEY_MINI_PLAYER_LYRICS_ENABLED = "mini_player_lyrics_enabled"
+    private const val KEY_MINI_PLAYER_SWIPE_ENABLED = "mini_player_swipe_enabled"
+    private const val KEY_MINI_PLAYER_LEFT_SWIPE_ACTION = "mini_player_left_swipe_action"
+    private const val KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION = "mini_player_right_swipe_action"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     private const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
@@ -207,6 +211,40 @@ object AppPreferences {
 
     fun setMiniPlayerStyle(context: Context, style: MiniPlayerStyle) {
         prefs(context).edit().putString(KEY_MINI_PLAYER_STYLE, style.storageValue).apply()
+    }
+
+    fun miniPlayerLyricsEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_MINI_PLAYER_LYRICS_ENABLED, true)
+
+    fun setMiniPlayerLyricsEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_MINI_PLAYER_LYRICS_ENABLED, enabled).apply()
+    }
+
+    fun miniPlayerSwipeEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_MINI_PLAYER_SWIPE_ENABLED, false)
+
+    fun setMiniPlayerSwipeEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_MINI_PLAYER_SWIPE_ENABLED, enabled).apply()
+    }
+
+    fun miniPlayerLeftSwipeAction(context: Context): MiniPlayerSwipeAction =
+        MiniPlayerSwipeAction.fromStorage(
+            prefs(context).getString(KEY_MINI_PLAYER_LEFT_SWIPE_ACTION, null),
+            MiniPlayerSwipeAction.NEXT,
+        )
+
+    fun setMiniPlayerLeftSwipeAction(context: Context, action: MiniPlayerSwipeAction) {
+        prefs(context).edit().putString(KEY_MINI_PLAYER_LEFT_SWIPE_ACTION, action.storageValue).apply()
+    }
+
+    fun miniPlayerRightSwipeAction(context: Context): MiniPlayerSwipeAction =
+        MiniPlayerSwipeAction.fromStorage(
+            prefs(context).getString(KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION, null),
+            MiniPlayerSwipeAction.PREVIOUS,
+        )
+
+    fun setMiniPlayerRightSwipeAction(context: Context, action: MiniPlayerSwipeAction) {
+        prefs(context).edit().putString(KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION, action.storageValue).apply()
     }
 
     fun coverDisplayMode(context: Context): CoverDisplayMode =

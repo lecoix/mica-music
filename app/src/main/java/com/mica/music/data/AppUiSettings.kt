@@ -42,6 +42,18 @@ class AppUiSettings(context: Context) {
     var miniPlayerStyle by mutableStateOf(AppPreferences.miniPlayerStyle(appContext))
         private set
 
+    var miniPlayerLyricsEnabled by mutableStateOf(AppPreferences.miniPlayerLyricsEnabled(appContext))
+        private set
+
+    var miniPlayerSwipeEnabled by mutableStateOf(AppPreferences.miniPlayerSwipeEnabled(appContext))
+        private set
+
+    var miniPlayerLeftSwipeAction by mutableStateOf(AppPreferences.miniPlayerLeftSwipeAction(appContext))
+        private set
+
+    var miniPlayerRightSwipeAction by mutableStateOf(AppPreferences.miniPlayerRightSwipeAction(appContext))
+        private set
+
     var coverDisplayMode by mutableStateOf(AppPreferences.coverDisplayMode(appContext))
         private set
 
@@ -147,6 +159,26 @@ class AppUiSettings(context: Context) {
         miniPlayerStyle = style
         AppPreferences.setMiniPlayerStyle(appContext, style)
         syncSpectrumAnalyzer(notifyPipeline = true)
+    }
+
+    fun updateMiniPlayerLyricsEnabled(enabled: Boolean) {
+        miniPlayerLyricsEnabled = enabled
+        AppPreferences.setMiniPlayerLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateMiniPlayerSwipeEnabled(enabled: Boolean) {
+        miniPlayerSwipeEnabled = enabled
+        AppPreferences.setMiniPlayerSwipeEnabled(appContext, enabled)
+    }
+
+    fun updateMiniPlayerLeftSwipeAction(action: MiniPlayerSwipeAction) {
+        miniPlayerLeftSwipeAction = action
+        AppPreferences.setMiniPlayerLeftSwipeAction(appContext, action)
+    }
+
+    fun updateMiniPlayerRightSwipeAction(action: MiniPlayerSwipeAction) {
+        miniPlayerRightSwipeAction = action
+        AppPreferences.setMiniPlayerRightSwipeAction(appContext, action)
     }
 
     fun updateCoverDisplayMode(mode: CoverDisplayMode) {

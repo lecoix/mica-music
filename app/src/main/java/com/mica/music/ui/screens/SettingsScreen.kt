@@ -65,6 +65,7 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
@@ -108,6 +109,10 @@ private val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries
     .map { it.ordinal to it.settingsLabel }
 
 private val MiniPlayerStyleChoices = MiniPlayerStyle.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+private val MiniPlayerSwipeActionChoices = MiniPlayerSwipeAction.entries.map {
     it.ordinal to it.settingsLabel
 }
 
@@ -405,6 +410,44 @@ fun SettingsScreen(
                             selectedValue = uiSettings.miniPlayerStyle.ordinal,
                             onSelect = { ordinal ->
                                 uiSettings.updateMiniPlayerStyle(MiniPlayerStyle.entries[ordinal])
+                            },
+                        )
+
+                        SettingsToggleRow(
+                            title = "迷你播放栏歌词",
+                            subtitle = "播放中在迷你播放栏显示当前歌词，关闭后显示歌名和歌手",
+                            checked = uiSettings.miniPlayerLyricsEnabled,
+                            onCheckedChange = { uiSettings.updateMiniPlayerLyricsEnabled(it) },
+                        )
+
+                        SettingsToggleRow(
+                            title = "迷你播放栏滑动切歌",
+                            subtitle = "开启后可在迷你播放栏左右滑动切换歌曲",
+                            checked = uiSettings.miniPlayerSwipeEnabled,
+                            onCheckedChange = { uiSettings.updateMiniPlayerSwipeEnabled(it) },
+                        )
+
+                        SettingsDropdownRow(
+                            title = "左滑动作",
+                            subtitle = "手指向左滑动后的切歌动作",
+                            choices = MiniPlayerSwipeActionChoices,
+                            selectedValue = uiSettings.miniPlayerLeftSwipeAction.ordinal,
+                            onSelect = { ordinal ->
+                                uiSettings.updateMiniPlayerLeftSwipeAction(
+                                    MiniPlayerSwipeAction.entries[ordinal],
+                                )
+                            },
+                        )
+
+                        SettingsDropdownRow(
+                            title = "右滑动作",
+                            subtitle = "手指向右滑动后的切歌动作",
+                            choices = MiniPlayerSwipeActionChoices,
+                            selectedValue = uiSettings.miniPlayerRightSwipeAction.ordinal,
+                            onSelect = { ordinal ->
+                                uiSettings.updateMiniPlayerRightSwipeAction(
+                                    MiniPlayerSwipeAction.entries[ordinal],
+                                )
                             },
                         )
                     }

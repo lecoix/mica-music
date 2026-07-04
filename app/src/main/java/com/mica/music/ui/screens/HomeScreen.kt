@@ -218,6 +218,7 @@ private val BrowseDestinationSaver = Saver<BrowseDestination, List<String>>(
 data class HomePlaybackState(
     val currentSong: Song?,
     val isPlaying: Boolean,
+    val positionMs: Int = 0,
     val queue: List<Song>,
 )
 
@@ -226,6 +227,7 @@ data class HomePlaybackActions(
     val insertPlayNext: (Song) -> Unit,
     val setQueue: (List<Song>) -> Unit,
     val togglePlay: () -> Unit,
+    val previous: () -> Unit,
     val next: () -> Unit,
 )
 
@@ -944,10 +946,18 @@ fun HomeScreen(
                         style = miniPlayerStyle,
                         song = song,
                         isPlaying = playbackState.isPlaying,
+                        positionMs = playbackState.positionMs,
                         onPlayPause = playbackActions.togglePlay,
+                        onPrevious = playbackActions.previous,
                         onNext = playbackActions.next,
                         onExpand = onMiniPlayerExpand,
                         onLongPress = ::locateCurrentSongInLibrary,
+                        miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
+                        lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+                        lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                        swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
+                        leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
+                        rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
                         coverAlpha = miniPlayerCoverAlpha,
                         onCoverBoundsChanged = onMiniPlayerCoverBoundsChanged,
                         modifier = Modifier,
