@@ -53,6 +53,7 @@ import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.system.StatusBarEffect
 import com.mica.music.ui.theme.NowPlayingBackground
+import com.mica.music.ui.theme.rememberPlaybackContentColors
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.ui.theme.relativeLuminance
 import com.mica.music.util.TrackSwitchPerformance
@@ -317,6 +318,10 @@ fun NowPlayingContent(
             val screenWidth = fullWidth
 
             val appearance = rememberPlayerScreenAppearance(song, lowerBackground)
+            val playerUiColors = rememberPlaybackContentColors(
+                appearance.contentColors,
+                uiSettings.playerPageTextColorMode,
+            )
             val darkTheme = uiSettings.isDarkTheme()
             StatusBarEffect(
                 hideStatusBar = uiSettings.hideStatusBar,
@@ -423,7 +428,7 @@ fun NowPlayingContent(
                         currentIndex = previewModel.currentIndex,
                         frame = previewModel.frame,
                         coverColor = appearance.coverColor,
-                        contentColors = appearance.contentColors,
+                        contentColors = playerUiColors,
                         lowerBackground = lowerBackground,
                         artworkJunction = appearance.artworkJunction,
                         seekState = seekState,
@@ -470,14 +475,17 @@ fun NowPlayingContent(
                             progressState = progressState,
                             activeSong = song,
                             lyrics = song.lyrics,
-                            colors = appearance.contentColors,
+                            autoContentColors = appearance.contentColors,
+                            colors = playerUiColors,
                             hifiBadgeColors = appearance.hifiBadgeColors,
+                            playerPageTextColorMode = uiSettings.playerPageTextColorMode,
                             lowerBackground = lowerBackground,
                             lower = pageModel.frame.lower,
                             seekState = seekState,
                             immersiveLower = immersiveLower,
                             lyricsPageOpen = lyricsExpanded,
                             lyricsPageImmersive = uiSettings.lyricsPageImmersive,
+                            lyricsTextColorMode = uiSettings.lyricsPageTextColorMode,
                             lyricsAlignment = uiSettings.lyricsPageAlignment,
                             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
                             lyricsTranslationFontSizeSp = uiSettings.lyricsPageTranslationFontSizeSp,

@@ -15,6 +15,24 @@ enum class LyricsPageAlignment(
     }
 }
 
+/** 播放页控件/歌词前景色覆盖（自动 / 固定浅色 / 固定深色）。 */
+enum class PlaybackContentColorMode(
+    val storageValue: String,
+    val settingsLabel: String,
+) {
+    AUTO("auto", "自动"),
+    LIGHT("light", "浅色（白）"),
+    DARK("dark", "深色（黑）"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): PlaybackContentColorMode =
+            entries.firstOrNull { it.storageValue == value } ?: AUTO
+    }
+}
+
+typealias LyricsPageTextColorMode = PlaybackContentColorMode
+
 enum class LyricsBilingualDisplayMode(
     val storageValue: String,
     val settingsLabel: String,

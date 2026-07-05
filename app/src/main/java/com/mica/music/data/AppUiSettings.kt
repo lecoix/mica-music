@@ -90,6 +90,12 @@ class AppUiSettings(context: Context) {
     var lyricLineFillEnabled by mutableStateOf(AppPreferences.lyricLineFillEnabled(appContext))
         private set
 
+    var playerPageTextColorMode by mutableStateOf(AppPreferences.playerPageTextColorMode(appContext))
+        private set
+
+    var lyricsPageTextColorMode by mutableStateOf(AppPreferences.lyricsPageTextColorMode(appContext))
+        private set
+
     var lyricsPageAlignment by mutableStateOf(AppPreferences.lyricsPageAlignment(appContext))
         private set
 
@@ -236,6 +242,16 @@ class AppUiSettings(context: Context) {
     fun updateLyricLineFillEnabled(enabled: Boolean) {
         lyricLineFillEnabled = enabled
         AppPreferences.setLyricLineFillEnabled(appContext, enabled)
+    }
+
+    fun updatePlayerPageTextColorMode(mode: PlaybackContentColorMode) {
+        playerPageTextColorMode = mode
+        AppPreferences.setPlayerPageTextColorMode(appContext, mode)
+    }
+
+    fun updateLyricsPageTextColorMode(mode: PlaybackContentColorMode) {
+        lyricsPageTextColorMode = mode
+        AppPreferences.setLyricsPageTextColorMode(appContext, mode)
     }
 
     fun updateLyricsPageAlignment(alignment: LyricsPageAlignment) {

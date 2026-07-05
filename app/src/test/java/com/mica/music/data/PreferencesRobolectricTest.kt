@@ -171,6 +171,25 @@ class PreferencesRobolectricTest {
     }
 
     @Test
+    fun playerPageTextColorModeDefaultsToAutoAndRoundTrips() {
+        assertEquals(PlaybackContentColorMode.AUTO, AppPreferences.playerPageTextColorMode(context))
+
+        AppPreferences.setPlayerPageTextColorMode(context, PlaybackContentColorMode.LIGHT)
+        assertEquals(PlaybackContentColorMode.LIGHT, AppPreferences.playerPageTextColorMode(context))
+    }
+
+    @Test
+    fun lyricsPageTextColorModeDefaultsToAutoAndRoundTrips() {
+        assertEquals(PlaybackContentColorMode.AUTO, AppPreferences.lyricsPageTextColorMode(context))
+
+        AppPreferences.setLyricsPageTextColorMode(context, PlaybackContentColorMode.LIGHT)
+        assertEquals(PlaybackContentColorMode.LIGHT, AppPreferences.lyricsPageTextColorMode(context))
+
+        AppPreferences.setLyricsPageTextColorMode(context, PlaybackContentColorMode.DARK)
+        assertEquals(PlaybackContentColorMode.DARK, AppPreferences.lyricsPageTextColorMode(context))
+    }
+
+    @Test
     fun lyricsPageTranslationFontSizeDefaultsToOriginalAndRoundTrips() {
         context.getSharedPreferences("mica_settings", Context.MODE_PRIVATE)
             .edit()

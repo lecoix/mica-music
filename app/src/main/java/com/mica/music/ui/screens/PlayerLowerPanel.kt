@@ -22,6 +22,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackSurfaceState
@@ -31,6 +32,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.LowerPanelFrame
+import com.mica.music.ui.theme.rememberLyricsContentColors
 import com.mica.music.ui.theme.PlayerContentColors
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -40,14 +42,17 @@ internal fun PlayerLowerPanelSection(
     progressState: PlaybackProgressState,
     activeSong: Song,
     lyrics: List<LyricLine>,
+    autoContentColors: PlayerContentColors,
     colors: PlayerContentColors,
     hifiBadgeColors: PlayerContentColors,
+    playerPageTextColorMode: PlaybackContentColorMode,
     lowerBackground: PlayerLowerBackgroundMode,
     lower: LowerPanelFrame,
     seekState: PlaybackSeekState,
     immersiveLower: Boolean,
     lyricsPageOpen: Boolean,
     lyricsPageImmersive: Boolean,
+    lyricsTextColorMode: PlaybackContentColorMode,
     lyricsAlignment: LyricsPageAlignment,
     lyricsFontSizeSp: Int,
     lyricsTranslationFontSizeSp: Int,
@@ -73,6 +78,12 @@ internal fun PlayerLowerPanelSection(
     val displayTitle = SongTitleDisplay.displayTitle(activeSong.title, stripSongTitleParentheses)
     val hideLyricsPageChrome = lyricsPageOpen && lyricsPageImmersive
     val playLongPress = if (lyricsPageOpen) onToggleLyricsPageImmersive else null
+    val lyricsColors = rememberLyricsContentColors(autoContentColors, lyricsTextColorMode)
+    val infoBarColors = when {
+        playerPageTextColorMode != PlaybackContentColorMode.AUTO -> colors
+        lowerBackground.usesBlurredArtwork -> hifiBadgeColors
+        else -> colors
+    }
     var compactLyricsCenterYPx by remember { mutableFloatStateOf(Float.NaN) }
     val showPlayerInfoRow = playerInfoVisibility.hasAnyEnabledSegment()
 
@@ -144,11 +155,7 @@ internal fun PlayerLowerPanelSection(
                         ) {
                             HiFiBadgeSection(
                                 song = activeSong,
-                                colors = if (lowerBackground.usesBlurredArtwork) {
-                                    hifiBadgeColors
-                                } else {
-                                    colors
-                                },
+                                colors = infoBarColors,
                                 playerInfoVisibility = playerInfoVisibility,
                             )
                         }
@@ -186,7 +193,7 @@ internal fun PlayerLowerPanelSection(
                             lyrics = lyrics,
                             positionMs = progressState.positionMs,
                             isPlaying = surfaceState.isPlaying,
-                            colors = colors,
+                            colors = lyricsColors,
                             lineSlots = lower.lyricLineSlots,
                             onClick = onOpenLyrics,
                             bilingualDisplayMode = lyricsBilingualDisplayMode,
@@ -211,7 +218,7 @@ internal fun PlayerLowerPanelSection(
                     lyrics = lyrics,
                     positionMs = progressState.positionMs,
                     isPlaying = surfaceState.isPlaying,
-                    colors = colors,
+                    colors = lyricsColors,
                     onLineClick = { timeMs ->
                         if (timeMs >= 0) onSeekToMs(timeMs)
                     },

@@ -53,19 +53,7 @@ internal object PlayerBackgroundBlend {
 
     fun readableTextColors(surface: Color): PlayerContentColors {
         val onLight = surface.relativeLuminance() > 0.42f
-        return if (onLight) {
-            PlayerContentColors(
-                primary = Color(0.12f, 0.12f, 0.14f),
-                secondary = Color(0.12f, 0.12f, 0.14f, 0.75f),
-                tertiary = Color(0.12f, 0.12f, 0.14f, 0.5f),
-            )
-        } else {
-            PlayerContentColors(
-                primary = HifiPalette.NeutralWhite,
-                secondary = HifiPalette.NeutralWhite.copy(alpha = 0.78f),
-                tertiary = HifiPalette.NeutralWhite.copy(alpha = 0.48f),
-            )
-        }
+        return if (onLight) darkPlayerContentColors() else lightPlayerContentColors()
     }
 
 }

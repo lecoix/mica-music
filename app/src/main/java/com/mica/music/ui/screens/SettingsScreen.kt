@@ -62,6 +62,7 @@ import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
@@ -132,6 +133,12 @@ private val PlayerCoverFlowChoices = PlayerCoverFlowMode.entries.map {
     it.ordinal to it.settingsLabel
 }
 
+private val PlaybackContentColorChoices = PlaybackContentColorMode.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+private val LyricsPageTextColorChoices = PlaybackContentColorChoices
+
 private val LyricsPageAlignmentChoices = LyricsPageAlignment.entries.map {
     it.ordinal to it.settingsLabel
 }
@@ -153,11 +160,11 @@ private enum class SettingsCategory(
     ),
     PLAYBACK(
         title = "播放页",
-        subtitle = "封面、播放页背景、信息行、特殊主题、频谱",
+        subtitle = "封面、播放页背景/UI 颜色、信息行、特殊主题、频谱",
     ),
     LYRICS(
         title = "歌词页",
-        subtitle = "双语拆分、逐字填充、歌词页样式",
+        subtitle = "双语拆分、逐字填充、歌词颜色与样式",
     ),
     LIST_INFO(
         title = "列表信息",
@@ -477,6 +484,18 @@ fun SettingsScreen(
                         )
 
                         SettingsChoiceRow(
+                            title = "播放页 UI 颜色",
+                            subtitle = "信息行、歌名、艺人、专辑、进度条与底部五个按钮；自动：随播放页背景与封面取色",
+                            choices = PlaybackContentColorChoices,
+                            selectedValue = uiSettings.playerPageTextColorMode.ordinal,
+                            onSelect = { ordinal ->
+                                uiSettings.updatePlayerPageTextColorMode(
+                                    PlaybackContentColorMode.entries[ordinal],
+                                )
+                            },
+                        )
+
+                        SettingsChoiceRow(
                             title = "播放页特殊主题",
                             subtitle = "所有特殊主题仅使用裁切填充封面",
                             choices = PlayerCoverFlowChoices,
@@ -628,6 +647,18 @@ fun SettingsScreen(
                             subtitle = "对没有逐字时间轴的歌词，当前句按本句到下一句的播放进度从左到右填充",
                             checked = uiSettings.lyricLineFillEnabled,
                             onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
+                        )
+
+                        SettingsChoiceRow(
+                            title = "歌词颜色",
+                            subtitle = "自动：随播放页背景与封面取色；浅色/深色：全屏歌词与播放页迷你歌词统一使用该颜色",
+                            choices = LyricsPageTextColorChoices,
+                            selectedValue = uiSettings.lyricsPageTextColorMode.ordinal,
+                            onSelect = { ordinal ->
+                                uiSettings.updateLyricsPageTextColorMode(
+                                    PlaybackContentColorMode.entries[ordinal],
+                                )
+                            },
                         )
 
                         SettingsChoiceRow(

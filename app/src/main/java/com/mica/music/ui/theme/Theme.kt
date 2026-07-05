@@ -14,6 +14,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.PlaybackContentColorMode
 
 val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
 val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
@@ -130,11 +131,50 @@ data class PlayerContentColors(
 )
 
 /** 封面模糊模式：下半屏控件与文字统一为白色。 */
-fun blurredCoverPlayerContentColors(): PlayerContentColors = PlayerContentColors(
+fun blurredCoverPlayerContentColors(): PlayerContentColors = lightPlayerContentColors()
+
+/** 播放页/歌词页固定浅色（白）前景。 */
+fun lightPlayerContentColors(): PlayerContentColors = PlayerContentColors(
     primary = HifiPalette.NeutralWhite,
     secondary = HifiPalette.NeutralWhite.copy(alpha = 0.78f),
     tertiary = HifiPalette.NeutralWhite.copy(alpha = 0.48f),
 )
+
+/** 播放页/歌词页固定深色（黑）前景。 */
+fun darkPlayerContentColors(): PlayerContentColors = PlayerContentColors(
+    primary = Color(0.12f, 0.12f, 0.14f),
+    secondary = Color(0.12f, 0.12f, 0.14f, 0.75f),
+    tertiary = Color(0.12f, 0.12f, 0.14f, 0.5f),
+)
+
+fun resolvePlaybackContentColors(
+    autoColors: PlayerContentColors,
+    mode: PlaybackContentColorMode,
+): PlayerContentColors = when (mode) {
+    PlaybackContentColorMode.AUTO -> autoColors
+    PlaybackContentColorMode.LIGHT -> lightPlayerContentColors()
+    PlaybackContentColorMode.DARK -> darkPlayerContentColors()
+}
+
+@Composable
+fun rememberPlaybackContentColors(
+    autoColors: PlayerContentColors,
+    mode: PlaybackContentColorMode,
+): PlayerContentColors = remember(autoColors, mode) {
+    resolvePlaybackContentColors(autoColors, mode)
+}
+
+@Deprecated("Renamed to resolvePlaybackContentColors", ReplaceWith("resolvePlaybackContentColors(autoColors, mode)"))
+fun resolveLyricsContentColors(
+    autoColors: PlayerContentColors,
+    mode: PlaybackContentColorMode,
+): PlayerContentColors = resolvePlaybackContentColors(autoColors, mode)
+
+@Composable
+fun rememberLyricsContentColors(
+    autoColors: PlayerContentColors,
+    mode: PlaybackContentColorMode,
+): PlayerContentColors = rememberPlaybackContentColors(autoColors, mode)
 
 /** 随应用浅色/深色主题切换播放页前景色。 */
 @Composable

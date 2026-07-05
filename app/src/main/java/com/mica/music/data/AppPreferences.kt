@@ -60,6 +60,8 @@ object AppPreferences {
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
     private const val KEY_LYRICS_BILINGUAL_DISPLAY_MODE = "lyrics_bilingual_display_mode"
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
+    private const val KEY_PLAYER_PAGE_TEXT_COLOR = "player_page_text_color"
+    private const val KEY_LYRICS_PAGE_TEXT_COLOR = "lyrics_page_text_color"
     private const val KEY_LYRICS_PAGE_ALIGNMENT = "lyrics_page_alignment"
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
     private const val KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE = "lyrics_page_translation_font_size"
@@ -433,6 +435,20 @@ object AppPreferences {
 
     fun setLyricLineFillEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_LYRIC_LINE_FILL_ENABLED, enabled).apply()
+    }
+
+    fun playerPageTextColorMode(context: Context): PlaybackContentColorMode =
+        PlaybackContentColorMode.fromStorage(prefs(context).getString(KEY_PLAYER_PAGE_TEXT_COLOR, null))
+
+    fun setPlayerPageTextColorMode(context: Context, mode: PlaybackContentColorMode) {
+        prefs(context).edit().putString(KEY_PLAYER_PAGE_TEXT_COLOR, mode.storageValue).apply()
+    }
+
+    fun lyricsPageTextColorMode(context: Context): PlaybackContentColorMode =
+        PlaybackContentColorMode.fromStorage(prefs(context).getString(KEY_LYRICS_PAGE_TEXT_COLOR, null))
+
+    fun setLyricsPageTextColorMode(context: Context, mode: PlaybackContentColorMode) {
+        prefs(context).edit().putString(KEY_LYRICS_PAGE_TEXT_COLOR, mode.storageValue).apply()
     }
 
     fun lyricsPageAlignment(context: Context): LyricsPageAlignment =
