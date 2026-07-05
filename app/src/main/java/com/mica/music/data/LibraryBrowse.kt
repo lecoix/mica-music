@@ -15,11 +15,17 @@ data class BrowseGroup(
     val coverColorArgb: Int = BrowseFallbackColorArgb,
 )
 
-enum class AlbumBrowseSortField(val label: String) {
-    TITLE("标题"),
-    YEAR("年份"),
-    SONG_COUNT("歌曲数量"),
-    ARTIST("艺术家"),
+enum class AlbumBrowseSortField(val storageValue: String, val label: String) {
+    TITLE("title", "标题"),
+    YEAR("year", "年份"),
+    SONG_COUNT("song_count", "歌曲数量"),
+    ARTIST("artist", "艺术家"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): AlbumBrowseSortField =
+            entries.firstOrNull { it.storageValue == value } ?: TITLE
+    }
 }
 
 data class FolderBrowseGroup(

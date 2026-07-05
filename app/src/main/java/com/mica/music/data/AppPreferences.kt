@@ -28,6 +28,11 @@ object AppPreferences {
     private const val KEY_LAST_SCAN_SOURCE = "last_scan_source"
     private const val KEY_SONG_SORT_FIELD = "song_sort_field"
     private const val KEY_SONG_SORT_DIRECTION = "song_sort_direction"
+    private const val KEY_ALBUM_BROWSE_SORT_FIELD = "album_browse_sort_field"
+    private const val KEY_ALBUM_BROWSE_SORT_DIRECTION = "album_browse_sort_direction"
+    private const val KEY_ALBUM_BROWSE_GRID_COLUMNS = "album_browse_grid_columns"
+    private const val KEY_ARTIST_BROWSE_SORT_DIRECTION = "artist_browse_sort_direction"
+    private const val KEY_ARTIST_BROWSE_GRID_COLUMNS = "artist_browse_grid_columns"
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
     private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_MINI_PLAYER_LYRICS_ENABLED = "mini_player_lyrics_enabled"
@@ -195,6 +200,40 @@ object AppPreferences {
             .putString(KEY_SONG_SORT_FIELD, field.storageValue)
             .putString(KEY_SONG_SORT_DIRECTION, direction.storageValue)
             .apply()
+    }
+
+    fun albumBrowseSortField(context: Context): AlbumBrowseSortField =
+        AlbumBrowseSortField.fromStorage(prefs(context).getString(KEY_ALBUM_BROWSE_SORT_FIELD, null))
+
+    fun albumBrowseSortDirection(context: Context): SortDirection =
+        SortDirection.fromStorage(prefs(context).getString(KEY_ALBUM_BROWSE_SORT_DIRECTION, null))
+
+    fun albumBrowseGridColumns(context: Context): Int =
+        prefs(context).getInt(KEY_ALBUM_BROWSE_GRID_COLUMNS, 1).coerceIn(1, 4)
+
+    fun setAlbumBrowseSort(context: Context, field: AlbumBrowseSortField, direction: SortDirection) {
+        prefs(context).edit()
+            .putString(KEY_ALBUM_BROWSE_SORT_FIELD, field.storageValue)
+            .putString(KEY_ALBUM_BROWSE_SORT_DIRECTION, direction.storageValue)
+            .apply()
+    }
+
+    fun setAlbumBrowseGridColumns(context: Context, columns: Int) {
+        prefs(context).edit().putInt(KEY_ALBUM_BROWSE_GRID_COLUMNS, columns.coerceIn(1, 4)).apply()
+    }
+
+    fun artistBrowseSortDirection(context: Context): SortDirection =
+        SortDirection.fromStorage(prefs(context).getString(KEY_ARTIST_BROWSE_SORT_DIRECTION, null))
+
+    fun artistBrowseGridColumns(context: Context): Int =
+        prefs(context).getInt(KEY_ARTIST_BROWSE_GRID_COLUMNS, 1).coerceIn(1, 4)
+
+    fun setArtistBrowseSortDirection(context: Context, direction: SortDirection) {
+        prefs(context).edit().putString(KEY_ARTIST_BROWSE_SORT_DIRECTION, direction.storageValue).apply()
+    }
+
+    fun setArtistBrowseGridColumns(context: Context, columns: Int) {
+        prefs(context).edit().putInt(KEY_ARTIST_BROWSE_GRID_COLUMNS, columns.coerceIn(1, 4)).apply()
     }
 
     fun playerLowerBackground(context: Context): PlayerLowerBackgroundMode =

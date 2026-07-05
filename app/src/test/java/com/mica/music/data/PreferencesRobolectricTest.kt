@@ -37,15 +37,47 @@ class PreferencesRobolectricTest {
             .edit()
             .putString("theme_mode", "not-a-theme")
             .putString("song_sort_field", "not-a-sort")
+            .putString("album_browse_sort_field", "not-an-album-sort")
+            .putString("album_browse_sort_direction", "not-a-direction")
+            .putString("artist_browse_sort_direction", "not-a-direction")
             .putString("equalizer_band_levels", "100,bad,-200")
             .putInt("equalizer_global_gain", 1_200)
             .commit()
 
         assertEquals(AppThemeMode.SYSTEM, AppPreferences.themeMode(context))
         assertEquals(SongSortField.TITLE, AppPreferences.songSortField(context))
+        assertEquals(AlbumBrowseSortField.TITLE, AppPreferences.albumBrowseSortField(context))
+        assertEquals(SortDirection.ASC, AppPreferences.albumBrowseSortDirection(context))
+        assertEquals(SortDirection.ASC, AppPreferences.artistBrowseSortDirection(context))
         assertEquals(listOf<Short>(100, -200), AppPreferences.equalizerBandLevels(context))
         assertEquals(1_200, AppPreferences.equalizerGlobalGainMillibels(context).toInt())
         assertEquals(ParticleCoverTuning(), AppPreferences.particleCoverTuning(context))
+    }
+
+    @Test
+    fun browseDisplaySettingsRoundTrip() {
+        assertEquals(AlbumBrowseSortField.TITLE, AppPreferences.albumBrowseSortField(context))
+        assertEquals(SortDirection.ASC, AppPreferences.albumBrowseSortDirection(context))
+        assertEquals(1, AppPreferences.albumBrowseGridColumns(context))
+        assertEquals(SortDirection.ASC, AppPreferences.artistBrowseSortDirection(context))
+        assertEquals(1, AppPreferences.artistBrowseGridColumns(context))
+
+        AppPreferences.setAlbumBrowseSort(context, AlbumBrowseSortField.ARTIST, SortDirection.DESC)
+        AppPreferences.setAlbumBrowseGridColumns(context, 3)
+        AppPreferences.setArtistBrowseSortDirection(context, SortDirection.DESC)
+        AppPreferences.setArtistBrowseGridColumns(context, 4)
+
+        assertEquals(AlbumBrowseSortField.ARTIST, AppPreferences.albumBrowseSortField(context))
+        assertEquals(SortDirection.DESC, AppPreferences.albumBrowseSortDirection(context))
+        assertEquals(3, AppPreferences.albumBrowseGridColumns(context))
+        assertEquals(SortDirection.DESC, AppPreferences.artistBrowseSortDirection(context))
+        assertEquals(4, AppPreferences.artistBrowseGridColumns(context))
+
+        AppPreferences.setAlbumBrowseGridColumns(context, 99)
+        AppPreferences.setArtistBrowseGridColumns(context, 0)
+
+        assertEquals(4, AppPreferences.albumBrowseGridColumns(context))
+        assertEquals(1, AppPreferences.artistBrowseGridColumns(context))
     }
 
     @Test

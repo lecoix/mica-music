@@ -87,6 +87,7 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
 import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.AppPreferences
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.ui.components.BrowseGroupDisplaySheet
@@ -251,15 +252,16 @@ fun HomeScreen(
     onHomeNavigationIntentConsumed: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
 ) {
+    val context = LocalContext.current
     var drawerOpen by remember { mutableStateOf(false) }
     var section by rememberSaveable { mutableStateOf(HomeSection.Songs) }
     var activePlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
     var sortSheetOpen by remember { mutableStateOf(false) }
-    var albumSortField by rememberSaveable { mutableStateOf(AlbumBrowseSortField.TITLE) }
-    var albumSortDirection by rememberSaveable { mutableStateOf(SortDirection.ASC) }
-    var albumGridColumns by rememberSaveable { mutableIntStateOf(1) }
-    var artistSortDirection by rememberSaveable { mutableStateOf(SortDirection.ASC) }
-    var artistGridColumns by rememberSaveable { mutableIntStateOf(1) }
+    var albumSortField by rememberSaveable { mutableStateOf(AppPreferences.albumBrowseSortField(context)) }
+    var albumSortDirection by rememberSaveable { mutableStateOf(AppPreferences.albumBrowseSortDirection(context)) }
+    var albumGridColumns by rememberSaveable { mutableIntStateOf(AppPreferences.albumBrowseGridColumns(context)) }
+    var artistSortDirection by rememberSaveable { mutableStateOf(AppPreferences.artistBrowseSortDirection(context)) }
+    var artistGridColumns by rememberSaveable { mutableIntStateOf(AppPreferences.artistBrowseGridColumns(context)) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var browseDestination by rememberSaveable(stateSaver = BrowseDestinationSaver) {
@@ -277,7 +279,6 @@ fun HomeScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    val context = LocalContext.current
     val playlistStore = remember { PlaylistStore(context) }
     val activity = context as ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -762,9 +763,16 @@ fun HomeScreen(
                                 albumSortField = albumSortFields.getOrElse(index) {
                                     AlbumBrowseSortField.TITLE
                                 }
+                                AppPreferences.setAlbumBrowseSort(context, albumSortField, albumSortDirection)
                             },
-                            onDirectionSelected = { albumSortDirection = it },
-                            onColumnsSelected = { albumGridColumns = it.coerceIn(1, 4) },
+                            onDirectionSelected = {
+                                albumSortDirection = it
+                                AppPreferences.setAlbumBrowseSort(context, albumSortField, albumSortDirection)
+                            },
+                            onColumnsSelected = {
+                                albumGridColumns = it.coerceIn(1, 4)
+                                AppPreferences.setAlbumBrowseGridColumns(context, albumGridColumns)
+                            },
                         )
                     }
                     isArtistRootSort -> {
@@ -775,8 +783,14 @@ fun HomeScreen(
                             currentColumns = artistGridColumns,
                             onDismiss = { sortSheetOpen = false },
                             onSortFieldSelected = {},
-                            onDirectionSelected = { artistSortDirection = it },
-                            onColumnsSelected = { artistGridColumns = it.coerceIn(1, 4) },
+                            onDirectionSelected = {
+                                artistSortDirection = it
+                                AppPreferences.setArtistBrowseSortDirection(context, artistSortDirection)
+                            },
+                            onColumnsSelected = {
+                                artistGridColumns = it.coerceIn(1, 4)
+                                AppPreferences.setArtistBrowseGridColumns(context, artistGridColumns)
+                            },
                         )
                     }
                     else -> {
