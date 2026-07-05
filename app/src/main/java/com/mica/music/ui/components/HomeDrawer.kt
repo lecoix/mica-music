@@ -94,7 +94,7 @@ fun HomeDrawerPanel(
                     onClick = { onSectionSelected(HomeSection.Songs) },
                 )
                 DrawerNavItem(
-                    label = "歌手",
+                    label = "艺术家",
                     icon = Icons.Outlined.Person,
                     selected = selectedSection == HomeSection.Artists,
                     onClick = { onSectionSelected(HomeSection.Artists) },
