@@ -137,7 +137,10 @@ class SleepTimerController(
         private const val FADE_STEP_MS = 200L
         private const val TICK_INTERVAL_MS = 1_000L
 
-        val PRESET_MINUTES = listOf(1, 15, 30, 45, 60, 90)
+        val PRESET_MINUTES: List<Int> = listOf(1) + (5..120 step 5).toList()
+
+        /** 滑块底部刻度标签（稀疏展示，避免拥挤） */
+        val SLIDER_LABEL_MINUTES = listOf(1, 30, 60, 90, 120)
 
         val stepCount: Int get() = PRESET_MINUTES.size
 

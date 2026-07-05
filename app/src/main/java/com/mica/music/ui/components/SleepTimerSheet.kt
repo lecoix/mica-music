@@ -104,7 +104,7 @@ fun SleepTimerSheet(
 
             SleepTimerActionBar(
                 label = if (isActive) "更新定时" else "开始定时",
-                backgroundColor = MicaTheme.colors.accent.copy(alpha = if (isDark) 0.22f else 0.14f),
+                backgroundColor = Color.Transparent,
                 labelColor = MicaTheme.colors.accent,
                 onClick = { onSelectMinutes(selectedMinutes) },
             )
@@ -201,15 +201,15 @@ private fun SleepTimerStepSlider(
             }
         }
         Spacer(Modifier.height(HifiSpacing.xs))
-        Row(Modifier.fillMaxWidth()) {
-            SleepTimerController.PRESET_MINUTES.forEach { minutes ->
-                val label = if (minutes == 1) "1" else minutes.toString()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            SleepTimerController.SLIDER_LABEL_MINUTES.forEach { minutes ->
                 Text(
-                    text = label,
+                    text = minutes.toString(),
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textTertiary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
                 )
             }
         }
