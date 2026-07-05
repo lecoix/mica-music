@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,10 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -38,11 +39,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistNames
 import com.mica.music.data.BrowseGroup
 import com.mica.music.data.FolderBrowseGroup
 import com.mica.music.data.LibraryBrowse
@@ -93,6 +96,7 @@ internal fun HomeBrowseContent(
     onAppendSongsToQueue: (List<Song>) -> Unit = {},
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
+    onAlbumClick: (String) -> Unit = {},
     albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
     albumSortDirection: SortDirection = SortDirection.ASC,
     albumGridColumns: Int = 1,
@@ -149,6 +153,7 @@ internal fun HomeBrowseContent(
                             onAppendSongsToQueue = onAppendSongsToQueue,
                             onSongClick = onSongClick,
                             onSongOpenMenu = onSongOpenMenu,
+                            onAlbumClick = onAlbumClick,
                             emptyMessage = "该歌手下暂无歌曲",
                             listState = songListState,
                             listBottomPadding = listBottomPadding,
@@ -182,15 +187,14 @@ internal fun HomeBrowseContent(
                     is BrowseDestination.Album -> {
                         val songListState = rememberBrowseDetailSongListState("album:${dest.title}")
                         val songs = library.songsForAlbum(dest.title)
-                        SongListPanel(
+                        AlbumDetailPanel(
+                            albumTitle = dest.title,
                             songs = songs,
-                            library = library,
                             currentSongId = currentSongId,
                             isPlaying = isPlaying,
-                            onSongClick = { songId ->
-                                onQueueSongs(songs)
-                                onSongClick(songId)
-                            },
+                            onQueueSongs = onQueueSongs,
+                            onAppendSongsToQueue = onAppendSongsToQueue,
+                            onSongClick = onSongClick,
                             onSongOpenMenu = onSongOpenMenu,
                             emptyMessage = "该专辑下暂无歌曲",
                             listState = songListState,
@@ -324,6 +328,218 @@ private data class ArtistAlbumSection(
     val songs: List<Song>,
 )
 
+private data class AlbumDiscSection(
+    val discNumber: Int?,
+    val songs: List<Song>,
+)
+
+@Composable
+private fun AlbumDetailPanel(
+    albumTitle: String,
+    songs: List<Song>,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    onQueueSongs: (List<Song>) -> Unit,
+    onAppendSongsToQueue: (List<Song>) -> Unit,
+    onSongClick: (String) -> Unit,
+    onSongOpenMenu: (Song) -> Unit,
+    emptyMessage: String,
+    listState: LazyListState,
+    listBottomPadding: Dp = 0.dp,
+    modifier: Modifier = Modifier,
+) {
+    if (songs.isEmpty()) {
+        EmptyBrowseHint(emptyMessage, modifier)
+        return
+    }
+
+    val orderedSongs = remember(songs) { sortedAlbumSongs(songs) }
+    val discSections = remember(orderedSongs) { albumDiscSections(orderedSongs) }
+    val copyright = remember(orderedSongs) { albumCopyrightLine(orderedSongs) }
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = listBottomPadding),
+    ) {
+        item("albumHeader") {
+            AlbumDetailHeader(
+                albumTitle = albumTitle,
+                songs = orderedSongs,
+                onPlayAll = {
+                    onQueueSongs(orderedSongs)
+                    orderedSongs.firstOrNull()?.let { onSongClick(it.id) }
+                },
+                onShuffle = {
+                    val shuffled = orderedSongs.shuffled()
+                    onQueueSongs(shuffled)
+                    shuffled.firstOrNull()?.let { onSongClick(it.id) }
+                },
+                onAddToQueue = { onAppendSongsToQueue(orderedSongs) },
+            )
+        }
+        discSections.forEach { section ->
+            section.discNumber?.let { discNumber ->
+                item("albumDisc:$discNumber") {
+                    Text(
+                        text = "DISC $discNumber",
+                        style = MicaTheme.typography.caption,
+                        color = MicaTheme.colors.textTertiary,
+                        modifier = Modifier.padding(
+                            start = HifiSpacing.lg,
+                            top = HifiSpacing.md,
+                            end = HifiSpacing.lg,
+                            bottom = HifiSpacing.xs,
+                        ),
+                    )
+                }
+            }
+            itemsIndexed(section.songs, key = { _, song -> "albumSong:${song.id}" }) { trackIndex, song ->
+                val isCurrent = currentSongId == song.id
+                SongRow(
+                    song = song,
+                    trackNumber = song.trackNumber.takeIf { it > 0 }?.toString()?.padStart(2, '0')
+                        ?: (trackIndex + 1).toString().padStart(2, '0'),
+                    trailingLabel = song.durationLabel,
+                    isCurrent = isCurrent,
+                    isPlaying = isCurrent && isPlaying,
+                    showCover = false,
+                    subtitleOverride = ArtistNames.normalizeDisplay(song.artist),
+                    onClick = {
+                        onQueueSongs(orderedSongs)
+                        onSongClick(song.id)
+                    },
+                    onLongClick = { onSongOpenMenu(song) },
+                )
+            }
+        }
+        copyright?.let { label ->
+            item("albumCopyright") {
+                Text(
+                    text = label,
+                    style = MicaTheme.typography.bodySm,
+                    color = MicaTheme.colors.textTertiary,
+                    modifier = Modifier.padding(
+                        start = HifiSpacing.lg,
+                        top = HifiSpacing.md,
+                        end = HifiSpacing.lg,
+                        bottom = HifiSpacing.sm,
+                    ),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlbumDetailHeader(
+    albumTitle: String,
+    songs: List<Song>,
+    onPlayAll: () -> Unit,
+    onShuffle: () -> Unit,
+    onAddToQueue: () -> Unit,
+) {
+    val artworkSong = remember(songs) {
+        songs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: songs.first()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = HifiSpacing.lg,
+                top = HifiSpacing.xl,
+                end = HifiSpacing.lg,
+                bottom = HifiSpacing.xl,
+            ),
+        verticalArrangement = Arrangement.spacedBy(HifiSpacing.md),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val coverSize = maxWidth * 0.42f
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SongCover(
+                    albumArtUri = artworkSong.albumArtUri,
+                    fallbackColor = artworkSong.coverColor,
+                    contentDescription = albumTitle,
+                    modifier = Modifier.size(coverSize),
+                )
+                Spacer(Modifier.width(HifiSpacing.lg))
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(coverSize),
+                    verticalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    Text(
+                        text = "ALBUM",
+                        style = MicaTheme.typography.caption,
+                        color = MicaTheme.colors.textTertiary,
+                    )
+                    Text(
+                        text = albumTitle,
+                        style = MicaTheme.typography.titleMd.copy(fontSize = 18.sp, lineHeight = 24.sp),
+                        color = MicaTheme.colors.textPrimary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = albumStatsLine(songs),
+                        style = MicaTheme.typography.monoSm,
+                        color = MicaTheme.colors.textTertiary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        ArtistActionRow(
+            onPlayAll = onPlayAll,
+            onShuffle = onShuffle,
+            onAddToQueue = onAddToQueue,
+        )
+    }
+}
+
+private fun albumStatsLine(songs: List<Song>): String =
+    listOfNotNull(
+        songs.map { it.year }.filter { it > 0 }.maxOrNull()?.toString(),
+        "${songs.size} 首",
+        totalDurationLabel(songs.sumOf { it.durationSec.coerceAtLeast(0) }),
+    ).joinToString(" · ")
+
+private fun albumCopyrightLine(songs: List<Song>): String? =
+    songs.firstNotNullOfOrNull { song -> song.copyright.trim().takeIf { it.isNotEmpty() } }
+
+private fun totalDurationLabel(totalSeconds: Int): String {
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
+    }
+}
+
+private fun sortedAlbumSongs(songs: List<Song>): List<Song> =
+    songs.sortedWith(
+        compareBy<Song> { if (it.discNumber > 0) it.discNumber else Int.MAX_VALUE }
+            .thenBy { if (it.trackNumber > 0) it.trackNumber else Int.MAX_VALUE }
+            .thenBy { it.title.lowercase() },
+    )
+
+private fun albumDiscSections(songs: List<Song>): List<AlbumDiscSection> {
+    if (songs.none { it.discNumber > 0 }) {
+        return listOf(AlbumDiscSection(discNumber = null, songs = songs))
+    }
+    return songs.groupBy { it.discNumber.takeIf { disc -> disc > 0 } }
+        .map { (discNumber, discSongs) -> AlbumDiscSection(discNumber, discSongs) }
+        .sortedBy { it.discNumber ?: Int.MAX_VALUE }
+}
+
 @Composable
 private fun ArtistDetailPanel(
     artistName: String,
@@ -334,6 +550,7 @@ private fun ArtistDetailPanel(
     onAppendSongsToQueue: (List<Song>) -> Unit,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
+    onAlbumClick: (String) -> Unit,
     emptyMessage: String,
     listState: LazyListState,
     listBottomPadding: Dp = 0.dp,
@@ -369,7 +586,10 @@ private fun ArtistDetailPanel(
         }
         albumSections.forEach { section ->
             item("albumHeader:${section.title}") {
-                ArtistAlbumHeader(section = section)
+                ArtistAlbumHeader(
+                    section = section,
+                    onAlbumClick = onAlbumClick,
+                )
             }
             itemsIndexed(section.songs, key = { _, song -> "artistSong:${song.id}" }) { trackIndex, song ->
                 val isCurrent = currentSongId == song.id
@@ -380,6 +600,8 @@ private fun ArtistDetailPanel(
                     trailingLabel = song.durationLabel,
                     isCurrent = isCurrent,
                     isPlaying = isCurrent && isPlaying,
+                    showCover = false,
+                    compact = true,
                     onClick = {
                         onQueueSongs(songs)
                         onSongClick(song.id)
@@ -400,67 +622,55 @@ private fun ArtistDetailHeader(
     onShuffle: () -> Unit,
     onAddToQueue: () -> Unit,
 ) {
+    val artworkSong = remember(songs) {
+        songs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: songs.first()
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
                 start = HifiSpacing.lg,
-                top = 0.dp,
+                top = HifiSpacing.xl,
                 end = HifiSpacing.lg,
                 bottom = HifiSpacing.xl,
             ),
         verticalArrangement = Arrangement.spacedBy(HifiSpacing.md),
     ) {
-        Text(
-            text = "ARTIST",
-            style = MicaTheme.typography.caption,
-            color = MicaTheme.colors.textTertiary,
-        )
-        Text(
-            text = artistName,
-            style = MicaTheme.typography.display.copy(fontSize = 44.sp, lineHeight = 52.sp),
-            color = MicaTheme.colors.textPrimary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = artistStatsLine(songs, albumSections),
-            style = MicaTheme.typography.monoSm,
-            color = MicaTheme.colors.textTertiary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        ArtistAlbumStrip(albumSections)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        ) {
+            SongCover(
+                albumArtUri = artworkSong.albumArtUri,
+                fallbackColor = artworkSong.coverColor,
+                contentDescription = artistName,
+                modifier = Modifier.size(112.dp),
+            )
+            Text(
+                text = artistName,
+                style = MicaTheme.typography.titleMd.copy(fontSize = 20.sp, lineHeight = 26.sp),
+                color = MicaTheme.colors.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = artistStatsLine(songs, albumSections),
+                style = MicaTheme.typography.monoSm,
+                color = MicaTheme.colors.textTertiary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         ArtistActionRow(
             onPlayAll = onPlayAll,
             onShuffle = onShuffle,
             onAddToQueue = onAddToQueue,
         )
-        Text(
-            text = "歌曲",
-            style = MicaTheme.typography.caption,
-            color = MicaTheme.colors.textTertiary,
-        )
-    }
-}
-
-@Composable
-private fun ArtistAlbumStrip(albumSections: List<ArtistAlbumSection>) {
-    if (albumSections.isEmpty()) return
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        items(albumSections, key = { it.title }) { album ->
-            SongCover(
-                albumArtUri = album.albumArtUri,
-                fallbackColor = Color(album.coverColorArgb),
-                contentDescription = album.title,
-                modifier = Modifier
-                    .width(76.dp)
-                    .aspectRatio(1f),
-            )
-        }
     }
 }
 
@@ -511,33 +721,49 @@ private fun ArtistActionDivider() {
 }
 
 @Composable
-private fun ArtistAlbumHeader(section: ArtistAlbumSection) {
-    Column(
+private fun ArtistAlbumHeader(
+    section: ArtistAlbumSection,
+    onAlbumClick: (String) -> Unit,
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = HifiSpacing.xs),
+            .padding(
+                start = HifiSpacing.lg,
+                end = HifiSpacing.lg,
+                top = HifiSpacing.md,
+                bottom = HifiSpacing.xs,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        SongCover(
+            albumArtUri = section.albumArtUri,
+            fallbackColor = Color(section.coverColorArgb),
+            contentDescription = section.title,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+                .width(68.dp)
+                .aspectRatio(1f),
+        )
+        Spacer(Modifier.width(HifiSpacing.md))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = section.title,
-                style = MicaTheme.typography.titleMd,
+                style = MicaTheme.typography.bodyMd,
                 color = MicaTheme.colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.clickable { onAlbumClick(section.title) },
             )
-            if (section.year > 0) {
-                Text(
-                    text = section.year.toString(),
-                    style = MicaTheme.typography.bodyMd,
-                    color = MicaTheme.colors.textTertiary,
-                )
-            }
+            Text(
+                text = buildList {
+                    if (section.year > 0) add(section.year.toString())
+                    add("${section.songs.size} 首")
+                }.joinToString(" · "),
+                style = MicaTheme.typography.bodySm,
+                color = MicaTheme.colors.textTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -662,7 +888,7 @@ private fun ArtistGroupList(
         LibraryBrowse.sortArtistGroups(library.artistGroups(), sortDirection)
     }
     if (groups.isEmpty()) {
-        EmptyBrowseHint("暂无歌手", modifier)
+        EmptyBrowseHint("暂无艺术家", modifier)
         return
     }
     BrowseGroupList(
@@ -670,6 +896,7 @@ private fun ArtistGroupList(
         listState = listState,
         gridColumns = gridColumns,
         onSelect = onSelect,
+        gridTitleMaxLines = 1,
         fastScrollLabels = groups.map { it.title },
         fastScrollDescending = sortDirection == SortDirection.DESC,
         listBottomPadding = listBottomPadding,
@@ -723,6 +950,7 @@ private fun BrowseGroupList(
     rowSubtitle: (BrowseGroup) -> String = { it.subtitle },
     fastScrollLabels: List<String>? = groups.map { it.title },
     fastScrollDescending: Boolean = false,
+    gridTitleMaxLines: Int = 2,
     listBottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -745,6 +973,7 @@ private fun BrowseGroupList(
                 gridItems(groups, key = { it.title }) { group ->
                     BrowseGroupGridTile(
                         group = group,
+                        titleMaxLines = gridTitleMaxLines,
                         onClick = { onSelect(group.title) },
                     )
                 }
@@ -771,6 +1000,7 @@ private fun BrowseGroupList(
                     gridItems(groups, key = { it.title }) { group ->
                         BrowseGroupGridTile(
                             group = group,
+                            titleMaxLines = gridTitleMaxLines,
                             onClick = { onSelect(group.title) },
                         )
                     }
@@ -834,6 +1064,7 @@ private fun albumRowSubtitle(group: BrowseGroup): String =
 private fun BrowseGroupGridTile(
     group: BrowseGroup,
     onClick: () -> Unit,
+    titleMaxLines: Int = 2,
 ) {
     Column(
         modifier = Modifier
@@ -853,7 +1084,7 @@ private fun BrowseGroupGridTile(
             text = group.title,
             style = MicaTheme.typography.bodyMd,
             color = MicaTheme.colors.textPrimary,
-            maxLines = 2,
+            maxLines = titleMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
         Text(

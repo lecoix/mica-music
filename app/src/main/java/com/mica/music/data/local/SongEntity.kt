@@ -30,6 +30,7 @@ data class SongEntity(
     val sizeBytes: Long,
     val year: Int,
     val trackNumber: Int = 0,
+    val discNumber: Int = 0,
     val folderPath: String,
     val filePath: String = "",
     val copyright: String = "",
@@ -77,6 +78,7 @@ fun SongEntity.toSong(): Song = Song(
     sizeBytes = sizeBytes,
     year = year,
     trackNumber = trackNumber,
+    discNumber = discNumber,
     folderPath = folderPath,
     filePath = filePath,
     copyright = copyright,
@@ -102,6 +104,7 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(bitsPerSample); append('\u0001')
     append(bitrateKbps); append('\u0001')
     append(trackNumber); append('\u0001')
+    append(discNumber); append('\u0001')
     append(albumArtUri); append('\u0001')
     append(externalLyricsSignature); append('\u0001')
     append(lyricsJson)
@@ -127,6 +130,7 @@ fun Song.toEntity(queueOrder: Int): SongEntity = SongEntity(
     sizeBytes = sizeBytes,
     year = year,
     trackNumber = trackNumber,
+    discNumber = discNumber,
     folderPath = folderPath,
     filePath = filePath,
     copyright = copyright,

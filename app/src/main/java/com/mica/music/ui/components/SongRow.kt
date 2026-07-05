@@ -52,14 +52,19 @@ fun SongRow(
     onLongClick: (() -> Unit)? = null,
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
+    showCover: Boolean = true,
+    compact: Boolean = false,
+    subtitleOverride: String? = null,
     modifier: Modifier = Modifier,
 ) {
+    val titleStyle = if (compact) MicaTheme.typography.bodyMd else MicaTheme.typography.bodyLg
+    val rowHeight = if (compact) 48.dp else HifiSize.listRowHeight
     Column(modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(HifiSize.listRowHeight)
+                .height(rowHeight)
                 // 与 LibraryStatsRow 右侧（排序/重载）同一内边距
                 .padding(end = HifiSpacing.lg)
                 .semantics(mergeDescendants = true) {
@@ -104,21 +109,22 @@ fun SongRow(
                 Spacer(Modifier.width(HifiSpacing.sm))
             }
 
-            SongCover(
-                albumArtUri = song.albumArtUri,
-                fallbackColor = song.coverColor,
-                contentDescription = song.title,
-                noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
-                modifier = Modifier.size(HifiSize.coverSm),
-            )
-
-            Spacer(Modifier.width(HifiSpacing.md))
+            if (showCover) {
+                SongCover(
+                    albumArtUri = song.albumArtUri,
+                    fallbackColor = song.coverColor,
+                    contentDescription = song.title,
+                    noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
+                    modifier = Modifier.size(HifiSize.coverSm),
+                )
+                Spacer(Modifier.width(HifiSpacing.md))
+            }
 
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = song.title,
-                        style = MicaTheme.typography.bodyLg,
+                        style = titleStyle,
                         color = if (isCurrent) MicaTheme.colors.accent else MicaTheme.colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -129,22 +135,24 @@ fun SongRow(
                         PlayingIndicator(modifier = Modifier.size(12.dp))
                     }
                 }
-                val meta = buildString {
-                    append(ArtistNames.normalizeDisplay(song.artist))
-                    append(" · ")
-                    append(song.album)
-                    if (song.playCount > 0) {
+                if (!compact || subtitleOverride != null) {
+                    val meta = subtitleOverride ?: buildString {
+                        append(ArtistNames.normalizeDisplay(song.artist))
                         append(" · ")
-                        append("${song.playCount} 次播放")
+                        append(song.album)
+                        if (song.playCount > 0) {
+                            append(" · ")
+                            append("${song.playCount} 次播放")
+                        }
                     }
+                    Text(
+                        text = meta,
+                        style = MicaTheme.typography.bodySm,
+                        color = MicaTheme.colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Text(
-                    text = meta,
-                    style = MicaTheme.typography.bodySm,
-                    color = MicaTheme.colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
 
             Spacer(Modifier.width(HifiSpacing.xs))

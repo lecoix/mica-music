@@ -72,6 +72,7 @@ internal fun TrackDraft.reusableCachedSong(
     return cached.takeIf {
         AlbumArtCache.hasReadableCachedArt(context, it) &&
         (!requireDeepMetadata || it.hasDeepMetadata()) &&
+            (!requireDeepMetadata || it.discNumber >= 0) &&
             (!requireDeepMetadata || !isDsdDraft() || DsdSupport.isDsdMetadata(it.metadata)) &&
             (!requireDirectLyrics || it.lyrics.isNotEmpty()) &&
             (!requireFreshEmbeddedLyrics || it.lyrics.isNotEmpty())

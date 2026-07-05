@@ -148,7 +148,7 @@ internal fun resolveLibraryStatsBarModel(
         HomeSection.Artists -> when (browseDestination) {
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    "${library.artistGroups().size} 位歌手",
+                    "${library.artistGroups().size} 位艺术家",
                     formatBrowseSortLabel(null, artistSortDirection),
                     formatGridColumnsLabel(artistGridColumns),
                 ) + scanSegments,
@@ -174,10 +174,7 @@ internal fun resolveLibraryStatsBarModel(
                 showSortAction = true,
                 showRescanAction = true,
             )
-            is BrowseDestination.Album -> {
-                val subset = library.songsForAlbum(browseDestination.title)
-                subsetStats(subset, library)
-            }
+            is BrowseDestination.Album -> null
             else -> null
         }
         HomeSection.Folders -> when (browseDestination) {

@@ -16,6 +16,7 @@ object SongDetails {
         SongDetailRow("艺术家", ArtistNames.normalizeDisplay(song.artist)),
         SongDetailRow("专辑", song.album.ifBlank { "—" }),
         SongDetailRow("专辑艺术家", song.albumArtist.ifBlank { "—" }),
+        SongDetailRow("碟号", trackNumberLabel(song.discNumber)),
         SongDetailRow("音轨号", trackNumberLabel(song.trackNumber)),
         SongDetailRow("媒体来源", mediaSourceLabel(song, library)),
         SongDetailRow("播放次数", song.playCount.toString()),

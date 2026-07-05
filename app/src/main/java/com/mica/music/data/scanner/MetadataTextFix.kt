@@ -68,6 +68,9 @@ internal object MetadataTextFix {
         return trackPart.toIntOrNull()?.coerceAtLeast(0) ?: 0
     }
 
+    /** 解析 DISCNUMBER / TPOS 等原始值（如 `1/2`）；无法解析时返回 0。 */
+    fun parseDiscNumber(raw: String?): Int = parseTrackNumber(raw)
+
     fun titleFromTagsOrFilename(
         tagTitle: String?,
         displayName: String?,

@@ -20,6 +20,25 @@ class BinaryParserGoldenTest {
     }
 
     @Test
+    fun id3SingleDigitTextFramePreviewIsNotDropped() {
+        val bytes = id3v23TextFrame("TPOS", "1", encoding = 0, nullTerminated = true)
+
+        val frames = Id3FrameLister.listAll(bytes)
+
+        assertEquals("1", frames.last().preview)
+    }
+
+    @Test
+    fun id3TrackNumberFramePreviewCanBeParsed() {
+        val bytes = id3v23TextFrame("TRCK", "9/10", encoding = 0, nullTerminated = true)
+
+        val frames = Id3FrameLister.listAll(bytes)
+
+        assertEquals("9/10", frames.last().preview)
+        assertEquals(9, MetadataTextFix.parseTrackNumber(frames.last().preview))
+    }
+
+    @Test
     fun flacVorbisCommentsPreserveKeysValuesAndEncoderPriority() {
         val bytes = flacVorbisComments(
             vendor = "Mica Vendor",
@@ -98,8 +117,16 @@ class BinaryParserGoldenTest {
         assertNull(EncoderSettingsReader.fromBytes(ByteArray(0)))
     }
 
-    private fun id3v23TextFrame(frameId: String, text: String): ByteArray {
-        val payload = byteArrayOf(3) + text.toByteArray(Charsets.UTF_8)
+    private fun id3v23TextFrame(
+        frameId: String,
+        text: String,
+        encoding: Int = 3,
+        nullTerminated: Boolean = false,
+    ): ByteArray {
+        val charset = if (encoding == 0) Charsets.ISO_8859_1 else Charsets.UTF_8
+        val payload = byteArrayOf(encoding.toByte()) +
+            text.toByteArray(charset) +
+            if (nullTerminated) byteArrayOf(0) else ByteArray(0)
         val frame = frameId.toByteArray(Charsets.US_ASCII) +
             int32Be(payload.size) +
             byteArrayOf(0, 0) +

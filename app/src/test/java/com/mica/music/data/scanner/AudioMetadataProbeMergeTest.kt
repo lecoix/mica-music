@@ -15,6 +15,7 @@ class AudioMetadataProbeMergeTest {
             durationSec = 120,
             year = 0,
             trackNumber = 7,
+            discNumber = 2,
         )
         val retriever = TagInfo(
             title = "Retriever title",
@@ -25,6 +26,7 @@ class AudioMetadataProbeMergeTest {
             durationSec = 121,
             year = 2024,
             trackNumber = 9,
+            discNumber = 3,
         )
 
         val merged = mergeTagInfo(tagLib, retriever)
@@ -37,6 +39,7 @@ class AudioMetadataProbeMergeTest {
         assertEquals(120, merged.durationSec)
         assertEquals(2024, merged.year)
         assertEquals(7, merged.trackNumber)
+        assertEquals(2, merged.discNumber)
     }
 
     @Test
@@ -68,6 +71,7 @@ class AudioMetadataProbeMergeTest {
             durationSec = 121,
             year = 0,
             trackNumber = 11,
+            discNumber = 4,
         )
 
         val withWavFallback = mergeTagInfo(tagLib, jAudioTagger)
@@ -80,5 +84,6 @@ class AudioMetadataProbeMergeTest {
         assertEquals(120, merged.durationSec)
         assertEquals(2001, merged.year)
         assertEquals(11, merged.trackNumber)
+        assertEquals(4, merged.discNumber)
     }
 }

@@ -57,6 +57,7 @@ internal data class TagInfo(
     val durationSec: Int,
     val year: Int,
     val trackNumber: Int = 0,
+    val discNumber: Int = 0,
     val frontCoverBytes: ByteArray? = null,
 )
 
@@ -69,6 +70,7 @@ internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInf
     durationSec = primary.durationSec.takeIf { it > 0 } ?: fallback.durationSec,
     year = primary.year.takeIf { it > 0 } ?: fallback.year,
     trackNumber = primary.trackNumber.takeIf { it > 0 } ?: fallback.trackNumber,
+    discNumber = primary.discNumber.takeIf { it > 0 } ?: fallback.discNumber,
     frontCoverBytes = primary.frontCoverBytes ?: fallback.frontCoverBytes,
 )
 
@@ -273,6 +275,7 @@ object AudioMetadataProbe {
                 albumArtUri,
                 lyrics,
                 trackNumber = tags.trackNumber,
+                discNumber = tags.discNumber,
             )
         } catch (_: Exception) {
             val metadata = if (trackProbe != null) {
@@ -342,6 +345,7 @@ object AudioMetadataProbe {
             durationSec = tagLib.durationSec,
             year = tagLib.year,
             trackNumber = tagLib.trackNumber,
+            discNumber = tagLib.discNumber,
             frontCoverBytes = tagLib.frontCoverBytes,
         )
         // 必须在 Retriever/MediaStore 写入默认值之前合并，否则 WAV 兜底永远不会触发。
@@ -482,6 +486,7 @@ object AudioMetadataProbe {
             albumArtUri = albumArtUri,
             lyrics = lyrics,
             trackNumber = tags.trackNumber,
+            discNumber = tags.discNumber,
         )
         } finally {
             retriever?.let { runCatching { it.release() } }
@@ -626,6 +631,7 @@ object AudioMetadataProbe {
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)
                 ?: extractMetadataString(retriever, "tracknumber"),
         )
+        val discNumber = MetadataTextFix.parseDiscNumber(extractMetadataString(retriever, "discnumber"))
         return TagInfo(
             title = title,
             artist = artist,
@@ -635,6 +641,7 @@ object AudioMetadataProbe {
             durationSec = durationSec,
             year = year,
             trackNumber = trackNumber,
+            discNumber = discNumber,
         )
     }
 
@@ -789,6 +796,8 @@ object AudioMetadataProbe {
             metadata = metadata,
             albumArtUri = albumArtUri,
             lyrics = lyrics,
+            trackNumber = tags.trackNumber,
+            discNumber = tags.discNumber,
         )
     }
 
@@ -933,6 +942,7 @@ object AudioMetadataProbe {
         lyrics: List<com.mica.music.data.LyricLine> = emptyList(),
         copyrightOverride: String = "",
         trackNumber: Int = 0,
+        discNumber: Int = 0,
     ): Song {
         val id = if (mediaStoreId > 0) "ms_$mediaStoreId" else "doc_${mediaUri.hashCode()}"
         return Song(
@@ -951,6 +961,7 @@ object AudioMetadataProbe {
             sizeBytes = sizeBytes,
             year = year,
             trackNumber = trackNumber,
+            discNumber = discNumber,
             folderPath = folderPath,
             filePath = filePath,
             copyright = copyrightOverride.ifBlank { copyright },
@@ -997,6 +1008,7 @@ object AudioMetadataProbe {
                 ?.toIntOrNull()
                 ?: 0
             val trackNumber = MetadataTextFix.parseTrackNumber(tag.getFirst(FieldKey.TRACK))
+            val discNumber = MetadataTextFix.parseDiscNumber(tag.getFirst(FieldKey.DISC_NO))
             if (title.isBlank() && artist.isBlank() && album.isBlank() && albumArtist.isBlank()) {
                 return null
             }
@@ -1009,6 +1021,7 @@ object AudioMetadataProbe {
                 durationSec = audioFile.audioHeader?.trackLength?.coerceAtLeast(0) ?: 0,
                 year = year,
                 trackNumber = trackNumber,
+                discNumber = discNumber,
                 frontCoverBytes = frontCoverBytes,
             )
         } catch (error: Exception) {

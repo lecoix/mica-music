@@ -74,6 +74,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -578,6 +579,13 @@ fun HomeScreen(
         }
     }
 
+    fun navigateToAlbum(albumTitle: String) {
+        section = HomeSection.Albums
+        browseDestination = BrowseDestination.Album(albumTitle)
+        drawerOpen = false
+        searchOpen = false
+    }
+
     LaunchedEffect(homeNavigationIntent) {
         val intent = homeNavigationIntent ?: return@LaunchedEffect
         drawerOpen = false
@@ -950,6 +958,7 @@ fun HomeScreen(
                         onAppendSongsToQueue = playbackActions.appendToQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
+                        onAlbumClick = ::navigateToAlbum,
                         albumSortField = albumSortField,
                         albumSortDirection = albumSortDirection,
                         albumGridColumns = albumGridColumns,
@@ -970,6 +979,7 @@ fun HomeScreen(
                         onAppendSongsToQueue = playbackActions.appendToQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
+                        onAlbumClick = ::navigateToAlbum,
                         albumSortField = albumSortField,
                         albumSortDirection = albumSortDirection,
                         albumGridColumns = albumGridColumns,
@@ -1064,11 +1074,8 @@ fun HomeScreen(
                     searchOpen = false
                 },
                 onAlbumClick = { albumTitle ->
-                    section = HomeSection.Albums
-                    browseDestination = BrowseDestination.Album(albumTitle)
+                    navigateToAlbum(albumTitle)
                     actionMenuSong = null
-                    drawerOpen = false
-                    searchOpen = false
                 },
             )
         }
@@ -1151,7 +1158,7 @@ private fun resolveTopBarTitle(
     browseDestination: BrowseDestination,
 ): String = when {
     searchOpen -> "搜索"
-    browseDestination is BrowseDestination.Album -> browseDestination.title
+    browseDestination is BrowseDestination.Album -> "专辑"
     browseDestination is BrowseDestination.Folder -> when {
         browseDestination.scopePathSegments.isNotEmpty() ->
             browseDestination.scopePathSegments.joinToString(" / ")
@@ -1161,7 +1168,7 @@ private fun resolveTopBarTitle(
     section == HomeSection.Playlist && playlistName != null -> playlistName
     else -> when (section) {
         HomeSection.Songs -> appName
-        HomeSection.Artists -> "歌手"
+        HomeSection.Artists -> "艺术家"
         HomeSection.Albums -> "专辑"
         HomeSection.Folders -> "文件夹"
         HomeSection.Recent -> "最近播放"
@@ -1273,7 +1280,10 @@ private fun HomeTopBar(
                 ) {
                     Text(
                         text = title,
-                        style = MicaTheme.typography.display,
+                        style = MicaTheme.typography.titleMd.copy(
+                            fontSize = 22.sp,
+                            lineHeight = 30.sp,
+                        ),
                         color = MicaTheme.colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

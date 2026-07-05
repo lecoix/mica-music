@@ -1,5 +1,8 @@
 package com.mica.music.data.scanner
 
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
+
 internal data class Id3FrameInfo(
     val tagIndex: Int,
     val frameId: String,
@@ -117,10 +120,24 @@ internal object Id3FrameLister {
         if (payload.isEmpty()) return null
         val encoding = payload[0].toInt() and 0xFF
         return if (encoding in 0..3 && payload.size > 1) {
-            Id3Binary.decodeTextSlice(payload, 1, encoding)
+            decodeTextFramePreview(payload.copyOfRange(1, payload.size), encoding)
         } else {
             LyricsEncoding.decodeBytes(payload)
         }
+    }
+
+    private fun decodeTextFramePreview(bytes: ByteArray, encoding: Int): String? {
+        val charset = when (encoding) {
+            0 -> StandardCharsets.ISO_8859_1
+            1 -> StandardCharsets.UTF_16LE
+            2 -> Charset.forName("UTF-16BE")
+            3 -> StandardCharsets.UTF_8
+            else -> return null
+        }
+        return runCatching { String(bytes, charset) }
+            .getOrNull()
+            ?.trim('\u0000', '\uFEFF', '\uFFFE')
+            ?.takeIf { it.isNotBlank() && !it.contains('\uFFFD') }
     }
 
     private fun skipId3Field(payload: ByteArray, start: Int, encoding: Int): Int {

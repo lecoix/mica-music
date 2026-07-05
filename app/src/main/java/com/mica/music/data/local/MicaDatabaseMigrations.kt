@@ -31,3 +31,26 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         db.execSQL("ALTER TABLE songs ADD COLUMN trackNumber INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN discNumber INTEGER NOT NULL DEFAULT -1")
+    }
+}
+
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            UPDATE songs
+            SET discNumber = -1
+            WHERE discNumber = 0
+                AND (
+                    playbackMimeType IN ('audio/dsd', 'audio/x-dsf')
+                    OR containerName = 'DSD'
+                    OR fileName LIKE '%.dsf'
+                )
+            """.trimIndent(),
+        )
+    }
+}

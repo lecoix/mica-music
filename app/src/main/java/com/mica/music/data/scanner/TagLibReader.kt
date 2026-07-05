@@ -25,6 +25,8 @@ internal object TagLibReader {
         val channelCount: Int,
         /** 0 表示未知 */
         val trackNumber: Int,
+        /** 0 表示未知 */
+        val discNumber: Int,
         val lyricsCandidates: List<String>,
         val frontCoverBytes: ByteArray?,
     )
@@ -51,6 +53,9 @@ internal object TagLibReader {
                 channelCount = props.channels,
                 trackNumber = MetadataTextFix.parseTrackNumber(
                     tags.firstValue("TRACKNUMBER", "TRCK", "TRACK", "IPRT"),
+                ),
+                discNumber = MetadataTextFix.parseDiscNumber(
+                    tags.firstValue("DISCNUMBER", "TPOS", "DISC"),
                 ),
                 lyricsCandidates = lyricsCandidates(tags),
                 frontCoverBytes = frontCover?.data?.takeIf { it.isNotEmpty() },

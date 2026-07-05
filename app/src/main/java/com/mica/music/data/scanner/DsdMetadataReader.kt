@@ -3,6 +3,7 @@ package com.mica.music.data.scanner
 import android.content.Context
 import android.net.Uri
 import com.mica.music.data.TrackMetadata
+import com.mica.music.util.DiagnosticLog
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -17,6 +18,8 @@ internal object DsdMetadataReader {
         val albumArtist: String = "",
         val copyright: String = "",
         val year: Int = 0,
+        val trackNumber: Int = 0,
+        val discNumber: Int = 0,
     )
 
     data class Result(
@@ -29,6 +32,11 @@ internal object DsdMetadataReader {
     private data class Id3Data(
         val tags: Tags,
         val albumArtBytes: ByteArray?,
+        val status: String,
+        val bytesRead: Int = 0,
+        val rawTrackNumber: String = "",
+        val rawDiscNumber: String = "",
+        val frameSummary: String = "",
     )
 
     fun read(context: Context, uri: Uri, draft: TrackDraft): Result? =
@@ -71,6 +79,14 @@ internal object DsdMetadataReader {
             fallbackBps = draft.bitrateBpsFromStore,
         )
         val id3 = readDsfId3(channel, metadataOffset)
+        DiagnosticLog.event(
+            "DsdMetadata",
+            "name=${draft.displayName.orEmpty()} metadataOffset=$metadataOffset " +
+                "id3=${id3.status} bytes=${id3.bytesRead} frames=${id3.frameSummary.ifBlank { "<none>" }} " +
+                "trck=${id3.rawTrackNumber.ifBlank { "<blank>" }} track=${id3.tags.trackNumber} " +
+                "tpos=${id3.rawDiscNumber.ifBlank { "<blank>" }} disc=${id3.tags.discNumber} " +
+                "title=${id3.tags.title.isNotBlank()} artBytes=${id3.albumArtBytes?.size ?: 0}",
+        )
         return Result(
             metadata = TrackMetadata(
                 containerName = "DSD",
@@ -148,16 +164,21 @@ internal object DsdMetadataReader {
     }
 
     private fun readDsfId3(channel: FileChannel, metadataOffset: Long): Id3Data {
-        if (metadataOffset <= 0L) return Id3Data(Tags(), null)
-        val tagHeader = channel.readAt(metadataOffset, 10) ?: return Id3Data(Tags(), null)
+        if (metadataOffset <= 0L) return Id3Data(Tags(), null, status = "offset-missing")
+        val tagHeader = channel.readAt(metadataOffset, 10)
+            ?: return Id3Data(Tags(), null, status = "header-read-miss")
+        val hasId3Header = Id3Binary.isId3Header(tagHeader, 0)
         val totalBytes = if (Id3Binary.isId3Header(tagHeader, 0)) {
             (Id3Binary.synchsafeSize(tagHeader, 6) + 10).coerceIn(10, 16 * 1024 * 1024)
         } else {
             4 * 1024 * 1024
         }
-        val bytes = channel.readAt(metadataOffset, totalBytes) ?: return Id3Data(Tags(), null)
+        val bytes = channel.readAt(metadataOffset, totalBytes)
+            ?: return Id3Data(Tags(), null, status = "tag-read-miss")
         val frames = Id3FrameLister.listAll(bytes)
         fun text(id: String): String = frames.firstOrNull { it.frameId == id }?.preview.orEmpty()
+        val rawTrackNumber = text("TRCK")
+        val rawDiscNumber = text("TPOS")
         val year = text("TDRC").takeIf { it.isNotBlank() }
             ?: text("TYER")
         return Id3Data(
@@ -168,10 +189,34 @@ internal object DsdMetadataReader {
                 albumArtist = text("TPE2"),
                 copyright = text("TCOP"),
                 year = year.take(4).toIntOrNull() ?: 0,
+                trackNumber = MetadataTextFix.parseTrackNumber(rawTrackNumber),
+                discNumber = MetadataTextFix.parseDiscNumber(rawDiscNumber),
             ),
             albumArtBytes = readId3Picture(bytes),
+            status = if (hasId3Header) "id3-header" else "id3-search",
+            bytesRead = bytes.size,
+            rawTrackNumber = rawTrackNumber,
+            rawDiscNumber = rawDiscNumber,
+            frameSummary = id3FrameSummary(frames),
         )
     }
+
+    private fun id3FrameSummary(frames: List<Id3FrameInfo>): String =
+        frames
+            .take(16)
+            .joinToString(",") { frame ->
+                val preview = when (frame.frameId) {
+                    "TPOS", "TRCK", "TIT2", "TALB" -> frame.preview.sanitizeForLog().take(48)
+                    else -> ""
+                }
+                if (preview.isBlank()) frame.frameId else "${frame.frameId}=$preview"
+            }
+            .take(700)
+
+    private fun String.sanitizeForLog(): String =
+        replace('\n', ' ')
+            .replace('\r', ' ')
+            .replace('\u0000', ' ')
 
     private fun readId3Picture(bytes: ByteArray): ByteArray? {
         var searchFrom = 0

@@ -34,6 +34,7 @@ object SongMediaItemCodec {
             putLong("${PREFIX}sizeBytes", song.sizeBytes)
             putInt("${PREFIX}year", song.year)
             putInt("${PREFIX}trackNumber", song.trackNumber)
+            putInt("${PREFIX}discNumber", song.discNumber)
             putString("${PREFIX}folderPath", song.folderPath)
             putString("${PREFIX}filePath", song.filePath)
             putString("${PREFIX}copyright", song.copyright)
@@ -102,6 +103,7 @@ object SongMediaItemCodec {
             sizeBytes = extras.getLong("${PREFIX}sizeBytes", 0L),
             year = extras.getInt("${PREFIX}year", 0),
             trackNumber = extras.getInt("${PREFIX}trackNumber", 0).coerceAtLeast(0),
+            discNumber = extras.getInt("${PREFIX}discNumber", 0).coerceAtLeast(0),
             folderPath = extras.getString("${PREFIX}folderPath").orEmpty(),
             filePath = extras.getString("${PREFIX}filePath").orEmpty(),
             copyright = extras.getString("${PREFIX}copyright").orEmpty(),

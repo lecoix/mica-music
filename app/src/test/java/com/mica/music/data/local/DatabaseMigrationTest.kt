@@ -140,6 +140,92 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun migrationFiveToSixAddsDiscNumberDefault() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(5) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                            db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_5_6.migrate(db)
+
+        val columns = tableColumns(db, "songs")
+        assertTrue(columns.contains("discNumber"))
+        db.query("SELECT discNumber FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(-1, cursor.getInt(0))
+        }
+        helper.close()
+    }
+
+    @Test
+    fun migrationSixToSevenMarksCachedDsdDiscNumberUnrefreshed() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(6) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                "CREATE TABLE songs (" +
+                                    "id TEXT NOT NULL PRIMARY KEY, " +
+                                    "containerName TEXT NOT NULL, " +
+                                    "playbackMimeType TEXT NOT NULL, " +
+                                    "fileName TEXT NOT NULL, " +
+                                    "discNumber INTEGER NOT NULL" +
+                                    ")",
+                            )
+                            db.execSQL(
+                                "INSERT INTO songs(id, containerName, playbackMimeType, fileName, discNumber) " +
+                                    "VALUES ('dsf-zero', 'DSD', 'audio/x-dsf', 'song.dsf', 0)",
+                            )
+                            db.execSQL(
+                                "INSERT INTO songs(id, containerName, playbackMimeType, fileName, discNumber) " +
+                                    "VALUES ('dsf-known', 'DSD', 'audio/x-dsf', 'known.dsf', 2)",
+                            )
+                            db.execSQL(
+                                "INSERT INTO songs(id, containerName, playbackMimeType, fileName, discNumber) " +
+                                    "VALUES ('wav-zero', 'WAV', 'audio/wav', 'song.wav', 0)",
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_6_7.migrate(db)
+
+        assertEquals(-1, discNumberFor(db, "dsf-zero"))
+        assertEquals(2, discNumberFor(db, "dsf-known"))
+        assertEquals(0, discNumberFor(db, "wav-zero"))
+        helper.close()
+    }
+
+    @Test
     fun freshDatabaseMatchesExportedEntitySchema() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, MicaDatabase::class.java)
@@ -159,6 +245,7 @@ class DatabaseMigrationTest {
                     "filePath",
                     "copyright",
                     "codecLabel",
+                    "discNumber",
                     "externalLyricsSignature",
                     "lyricsJson",
                     "queueOrder",
@@ -190,4 +277,10 @@ class DatabaseMigrationTest {
             while (cursor.moveToNext()) add(cursor.getString(nameIndex))
         }
     }
+
+    private fun discNumberFor(db: SupportSQLiteDatabase, id: String): Int =
+        db.query("SELECT discNumber FROM songs WHERE id = '$id'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getInt(0)
+        }
 }
