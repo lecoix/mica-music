@@ -50,6 +50,8 @@ fun SongRow(
     isPlaying: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -61,12 +63,18 @@ fun SongRow(
                 // 与 LibraryStatsRow 右侧（排序/重载）同一内边距
                 .padding(end = HifiSpacing.lg)
                 .semantics(mergeDescendants = true) {
-                    contentDescription = "播放 ${song.title}，${ArtistNames.normalizeDisplay(song.artist)}"
-                    selected = isCurrent
+                    contentDescription = if (selectionMode) {
+                        "${if (isSelected) "取消选择" else "选择"} ${song.title}，${ArtistNames.normalizeDisplay(song.artist)}"
+                    } else {
+                        "播放 ${song.title}，${ArtistNames.normalizeDisplay(song.artist)}"
+                    }
+                    selected = if (selectionMode) isSelected else isCurrent
                     role = Role.Button
                 }
                 .then(
-                    if (onLongClick != null) {
+                    if (selectionMode) {
+                        Modifier.clickable(onClick = onClick)
+                    } else if (onLongClick != null) {
                         Modifier.combinedClickable(
                             onClick = onClick,
                             onLongClick = onLongClick,
@@ -141,11 +149,15 @@ fun SongRow(
 
             Spacer(Modifier.width(HifiSpacing.xs))
 
-            Text(
-                text = trailingLabel ?: song.formatLabel,
-                style = MicaTheme.typography.monoSm,
-                color = MicaTheme.colors.textTertiary,
-            )
+            if (selectionMode) {
+                SongSelectionCheckbox(selected = isSelected)
+            } else {
+                Text(
+                    text = trailingLabel ?: song.formatLabel,
+                    style = MicaTheme.typography.monoSm,
+                    color = MicaTheme.colors.textTertiary,
+                )
+            }
         }
     }
 }

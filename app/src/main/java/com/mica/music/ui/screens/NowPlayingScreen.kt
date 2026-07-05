@@ -560,7 +560,7 @@ fun NowPlayingContent(
 
         addToPlaylistSong?.let { playlistSong ->
             AddToPlaylistSheet(
-                song = playlistSong,
+                songs = listOf(playlistSong),
                 playlistStore = playlistStore,
                 onDismiss = { addToPlaylistSong = null },
                 onCreated = { message ->

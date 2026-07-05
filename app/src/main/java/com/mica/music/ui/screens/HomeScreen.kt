@@ -274,7 +274,9 @@ fun HomeScreen(
     var returnSection by rememberSaveable { mutableStateOf(HomeSection.Songs) }
     var actionMenuSong by remember { mutableStateOf<Song?>(null) }
     var actionMenuPlaylistId by remember { mutableStateOf<String?>(null) }
-    var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
+    var addToPlaylistSongs by remember { mutableStateOf<List<Song>?>(null) }
+    var songMultiSelectActive by remember { mutableStateOf(false) }
+    var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
     var pendingDeleteSong by remember { mutableStateOf<Song?>(null) }
     var pendingDeletePlaylistId by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -293,11 +295,30 @@ fun HomeScreen(
         actionMenuPlaylistId = playlistId
     }
 
+    fun exitSongMultiSelect() {
+        songMultiSelectActive = false
+        selectedSongIds = emptySet()
+    }
+
+    fun toggleSongSelection(songId: String) {
+        selectedSongIds = if (songId in selectedSongIds) {
+            selectedSongIds - songId
+        } else {
+            selectedSongIds + songId
+        }
+    }
+
+    fun openSongMultiSelect() {
+        if (section != HomeSection.Songs || searchOpen) return
+        songMultiSelectActive = true
+        selectedSongIds = emptySet()
+    }
+
     fun handleSongMenuAction(action: SongMenuAction, song: Song) {
         when (action) {
             SongMenuAction.AddToPlaylist -> {
                 actionMenuSong = null
-                addToPlaylistSong = song
+                addToPlaylistSongs = listOf(song)
             }
             SongMenuAction.PlayNext -> {
                 library.songById(song.id)?.let { playbackActions.insertPlayNext(it) }
@@ -466,6 +487,7 @@ fun HomeScreen(
 
     fun navigateBack() {
         when {
+            songMultiSelectActive -> exitSongMultiSelect()
             searchOpen -> {
                 searchOpen = false
                 searchQuery = ""
@@ -576,10 +598,17 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(section, searchOpen) {
+        if (section != HomeSection.Songs || searchOpen) {
+            exitSongMultiSelect()
+        }
+    }
+
     val canNavigateBack = searchOpen ||
         browseDestination != BrowseDestination.Root ||
         section == HomeSection.Recent ||
-        section == HomeSection.LibraryAnalysis
+        section == HomeSection.LibraryAnalysis ||
+        songMultiSelectActive
     val showFolderMenuButton = section == HomeSection.Folders && !searchOpen
 
     BackHandler(enabled = drawerOpen) {
@@ -739,14 +768,26 @@ fun HomeScreen(
             ) {
                 statsBarSnapshot?.let { model ->
                     Column {
-                        LibraryStatsRow(
-                            model = model,
-                            onSortClick = { sortSheetOpen = true },
-                            onRescan = onRequestRescan,
-                            onDeletePlaylist = {
-                                activePlaylistId?.let { pendingDeletePlaylistId = it }
-                            },
-                        )
+                        if (songMultiSelectActive) {
+                            SongMultiSelectStatsRow(
+                                selectedCount = selectedSongIds.size,
+                                onAddToPlaylist = {
+                                    val songs = library.songs.filter { it.id in selectedSongIds }
+                                    if (songs.isNotEmpty()) {
+                                        addToPlaylistSongs = songs
+                                    }
+                                },
+                            )
+                        } else {
+                            LibraryStatsRow(
+                                model = model,
+                                onSortClick = { sortSheetOpen = true },
+                                onRescan = onRequestRescan,
+                                onDeletePlaylist = {
+                                    activePlaylistId?.let { pendingDeletePlaylistId = it }
+                                },
+                            )
+                        }
                         Spacer(Modifier.height(HifiSpacing.md))
                     }
                 }
@@ -818,6 +859,11 @@ fun HomeScreen(
                                 }
                                 sortSheetOpen = false
                             },
+                            onMultiSelectClick = if (section == HomeSection.Songs && !isPlaylistSort) {
+                                ::openSongMultiSelect
+                            } else {
+                                null
+                            },
                         )
                     }
                 }
@@ -865,6 +911,9 @@ fun HomeScreen(
                         onOpenSettings = { openAppSettings(context) },
                         listState = songListState,
                         listBottomPadding = listBottomPadding,
+                        selectionMode = songMultiSelectActive,
+                        selectedSongIds = selectedSongIds,
+                        onSelectionToggle = ::toggleSongSelection,
                     )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
                         library = library,
@@ -1024,12 +1073,16 @@ fun HomeScreen(
             )
         }
 
-        addToPlaylistSong?.let { song ->
+        addToPlaylistSongs?.let { songs ->
             AddToPlaylistSheet(
-                song = song,
+                songs = songs,
                 playlistStore = playlistStore,
-                onDismiss = { addToPlaylistSong = null },
+                onDismiss = { addToPlaylistSongs = null },
                 onCreated = { message ->
+                    if (songMultiSelectActive) {
+                        exitSongMultiSelect()
+                    }
+                    addToPlaylistSongs = null
                     scope.launch { snackbarHostState.showSnackbar(message) }
                 },
             )
@@ -1262,6 +1315,9 @@ private fun LibraryContent(
     onOpenSettings: () -> Unit,
     listState: LazyListState,
     listBottomPadding: Dp,
+    selectionMode: Boolean = false,
+    selectedSongIds: Set<String> = emptySet(),
+    onSelectionToggle: (String) -> Unit = {},
 ) {
     val folderLabel = library.libraryFolderLabel
     when {
@@ -1309,9 +1365,47 @@ private fun LibraryContent(
                 fastScrollLabels = library.songFastScrollLabels,
                 fastScrollSectionTargets = library.songFastScrollSectionTargets,
                 listBottomPadding = listBottomPadding,
+                selectionMode = selectionMode,
+                selectedSongIds = selectedSongIds,
+                onSelectionToggle = onSelectionToggle,
                 modifier = Modifier.fillMaxSize(),
             )
         }
+    }
+}
+
+@Composable
+private fun SongMultiSelectStatsRow(
+    selectedCount: Int,
+    onAddToPlaylist: () -> Unit,
+) {
+    val statsRowMinHeight = HifiSize.iconMd + HifiSpacing.xs * 2
+
+    Row(
+        modifier = Modifier
+            .padding(horizontal = HifiSpacing.lg)
+            .heightIn(min = statsRowMinHeight)
+            .fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "已选 $selectedCount 首",
+            style = MicaTheme.typography.monoSm,
+            color = MicaTheme.colors.textTertiary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "加入歌单",
+            style = MicaTheme.typography.bodyMd,
+            color = if (selectedCount > 0) {
+                MicaTheme.colors.accent
+            } else {
+                MicaTheme.colors.textTertiary
+            },
+            modifier = Modifier
+                .clickable(enabled = selectedCount > 0, onClick = onAddToPlaylist)
+                .padding(HifiSpacing.xs),
+        )
     }
 }
 

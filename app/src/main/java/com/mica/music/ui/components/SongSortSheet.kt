@@ -27,6 +27,7 @@ fun SongSortSheet(
     onDismiss: () -> Unit,
     onApply: (SongSortField, SortDirection) -> Unit,
     includeCustomSort: Boolean = false,
+    onMultiSelectClick: (() -> Unit)? = null,
 ) {
     val sortFields = if (includeCustomSort) {
         listOf(SongSortField.CUSTOM) + SongSortField.entries.filter { it != SongSortField.CUSTOM }
@@ -54,11 +55,6 @@ fun SongSortSheet(
                 .padding(bottom = HifiSpacing.xxl),
             verticalArrangement = Arrangement.spacedBy(HifiSpacing.md),
         ) {
-            Text(
-                text = "排序",
-                style = MicaTheme.typography.titleMd,
-                color = MicaTheme.colors.textPrimary,
-            )
             Text(
                 text = "排序方式",
                 style = MicaTheme.typography.caption,
@@ -104,6 +100,21 @@ fun SongSortSheet(
                     text = "自定义顺序下可长按右侧把手拖动排序",
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textTertiary,
+                )
+            }
+            if (onMultiSelectClick != null) {
+                Text(
+                    text = "批量操作",
+                    style = MicaTheme.typography.caption,
+                    color = MicaTheme.colors.textSecondary,
+                )
+                AccentTextChoice(
+                    label = "多选",
+                    selected = false,
+                    onClick = {
+                        onMultiSelectClick()
+                        onDismiss()
+                    },
                 )
             }
         }

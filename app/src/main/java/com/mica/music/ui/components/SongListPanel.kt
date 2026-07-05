@@ -37,6 +37,9 @@ fun SongListPanel(
     fastScrollLabels: List<String>? = null,
     fastScrollSectionTargets: Map<String, Int>? = null,
     listBottomPadding: Dp = 0.dp,
+    selectionMode: Boolean = false,
+    selectedSongIds: Set<String> = emptySet(),
+    onSelectionToggle: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val lazyListState = listState ?: rememberLazyListState()
@@ -66,6 +69,9 @@ fun SongListPanel(
             onSongOpenMenu = onSongOpenMenu,
             listState = lazyListState,
             listBottomPadding = listBottomPadding,
+            selectionMode = selectionMode,
+            selectedSongIds = selectedSongIds,
+            onSelectionToggle = onSelectionToggle,
             modifier = modifier.fillMaxSize(),
         )
     } else {
@@ -84,6 +90,9 @@ fun SongListPanel(
                 onSongOpenMenu = onSongOpenMenu,
                 listState = lazyListState,
                 listBottomPadding = listBottomPadding,
+                selectionMode = selectionMode,
+                selectedSongIds = selectedSongIds,
+                onSelectionToggle = onSelectionToggle,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -110,6 +119,9 @@ private fun SongRows(
     onSongOpenMenu: ((Song) -> Unit)?,
     listState: LazyListState,
     listBottomPadding: Dp,
+    selectionMode: Boolean = false,
+    selectedSongIds: Set<String> = emptySet(),
+    onSelectionToggle: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -123,8 +135,16 @@ private fun SongRows(
                 song = song,
                 isCurrent = isCurrent,
                 isPlaying = isCurrent && isPlaying,
-                onClick = { onSongClick(song.id) },
-                onLongClick = onSongOpenMenu?.let { open -> { open(song) } },
+                onClick = {
+                    if (selectionMode) {
+                        onSelectionToggle(song.id)
+                    } else {
+                        onSongClick(song.id)
+                    }
+                },
+                onLongClick = if (selectionMode) null else onSongOpenMenu?.let { open -> { open(song) } },
+                selectionMode = selectionMode,
+                isSelected = song.id in selectedSongIds,
             )
         }
     }

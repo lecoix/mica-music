@@ -231,16 +231,32 @@ private fun SongMenuItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddToPlaylistSheet(
-    song: Song,
+    songs: List<Song>,
     playlistStore: PlaylistStore,
     onDismiss: () -> Unit,
     onCreated: (String) -> Unit,
 ) {
+    if (songs.isEmpty()) return
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
     val sheetBackground = if (isDark) HifiPalette.MicaFogDarkEnd else HifiPalette.MicaFogStart
     var showCreate by remember { mutableStateOf(false) }
     val playlists = playlistStore.playlists
+    val songIds = songs.map { it.id }
+    val subtitle = when (songs.size) {
+        1 -> songs.first().title
+        else -> "已选 ${songs.size} 首"
+    }
+    fun addToPlaylist(playlistId: String, playlistName: String) {
+        songIds.forEach { playlistStore.addSongToPlaylist(playlistId, it) }
+        val message = if (songs.size == 1) {
+            "已添加到「$playlistName」"
+        } else {
+            "已将 ${songs.size} 首添加到「$playlistName」"
+        }
+        onCreated(message)
+        onDismiss()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -260,7 +276,7 @@ fun AddToPlaylistSheet(
                 modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
             )
             Text(
-                text = song.title,
+                text = subtitle,
                 style = MicaTheme.typography.bodySm,
                 color = MicaTheme.colors.textSecondary,
                 maxLines = 1,
@@ -274,7 +290,11 @@ fun AddToPlaylistSheet(
             )
             if (showCreate) {
                 Text(
-                    text = "输入名称后创建歌单并加入此曲；也可在侧栏「新建歌单」管理。",
+                    text = if (songs.size == 1) {
+                        "输入名称后创建歌单并加入此曲；也可在侧栏「新建歌单」管理。"
+                    } else {
+                        "输入名称后创建歌单并加入所选歌曲；也可在侧栏「新建歌单」管理。"
+                    },
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textTertiary,
                     modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
@@ -285,9 +305,7 @@ fun AddToPlaylistSheet(
                     onClick = {
                         val playlist = playlistStore.playlists.find { it.name == "我的歌单" }
                             ?: playlistStore.createPlaylist("我的歌单")
-                        playlistStore.addSongToPlaylist(playlist.id, song.id)
-                        onCreated("已添加到「${playlist.name}」")
-                        onDismiss()
+                        addToPlaylist(playlist.id, playlist.name)
                     },
                 )
             }
@@ -303,11 +321,7 @@ fun AddToPlaylistSheet(
                     items(playlists, key = { it.id }) { playlist ->
                         PlaylistPickRow(
                             playlist = playlist,
-                            onClick = {
-                                playlistStore.addSongToPlaylist(playlist.id, song.id)
-                                onCreated("已添加到「${playlist.name}」")
-                                onDismiss()
-                            },
+                            onClick = { addToPlaylist(playlist.id, playlist.name) },
                         )
                     }
                 }
