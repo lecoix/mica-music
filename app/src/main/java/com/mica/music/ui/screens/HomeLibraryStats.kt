@@ -158,10 +158,7 @@ internal fun resolveLibraryStatsBarModel(
                 showSortAction = true,
                 showRescanAction = true,
             )
-            is BrowseDestination.Artist -> {
-                val subset = library.songsForArtist(browseDestination.name)
-                subsetStats(subset, library)
-            }
+            is BrowseDestination.Artist -> null
             else -> null
         }
         HomeSection.Albums -> when (browseDestination) {

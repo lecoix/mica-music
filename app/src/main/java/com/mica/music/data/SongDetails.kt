@@ -16,6 +16,7 @@ object SongDetails {
         SongDetailRow("艺术家", ArtistNames.normalizeDisplay(song.artist)),
         SongDetailRow("专辑", song.album.ifBlank { "—" }),
         SongDetailRow("专辑艺术家", song.albumArtist.ifBlank { "—" }),
+        SongDetailRow("音轨号", trackNumberLabel(song.trackNumber)),
         SongDetailRow("媒体来源", mediaSourceLabel(song, library)),
         SongDetailRow("播放次数", song.playCount.toString()),
         SongDetailRow("累计播放时长", formatListenMinutes(song.totalListenSeconds)),
@@ -84,6 +85,9 @@ object SongDetails {
         val minutes = seconds.coerceAtLeast(0L) / 60L
         return "$minutes 分钟"
     }
+
+    fun trackNumberLabel(trackNumber: Int): String =
+        trackNumber.takeIf { it > 0 }?.toString() ?: "—"
 
     fun displayPath(song: Song): String {
         if (song.filePath.isNotBlank()) return song.filePath

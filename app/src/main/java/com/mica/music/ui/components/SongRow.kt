@@ -44,6 +44,8 @@ import com.mica.music.ui.theme.MicaTheme
 @Composable
 fun SongRow(
     song: Song,
+    trackNumber: String? = null,
+    trailingLabel: String? = null,
     isCurrent: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
@@ -82,6 +84,17 @@ fun SongRow(
             )
 
             Spacer(Modifier.width(HifiSpacing.md))
+
+            trackNumber?.let { number ->
+                Text(
+                    text = number,
+                    style = MicaTheme.typography.monoSm,
+                    color = if (isCurrent) MicaTheme.colors.accent else MicaTheme.colors.textTertiary,
+                    maxLines = 1,
+                    modifier = Modifier.width(28.dp),
+                )
+                Spacer(Modifier.width(HifiSpacing.sm))
+            }
 
             SongCover(
                 albumArtUri = song.albumArtUri,
@@ -129,7 +142,7 @@ fun SongRow(
             Spacer(Modifier.width(HifiSpacing.xs))
 
             Text(
-                text = song.formatLabel,
+                text = trailingLabel ?: song.formatLabel,
                 style = MicaTheme.typography.monoSm,
                 color = MicaTheme.colors.textTertiary,
             )

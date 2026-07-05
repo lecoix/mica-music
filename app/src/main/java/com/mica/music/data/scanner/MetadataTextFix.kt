@@ -60,6 +60,14 @@ internal object MetadataTextFix {
         return good * 2 >= text.length
     }
 
+    /** 解析 TRCK / TRACKNUMBER 等原始值（如 `5/12`）；无法解析时返回 0。 */
+    fun parseTrackNumber(raw: String?): Int {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isEmpty()) return 0
+        val trackPart = trimmed.substringBefore('/').trim()
+        return trackPart.toIntOrNull()?.coerceAtLeast(0) ?: 0
+    }
+
     fun titleFromTagsOrFilename(
         tagTitle: String?,
         displayName: String?,

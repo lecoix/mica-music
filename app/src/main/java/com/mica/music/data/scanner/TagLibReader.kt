@@ -23,6 +23,8 @@ internal object TagLibReader {
         val sampleRateHz: Int,
         val bitrateKbps: Int,
         val channelCount: Int,
+        /** 0 表示未知 */
+        val trackNumber: Int,
         val lyricsCandidates: List<String>,
         val frontCoverBytes: ByteArray?,
     )
@@ -47,6 +49,9 @@ internal object TagLibReader {
                 sampleRateHz = props.sampleRate,
                 bitrateKbps = props.bitrate,
                 channelCount = props.channels,
+                trackNumber = MetadataTextFix.parseTrackNumber(
+                    tags.firstValue("TRACKNUMBER", "TRCK", "TRACK", "IPRT"),
+                ),
                 lyricsCandidates = lyricsCandidates(tags),
                 frontCoverBytes = frontCover?.data?.takeIf { it.isNotEmpty() },
             )

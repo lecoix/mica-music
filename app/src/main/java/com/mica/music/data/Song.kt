@@ -20,6 +20,8 @@ data class Song(
     val sizeBytes: Long = 0L,
     /** 0 表示未知 */
     val year: Int = 0,
+    /** 专辑内音轨号；0 表示未知 */
+    val trackNumber: Int = 0,
     /** 相对曲库或父目录路径 */
     val folderPath: String = "",
     /** 绝对或可读文件路径（扫描时写入） */

@@ -227,6 +227,7 @@ data class HomePlaybackActions(
     val syncPlaybackState: () -> Unit,
     val insertPlayNext: (Song) -> Unit,
     val setQueue: (List<Song>) -> Unit,
+    val appendToQueue: (List<Song>) -> Unit,
     val togglePlay: () -> Unit,
     val previous: () -> Unit,
     val next: () -> Unit,
@@ -725,7 +726,9 @@ fun HomeScreen(
                 },
             )
 
-            Spacer(Modifier.height(HifiSpacing.xs))
+            if (statsBarModel != null) {
+                Spacer(Modifier.height(HifiSpacing.xs))
+            }
 
             AnimatedVisibility(
                 visible = statsBarModel != null,
@@ -895,6 +898,7 @@ fun HomeScreen(
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,
+                        onAppendSongsToQueue = playbackActions.appendToQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         albumSortField = albumSortField,
@@ -914,6 +918,7 @@ fun HomeScreen(
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,
+                        onAppendSongsToQueue = playbackActions.appendToQueue,
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         albumSortField = albumSortField,
@@ -1093,7 +1098,6 @@ private fun resolveTopBarTitle(
     browseDestination: BrowseDestination,
 ): String = when {
     searchOpen -> "搜索"
-    browseDestination is BrowseDestination.Artist -> browseDestination.name
     browseDestination is BrowseDestination.Album -> browseDestination.title
     browseDestination is BrowseDestination.Folder -> when {
         browseDestination.scopePathSegments.isNotEmpty() ->

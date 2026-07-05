@@ -333,6 +333,11 @@ private fun rememberHomePlaybackActions(
             syncPlaybackState = playerController::syncPlaybackState,
             insertPlayNext = playerController::insertPlayNext,
             setQueue = playerController::setQueue,
+            appendToQueue = { songs ->
+                if (songs.isNotEmpty()) {
+                    playerController.setQueue(playerController.songQueue + songs)
+                }
+            },
             togglePlay = playerController::togglePlay,
             previous = playerController::previous,
             next = playerController::next,
