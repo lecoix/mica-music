@@ -36,8 +36,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,8 +89,12 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
+import com.mica.music.util.DiagnosticLog
+import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
 import java.util.Locale
+
+private const val BackRootDebugTag = "DEBUG-BACK-ROOT-1A2B"
 
 private val DurationChoices = listOf(
     0 to "不限",
@@ -203,8 +208,31 @@ fun SettingsScreen(
     var showCustomMicaDialog by remember { mutableStateOf(false) }
     var showExcludedDirectoriesDialog by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+    val settingsSubpageBackEnabled = selectedCategory != null && !playerOverlayOpen
 
-    BackHandler(enabled = selectedCategory != null && !playerOverlayOpen) {
+    LaunchedEffect(selectedCategory, playerOverlayOpen, settingsSubpageBackEnabled) {
+        logBackFlow(
+            "page settings category=${selectedCategory?.name ?: "none"} " +
+                "playerOverlayOpen=$playerOverlayOpen " +
+                "backEnabled=$settingsSubpageBackEnabled",
+        )
+        DiagnosticLog.event(
+            "BackRoot",
+            "$BackRootDebugTag settings-state category=${selectedCategory?.name ?: "none"} " +
+                "playerOverlayOpen=$playerOverlayOpen enabled=$settingsSubpageBackEnabled",
+        )
+    }
+
+    BackHandler(enabled = settingsSubpageBackEnabled) {
+        logBackFlow(
+            "back-consume source=settings-subpage category=${selectedCategory?.name ?: "none"} " +
+                "playerOverlayOpen=$playerOverlayOpen",
+        )
+        DiagnosticLog.event(
+            "BackRoot",
+            "$BackRootDebugTag settings-consume category=${selectedCategory?.name ?: "none"} " +
+                "playerOverlayOpen=$playerOverlayOpen",
+        )
         selectedCategory = null
     }
 
@@ -303,8 +331,10 @@ fun SettingsScreen(
             IconButton(
                 onClick = {
                     if (selectedCategory == null) {
+                        logBackFlow("back-consume source=settings-topbar category=none")
                         onBack()
                     } else {
+                        logBackFlow("back-consume source=settings-topbar category=${selectedCategory?.name}")
                         selectedCategory = null
                     }
                 },
@@ -334,7 +364,10 @@ fun SettingsScreen(
                     SettingsNavigationRow(
                         title = category.title,
                         subtitle = category.subtitle,
-                        onClick = { selectedCategory = category },
+                        onClick = {
+                            logBackFlow("page-action settings-open-category category=${category.name}")
+                            selectedCategory = category
+                        },
                     )
                 }
 

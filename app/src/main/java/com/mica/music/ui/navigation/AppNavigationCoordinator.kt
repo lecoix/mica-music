@@ -31,6 +31,8 @@ class AppNavigationCoordinator internal constructor(
     /** 全屏播放层可见时 overlay 须 MATCH_PARENT；收起时 WRAP_CONTENT 以利触摸穿透。 */
     var overlayFullScreen by mutableStateOf(false)
 
+    var playerBackProgress by mutableStateOf<Float?>(null)
+
     private var navController: NavHostController? = null
 
     fun attachNavController(controller: NavHostController) {
@@ -59,6 +61,11 @@ class AppNavigationCoordinator internal constructor(
         navController?.popBackStack(Routes.Home, inclusive = false)
     }
 }
+
+internal fun playerOverlayOwnsBack(
+    playerExpanded: Boolean,
+    overlayFullScreen: Boolean,
+): Boolean = playerExpanded || overlayFullScreen
 
 @Composable
 fun rememberAppNavigationCoordinator(): AppNavigationCoordinator {

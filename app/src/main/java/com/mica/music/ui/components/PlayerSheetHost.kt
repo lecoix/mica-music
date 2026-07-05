@@ -1,6 +1,5 @@
 package com.mica.music.ui.components
 
-import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,7 +30,33 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.NowPlayingContent
-import kotlinx.coroutines.CancellationException
+
+internal enum class PlayerSheetPhase {
+    Collapsed,
+    Expanded,
+    Closing,
+}
+
+internal fun playerSheetPhaseForExternalExpanded(
+    current: PlayerSheetPhase,
+    expanded: Boolean,
+    progress: Float,
+): PlayerSheetPhase = when {
+    expanded -> PlayerSheetPhase.Expanded
+    current != PlayerSheetPhase.Collapsed || progress > 0f -> PlayerSheetPhase.Closing
+    else -> PlayerSheetPhase.Collapsed
+}
+
+internal fun PlayerSheetPhase.keepsOverlayOpen(externalExpanded: Boolean): Boolean =
+    externalExpanded || this != PlayerSheetPhase.Collapsed
+
+internal fun playerSheetProgressForPredictiveBack(
+    animatedProgress: Float,
+    predictiveBackProgress: Float?,
+): Float {
+    val progress = predictiveBackProgress?.let { 1f - it } ?: animatedProgress
+    return progress.coerceIn(0f, 1f)
+}
 
 @Composable
 fun PlayerSheetHost(
@@ -52,6 +77,7 @@ fun PlayerSheetHost(
     onOverlayFullScreenChange: (Boolean) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     modifier: Modifier = Modifier,
+    predictiveBackProgress: Float? = null,
 ) {
     val song = surfaceState.currentSong
     if (song == null) {
@@ -60,44 +86,51 @@ fun PlayerSheetHost(
     }
     val motionEnabled = rememberMicaMotionEnabled()
     val expansion = remember { Animatable(if (expanded) 1f else 0f) }
-    var predictiveBackInProgress by remember { mutableStateOf(false) }
-
-    LaunchedEffect(expanded, motionEnabled) {
-        if (predictiveBackInProgress) return@LaunchedEffect
-        expansion.animateTo(
-            targetValue = if (expanded) 1f else 0f,
-            animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
-        )
+    var sheetPhase by remember {
+        mutableStateOf(if (expanded) PlayerSheetPhase.Expanded else PlayerSheetPhase.Collapsed)
     }
 
-    val progress = expansion.value.coerceIn(0f, 1f)
-    val showFullPlayer = expanded || progress > 0.01f
+    LaunchedEffect(expanded, motionEnabled, predictiveBackProgress) {
+        val backProgress = predictiveBackProgress
+        if (backProgress != null) {
+            sheetPhase = PlayerSheetPhase.Expanded
+            expansion.snapTo(
+                playerSheetProgressForPredictiveBack(
+                    animatedProgress = expansion.value,
+                    predictiveBackProgress = backProgress,
+                ),
+            )
+            return@LaunchedEffect
+        }
+
+        val nextPhase = playerSheetPhaseForExternalExpanded(sheetPhase, expanded, expansion.value)
+        when (nextPhase) {
+            PlayerSheetPhase.Expanded -> {
+                sheetPhase = PlayerSheetPhase.Expanded
+                expansion.animateTo(
+                    targetValue = 1f,
+                    animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
+                )
+            }
+            PlayerSheetPhase.Closing -> {
+                sheetPhase = PlayerSheetPhase.Closing
+                expansion.animateTo(
+                    targetValue = 0f,
+                    animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
+                )
+                sheetPhase = PlayerSheetPhase.Collapsed
+            }
+            PlayerSheetPhase.Collapsed -> {
+                sheetPhase = PlayerSheetPhase.Collapsed
+            }
+        }
+    }
+
+    val progress = playerSheetProgressForPredictiveBack(expansion.value, predictiveBackProgress)
+    val showFullPlayer = sheetPhase.keepsOverlayOpen(expanded) || predictiveBackProgress != null
 
     LaunchedEffect(showFullPlayer) {
         onOverlayFullScreenChange(showFullPlayer)
-    }
-
-    PredictiveBackHandler(enabled = showFullPlayer) { backEvents ->
-        predictiveBackInProgress = true
-        try {
-            backEvents.collect { backEvent ->
-                expansion.snapTo(1f - backEvent.progress)
-            }
-            expansion.animateTo(
-                targetValue = 0f,
-                animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
-            )
-            onExpandedChange(false)
-        } catch (_: CancellationException) {
-            expansion.animateTo(
-                targetValue = 1f,
-                animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs),
-            )
-            // Keep the owner state in sync after a canceled predictive-back gesture.
-            onExpandedChange(true)
-        } finally {
-            predictiveBackInProgress = false
-        }
     }
 
     Box(

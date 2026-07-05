@@ -1,6 +1,7 @@
 package com.mica.music.ui.navigation
 
 import android.net.Uri
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -42,6 +44,11 @@ import com.mica.music.ui.screens.PhotoStackShadowPreviewScreen
 import com.mica.music.ui.screens.SettingsScreen
 import com.mica.music.ui.screens.SongDetailScreen
 import com.mica.music.ui.system.homeStatusBarTopPadding
+import com.mica.music.util.DiagnosticLog
+import com.mica.music.util.logBackFlow
+import kotlinx.coroutines.CancellationException
+
+private const val BackRootDebugTag = "DEBUG-BACK-ROOT-1A2B"
 
 object Routes {
     const val Home = "home"
@@ -91,10 +98,44 @@ fun AppNavigationMain(
     } else {
         0.dp
     }
+    val playerOverlayOwnsBack = playerOverlayOwnsBack(
+        playerExpanded = coordinator.playerExpanded,
+        overlayFullScreen = coordinator.overlayFullScreen,
+    )
+
+    LaunchedEffect(
+        playerOverlayOwnsBack,
+        coordinator.playerExpanded,
+        coordinator.overlayFullScreen,
+    ) {
+        logBackFlow(
+            "state root owns=$playerOverlayOwnsBack " +
+                "playerExpanded=${coordinator.playerExpanded} " +
+                "overlayFullScreen=${coordinator.overlayFullScreen}",
+        )
+        DiagnosticLog.event(
+            "BackRoot",
+            "$BackRootDebugTag owner-state owns=$playerOverlayOwnsBack " +
+                "playerExpanded=${coordinator.playerExpanded} " +
+                "overlayFullScreen=${coordinator.overlayFullScreen}",
+        )
+    }
 
     DisposableEffect(navController) {
         coordinator.attachNavController(navController)
-        onDispose { coordinator.detachNavController(navController) }
+        val listener = androidx.navigation.NavController.OnDestinationChangedListener { controller, destination, _ ->
+            logBackFlow(
+                "page route=${destination.route ?: destination.id} " +
+                    "backStack=${controller.previousBackStackEntry?.destination?.route ?: "none"} " +
+                    "playerExpanded=${coordinator.playerExpanded} " +
+                    "overlayFullScreen=${coordinator.overlayFullScreen}",
+            )
+        }
+        navController.addOnDestinationChangedListener(listener)
+        onDispose {
+            navController.removeOnDestinationChangedListener(listener)
+            coordinator.detachNavController(navController)
+        }
     }
 
     NavHost(
@@ -123,14 +164,28 @@ fun AppNavigationMain(
                 playbackActions = homePlaybackActions,
                 uiSettings = uiSettings,
                 onSongClick = { songId ->
+                    logBackFlow("player-overlay open source=song-click song=$songId")
                     playerController.playSongById(songId)
                     coordinator.playerExpanded = true
                 },
-                onMiniPlayerExpand = { coordinator.playerExpanded = true },
-                onOpenSettings = { coordinator.navigate(Routes.Settings) },
-                onOpenEqualizer = { coordinator.navigate(Routes.Equalizer) },
-                onOpenAbout = { coordinator.navigate(Routes.About) },
+                onMiniPlayerExpand = {
+                    logBackFlow("player-overlay open source=mini-player")
+                    coordinator.playerExpanded = true
+                },
+                onOpenSettings = {
+                    logBackFlow("nav-action open-settings from=home")
+                    coordinator.navigate(Routes.Settings)
+                },
+                onOpenEqualizer = {
+                    logBackFlow("nav-action open-equalizer from=home")
+                    coordinator.navigate(Routes.Equalizer)
+                },
+                onOpenAbout = {
+                    logBackFlow("nav-action open-about from=home")
+                    coordinator.navigate(Routes.About)
+                },
                 onOpenSongDetail = { songId ->
+                    logBackFlow("nav-action open-song-detail from=home song=$songId")
                     coordinator.navigateSongDetail(songId)
                 },
                 showMiniPlayer = false,
@@ -138,6 +193,7 @@ fun AppNavigationMain(
                 homeNavigationIntent = coordinator.homeNavigationIntent,
                 onHomeNavigationIntentConsumed = { coordinator.homeNavigationIntent = null },
                 contentPadding = navBarPadding,
+                playerOverlayOpen = playerOverlayOwnsBack,
             )
         }
         composable(
@@ -148,6 +204,7 @@ fun AppNavigationMain(
             val song = songId?.let { library.songById(it) }
             if (song == null) {
                 androidx.compose.runtime.LaunchedEffect(Unit) {
+                    logBackFlow("nav-action pop-song-detail missing-song song=$songId")
                     navController.popBackStack()
                 }
             } else {
@@ -155,7 +212,10 @@ fun AppNavigationMain(
                 SongDetailScreen(
                     song = song,
                     library = library,
-                    onBack = { navController.popBackStack() },
+                    onBack = {
+                        logBackFlow("back-consume source=song-detail-topbar song=${song.id}")
+                        navController.popBackStack()
+                    },
                     contentPadding = PaddingValues(
                         top = statusTop,
                         bottom = navBarPadding.calculateBottomPadding(),
@@ -168,12 +228,20 @@ fun AppNavigationMain(
             SettingsScreen(
                 library = library,
                 uiSettings = uiSettings,
-                onBack = { navController.popBackStack() },
-                onOpenMetadataDebug = { coordinator.navigate(Routes.MetadataDebug) },
+                onBack = {
+                    logBackFlow("back-consume source=settings-topbar")
+                    navController.popBackStack()
+                },
+                onOpenMetadataDebug = {
+                    logBackFlow("nav-action open-metadata-debug from=settings")
+                    coordinator.navigate(Routes.MetadataDebug)
+                },
                 onOpenParticleCoverPreview = {
+                    logBackFlow("nav-action open-particle-preview from=settings")
                     coordinator.navigate(Routes.ParticleCoverPreview)
                 },
                 onOpenPhotoStackShadowPreview = {
+                    logBackFlow("nav-action open-photo-stack-preview from=settings")
                     coordinator.navigate(Routes.PhotoStackShadowPreview)
                 },
                 contentPadding = PaddingValues(
@@ -181,7 +249,7 @@ fun AppNavigationMain(
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
                 bottomContentClearance = bottomOverlayClearance,
-                playerOverlayOpen = coordinator.playerExpanded || coordinator.overlayFullScreen,
+                playerOverlayOpen = playerOverlayOwnsBack,
             )
         }
         composable(Routes.ParticleCoverPreview) {
@@ -190,7 +258,10 @@ fun AppNavigationMain(
                 library = library,
                 savedTuning = uiSettings.particleCoverTuning,
                 onSaveTuning = uiSettings::updateParticleCoverTuning,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    logBackFlow("back-consume source=particle-preview-topbar")
+                    navController.popBackStack()
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
@@ -202,7 +273,10 @@ fun AppNavigationMain(
             MetadataDebugScreen(
                 library = library,
                 playerController = playerController,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    logBackFlow("back-consume source=metadata-debug-topbar")
+                    navController.popBackStack()
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
@@ -213,7 +287,10 @@ fun AppNavigationMain(
             val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             PhotoStackShadowPreviewScreen(
                 library = library,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    logBackFlow("back-consume source=photo-stack-preview-topbar")
+                    navController.popBackStack()
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
@@ -223,7 +300,10 @@ fun AppNavigationMain(
         composable(Routes.Equalizer) {
             val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             EqualizerScreen(
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    logBackFlow("back-consume source=equalizer-topbar")
+                    navController.popBackStack()
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
@@ -235,13 +315,49 @@ fun AppNavigationMain(
             val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
             AboutScreen(
                 songs = library.songs,
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    logBackFlow("back-consume source=about-topbar")
+                    navController.popBackStack()
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
                 bottomContentClearance = bottomOverlayClearance,
             )
+        }
+    }
+
+    PredictiveBackHandler(enabled = playerOverlayOwnsBack) { backEvents ->
+        logBackFlow(
+            "back-start source=root-player owns=true " +
+                "playerExpanded=${coordinator.playerExpanded} " +
+                "overlayFullScreen=${coordinator.overlayFullScreen}",
+        )
+        try {
+            backEvents.collect { backEvent ->
+                coordinator.playerBackProgress = backEvent.progress.coerceIn(0f, 1f)
+            }
+            logBackFlow(
+                "back-consume source=root-player owns=true " +
+                    "playerExpanded=${coordinator.playerExpanded} " +
+                    "overlayFullScreen=${coordinator.overlayFullScreen}",
+            )
+            DiagnosticLog.event(
+                "BackRoot",
+                "$BackRootDebugTag root-consume playerExpanded=${coordinator.playerExpanded} " +
+                    "overlayFullScreen=${coordinator.overlayFullScreen}",
+            )
+            coordinator.playerExpanded = false
+        } catch (_: CancellationException) {
+            logBackFlow(
+                "back-cancel source=root-player " +
+                    "playerExpanded=${coordinator.playerExpanded} " +
+                    "overlayFullScreen=${coordinator.overlayFullScreen}",
+            )
+            coordinator.playerExpanded = true
+        } finally {
+            coordinator.playerBackProgress = null
         }
     }
 }
@@ -266,13 +382,22 @@ fun PlayerSheetOverlay(
         actions = actions,
         uiSettings = uiSettings,
         expanded = coordinator.playerExpanded,
-        onExpandedChange = { coordinator.playerExpanded = it },
-        onOpenEqualizer = { coordinator.navigate(Routes.Equalizer) },
+        predictiveBackProgress = coordinator.playerBackProgress,
+        onExpandedChange = {
+            logBackFlow("player-overlay expanded-change value=$it source=sheet")
+            coordinator.playerExpanded = it
+        },
+        onOpenEqualizer = {
+            logBackFlow("nav-action open-equalizer from=player")
+            coordinator.navigate(Routes.Equalizer)
+        },
         onOpenSongDetail = { songId ->
+            logBackFlow("nav-action open-song-detail from=player song=$songId")
             coordinator.playerExpanded = false
             coordinator.navigateSongDetail(songId)
         },
         onBrowseArtist = { artistName ->
+            logBackFlow("nav-action browse-artist from=player artist=$artistName")
             coordinator.playerExpanded = false
             coordinator.popBackStackHome()
             coordinator.homeNavigationIntent = HomeNavigationIntent(
@@ -281,6 +406,7 @@ fun PlayerSheetOverlay(
             )
         },
         onBrowseAlbum = { albumTitle ->
+            logBackFlow("nav-action browse-album from=player album=$albumTitle")
             coordinator.playerExpanded = false
             coordinator.popBackStackHome()
             coordinator.homeNavigationIntent = HomeNavigationIntent(
@@ -289,10 +415,14 @@ fun PlayerSheetOverlay(
             )
         },
         onLocateCurrentSong = {
+            logBackFlow("nav-action locate-current-song from=player")
             coordinator.popBackStackHome()
             coordinator.locateCurrentSongRequest++
         },
-        onOverlayFullScreenChange = { coordinator.overlayFullScreen = it },
+        onOverlayFullScreenChange = {
+            logBackFlow("player-overlay fullscreen-change value=$it")
+            coordinator.overlayFullScreen = it
+        },
         contentPadding = contentPadding,
         modifier = modifier,
     )

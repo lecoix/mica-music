@@ -58,6 +58,7 @@ import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.ui.theme.relativeLuminance
 import com.mica.music.util.TrackSwitchPerformance
 import com.mica.music.util.deleteSongFile
+import com.mica.music.util.logBackFlow
 import com.mica.music.util.openSongInTagEditor
 import com.mica.music.util.shareSong
 import kotlinx.coroutines.delay
@@ -180,6 +181,24 @@ fun NowPlayingContent(
     var sleepTimerSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by remember { mutableStateOf(false) }
 
+    LaunchedEffect(
+        song.id,
+        handleBackToClose,
+        lyricsExpanded,
+        queueSheetOpen,
+        sleepTimerSheetOpen,
+        actionMenuSong,
+        addToPlaylistSong,
+        pendingDeleteSong,
+    ) {
+        logBackFlow(
+            "page now-playing song=${song.id} handleBackToClose=$handleBackToClose " +
+                "lyricsExpanded=$lyricsExpanded queueSheet=$queueSheetOpen " +
+                "sleepTimerSheet=$sleepTimerSheetOpen actionMenu=${actionMenuSong?.id ?: "none"} " +
+                "addToPlaylist=${addToPlaylistSong?.id ?: "none"} delete=${pendingDeleteSong?.id ?: "none"}",
+        )
+    }
+
     val sleepTimerActive = sleepTimer.isActive
     val sleepTimerMenuLabel = if (sleepTimerActive) {
         sleepTimer.displayTick
@@ -294,8 +313,14 @@ fun NowPlayingContent(
     val coverFlowNavigation = remember { CoverFlowCarouselNavigationBridge() }
     val photoStackNavigation = remember { PhotoStackCarouselNavigationBridge() }
 
-    BackHandler(enabled = lyricsExpanded) { lyricsExpanded = false }
-    BackHandler(enabled = handleBackToClose && !lyricsExpanded) { onClose() }
+    BackHandler(enabled = handleBackToClose && lyricsExpanded) {
+        logBackFlow("back-consume source=now-playing-lyrics song=${song.id}")
+        lyricsExpanded = false
+    }
+    BackHandler(enabled = handleBackToClose && !lyricsExpanded) {
+        logBackFlow("back-consume source=now-playing-close song=${song.id}")
+        onClose()
+    }
 
     if (queueSheetOpen) {
         PlaybackQueueSheet(

@@ -122,6 +122,7 @@ import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import kotlinx.coroutines.delay
 import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.launch
 
@@ -253,6 +254,7 @@ fun HomeScreen(
     homeNavigationIntent: HomeNavigationIntent? = null,
     onHomeNavigationIntentConsumed: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
+    playerOverlayOpen: Boolean = false,
 ) {
     val context = LocalContext.current
     var drawerOpen by remember { mutableStateOf(false) }
@@ -487,6 +489,11 @@ fun HomeScreen(
     }
 
     fun navigateBack() {
+        logBackFlow(
+            "back-consume source=home-internal section=$section " +
+                "searchOpen=$searchOpen browse=$browseDestination " +
+                "multiSelect=$songMultiSelectActive returnSection=$returnSection",
+        )
         when {
             songMultiSelectActive -> exitSongMultiSelect()
             searchOpen -> {
@@ -518,6 +525,7 @@ fun HomeScreen(
     }
 
     fun onDrawerPick(target: HomeSection) {
+        logBackFlow("page-action home-drawer-pick target=$target previous=$section")
         drawerOpen = false
         when (target) {
             HomeSection.Settings -> onOpenSettings()
@@ -536,6 +544,7 @@ fun HomeScreen(
     }
 
     fun onDrawerPlaylistPick(playlistId: String) {
+        logBackFlow("page-action home-drawer-playlist playlist=$playlistId previous=$section")
         drawerOpen = false
         section = HomeSection.Playlist
         activePlaylistId = playlistId
@@ -588,6 +597,7 @@ fun HomeScreen(
 
     LaunchedEffect(homeNavigationIntent) {
         val intent = homeNavigationIntent ?: return@LaunchedEffect
+        logBackFlow("page-action home-intent section=${intent.section} browse=${intent.browseDestination}")
         drawerOpen = false
         searchOpen = false
         searchQuery = ""
@@ -619,10 +629,28 @@ fun HomeScreen(
         songMultiSelectActive
     val showFolderMenuButton = section == HomeSection.Folders && !searchOpen
 
-    BackHandler(enabled = drawerOpen) {
+    LaunchedEffect(
+        drawerOpen,
+        section,
+        activePlaylistId,
+        searchOpen,
+        browseDestination,
+        songMultiSelectActive,
+        canNavigateBack,
+        playerOverlayOpen,
+    ) {
+        logBackFlow(
+            "page home drawer=$drawerOpen section=$section playlist=${activePlaylistId ?: "none"} " +
+                "search=$searchOpen browse=$browseDestination multiSelect=$songMultiSelectActive " +
+                "canBack=$canNavigateBack playerOverlayOpen=$playerOverlayOpen",
+        )
+    }
+
+    BackHandler(enabled = drawerOpen && !playerOverlayOpen) {
+        logBackFlow("back-consume source=home-drawer section=$section")
         drawerOpen = false
     }
-    BackHandler(enabled = canNavigateBack && !drawerOpen) {
+    BackHandler(enabled = canNavigateBack && !drawerOpen && !playerOverlayOpen) {
         navigateBack()
     }
 
