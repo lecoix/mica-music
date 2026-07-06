@@ -3,6 +3,7 @@ package com.mica.music.media
 import android.content.Context
 import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.PlaybackTuning
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -32,6 +33,7 @@ class ServicePlaybackStateStoreTest {
             shuffleEnabled = true,
             playWhenReady = true,
             qualityMode = AudioQualityMode.DSP,
+            playbackTuning = PlaybackTuning(speed = 1.25f, pitchSemitones = 7f),
         )
 
         store.save(snapshot, sync = true)

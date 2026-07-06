@@ -42,10 +42,12 @@ import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.PlaybackQueueSheet
+import com.mica.music.ui.components.PlaybackTuningSheet
 import com.mica.music.ui.components.SleepTimerSheet
 import com.mica.music.ui.components.SongActionMenuSheet
 import com.mica.music.ui.components.SongMenuAction
 import com.mica.music.ui.components.cachedCoverAspectRatio
+import com.mica.music.ui.components.formatPlaybackTuningMenuLabel
 import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
@@ -81,6 +83,9 @@ data class NowPlayingActions(
     val toggleLyricsPageImmersive: () -> Unit,
     val insertPlayNext: (Song) -> Unit,
     val setQueue: (List<Song>) -> Unit,
+    val setPlaybackSpeed: (Float) -> Unit,
+    val setPlaybackPitchSemitones: (Float) -> Unit,
+    val resetPlaybackTuning: () -> Unit,
 )
 
 internal suspend fun pollNowPlayingProgress(
@@ -179,6 +184,7 @@ fun NowPlayingContent(
     var pendingDeleteSong by remember { mutableStateOf<Song?>(null) }
     var queueSheetOpen by remember { mutableStateOf(false) }
     var sleepTimerSheetOpen by remember { mutableStateOf(false) }
+    var playbackTuningSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(
@@ -187,6 +193,7 @@ fun NowPlayingContent(
         lyricsExpanded,
         queueSheetOpen,
         sleepTimerSheetOpen,
+        playbackTuningSheetOpen,
         actionMenuSong,
         addToPlaylistSong,
         pendingDeleteSong,
@@ -194,7 +201,8 @@ fun NowPlayingContent(
         logBackFlow(
             "page now-playing song=${song.id} handleBackToClose=$handleBackToClose " +
                 "lyricsExpanded=$lyricsExpanded queueSheet=$queueSheetOpen " +
-                "sleepTimerSheet=$sleepTimerSheetOpen actionMenu=${actionMenuSong?.id ?: "none"} " +
+                "sleepTimerSheet=$sleepTimerSheetOpen playbackTuningSheet=$playbackTuningSheetOpen " +
+                "actionMenu=${actionMenuSong?.id ?: "none"} " +
                 "addToPlaylist=${addToPlaylistSong?.id ?: "none"} delete=${pendingDeleteSong?.id ?: "none"}",
         )
     }
@@ -560,6 +568,12 @@ fun NowPlayingContent(
                     actionMenuSong = null
                     sleepTimerSheetOpen = true
                 },
+                showPlaybackTuning = true,
+                playbackTuningLabel = formatPlaybackTuningMenuLabel(surfaceState.playbackTuning),
+                onPlaybackTuningClick = {
+                    actionMenuSong = null
+                    playbackTuningSheetOpen = true
+                },
             )
         }
 
@@ -582,6 +596,16 @@ fun NowPlayingContent(
                         snackbarHostState.showSnackbar("已关闭睡眠定时")
                     }
                 },
+            )
+        }
+
+        if (playbackTuningSheetOpen) {
+            PlaybackTuningSheet(
+                tuning = surfaceState.playbackTuning,
+                onDismiss = { playbackTuningSheetOpen = false },
+                onSpeedChange = actions.setPlaybackSpeed,
+                onPitchSemitonesChange = actions.setPlaybackPitchSemitones,
+                onReset = actions.resetPlaybackTuning,
             )
         }
 

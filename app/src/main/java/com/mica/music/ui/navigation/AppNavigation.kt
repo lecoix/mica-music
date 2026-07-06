@@ -447,6 +447,9 @@ private fun rememberNowPlayingActions(
             toggleLyricsPageImmersive = uiSettings::toggleLyricsPageImmersive,
             insertPlayNext = playerController::insertPlayNext,
             setQueue = playerController::setQueue,
+            setPlaybackSpeed = playerController::setPlaybackSpeed,
+            setPlaybackPitchSemitones = playerController::setPlaybackPitchSemitones,
+            resetPlaybackTuning = playerController::resetPlaybackTuning,
         )
     }
 

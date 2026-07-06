@@ -14,6 +14,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Timeline
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -36,6 +37,7 @@ data class PlaybackSurfaceState(
     val isBuffering: Boolean = false,
     val playbackError: String? = null,
     val playbackQueueMode: PlaybackQueueMode = PlaybackQueueMode.OFF,
+    val playbackTuning: PlaybackTuning = PlaybackTuning(),
     val currentIndex: Int = 0,
 )
 
@@ -435,6 +437,9 @@ class PlayerController internal constructor(
     var playbackQueueMode by mutableStateOf(PlaybackQueueMode.OFF)
         private set
 
+    var playbackTuning by mutableStateOf(PlaybackTuning())
+        private set
+
     val currentSong: Song?
         get() = songQueue.getOrNull(currentIndex.coerceIn(0, (songQueue.size - 1).coerceAtLeast(0)))
 
@@ -460,6 +465,7 @@ class PlayerController internal constructor(
             isBuffering = isBuffering,
             playbackError = playbackError,
             playbackQueueMode = playbackQueueMode,
+            playbackTuning = playbackTuning,
             currentIndex = currentIndex,
         )
     }
@@ -499,6 +505,7 @@ class PlayerController internal constructor(
     /** Prevents callbacks from the previously playing item from undoing an optimistic selection. */
     private val pendingMediaSelection = PendingMediaSelection()
     private var pendingQueue: List<Song>? = null
+    private var pendingPlaybackTuning: PlaybackTuning? = null
     private var connectStarted = false
     private var pendingRestorePosition: PendingRestorePosition? = null
     private val playCountState = PlayCountStateMachine()
@@ -697,6 +704,12 @@ class PlayerController internal constructor(
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 syncPlaybackQueueModeFromPlayer(c)
             }
+
+            override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                playbackTuning = PlaybackTuning.fromPlaybackParameters(playbackParameters)
+                pendingPlaybackTuning = null
+                publishSurfaceState()
+            }
         })
 
         isConnected = true
@@ -706,6 +719,11 @@ class PlayerController internal constructor(
             pendingQueue = null
         }
         syncPlaybackQueueModeFromPlayer(c)
+        pendingPlaybackTuning?.let {
+            c.setPlaybackParameters(it.toPlaybackParameters())
+        } ?: run {
+            playbackTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
+        }
 
         syncIndexFromPlayer(c)
         playCountState.reset(c.currentMediaItem?.mediaId)
@@ -1121,6 +1139,25 @@ class PlayerController internal constructor(
 
     fun setPlaybackVolume(volume: Float) {
         controller?.volume = volume.coerceIn(0f, 1f)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        applyPlaybackTuning(playbackTuning.withSpeed(speed))
+    }
+
+    fun setPlaybackPitchSemitones(semitones: Float) {
+        applyPlaybackTuning(playbackTuning.withPitchSemitones(semitones))
+    }
+
+    fun resetPlaybackTuning() {
+        applyPlaybackTuning(PlaybackTuning())
+    }
+
+    private fun applyPlaybackTuning(tuning: PlaybackTuning) {
+        playbackTuning = tuning
+        pendingPlaybackTuning = tuning
+        controller?.setPlaybackParameters(tuning.toPlaybackParameters()) ?: connectIfNeeded()
+        publishSurfaceState()
     }
 
     fun togglePlay() {

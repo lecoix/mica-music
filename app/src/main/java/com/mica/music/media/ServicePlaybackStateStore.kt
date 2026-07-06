@@ -2,6 +2,7 @@ package com.mica.music.media
 
 import android.content.Context
 import androidx.media3.common.Player
+import com.mica.music.data.PlaybackTuning
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -13,6 +14,7 @@ data class ServicePlaybackSnapshot(
     val shuffleEnabled: Boolean,
     val playWhenReady: Boolean,
     val qualityMode: AudioQualityMode,
+    val playbackTuning: PlaybackTuning = PlaybackTuning(),
     val queueRevision: Long = 0L,
     val currentSongId: String = queueSongIds.getOrNull(currentIndex).orEmpty(),
 )
@@ -29,6 +31,7 @@ internal data class ServicePlaybackCursor(
     val shuffleEnabled: Boolean,
     val playWhenReady: Boolean,
     val qualityMode: AudioQualityMode,
+    val playbackTuning: PlaybackTuning = PlaybackTuning(),
     val queueRevision: Long,
 )
 
@@ -37,6 +40,7 @@ internal data class ServicePlaybackRestore(
     val positionMs: Long,
     val repeatMode: Int,
     val shuffleEnabled: Boolean,
+    val playbackTuning: PlaybackTuning = PlaybackTuning(),
 )
 
 internal object ServicePlaybackRestoreResolver {
@@ -59,6 +63,7 @@ internal object ServicePlaybackRestoreResolver {
                     it == Player.REPEAT_MODE_ALL
             } ?: Player.REPEAT_MODE_OFF,
             shuffleEnabled = snapshot.shuffleEnabled,
+            playbackTuning = snapshot.playbackTuning,
         )
     }
 }
@@ -85,6 +90,7 @@ class ServicePlaybackStateStore(context: Context) {
                 shuffleEnabled = snapshot.shuffleEnabled,
                 playWhenReady = snapshot.playWhenReady,
                 qualityMode = snapshot.qualityMode,
+                playbackTuning = snapshot.playbackTuning,
                 queueRevision = snapshot.queueRevision,
             ),
             sync,
@@ -110,6 +116,8 @@ class ServicePlaybackStateStore(context: Context) {
             .put(KEY_SHUFFLE_ENABLED, cursor.shuffleEnabled)
             .put(KEY_PLAY_WHEN_READY, cursor.playWhenReady)
             .put(KEY_QUALITY_MODE, cursor.qualityMode.name)
+            .put(KEY_PLAYBACK_SPEED, cursor.playbackTuning.speed.toDouble())
+            .put(KEY_PLAYBACK_PITCH_SEMITONES, cursor.playbackTuning.pitchSemitones.toDouble())
             .put(KEY_QUEUE_REVISION, cursor.queueRevision)
         val editor = prefs.edit().putString(KEY_CURSOR_SNAPSHOT, json.toString())
         if (sync) editor.commit() else editor.apply()
@@ -152,6 +160,16 @@ class ServicePlaybackStateStore(context: Context) {
                         cursorJson.optString(KEY_QUALITY_MODE, AudioQualityMode.HIFI.name),
                     )
                 }.getOrDefault(AudioQualityMode.HIFI),
+                playbackTuning = PlaybackTuning.coerced(
+                    speed = cursorJson.optDouble(
+                        KEY_PLAYBACK_SPEED,
+                        PlaybackTuning.DEFAULT_SPEED.toDouble(),
+                    ).toFloat(),
+                    pitchSemitones = cursorJson.optDouble(
+                        KEY_PLAYBACK_PITCH_SEMITONES,
+                        PlaybackTuning.DEFAULT_PITCH_SEMITONES.toDouble(),
+                    ).toFloat(),
+                ),
                 queueRevision = queueRevision,
                 currentSongId = currentSongId,
             )
@@ -183,6 +201,16 @@ class ServicePlaybackStateStore(context: Context) {
                         json.optString(KEY_QUALITY_MODE, AudioQualityMode.HIFI.name),
                     )
                 }.getOrDefault(AudioQualityMode.HIFI),
+                playbackTuning = PlaybackTuning.coerced(
+                    speed = json.optDouble(
+                        KEY_PLAYBACK_SPEED,
+                        PlaybackTuning.DEFAULT_SPEED.toDouble(),
+                    ).toFloat(),
+                    pitchSemitones = json.optDouble(
+                        KEY_PLAYBACK_PITCH_SEMITONES,
+                        PlaybackTuning.DEFAULT_PITCH_SEMITONES.toDouble(),
+                    ).toFloat(),
+                ),
                 currentSongId = queue[currentIndex],
             )
         }.getOrNull()
@@ -204,6 +232,7 @@ class ServicePlaybackStateStore(context: Context) {
             shuffleEnabled = false,
             playWhenReady = false,
             qualityMode = AudioQualityMode.HIFI,
+            playbackTuning = PlaybackTuning(),
         )
     }
 
@@ -237,6 +266,8 @@ class ServicePlaybackStateStore(context: Context) {
         const val KEY_SHUFFLE_ENABLED = "shuffle_enabled"
         const val KEY_PLAY_WHEN_READY = "play_when_ready"
         const val KEY_QUALITY_MODE = "quality_mode"
+        const val KEY_PLAYBACK_SPEED = "playback_speed"
+        const val KEY_PLAYBACK_PITCH_SEMITONES = "playback_pitch_semitones"
         const val LEGACY_PREFS_NAME = "mica_playback_session"
         const val LEGACY_KEY_SONG_ID = "song_id"
         const val LEGACY_KEY_POSITION_MS = "position_ms"

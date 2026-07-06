@@ -3,7 +3,9 @@ package com.mica.music.media
 import android.os.Handler
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Timeline
+import com.mica.music.data.PlaybackTuning
 import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -53,6 +55,10 @@ internal class ServicePlaybackStateCoordinator(
             if (shuffleModeEnabled) player.shuffleModeEnabled = false
             persistCursor(force = true)
         }
+
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            persistCursor(force = true)
+        }
     }
 
     private val periodicPersist = object : Runnable {
@@ -98,6 +104,7 @@ internal class ServicePlaybackStateCoordinator(
         player.repeatMode = restore.repeatMode
         player.shuffleModeEnabled = false
         player.playWhenReady = false
+        player.playbackParameters = restore.playbackTuning.toPlaybackParameters()
         player.seekTo(restore.currentIndex, restore.positionMs)
         player.prepare()
         DiagnosticLog.event(
@@ -135,6 +142,7 @@ internal class ServicePlaybackStateCoordinator(
             shuffleEnabled = false,
             playWhenReady = player.playWhenReady,
             qualityMode = qualityMode,
+            playbackTuning = PlaybackTuning.fromPlaybackParameters(player.playbackParameters),
             queueRevision = queueRevision,
         )
         submit(sync) { store.saveCursor(cursor, sync) }

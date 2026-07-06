@@ -3,6 +3,7 @@ package com.mica.music.media
 import android.os.Handler
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.mica.music.data.PlaybackTuning
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verifyOrder
@@ -23,6 +24,7 @@ class ServicePlaybackStateCoordinatorTest {
             shuffleEnabled = true,
             playWhenReady = true,
             qualityMode = AudioQualityMode.HIFI,
+            playbackTuning = PlaybackTuning(speed = 1.5f, pitchSemitones = -12f),
         )
 
         every { store.load() } returns snapshot
@@ -43,6 +45,7 @@ class ServicePlaybackStateCoordinatorTest {
             player.repeatMode = Player.REPEAT_MODE_ALL
             player.shuffleModeEnabled = false
             player.playWhenReady = false
+            player.playbackParameters = snapshot.playbackTuning.toPlaybackParameters()
             player.seekTo(1, 12_345L)
             player.prepare()
         }

@@ -38,7 +38,7 @@ class MicaRenderersFactory(
     ): AudioSink? =
         DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(false)
-            .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
+            .setEnableAudioOutputPlaybackParameters(true)
             .setAudioProcessorChain(
                 MicaAudioProcessorChain(
                     DsdDecimationAudioProcessor(context),
