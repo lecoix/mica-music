@@ -182,8 +182,8 @@ fun SettingsScreen(
                         LyricsSettingsPanel(uiSettings = uiSettings)
                     }
 
-                    SettingsCategory.LIST_INFO -> {
-                        ListInfoSettingsPanel(uiSettings = uiSettings)
+                    SettingsCategory.INFO_LINE -> {
+                        InfoLineSettingsPanel(uiSettings = uiSettings)
                     }
 
                     SettingsCategory.LIBRARY -> {

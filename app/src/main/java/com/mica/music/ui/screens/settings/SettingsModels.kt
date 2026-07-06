@@ -83,15 +83,15 @@ internal enum class SettingsCategory(
     ),
     PLAYBACK(
         title = "播放页",
-        subtitle = "封面、播放页背景/UI 颜色、信息行、特殊主题、频谱",
+        subtitle = "封面、播放页背景/UI 颜色、特殊主题、频谱",
+    ),
+    INFO_LINE(
+        title = "信息行自定义",
+        subtitle = "播放页与歌曲列表信息行的显示项与自定义文字",
     ),
     LYRICS(
         title = "歌词页",
         subtitle = "双语拆分、逐字填充、歌词颜色与样式",
-    ),
-    LIST_INFO(
-        title = "列表信息",
-        subtitle = "歌曲列表统计与自定义文字",
     ),
     LIBRARY(
         title = "曲库与扫描",
