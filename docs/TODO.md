@@ -16,6 +16,8 @@
 - [x] 播放次数记录（`PlayHistoryStore`，供「最近播放」等）
 - [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（不自动续播）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
 
+
+
 ### 歌词
 
 - [x] 内嵌歌词读取（ID3 / FLAC / APE / FFmpeg 元数据等）
@@ -144,7 +146,7 @@
 - [x] **歌词聚焦**：曲线并入 `MicaMotion`（封面 lerp / 底栏下沉保持）
 - [x] **播放页打开/关闭共享封面第一版**：迷你播放器封面→播放页封面；返回时反向收回；特殊封面流主题回退普通转场
 - [ ] **共享封面转场架构整理**：从 `AppNavigation` 拆出独立 `SharedCoverTransitionHost/Coordinator`，导航层只挂载入口；坐标稳定、源/目标隐藏、图片预热、IME/路由转场防污染等状态集中管理并配套测试清单
-- [ ] **播放页浮层返回状态机整理**：将 `PlayerSheetHost` 的 `expanded`、predictive back、关闭动画拆成显式 `Expanded / PredictiveClosing / Closing / Collapsed` 状态，避免外部展开状态与本地动画值各自作为真值源
+- [x] **播放页浮层返回状态机整理**：将 `PlayerSheetHost` 的 `expanded`、predictive back、关闭动画拆成显式 `Expanded / PredictiveClosing / Closing / Collapsed` 状态，避免外部展开状态与本地动画值各自作为真值源
 - [ ] **列表→播放共享元素**：列表项封面作为进入来源，来源不可见时回退迷你播放器或普通转场
 - [ ] **浮层**：BottomSheet / 对话框自定义 expand（Material 默认动画；待与 `MicaMotion` 对齐）
 - [ ] **列表与迷你播放器**：迷你栏展开为全屏的衔接动画；列表排序/删除占位（低优先级）
@@ -167,7 +169,7 @@
   - **对比**：「封面模糊」= 全屏强模糊；本方案上区封面清晰，氛围在封面以下；接缝处可用 `artworkEdgeFade` 类柔化带。
 - [ ] 播放页背景其它候选：毛玻璃下半屏 / 影院纯黑 / 封面镜像等
 - [ ] 播放页 **歌词切换动效**（平滑过渡 / 滚动居中）
-- [ ] 歌词 **双语**（分隔显示或原文/译文切换）
+- [x] 歌词 **双语**（分隔显示或原文/译文切换）
 
 
 
@@ -230,4 +232,3 @@
 
 - ~~首版 CSDN mesh + 离线 Bitmap + Ken Burns~~：观感不佳，已由 **封面模糊 / 动态烟云 / 流光溢彩** 等背景方案替代
 - ~~底边黑带 / 双帧流光叠化~~ 等临时实验
-
