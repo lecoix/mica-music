@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibrarySyncResult
+import com.mica.music.data.preferences.LibraryBrowseSettings
+import com.mica.music.data.preferences.PreferencesTestFixtures
 import com.mica.music.data.scanner.ScanResult
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.CompletableDeferred
@@ -135,6 +137,46 @@ class MusicLibraryTest {
         assertEquals(listOf("new"), library.songs.map { it.id })
         assertEquals(listOf("new"), store.persistedSongs.map { it.id })
         assertEquals(listOf("old", "new"), store.requests.map { it.songs.single().id })
+        library.release()
+    }
+
+    @Test
+    fun customSortSeedsVisibleOrderAndReusesSavedOrderAfterOtherSorts() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val scanner = ControlledScanner()
+        val library = library(scanner, FakeLibraryStore())
+        val z = SongFixtures.song(id = "z", title = "Zulu")
+        val a = SongFixtures.song(id = "a", title = "Alpha")
+        val m = SongFixtures.song(id = "m", title = "Mike")
+
+        val scan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(z, a, m), totalSizeMb = 1))
+        scan.await()
+
+        assertEquals(listOf("a", "m", "z"), library.songs.map { it.id })
+
+        library.updateSort(SongSortField.CUSTOM, SortDirection.DESC)
+
+        assertEquals(SongSortField.CUSTOM, library.sortField)
+        assertEquals(SortDirection.ASC, library.sortDirection)
+        assertEquals(listOf("a", "m", "z"), library.songs.map { it.id })
+        assertEquals(listOf("a", "m", "z"), LibraryBrowseSettings.customSongOrderIds(context))
+
+        assertTrue(library.moveSongInLibrary(2, 0))
+        assertEquals(listOf("z", "a", "m"), library.songs.map { it.id })
+        assertEquals(listOf("z", "a", "m"), LibraryBrowseSettings.customSongOrderIds(context))
+
+        library.updateCustomSongOrderLocked(true)
+        assertFalse(library.moveSongInLibrary(1, 2))
+        assertEquals(listOf("z", "a", "m"), library.songs.map { it.id })
+
+        library.updateSort(SongSortField.TITLE, SortDirection.DESC)
+        assertEquals(listOf("z", "m", "a"), library.songs.map { it.id })
+
+        library.updateSort(SongSortField.CUSTOM, SortDirection.ASC)
+        assertEquals(listOf("z", "a", "m"), library.songs.map { it.id })
         library.release()
     }
 

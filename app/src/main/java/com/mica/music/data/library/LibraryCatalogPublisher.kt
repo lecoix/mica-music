@@ -35,15 +35,36 @@ internal class LibraryCatalogPublisher(
     fun reloadSortFromPrefs() {
         backing.sortField = LibraryBrowseSettings.songSortField(backing.context)
         backing.sortDirection = LibraryBrowseSettings.songSortDirection(backing.context)
+        backing.customSongOrderLocked = LibraryBrowseSettings.customSongOrderLocked(backing.context)
     }
 
     fun updateSort(field: SongSortField, direction: SortDirection) {
-        if (field == SongSortField.CUSTOM) return
+        if (field == SongSortField.CUSTOM && LibraryBrowseSettings.customSongOrderIds(backing.context).isEmpty()) {
+            LibraryBrowseSettings.setCustomSongOrderIds(backing.context, backing.songs.map { it.id })
+        }
         backing.sortField = field
-        backing.sortDirection = direction
-        LibraryBrowseSettings.setSongSort(backing.context, field, direction)
+        backing.sortDirection = if (field == SongSortField.CUSTOM) SortDirection.ASC else direction
+        LibraryBrowseSettings.setSongSort(backing.context, field, backing.sortDirection)
         applyCurrentSort()
         persistSongsAsync()
+    }
+
+    fun moveVisibleSong(fromIndex: Int, toIndex: Int): Boolean {
+        if (backing.sortField != SongSortField.CUSTOM) return false
+        if (backing.customSongOrderLocked) return false
+        val reordered = backing.songs.toMutableList()
+        if (fromIndex !in reordered.indices || toIndex !in reordered.indices || fromIndex == toIndex) return false
+        val moved = reordered.removeAt(fromIndex)
+        reordered.add(toIndex, moved)
+        publishVisibleSongs(reordered)
+        LibraryBrowseSettings.setCustomSongOrderIds(backing.context, reordered.map { it.id })
+        persistSongsAsync()
+        return true
+    }
+
+    fun updateCustomSongOrderLocked(locked: Boolean) {
+        backing.customSongOrderLocked = locked
+        LibraryBrowseSettings.setCustomSongOrderLocked(backing.context, locked)
     }
 
     fun publishVisibleSongs(list: List<Song>, fastScrollIndex: com.mica.music.data.FastScrollIndex? = null) {
@@ -60,8 +81,10 @@ internal class LibraryCatalogPublisher(
             scannedSongs,
             backing.sortField,
             backing.sortDirection,
+            customOrderIds = LibraryBrowseSettings.customSongOrderIds(backing.context),
         )
         publishVisibleSongs(presentation.visible, presentation.fastScrollIndex)
+        persistCustomOrderIfNeeded(presentation.visible)
         if (diagnosticReason != null) {
             DiagnosticLog.event(
                 "LibraryLoad",
@@ -157,7 +180,11 @@ internal class LibraryCatalogPublisher(
             direction = direction,
             useInputOrder = useInputOrder,
             cachedSectionTargets = cachedSectionTargets,
+            customOrderIds = LibraryBrowseSettings.customSongOrderIds(backing.context),
         )
+        if (field == SongSortField.CUSTOM) {
+            LibraryBrowseSettings.setCustomSongOrderIds(backing.context, presentation.visible.map { it.id })
+        }
         DiagnosticLog.event(
             diagnosticTag,
             "$diagnosticReason presentation durMs=${SystemClock.elapsedRealtime() - presentationStartedMs} " +
@@ -182,5 +209,13 @@ internal class LibraryCatalogPublisher(
             lastPlayedAtMs = stats.lastPlayedAtMs,
             artist = ArtistNames.normalizeDisplay(artist),
         )
+    }
+
+    private fun persistCustomOrderIfNeeded(visible: List<Song>) {
+        if (backing.sortField != SongSortField.CUSTOM) return
+        val ids = visible.map { it.id }
+        if (ids != LibraryBrowseSettings.customSongOrderIds(backing.context)) {
+            LibraryBrowseSettings.setCustomSongOrderIds(backing.context, ids)
+        }
     }
 }

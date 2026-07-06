@@ -38,6 +38,7 @@ internal class MusicLibraryBacking(
     var songIds by mutableStateOf<List<String>>(emptyList())
     var sortField by mutableStateOf(SongSortField.TITLE)
     var sortDirection by mutableStateOf(SortDirection.ASC)
+    var customSongOrderLocked by mutableStateOf(false)
     var isLoadingCachedLibrary by mutableStateOf(false)
     var isScanning by mutableStateOf(false)
     var hasScanned by mutableStateOf(false)

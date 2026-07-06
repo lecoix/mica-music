@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens.home
 
+import com.mica.music.data.ArtistBrowseSortField
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -22,6 +23,7 @@ class HomeUiStateTest {
                 albumSortField = com.mica.music.data.AlbumBrowseSortField.YEAR,
                 albumSortDirection = com.mica.music.data.SortDirection.DESC,
                 albumGridColumns = 3,
+                artistSortField = ArtistBrowseSortField.SONG_COUNT,
                 artistSortDirection = com.mica.music.data.SortDirection.DESC,
                 artistGridColumns = 4,
             ),
@@ -39,6 +41,33 @@ class HomeUiStateTest {
         )
 
         assertEquals(HomeUiState(), restored)
+    }
+
+    @Test
+    fun saverRestoresLegacyArtistSortState() {
+        val restored = restoreHomeUiState(
+            listOf(
+                "v1",
+                HomeSection.Artists.name,
+                "",
+                "false",
+                "",
+                HomeSection.Songs.name,
+                "0",
+                "",
+                com.mica.music.data.AlbumBrowseSortField.TITLE.storageValue,
+                com.mica.music.data.SortDirection.ASC.storageValue,
+                "2",
+                com.mica.music.data.SortDirection.DESC.storageValue,
+                "3",
+                "root",
+                "",
+            ),
+        )
+
+        assertEquals(ArtistBrowseSortField.TITLE, restored?.browseSort?.artistSortField)
+        assertEquals(com.mica.music.data.SortDirection.DESC, restored?.browseSort?.artistSortDirection)
+        assertEquals(3, restored?.browseSort?.artistGridColumns)
     }
 
     @Test

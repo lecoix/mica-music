@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.home
 import android.content.Context
 import androidx.compose.runtime.Composable
 import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
@@ -15,6 +16,7 @@ data class HomeBrowseSortState(
     val albumSortField: AlbumBrowseSortField,
     val albumSortDirection: SortDirection,
     val albumGridColumns: Int,
+    val artistSortField: ArtistBrowseSortField,
     val artistSortDirection: SortDirection,
     val artistGridColumns: Int,
 )
@@ -67,16 +69,23 @@ internal fun HomeSortSheets(
             )
         }
         isArtistRootSort -> {
+            val artistSortFields = ArtistBrowseSortField.entries
             BrowseGroupDisplaySheet(
-                sortFieldLabels = emptyList(),
-                selectedSortFieldIndex = 0,
+                sortFieldLabels = artistSortFields.map { it.label },
+                selectedSortFieldIndex = artistSortFields.indexOf(browseSort.artistSortField),
                 currentDirection = browseSort.artistSortDirection,
                 currentColumns = browseSort.artistGridColumns,
                 onDismiss = onDismiss,
-                onSortFieldSelected = {},
+                onSortFieldSelected = { index ->
+                    val field = artistSortFields.getOrElse(index) { ArtistBrowseSortField.TITLE }
+                    val updated = browseSort.copy(artistSortField = field)
+                    onBrowseSortChange(updated)
+                    LibraryBrowseSettings.setArtistBrowseSort(context, field, updated.artistSortDirection)
+                },
                 onDirectionSelected = { direction ->
-                    onBrowseSortChange(browseSort.copy(artistSortDirection = direction))
-                    LibraryBrowseSettings.setArtistBrowseSortDirection(context, direction)
+                    val updated = browseSort.copy(artistSortDirection = direction)
+                    onBrowseSortChange(updated)
+                    LibraryBrowseSettings.setArtistBrowseSort(context, updated.artistSortField, direction)
                 },
                 onColumnsSelected = { columns ->
                     val normalized = columns.coerceIn(1, 4)
@@ -97,12 +106,21 @@ internal fun HomeSortSheets(
                 } else {
                     library.sortDirection
                 },
-                includeCustomSort = isPlaylistSort,
+                includeCustomSort = isPlaylistSort || section == HomeSection.Songs,
+                customSortLocked = !isPlaylistSort && library.customSongOrderLocked,
                 onDismiss = onDismiss,
                 onApply = { field, direction ->
                     if (isPlaylistSort && activePlaylistId != null) {
                         playlistStore.updateSort(activePlaylistId, field, direction)
-                    } else if (field != SongSortField.CUSTOM) {
+                    } else {
+                        if (field == SongSortField.CUSTOM) {
+                            val locked = if (library.sortField == SongSortField.CUSTOM) {
+                                !library.customSongOrderLocked
+                            } else {
+                                false
+                            }
+                            library.updateCustomSongOrderLocked(locked)
+                        }
                         library.updateSort(field, direction)
                     }
                     onDismiss()

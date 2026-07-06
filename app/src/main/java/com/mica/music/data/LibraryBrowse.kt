@@ -28,6 +28,17 @@ enum class AlbumBrowseSortField(val storageValue: String, val label: String) {
     }
 }
 
+enum class ArtistBrowseSortField(val storageValue: String, val label: String) {
+    TITLE("title", "标题"),
+    SONG_COUNT("song_count", "歌曲数量"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): ArtistBrowseSortField =
+            entries.firstOrNull { it.storageValue == value } ?: TITLE
+    }
+}
+
 data class FolderBrowseGroup(
     val title: String,
     val subtitle: String,
@@ -91,9 +102,29 @@ object LibraryBrowse {
             }
             .sortedWith(AlphabeticalText.comparator({ it.title }, collator))
 
-    fun sortArtistGroups(groups: List<BrowseGroup>, direction: SortDirection): List<BrowseGroup> {
-        val sorted = groups.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
-        return if (direction == SortDirection.DESC) sorted.reversed() else sorted
+    fun sortArtistGroups(
+        groups: List<BrowseGroup>,
+        field: ArtistBrowseSortField,
+        direction: SortDirection,
+    ): List<BrowseGroup> {
+        if (field == ArtistBrowseSortField.SONG_COUNT && direction == SortDirection.DESC) {
+            return groups.sortedWith(
+                compareByDescending<BrowseGroup> { it.songCount }
+                    .then(AlphabeticalText.comparator({ it.title }, collator)),
+            )
+        }
+        val sorted = when (field) {
+            ArtistBrowseSortField.TITLE -> groups.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
+            ArtistBrowseSortField.SONG_COUNT -> groups.sortedWith(
+                compareBy<BrowseGroup> { it.songCount }
+                    .then(AlphabeticalText.comparator({ it.title }, collator)),
+            )
+        }
+        return if (direction == SortDirection.DESC && field != ArtistBrowseSortField.SONG_COUNT) {
+            sorted.reversed()
+        } else {
+            sorted
+        }
     }
 
     fun sortAlbumGroups(

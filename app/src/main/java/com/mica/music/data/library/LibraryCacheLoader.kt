@@ -35,7 +35,8 @@ internal class LibraryCacheLoader(
             if (backing.released) return
             catalog.reloadSortFromPrefs()
             val sortCanUseStoredOrder = cached.sortField == backing.sortField &&
-                cached.sortDirection == backing.sortDirection
+                cached.sortDirection == backing.sortDirection &&
+                backing.sortField != com.mica.music.data.SongSortField.CUSTOM
             val prepared = catalog.prepareLibrarySongs(
                 raw = cached.songs,
                 field = backing.sortField,

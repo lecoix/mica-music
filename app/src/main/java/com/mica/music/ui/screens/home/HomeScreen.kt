@@ -407,6 +407,7 @@ fun HomeScreen(
             albumSortField = uiState.browseSort.albumSortField,
             albumSortDirection = uiState.browseSort.albumSortDirection,
             albumGridColumns = uiState.browseSort.albumGridColumns,
+            artistSortField = uiState.browseSort.artistSortField,
             artistSortDirection = uiState.browseSort.artistSortDirection,
             artistGridColumns = uiState.browseSort.artistGridColumns,
             songListInfoVisibility = uiSettings.songListInfoVisibility,
@@ -614,6 +615,9 @@ fun HomeScreen(
                         selectionMode = songMultiSelectActive,
                         selectedSongIds = selectedSongIds,
                         onSelectionToggle = ::toggleSongSelection,
+                        onMoveSong = { from, to ->
+                            library.moveSongInLibrary(from, to)
+                        },
                     )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
                         library = library,
@@ -658,6 +662,7 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        artistSortField = uiState.browseSort.artistSortField,
                         artistSortDirection = uiState.browseSort.artistSortDirection,
                         artistGridColumns = uiState.browseSort.artistGridColumns,
                         listBottomPadding = listBottomPadding,
@@ -681,6 +686,7 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        artistSortField = uiState.browseSort.artistSortField,
                         artistSortDirection = uiState.browseSort.artistSortDirection,
                         artistGridColumns = uiState.browseSort.artistGridColumns,
                         listBottomPadding = listBottomPadding,

@@ -7,7 +7,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.lazy.LazyListState
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
+import com.mica.music.data.SongSortField
 import com.mica.music.ui.components.EmptyStatePresets
+import com.mica.music.ui.components.PlaylistSongListPanel
 import com.mica.music.ui.components.SongListPanel
 
 @Composable
@@ -29,6 +31,7 @@ internal fun HomeLibraryPane(
     selectionMode: Boolean = false,
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
+    onMoveSong: (Int, Int) -> Unit = { _, _ -> },
 ) {
     val folderLabel = library.libraryFolderLabel
     when {
@@ -61,7 +64,7 @@ internal fun HomeLibraryPane(
             )
         }
         else -> {
-            SongListPanel(
+            LibrarySongsPanel(
                 songs = library.songs,
                 library = library,
                 currentSongId = currentSongId,
@@ -79,8 +82,65 @@ internal fun HomeLibraryPane(
                 selectionMode = selectionMode,
                 selectedSongIds = selectedSongIds,
                 onSelectionToggle = onSelectionToggle,
+                onMoveSong = onMoveSong,
                 modifier = Modifier.fillMaxSize(),
             )
         }
+    }
+}
+
+@Composable
+private fun LibrarySongsPanel(
+    songs: List<Song>,
+    library: MusicLibrary,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    onSongClick: (String) -> Unit,
+    onSongOpenMenu: (Song) -> Unit,
+    emptyMessage: String,
+    listState: LazyListState,
+    fastScrollLabels: List<String>?,
+    fastScrollSectionTargets: Map<String, Int>?,
+    listBottomPadding: Dp,
+    selectionMode: Boolean,
+    selectedSongIds: Set<String>,
+    onSelectionToggle: (String) -> Unit,
+    onMoveSong: (Int, Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (library.sortField == SongSortField.CUSTOM && !library.customSongOrderLocked && !selectionMode) {
+        PlaylistSongListPanel(
+            songs = songs,
+            customOrder = true,
+            library = library,
+            currentSongId = currentSongId,
+            isPlaying = isPlaying,
+            onSongClick = onSongClick,
+            onSongOpenMenu = onSongOpenMenu,
+            onMoveSong = onMoveSong,
+            emptyMessage = emptyMessage,
+            sortField = library.sortField,
+            sortDirection = library.sortDirection,
+            listBottomPadding = listBottomPadding,
+            modifier = modifier,
+        )
+    } else {
+        SongListPanel(
+            songs = songs,
+            library = library,
+            currentSongId = currentSongId,
+            isPlaying = isPlaying,
+            onSongClick = onSongClick,
+            onSongOpenMenu = onSongOpenMenu,
+            emptyMessage = emptyMessage,
+            listState = listState,
+            fastScrollLabels = fastScrollLabels,
+            fastScrollSectionTargets = fastScrollSectionTargets,
+            listBottomPadding = listBottomPadding,
+            selectionMode = selectionMode,
+            selectedSongIds = selectedSongIds,
+            onSelectionToggle = onSelectionToggle,
+            modifier = modifier,
+        )
     }
 }

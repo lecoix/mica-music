@@ -37,4 +37,18 @@ class SongSorterTest {
         )
         assertEquals("#", AlphabeticalText.sectionFor("+\u03b1/\u3042\u308b\u3075\u3041\u304d\u3085\u3093"))
     }
+
+    @Test
+    fun customOrderKeepsSavedSongsFirstAndAppendsNewSongs() {
+        val songs = listOf(
+            SongFixtures.song(id = "a"),
+            SongFixtures.song(id = "b"),
+            SongFixtures.song(id = "c"),
+        )
+
+        assertEquals(
+            listOf("c", "a", "b"),
+            SongSorter.customOrder(songs, listOf("missing", "c", "a", "c")).map { it.id },
+        )
+    }
 }

@@ -58,6 +58,16 @@ object SongSorter {
         return if (direction == SortDirection.DESC) sorted.reversed() else sorted
     }
 
+    fun customOrder(songs: List<Song>, orderedIds: List<String>): List<Song> {
+        if (orderedIds.isEmpty() || songs.size <= 1) return songs
+        val byId = songs.associateBy { it.id }
+        val used = mutableSetOf<String>()
+        val ordered = orderedIds.mapNotNull { id ->
+            if (id in used) null else byId[id]?.also { used += id }
+        }
+        return ordered + songs.filterNot { it.id in used }
+    }
+
     private fun text(selector: (Song) -> String): Comparator<Song> =
         AlphabeticalText.comparator(selector, collator)
 

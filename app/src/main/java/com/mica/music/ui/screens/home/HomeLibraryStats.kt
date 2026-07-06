@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.home
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
@@ -32,6 +33,7 @@ internal fun rememberLibraryStatsBarModel(
     albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
     albumSortDirection: SortDirection = SortDirection.ASC,
     albumGridColumns: Int = 1,
+    artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
@@ -47,6 +49,7 @@ internal fun rememberLibraryStatsBarModel(
         albumSortField,
         albumSortDirection,
         albumGridColumns,
+        artistSortField,
         artistSortDirection,
         artistGridColumns,
         songListInfoVisibility,
@@ -69,6 +72,7 @@ internal fun rememberLibraryStatsBarModel(
             albumSortField,
             albumSortDirection,
             albumGridColumns,
+            artistSortField,
             artistSortDirection,
             artistGridColumns,
             songListInfoVisibility,
@@ -90,6 +94,7 @@ internal fun resolveLibraryStatsBarModel(
     albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
     albumSortDirection: SortDirection = SortDirection.ASC,
     albumGridColumns: Int = 1,
+    artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
@@ -149,7 +154,7 @@ internal fun resolveLibraryStatsBarModel(
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
                     "${library.artistGroups().size} 位艺术家",
-                    formatBrowseSortLabel(null, artistSortDirection),
+                    formatBrowseSortLabel(artistSortField, artistSortDirection),
                     formatGridColumnsLabel(artistGridColumns),
                 ) + scanSegments,
                 isScanning = library.isScanning,
@@ -257,6 +262,11 @@ private fun libraryScanSegments(library: MusicLibrary): List<String> =
         library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
         else -> emptyList()
     }
+
+private fun formatBrowseSortLabel(
+    field: ArtistBrowseSortField,
+    direction: SortDirection,
+): String = listOf(field.label, direction.label).joinToString(" · ")
 
 private fun formatBrowseSortLabel(
     field: AlbumBrowseSortField?,

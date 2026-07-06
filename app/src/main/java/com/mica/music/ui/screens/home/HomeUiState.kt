@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.home
 import android.content.Context
 import androidx.compose.runtime.saveable.Saver
 import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.SortDirection
 
@@ -19,6 +20,7 @@ data class HomeUiState(
         albumSortField = AlbumBrowseSortField.TITLE,
         albumSortDirection = SortDirection.ASC,
         albumGridColumns = 2,
+        artistSortField = ArtistBrowseSortField.TITLE,
         artistSortDirection = SortDirection.ASC,
         artistGridColumns = 2,
     ),
@@ -52,6 +54,7 @@ data class HomeUiState(
                 albumSortField = LibraryBrowseSettings.albumBrowseSortField(context),
                 albumSortDirection = LibraryBrowseSettings.albumBrowseSortDirection(context),
                 albumGridColumns = LibraryBrowseSettings.albumBrowseGridColumns(context),
+                artistSortField = LibraryBrowseSettings.artistBrowseSortField(context),
                 artistSortDirection = LibraryBrowseSettings.artistBrowseSortDirection(context),
                 artistGridColumns = LibraryBrowseSettings.artistBrowseGridColumns(context),
             ),
@@ -59,9 +62,11 @@ data class HomeUiState(
     }
 }
 
-private const val HomeUiStateSaveVersion = "v1"
+private const val HomeUiStateSaveVersion = "v2"
+private const val HomeUiStateLegacySaveVersion = "v1"
 private const val FolderScopeDelimiter = "\u0001"
-private const val HomeUiStateFixedFieldCount = 13
+private const val HomeUiStateFixedFieldCount = 14
+private const val HomeUiStateLegacyFixedFieldCount = 13
 
 internal fun saveHomeUiState(state: HomeUiState): List<String> = saveHomeUiStateValue(state)
 
@@ -87,15 +92,21 @@ private fun saveHomeUiStateValue(state: HomeUiState): List<String> =
         state.browseSort.albumSortField.storageValue,
         state.browseSort.albumSortDirection.storageValue,
         state.browseSort.albumGridColumns.toString(),
+        state.browseSort.artistSortField.storageValue,
         state.browseSort.artistSortDirection.storageValue,
         state.browseSort.artistGridColumns.toString(),
     ) + saveBrowseDestinationForHomeState(state.browseDestination)
 
 private fun restoreHomeUiStateValue(saved: List<String>): HomeUiState? {
-    if (saved.firstOrNull() != HomeUiStateSaveVersion) {
+    val version = saved.firstOrNull()
+    if (version != HomeUiStateSaveVersion && version != HomeUiStateLegacySaveVersion) {
         return HomeUiState()
     }
-    val browseSaved = saved.drop(HomeUiStateFixedFieldCount)
+    val isLegacy = version == HomeUiStateLegacySaveVersion
+    val browseSaved = saved.drop(if (isLegacy) HomeUiStateLegacyFixedFieldCount else HomeUiStateFixedFieldCount)
+    val artistSortFieldIndex = if (isLegacy) null else 11
+    val artistSortDirectionIndex = if (isLegacy) 11 else 12
+    val artistGridColumnsIndex = if (isLegacy) 12 else 13
     return HomeUiState(
         section = saved.getOrNull(1)?.let { runCatching { HomeSection.valueOf(it) }.getOrNull() }
             ?: HomeSection.Songs,
@@ -113,8 +124,9 @@ private fun restoreHomeUiStateValue(saved: List<String>): HomeUiState? {
             albumSortField = AlbumBrowseSortField.fromStorage(saved.getOrNull(8)),
             albumSortDirection = SortDirection.fromStorage(saved.getOrNull(9)),
             albumGridColumns = saved.getOrNull(10)?.toIntOrNull()?.coerceIn(1, 4) ?: 2,
-            artistSortDirection = SortDirection.fromStorage(saved.getOrNull(11)),
-            artistGridColumns = saved.getOrNull(12)?.toIntOrNull()?.coerceIn(1, 4) ?: 2,
+            artistSortField = ArtistBrowseSortField.fromStorage(artistSortFieldIndex?.let { saved.getOrNull(it) }),
+            artistSortDirection = SortDirection.fromStorage(saved.getOrNull(artistSortDirectionIndex)),
+            artistGridColumns = saved.getOrNull(artistGridColumnsIndex)?.toIntOrNull()?.coerceIn(1, 4) ?: 2,
         ),
         browseDestination = restoreBrowseDestinationForHomeState(browseSaved),
     )

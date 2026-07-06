@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.BrowseGroup
 import com.mica.music.data.FolderBrowseGroup
@@ -83,6 +84,7 @@ internal fun HomeBrowseContent(
     albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
     albumSortDirection: SortDirection = SortDirection.ASC,
     albumGridColumns: Int = 1,
+    artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
     listBottomPadding: Dp = 0.dp,
@@ -118,6 +120,7 @@ internal fun HomeBrowseContent(
                             library = library,
                             listState = artistListState,
                             onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
+                            sortField = artistSortField,
                             sortDirection = artistSortDirection,
                             gridColumns = artistGridColumns,
                             listBottomPadding = listBottomPadding,
@@ -809,13 +812,14 @@ private fun ArtistGroupList(
     library: MusicLibrary,
     listState: LazyListState,
     onSelect: (String) -> Unit,
+    sortField: ArtistBrowseSortField,
     sortDirection: SortDirection,
     gridColumns: Int,
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val groups = remember(library.songs, sortDirection) {
-        LibraryBrowse.sortArtistGroups(library.artistGroups(), sortDirection)
+    val groups = remember(library.songs, sortField, sortDirection) {
+        LibraryBrowse.sortArtistGroups(library.artistGroups(), sortField, sortDirection)
     }
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无艺术家", modifier)
@@ -827,7 +831,10 @@ private fun ArtistGroupList(
         gridColumns = gridColumns,
         onSelect = onSelect,
         gridTitleMaxLines = 1,
-        fastScrollLabels = groups.map { it.title },
+        fastScrollLabels = when (sortField) {
+            ArtistBrowseSortField.TITLE -> groups.map { it.title }
+            ArtistBrowseSortField.SONG_COUNT -> null
+        },
         fastScrollDescending = sortDirection == SortDirection.DESC,
         listBottomPadding = listBottomPadding,
         modifier = modifier,

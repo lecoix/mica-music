@@ -12,11 +12,12 @@ internal object LibraryPresentationBuilder {
         direction: SortDirection,
         useInputOrder: Boolean = false,
         cachedSectionTargets: Map<String, Int>? = null,
+        customOrderIds: List<String> = emptyList(),
     ): LibraryPresentation {
-        val visible = if (useInputOrder) {
-            scannedSongs
-        } else {
-            SongSorter.sort(scannedSongs, field, direction)
+        val visible = when {
+            useInputOrder -> scannedSongs
+            field == SongSortField.CUSTOM -> SongSorter.customOrder(scannedSongs, customOrderIds)
+            else -> SongSorter.sort(scannedSongs, field, direction)
         }
         val labels = LibraryFastScrollIndex.labelsForSongs(visible, field)
         val fastScrollIndex = labels?.let { resolvedLabels ->

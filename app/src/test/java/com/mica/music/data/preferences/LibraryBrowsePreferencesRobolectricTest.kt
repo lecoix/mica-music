@@ -1,6 +1,7 @@
 package com.mica.music.data.preferences
 
 import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.SortDirection
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -25,17 +26,19 @@ class LibraryBrowsePreferencesRobolectricTest {
         assertEquals(AlbumBrowseSortField.TITLE, LibraryBrowseSettings.albumBrowseSortField(context))
         assertEquals(SortDirection.ASC, LibraryBrowseSettings.albumBrowseSortDirection(context))
         assertEquals(1, LibraryBrowseSettings.albumBrowseGridColumns(context))
+        assertEquals(ArtistBrowseSortField.TITLE, LibraryBrowseSettings.artistBrowseSortField(context))
         assertEquals(SortDirection.ASC, LibraryBrowseSettings.artistBrowseSortDirection(context))
         assertEquals(1, LibraryBrowseSettings.artistBrowseGridColumns(context))
 
         LibraryBrowseSettings.setAlbumBrowseSort(context, AlbumBrowseSortField.ARTIST, SortDirection.DESC)
         LibraryBrowseSettings.setAlbumBrowseGridColumns(context, 3)
-        LibraryBrowseSettings.setArtistBrowseSortDirection(context, SortDirection.DESC)
+        LibraryBrowseSettings.setArtistBrowseSort(context, ArtistBrowseSortField.SONG_COUNT, SortDirection.DESC)
         LibraryBrowseSettings.setArtistBrowseGridColumns(context, 4)
 
         assertEquals(AlbumBrowseSortField.ARTIST, LibraryBrowseSettings.albumBrowseSortField(context))
         assertEquals(SortDirection.DESC, LibraryBrowseSettings.albumBrowseSortDirection(context))
         assertEquals(3, LibraryBrowseSettings.albumBrowseGridColumns(context))
+        assertEquals(ArtistBrowseSortField.SONG_COUNT, LibraryBrowseSettings.artistBrowseSortField(context))
         assertEquals(SortDirection.DESC, LibraryBrowseSettings.artistBrowseSortDirection(context))
         assertEquals(4, LibraryBrowseSettings.artistBrowseGridColumns(context))
 
@@ -44,5 +47,17 @@ class LibraryBrowsePreferencesRobolectricTest {
 
         assertEquals(4, LibraryBrowseSettings.albumBrowseGridColumns(context))
         assertEquals(1, LibraryBrowseSettings.artistBrowseGridColumns(context))
+    }
+
+    @Test
+    fun customSongOrderRoundTrip() {
+        assertEquals(emptyList<String>(), LibraryBrowseSettings.customSongOrderIds(context))
+        assertEquals(false, LibraryBrowseSettings.customSongOrderLocked(context))
+
+        LibraryBrowseSettings.setCustomSongOrderIds(context, listOf("c", "a", "b"))
+        LibraryBrowseSettings.setCustomSongOrderLocked(context, true)
+
+        assertEquals(listOf("c", "a", "b"), LibraryBrowseSettings.customSongOrderIds(context))
+        assertEquals(true, LibraryBrowseSettings.customSongOrderLocked(context))
     }
 }

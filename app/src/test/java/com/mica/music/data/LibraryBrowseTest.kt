@@ -80,17 +80,24 @@ class LibraryBrowseTest {
     }
 
     @Test
-    fun artistGroupsSortByDirection() {
+    fun artistGroupsSortByRequestedFieldAndDirection() {
         val groups = LibraryBrowse.groupByArtist(
             listOf(
                 SongFixtures.song(id = "a").copy(artist = "Alpha"),
                 SongFixtures.song(id = "b").copy(artist = "Beta"),
+                SongFixtures.song(id = "b2").copy(artist = "Beta"),
             ),
         )
 
         assertEquals(
             listOf("Beta", "Alpha"),
-            LibraryBrowse.sortArtistGroups(groups, SortDirection.DESC).map { it.title },
+            LibraryBrowse.sortArtistGroups(groups, ArtistBrowseSortField.TITLE, SortDirection.DESC)
+                .map { it.title },
+        )
+        assertEquals(
+            listOf("Beta", "Alpha"),
+            LibraryBrowse.sortArtistGroups(groups, ArtistBrowseSortField.SONG_COUNT, SortDirection.DESC)
+                .map { it.title },
         )
     }
 

@@ -42,6 +42,8 @@ class MusicLibrary internal constructor(
 
     val sortDirection get() = backing.sortDirection
 
+    val customSongOrderLocked get() = backing.customSongOrderLocked
+
     val isLoadingCachedLibrary get() = backing.isLoadingCachedLibrary
 
     val isScanning get() = backing.isScanning
@@ -78,6 +80,12 @@ class MusicLibrary internal constructor(
 
     fun updateSort(field: SongSortField, direction: SortDirection) =
         backing.catalog.updateSort(field, direction)
+
+    fun moveSongInLibrary(fromIndex: Int, toIndex: Int): Boolean =
+        backing.catalog.moveVisibleSong(fromIndex, toIndex)
+
+    fun updateCustomSongOrderLocked(locked: Boolean) =
+        backing.catalog.updateCustomSongOrderLocked(locked)
 
     fun onSongPlayed(songId: String) = backing.playStats.onSongPlayed(songId)
 

@@ -204,6 +204,7 @@
 
 ### 远期 · 低优先级
 
+- [ ] **自定义排序长期计划**：如果歌曲列表自定义顺序、艺术家自定义顺序、专辑自定义顺序都需要统一持久化，再把当前 SharedPreferences 里的歌曲自定义顺序迁移到 Room；不要复用 `songs.queueOrder`，它只表示缓存的当前可见列表顺序。建议新增 `library_meta.customSongOrderJson/customSongOrderLocked` 或独立排序表，再按需要扩展 artist/album group key 的自定义顺序。
 - [ ] **标准播放页视频封面（低优先级）**：仅限 `PlayerCoverFlowMode.STANDARD` 的播放页大封面；扫描曲库文件夹内 `.mp4` 素材，按归一化专辑名匹配，命中后用视频替换静态专辑图。
   - **范围**：不影响封面流、照片堆、粒子封面、迷你播放器、列表缩略图和动态背景；这些路径继续使用 `albumArtUri` 静态图。
   - **播放**：优先复用 Media3/ExoPlayer，底层走系统 `MediaCodec` 解码；静音、循环、仅播放页可见且标准主题激活时播放，切歌/离开页面及时释放。

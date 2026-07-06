@@ -27,6 +27,7 @@ fun SongSortSheet(
     onDismiss: () -> Unit,
     onApply: (SongSortField, SortDirection) -> Unit,
     includeCustomSort: Boolean = false,
+    customSortLocked: Boolean = false,
     onMultiSelectClick: (() -> Unit)? = null,
 ) {
     val sortFields = if (includeCustomSort) {
@@ -65,8 +66,11 @@ fun SongSortSheet(
                 verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
             ) {
                 sortFields.forEach { field ->
+                    val customLocked = field == SongSortField.CUSTOM &&
+                        currentField == SongSortField.CUSTOM &&
+                        customSortLocked
                     AccentTextChoice(
-                        label = field.label,
+                        label = if (customLocked) "${field.label}·锁定" else field.label,
                         selected = field == currentField,
                         onClick = {
                             onApply(
@@ -95,12 +99,6 @@ fun SongSortSheet(
                         )
                     }
                 }
-            } else {
-                Text(
-                    text = "自定义顺序下可长按右侧把手拖动排序",
-                    style = MicaTheme.typography.caption,
-                    color = MicaTheme.colors.textTertiary,
-                )
             }
             if (onMultiSelectClick != null) {
                 Text(
