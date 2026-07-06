@@ -101,9 +101,74 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 结构收口后的最小自动化检查：
 
 ```powershell
-.\gradlew :app:testDebugUnitTest --tests com.mica.music.LibraryQueueSyncPolicyTest --tests com.mica.music.util.SongActionsTest --tests com.mica.music.data.LibraryBrowseDetailsTest --tests com.mica.music.data.AlbumArtRepairCoordinatorTest --tests com.mica.music.data.MusicLibraryTest --tests com.mica.music.data.library.LibraryScanOrchestratorTest --tests com.mica.music.data.preferences --tests com.mica.music.ui.navigation.AppNavigationCoordinatorTest --no-configuration-cache
+.\gradlew :app:testDebugUnitTest --tests com.mica.music.LibraryQueueSyncPolicyTest --tests com.mica.music.data.LibraryPlaybackQueueCoordinatorTest --tests com.mica.music.util.SongActionsTest --tests com.mica.music.data.LibraryBrowseDetailsTest --tests com.mica.music.data.AlbumArtRepairCoordinatorTest --tests com.mica.music.data.MusicLibraryTest --tests com.mica.music.data.library.LibraryScanOrchestratorTest --tests com.mica.music.data.preferences --tests com.mica.music.data.scanner.ProbeResultTest --tests com.mica.music.ui.navigation.AppNavigationCoordinatorTest --no-configuration-cache
 .\gradlew :app:compileDebugKotlin --no-configuration-cache
 ```
+
+### a257a0f 架构重构：P0 JVM 单测（队列 sync 语义）
+
+提交 `a257a0f`（MusicLibrary / AppPreferences / Home·Settings 拆分、统一 `songIds` 队列 sync）后，下列行为已由单测写死。**产品语义（P0.1）**：曲库仅排序变化时 **不重排** 当前播放队列，只 `RefreshMetadata`；仅当播放队列仍含已从曲库移除的 id 时才 `SetQueue`。
+
+| 场景 | 测试类 | 测试方法 |
+|------|--------|----------|
+| 曲库排序 `[a,b,c]`→`[c,b,a]`，队列仍为 `[a,b,c]` | `LibraryQueueSyncPolicyTest` | `librarySortReorderDoesNotReplacePlayerQueue` |
+| 同上（coordinator 执行层） | `LibraryPlaybackQueueCoordinatorTest` | `librarySortReorderOnlyRefreshesMetadata` |
+| 删当前曲后队列已更新，`songIds` sync 不二次 `setQueue` | `LibraryQueueSyncPolicyTest` | `librarySongRemovedAfterDeleteRefreshesWithoutReplacingQueue` |
+| 删中间曲后同上 | `LibraryQueueSyncPolicyTest` | `librarySongRemovedFromMiddleOfQueueRefreshesWithoutReplacingQueue` |
+| 删曲后 coordinator 仅 refresh、队列顺序不变 | `LibraryPlaybackQueueCoordinatorTest` | `deleteSongLibrarySyncRefreshesWithoutSecondSetQueue` |
+| 冷启动空队列 + `bootstrapQueue` 成功 → 不 `setQueue` | `LibraryPlaybackQueueCoordinatorTest` | `coldStartBootstrapSuccessDoesNotReplaceRestoredServiceQueue` |
+| 冷启动空队列 + bootstrap 失败 → `setQueue` 整库 | `LibraryPlaybackQueueCoordinatorTest` | `bootstrapFailureSetsLibraryQueue` |
+| 队列仍含已移除曲库 id → `SetQueue` | `LibraryQueueSyncPolicyTest` / `LibraryPlaybackQueueCoordinatorTest` | `queueContainingRemovedLibrarySongIsRebuiltFromCurrentLibrary` / `removedLibrarySongTriggersSetQueue` |
+| 删当前播放曲 | `SongActionsTest` | `deleteSongEverywhereRemovesCurrentPlayingSongFromQueue` |
+| 删非当前曲 | `SongActionsTest` | `deleteSongEverywhereRemovesNonCurrentSongFromQueue` |
+| 删文件失败仍移库、移歌单、修正队列 | `SongActionsTest` | `deleteSongEverywhereKeepsRemovalFlowWhenFileDeleteFails` |
+
+仅跑 P0 队列/删除回归：
+
+```powershell
+.\gradlew :app:testDebugUnitTest --tests com.mica.music.LibraryQueueSyncPolicyTest --tests com.mica.music.data.LibraryPlaybackQueueCoordinatorTest --tests com.mica.music.util.SongActionsTest --no-configuration-cache
+```
+
+### a257a0f 架构重构：P1 真机验收清单
+
+P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限与 Service 持久化。下列清单在 **至少一台真机** 上手测；失败时导出诊断日志（`LibraryQueue`、`LibraryStartup`、`LibraryScan`、`Player`、`PlaybackRestore`）。
+
+#### 1. 冷启动与队列恢复
+
+- [ ] **有 Service 持久化队列**：上次播放中/暂停有队列与进度 → 杀进程 → 冷启动 → 迷你栏/播放页/通知为同一首；**播放队列顺序不被整库列表排序覆盖**；恢复后处于暂停（不自动续播，除非产品另有约定）。
+- [ ] **无 Service 持久化、Room 有缓存**：清数据后只扫过库、从未形成 service 队列 → 冷启动 → 列表快速出现；若播放器队列为空，应装入曲库（或 bootstrap 行为与旧版一致）。
+- [ ] **Room 空库**：首次安装或空库 → 授权扫描 → 扫描完成后列表与队列行为正常。
+- [ ] **从通知/桌面图标二次进入**：划掉 Activity 后从通知或桌面再开，`MediaController` 重连，UI 队列/当前曲不回退默认。
+- [ ] **诊断**：日志中 `LibraryStartup loadCached` 与 `LibraryQueue libraryIds` 各出现一次为主；不应短时间连续多次 `setQueue` 刷屏。
+
+#### 2. 曲库排序 vs 播放队列（P0.1 选项 A）
+
+- [ ] 当前队列为「播放全部」或等于上次整库顺序（如 `[A,B,C]`）→ 在设置/主页改 **全部歌曲排序**（如标题升序↔降序）→ **正在播放的切歌顺序不变**（仍为 A→B→C），仅列表顺序变；元数据（播放次数等）仍刷新。
+- [ ] 改排序后切歌、seek、迷你栏与通知仍正常。
+
+#### 3. 删除歌曲
+
+- [ ] **删当前播放曲**：播放 A，队列 `[A,B,C]` → 删除 A → 立即切到 B（或暂停，与现网一致）；曲库、歌单、队列、迷你栏均无 A；**不应**再闪一次整库重排队列。
+- [ ] **删非当前曲**：播放 A，删 B → 当前仍播 A，队列变为 `[A,C]`。
+- [ ] **删文件失败**：SAF/无写权限等导致文件删不掉 → Snackbar「已从曲库移除（无法删除文件）」；歌单与队列仍移除该曲。
+- [ ] **删后 sync**：导出日志，删曲后 `LibraryQueue libraryIds` 为 `RefreshMetadata` 路径为主，非连续两次 `setQueue`。
+
+#### 4. 权限与扫描（Home + Settings）
+
+- [ ] **Home 首次授权**：无权限 → 授权 → 自动扫描 → 列表与进度文案正常。
+- [ ] **Settings 重扫无权限**：撤销权限 → 设置页点重扫 → 有明确错误/引导，不崩溃。
+- [ ] **SAF 选文件夹**：选目录 → 扫描 → 杀进程再开 → 目录与曲库仍在。
+- [ ] **取消选文件夹**：清除 SAF 目录后行为符合预期（空库或回退设备扫描，与现网一致）。
+- [ ] **扫描中连点重扫**：最终以最后一次扫描为准。
+
+#### 5. 设置迁移（升级用户）
+
+- [ ] 在已有 `mica_settings` 的设备上 **覆盖安装**（不清数据）：主题、强调色、云母、迷你栏样式、播放页背景/封面行为、歌词/通知歌词、EQ 开关与预设、扫描选项（最短时长、深度探测、排除目录）均保留。
+- [ ] 浏览排序（歌曲/专辑/艺术家）杀进程后仍保持。
+
+#### 6. 扫描诊断（ProbeResult 线 A）
+
+- [ ] 深度扫描完成后，诊断日志 `LibraryScan performScan scannerResult` 含 `technicalFailed=N`（通常 N=0；有失败时应有 `AudioTechnicalProbe: probe-failed` 逐首记录，但歌曲仍入库）。
 
 ### MusicLibrary 结构拆分回归（真机）
 

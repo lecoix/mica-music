@@ -43,10 +43,11 @@ class LibraryPlaybackQueueCoordinatorTest {
 
     private fun libraryInput(
         songs: List<Song>,
+        songIds: List<String> = songs.map { it.id },
         hasScanned: Boolean = true,
     ): LibraryQueueSyncInput = LibraryQueueSyncInput(
         songs = songs,
-        songIds = songs.map { it.id },
+        songIds = songIds,
         hasScanned = hasScanned,
         songById = { id -> songs.firstOrNull { it.id == id } },
     )
@@ -142,5 +143,80 @@ class LibraryPlaybackQueueCoordinatorTest {
         assertTrue(target.setQueueCalls.isEmpty())
         assertEquals(songs, target.refreshCalls.single())
         assertFalse(target.bootstrapResult)
+    }
+
+    @Test
+    fun coldStartBootstrapSuccessDoesNotReplaceRestoredServiceQueue() {
+        val coordinator = LibraryPlaybackQueueCoordinator()
+        val songs = SongFixtures.queue(3)
+        val target = FakeTarget().apply { bootstrapResult = true }
+
+        coordinator.sync("libraryIds", libraryInput(songs), target)
+
+        assertEquals(1, target.connectCount)
+        assertTrue(target.setQueueCalls.isEmpty())
+        target.queuedSongs = songs
+        target.refreshCalls.clear()
+
+        coordinator.sync("libraryIds", libraryInput(songs), target)
+
+        assertTrue(target.setQueueCalls.isEmpty())
+        assertEquals(songs, target.refreshCalls.single())
+    }
+
+    @Test
+    fun librarySortReorderOnlyRefreshesMetadata() {
+        val coordinator = LibraryPlaybackQueueCoordinator()
+        val songA = SongFixtures.song("a")
+        val songB = SongFixtures.song("b")
+        val songC = SongFixtures.song("c")
+        val original = listOf(songA, songB, songC)
+        val reordered = listOf(songC, songB, songA)
+        val target = FakeTarget().apply {
+            queuedSongs = original
+            bootstrapResult = false
+        }
+
+        coordinator.sync("seed", libraryInput(original), target)
+        target.refreshCalls.clear()
+        target.setQueueCalls.clear()
+
+        coordinator.sync(
+            reason = "libraryIds",
+            library = libraryInput(
+                songs = reordered,
+                songIds = reordered.map { it.id },
+            ),
+            player = target,
+        )
+
+        assertTrue(target.setQueueCalls.isEmpty())
+        assertEquals(reordered, target.refreshCalls.single())
+        assertEquals(original, target.queuedSongs)
+    }
+
+    @Test
+    fun deleteSongLibrarySyncRefreshesWithoutSecondSetQueue() {
+        val coordinator = LibraryPlaybackQueueCoordinator()
+        val songA = SongFixtures.song("a")
+        val songB = SongFixtures.song("b")
+        val songC = SongFixtures.song("c")
+        val all = listOf(songA, songB, songC)
+        val remaining = listOf(songB, songC)
+        val target = FakeTarget().apply {
+            queuedSongs = all
+            bootstrapResult = false
+        }
+
+        coordinator.sync("seed", libraryInput(all), target)
+        target.queuedSongs = remaining
+        target.setQueueCalls.clear()
+        target.refreshCalls.clear()
+
+        coordinator.sync("libraryIds", libraryInput(remaining), target)
+
+        assertTrue(target.setQueueCalls.isEmpty())
+        assertEquals(remaining, target.refreshCalls.single())
+        assertEquals(remaining, target.queuedSongs)
     }
 }

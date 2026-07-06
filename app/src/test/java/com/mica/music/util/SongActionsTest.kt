@@ -17,6 +17,52 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class SongActionsTest {
     @Test
+    fun deleteSongEverywhereRemovesCurrentPlayingSongFromQueue() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val current = SongFixtures.song("current")
+        val next = SongFixtures.song("next")
+        var updatedQueue: List<Song>? = null
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = current,
+            currentQueue = listOf(current, next),
+            removeFromLibrary = {},
+            removeFromAllPlaylists = {},
+            setQueue = { updatedQueue = it },
+            deleteFile = { _, _ -> true },
+        )
+
+        assertTrue(result.fileDeleted)
+        assertTrue(result.queueChanged)
+        assertEquals("已从设备删除", result.message)
+        assertEquals(listOf(next), updatedQueue)
+    }
+
+    @Test
+    fun deleteSongEverywhereRemovesNonCurrentSongFromQueue() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val current = SongFixtures.song("current")
+        val middle = SongFixtures.song("middle")
+        val tail = SongFixtures.song("tail")
+        var updatedQueue: List<Song>? = null
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = middle,
+            currentQueue = listOf(current, middle, tail),
+            removeFromLibrary = {},
+            removeFromAllPlaylists = {},
+            setQueue = { updatedQueue = it },
+            deleteFile = { _, _ -> true },
+        )
+
+        assertTrue(result.fileDeleted)
+        assertTrue(result.queueChanged)
+        assertEquals(listOf(current, tail), updatedQueue)
+    }
+
+    @Test
     fun deleteSongEverywhereKeepsRemovalFlowWhenFileDeleteFails() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val target = SongFixtures.song("target")
