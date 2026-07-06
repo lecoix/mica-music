@@ -16,11 +16,63 @@ _Avoid_: caption、subtitle
 用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。
 _Avoid_: 与「播放队列」混用
 
+**Library scan settings（曲库扫描设置）**：
+曲库扫描相关偏好的窄门面（`LibraryScanSettings`）：最短时长、纳入非音乐音频、深度元数据探测、排除目录、SAF 曲库目录、上次扫描来源与歌词 parser 版本。与浏览排序、播放页 UI、外观、歌词、EQ 分属不同 preference 门面；物理存储仍为单一 `mica_settings`（经 `MicaSettingsStore`）。
+_Avoid_: 把主题、播放页、歌词页、EQ 等非扫描偏好塞进此门面
+
+**Library browse settings（曲库浏览设置）**：
+`LibraryBrowseSettings`：歌曲列表排序、专辑/艺术家浏览排序与网格列数。Home 排序 Sheet 与 `LibraryCatalogPublisher` 经此读写。
+_Avoid_: 在 Home 或 catalog 内直接读 `SharedPreferences`
+
+**Playback UI preferences（播放页 UI 偏好）**：
+`PlaybackUiPreferences`：播放页背景、迷你栏、封面行为、粒子参数、频谱资格相关开关、列表/播放页信息可见性、常亮与沉浸等。`AppUiSettings` 的 playback 字段与 `MicaMediaService.spectrumTapEnabled` 经此读取。
+_Avoid_: 在 Service 或 Composable 内散落读取 mini player / spectrum key
+
+**Appearance preferences（外观偏好）**：
+`AppearancePreferences`：主题模式、隐藏状态栏、强调色、云母背景。`AppUiSettings` 与 `StatusBarController` 经此读写。
+_Avoid_: 在 UI 层直接写 theme / accent key
+
+**Lyrics preferences（歌词偏好）**：
+`LyricsPreferences`：歌词拆分、双语展示、字号与对齐、通知歌词开关等。`AppUiSettings`、`NotificationLyricsCoordinator` 与 `NotificationLyrics` 经此读写。
+_Avoid_: 在通知或播放页组件内直接读 lyric key
+
+**Equalizer preferences（均衡器偏好）**：
+`EqualizerPreferences`：EQ 开关、预设索引、频段与全局增益。`MicaEqualizerManager`、`EqualizerScreen`、`EqCustomProfileStore` 与 `MicaMediaService` 经此读写；自定义预设命名仍由 `EqCustomProfileStore`（`mica_eq_profiles`）管理。
+_Avoid_: 在音频链或 EQ UI 内直接读 equalizer_* key
+
+**Album art repair coordinator（封面缓存修复协调器）**：
+根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。它只做修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryScanOrchestrator.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
+_Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择
+
+**MusicLibrary（曲库门面）**：
+Compose 可见曲库状态与对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。内部组合 `MusicLibraryBacking` 与子模块；**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。
+_Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内恢复扫描编排或 catalog 逻辑
+
+**Library scan orchestrator（曲库扫描编排器）**：
+`data/library/LibraryScanOrchestrator`：扫描生命周期、`scanGeneration` 取消、Room incremental sync、封面修复**执行**。在 IO 跑 scanner，**publish 回主线程**写 Compose State 的边界不变。
+_Avoid_: 在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策
+
+**Library catalog publisher（曲库目录发布器）**：
+`data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / fast scroll 发布、async persist、播放统计写回、`removeSong`。外部只读 `MusicLibrary.songs` / `songIds`。
+_Avoid_: 在 orchestrator / UI 直接读写 `scannedSongs`；绕过 catalog 改可见列表或排序
+
+**Library browse details（曲库浏览详情模型）**：
+专辑 / 艺术家详情页的展示模型与排序规则，例如专辑曲目排序、disc 分组、版权行、艺术家专辑分组。`HomeBrowseContent` 负责渲染和用户动作，不直接承载这些领域展示计算。
+_Avoid_: 在 Composable 文件里继续散落专辑排序、disc section、artist album section 计算
+
+**SongActions（歌曲操作流程）**：
+主页、播放页等 UI 共享的歌曲动作流程。删除歌曲使用 `deleteSongEverywhere(...)` 统一串起物理文件删除、曲库移除、歌单移除和播放队列修正，并返回结构化结果给调用方展示提示。
+_Avoid_: 在多个 Composable 内复制 `deleteSongFile -> removeFromLibrary -> removeFromAllPlaylists -> setQueue` 链路
+
 ## 播放队列与控制
 
 **Playback queue（播放队列）**：
 当前会话中待播与在播的 `Song` 有序列表，含 `currentIndex`；上一曲 / 下一曲、队列 Sheet、封面流邻槽均以此为准。
 _Avoid_: playlist、播放列表（指歌单时）
+
+**Library playback queue sync（曲库队列同步）**：
+曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / 整队替换 / 仅刷新元数据）。由 `MainActivity` 监听 `MusicLibrary.songIds` 触发；**不**监听 `songs`（避免播放统计等元数据更新误触发）。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。
+_Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `LaunchedEffect` 各调一次 sync、用 `library.songs` 作 sync 触发键
 
 **PlaybackQueueMode（播放模式）**：
 队列推进策略：顺序（OFF）→ 列表循环（REPEAT_ALL）→ 单曲循环（REPEAT_ONE）→ 随机（SHUFFLE）。
@@ -205,8 +257,8 @@ _Avoid_: visualizer、频谱模式（暗示独立布局时）
 _Avoid_: 根据 `lyricsProgress` 或 `showStandardProgress` 在组件层再判一次
 
 **AppUiSettings**：
-界面偏好：主题、播放页下半背景、封面流、沉浸、封面底边进度、频谱、迷你栏样式等；播放页只读、经 `NowPlayingActions` 或设置页写入。
-_Avoid_: preferences（无专名时）、theme settings（仅颜色时）
+界面偏好的 Compose 即时镜像：主题与外观经 `AppearancePreferences`、歌词经 `LyricsPreferences`、播放页 UI 经 `PlaybackUiPreferences` 持久化。播放页只读、经 `NowPlayingActions` 或设置页写入。
+_Avoid_: 在 Composable 内直接读 `SharedPreferences` 或绕过门面写 key
 
 **PlayerLowerBackgroundMode（播放页背景）**：
 播放页下半屏（及必要时全屏）背景样式，设置 → 播放页背景：

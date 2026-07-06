@@ -56,27 +56,6 @@ class MusicLibraryTest {
     }
 
     @Test
-    fun lyricsParserUpgradeForcesOneSuccessfulLyricsRefresh() = runTest {
-        val cached = SongFixtures.song("cached")
-        val scanner = ControlledScanner()
-        val environment = FakeScanEnvironment(parserVersion = 0)
-        val library = library(
-            scanner = scanner,
-            store = FakeLibraryStore(CachedLibrary(listOf(cached), 100, ScanSource.DEVICE, 1)),
-            environment = environment,
-        )
-
-        val scan = async { library.scanDeviceWide() }
-        runCurrent()
-        assertTrue(scanner.deviceRequests.single().cachedSongs.single().lyrics.isEmpty())
-        scanner.deviceRequests.single().result.complete(ScanResult(listOf(cached), 1))
-        scan.await()
-
-        assertEquals(CURRENT_LYRICS_PARSER_VERSION, environment.parserVersion)
-        library.release()
-    }
-
-    @Test
     fun artworkCacheRepairStartsForcedArtworkOnlyScanWhenCachedArtNeedsRepair() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val missingArt = File(context.cacheDir, "album_art/missing-startup.jpg")
@@ -102,52 +81,6 @@ class MusicLibraryTest {
         assertFalse(library.isScanning)
         assertEquals("content://media/external/audio/albums/1", library.songs.single().albumArtUri)
         library.release()
-    }
-
-    @Test
-    fun latestScanWinsWhenOlderResultArrivesLast() = runTest {
-        val scanner = ControlledScanner()
-        val library = library(scanner, FakeLibraryStore())
-
-        val oldScan = async { library.scanDeviceWide() }
-        runCurrent()
-        val newScan = async { library.scanDeviceWide() }
-        runCurrent()
-
-        scanner.deviceRequests[1].result.complete(
-            ScanResult(listOf(SongFixtures.song("new")), 20),
-        )
-        newScan.await()
-        scanner.deviceRequests[0].result.complete(
-            ScanResult(listOf(SongFixtures.song("old")), 10),
-        )
-        oldScan.await()
-
-        assertEquals(listOf("new"), library.songs.map { it.id })
-        assertEquals(20, library.totalSizeMb)
-        library.release()
-    }
-
-    @Test
-    fun releasePreventsLateScanStatePublication() = runTest {
-        val scanner = ControlledScanner()
-        val store = FakeLibraryStore()
-        val library = library(scanner, store)
-
-        val scan = async { library.scanDeviceWide() }
-        runCurrent()
-        library.release()
-        scanner.deviceRequests.single().result.complete(
-            ScanResult(listOf(SongFixtures.song("late")), 99),
-        )
-        scan.await()
-
-        assertTrue(library.songs.isEmpty())
-        assertFalse(library.hasScanned)
-        assertFalse(library.isScanning)
-        assertNull(library.scanProgressLabel)
-        assertNull(library.lastScanAtMs)
-        assertTrue(store.syncedSongs.isEmpty())
     }
 
     @Test

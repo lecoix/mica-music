@@ -47,12 +47,8 @@ import com.mica.music.MainActivity
 
 import com.mica.music.util.DiagnosticLog
 
-import com.mica.music.data.AppPreferences
-
-import com.mica.music.data.MiniPlayerStyle
-
-
-
+import com.mica.music.data.preferences.EqualizerPreferences
+import com.mica.music.data.preferences.PlaybackUiPreferences
 /**
 
  * 播放服务：拥有 ExoPlayer + MediaSession，独立于 Activity 生命周期。
@@ -161,7 +157,7 @@ class MicaMediaService : MediaSessionService() {
 
         MicaSpectrumAnalyzer.setEnabled(spectrumTapEnabled(), notifyPipeline = false)
 
-        var equalizerPipelineEnabled = AppPreferences.equalizerEnabled(this)
+        var equalizerPipelineEnabled = EqualizerPreferences.equalizerEnabled(this)
 
         MicaEqualizerManager.onEnabledChanged = { enabled ->
 
@@ -200,7 +196,7 @@ class MicaMediaService : MediaSessionService() {
 
                 configureQualityMode(
                     exoPlayer,
-                    dspEnabled = AppPreferences.equalizerEnabled(this@MicaMediaService),
+                    dspEnabled = EqualizerPreferences.equalizerEnabled(this@MicaMediaService),
                     spectrumTapEnabled = enabled,
                 )
 
@@ -237,7 +233,7 @@ class MicaMediaService : MediaSessionService() {
 
             handler = mainHandler,
 
-            initialQualityMode = if (com.mica.music.data.AppPreferences.equalizerEnabled(this)) {
+            initialQualityMode = if (EqualizerPreferences.equalizerEnabled(this)) {
 
                 AudioQualityMode.DSP
 
@@ -396,10 +392,7 @@ class MicaMediaService : MediaSessionService() {
 
 
 
-    private fun spectrumTapEnabled(): Boolean =
-        AppPreferences.spectrumEnabled(this) ||
-            AppPreferences.miniPlayerStyle(this) == MiniPlayerStyle.AUDIOPHILE ||
-            AppPreferences.playerCoverFlowMode(this).usesPhotoStack
+    private fun spectrumTapEnabled(): Boolean = PlaybackUiPreferences.spectrumTapEnabled(this)
 
     private fun flushAudioPipeline(reason: String) {
         val player = compositePlayer ?: return

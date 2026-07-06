@@ -62,6 +62,7 @@ object FolderScanner {
         val cachedById = cachedSongs.associateBy { it.id }
         val reused = AtomicInteger(0)
         val probed = AtomicInteger(0)
+        val technicalFailed = AtomicInteger(0)
 
         val songs = if (!options.deepMetadataProbe) {
             onProgress?.invoke(drafts.size, drafts.size)
@@ -115,6 +116,7 @@ object FolderScanner {
                                             cachedById,
                                             options.forceRefreshLyrics,
                                         ),
+                                        technicalProbeFailures = technicalFailed,
                                     )
                                 }
                             onProgress?.invoke(done.incrementAndGet(), total)
@@ -142,6 +144,7 @@ object FolderScanner {
             songs = filtered,
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
+            probeStats = ScanProbeStats(technicalFailed = technicalFailed.get()),
         )
     }
 

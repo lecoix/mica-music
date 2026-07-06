@@ -1,6 +1,7 @@
 package com.mica.music.data
 
 import android.content.Context
+import com.mica.music.data.preferences.EqualizerPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -13,7 +14,7 @@ data class EqCustomProfile(
 /**
  * 均衡器选项：
  * - [System] 系统预设（索引对应 [android.media.audiofx.Equalizer]）
- * - [Draft] 未命名自定义（频段存 [AppPreferences.equalizerBandLevels]）
+ * - [Draft] 未命名自定义（频段存 [EqualizerPreferences.equalizerBandLevels]）
  * - [Saved] 已保存的自定义配置
  */
 sealed class EqSelection {
@@ -32,9 +33,9 @@ object EqCustomProfileStore {
         val raw = prefs(context).getString(KEY_SELECTION, null)
         if (raw != null) return parseSelection(raw)
         // 迁移旧版仅 preset index 的存储
-        val legacy = AppPreferences.equalizerPresetIndex(context)
+        val legacy = EqualizerPreferences.equalizerPresetIndex(context)
         return when {
-            legacy == AppPreferences.EQ_PRESET_CUSTOM -> EqSelection.Draft
+            legacy == EqualizerPreferences.EQ_PRESET_CUSTOM -> EqSelection.Draft
             legacy >= 0 -> EqSelection.System(legacy)
             else -> EqSelection.System(0)
         }
@@ -43,9 +44,9 @@ object EqCustomProfileStore {
     fun setSelection(context: Context, selection: EqSelection) {
         prefs(context).edit().putString(KEY_SELECTION, encodeSelection(selection)).apply()
         when (selection) {
-            is EqSelection.System -> AppPreferences.setEqualizerPresetIndex(context, selection.index)
-            EqSelection.Draft -> AppPreferences.setEqualizerPresetIndex(context, AppPreferences.EQ_PRESET_CUSTOM)
-            is EqSelection.Saved -> AppPreferences.setEqualizerPresetIndex(context, AppPreferences.EQ_PRESET_CUSTOM)
+            is EqSelection.System -> EqualizerPreferences.setEqualizerPresetIndex(context, selection.index)
+            EqSelection.Draft -> EqualizerPreferences.setEqualizerPresetIndex(context, EqualizerPreferences.EQ_PRESET_CUSTOM)
+            is EqSelection.Saved -> EqualizerPreferences.setEqualizerPresetIndex(context, EqualizerPreferences.EQ_PRESET_CUSTOM)
         }
     }
 

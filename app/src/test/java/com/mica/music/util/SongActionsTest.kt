@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.Song
+import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -14,6 +16,33 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class SongActionsTest {
+    @Test
+    fun deleteSongEverywhereKeepsRemovalFlowWhenFileDeleteFails() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val target = SongFixtures.song("target")
+        val other = SongFixtures.song("other")
+        var removedFromLibrary: String? = null
+        var removedFromPlaylists: String? = null
+        var updatedQueue: List<Song>? = null
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = target,
+            currentQueue = listOf(other, target),
+            removeFromLibrary = { removedFromLibrary = it },
+            removeFromAllPlaylists = { removedFromPlaylists = it },
+            setQueue = { updatedQueue = it },
+            deleteFile = { _, _ -> false },
+        )
+
+        assertFalse(result.fileDeleted)
+        assertTrue(result.queueChanged)
+        assertEquals("已从曲库移除（无法删除文件）", result.message)
+        assertEquals("target", removedFromLibrary)
+        assertEquals("target", removedFromPlaylists)
+        assertEquals(listOf(other), updatedQueue)
+    }
+
     @Test
     fun lyricoEditTagIntentUsesReadOnlyGrantForMediaStoreUri() {
         val context = ApplicationProvider.getApplicationContext<Context>()

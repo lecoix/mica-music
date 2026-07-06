@@ -1,0 +1,138 @@
+package com.mica.music.ui.screens.settings
+
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import com.mica.music.data.AppAccentColor
+import com.mica.music.data.AppThemeMode
+import com.mica.music.data.AppUiSettings
+import com.mica.music.data.MiniPlayerSwipeAction
+import com.mica.music.data.MiniPlayerStyle
+import com.mica.music.ui.components.SettingsChoiceRow
+import com.mica.music.ui.components.SettingsDropdownRow
+import com.mica.music.ui.components.SettingsSectionTitle
+import com.mica.music.ui.components.SettingsToggleRow
+import com.mica.music.ui.screens.settings.color.formatAccentHex
+import com.mica.music.ui.theme.HifiSpacing
+import com.mica.music.ui.theme.MicaPreset
+
+@Composable
+internal fun AppearanceSettingsPanel(
+    uiSettings: AppUiSettings,
+    onShowCustomAccentDialog: () -> Unit,
+    onShowCustomMicaDialog: () -> Unit,
+) {
+    SettingsSectionTitle("外观与主题")
+
+    SettingsChoiceRow(
+        title = "主题",
+        choices = ThemeChoices,
+        selectedValue = uiSettings.themeMode.ordinal,
+        onSelect = { ordinal ->
+            val mode = AppThemeMode.entries[ordinal]
+            uiSettings.updateThemeMode(mode)
+        },
+    )
+
+    SettingsChoiceRow(
+        title = "强调色",
+        subtitle = if (uiSettings.accentColor == AppAccentColor.CUSTOM) {
+            "自定义：${formatAccentHex(uiSettings.customAccentColorArgb)}"
+        } else {
+            "动态取色：Android 12+ 跟随系统主题色"
+        },
+        choices = AccentColorChoices,
+        selectedValue = uiSettings.accentColor.ordinal,
+        onSelect = { ordinal ->
+            val accent = AppAccentColor.entries[ordinal]
+            if (accent == AppAccentColor.CUSTOM) {
+                onShowCustomAccentDialog()
+            } else {
+                uiSettings.updateAccentColor(accent)
+            }
+        },
+    )
+
+    SettingsChoiceRow(
+        title = "云母背景",
+        subtitle = when {
+            uiSettings.micaBackgroundPreset == MicaPreset.CUSTOM && uiSettings.customMicaSingleColor -> {
+                "自定义：${formatAccentHex(uiSettings.customMicaStartArgb)}"
+            }
+            uiSettings.micaBackgroundPreset == MicaPreset.CUSTOM -> {
+                "自定义：${formatAccentHex(uiSettings.customMicaStartArgb)} → " +
+                    formatAccentHex(uiSettings.customMicaEndArgb)
+            }
+            else -> "主页与各页面的渐变底色"
+        },
+        choices = MicaBackgroundChoices,
+        selectedValue = uiSettings.micaBackgroundPreset.ordinal,
+        onSelect = { ordinal ->
+            val preset = MicaPreset.entries[ordinal]
+            if (preset == MicaPreset.CUSTOM) {
+                onShowCustomMicaDialog()
+            } else {
+                uiSettings.updateMicaBackgroundPreset(preset)
+            }
+        },
+    )
+
+    SettingsToggleRow(
+        title = "隐藏状态栏",
+        subtitle = "全屏显示内容；从屏幕顶部下滑可临时唤出状态栏",
+        checked = uiSettings.hideStatusBar,
+        onCheckedChange = { uiSettings.updateHideStatusBar(it) },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+
+    SettingsSectionTitle("迷你播放")
+
+    SettingsChoiceRow(
+        title = "迷你播放栏",
+        choices = MiniPlayerStyleChoices,
+        selectedValue = uiSettings.miniPlayerStyle.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateMiniPlayerStyle(MiniPlayerStyle.entries[ordinal])
+        },
+    )
+
+    SettingsToggleRow(
+        title = "迷你播放栏歌词",
+        subtitle = "播放中在迷你播放栏显示当前歌词，关闭后显示歌名和歌手",
+        checked = uiSettings.miniPlayerLyricsEnabled,
+        onCheckedChange = { uiSettings.updateMiniPlayerLyricsEnabled(it) },
+    )
+
+    SettingsToggleRow(
+        title = "迷你播放栏滑动切歌",
+        subtitle = "开启后可在迷你播放栏左右滑动切换歌曲",
+        checked = uiSettings.miniPlayerSwipeEnabled,
+        onCheckedChange = { uiSettings.updateMiniPlayerSwipeEnabled(it) },
+    )
+
+    SettingsDropdownRow(
+        title = "左滑动作",
+        subtitle = "手指向左滑动后的切歌动作",
+        choices = MiniPlayerSwipeActionChoices,
+        selectedValue = uiSettings.miniPlayerLeftSwipeAction.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateMiniPlayerLeftSwipeAction(
+                MiniPlayerSwipeAction.entries[ordinal],
+            )
+        },
+    )
+
+    SettingsDropdownRow(
+        title = "右滑动作",
+        subtitle = "手指向右滑动后的切歌动作",
+        choices = MiniPlayerSwipeActionChoices,
+        selectedValue = uiSettings.miniPlayerRightSwipeAction.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateMiniPlayerRightSwipeAction(
+                MiniPlayerSwipeAction.entries[ordinal],
+            )
+        },
+    )
+}

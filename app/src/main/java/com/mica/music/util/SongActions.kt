@@ -143,6 +143,34 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
     return false
 }
 
+data class DeleteSongResult(
+    val fileDeleted: Boolean,
+    val queueChanged: Boolean,
+) {
+    val message: String
+        get() = if (fileDeleted) "已从设备删除" else "已从曲库移除（无法删除文件）"
+}
+
+fun deleteSongEverywhere(
+    context: Context,
+    song: Song,
+    currentQueue: List<Song>,
+    removeFromLibrary: (String) -> Unit,
+    removeFromAllPlaylists: (String) -> Unit,
+    setQueue: (List<Song>) -> Unit,
+    deleteFile: (Context, Song) -> Boolean = ::deleteSongFile,
+): DeleteSongResult {
+    val fileDeleted = deleteFile(context, song)
+    removeFromLibrary(song.id)
+    removeFromAllPlaylists(song.id)
+    val remaining = currentQueue.filterNot { it.id == song.id }
+    setQueue(remaining)
+    return DeleteSongResult(
+        fileDeleted = fileDeleted,
+        queueChanged = remaining.size != currentQueue.size,
+    )
+}
+
 internal fun buildLyricoEditTagIntent(
     context: Context,
     title: String,

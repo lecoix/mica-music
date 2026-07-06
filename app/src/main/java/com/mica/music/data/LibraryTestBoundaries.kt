@@ -2,6 +2,7 @@ package com.mica.music.data
 
 import android.content.Context
 import android.net.Uri
+import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.local.LibrarySyncResult
@@ -76,7 +77,7 @@ internal class AndroidLibraryScanner(
         forceRefreshArtwork: Boolean,
     ): ScanResult = MediaStoreScanner.scan(
         context = context,
-        options = AppPreferences.scanOptions(context).copy(
+        options = LibraryScanSettings.scanOptions(context).copy(
             forceRefreshLyrics = forceRefreshLyrics,
             forceRefreshArtwork = forceRefreshArtwork,
         ),
@@ -93,7 +94,7 @@ internal class AndroidLibraryScanner(
     ): ScanResult = FolderScanner.scan(
         context = context,
         treeUri = treeUri,
-        options = AppPreferences.scanOptions(context).copy(
+        options = LibraryScanSettings.scanOptions(context).copy(
             forceRefreshLyrics = forceRefreshLyrics,
             forceRefreshArtwork = forceRefreshArtwork,
         ),
@@ -174,10 +175,10 @@ internal class AndroidScanEnvironment(
         ScanCacheManager.clearTransientScanCache(context)
 
     override fun persistLastScanSource(source: ScanSource) =
-        AppPreferences.setLastScanSource(context, source)
+        LibraryScanSettings.setLastScanSource(context, source)
 
-    override fun lyricsParserVersion(): Int = AppPreferences.lyricsParserVersion(context)
+    override fun lyricsParserVersion(): Int = LibraryScanSettings.lyricsParserVersion(context)
 
     override fun persistLyricsParserVersion(version: Int) =
-        AppPreferences.setLyricsParserVersion(context, version)
+        LibraryScanSettings.setLyricsParserVersion(context, version)
 }

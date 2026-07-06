@@ -202,8 +202,8 @@ class MainActivity : ComponentActivity() {
                     playerController.connectIfNeeded()
                 }
 
-                LaunchedEffect(library.songs) {
-                    viewModel.syncPlaybackQueueWithLibrarySongs()
+                LaunchedEffect(library.songIds) {
+                    viewModel.syncPlaybackQueueWithLibrarySongs("libraryIds")
                 }
 
                 MainAppSurface(

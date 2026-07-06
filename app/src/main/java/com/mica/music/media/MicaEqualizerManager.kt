@@ -3,7 +3,7 @@ package com.mica.music.media
 import android.content.Context
 import android.media.audiofx.Equalizer
 import androidx.media3.common.util.UnstableApi
-import com.mica.music.data.AppPreferences
+import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.EqCustomProfile
 import com.mica.music.data.EqCustomProfileStore
 import com.mica.music.data.EqSelection
@@ -60,7 +60,7 @@ object MicaEqualizerManager {
         ensurePreferencesLoaded(context)
         val presets = readSystemPresets()
         return EqualizerSnapshot(
-            enabled = AppPreferences.equalizerEnabled(context),
+            enabled = EqualizerPreferences.equalizerEnabled(context),
             selection = EqCustomProfileStore.getSelection(context),
             presets = presets,
             savedProfiles = EqCustomProfileStore.listProfiles(context),
@@ -75,7 +75,7 @@ object MicaEqualizerManager {
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
-        AppPreferences.setEqualizerEnabled(context, enabled)
+        EqualizerPreferences.setEqualizerEnabled(context, enabled)
         softwareEqualizer.setEnabled(enabled)
         systemEqualizer?.enabled = false
         onEnabledChanged?.invoke(enabled)
@@ -111,7 +111,7 @@ object MicaEqualizerManager {
             EqBandConstants.MAX_GLOBAL_GAIN_MILLIBELS,
         )
         softwareEqualizer.setGlobalGainMillibels(clamped)
-        AppPreferences.setEqualizerGlobalGainMillibels(context, clamped)
+        EqualizerPreferences.setEqualizerGlobalGainMillibels(context, clamped)
     }
 
     fun resetFlat(context: Context) {
@@ -146,7 +146,7 @@ object MicaEqualizerManager {
     }
 
     private fun restoreCustomBands(context: Context) {
-        val stored = AppPreferences.equalizerBandLevels(context)
+        val stored = EqualizerPreferences.equalizerBandLevels(context)
         applyLevels(context, EqBandMapper.normalizeLevels(stored))
     }
 
@@ -156,7 +156,7 @@ object MicaEqualizerManager {
     }
 
     private fun persistCurrentBands(context: Context) {
-        AppPreferences.setEqualizerBandLevels(context, softwareEqualizer.currentLevels().toList())
+        EqualizerPreferences.setEqualizerBandLevels(context, softwareEqualizer.currentLevels().toList())
     }
 
     private fun ensurePreferencesLoaded(context: Context) {
@@ -166,9 +166,9 @@ object MicaEqualizerManager {
     }
 
     private fun syncSoftwareFromPreferences(context: Context) {
-        val enabled = AppPreferences.equalizerEnabled(context)
+        val enabled = EqualizerPreferences.equalizerEnabled(context)
         softwareEqualizer.setEnabled(enabled)
-        softwareEqualizer.setGlobalGainMillibels(AppPreferences.equalizerGlobalGainMillibels(context))
+        softwareEqualizer.setGlobalGainMillibels(EqualizerPreferences.equalizerGlobalGainMillibels(context))
         onEnabledChanged?.invoke(enabled)
         when (val selection = EqCustomProfileStore.getSelection(context)) {
             is EqSelection.System -> applySystemPreset(context, selection.index)

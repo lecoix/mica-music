@@ -5,7 +5,7 @@ import android.view.Window
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.mica.music.data.AppPreferences
+import com.mica.music.data.preferences.AppearancePreferences
 import com.mica.music.data.AppThemeMode
 
 /**
@@ -30,7 +30,7 @@ object StatusBarController {
     }
 
     fun applyFromPreferences(context: Context, window: Window) {
-        val hide = AppPreferences.hideStatusBar(context)
+        val hide = AppearancePreferences.hideStatusBar(context)
         val darkIcons = !isDarkTheme(context)
         apply(window, hide, darkIcons)
     }
@@ -41,7 +41,7 @@ object StatusBarController {
         return px / context.resources.displayMetrics.density
     }
 
-    private fun isDarkTheme(context: Context): Boolean = when (AppPreferences.themeMode(context)) {
+    private fun isDarkTheme(context: Context): Boolean = when (AppearancePreferences.themeMode(context)) {
         AppThemeMode.DARK -> true
         AppThemeMode.LIGHT -> false
         AppThemeMode.SYSTEM -> {

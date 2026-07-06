@@ -17,6 +17,7 @@ import com.mica.music.data.TrackMetadata
 import com.mica.music.media.AlacPlayback
 import com.mica.music.util.DiagnosticLog
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
 import java.util.concurrent.ConcurrentHashMap
@@ -149,6 +150,7 @@ object AudioMetadataProbe {
         draft: TrackDraft,
         profiler: ScanProfiler? = null,
         cachedSong: Song? = null,
+        technicalProbeFailures: AtomicInteger? = null,
     ): Song {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
@@ -191,6 +193,7 @@ object AudioMetadataProbe {
                 wavFallback,
                 profiler,
                 cachedSong,
+                technicalProbeFailures,
             )
         }
         // TagLib 整体失败时，WAV 仍先尝试 JAudioTagger，再由 Retriever/MediaStore 补空字段。
@@ -335,6 +338,7 @@ object AudioMetadataProbe {
         wavFallback: TagInfo?,
         profiler: ScanProfiler?,
         cachedSong: Song?,
+        technicalProbeFailures: AtomicInteger? = null,
     ): Song {
         val primaryTags = TagInfo(
             title = tagLib.title,
@@ -398,7 +402,7 @@ object AudioMetadataProbe {
 
         val detectedContainer = trackProbe?.containerName
             ?: TrackMetadata.containerFromMime(draft.mimeType, draft.displayName)
-        val technical = profiler.measureOptional("technical") {
+        val technicalResult = profiler.measureOptional("technical") {
             AudioTechnicalProbe.probe(
                 context = context,
                 uri = uri,
@@ -407,6 +411,10 @@ object AudioMetadataProbe {
                 displayName = draft.displayName,
             )
         }
+        if (technicalResult is ProbeResult.Failed) {
+            technicalProbeFailures?.incrementAndGet()
+        }
+        val technical = technicalResult.technicalValue()
         val container = technical.containerName ?: detectedContainer
         val bits = technical.bitsPerSample
         val durationForBitrate = durationSec.coerceAtLeast(1)

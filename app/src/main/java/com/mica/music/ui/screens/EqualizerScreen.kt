@@ -36,7 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mica.music.data.AppPreferences
+import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.EqSelection
 import com.mica.music.media.EqualizerSnapshot
 import com.mica.music.media.MicaEqualizerManager
@@ -61,7 +61,7 @@ fun EqualizerScreen(
     bottomContentClearance: Dp = 0.dp,
 ) {
     val context = LocalContext.current
-    var enabled by remember { mutableStateOf(AppPreferences.equalizerEnabled(context)) }
+    var enabled by remember { mutableStateOf(EqualizerPreferences.equalizerEnabled(context)) }
     var revision by remember { mutableIntStateOf(0) }
     val snapshot = remember(revision) { MicaEqualizerManager.snapshot(context) }
     var saveDialogOpen by remember { mutableStateOf(false) }

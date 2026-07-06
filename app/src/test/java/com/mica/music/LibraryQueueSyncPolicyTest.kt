@@ -66,6 +66,26 @@ class LibraryQueueSyncPolicyTest {
     }
 
     @Test
+    fun unchangedLibraryQueueOnlyRefreshesMetadataAfterStartupSync() {
+        val policy = LibraryQueueSyncPolicy()
+        val songs = listOf(SongFixtures.song("lib-a"), SongFixtures.song("lib-b"))
+        policy.plan(
+            songs = songs,
+            libraryIds = songs.map { it.id },
+            currentQueueIds = emptyList(),
+        )
+
+        val plan = policy.plan(
+            songs = songs,
+            libraryIds = songs.map { it.id },
+            currentQueueIds = songs.map { it.id },
+        )
+
+        assertTrue(plan is LibraryQueueSyncPlan.RefreshMetadata)
+        assertEquals(songs, (plan as LibraryQueueSyncPlan.RefreshMetadata).songs)
+    }
+
+    @Test
     fun specialQueueOnlyRefreshesMatchingMetadata() {
         val policy = LibraryQueueSyncPolicy()
         val librarySongs = listOf(SongFixtures.song("lib-a"), SongFixtures.song("lib-b"))

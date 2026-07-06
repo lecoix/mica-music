@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.mica.music.data.preferences.AppearancePreferences
+import com.mica.music.data.preferences.LyricsPreferences
+import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.ui.theme.MicaPreset
@@ -18,108 +21,108 @@ class AppUiSettings(context: Context) {
 
     private val appContext = context.applicationContext
 
-    var themeMode by mutableStateOf(AppPreferences.themeMode(appContext))
+    var themeMode by mutableStateOf(AppearancePreferences.themeMode(appContext))
         private set
 
-    var hideStatusBar by mutableStateOf(AppPreferences.hideStatusBar(appContext))
+    var hideStatusBar by mutableStateOf(AppearancePreferences.hideStatusBar(appContext))
         private set
 
-    var playerLowerBackground by mutableStateOf(AppPreferences.playerLowerBackground(appContext))
+    var playerLowerBackground by mutableStateOf(PlaybackUiPreferences.playerLowerBackground(appContext))
         private set
 
-    var coverEdgeProgress by mutableStateOf(AppPreferences.coverEdgeProgress(appContext))
+    var coverEdgeProgress by mutableStateOf(PlaybackUiPreferences.coverEdgeProgress(appContext))
         private set
 
-    var keepScreenOnWhenPlaying by mutableStateOf(AppPreferences.keepScreenOnWhenPlaying(appContext))
+    var keepScreenOnWhenPlaying by mutableStateOf(PlaybackUiPreferences.keepScreenOnWhenPlaying(appContext))
         private set
 
-    var playerImmersiveLower by mutableStateOf(AppPreferences.playerImmersiveLower(appContext))
+    var playerImmersiveLower by mutableStateOf(PlaybackUiPreferences.playerImmersiveLower(appContext))
         private set
 
-    var stripSongTitleParentheses by mutableStateOf(AppPreferences.stripSongTitleParentheses(appContext))
+    var stripSongTitleParentheses by mutableStateOf(PlaybackUiPreferences.stripSongTitleParentheses(appContext))
         private set
 
-    var miniPlayerStyle by mutableStateOf(AppPreferences.miniPlayerStyle(appContext))
+    var miniPlayerStyle by mutableStateOf(PlaybackUiPreferences.miniPlayerStyle(appContext))
         private set
 
-    var miniPlayerLyricsEnabled by mutableStateOf(AppPreferences.miniPlayerLyricsEnabled(appContext))
+    var miniPlayerLyricsEnabled by mutableStateOf(PlaybackUiPreferences.miniPlayerLyricsEnabled(appContext))
         private set
 
-    var miniPlayerSwipeEnabled by mutableStateOf(AppPreferences.miniPlayerSwipeEnabled(appContext))
+    var miniPlayerSwipeEnabled by mutableStateOf(PlaybackUiPreferences.miniPlayerSwipeEnabled(appContext))
         private set
 
-    var miniPlayerLeftSwipeAction by mutableStateOf(AppPreferences.miniPlayerLeftSwipeAction(appContext))
+    var miniPlayerLeftSwipeAction by mutableStateOf(PlaybackUiPreferences.miniPlayerLeftSwipeAction(appContext))
         private set
 
-    var miniPlayerRightSwipeAction by mutableStateOf(AppPreferences.miniPlayerRightSwipeAction(appContext))
+    var miniPlayerRightSwipeAction by mutableStateOf(PlaybackUiPreferences.miniPlayerRightSwipeAction(appContext))
         private set
 
-    var coverDisplayMode by mutableStateOf(AppPreferences.coverDisplayMode(appContext))
+    var coverDisplayMode by mutableStateOf(PlaybackUiPreferences.coverDisplayMode(appContext))
         private set
 
-    var playerCoverFlowMode by mutableStateOf(AppPreferences.playerCoverFlowMode(appContext))
+    var playerCoverFlowMode by mutableStateOf(PlaybackUiPreferences.playerCoverFlowMode(appContext))
         private set
 
-    var particleCoverTuning by mutableStateOf(AppPreferences.particleCoverTuning(appContext))
+    var particleCoverTuning by mutableStateOf(PlaybackUiPreferences.particleCoverTuning(appContext))
         private set
 
-    var accentColor by mutableStateOf(AppPreferences.appAccentColor(appContext))
+    var accentColor by mutableStateOf(AppearancePreferences.appAccentColor(appContext))
         private set
 
-    var customAccentColorArgb by mutableIntStateOf(AppPreferences.customAccentColorArgb(appContext))
+    var customAccentColorArgb by mutableIntStateOf(AppearancePreferences.customAccentColorArgb(appContext))
         private set
 
-    var micaBackgroundPreset by mutableStateOf(AppPreferences.micaBackgroundPreset(appContext))
+    var micaBackgroundPreset by mutableStateOf(AppearancePreferences.micaBackgroundPreset(appContext))
         private set
 
-    var customMicaStartArgb by mutableIntStateOf(AppPreferences.customMicaStartArgb(appContext))
+    var customMicaStartArgb by mutableIntStateOf(AppearancePreferences.customMicaStartArgb(appContext))
         private set
 
-    var customMicaEndArgb by mutableIntStateOf(AppPreferences.customMicaEndArgb(appContext))
+    var customMicaEndArgb by mutableIntStateOf(AppearancePreferences.customMicaEndArgb(appContext))
         private set
 
-    var customMicaSingleColor by mutableStateOf(AppPreferences.customMicaSingleColor(appContext))
+    var customMicaSingleColor by mutableStateOf(AppearancePreferences.customMicaSingleColor(appContext))
         private set
 
-    var lyricSplitEnabled by mutableStateOf(AppPreferences.lyricSplitEnabled(appContext))
+    var lyricSplitEnabled by mutableStateOf(LyricsPreferences.lyricSplitEnabled(appContext))
         private set
 
-    var lyricsBilingualDisplayMode by mutableStateOf(AppPreferences.lyricsBilingualDisplayMode(appContext))
+    var lyricsBilingualDisplayMode by mutableStateOf(LyricsPreferences.lyricsBilingualDisplayMode(appContext))
         private set
 
-    var lyricLineFillEnabled by mutableStateOf(AppPreferences.lyricLineFillEnabled(appContext))
+    var lyricLineFillEnabled by mutableStateOf(LyricsPreferences.lyricLineFillEnabled(appContext))
         private set
 
-    var playerPageTextColorMode by mutableStateOf(AppPreferences.playerPageTextColorMode(appContext))
+    var playerPageTextColorMode by mutableStateOf(LyricsPreferences.playerPageTextColorMode(appContext))
         private set
 
-    var lyricsPageTextColorMode by mutableStateOf(AppPreferences.lyricsPageTextColorMode(appContext))
+    var lyricsPageTextColorMode by mutableStateOf(LyricsPreferences.lyricsPageTextColorMode(appContext))
         private set
 
-    var lyricsPageAlignment by mutableStateOf(AppPreferences.lyricsPageAlignment(appContext))
+    var lyricsPageAlignment by mutableStateOf(LyricsPreferences.lyricsPageAlignment(appContext))
         private set
 
-    var lyricsPageFontSizeSp by mutableIntStateOf(AppPreferences.lyricsPageFontSizeSp(appContext))
+    var lyricsPageFontSizeSp by mutableIntStateOf(LyricsPreferences.lyricsPageFontSizeSp(appContext))
         private set
 
     var lyricsPageTranslationFontSizeSp by mutableIntStateOf(
-        AppPreferences.lyricsPageTranslationFontSizeSp(appContext),
+        LyricsPreferences.lyricsPageTranslationFontSizeSp(appContext),
     )
         private set
 
-    var lyricsPageImmersive by mutableStateOf(AppPreferences.lyricsPageImmersive(appContext))
+    var lyricsPageImmersive by mutableStateOf(LyricsPreferences.lyricsPageImmersive(appContext))
         private set
 
-    var notificationLyricsEnabled by mutableStateOf(AppPreferences.notificationLyricsEnabled(appContext))
+    var notificationLyricsEnabled by mutableStateOf(LyricsPreferences.notificationLyricsEnabled(appContext))
         private set
 
-    var spectrumEnabled by mutableStateOf(AppPreferences.spectrumEnabled(appContext))
+    var spectrumEnabled by mutableStateOf(PlaybackUiPreferences.spectrumEnabled(appContext))
         private set
 
-    var songListInfoVisibility by mutableStateOf(AppPreferences.songListInfoVisibility(appContext))
+    var songListInfoVisibility by mutableStateOf(PlaybackUiPreferences.songListInfoVisibility(appContext))
         private set
 
-    var playerInfoVisibility by mutableStateOf(AppPreferences.playerInfoVisibility(appContext))
+    var playerInfoVisibility by mutableStateOf(PlaybackUiPreferences.playerInfoVisibility(appContext))
         private set
 
     init {
@@ -128,135 +131,135 @@ class AppUiSettings(context: Context) {
 
     fun updateThemeMode(mode: AppThemeMode) {
         themeMode = mode
-        AppPreferences.setThemeMode(appContext, mode)
+        AppearancePreferences.setThemeMode(appContext, mode)
     }
 
     fun updateHideStatusBar(hide: Boolean) {
         hideStatusBar = hide
-        AppPreferences.setHideStatusBar(appContext, hide)
+        AppearancePreferences.setHideStatusBar(appContext, hide)
     }
 
     fun updatePlayerLowerBackground(mode: PlayerLowerBackgroundMode) {
         playerLowerBackground = mode
-        AppPreferences.setPlayerLowerBackground(appContext, mode)
+        PlaybackUiPreferences.setPlayerLowerBackground(appContext, mode)
     }
 
     fun updateCoverEdgeProgress(enabled: Boolean) {
         coverEdgeProgress = enabled
-        AppPreferences.setCoverEdgeProgress(appContext, enabled)
+        PlaybackUiPreferences.setCoverEdgeProgress(appContext, enabled)
     }
 
     fun updateKeepScreenOnWhenPlaying(enabled: Boolean) {
         keepScreenOnWhenPlaying = enabled
-        AppPreferences.setKeepScreenOnWhenPlaying(appContext, enabled)
+        PlaybackUiPreferences.setKeepScreenOnWhenPlaying(appContext, enabled)
     }
 
     fun updatePlayerImmersiveLower(enabled: Boolean) {
         playerImmersiveLower = enabled
-        AppPreferences.setPlayerImmersiveLower(appContext, enabled)
+        PlaybackUiPreferences.setPlayerImmersiveLower(appContext, enabled)
     }
 
     fun updateStripSongTitleParentheses(enabled: Boolean) {
         stripSongTitleParentheses = enabled
-        AppPreferences.setStripSongTitleParentheses(appContext, enabled)
+        PlaybackUiPreferences.setStripSongTitleParentheses(appContext, enabled)
     }
 
     fun updateMiniPlayerStyle(style: MiniPlayerStyle) {
         miniPlayerStyle = style
-        AppPreferences.setMiniPlayerStyle(appContext, style)
+        PlaybackUiPreferences.setMiniPlayerStyle(appContext, style)
         syncSpectrumAnalyzer(notifyPipeline = true)
     }
 
     fun updateMiniPlayerLyricsEnabled(enabled: Boolean) {
         miniPlayerLyricsEnabled = enabled
-        AppPreferences.setMiniPlayerLyricsEnabled(appContext, enabled)
+        PlaybackUiPreferences.setMiniPlayerLyricsEnabled(appContext, enabled)
     }
 
     fun updateMiniPlayerSwipeEnabled(enabled: Boolean) {
         miniPlayerSwipeEnabled = enabled
-        AppPreferences.setMiniPlayerSwipeEnabled(appContext, enabled)
+        PlaybackUiPreferences.setMiniPlayerSwipeEnabled(appContext, enabled)
     }
 
     fun updateMiniPlayerLeftSwipeAction(action: MiniPlayerSwipeAction) {
         miniPlayerLeftSwipeAction = action
-        AppPreferences.setMiniPlayerLeftSwipeAction(appContext, action)
+        PlaybackUiPreferences.setMiniPlayerLeftSwipeAction(appContext, action)
     }
 
     fun updateMiniPlayerRightSwipeAction(action: MiniPlayerSwipeAction) {
         miniPlayerRightSwipeAction = action
-        AppPreferences.setMiniPlayerRightSwipeAction(appContext, action)
+        PlaybackUiPreferences.setMiniPlayerRightSwipeAction(appContext, action)
     }
 
     fun updateCoverDisplayMode(mode: CoverDisplayMode) {
         coverDisplayMode = mode
-        AppPreferences.setCoverDisplayMode(appContext, mode)
+        PlaybackUiPreferences.setCoverDisplayMode(appContext, mode)
     }
 
     fun updatePlayerCoverFlowMode(mode: PlayerCoverFlowMode) {
         playerCoverFlowMode = mode
-        AppPreferences.setPlayerCoverFlowMode(appContext, mode)
+        PlaybackUiPreferences.setPlayerCoverFlowMode(appContext, mode)
         syncSpectrumAnalyzer(notifyPipeline = true)
     }
 
     fun updateParticleCoverTuning(tuning: ParticleCoverTuning) {
         particleCoverTuning = tuning
-        AppPreferences.setParticleCoverTuning(appContext, tuning)
+        PlaybackUiPreferences.setParticleCoverTuning(appContext, tuning)
     }
 
     fun updateAccentColor(accent: AppAccentColor) {
         accentColor = accent
-        AppPreferences.setAppAccentColor(appContext, accent)
+        AppearancePreferences.setAppAccentColor(appContext, accent)
     }
 
     fun updateCustomAccentColorArgb(colorArgb: Int) {
         customAccentColorArgb = colorArgb
-        AppPreferences.setCustomAccentColorArgb(appContext, colorArgb)
+        AppearancePreferences.setCustomAccentColorArgb(appContext, colorArgb)
         updateAccentColor(AppAccentColor.CUSTOM)
     }
 
     fun updateMicaBackgroundPreset(preset: MicaPreset) {
         micaBackgroundPreset = preset
-        AppPreferences.setMicaBackgroundPreset(appContext, preset)
+        AppearancePreferences.setMicaBackgroundPreset(appContext, preset)
     }
 
     fun updateCustomMicaBackground(startArgb: Int, endArgb: Int, singleColor: Boolean) {
         customMicaStartArgb = startArgb
         customMicaEndArgb = endArgb
         customMicaSingleColor = singleColor
-        AppPreferences.setCustomMicaStartArgb(appContext, startArgb)
-        AppPreferences.setCustomMicaEndArgb(appContext, endArgb)
-        AppPreferences.setCustomMicaSingleColor(appContext, singleColor)
+        AppearancePreferences.setCustomMicaStartArgb(appContext, startArgb)
+        AppearancePreferences.setCustomMicaEndArgb(appContext, endArgb)
+        AppearancePreferences.setCustomMicaSingleColor(appContext, singleColor)
         updateMicaBackgroundPreset(MicaPreset.CUSTOM)
     }
 
     fun updateLyricSplitEnabled(enabled: Boolean) {
         lyricSplitEnabled = enabled
-        AppPreferences.setLyricSplitEnabled(appContext, enabled)
+        LyricsPreferences.setLyricSplitEnabled(appContext, enabled)
     }
 
     fun updateLyricsBilingualDisplayMode(mode: LyricsBilingualDisplayMode) {
         lyricsBilingualDisplayMode = mode
-        AppPreferences.setLyricsBilingualDisplayMode(appContext, mode)
+        LyricsPreferences.setLyricsBilingualDisplayMode(appContext, mode)
     }
 
     fun updateLyricLineFillEnabled(enabled: Boolean) {
         lyricLineFillEnabled = enabled
-        AppPreferences.setLyricLineFillEnabled(appContext, enabled)
+        LyricsPreferences.setLyricLineFillEnabled(appContext, enabled)
     }
 
     fun updatePlayerPageTextColorMode(mode: PlaybackContentColorMode) {
         playerPageTextColorMode = mode
-        AppPreferences.setPlayerPageTextColorMode(appContext, mode)
+        LyricsPreferences.setPlayerPageTextColorMode(appContext, mode)
     }
 
     fun updateLyricsPageTextColorMode(mode: PlaybackContentColorMode) {
         lyricsPageTextColorMode = mode
-        AppPreferences.setLyricsPageTextColorMode(appContext, mode)
+        LyricsPreferences.setLyricsPageTextColorMode(appContext, mode)
     }
 
     fun updateLyricsPageAlignment(alignment: LyricsPageAlignment) {
         lyricsPageAlignment = alignment
-        AppPreferences.setLyricsPageAlignment(appContext, alignment)
+        LyricsPreferences.setLyricsPageAlignment(appContext, alignment)
     }
 
     fun updateLyricsPageFontSizeSp(fontSizeSp: Int) {
@@ -264,7 +267,7 @@ class AppUiSettings(context: Context) {
             MIN_LYRICS_PAGE_FONT_SIZE_SP,
             MAX_LYRICS_PAGE_FONT_SIZE_SP,
         )
-        AppPreferences.setLyricsPageFontSizeSp(appContext, lyricsPageFontSizeSp)
+        LyricsPreferences.setLyricsPageFontSizeSp(appContext, lyricsPageFontSizeSp)
     }
 
     fun updateLyricsPageTranslationFontSizeSp(fontSizeSp: Int) {
@@ -272,34 +275,34 @@ class AppUiSettings(context: Context) {
             MIN_LYRICS_PAGE_FONT_SIZE_SP,
             MAX_LYRICS_PAGE_FONT_SIZE_SP,
         )
-        AppPreferences.setLyricsPageTranslationFontSizeSp(appContext, lyricsPageTranslationFontSizeSp)
+        LyricsPreferences.setLyricsPageTranslationFontSizeSp(appContext, lyricsPageTranslationFontSizeSp)
     }
 
     fun updateLyricsPageImmersive(enabled: Boolean) {
         lyricsPageImmersive = enabled
-        AppPreferences.setLyricsPageImmersive(appContext, enabled)
+        LyricsPreferences.setLyricsPageImmersive(appContext, enabled)
     }
 
     fun updateNotificationLyricsEnabled(enabled: Boolean) {
         notificationLyricsEnabled = enabled
-        AppPreferences.setNotificationLyricsEnabled(appContext, enabled)
+        LyricsPreferences.setNotificationLyricsEnabled(appContext, enabled)
     }
 
     fun updateSpectrumEnabled(enabled: Boolean) {
         spectrumEnabled = enabled
-        AppPreferences.setSpectrumEnabled(appContext, enabled)
+        PlaybackUiPreferences.setSpectrumEnabled(appContext, enabled)
         syncSpectrumAnalyzer(notifyPipeline = true)
         DiagnosticLog.event("Spectrum", "setting enabled=$enabled analyzer=${MicaSpectrumAnalyzer.isEnabledForProcessing()}")
     }
 
     fun updateSongListInfoVisibility(visibility: SongListInfoVisibility) {
         songListInfoVisibility = visibility
-        AppPreferences.setSongListInfoVisibility(appContext, visibility)
+        PlaybackUiPreferences.setSongListInfoVisibility(appContext, visibility)
     }
 
     fun updatePlayerInfoVisibility(visibility: PlayerInfoVisibility) {
         playerInfoVisibility = visibility
-        AppPreferences.setPlayerInfoVisibility(appContext, visibility)
+        PlaybackUiPreferences.setPlayerInfoVisibility(appContext, visibility)
     }
 
     fun togglePlayerImmersiveLower() {
@@ -326,9 +329,7 @@ class AppUiSettings(context: Context) {
 
     private fun syncSpectrumAnalyzer(notifyPipeline: Boolean = false) {
         MicaSpectrumAnalyzer.setEnabled(
-            spectrumEnabled ||
-                miniPlayerStyle == MiniPlayerStyle.AUDIOPHILE ||
-                playerCoverFlowMode.usesPhotoStack,
+            PlaybackUiPreferences.spectrumTapEnabled(appContext),
             notifyPipeline = notifyPipeline,
         )
     }

@@ -11,7 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
-import com.mica.music.ui.screens.HomeNavigationIntent
+import com.mica.music.ui.screens.home.HomeNavigationIntent
 
 @Stable
 class AppNavigationCoordinator internal constructor(

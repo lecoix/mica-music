@@ -43,7 +43,7 @@ internal class LibraryQueueSyncPolicy {
                 previousLibraryIdsSize = previousIds.size,
                 currentQueueWasLibrary = currentQueueWasLibrary,
             )
-            currentQueueWasLibrary || currentQueueHasRemovedLibrarySongs -> LibraryQueueSyncPlan.SetQueue(
+            currentQueueHasRemovedLibrarySongs -> LibraryQueueSyncPlan.SetQueue(
                 songs = songs,
                 previousLibraryIdsSize = previousIds.size,
                 currentQueueWasLibrary = currentQueueWasLibrary,

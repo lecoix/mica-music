@@ -3,7 +3,7 @@ package com.mica.music.media
 import android.content.Context
 import android.os.Bundle
 import androidx.media3.common.MediaMetadata
-import com.mica.music.data.AppPreferences
+import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
@@ -20,8 +20,8 @@ object NotificationLyrics {
 
     fun displayOptions(context: Context): DisplayOptions =
         DisplayOptions(
-            splitEnabled = AppPreferences.lyricSplitEnabled(context),
-            bilingualMode = AppPreferences.lyricsBilingualDisplayMode(context),
+            splitEnabled = LyricsPreferences.lyricSplitEnabled(context),
+            bilingualMode = LyricsPreferences.lyricsBilingualDisplayMode(context),
         )
 
     fun subtitle(songTitle: String, artist: String): String =

@@ -6,7 +6,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import com.mica.music.data.AppPreferences
+import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.Song
 import com.mica.music.data.local.LibraryRepository
 import kotlinx.coroutines.CoroutineScope
@@ -101,7 +101,7 @@ internal class NotificationLyricsCoordinator(
             return
         }
 
-        if (!AppPreferences.notificationLyricsEnabled(context)) {
+        if (!LyricsPreferences.notificationLyricsEnabled(context)) {
             clearLyricMetadataIfNeeded(song)
             return
         }

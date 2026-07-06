@@ -57,7 +57,7 @@ import com.mica.music.ui.theme.rememberPlaybackContentColors
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.ui.theme.relativeLuminance
 import com.mica.music.util.TrackSwitchPerformance
-import com.mica.music.util.deleteSongFile
+import com.mica.music.util.deleteSongEverywhere
 import com.mica.music.util.logBackFlow
 import com.mica.music.util.openSongInTagEditor
 import com.mica.music.util.shareSong
@@ -261,13 +261,15 @@ fun NowPlayingContent(
 
     fun performDeleteSong(target: Song) {
         scope.launch {
-            val deleted = deleteSongFile(context, target)
-            library.removeSongFromLibrary(target.id)
-            playlistStore.removeSongFromAllPlaylists(target.id)
-            val remaining = queueState.queue.filterNot { it.id == target.id }
-            actions.setQueue(remaining)
-            val message = if (deleted) "已从设备删除" else "已从曲库移除（无法删除文件）"
-            snackbarHostState.showSnackbar(message)
+            val result = deleteSongEverywhere(
+                context = context,
+                song = target,
+                currentQueue = queueState.queue,
+                removeFromLibrary = library::removeSongFromLibrary,
+                removeFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
+                setQueue = { actions.setQueue(it) },
+            )
+            snackbarHostState.showSnackbar(result.message)
         }
     }
 

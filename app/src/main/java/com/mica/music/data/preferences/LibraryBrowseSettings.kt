@@ -1,0 +1,76 @@
+package com.mica.music.data.preferences
+
+import android.content.Context
+import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.SongSortField
+import com.mica.music.data.SortDirection
+
+/** 曲库与 Home 浏览排序偏好（歌曲列表、专辑/艺术家网格）。 */
+object LibraryBrowseSettings {
+    private const val KEY_SONG_SORT_FIELD = "song_sort_field"
+    private const val KEY_SONG_SORT_DIRECTION = "song_sort_direction"
+    private const val KEY_ALBUM_BROWSE_SORT_FIELD = "album_browse_sort_field"
+    private const val KEY_ALBUM_BROWSE_SORT_DIRECTION = "album_browse_sort_direction"
+    private const val KEY_ALBUM_BROWSE_GRID_COLUMNS = "album_browse_grid_columns"
+    private const val KEY_ARTIST_BROWSE_SORT_DIRECTION = "artist_browse_sort_direction"
+    private const val KEY_ARTIST_BROWSE_GRID_COLUMNS = "artist_browse_grid_columns"
+
+    fun songSortField(context: Context): SongSortField =
+        SongSortField.fromStorage(MicaSettingsStore.prefs(context).getString(KEY_SONG_SORT_FIELD, null))
+
+    fun songSortDirection(context: Context): SortDirection =
+        SortDirection.fromStorage(MicaSettingsStore.prefs(context).getString(KEY_SONG_SORT_DIRECTION, null))
+
+    fun setSongSort(context: Context, field: SongSortField, direction: SortDirection) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_SONG_SORT_FIELD, field.storageValue)
+            .putString(KEY_SONG_SORT_DIRECTION, direction.storageValue)
+            .apply()
+    }
+
+    fun albumBrowseSortField(context: Context): AlbumBrowseSortField =
+        AlbumBrowseSortField.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_ALBUM_BROWSE_SORT_FIELD, null),
+        )
+
+    fun albumBrowseSortDirection(context: Context): SortDirection =
+        SortDirection.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_ALBUM_BROWSE_SORT_DIRECTION, null),
+        )
+
+    fun albumBrowseGridColumns(context: Context): Int =
+        MicaSettingsStore.prefs(context).getInt(KEY_ALBUM_BROWSE_GRID_COLUMNS, 1).coerceIn(1, 4)
+
+    fun setAlbumBrowseSort(context: Context, field: AlbumBrowseSortField, direction: SortDirection) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_ALBUM_BROWSE_SORT_FIELD, field.storageValue)
+            .putString(KEY_ALBUM_BROWSE_SORT_DIRECTION, direction.storageValue)
+            .apply()
+    }
+
+    fun setAlbumBrowseGridColumns(context: Context, columns: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(KEY_ALBUM_BROWSE_GRID_COLUMNS, columns.coerceIn(1, 4))
+            .apply()
+    }
+
+    fun artistBrowseSortDirection(context: Context): SortDirection =
+        SortDirection.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_ARTIST_BROWSE_SORT_DIRECTION, null),
+        )
+
+    fun artistBrowseGridColumns(context: Context): Int =
+        MicaSettingsStore.prefs(context).getInt(KEY_ARTIST_BROWSE_GRID_COLUMNS, 1).coerceIn(1, 4)
+
+    fun setArtistBrowseSortDirection(context: Context, direction: SortDirection) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_ARTIST_BROWSE_SORT_DIRECTION, direction.storageValue)
+            .apply()
+    }
+
+    fun setArtistBrowseGridColumns(context: Context, columns: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(KEY_ARTIST_BROWSE_GRID_COLUMNS, columns.coerceIn(1, 4))
+            .apply()
+    }
+}

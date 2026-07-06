@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import com.mica.music.util.DiagnosticLog
 
 /**
  * 从文件头读取无损/特殊格式的技术参数（位深、容器修正）。
@@ -22,7 +23,7 @@ internal object AudioTechnicalProbe {
         detectedContainer: String,
         mimeType: String,
         displayName: String?,
-    ): Result {
+    ): ProbeResult<Result> {
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         return runCatching {
             when {
@@ -45,7 +46,17 @@ internal object AudioTechnicalProbe {
 
                 else -> Result()
             }
-        }.getOrElse { Result() }
+        }.fold(
+            onSuccess = { ProbeResult.Ok(it) },
+            onFailure = { error ->
+                DiagnosticLog.event(
+                    "AudioTechnicalProbe",
+                    "probe-failed detected=$detectedContainer mime=$mimeType ext=$ext name=${displayName.orEmpty().take(96)}",
+                    error,
+                )
+                ProbeResult.Failed("technical")
+            },
+        )
     }
 
     private fun readAlacInfo(

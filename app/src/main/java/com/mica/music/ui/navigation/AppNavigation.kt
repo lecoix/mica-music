@@ -31,17 +31,17 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.AboutScreen
 import com.mica.music.ui.screens.EqualizerScreen
-import com.mica.music.ui.screens.BrowseDestination
-import com.mica.music.ui.screens.HomeNavigationIntent
-import com.mica.music.ui.screens.HomePlaybackActions
-import com.mica.music.ui.screens.HomePlaybackState
-import com.mica.music.ui.screens.HomeScreen
-import com.mica.music.ui.screens.HomeSection
+import com.mica.music.ui.screens.home.BrowseDestination
+import com.mica.music.ui.screens.home.HomeNavigationIntent
+import com.mica.music.ui.screens.home.HomePlaybackActions
+import com.mica.music.ui.screens.home.HomePlaybackState
+import com.mica.music.ui.screens.home.HomeScreen
+import com.mica.music.ui.screens.home.HomeSection
 import com.mica.music.ui.screens.MetadataDebugScreen
 import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.ParticleCoverPreviewScreen
 import com.mica.music.ui.screens.PhotoStackShadowPreviewScreen
-import com.mica.music.ui.screens.SettingsScreen
+import com.mica.music.ui.screens.settings.SettingsScreen
 import com.mica.music.ui.screens.SongDetailScreen
 import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.util.DiagnosticLog
@@ -152,15 +152,11 @@ fun AppNavigationMain(
         modifier = Modifier.fillMaxSize(),
     ) {
         composable(Routes.Home) {
+            val homePlaybackState = homePlaybackState(playerController)
             val homePlaybackActions = rememberHomePlaybackActions(playerController)
             HomeScreen(
                 library = library,
-                playbackState = HomePlaybackState(
-                    currentSong = playerController.currentSong,
-                    isPlaying = playerController.playbackSurfaceState.isPlaying,
-                    positionMs = playerController.playbackProgressState.positionMs,
-                    queue = playerController.songQueue,
-                ),
+                playbackState = homePlaybackState,
                 playbackActions = homePlaybackActions,
                 uiSettings = uiSettings,
                 onSongClick = { songId ->
@@ -453,6 +449,14 @@ private fun rememberNowPlayingActions(
             setQueue = playerController::setQueue,
         )
     }
+
+private fun homePlaybackState(playerController: PlayerController): HomePlaybackState =
+    HomePlaybackState(
+        currentSong = playerController.currentSong,
+        isPlaying = playerController.playbackSurfaceState.isPlaying,
+        positionMs = playerController.playbackProgressState.positionMs,
+        queue = playerController.songQueue,
+    )
 
 @Composable
 private fun rememberHomePlaybackActions(

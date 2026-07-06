@@ -1,4 +1,4 @@
-package com.mica.music.ui.screens
+package com.mica.music.ui.screens.home
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
