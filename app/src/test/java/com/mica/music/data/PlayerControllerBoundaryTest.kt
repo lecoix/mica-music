@@ -394,6 +394,85 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun playCountIsPublishedWhenIndexSyncPrecedesAutoTransition() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val firstItem = MediaItem.Builder().setMediaId("song-1").build()
+        val secondItem = MediaItem.Builder().setMediaId("song-2").build()
+        var currentItem = firstItem
+        var currentIndex = 0
+        var playing = false
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns 2
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.isPlaying } answers { playing }
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1"), SongFixtures.song("song-2")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        currentItem = secondItem
+        currentIndex = 1
+        controller.syncPlaybackState()
+        listener.captured.onMediaItemTransition(
+            secondItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+        )
+        playing = true
+        listener.captured.onIsPlayingChanged(true)
+
+        assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
+    fun playCountIsPublishedForManualExistingItemSeekTransition() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val firstItem = MediaItem.Builder().setMediaId("song-1").build()
+        val secondItem = MediaItem.Builder().setMediaId("song-2").build()
+        val queue = listOf(SongFixtures.song("song-1"), SongFixtures.song("song-2"))
+        var currentItem = firstItem
+        var currentIndex = 0
+        var playing = false
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.getMediaItemAt(0) } returns firstItem
+        every { mediaController.getMediaItemAt(1) } returns secondItem
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.isPlaying } answers { playing }
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.playSong(1)
+        currentItem = secondItem
+        currentIndex = 1
+        listener.captured.onMediaItemTransition(
+            secondItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_SEEK,
+        )
+        playing = true
+        listener.captured.onIsPlayingChanged(true)
+
+        assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
     fun playCountIsNotPublishedOnSeekOrResumeFromPause() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)
