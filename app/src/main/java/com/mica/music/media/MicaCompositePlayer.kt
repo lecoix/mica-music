@@ -25,6 +25,7 @@ data class PlaybackQueueSnapshot(
 @UnstableApi
 class MicaCompositePlayer(
     private val exoPlayer: ExoPlayer,
+    private val beforePlaybackStart: () -> Unit = {},
 ) : ForwardingPlayer(exoPlayer) {
 
     internal var playbackCoordinator: ServicePlaybackEngineCoordinator? = null
@@ -74,6 +75,7 @@ class MicaCompositePlayer(
         }
         val prevItems = mediaItemCount
         val setStartedNs = SystemClock.elapsedRealtimeNanos()
+        beforePlaybackStart()
         exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = playWhenReady
@@ -95,6 +97,7 @@ class MicaCompositePlayer(
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
         if (!playWhenReady) exoPlayer.playWhenReady = false
+        beforePlaybackStart()
         exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         exoPlayer.playWhenReady = playWhenReady

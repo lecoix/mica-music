@@ -1,12 +1,14 @@
 package com.mica.music.ui.screens.settings
 
 import androidx.compose.runtime.Composable
+import com.mica.music.data.AppUiSettings
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
 
 @Composable
 internal fun AdvancedSettingsPanel(
+    uiSettings: AppUiSettings,
     includeNonMusic: Boolean,
     deepProbe: Boolean,
     hasSongs: Boolean,
@@ -16,6 +18,13 @@ internal fun AdvancedSettingsPanel(
     onOpenAppSettings: () -> Unit,
 ) {
     SettingsSectionTitle("高级扫描与调试")
+
+    SettingsToggleRow(
+        title = "独占音频焦点",
+        subtitle = "开启时播放会让其他应用暂停；关闭后允许与其他应用一起播放，下次切歌或开始播放时生效",
+        checked = uiSettings.audioFocusEnabled,
+        onCheckedChange = { uiSettings.updateAudioFocusEnabled(it) },
+    )
 
     SettingsToggleRow(
         title = "纳入非「音乐」标记的音频",

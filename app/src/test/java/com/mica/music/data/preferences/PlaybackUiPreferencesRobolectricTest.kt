@@ -49,6 +49,15 @@ class PlaybackUiPreferencesRobolectricTest {
     }
 
     @Test
+    fun audioFocusEnabledDefaultsOnAndRoundTrips() {
+        assertTrue(PlaybackUiPreferences.audioFocusEnabled(context))
+
+        PlaybackUiPreferences.setAudioFocusEnabled(context, false)
+
+        assertEquals(false, PlaybackUiPreferences.audioFocusEnabled(context))
+    }
+
+    @Test
     fun miniPlayerLyricsEnabledRoundTrips() {
         assertTrue(PlaybackUiPreferences.miniPlayerLyricsEnabled(context))
 

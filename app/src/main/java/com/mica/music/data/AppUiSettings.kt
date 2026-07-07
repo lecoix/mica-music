@@ -119,6 +119,9 @@ class AppUiSettings(context: Context) {
     var spectrumEnabled by mutableStateOf(PlaybackUiPreferences.spectrumEnabled(appContext))
         private set
 
+    var audioFocusEnabled by mutableStateOf(PlaybackUiPreferences.audioFocusEnabled(appContext))
+        private set
+
     var songListInfoVisibility by mutableStateOf(PlaybackUiPreferences.songListInfoVisibility(appContext))
         private set
 
@@ -293,6 +296,11 @@ class AppUiSettings(context: Context) {
         PlaybackUiPreferences.setSpectrumEnabled(appContext, enabled)
         syncSpectrumAnalyzer(notifyPipeline = true)
         DiagnosticLog.event("Spectrum", "setting enabled=$enabled analyzer=${MicaSpectrumAnalyzer.isEnabledForProcessing()}")
+    }
+
+    fun updateAudioFocusEnabled(enabled: Boolean) {
+        audioFocusEnabled = enabled
+        PlaybackUiPreferences.setAudioFocusEnabled(appContext, enabled)
     }
 
     fun updateSongListInfoVisibility(visibility: SongListInfoVisibility) {

@@ -130,6 +130,10 @@ class MicaMediaService : MediaSessionService() {
             MicaExtractorsFactory.create(),
 
         )
+        val playbackAudioAttributes = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setUsage(C.USAGE_MEDIA)
+            .build()
 
         val exoPlayer = ExoPlayer.Builder(this)
 
@@ -139,21 +143,21 @@ class MicaMediaService : MediaSessionService() {
 
             .setAudioAttributes(
 
-                AudioAttributes.Builder()
+                playbackAudioAttributes,
 
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-
-                    .setUsage(C.USAGE_MEDIA)
-
-                    .build(),
-
-                /* handleAudioFocus = */ true,
+                PlaybackUiPreferences.audioFocusEnabled(this),
 
             )
 
             .setHandleAudioBecomingNoisy(true)
 
             .build()
+        fun applyAudioFocusSetting() {
+            exoPlayer.setAudioAttributes(
+                playbackAudioAttributes,
+                PlaybackUiPreferences.audioFocusEnabled(this),
+            )
+        }
 
         MicaSpectrumAnalyzer.setEnabled(spectrumTapEnabled(), notifyPipeline = false)
 
@@ -216,7 +220,10 @@ class MicaMediaService : MediaSessionService() {
 
         )
 
-        val player = MicaCompositePlayer(exoPlayer)
+        val player = MicaCompositePlayer(
+            exoPlayer = exoPlayer,
+            beforePlaybackStart = ::applyAudioFocusSetting,
+        )
 
         compositePlayer = player
 

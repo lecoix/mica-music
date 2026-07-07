@@ -107,6 +107,20 @@ class MicaCompositePlayerCommandRoutingTest {
         }
     }
 
+    @Test
+    fun startPlaybackRunsPreStartHook() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        every { exo.playbackState } returns Player.STATE_READY
+        every { exo.currentMediaItem } returns null
+        every { exo.mediaItemCount } returns 0
+        var starts = 0
+        val player = MicaCompositePlayer(exo) { starts++ }
+
+        player.startExoPlayback(items(1), startIndex = 0)
+
+        assertEquals(1, starts)
+    }
+
     private fun items(count: Int): List<MediaItem> =
         List(count) { index ->
             MediaItem.Builder().setMediaId("song-$index").build()

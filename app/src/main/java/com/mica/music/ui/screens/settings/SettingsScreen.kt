@@ -204,6 +204,7 @@ fun SettingsScreen(
 
                     SettingsCategory.ADVANCED -> {
                         AdvancedSettingsPanel(
+                            uiSettings = uiSettings,
                             includeNonMusic = scanState.includeNonMusic,
                             deepProbe = scanState.deepProbe,
                             hasSongs = library.songs.isNotEmpty(),

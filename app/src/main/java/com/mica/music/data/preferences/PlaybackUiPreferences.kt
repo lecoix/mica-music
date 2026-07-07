@@ -44,6 +44,7 @@ object PlaybackUiPreferences {
     private const val KEY_PLAYER_INFO_SHOW_CURRENT_TIME = "player_info_show_current_time"
     private const val KEY_PLAYER_INFO_SHOW_CUSTOM = "player_info_show_custom"
     private const val KEY_PLAYER_INFO_CUSTOM_TEXT = "player_info_custom_text"
+    private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
 
     fun playerLowerBackground(context: Context): PlayerLowerBackgroundMode =
         PlayerLowerBackgroundMode.fromStorage(
@@ -196,6 +197,15 @@ object PlaybackUiPreferences {
     fun setSpectrumEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_SPECTRUM_ENABLED, enabled)
+            .apply()
+    }
+
+    fun audioFocusEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_AUDIO_FOCUS_ENABLED, true)
+
+    fun setAudioFocusEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_AUDIO_FOCUS_ENABLED, enabled)
             .apply()
     }
 
