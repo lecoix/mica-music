@@ -45,7 +45,7 @@ class MiniPlayerScreenshotTest {
                 compareOptions = if (MicaScreenshotGoldenMode.enabled) {
                     // GitHub runner 的字体/抗锯齿与本机可能存在稳定差异；黄金模式下允许小比例像素差异。
                     RoborazziOptions.CompareOptions(
-                        changeThreshold = 0.02, // 允许 2% 像素变化（当前失败约 1.3% 以内）
+                        changeThreshold = 0.02f, // 允许 2% 像素变化（当前失败约 1.3% 以内）
                         imageComparator = SimpleImageComparator(
                             maxDistance = 0.007F,
                             vShift = 2,
