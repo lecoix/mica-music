@@ -26,6 +26,10 @@ import com.mica.music.ui.theme.MicaTheme
 @Composable
 internal fun SongMultiSelectStatsRow(
     selectedCount: Int,
+    canSelectSongs: Boolean,
+    onSelectAll: () -> Unit,
+    onInvertSelection: () -> Unit,
+    onClearSelection: () -> Unit,
     onAddToPlaylist: () -> Unit,
 ) {
     val statsRowMinHeight = HifiSize.iconMd + HifiSpacing.xs * 2
@@ -42,6 +46,30 @@ internal fun SongMultiSelectStatsRow(
             style = MicaTheme.typography.monoSm,
             color = MicaTheme.colors.textTertiary,
             modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "全选",
+            style = MicaTheme.typography.bodyMd,
+            color = if (canSelectSongs) MicaTheme.colors.accent else MicaTheme.colors.textTertiary,
+            modifier = Modifier
+                .clickable(enabled = canSelectSongs, onClick = onSelectAll)
+                .padding(HifiSpacing.xs),
+        )
+        Text(
+            text = "反选",
+            style = MicaTheme.typography.bodyMd,
+            color = if (canSelectSongs) MicaTheme.colors.accent else MicaTheme.colors.textTertiary,
+            modifier = Modifier
+                .clickable(enabled = canSelectSongs, onClick = onInvertSelection)
+                .padding(HifiSpacing.xs),
+        )
+        Text(
+            text = "清空",
+            style = MicaTheme.typography.bodyMd,
+            color = if (selectedCount > 0) MicaTheme.colors.accent else MicaTheme.colors.textTertiary,
+            modifier = Modifier
+                .clickable(enabled = selectedCount > 0, onClick = onClearSelection)
+                .padding(HifiSpacing.xs),
         )
         Text(
             text = "加入歌单",
