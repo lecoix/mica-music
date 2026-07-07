@@ -3,6 +3,7 @@ package com.mica.music.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -14,6 +15,8 @@ import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.testutil.SongFixtures
+import com.mica.music.ui.MicaScreenshotGoldenMode
+import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.theme.MicaTheme
 import org.junit.Rule
 import org.junit.Assume.assumeTrue
@@ -35,6 +38,10 @@ class MiniPlayerScreenshotTest {
     @Before
     fun requireFullScreenshotMatrix() {
         assumeTrue(System.getProperty("mica.fullScreenshots") == "true")
+        if (MicaScreenshotGoldenMode.enabled) {
+            // 让截图回归跑在确定性静态帧：禁用动画并手动推进测试时钟。
+            composeRule.mainClock.autoAdvance = false
+        }
     }
 
     @Test
@@ -85,7 +92,8 @@ class MiniPlayerScreenshotTest {
             CompositionLocalProvider(
                 LocalDensity provides Density(density.density, fontScale),
             ) {
-                MicaTheme(darkTheme = darkTheme) {
+                ProvideScreenshotDeterminism {
+                    MicaTheme(darkTheme = darkTheme) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -104,9 +112,31 @@ class MiniPlayerScreenshotTest {
                             onExpand = {},
                         )
                     }
+                    }
                 }
             }
         }
+        if (MicaScreenshotGoldenMode.enabled) {
+            // 让 Compose 至少完成一次 measure/layout/draw，避免不同平台的首帧时序差异。
+            composeRule.mainClock.advanceTimeByFrame()
+            composeRule.waitForIdle()
+        }
         composeRule.onRoot().captureRoboImage(fileName)
+    }
+}
+
+@Composable
+private fun ProvideScreenshotDeterminism(
+    content: @Composable () -> Unit,
+) {
+    if (!MicaScreenshotGoldenMode.enabled) {
+        content()
+        return
+    }
+    CompositionLocalProvider(
+        // 关闭主题/导航等所有基于 MicaMotion 的动画，避免 snapshot 在不同环境落在不同过渡帧。
+        MicaMotion.LocalEnabled provides false,
+    ) {
+        content()
     }
 }
