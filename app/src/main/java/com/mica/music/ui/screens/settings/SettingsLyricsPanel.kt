@@ -1,22 +1,53 @@
 package com.mica.music.ui.screens.settings
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.mica.music.data.AppFontImporter
+import com.mica.music.data.AppFontSelection
+import com.mica.music.data.AppFontSource
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.PlaybackContentColorMode
+import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
+import com.mica.music.ui.theme.HifiSpacing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun LyricsSettingsPanel(uiSettings: AppUiSettings) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val fontPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                AppFontImporter.importLyricFont(context, uri)
+            }
+            result.selection?.let(uiSettings::updateLyricFont)
+            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     SettingsSectionTitle("歌词页")
 
     SettingsToggleRow(
         title = "分割双语歌词",
-        subtitle = "将含细空格（U+2009 等）或 //、/、| 的行拆成上下两行；关闭后每行 LRC 保持一行",
+        subtitle = "将含细空格（U+2009 等）或 //、／ 的行拆成上下两行；关闭后每行 LRC 保持一行",
         checked = uiSettings.lyricSplitEnabled,
         onCheckedChange = { uiSettings.updateLyricSplitEnabled(it) },
     )
@@ -87,5 +118,32 @@ internal fun LyricsSettingsPanel(uiSettings: AppUiSettings) {
         subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
         checked = uiSettings.notificationLyricsEnabled,
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+
+    SettingsSectionTitle("字体")
+
+    SettingsActionRow(
+        title = "歌词字体",
+        subtitle = "当前：${uiSettings.lyricFont.settingsLabel}",
+        onClick = { fontPicker.launch(arrayOf("*/*")) },
+    )
+
+    SettingsActionRow(
+        title = "导入字体文件",
+        subtitle = "支持 TTF / OTF；新导入会覆盖旧的歌词字体",
+        onClick = { fontPicker.launch(arrayOf("*/*")) },
+    )
+
+    SettingsActionRow(
+        title = "清除导入字体",
+        subtitle = "回到系统默认歌词字体",
+        enabled = uiSettings.lyricFont.source == AppFontSource.IMPORTED,
+        onClick = {
+            AppFontImporter.clearLyricFont(context)
+            uiSettings.updateLyricFont(AppFontSelection.SystemDefault)
+            Toast.makeText(context, "已恢复系统默认歌词字体", Toast.LENGTH_SHORT).show()
+        },
     )
 }

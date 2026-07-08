@@ -12,9 +12,13 @@ import androidx.compose.runtime.remember
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import com.mica.music.data.AppAccentColor
+import com.mica.music.data.AppFontSelection
+import com.mica.music.data.AppFontSource
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
+import java.io.File
 
 val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
 val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
@@ -34,13 +38,22 @@ fun MicaTheme(
     coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     lyricSplitEnabled: Boolean = true,
     lyricLineFillEnabled: Boolean = false,
+    globalFont: AppFontSelection = AppFontSelection.SystemDefault,
+    lyricFont: AppFontSelection = AppFontSelection.SystemDefault,
     content: @Composable () -> Unit,
 ) {
     val accent = rememberAppAccent(accentColor, customAccentColorArgb, darkTheme)
     val baseColors = if (darkTheme) DarkHifiColors else LightHifiColors
     val targetColors = baseColors.copy(accent = accent)
     val hifiColors = rememberAnimatedHifiColors(targetColors)
-    val typography = HifiTypography()
+    val globalFontFamily = remember(globalFont) { globalFont.resolveFontFamily() }
+    val lyricFontFamily = remember(lyricFont, globalFontFamily) {
+        lyricFont.resolveFontFamily(fallback = globalFontFamily)
+    }
+    val typography = HifiTypography(
+        sansFamily = globalFontFamily,
+        lyricFamily = lyricFontFamily,
+    )
     val (micaStart, _) = micaBackgroundPreset.gradientColors(darkTheme, customMicaBackground)
     val motionEnabled = rememberMicaMotionEnabled()
     val animatedPrimary = animateColorAsState(
@@ -108,6 +121,16 @@ fun MicaTheme(
             content = content,
         )
     }
+}
+
+private fun AppFontSelection.resolveFontFamily(
+    fallback: FontFamily = FontFamily.Default,
+): FontFamily = when (source) {
+    AppFontSource.SYSTEM -> fallback
+    AppFontSource.IMPORTED -> runCatching {
+        val file = File(filePath)
+        if (file.isFile) FontFamily(android.graphics.Typeface.createFromFile(file)) else fallback
+    }.getOrDefault(fallback)
 }
 
 object MicaTheme {

@@ -1,6 +1,7 @@
 package com.mica.music.ui.screens.settings
 
 import com.mica.music.data.AppAccentColor
+import com.mica.music.data.AppFontSource
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.LyricsBilingualDisplayMode
@@ -26,6 +27,10 @@ internal val ThemeChoices = listOf(
     AppThemeMode.SYSTEM.ordinal to "跟随系统",
     AppThemeMode.LIGHT.ordinal to "浅色",
     AppThemeMode.DARK.ordinal to "深色",
+)
+
+internal val FontSourceChoices = listOf(
+    AppFontSource.SYSTEM.ordinal to AppFontSource.SYSTEM.settingsLabel,
 )
 
 internal val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries

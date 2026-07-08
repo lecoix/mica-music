@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mica.music.data.preferences.AppearancePreferences
+import com.mica.music.data.preferences.FontPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.MicaSpectrumAnalyzer
@@ -82,6 +83,12 @@ class AppUiSettings(context: Context) {
         private set
 
     var customMicaSingleColor by mutableStateOf(AppearancePreferences.customMicaSingleColor(appContext))
+        private set
+
+    var globalFont by mutableStateOf(FontPreferences.globalFont(appContext))
+        private set
+
+    var lyricFont by mutableStateOf(FontPreferences.lyricFont(appContext))
         private set
 
     var lyricSplitEnabled by mutableStateOf(LyricsPreferences.lyricSplitEnabled(appContext))
@@ -233,6 +240,16 @@ class AppUiSettings(context: Context) {
         AppearancePreferences.setCustomMicaEndArgb(appContext, endArgb)
         AppearancePreferences.setCustomMicaSingleColor(appContext, singleColor)
         updateMicaBackgroundPreset(MicaPreset.CUSTOM)
+    }
+
+    fun updateGlobalFont(selection: AppFontSelection) {
+        globalFont = selection
+        FontPreferences.setGlobalFont(appContext, selection)
+    }
+
+    fun updateLyricFont(selection: AppFontSelection) {
+        lyricFont = selection
+        FontPreferences.setLyricFont(appContext, selection)
     }
 
     fun updateLyricSplitEnabled(enabled: Boolean) {
