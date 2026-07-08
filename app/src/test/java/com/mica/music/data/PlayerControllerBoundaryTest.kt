@@ -3,6 +3,7 @@ package com.mica.music.data
 import androidx.media3.session.MediaController
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
@@ -175,6 +176,85 @@ class PlayerControllerBoundaryTest {
         assertEquals(expected, controller.userMessage?.text)
         listener.captured.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
         assertEquals(expected, controller.playbackError)
+        controller.release()
+    }
+
+    @Test
+    fun dsdPlaybackUsesDefaultEffectiveTuningWithoutDroppingRequestedTuning() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val flac = SongFixtures.song("flac", container = "FLAC", mime = "audio/flac")
+        val dsd = SongFixtures.song("dsd", container = "DSD", mime = "audio/x-dsf")
+        val flacItem = SongMediaItemCodec.encode(flac)
+        val dsdItem = SongMediaItemCodec.encode(dsd)
+        var currentItem = flacItem
+        var currentIndex = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns 2
+        every { mediaController.getMediaItemAt(0) } returns flacItem
+        every { mediaController.getMediaItemAt(1) } returns dsdItem
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.playbackParameters } returns PlaybackParameters.DEFAULT
+        controller.setQueue(listOf(flac, dsd))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.setPlaybackSpeed(2.0f)
+        currentItem = dsdItem
+        currentIndex = 1
+        listener.captured.onMediaItemTransition(dsdItem, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+        listener.captured.onPlaybackParametersChanged(PlaybackParameters.DEFAULT)
+
+        assertEquals(2.0f, controller.playbackTuning.speed, 0.0001f)
+        verify {
+            mediaController.setPlaybackParameters(match { it.speed == 1.0f && it.pitch == 1.0f })
+        }
+        controller.release()
+    }
+
+    @Test
+    fun requestedTuningRestoresWhenLeavingDsdForSupportedPcm() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val flac = SongFixtures.song("flac", container = "FLAC", mime = "audio/flac")
+        val dsd = SongFixtures.song("dsd", container = "DSD", mime = "audio/x-dsf")
+        val flacItem = SongMediaItemCodec.encode(flac)
+        val dsdItem = SongMediaItemCodec.encode(dsd)
+        var currentItem = flacItem
+        var currentIndex = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns 2
+        every { mediaController.getMediaItemAt(0) } returns flacItem
+        every { mediaController.getMediaItemAt(1) } returns dsdItem
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.playbackParameters } returns PlaybackParameters.DEFAULT
+        controller.setQueue(listOf(flac, dsd))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.setPlaybackSpeed(1.5f)
+        currentItem = dsdItem
+        currentIndex = 1
+        listener.captured.onMediaItemTransition(dsdItem, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+        listener.captured.onPlaybackParametersChanged(PlaybackParameters.DEFAULT)
+        currentItem = flacItem
+        currentIndex = 0
+        listener.captured.onMediaItemTransition(flacItem, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+
+        assertEquals(1.5f, controller.playbackTuning.speed, 0.0001f)
+        verify {
+            mediaController.setPlaybackParameters(match { it.speed == 1.5f })
+        }
         controller.release()
     }
 

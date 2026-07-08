@@ -30,6 +30,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlin.math.abs
 
 data class PlaybackSurfaceState(
     val currentSong: Song? = null,
@@ -166,6 +167,8 @@ class PlayerController internal constructor(
         const val PENDING_SEEK_AHEAD_DRIFT_MS = 1_500
 
         const val QUEUE_MIRROR_DEBOUNCE_MS = 100L
+
+        private const val PLAYBACK_TUNING_EPSILON = 0.001f
     }
 
     private val appCtx = context.applicationContext
@@ -506,6 +509,8 @@ class PlayerController internal constructor(
     private val pendingMediaSelection = PendingMediaSelection()
     private var pendingQueue: List<Song>? = null
     private var pendingPlaybackTuning: PlaybackTuning? = null
+    private var effectivePlaybackTuning = PlaybackTuning()
+    private var pendingEffectivePlaybackTuning: PlaybackTuning? = null
     private var connectStarted = false
     private var pendingRestorePosition: PendingRestorePosition? = null
     private val playCountState = PlayCountStateMachine()
@@ -620,6 +625,7 @@ class PlayerController internal constructor(
                         "pendingAfter=${playCountState.pendingSongId.shortSongIdOrNone()}",
                 )
                 if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
+                syncEffectivePlaybackTuning(reason = "transition")
                 publishPlaybackStates()
                 publishPlayCountIfStarted(c, c.isPlaying)
             }
@@ -706,8 +712,19 @@ class PlayerController internal constructor(
             }
 
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
-                playbackTuning = PlaybackTuning.fromPlaybackParameters(playbackParameters)
-                pendingPlaybackTuning = null
+                val reported = PlaybackTuning.fromPlaybackParameters(playbackParameters)
+                effectivePlaybackTuning = reported
+                val pendingEffective = pendingEffectivePlaybackTuning
+                if (pendingEffective != null && playbackTuningsEqual(reported, pendingEffective)) {
+                    pendingEffectivePlaybackTuning = null
+                    pendingPlaybackTuning = null
+                    publishSurfaceState()
+                    return
+                }
+                if (playbackTuningAvailableFor(currentSong)) {
+                    playbackTuning = reported
+                    pendingPlaybackTuning = null
+                }
                 publishSurfaceState()
             }
         })
@@ -719,13 +736,19 @@ class PlayerController internal constructor(
             pendingQueue = null
         }
         syncPlaybackQueueModeFromPlayer(c)
-        pendingPlaybackTuning?.let {
-            c.setPlaybackParameters(it.toPlaybackParameters())
-        } ?: run {
-            playbackTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
+        syncIndexFromPlayer(c)
+        val pendingRequestedTuning = pendingPlaybackTuning
+        val playerTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
+        playbackTuning = pendingRequestedTuning ?: playerTuning
+        val effectiveTuning = effectivePlaybackTuningFor(playbackTuning)
+        if (pendingRequestedTuning != null || !playbackTuningsEqual(effectiveTuning, playerTuning)) {
+            syncEffectivePlaybackTuning(reason = "connect", force = true)
+        } else {
+            effectivePlaybackTuning = effectiveTuning
+            pendingPlaybackTuning = null
+            pendingEffectivePlaybackTuning = null
         }
 
-        syncIndexFromPlayer(c)
         playCountState.reset(c.currentMediaItem?.mediaId)
         isPlaying = c.isPlaying
         updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
@@ -916,6 +939,7 @@ class PlayerController internal constructor(
     fun syncPlaybackState() {
         val c = controller ?: return
         if (!syncIndexFromPlayer(c)) return
+        syncEffectivePlaybackTuning(reason = "sync-state")
         syncPosition()
         updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
         isPlaying = c.isPlaying
@@ -1156,9 +1180,39 @@ class PlayerController internal constructor(
     private fun applyPlaybackTuning(tuning: PlaybackTuning) {
         playbackTuning = tuning
         pendingPlaybackTuning = tuning
-        controller?.setPlaybackParameters(tuning.toPlaybackParameters()) ?: connectIfNeeded()
+        syncEffectivePlaybackTuning(reason = "user-request", force = true)
         publishSurfaceState()
     }
+
+    private fun syncEffectivePlaybackTuning(reason: String, force: Boolean = false) {
+        val effective = effectivePlaybackTuningFor(playbackTuning)
+        val changed = !playbackTuningsEqual(effective, effectivePlaybackTuning)
+        effectivePlaybackTuning = effective
+        if (!force && !changed) return
+        val c = controller ?: run {
+            connectIfNeeded()
+            return
+        }
+        pendingEffectivePlaybackTuning = effective
+        c.setPlaybackParameters(effective.toPlaybackParameters())
+        if (!playbackTuningsEqual(effective, playbackTuning)) {
+            DiagnosticLog.event(
+                "PlaybackTuning",
+                "effective-default reason=$reason requestedSpeed=${playbackTuning.speed} " +
+                    "requestedPitch=${playbackTuning.pitchMultiplier} song=${currentSong?.id}",
+            )
+        }
+    }
+
+    private fun effectivePlaybackTuningFor(requested: PlaybackTuning): PlaybackTuning =
+        if (playbackTuningAvailableFor(currentSong)) requested else PlaybackTuning()
+
+    private fun playbackTuningAvailableFor(song: Song?): Boolean =
+        song?.let { !DsdSupport.isDsdMetadata(it.metadata) } ?: true
+
+    private fun playbackTuningsEqual(left: PlaybackTuning, right: PlaybackTuning): Boolean =
+        abs(left.speed - right.speed) < PLAYBACK_TUNING_EPSILON &&
+            abs(left.pitchSemitones - right.pitchSemitones) < PLAYBACK_TUNING_EPSILON
 
     fun togglePlay() {
         if (songQueue.isEmpty()) return
@@ -1340,6 +1394,7 @@ class PlayerController internal constructor(
             resetDurationForSongChange(song)
         }
         setPositionMsClamped(requestedStartMs)
+        syncEffectivePlaybackTuning(reason = "play-song")
         deferredPlaybackPublish?.let { mainHandler.removeCallbacks(it) }
         val publish = Runnable {
             deferredPlaybackPublish = null

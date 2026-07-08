@@ -92,11 +92,11 @@ class MicaCompositePlayerCommandRoutingTest {
     }
 
     @Test
-    fun rebuildAudioPipelineRecreatesRenderersAndPreservesPlaybackIntent() {
+    fun flushPlaybackPipeline_stopsSeeksAndResumes() {
         val exo = mockk<ExoPlayer>(relaxed = true)
         val player = MicaCompositePlayer(exo)
 
-        player.rebuildAudioPipeline(positionMs = 12_345L, resumePlayback = true)
+        player.flushPlaybackPipeline(positionMs = 12_345L, resumePlayback = true)
 
         verifySequence {
             exo.playWhenReady = false

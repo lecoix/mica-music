@@ -1,389 +1,235 @@
 package com.mica.music.media
 
-
-
 import android.Manifest
 import android.app.PendingIntent
-
 import android.content.BroadcastReceiver
-
 import android.content.Context
-
 import android.content.Intent
-
 import android.content.IntentFilter
-
 import android.content.pm.PackageManager
-
 import android.media.AudioManager
-
 import android.os.Build
-
 import android.os.Handler
-
 import android.os.Looper
-
-import androidx.media3.common.AudioAttributes
-
-import androidx.media3.common.C
-
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
-
 import androidx.media3.common.TrackSelectionParameters
-
 import androidx.media3.common.util.UnstableApi
-
-import androidx.media3.datasource.DefaultDataSource
-
 import androidx.media3.exoplayer.ExoPlayer
-
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-
 import androidx.media3.session.MediaSession
-
 import androidx.media3.session.MediaSessionService
-
 import com.mica.music.MainActivity
-
-import com.mica.music.util.DiagnosticLog
-
+import com.mica.music.data.Song
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.util.DiagnosticLog
+
 /**
-
  * 播放服务：拥有 ExoPlayer + MediaSession，独立于 Activity 生命周期。
-
  */
-
 @UnstableApi
-
 class MicaMediaService : MediaSessionService() {
 
-
-
     private var mediaSession: MediaSession? = null
-
+    private var exoPlayer: ExoPlayer? = null
     private var compositePlayer: MicaCompositePlayer? = null
-
+    private var activeSinkDelivery: PcmSinkDeliveryConfig = PcmSinkDeliveryConfig.PRODUCTION
+    /** Fixed at Exo build; P6 USB attach/detach will change this via full-mode rebuild. */
+    private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
-
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
-
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
-
     private var noisyReceiverRegistered = false
-
     private val mainHandler = Handler(Looper.getMainLooper())
 
-
-
     private val noisyReceiver = object : BroadcastReceiver() {
-
         override fun onReceive(context: Context?, intent: Intent?) {
-
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-
                 compositePlayer?.pause()
-
             }
-
         }
-
     }
 
-
-
     override fun onCreate() {
-
         super.onCreate()
-
         setListener(object : MediaSessionService.Listener {
-
             override fun onForegroundServiceStartNotAllowedException() {
-
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-
                     checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-
                     PackageManager.PERMISSION_GRANTED
-
                 ) {
-
                     return
-
                 }
-
             }
-
         })
-
-        val dataSourceFactory = DefaultDataSource.Factory(this)
 
         PlaybackCapabilityDiagnostics.logStartup(this)
-
-        val renderersFactory = MicaRenderersFactory(this)
-
-        val mediaSourceFactory = DefaultMediaSourceFactory(
-
-            dataSourceFactory,
-
-            MicaExtractorsFactory.create(),
-
-        )
-        val playbackAudioAttributes = AudioAttributes.Builder()
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .setUsage(C.USAGE_MEDIA)
-            .build()
-
-        val exoPlayer = ExoPlayer.Builder(this)
-
-            .setRenderersFactory(renderersFactory)
-
-            .setMediaSourceFactory(mediaSourceFactory)
-
-            .setAudioAttributes(
-
-                playbackAudioAttributes,
-
-                PlaybackUiPreferences.audioFocusEnabled(this),
-
-            )
-
-            .setHandleAudioBecomingNoisy(true)
-
-            .build()
-        fun applyAudioFocusSetting() {
-            exoPlayer.setAudioAttributes(
-                playbackAudioAttributes,
-                PlaybackUiPreferences.audioFocusEnabled(this),
-            )
-        }
-
+        PcmDeliveryExperiment.logActiveExperiments()
         MicaSpectrumAnalyzer.setEnabled(spectrumTapEnabled(), notifyPipeline = false)
 
-        var equalizerPipelineEnabled = EqualizerPreferences.equalizerEnabled(this)
+        val stack = ExoPlaybackStackFactory.build(this, activeSinkDelivery, activeOutputPath)
+        exoPlayer = stack.exoPlayer
+        compositePlayer = stack.compositePlayer
 
-        MicaEqualizerManager.onEnabledChanged = { enabled ->
-
-            mainHandler.post {
-
-                val pipelineChanged = equalizerPipelineEnabled != enabled
-                equalizerPipelineEnabled = enabled
-
-                if (compositePlayer != null) {
-
-                    configureQualityMode(
-                        exoPlayer,
-                        dspEnabled = enabled,
-                        spectrumTapEnabled = spectrumTapEnabled(),
-                    )
-
-                    playbackStateCoordinator?.setQualityMode(
-
-                        if (enabled) AudioQualityMode.DSP else AudioQualityMode.HIFI,
-
-                    )
-
-                    if (pipelineChanged) {
-                        flushAudioPipeline("equalizer-enabled=$enabled")
-                    }
-
-                }
-
-            }
-
-        }
-
-        MicaSpectrumAnalyzer.onEnabledChanged = { enabled ->
-
-            mainHandler.post {
-
-                configureQualityMode(
-                    exoPlayer,
-                    dspEnabled = EqualizerPreferences.equalizerEnabled(this@MicaMediaService),
-                    spectrumTapEnabled = enabled,
-                )
-
-                flushAudioPipeline("spectrum-enabled=$enabled")
-
-            }
-
-        }
-
+        wireEqualizerAndSpectrumHandlers()
         configureQualityMode(
-
-            exoPlayer,
-
-            dspEnabled = equalizerPipelineEnabled,
-
+            stack.exoPlayer,
+            dspEnabled = EqualizerPreferences.equalizerEnabled(this),
             spectrumTapEnabled = spectrumTapEnabled(),
-
         )
-
-        val player = MicaCompositePlayer(
-            exoPlayer = exoPlayer,
-            beforePlaybackStart = ::applyAudioFocusSetting,
-        )
-
-        compositePlayer = player
 
         playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
-            player = player,
-
-        ).also { it.start() }
-
-        playbackStateCoordinator = ServicePlaybackStateCoordinator(
-
-            player = player,
-
-            store = ServicePlaybackStateStore(this),
-
-            handler = mainHandler,
-
-            initialQualityMode = if (EqualizerPreferences.equalizerEnabled(this)) {
-
-                AudioQualityMode.DSP
-
-            } else {
-
-                AudioQualityMode.HIFI
-
-            },
-
-        ).also { it.start() }
-
-        notificationLyricsCoordinator = NotificationLyricsCoordinator(
-
+            player = stack.compositePlayer,
             context = this,
-
-            player = player,
-
-            handler = mainHandler,
-
-        ).also { it.start() }
-
-        exoPlayer.addListener(object : Player.Listener {
-
-            override fun onAudioSessionIdChanged(audioSessionId: Int) {
-
-                MicaEqualizerManager.attach(this@MicaMediaService, audioSessionId)
-
+        ).also { coordinator ->
+            coordinator.ensureSinkDelivery = { song, playbackParameters ->
+                ensureSinkDeliveryForSong(song, playbackParameters)
             }
-
-        })
-
-        if (exoPlayer.audioSessionId != 0) {
-
-            MicaEqualizerManager.attach(this, exoPlayer.audioSessionId)
-
+            coordinator.start()
         }
 
-        mediaSession = MediaSession.Builder(this, player)
+        playbackStateCoordinator = ServicePlaybackStateCoordinator(
+            player = stack.compositePlayer,
+            store = ServicePlaybackStateStore(this),
+            handler = mainHandler,
+            initialQualityMode = if (EqualizerPreferences.equalizerEnabled(this)) {
+                AudioQualityMode.DSP
+            } else {
+                AudioQualityMode.HIFI
+            },
+        ).also { coordinator ->
+            coordinator.onRestoreCompleted = {
+                mainHandler.post {
+                    val song = compositePlayer?.currentMediaItem
+                        ?.let(SongMediaItemCodec::decode)
+                        ?: return@post
+                    SharedPcmPipelineDiagnostics.logSongFormat(song)
+                    PcmDeliveryProbeDiagnostics.logForSong(
+                        context = this@MicaMediaService,
+                        song = song,
+                        playbackParameters = compositePlayer?.playbackParameters
+                            ?: PlaybackParameters.DEFAULT,
+                    )
+                }
+            }
+            coordinator.onPlaybackParametersChanged = { playbackParameters ->
+                mainHandler.post {
+                    val song = compositePlayer?.currentMediaItem
+                        ?.let(SongMediaItemCodec::decode)
+                        ?: return@post
+                    if (!ensureSinkDeliveryForSong(song, playbackParameters)) {
+                        return@post
+                    }
+                }
+            }
+            coordinator.start()
+        }
+
+        notificationLyricsCoordinator = NotificationLyricsCoordinator(
+            context = this,
+            player = stack.compositePlayer,
+            handler = mainHandler,
+        ).also { it.start() }
+
+        attachEqualizerSessionListener(stack.exoPlayer)
+
+        mediaSession = MediaSession.Builder(this, stack.compositePlayer)
             .setSessionActivity(createSessionActivityPendingIntent())
             .build()
 
         registerNoisyReceiver()
-
     }
-
-
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-
         mediaSession
 
-
-
     override fun onTaskRemoved(rootIntent: Intent?) {
-
         val player = compositePlayer ?: mediaSession?.player ?: return
-
         if (MediaServiceLifecyclePolicy.shouldStopAfterTaskRemoved(
-
                 playWhenReady = player.playWhenReady,
-
                 mediaItemCount = player.mediaItemCount,
-
                 playbackState = player.playbackState,
-
             )
-
         ) {
-
             stopSelf()
-
         }
-
     }
-
-
 
     override fun onDestroy() {
-
         if (noisyReceiverRegistered) {
-
             runCatching { unregisterReceiver(noisyReceiver) }
-
             noisyReceiverRegistered = false
-
         }
-
         MicaEqualizerManager.onEnabledChanged = null
-
         MicaSpectrumAnalyzer.onEnabledChanged = null
-
         MicaEqualizerManager.release()
-
         playbackStateCoordinator?.release()
-
         playbackStateCoordinator = null
-
         notificationLyricsCoordinator?.release()
-
         notificationLyricsCoordinator = null
-
         playbackEngineCoordinator?.release()
-
         playbackEngineCoordinator = null
-
-        mediaSession?.run {
-
-            player.release()
-
-            release()
-
-            mediaSession = null
-
-        }
-
+        mediaSession?.release()
+        mediaSession = null
+        exoPlayer?.release()
+        exoPlayer = null
         compositePlayer = null
-
         clearListener()
-
         super.onDestroy()
-
     }
 
-
-
-    private fun registerNoisyReceiver() {
-
-        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-
-            registerReceiver(noisyReceiver, filter, RECEIVER_NOT_EXPORTED)
-
-        } else {
-
-            @Suppress("DEPRECATION")
-
-            registerReceiver(noisyReceiver, filter)
-
+    private fun wireEqualizerAndSpectrumHandlers() {
+        MicaEqualizerManager.onEnabledChanged = { enabled ->
+            mainHandler.post {
+                playbackStateCoordinator?.setQualityMode(
+                    if (enabled) AudioQualityMode.DSP else AudioQualityMode.HIFI,
+                )
+                configureQualityMode(
+                    exoPlayer ?: return@post,
+                    dspEnabled = enabled,
+                    spectrumTapEnabled = spectrumTapEnabled(),
+                )
+                val song = compositePlayer?.currentMediaItem?.let(SongMediaItemCodec::decode)
+                val playbackParameters = compositePlayer?.playbackParameters ?: PlaybackParameters.DEFAULT
+                val rebuilt = song?.let { ensureSinkDeliveryForSong(it, playbackParameters) } == true
+                if (!rebuilt) {
+                    flushAudioPipeline("equalizer-enabled=$enabled")
+                }
+            }
         }
 
-        noisyReceiverRegistered = true
+        MicaSpectrumAnalyzer.onEnabledChanged = { enabled ->
+            mainHandler.post {
+                configureQualityMode(
+                    exoPlayer ?: return@post,
+                    dspEnabled = EqualizerPreferences.equalizerEnabled(this@MicaMediaService),
+                    spectrumTapEnabled = enabled,
+                )
+                flushAudioPipeline("spectrum-enabled=$enabled")
+            }
+        }
+    }
 
+    private fun attachEqualizerSessionListener(exo: ExoPlayer) {
+        exo.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                MicaEqualizerManager.attach(this@MicaMediaService, audioSessionId)
+            }
+        })
+        if (exo.audioSessionId != 0) {
+            MicaEqualizerManager.attach(this, exo.audioSessionId)
+        }
+    }
+
+    private fun registerNoisyReceiver() {
+        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(noisyReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(noisyReceiver, filter)
+        }
+        noisyReceiverRegistered = true
     }
 
     private fun createSessionActivityPendingIntent(): PendingIntent {
@@ -397,19 +243,89 @@ class MicaMediaService : MediaSessionService() {
         )
     }
 
-
-
     private fun spectrumTapEnabled(): Boolean = PlaybackUiPreferences.spectrumTapEnabled(this)
 
     private fun flushAudioPipeline(reason: String) {
         val player = compositePlayer ?: return
         if (player.playbackState == Player.STATE_IDLE) return
         val positionMs = player.currentPosition
-        val shouldResume = player.isPlaying
-        player.rebuildAudioPipeline(positionMs, resumePlayback = shouldResume)
+        val shouldResume = player.playWhenReady
+        player.flushPlaybackPipeline(positionMs, resumePlayback = shouldResume)
         DiagnosticLog.event(
             "AudioPipeline",
             "pipeline-flush reason=$reason pos=$positionMs resume=$shouldResume",
+        )
+    }
+
+    /**
+     * Gate 3-1b: rebuild Exo when probe-selected sink delivery differs from the active player.
+     * Returns true when a rebuild occurred.
+     */
+    private fun ensureSinkDeliveryForSong(
+        song: Song,
+        playbackParameters: PlaybackParameters,
+    ): Boolean {
+        val desired = PcmSinkDeliveryDecider.decide(this, song, playbackParameters)
+        if (desired == activeSinkDelivery) return false
+        rebuildExoPlayerForSinkDelivery(desired, song.id)
+        return true
+    }
+
+    private fun rebuildExoPlayerForSinkDelivery(
+        delivery: PcmSinkDeliveryConfig,
+        reasonSongId: String,
+    ) {
+        val currentComposite = compositePlayer ?: return
+        val snapshot = currentComposite.playbackQueueSnapshot()
+        if (snapshot.items.isEmpty()) return
+
+        val index = snapshot.currentIndex
+        val positionMs = currentComposite.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = currentComposite.playWhenReady
+        val playbackParameters = currentComposite.playbackParameters
+
+        playbackEngineCoordinator?.detachPlayer()
+        playbackStateCoordinator?.detachPlayer()
+        notificationLyricsCoordinator?.detachPlayer()
+
+        val oldExo = exoPlayer
+        val stack = ExoPlaybackStackFactory.build(this, delivery, activeOutputPath)
+        exoPlayer = stack.exoPlayer
+        compositePlayer = stack.compositePlayer
+        activeSinkDelivery = delivery
+
+        attachEqualizerSessionListener(stack.exoPlayer)
+        configureQualityMode(
+            stack.exoPlayer,
+            dspEnabled = EqualizerPreferences.equalizerEnabled(this),
+            spectrumTapEnabled = spectrumTapEnabled(),
+        )
+
+        val session = mediaSession
+        if (session == null) {
+            oldExo?.release()
+            return
+        }
+        session.setPlayer(stack.compositePlayer)
+
+        playbackEngineCoordinator?.attachPlayer(stack.compositePlayer)
+        playbackStateCoordinator?.attachPlayer(stack.compositePlayer)
+        notificationLyricsCoordinator?.attachPlayer(stack.compositePlayer)
+
+        stack.compositePlayer.playbackParameters = playbackParameters
+        stack.compositePlayer.startExoPlayback(
+            snapshot.items,
+            index,
+            positionMs,
+            playWhenReady = playWhenReady,
+        )
+
+        oldExo?.release()
+
+        DiagnosticLog.event(
+            "AudioPipeline",
+            "pipeline-rebuild reason=g31b-sink song=$reasonSongId " +
+                "enableFloatOutput=${delivery.enableFloatOutput} profile=${delivery.profileLabel}",
         )
     }
 
@@ -418,41 +334,22 @@ class MicaMediaService : MediaSessionService() {
         dspEnabled: Boolean,
         spectrumTapEnabled: Boolean,
     ) {
-
         val offloadDisabled = dspEnabled || spectrumTapEnabled
-
         val offloadMode = if (offloadDisabled) {
-
             TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
-
         } else {
-
             TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
-
         }
-
         val preferences = TrackSelectionParameters.AudioOffloadPreferences.Builder()
-
             .setAudioOffloadMode(offloadMode)
-
             .build()
-
         exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-
             .buildUpon()
-
             .setAudioOffloadPreferences(preferences)
-
             .build()
-
         DiagnosticLog.event(
-
             "AudioQuality",
-
             "mode=${if (dspEnabled) "DSP" else "HIFI"} dsp=$dspEnabled spectrum=$spectrumTapEnabled offload=${!offloadDisabled}",
-
         )
-
     }
-
 }

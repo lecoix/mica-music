@@ -15,6 +15,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class ServicePlaybackEngineCoordinatorTest {
@@ -33,6 +34,7 @@ class ServicePlaybackEngineCoordinatorTest {
         var failure: PlaybackFailure? = null
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.onPlaybackFailure = { failure = it }
         coordinator.start()
@@ -61,6 +63,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.start()
 
@@ -82,6 +85,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.start()
 
@@ -101,6 +105,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.start()
         PendingPlaybackNavigation.prepare("second", listOf(first, second))
@@ -121,6 +126,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.start()
 
@@ -136,7 +142,10 @@ class ServicePlaybackEngineCoordinatorTest {
             .map { SongMediaItemCodec.encode(SongFixtures.song(it)) }
         val exo = mockExoWithQueue(items, currentIndex = 1)
         val player = MicaCompositePlayer(exo)
-        val coordinator = ServicePlaybackEngineCoordinator(player = player)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
         coordinator.start()
 
         coordinator.onSkipToNext()
@@ -167,6 +176,7 @@ class ServicePlaybackEngineCoordinatorTest {
         var failure: PlaybackFailure? = null
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.onPlaybackFailure = { failure = it }
         coordinator.start()
@@ -192,6 +202,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.start()
         coordinator.onSelectMediaItem(0, 0L)
@@ -211,6 +222,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val player = MicaCompositePlayer(exo)
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
+            context = RuntimeEnvironment.getApplication(),
         )
         coordinator.start()
         coordinator.onSelectMediaItem(0, 100L)

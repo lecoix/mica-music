@@ -11,11 +11,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 internal class ServicePlaybackStateCoordinator(
-    private val player: Player,
+    player: Player,
     private val store: ServicePlaybackStateStore,
     private val handler: Handler,
     initialQualityMode: AudioQualityMode,
 ) {
+    private var player: Player = player
     private var pendingRestore = store.load()
     private var qualityMode = initialQualityMode
     private var released = false
@@ -25,6 +26,9 @@ internal class ServicePlaybackStateCoordinator(
     private val persistenceExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "mica-playback-state").apply { isDaemon = true }
     }
+
+    var onRestoreCompleted: (() -> Unit)? = null
+    var onPlaybackParametersChanged: ((PlaybackParameters) -> Unit)? = null
 
     private val listener = object : Player.Listener {
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -58,6 +62,7 @@ internal class ServicePlaybackStateCoordinator(
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
             persistCursor(force = true)
+            onPlaybackParametersChanged?.invoke(playbackParameters)
         }
     }
 
@@ -73,6 +78,16 @@ internal class ServicePlaybackStateCoordinator(
         player.addListener(listener)
         handler.postDelayed(periodicPersist, PERSIST_INTERVAL_MS)
         tryRestore()
+    }
+
+    fun attachPlayer(newPlayer: Player) {
+        player.removeListener(listener)
+        player = newPlayer
+        newPlayer.addListener(listener)
+    }
+
+    fun detachPlayer() {
+        player.removeListener(listener)
     }
 
     fun setQualityMode(mode: AudioQualityMode) {
@@ -115,6 +130,7 @@ internal class ServicePlaybackStateCoordinator(
         persistQueue()
         persistCursor(force = true)
         lastPersistedQueueIds = currentSongIds()
+        onRestoreCompleted?.invoke()
         return true
     }
 

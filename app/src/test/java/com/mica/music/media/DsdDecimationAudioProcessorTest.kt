@@ -110,4 +110,30 @@ class DsdDecimationAudioProcessorTest {
         )
         assertEquals(input, processor.configure(input))
     }
+
+    @Test
+    fun configure_floatPcmMode_selectsFloatEncoding() {
+        val processor = DsdDecimationAudioProcessor(
+            RuntimeEnvironment.getApplication(),
+            DsdDecimationOutputMode.FloatPcm,
+        )
+        val output = processor.configure(
+            AudioProcessor.AudioFormat(352_800, 2, C.ENCODING_PCM_FLOAT),
+        )
+        assertEquals(176_400, output.sampleRate)
+        assertEquals(C.ENCODING_PCM_FLOAT, output.encoding)
+    }
+
+    @Test
+    fun resolveOutputEncoding_mapsModeToMedia3Encoding() {
+        val format = AlacPcmFormat(sampleRateHz = 176_400, channelCount = 2, bitsPerSample = 24)
+        assertEquals(
+            C.ENCODING_PCM_24BIT,
+            DsdDecimationAudioProcessor.resolveOutputEncoding(format, DsdDecimationOutputMode.IntPcm),
+        )
+        assertEquals(
+            C.ENCODING_PCM_FLOAT,
+            DsdDecimationAudioProcessor.resolveOutputEncoding(format, DsdDecimationOutputMode.FloatPcm),
+        )
+    }
 }
