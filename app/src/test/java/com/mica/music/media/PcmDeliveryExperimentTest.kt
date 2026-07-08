@@ -1,8 +1,7 @@
 package com.mica.music.media
 
-import com.mica.music.BuildConfig
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PcmDeliveryExperimentTest {
@@ -13,9 +12,8 @@ class PcmDeliveryExperimentTest {
     }
 
     @Test
-    fun rendererSplit_enabledOnDebugAndPerfBuildTypes() {
-        val expected = BuildConfig.DEBUG || BuildConfig.BUILD_TYPE == "perf"
-        assertEquals(expected, PcmDeliveryExperiment.rendererSplit)
+    fun rendererSplit_enabledOnAllBuildTypes() {
+        assertTrue(PcmDeliveryExperiment.rendererSplit)
     }
 
     @Test

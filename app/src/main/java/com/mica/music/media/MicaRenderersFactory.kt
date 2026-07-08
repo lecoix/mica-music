@@ -119,9 +119,8 @@ internal class MicaRenderersFactory(
      * first so they win ties over the platform renderer (extension-prefer semantics). The platform
      * renderer keeps the unified fixed chain [audioSink] (X behaviour for those formats).
      *
-     * Audio quality (debug/perf only): the PcmOnly sink uses enableFloatOutput=true for hi-res PCM
-     * with EQ + spectrum + hardware speed/pitch via [MicaFloatDspAudioSink] (R4). Release never
-     * reaches this branch.
+     * The PcmOnly sink uses enableFloatOutput=true for hi-res PCM with EQ + spectrum +
+     * hardware speed/pitch via [MicaFloatDspAudioSink] (R4).
      */
     private fun buildRendererSplitAudioRenderers(
         context: Context,

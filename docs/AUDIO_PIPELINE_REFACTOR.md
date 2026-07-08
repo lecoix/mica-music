@@ -1,6 +1,6 @@
 # Mica 音频播放链路改造计划
 
-> **状态（2026-07-08）**：**Gate 1 ✅ Gate 2 ✅ Gate 4 ✅**；**G3-0 ✅**；**G3-1a 证伪**；**G3-1b 已废弃**（被 R1b renderer-split 取代，flag 关、代码保留为 inert）；**候选 R = 终选架构（debug/perf，待 release 测试）**：R0 ✅ / R1a ✅（log 33–35）；R1b 双 renderer + 双 sink（consent 已获，release 仍走 X）；**R2 ✅（log 37）；R4 ✅ 验收通过**（log 41）——ForwardingAudioSink 在 float 路径同时兼容 频谱+EQ+硬件变速变调 + DSD int 链补 EQ，纯增量。遗留（另立项、需 consent）：DSD 变速变调、release 是否启用 R。
+> **状态（2026-07-08）**：**Gate 1 ✅ Gate 2 ✅ Gate 4 ✅**；**G3-0 ✅**；**G3-1a 证伪**；**G3-1b 已废弃**；**候选 R = 终选架构（全 build type，2026-07-08 推广 release）**：R0–R4 ✅（log 33–41）；DsdOnly int sink（频谱+EQ）+ PcmOnly float sink（频谱+EQ+硬件变速）+ 平台 fallback。遗留（另立项、需 consent）：DSD 变速变调、USB 独占（P6）。
 > **目标分支**：`exoplayer-only`  
 > **整理日期**：2026-07-07（§18 终态/Gate：2026-07-08）  
 > **关联文档**：[`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md)（背景讨论）、[`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md)（DSD 现网行为）、[`CONTEXT.md`](../CONTEXT.md) → **Audio quality consent**  
@@ -41,7 +41,7 @@
 | Gate 2（统一链 X） | ✅ **已通过**（log 20；G2-2 全表 #1–#7） |
 | Gate 4（删债 / trace→debug） | ✅ **已合入**（2026-07-08） |
 | 24-bit 交付 | ✅ **G3-0 ✅**；**G3-1a 证伪**；**G3-1b 已废弃**（被 R 取代，AUTO 时机 race 随之作废、不再修） |
-| 候选 R（Renderer-split Sinks） | ✅ **终选**（待 release 测试）：**R0/R1a/R1b/R2/R4 全过**（log 33–41）；DsdOnly int sink（频谱+EQ）+ PcmOnly float sink（频谱+EQ+硬件变速）+ 平台 fallback；consent 已获、debug/perf；release 仍 X |
+| 候选 R（Renderer-split Sinks） | ✅ **终选，全 build type**（2026-07-08 推广 release）：R0–R4 全过（log 33–41）；DsdOnly int sink（频谱+EQ）+ PcmOnly float sink（频谱+EQ+硬件变速）+ 平台 fallback |
 
 ### 计划修订纪律（防「每版都夸、炸了再改」）
 
@@ -207,7 +207,7 @@ Sink Builder 参数（`enableFloatOutput`、Processor 链）在 ExoPlayer 创建
 > 主线（候选 R：renderer-split + float DSP）已在 debug/perf 收官，以下为**已知但暂不做**的延伸项，非当前阶段目标。
 
 1. **DSD 变速变调**（P4 延伸）：当前 DSD 走 int 链、解码为 24-bit int，`SonicAudioProcessor` 只支持 16-bit/float → 变速变调失效。**兼容骨架已落地**（`DsdDecimationOutputMode.FloatPcm` + processor float 输出路径）；`PRODUCTION` 仍 IntPcm，启用 FloatPcm 须 consent + 实机验 176.4k float。
-2. **R 上 release**（决策项）：R 目前仅 debug/perf，release 仍走候选 X。推广需 consent + release 实机测试。
+2. ~~**R 上 release**~~ **✅ 已推广（2026-07-08）**：`PcmDeliveryExperiment.rendererSplit` 去掉 debug/perf 门控，全 build type 走 renderer-split。release 实机回归仍建议跑 §18.5 矩阵。
 3. **USB Direct PCM / Native DSD**（P6，见 §P6 / §8.6）：独立输出模式。**兼容骨架已落地**（`PlaybackOutputMode`、`AudioOutputPathConfig`、`MicaRenderersFactory` USB 最小链分支）；`requireSupportedForPlayback()` 在 stack 构建时 fail-fast，默认仍 SharedPcm。实机/USB 探测/Native DSD 路径未实现。
 4. **清理**：删除已废弃 G3-1b 的 inert 代码（`PcmSinkDeliveryDecider` / service per-song rebuild 逻辑）。
 
@@ -2501,7 +2501,7 @@ log 41 实证 + 用户确认，R4 验收矩阵全过：
 - **kill+restore（item 6）**：`PlaybackRestore: service restored index=3 positionMs=50211` + 用户确认进度正常。
 - DSD `PlaybackTuning: sonic-disabled reason=unsupported`（已知独立限制，符合预期，非 R4 范围）。
 
-**结论**：R4 在 **debug/perf** 生效、release 仍走候选 X。float 路径已同时兼容 **频谱 + EQ + 硬件变速变调**，纯增量、无音质回归。遗留（另立项、需 consent）：① DSD 的 **变速变调**（EQ 已补，见下）；② release 是否启用 R4/R1b。
+**结论**：R4 在 **全 build type** 生效（2026-07-08 推广 release）。float 路径同时兼容 **频谱 + EQ + 硬件变速变调**，纯增量、无音质回归。遗留（另立项、需 consent）：DSD 的 **变速变调**。
 
 ##### R4 收尾：DSD EQ 补线（2026-07-08）
 
@@ -2629,5 +2629,6 @@ R0 通过，R 才值得作为中期主线 spike；R0 不通过，立即停止，
 | 2026-07-08 | **§18.14.10g R4 代码落地**（consent 已获，路线1）：`MicaFloatDspAudioSink`(ForwardingAudioSink) 在 float 路径做 EQ+频谱，变速变调走 AudioTrack 硬件参数（`setEnableAudioTrackPlaybackParams(true)`）；`MicaEqualizerManager.equalizer` 复用；内层 PcmSink 空链；纯增量（EQ 关&频谱关时 bit-exact 直通）；`MicaFloatDspAudioSinkTest` 全绿；debug/perf 生效、release 仍 X；待实机 R4 验收 |
 | 2026-07-08 | **§18.14.10f R2 通过 + R3 苗头**（log 37）：FLAC↔DSF AUTO/手动混切零 `pipeline-rebuild`/零 `OUTPUT_FAILED`/零 `position-sync-skipped`/零 `session-released`（H4–H7 ✅）；路由矩阵全 accept 到正确 role；24/96 FLAC 交付 `PCM_FLOAT`（R3 结论 B，非 bit-perfect packed）；实测证实 float PcmSink 绕过 Processor 链 → FLAC/ALAC 无频谱/Sonic/EQ，列为 R4 功能边界收口项 |
 | 2026-07-08 | **R4 首/次轮修复**（log 38–40）：① `MicaCappedSpeedBufferSizeProvider` 把 float PcmSink 缓冲从 8×(3.84s) 夹到 2×(0.96s)，降 EQ 延迟；② **真凶** `MicaSpectrumAnalyzer` 缺 `ENCODING_PCM_FLOAT` 分支 → float 被当 16-bit（帧数翻倍→频谱 2 倍速/垃圾值），补 4-byte float 解析；③ `MaxQueuedAudioSeconds` 0.5→1.2s 吸满缓冲深度、抹平残留领先（用户选 A，纯分析侧、零音质）；均编译+单测全绿 |
+| 2026-07-08 | **R 推广 release**：`PcmDeliveryExperiment.rendererSplit` 去掉 debug/perf 门控，全 build type 走 renderer-split+R4；启动日志 `scope=all-builds`；单测 `rendererSplit_enabledOnAllBuildTypes` |
 | 2026-07-08 | **R 定为终选 + G3-1b 废弃 + DSD EQ 补线 + 文档同步**：`buildDsdAudioSink` 接入 `MicaEqualizerManager.createAudioProcessor()`（24-bit int EQ，纯增量，实机通过）；`PcmDeliveryExperiment.G31B_PER_SONG_SINK_ENABLED=false`（G3-1b inert，AUTO race 作废）；测试改 `g31bPerSongSink_deprecated_alwaysDisabled`；状态头/§0/§18.13/§18.14 候选表 + R1b 验收状态同步；提交 `codex/audio-renderer-split-r4` |
 | 2026-07-08 | **§18.14.10g R4 验收通过**（log 41）：变速变调进度正常（AudioTrack 硬件参数、时钟正确）；FLAC↔DSD 混切 0 rebuild/OUTPUT_FAILED（R2 不回归）；EQ 关&频谱关 bit-exact 直通；kill+restore 进度正常。float 路径同时兼容 频谱+EQ+硬件变速变调，debug/perf 生效、release 仍 X。遗留另立项（需 consent）：DSD 的 EQ/变速变调、release 启用 R4/R1b |
