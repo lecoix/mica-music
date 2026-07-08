@@ -29,6 +29,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.DsdSupport
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
@@ -219,6 +220,13 @@ fun NowPlayingContent(
         sleepTimer.formatRemaining()
     } else {
         null
+    }
+    val playbackTuningAvailable = !DsdSupport.isDsdSong(song)
+
+    LaunchedEffect(playbackTuningAvailable) {
+        if (!playbackTuningAvailable) {
+            playbackTuningSheetOpen = false
+        }
     }
 
     LaunchedEffect(sleepTimer) {
@@ -568,7 +576,7 @@ fun NowPlayingContent(
                     actionMenuSong = null
                     sleepTimerSheetOpen = true
                 },
-                showPlaybackTuning = true,
+                showPlaybackTuning = playbackTuningAvailable,
                 playbackTuningLabel = formatPlaybackTuningMenuLabel(surfaceState.playbackTuning),
                 onPlaybackTuningClick = {
                     actionMenuSong = null

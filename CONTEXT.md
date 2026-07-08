@@ -138,6 +138,10 @@ _Avoid_: playback service（无专名时）、background service
 唯一出声路径：`ExoPlayer` → `MicaExtractorsFactory` / `MicaRenderersFactory` → `libffmpegJNI.so`（ALAC、DSD 等扩展）→ `MicaAudioProcessorChain`（DSD 降采样 / 频谱 / EQ）→ `AudioTrack`。
 _Avoid_: 软件播、双后端、libmica_ffmpeg
 
+**Audio quality consent（音质改动许可）**：
+任何可能降低播放保真度的实现（位深/采样率缩减、关闭 float 或 hi-res 直通、全格式共用劣化链路、有损转码、默认 EQ/限幅等）**必须先向用户明确说明影响范围与对象格式**，并**在得到明确允许之前不得实现或默认启用**。Agent 与贡献者均须遵守；细则见 `.cursor/rules/audio-quality-consent.mdc`。
+_Avoid_: 为修单一格式（如 DSD）擅自改动全局 Sink 且不在文档与对话中事先披露对 FLAC 等的影响
+
 **PlaybackRouteDecision**：
 对一首 `Song` 判定 Exo 是否可播；`.dsf` 与常规格式为 `Supported`，`.dff` 为 `Unsupported`（可扫描入库，播放时拒绝并提示）。
 _Avoid_: codec path、PlaybackBackendKind

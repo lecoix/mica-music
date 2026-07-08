@@ -132,8 +132,8 @@ class MicaCompositePlayer(
         queueRevision++
     }
 
-    /** Recreates Exo renderers/audio sink while preserving the current queue and position. */
-    fun rebuildAudioPipeline(positionMs: Long, resumePlayback: Boolean) {
+    /** Stops, seeks, and re-prepares playback to flush processor state (does not rebuild the sink). */
+    fun flushPlaybackPipeline(positionMs: Long, resumePlayback: Boolean) {
         exoPlayer.playWhenReady = false
         exoPlayer.stop()
         exoPlayer.seekTo(positionMs.coerceAtLeast(0L))

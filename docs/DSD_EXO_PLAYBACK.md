@@ -152,9 +152,13 @@ flowchart LR
 
 1. **无 bit-perfect DSD**：输出为解码 + 降采样 PCM，非 DoP / Native DSD。
 2. **无曲首静音裁剪**：自定义链移除了 `SilenceSkippingAudioProcessor`。
-3. **变速**：依赖 `PlaybackParams`；未保留 `SonicAudioProcessor`。
+3. **共用 Sink**：`setEnableFloatOutput(false)` 为 DSD 降采样服务，**Hi-Res FLAC 等也可能经 ToInt16 收成 16bit**（见对话记录）；进一步改动须遵守 **Audio quality consent**（`CONTEXT.md`）。
 4. **大文件**：DSD256 单文件体积大，首次缓冲 / seek 可能较慢。
 5. **`.dff`**：不支持播放。
+
+### 音质改动政策
+
+任何新的降音质实现须**事先说明**并获**明确允许**。项目约束：`.cursor/rules/audio-quality-consent.mdc`、`CONTEXT.md` → **Audio quality consent**。
 
 ---
 

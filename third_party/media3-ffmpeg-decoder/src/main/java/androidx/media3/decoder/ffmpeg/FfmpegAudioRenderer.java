@@ -48,6 +48,11 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
   /** The default input buffer size. */
   private static final int DEFAULT_INPUT_BUFFER_SIZE = 960 * 6;
 
+  // Mica R1b: optional role label + support allowlist for renderer-split sinks. Null keeps the
+  // stock behaviour used by R1a and release builds.
+  @Nullable private final String micaRole;
+  @Nullable private final FfmpegFormatPolicy micaPolicy;
+
   public FfmpegAudioRenderer() {
     this(/* eventHandler= */ null, /* eventListener= */ null);
   }
@@ -82,16 +87,48 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       @Nullable Handler eventHandler,
       @Nullable AudioRendererEventListener eventListener,
       AudioSink audioSink) {
+    this(eventHandler, eventListener, audioSink, /* micaRole= */ null, /* micaPolicy= */ null);
+  }
+
+  /**
+   * Mica R1b: creates a role-scoped renderer whose {@code supportsFormat} is gated by {@code
+   * micaPolicy}, so several renderers can share one ExoPlayer with mutually-exclusive sinks.
+   *
+   * @param micaRole Diagnostic role label (e.g. {@code DsdOnly}). May be null for stock behaviour.
+   * @param micaPolicy Allowlist consulted before the stock format check. Null accepts everything the
+   *     stock renderer supports.
+   */
+  public FfmpegAudioRenderer(
+      @Nullable Handler eventHandler,
+      @Nullable AudioRendererEventListener eventListener,
+      AudioSink audioSink,
+      @Nullable String micaRole,
+      @Nullable FfmpegFormatPolicy micaPolicy) {
     super(eventHandler, eventListener, audioSink);
+    this.micaRole = micaRole;
+    this.micaPolicy = micaPolicy;
   }
 
   @Override
   public String getName() {
-    return TAG;
+    return micaRole == null ? TAG : TAG + "[" + micaRole + "]";
   }
 
   @Override
   protected @C.FormatSupport int supportsFormatInternal(Format format) {
+    @C.FormatSupport int formatSupport;
+    if (micaPolicy != null && !micaPolicy.acceptsFormat(format)) {
+      // Mica R1b: role allowlist rejects this format so another renderer/sink can claim it.
+      formatSupport = C.FORMAT_UNSUPPORTED_SUBTYPE;
+    } else {
+      formatSupport = computeSupportsFormatInternal(format);
+    }
+    // Mica R1a: diagnostic-only report of the real supportsFormat decision. No-op in release.
+    FfmpegRendererSupportProbe.report(getName(), format, formatSupport);
+    return formatSupport;
+  }
+
+  private @C.FormatSupport int computeSupportsFormatInternal(Format format) {
     String mimeType = checkNotNull(format.sampleMimeType);
     if (!FfmpegLibrary.isAvailable() || !MimeTypes.isAudio(mimeType)) {
       return C.FORMAT_UNSUPPORTED_TYPE;

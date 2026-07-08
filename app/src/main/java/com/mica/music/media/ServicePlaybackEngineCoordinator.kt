@@ -9,6 +9,7 @@ import com.mica.music.util.DiagnosticLog
 
 internal class ServicePlaybackEngineCoordinator(
     private val player: MicaCompositePlayer,
+    private val context: android.content.Context,
     private val requestState: ServicePlaybackRequestState = ServicePlaybackRequestState(),
 ) : AlacSessionCommandHandler, Player.Listener {
 
@@ -175,6 +176,7 @@ internal class ServicePlaybackEngineCoordinator(
             "PlaybackEngine",
             "start request=${request.id} source=${request.sourceRevision}",
         )
+        logDeliveryProbe(song)
         player.startExoPlayback(items, index, positionMs, playWhenReady = playWhenReady)
     }
 
@@ -200,6 +202,7 @@ internal class ServicePlaybackEngineCoordinator(
                     "auto-transition route=${route.reason} song=${song.id}",
                 )
                 requestState.begin(song, position)
+                logDeliveryProbe(song)
             }
         }
     }
@@ -260,6 +263,7 @@ internal class ServicePlaybackEngineCoordinator(
             "PlaybackEngine",
             "start-existing request=${request.id} index=$safe source=${request.sourceRevision}",
         )
+        logDeliveryProbe(song)
         player.startExistingItem(safe, position, playWhenReady)
     }
 
@@ -370,6 +374,14 @@ internal class ServicePlaybackEngineCoordinator(
         player.repeatMode == Player.REPEAT_MODE_ALL -> PlaybackQueueMode.REPEAT_ALL
         player.repeatMode == Player.REPEAT_MODE_ONE -> PlaybackQueueMode.REPEAT_ONE
         else -> PlaybackQueueMode.OFF
+    }
+
+    private fun logDeliveryProbe(song: Song) {
+        PcmDeliveryProbeDiagnostics.logForSong(
+            context = context,
+            song = song,
+            playbackParameters = player.playbackParameters,
+        )
     }
 
     private companion object {

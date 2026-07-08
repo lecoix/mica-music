@@ -19,13 +19,16 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.media.AudioPipelineDebugDiagnostics
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.ui.theme.PlayerContentColors
+import com.mica.music.util.DiagnosticLog
 import kotlin.math.abs
 import kotlin.math.sqrt
 
 private const val SpectrumProbeTag = "MicaSpectrumProbe"
-private const val SpectrumProbeEnabled = false
+private val SpectrumProbeEnabled: Boolean
+    get() = AudioPipelineDebugDiagnostics.formatTraceEnabled
 
 @Composable
 fun LivePlayerSpectrumStrip(
@@ -88,10 +91,17 @@ fun PlayerSpectrumStrip(
                 val elapsedNanos = frameNanos - probeStartNanos
                 if (elapsedNanos >= 1_000_000_000L) {
                     val seconds = elapsedNanos / 1_000_000_000f
+                    val uiFps = probeFrames / seconds
+                    val targetFps = probeTargetFrames / seconds
                     Log.d(
                         SpectrumProbeTag,
-                        "ui fps=${(probeFrames / seconds).format1()} " +
-                            "targetFps=${(probeTargetFrames / seconds).format1()} " +
+                        "ui fps=${uiFps.format1()} " +
+                            "targetFps=${targetFps.format1()} " +
+                            "bars=${target.size} height=${height.value.format1()}",
+                    )
+                    DiagnosticLog.event(
+                        "SpectrumProbe",
+                        "ui fps=${uiFps.format1()} targetFps=${targetFps.format1()} " +
                             "bars=${target.size} height=${height.value.format1()}",
                     )
                     probeStartNanos = frameNanos

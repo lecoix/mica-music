@@ -50,21 +50,22 @@ object PlaybackSourceRevision {
 
 object PlaybackRouter {
     fun decide(song: Song): PlaybackRouteDecision {
-        if (DsdSupport.isDsdMetadata(song.metadata) ||
-            DsdSupport.isDsdExtension(song.fileName.substringAfterLast('.', ""))
-        ) {
+        val decision = if (DsdSupport.isDsdSong(song)) {
             if (isDsfFile(song)) {
-                return PlaybackRouteDecision.Supported("dsf-exo-extractor")
+                PlaybackRouteDecision.Supported("dsf-exo-extractor")
+            } else {
+                PlaybackRouteDecision.Unsupported(
+                    reason = "dsd-dff-unsupported",
+                    userMessage = "不支持 DFF/DSDIFF 格式，请使用 DSF",
+                )
             }
-            return PlaybackRouteDecision.Unsupported(
-                reason = "dsd-dff-unsupported",
-                userMessage = "不支持 DFF/DSDIFF 格式，请使用 DSF",
-            )
+        } else if (AlacPlayback.isAlac(song)) {
+            PlaybackRouteDecision.Supported("alac-ffmpeg")
+        } else {
+            PlaybackRouteDecision.Supported("platform-format")
         }
-        if (AlacPlayback.isAlac(song)) {
-            return PlaybackRouteDecision.Supported("alac-ffmpeg")
-        }
-        return PlaybackRouteDecision.Supported("platform-format")
+        RendererSupportProbeDiagnostics.logRoute(song, decision)
+        return decision
     }
 
     fun isPlayable(song: Song): Boolean = decide(song) is PlaybackRouteDecision.Supported

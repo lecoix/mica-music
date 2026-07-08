@@ -188,6 +188,17 @@ fun HomeScreen(
         }
     }
 
+    fun selectAllSongs() {
+        selectedSongIds = library.songs.mapTo(mutableSetOf()) { it.id }
+    }
+
+    fun invertSongSelection() {
+        selectedSongIds = library.songs
+            .map { it.id }
+            .filterNot { it in selectedSongIds }
+            .toSet()
+    }
+
     fun openSongMultiSelect() {
         if (uiState.section != HomeSection.Songs || uiState.searchOpen) return
         songMultiSelectActive = true
@@ -528,6 +539,10 @@ fun HomeScreen(
                         if (songMultiSelectActive) {
                             SongMultiSelectStatsRow(
                                 selectedCount = selectedSongIds.size,
+                                canSelectSongs = library.songs.isNotEmpty(),
+                                onSelectAll = ::selectAllSongs,
+                                onInvertSelection = ::invertSongSelection,
+                                onClearSelection = { selectedSongIds = emptySet() },
                                 onAddToPlaylist = {
                                     val songs = library.songs.filter { it.id in selectedSongIds }
                                     if (songs.isNotEmpty()) {

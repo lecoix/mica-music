@@ -19,6 +19,7 @@ import kotlin.math.roundToInt
 @UnstableApi
 class DsdDecimationAudioProcessor(
     private val context: Context,
+    private val decimationOutputMode: DsdDecimationOutputMode = DsdDecimationOutputMode.IntPcm,
 ) : AudioProcessor {
 
     private var inputFormat = AudioProcessor.AudioFormat.NOT_SET
@@ -67,11 +68,7 @@ class DsdDecimationAudioProcessor(
 
         inputFormat = inputAudioFormat
         downsampleFactor = factor
-        outputEncoding = if (format.bitsPerSample > 16) {
-            C.ENCODING_PCM_24BIT
-        } else {
-            C.ENCODING_PCM_16BIT
-        }
+        outputEncoding = resolveOutputEncoding(format, decimationOutputMode)
         outputFormat = AudioProcessor.AudioFormat(
             format.sampleRateHz,
             inputAudioFormat.channelCount,
@@ -80,7 +77,8 @@ class DsdDecimationAudioProcessor(
         DiagnosticLog.event(
             "DsdProcessor",
             "[DEBUG-dsd-output] input=${inputAudioFormat.sampleRate}Hz/${inputAudioFormat.encoding} " +
-                "output=${format.sampleRateHz}Hz/${format.bitsPerSample}bit " +
+                "output=${format.sampleRateHz}Hz/${format.bitsPerSample}bit enc=$outputEncoding " +
+                "decimationMode=$decimationOutputMode " +
                 "channels=${inputAudioFormat.channelCount} factor=$factor",
         )
         pendingSize = 0
@@ -261,6 +259,7 @@ class DsdDecimationAudioProcessor(
     }
 
     private fun outputBytesPerSample(): Int = when (outputEncoding) {
+        C.ENCODING_PCM_FLOAT -> Float.SIZE_BYTES
         C.ENCODING_PCM_24BIT -> 3
         C.ENCODING_PCM_16BIT -> 2
         else -> error("Unsupported DSD output encoding: $outputEncoding")
@@ -268,6 +267,7 @@ class DsdDecimationAudioProcessor(
 
     private fun writeOutputSample(buffer: ByteBuffer, sample: Float) {
         when (outputEncoding) {
+            C.ENCODING_PCM_FLOAT -> buffer.putFloat(sample.coerceIn(-1f, 1f))
             C.ENCODING_PCM_24BIT -> {
                 val pcm = when {
                     sample <= -1f -> -8_388_608
@@ -312,6 +312,18 @@ class DsdDecimationAudioProcessor(
 
         private val NATIVE_ORDER = ByteOrder.nativeOrder()
         private val NATIVE_ORDER_IS_BIG_ENDIAN = NATIVE_ORDER == ByteOrder.BIG_ENDIAN
+
+        internal fun resolveOutputEncoding(
+            format: AlacPcmFormat,
+            mode: DsdDecimationOutputMode,
+        ): @C.PcmEncoding Int = when (mode) {
+            DsdDecimationOutputMode.FloatPcm -> C.ENCODING_PCM_FLOAT
+            DsdDecimationOutputMode.IntPcm -> if (format.bitsPerSample > 16) {
+                C.ENCODING_PCM_24BIT
+            } else {
+                C.ENCODING_PCM_16BIT
+            }
+        }
 
         internal fun resolveDsdDecimationTarget(
             context: Context,

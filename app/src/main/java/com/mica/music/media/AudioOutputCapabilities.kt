@@ -17,6 +17,12 @@ internal data class AudioRouteSnapshot(
 )
 
 internal object AudioOutputCapabilities {
+    /** Android [AudioFormat] / probe ladder upper bound; DSD native rates (MHz) are excluded. */
+    internal const val MAX_PROBE_SAMPLE_RATE_HZ = 768_000
+
+    internal fun isProbeableSampleRate(sampleRateHz: Int): Boolean =
+        sampleRateHz in 1..MAX_PROBE_SAMPLE_RATE_HZ
+
     private val mediaAttributes: AudioAttributes by lazy {
         AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -37,19 +43,55 @@ internal object AudioOutputCapabilities {
     }
 
     fun supports(context: Context, format: AlacPcmFormat): Boolean {
+        val supported = queryIntSupport(context, format)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            DiagnosticLog.event(
+                "AudioCapability",
+                "direct format=${format.describe()} support=${queryDirectSupportLevel(format)} " +
+                    "route=${route(context).deviceName}",
+            )
+        }
+        return supported
+    }
+
+    fun queryIntSupport(context: Context, format: AlacPcmFormat): Boolean {
+        if (!isProbeableSampleRate(format.sampleRateHz)) return false
         if (format.bitsPerSample > 16 && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return false
         }
         val audioFormat = format.toAudioFormat()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val support = AudioManager.getDirectPlaybackSupport(audioFormat, mediaAttributes)
-            DiagnosticLog.event(
-                "AudioCapability",
-                "direct format=${format.describe()} support=$support route=${route(context).deviceName}",
-            )
-            return support != AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED
+            return queryDirectSupportLevel(format) != AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED
         }
         return canInitializeAudioTrack(audioFormat, format)
+    }
+
+    fun queryFloatSupport(
+        context: Context,
+        sampleRateHz: Int,
+        channelCount: Int,
+    ): Boolean {
+        if (!isProbeableSampleRate(sampleRateHz) || channelCount <= 0) return false
+        val channelMask = channelMask(channelCount)
+        val audioFormat = runCatching {
+            AudioFormat.Builder()
+                .setSampleRate(sampleRateHz)
+                .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                .setChannelMask(channelMask)
+                .build()
+        }.getOrNull() ?: return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return AudioManager.getDirectPlaybackSupport(audioFormat, mediaAttributes) !=
+                AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED
+        }
+        return canInitializeAudioTrack(audioFormat, sampleRateHz, channelMask)
+    }
+
+    fun queryDirectSupportLevel(format: AlacPcmFormat): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED
+        }
+        return AudioManager.getDirectPlaybackSupport(format.toAudioFormat(), mediaAttributes)
     }
 
     fun snapshot(device: AudioDeviceInfo?): AudioRouteSnapshot {
@@ -86,6 +128,20 @@ internal object AudioOutputCapabilities {
             format.audioTrackEncoding,
         )
         if (minBuffer <= 0) return false
+        return canInitializeAudioTrack(audioFormat, format.sampleRateHz, format.channelMask)
+    }
+
+    private fun canInitializeAudioTrack(
+        audioFormat: AudioFormat,
+        sampleRateHz: Int,
+        channelMask: Int,
+    ): Boolean {
+        val minBuffer = AudioTrack.getMinBufferSize(
+            sampleRateHz,
+            channelMask,
+            audioFormat.encoding,
+        )
+        if (minBuffer <= 0) return false
         val track = runCatching {
             AudioTrack.Builder()
                 .setAudioAttributes(mediaAttributes)
@@ -100,6 +156,13 @@ internal object AudioOutputCapabilities {
             runCatching { track.release() }
         }
     }
+
+    private fun channelMask(channelCount: Int): Int =
+        if (channelCount.coerceIn(1, 2) == 1) {
+            AudioFormat.CHANNEL_OUT_MONO
+        } else {
+            AudioFormat.CHANNEL_OUT_STEREO
+        }
 
     private fun AlacPcmFormat.toAudioFormat(): AudioFormat =
         AudioFormat.Builder()

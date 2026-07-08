@@ -24,6 +24,24 @@ object MicaEqualizerManager {
     private val softwareEqualizer = SoftwareEqualizer()
     val audioProcessor: SoftwareEqualizerAudioProcessor = SoftwareEqualizerAudioProcessor(softwareEqualizer)
 
+    /**
+     * Shared EQ DSP for sinks that cannot host [audioProcessor] in their processor chain (e.g. the
+     * float PcmSink whose float output path Media3 excludes from the custom chain). Reuses the same
+     * instance so UI-driven band/enable changes apply everywhere. Safe because renderer-split keeps
+     * only one audio renderer active at a time, so the shared biquad state is never interleaved.
+     */
+    val equalizer: SoftwareEqualizer get() = softwareEqualizer
+
+    /**
+     * Fresh Media3 processor bound to the shared [equalizer], for a sink that needs its own chain
+     * instance (e.g. the renderer-split DSD int sink) instead of reusing [audioProcessor], whose
+     * internal buffers must not be shared across two [androidx.media3.exoplayer.audio.DefaultAudioSink]
+     * chains. Band/enable changes still apply everywhere; renderer-split keeps one renderer active at
+     * a time so the shared biquad state is never interleaved.
+     */
+    fun createAudioProcessor(): SoftwareEqualizerAudioProcessor =
+        SoftwareEqualizerAudioProcessor(softwareEqualizer)
+
     private var systemEqualizer: Equalizer? = null
     private var attachedSessionId: Int = 0
 
@@ -169,7 +187,6 @@ object MicaEqualizerManager {
         val enabled = EqualizerPreferences.equalizerEnabled(context)
         softwareEqualizer.setEnabled(enabled)
         softwareEqualizer.setGlobalGainMillibels(EqualizerPreferences.equalizerGlobalGainMillibels(context))
-        onEnabledChanged?.invoke(enabled)
         when (val selection = EqCustomProfileStore.getSelection(context)) {
             is EqSelection.System -> applySystemPreset(context, selection.index)
             EqSelection.Draft -> restoreCustomBands(context)

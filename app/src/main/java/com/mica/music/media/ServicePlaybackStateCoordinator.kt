@@ -26,6 +26,8 @@ internal class ServicePlaybackStateCoordinator(
         Thread(runnable, "mica-playback-state").apply { isDaemon = true }
     }
 
+    var onRestoreCompleted: (() -> Unit)? = null
+
     private val listener = object : Player.Listener {
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
             if (!tryRestore()) {
@@ -115,6 +117,7 @@ internal class ServicePlaybackStateCoordinator(
         persistQueue()
         persistCursor(force = true)
         lastPersistedQueueIds = currentSongIds()
+        onRestoreCompleted?.invoke()
         return true
     }
 

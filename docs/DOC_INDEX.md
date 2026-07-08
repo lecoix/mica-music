@@ -39,6 +39,8 @@
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
+| [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md) | Exo PCM **改造计划**（**§0 摘要、§18 Gate/验收**；P1 过渡态；P2–P6） |
+| [`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md) | Exo PCM 链路**讨论记录**（背景与机制分析；结论已并入 REFACTOR） |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
@@ -83,6 +85,8 @@
 
 | 位置 | 说明 |
 |------|------|
+| `.cursor/rules/audio-quality-consent.mdc` | **音质改动须事先说明并获明确允许**（Agent 始终生效） |
+| `CONTEXT.md` → **Audio quality consent** | 同上，领域词汇 |
 | `app/src/test/.../CoverFlowRailsTest.kt` | 封面流 `railOffset` 连续性 |
 | `app/src/test/.../PlayerPageLayoutEngineTest.kt` | 播放页布局 |
 | `gradle/libs.versions.toml` | 依赖版本真相源 |
@@ -101,3 +105,7 @@
 | 2026-06-20 | 新增 `PERFORMANCE_INVESTIGATION_02.md`；更新 `PERFORMANCE_INVESTIGATION.md` 封面流发热结论 |
 | 2026-06-27 | 新增 `APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md` |
 | 2026-07-04 | 文档与现网对齐：`CONTEXT`、`TODO`、`REASONIX`、`DESIGN_SPEC` v1.3、`COVER_FLOW` §13 拍立得、`PLAYER_PAGE_CONTRACT` 粒子/拍立得、粒子 §0、`README` |
+| 2026-07-07 | 新增 `AUDIO_PIPELINE_DISCUSSION.md`（变速/频谱/Sonic/Hi-Res 探测/USB 前瞻讨论记录） |
+| 2026-07-07 | 新增 `AUDIO_PIPELINE_REFACTOR.md`（可执行改造计划：Sink Profile、P0–P6、验收与测试） |
+| 2026-07-08 | 更新 `AUDIO_PIPELINE_REFACTOR.md`：§0 一页摘要、§18 终态/Gate/验收、P1 过渡态与 §7.3 勘误 |
+| 2026-07-07 | 新增 **Audio quality consent**：`.cursor/rules/audio-quality-consent.mdc`、`CONTEXT.md` |
