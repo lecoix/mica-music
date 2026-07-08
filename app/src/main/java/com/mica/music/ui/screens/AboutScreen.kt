@@ -139,8 +139,9 @@ fun AboutScreen(
                 onClick = { uriHandler.openUri("https://github.com/lecoix/mica-music") },
             )
             AboutParagraph(
-                "本播放器完全由AI制作、构建，" +
-                    "不保证完全能用。",
+                "本播放器99.9%由AI制作、构建，" +
+                    "不保证完全能用，" +
+                        "也不保证出bug了能全修好" ,
             )
 
             Spacer(Modifier.height(HifiSpacing.xxl + bottomContentClearance))
@@ -161,13 +162,13 @@ private fun AboutHero() {
             color = MicaTheme.colors.textPrimary,
         )
         Text(
-            text = "本地音乐播放器",
+            text = "极简·直角",
             style = MicaTheme.typography.bodyMd,
             color = MicaTheme.colors.textSecondary,
             modifier = Modifier.padding(top = HifiSpacing.xxs),
         )
         Text(
-            text = "一款以直角与极简为设计语言的播放器",
+            text = "一款不专业的本地音乐播放器",
             style = MicaTheme.typography.caption,
             color = MicaTheme.colors.textTertiary,
             modifier = Modifier.padding(top = HifiSpacing.sm),
