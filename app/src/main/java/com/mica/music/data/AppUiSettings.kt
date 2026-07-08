@@ -3,6 +3,7 @@ package com.mica.music.data
 import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +84,15 @@ class AppUiSettings(context: Context) {
         private set
 
     var customMicaSingleColor by mutableStateOf(AppearancePreferences.customMicaSingleColor(appContext))
+        private set
+
+    var customWallpaperPath by mutableStateOf(AppearancePreferences.customWallpaperPath(appContext))
+        private set
+
+    var customWallpaperViewportTopPx by mutableFloatStateOf(0f)
+        private set
+
+    var customWallpaperViewportHeightPx by mutableFloatStateOf(0f)
         private set
 
     var globalFont by mutableStateOf(FontPreferences.globalFont(appContext))
@@ -240,6 +250,16 @@ class AppUiSettings(context: Context) {
         AppearancePreferences.setCustomMicaEndArgb(appContext, endArgb)
         AppearancePreferences.setCustomMicaSingleColor(appContext, singleColor)
         updateMicaBackgroundPreset(MicaPreset.CUSTOM)
+    }
+
+    fun updateCustomWallpaperPath(path: String?) {
+        customWallpaperPath = path
+        AppearancePreferences.setCustomWallpaperPath(appContext, path)
+    }
+
+    fun updateCustomWallpaperViewport(topPx: Float, heightPx: Float) {
+        customWallpaperViewportTopPx = topPx
+        customWallpaperViewportHeightPx = heightPx
     }
 
     fun updateGlobalFont(selection: AppFontSelection) {

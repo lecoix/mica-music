@@ -154,6 +154,7 @@ class MainActivity : ComponentActivity() {
         }
         val mainCompose = ComposeView(this)
         val overlayCompose = ComposeView(this).apply {
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -206,21 +207,23 @@ class MainActivity : ComponentActivity() {
                     viewModel.syncPlaybackQueueWithLibrarySongs("libraryIds")
                 }
 
-                MainAppSurface(
-                    snackbarHost = {
-                        UserMessageHost(
-                            message = playerController.userMessage,
-                            onMessageConsumed = playerController::clearUserMessage,
-                            snackbarHostState = snackbarHostState,
+                CompositionLocalProvider(LocalMicaBlurTarget provides blurTarget) {
+                    MainAppSurface(
+                        snackbarHost = {
+                            UserMessageHost(
+                                message = playerController.userMessage,
+                                onMessageConsumed = playerController::clearUserMessage,
+                                snackbarHostState = snackbarHostState,
+                            )
+                        },
+                    ) {
+                        AppNavigationMain(
+                            coordinator = coordinator,
+                            library = library,
+                            playerController = playerController,
+                            uiSettings = uiSettings,
                         )
-                    },
-                ) {
-                    AppNavigationMain(
-                        coordinator = coordinator,
-                        library = library,
-                        playerController = playerController,
-                        uiSettings = uiSettings,
-                    )
+                    }
                 }
             }
         }

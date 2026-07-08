@@ -18,6 +18,7 @@ object AppearancePreferences {
     private const val KEY_CUSTOM_MICA_START = "custom_mica_start"
     private const val KEY_CUSTOM_MICA_END = "custom_mica_end"
     private const val KEY_CUSTOM_MICA_SINGLE_COLOR = "custom_mica_single_color"
+    private const val KEY_CUSTOM_WALLPAPER_PATH = "custom_wallpaper_path"
 
     private const val DEFAULT_CUSTOM_ACCENT_COLOR_ARGB = 0xFF8B7AFF.toInt()
     private const val DEFAULT_CUSTOM_MICA_START_ARGB = CustomMicaBackground.DEFAULT_START_ARGB
@@ -104,5 +105,20 @@ object AppearancePreferences {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_CUSTOM_MICA_SINGLE_COLOR, singleColor)
             .apply()
+    }
+
+    fun customWallpaperPath(context: Context): String? =
+        MicaSettingsStore.prefs(context)
+            .getString(KEY_CUSTOM_WALLPAPER_PATH, null)
+            ?.takeIf { it.isNotBlank() }
+
+    fun setCustomWallpaperPath(context: Context, path: String?) {
+        MicaSettingsStore.prefs(context).edit().apply {
+            if (path.isNullOrBlank()) {
+                remove(KEY_CUSTOM_WALLPAPER_PATH)
+            } else {
+                putString(KEY_CUSTOM_WALLPAPER_PATH, path)
+            }
+        }.apply()
     }
 }

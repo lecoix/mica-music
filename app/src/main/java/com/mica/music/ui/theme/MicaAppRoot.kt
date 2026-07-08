@@ -14,7 +14,10 @@ fun MicaAppRoot(
 ) {
     val darkTheme = uiSettings.isDarkTheme()
     val reduceMotion = rememberReduceMotion()
-    CompositionLocalProvider(MicaMotion.LocalEnabled provides !reduceMotion) {
+    CompositionLocalProvider(
+        MicaMotion.LocalEnabled provides !reduceMotion,
+        LocalAppUiSettings provides uiSettings,
+    ) {
         MicaTheme(
             darkTheme = darkTheme,
             accentColor = uiSettings.accentColor,
@@ -25,6 +28,7 @@ fun MicaAppRoot(
                 endArgb = uiSettings.customMicaEndArgb,
                 singleColor = uiSettings.customMicaSingleColor,
             ),
+            customWallpaperPath = uiSettings.customWallpaperPath,
             coverDisplayMode = uiSettings.coverDisplayMode,
             lyricSplitEnabled = uiSettings.lyricSplitEnabled,
             lyricLineFillEnabled = uiSettings.lyricLineFillEnabled,

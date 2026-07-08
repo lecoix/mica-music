@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontFamily
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppFontSelection
 import com.mica.music.data.AppFontSource
+import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
 import java.io.File
@@ -24,6 +25,8 @@ val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
 val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
 val LocalMicaBackgroundPreset = staticCompositionLocalOf { MicaPreset.Dawn }
 val LocalCustomMicaBackground = staticCompositionLocalOf { CustomMicaBackground.Default }
+val LocalCustomWallpaperPath = staticCompositionLocalOf<String?> { null }
+val LocalAppUiSettings = staticCompositionLocalOf<AppUiSettings?> { null }
 val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
 val LocalLyricSplitEnabled = staticCompositionLocalOf { true }
 val LocalLyricLineFillEnabled = staticCompositionLocalOf { false }
@@ -35,6 +38,7 @@ fun MicaTheme(
     customAccentColorArgb: Int = 0xFF8B7AFF.toInt(),
     micaBackgroundPreset: MicaPreset = MicaPreset.Dawn,
     customMicaBackground: CustomMicaBackground = CustomMicaBackground.Default,
+    customWallpaperPath: String? = null,
     coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     lyricSplitEnabled: Boolean = true,
     lyricLineFillEnabled: Boolean = false,
@@ -110,6 +114,7 @@ fun MicaTheme(
         LocalHifiTypography provides typography,
         LocalMicaBackgroundPreset provides micaBackgroundPreset,
         LocalCustomMicaBackground provides customMicaBackground,
+        LocalCustomWallpaperPath provides customWallpaperPath,
         LocalCoverDisplayMode provides coverDisplayMode,
         LocalLyricSplitEnabled provides lyricSplitEnabled,
         LocalLyricLineFillEnabled provides lyricLineFillEnabled,

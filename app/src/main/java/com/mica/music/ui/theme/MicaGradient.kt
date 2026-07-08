@@ -179,7 +179,12 @@ fun Modifier.micaBackground(preset: MicaPreset): Modifier {
 
 /** 使用 [LocalMicaBackgroundPreset] 的页面背景渐变。 */
 @Composable
-fun Modifier.micaAppBackground(): Modifier = micaBackground(LocalMicaBackgroundPreset.current)
+fun Modifier.micaAppBackground(): Modifier =
+    if (LocalCustomWallpaperPath.current == null) {
+        micaBackground(LocalMicaBackgroundPreset.current)
+    } else {
+        this
+    }
 
 data class MicaSurfaceColors(
     val gradientStart: Color,
@@ -211,4 +216,3 @@ fun Modifier.micaFromArtwork(dominantColor: Color, vibrantColor: Color): Modifie
     )
 
 }
-

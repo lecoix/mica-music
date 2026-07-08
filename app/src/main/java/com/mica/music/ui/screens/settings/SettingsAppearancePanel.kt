@@ -1,14 +1,22 @@
 package com.mica.music.ui.screens.settings
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.AppWallpaperImporter
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
+import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
@@ -16,6 +24,9 @@ import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.screens.settings.color.formatAccentHex
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaPreset
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun AppearanceSettingsPanel(
@@ -23,6 +34,21 @@ internal fun AppearanceSettingsPanel(
     onShowCustomAccentDialog: () -> Unit,
     onShowCustomMicaDialog: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val wallpaperPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                AppWallpaperImporter.importWallpaper(context, uri)
+            }
+            result.path?.let(uiSettings::updateCustomWallpaperPath)
+            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     SettingsSectionTitle("外观与主题")
 
     SettingsChoiceRow(
@@ -75,6 +101,31 @@ internal fun AppearanceSettingsPanel(
             } else {
                 uiSettings.updateMicaBackgroundPreset(preset)
             }
+        },
+    )
+
+    SettingsActionRow(
+        title = "自定义壁纸",
+        subtitle = if (uiSettings.customWallpaperPath == null) {
+            "选择主界面背景；播放页与歌词页不受影响"
+        } else {
+            "已启用；覆盖首页、设置等主界面背景"
+        },
+        onClick = {
+            wallpaperPicker.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+            )
+        },
+    )
+
+    SettingsActionRow(
+        title = "恢复默认壁纸",
+        subtitle = "回到当前云母背景",
+        enabled = uiSettings.customWallpaperPath != null,
+        onClick = {
+            AppWallpaperImporter.clearWallpaper(context)
+            uiSettings.updateCustomWallpaperPath(null)
+            Toast.makeText(context, "已恢复默认壁纸", Toast.LENGTH_SHORT).show()
         },
     )
 

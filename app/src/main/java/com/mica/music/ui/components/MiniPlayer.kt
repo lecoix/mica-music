@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
@@ -53,11 +54,13 @@ import com.mica.music.media.NotificationLyrics
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCustomMicaBackground
+import com.mica.music.ui.theme.LocalCustomWallpaperPath
 import com.mica.music.ui.theme.LocalMicaBackgroundPreset
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.bottomThemeColor
 import com.mica.music.ui.theme.FloatingIslandShadowSpread
 import com.mica.music.ui.theme.FloatingIslandShadowVerticalExtra
+import com.mica.music.ui.theme.MicaCustomWallpaperSlice
 import com.mica.music.ui.theme.MicaMaterialBackdrop
 import com.mica.music.ui.theme.FloatingIslandShadowHalo
 
@@ -393,6 +396,7 @@ private fun AudiophileMiniPlayer(
         colors.isDark,
         LocalCustomMicaBackground.current,
     )
+    val hasCustomWallpaper = LocalCustomWallpaperPath.current != null
     LaunchedEffect(Unit) {
         onCoverBoundsChanged(null)
     }
@@ -400,57 +404,94 @@ private fun AudiophileMiniPlayer(
     Column(
         modifier = modifier.fillMaxWidth(),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(AudiophileBarHeight)
-                .background(barSurface)
-                .semantics {
-                    contentDescription = "展开播放器：${song.title}"
-                    role = Role.Button
-                }
-                .combinedClickable(
-                    onClick = onExpand,
-                    onLongClick = onLongPress,
-                )
-                .padding(start = HifiSpacing.lg, end = HifiSpacing.xl),
+                .height(AudiophileBarHeight),
         ) {
-            SharpPlayPauseButton(
-                isPlaying = isPlaying,
-                onToggle = onPlayPause,
-                size = HifiSize.iconLg,
-                color = colors.textPrimary,
+            AudiophileBarBackdrop(
+                barSurface = barSurface,
+                isDark = colors.isDark,
+                hasCustomWallpaper = hasCustomWallpaper,
+                height = AudiophileBarHeight,
             )
-            Spacer(Modifier.width(HifiSpacing.md))
-            Column(
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(end = HifiSpacing.sm),
+                    .fillMaxSize()
+                    .semantics {
+                        contentDescription = "展开播放器：${song.title}"
+                        role = Role.Button
+                    }
+                    .combinedClickable(
+                        onClick = onExpand,
+                        onLongClick = onLongPress,
+                    )
+                    .padding(start = HifiSpacing.lg, end = HifiSpacing.xl),
             ) {
-                MiniPlayerMarqueeText(
-                    text = text.primary,
-                    style = MicaTheme.typography.bodyMd,
+                SharpPlayPauseButton(
+                    isPlaying = isPlaying,
+                    onToggle = onPlayPause,
+                    size = HifiSize.iconLg,
                     color = colors.textPrimary,
                 )
-                MiniPlayerMarqueeText(
-                    text = text.secondary,
-                    style = MicaTheme.typography.bodySm,
-                    color = colors.textSecondary,
+                Spacer(Modifier.width(HifiSpacing.md))
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = HifiSpacing.sm),
+                ) {
+                    MiniPlayerMarqueeText(
+                        text = text.primary,
+                        style = MicaTheme.typography.bodyMd,
+                        color = colors.textPrimary,
+                    )
+                    MiniPlayerMarqueeText(
+                        text = text.secondary,
+                        style = MicaTheme.typography.bodySm,
+                        color = colors.textSecondary,
+                    )
+                }
+                MiniPlayerSpectrumBars(
+                    isPlaying = isPlaying,
+                    height = 38.dp,
                 )
             }
-            MiniPlayerSpectrumBars(
-                isPlaying = isPlaying,
-                height = 38.dp,
-            )
         }
         if (bottomInset > 0.dp) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(bottomInset)
-                    .background(barSurface),
+            AudiophileBarBackdrop(
+                barSurface = barSurface,
+                isDark = colors.isDark,
+                hasCustomWallpaper = hasCustomWallpaper,
+                height = bottomInset,
             )
         }
     }
+}
+
+/** 不透明底栏：无壁纸时用主题色，有壁纸时裁切同坐标切片与主背景衔接。 */
+@Composable
+private fun AudiophileBarBackdrop(
+    barSurface: Color,
+    isDark: Boolean,
+    hasCustomWallpaper: Boolean,
+    height: Dp,
+    modifier: Modifier = Modifier,
+) {
+    if (hasCustomWallpaper) {
+        MicaCustomWallpaperSlice(
+            isDark = isDark,
+            fallbackColor = barSurface,
+            modifier = modifier
+                .fillMaxWidth()
+                .height(height),
+        )
+        return
+    }
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(barSurface),
+    )
 }
