@@ -18,7 +18,6 @@ import java.util.ArrayList
 @UnstableApi
 internal class MicaRenderersFactory(
     context: Context,
-    private val sinkDelivery: PcmSinkDeliveryConfig = PcmSinkDeliveryConfig.PRODUCTION,
     private val outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
 ) : DefaultRenderersFactory(context) {
 
@@ -59,16 +58,14 @@ internal class MicaRenderersFactory(
             )
         }
         val processorChain = buildUnifiedFixedChain(context)
-        val useFloatSink = sinkDelivery.enableFloatOutput
-        val sinkProfile = "$UNIFIED_SINK_PROFILE+${sinkDelivery.profileLabel}"
         PcmFormatDiagnostics.logSinkBuild(
-            profile = sinkProfile,
-            enableFloatOutput = useFloatSink,
+            profile = "$UNIFIED_SINK_PROFILE+production-int16-sink",
+            enableFloatOutput = false,
             enableAudioOutputPlaybackParameters = false,
             processorNames = processorChain.processorNamesForDiagnostics(),
         )
         return DefaultAudioSink.Builder(context)
-            .setEnableFloatOutput(useFloatSink)
+            .setEnableFloatOutput(false)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessorChain(processorChain)
             .build()

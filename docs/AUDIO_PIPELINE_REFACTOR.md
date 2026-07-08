@@ -209,7 +209,7 @@ Sink Builder 参数（`enableFloatOutput`、Processor 链）在 ExoPlayer 创建
 1. **DSD 变速变调**（P4 延伸）：当前 DSD 走 int 链、解码为 24-bit int，`SonicAudioProcessor` 只支持 16-bit/float → 变速变调失效。**兼容骨架已落地**（`DsdDecimationOutputMode.FloatPcm` + processor float 输出路径）；`PRODUCTION` 仍 IntPcm，启用 FloatPcm 须 consent + 实机验 176.4k float。
 2. ~~**R 上 release**~~ **✅ 已推广（2026-07-08）**：`PcmDeliveryExperiment.rendererSplit` 去掉 debug/perf 门控，全 build type 走 renderer-split。release 实机回归仍建议跑 §18.5 矩阵。
 3. **USB Direct PCM / Native DSD**（P6，见 §P6 / §8.6）：独立输出模式。**兼容骨架已落地**（`PlaybackOutputMode`、`AudioOutputPathConfig`、`MicaRenderersFactory` USB 最小链分支）；`requireSupportedForPlayback()` 在 stack 构建时 fail-fast，默认仍 SharedPcm。实机/USB 探测/Native DSD 路径未实现。
-4. **清理**：删除已废弃 G3-1b 的 inert 代码（`PcmSinkDeliveryDecider` / service per-song rebuild 逻辑）。
+4. **清理**：✅ 已删除 G3-1b 的 inert 代码（`PcmSinkDeliveryDecider` / service per-song rebuild 逻辑）。
 
 **兼容骨架（2026-07-08，无运行时行为变更）**：
 - `PlaybackOutputMode` / `DsdDecimationOutputMode` / `AudioOutputPathConfig` 已入代码；经 `ExoPlaybackStackFactory` → `MicaRenderersFactory` 传递。
@@ -1690,7 +1690,7 @@ Gate 3 P2 → 与 Gate 2 独立；24-bit 仍单开
 
 ### 18.13 Gate 3-1b per-song sink rebuild（2026-07-08）— **已废弃**（被候选 R 取代）
 
-> **废弃说明（2026-07-08）**：候选 R（renderer-split，§18.14）定为终选架构后，G3-1b 的 per-song sink rebuild 方案连同其 AUTO 切歌时机 race（§18.13.4）一并作废。代码保留为 inert：`PcmDeliveryExperiment.G31B_PER_SONG_SINK_ENABLED=false`，`g31bPerSongSink` 恒 false，运行时不再走这条路径。下文保留作历史记录，不再维护。
+> **废弃说明（2026-07-08）**：候选 R（renderer-split，§18.14）定为终选架构后，G3-1b 的 per-song sink rebuild 方案连同其 AUTO 切歌时机 race（§18.13.4）一并作废。代码已删除：`PcmSinkDeliveryDecider`、`PcmSinkDeliveryConfig` 与 service per-song rebuild 逻辑不再存在。下文保留作历史记录，不再维护。
 >
 > **Consent**：用户授权 Gate 3 delivery 实验（EQ 关 hi-res 直通）。  
 > **与 Gate 2 的关系**：Processor **链拓扑不变**（仍为候选 X 统一固定链）；仅在 **`enableFloatOutput` 须变** 时通过 `MediaSession.setPlayer` **重建 Exo + Sink**（不是 Profile 三分支 Factory）。这是 Gate 2「稳态不 rebuild」在 **Gate 3 交付格式** 上的 **有意例外**。
@@ -1773,7 +1773,7 @@ onMediaItemTransition(AUTO) → beginAutoTransition → prepareSinkDelivery → 
 5. **AUTO** FLAC → DSF：记录是否仍有 §18.13.4 的单次 `OUTPUT_FAILED`（待 A/B 修完应消失）。  
 6. **回归**：DSD + EQ、Gate 2 场景 #1–#7 不回归。
 
-**代码**：`PcmSinkDeliveryDecider.kt`、`PcmSinkDeliveryConfig.kt`、`PcmDeliveryExperiment.kt`、`MicaMediaService.ensureSinkDeliveryForSong` / `rebuildExoPlayerForSinkDelivery`、`ServicePlaybackEngineCoordinator.prepareSinkDelivery`。
+**历史代码（已删除）**：`PcmSinkDeliveryDecider.kt`、`PcmSinkDeliveryConfig.kt`、`MicaMediaService.ensureSinkDeliveryForSong` / `rebuildExoPlayerForSinkDelivery`、`ServicePlaybackEngineCoordinator.prepareSinkDelivery`。`PcmDeliveryExperiment.kt` 仅保留 renderer-split 开关与启动日志。
 
 **实机 log**：log 26（G3-1a 证伪）、log 28（DSD float 失败 + boolean 漏 rebuild）、log 29（G3-1b 正常 + AUTO 时机残留）。
 
@@ -2362,7 +2362,7 @@ R1b 任务（仅 R1a 通过后）：
 
 > **Audio quality consent**：用户对话中「开始做R1b吧」明确批准本节方案，含 **debug/perf 包** `PcmOnly` sink 用 `enableFloatOutput=true`（hi-res PCM 避免 24→16 toInt16）与 **FLAC/DSD 第一版无 EQ**。**release 不受影响**（renderer split 关闭 → 仍走候选 X 统一固定链，`enableFloatOutput=false`）。
 
-- **开关 / 互斥**：`PcmDeliveryExperiment.rendererSplit`（`R1B_RENDERER_SPLIT_ENABLED && debug/perf`）。启用即 **自动关闭 G3-1b**（`g31bPerSongSink = … && !rendererSplit`）——`PcmSinkDeliveryDecider.decide` 回 `PRODUCTION`，`ensureSinkDeliveryForSong` 不再 per-song rebuild。二者互斥，避免 G3-1b rebuild 覆盖 renderer split。
+- **开关**：`PcmDeliveryExperiment.rendererSplit`（全 build type）。G3-1b per-song rebuild 代码已删除，不再需要互斥门控。
 - **allowlist（据 R1a log 34/35）**：`MicaRendererSupportPolicies`——`DsdOnly` 接受 `audio/dsd`（`DsdSupport.isDsdMime`）；`PcmOnly` 只接受 `audio/flac` / `audio/alac`；MP3/AAC/WAV(`audio/raw`) 两者都 reject → 交平台 renderer。互斥已单测（`MicaRendererSupportPoliciesTest`）。
 - **vendored renderer**：`FfmpegAudioRenderer` 加 `micaRole` + `micaPolicy`（新 `FfmpegFormatPolicy` 接口）。`supportsFormatInternal`：policy reject → `FORMAT_UNSUPPORTED_SUBTYPE`；否则原逻辑。`getName()` 带 role（如 `FfmpegAudioRenderer[DsdOnly]`），R1a 探针日志随之显示 role。**未改** FFmpeg 解码/buffer/timestamp。
 - **renderer 装配**：`MicaRenderersFactory.buildRendererSplitAudioRenderers` 先加 `DsdOnly`→DsdSink、`PcmOnly`→PcmSink（extension-prefer 语义：靠前，平手时压过平台），再以 `EXTENSION_RENDERER_MODE_OFF` 调 `super` 只补平台 `MediaCodecAudioRenderer`（用统一链 sink，AAC/MP3/WAV 保持 X 行为）。`alacBlockingSelector` 保留 → 平台 ALAC 仍被挡、走 PcmOnly FFmpeg。
@@ -2630,5 +2630,5 @@ R0 通过，R 才值得作为中期主线 spike；R0 不通过，立即停止，
 | 2026-07-08 | **§18.14.10f R2 通过 + R3 苗头**（log 37）：FLAC↔DSF AUTO/手动混切零 `pipeline-rebuild`/零 `OUTPUT_FAILED`/零 `position-sync-skipped`/零 `session-released`（H4–H7 ✅）；路由矩阵全 accept 到正确 role；24/96 FLAC 交付 `PCM_FLOAT`（R3 结论 B，非 bit-perfect packed）；实测证实 float PcmSink 绕过 Processor 链 → FLAC/ALAC 无频谱/Sonic/EQ，列为 R4 功能边界收口项 |
 | 2026-07-08 | **R4 首/次轮修复**（log 38–40）：① `MicaCappedSpeedBufferSizeProvider` 把 float PcmSink 缓冲从 8×(3.84s) 夹到 2×(0.96s)，降 EQ 延迟；② **真凶** `MicaSpectrumAnalyzer` 缺 `ENCODING_PCM_FLOAT` 分支 → float 被当 16-bit（帧数翻倍→频谱 2 倍速/垃圾值），补 4-byte float 解析；③ `MaxQueuedAudioSeconds` 0.5→1.2s 吸满缓冲深度、抹平残留领先（用户选 A，纯分析侧、零音质）；均编译+单测全绿 |
 | 2026-07-08 | **R 推广 release**：`PcmDeliveryExperiment.rendererSplit` 去掉 debug/perf 门控，全 build type 走 renderer-split+R4；启动日志 `scope=all-builds`；单测 `rendererSplit_enabledOnAllBuildTypes` |
-| 2026-07-08 | **R 定为终选 + G3-1b 废弃 + DSD EQ 补线 + 文档同步**：`buildDsdAudioSink` 接入 `MicaEqualizerManager.createAudioProcessor()`（24-bit int EQ，纯增量，实机通过）；`PcmDeliveryExperiment.G31B_PER_SONG_SINK_ENABLED=false`（G3-1b inert，AUTO race 作废）；测试改 `g31bPerSongSink_deprecated_alwaysDisabled`；状态头/§0/§18.13/§18.14 候选表 + R1b 验收状态同步；提交 `codex/audio-renderer-split-r4` |
+| 2026-07-08 | **R 定为终选 + G3-1b 废弃 + DSD EQ 补线 + 文档同步**：`buildDsdAudioSink` 接入 `MicaEqualizerManager.createAudioProcessor()`（24-bit int EQ，纯增量，实机通过）；G3-1b per-song rebuild 代码已删除，AUTO race 作废；状态头/§0/§18.13/§18.14 候选表 + R1b 验收状态同步；提交 `codex/audio-renderer-split-r4` |
 | 2026-07-08 | **§18.14.10g R4 验收通过**（log 41）：变速变调进度正常（AudioTrack 硬件参数、时钟正确）；FLAC↔DSD 混切 0 rebuild/OUTPUT_FAILED（R2 不回归）；EQ 关&频谱关 bit-exact 直通；kill+restore 进度正常。float 路径同时兼容 频谱+EQ+硬件变速变调，debug/perf 生效、release 仍 X。遗留另立项（需 consent）：DSD 的 EQ/变速变调、release 启用 R4/R1b |

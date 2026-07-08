@@ -21,13 +21,12 @@ import kotlinx.coroutines.cancel
 @UnstableApi
 internal class NotificationLyricsCoordinator(
     private val context: Context,
-    player: Player,
+    private val player: Player,
     private val handler: Handler,
     private val songLoader: suspend (String) -> Song? = { id ->
         LibraryRepository(context.applicationContext).songById(id)
     },
 ) {
-    private var player: Player = player
     private var released = false
     private var lastSignature: String? = null
     private var syncing = false
@@ -85,21 +84,6 @@ internal class NotificationLyricsCoordinator(
         if (player.isPlaying) {
             handler.post(tick)
         }
-    }
-
-    fun attachPlayer(newPlayer: Player) {
-        player.removeListener(listener)
-        handler.removeCallbacks(tick)
-        player = newPlayer
-        newPlayer.addListener(listener)
-        if (newPlayer.isPlaying) {
-            handler.post(tick)
-        }
-    }
-
-    fun detachPlayer() {
-        handler.removeCallbacks(tick)
-        player.removeListener(listener)
     }
 
     fun release() {

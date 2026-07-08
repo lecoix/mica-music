@@ -186,7 +186,12 @@ class PlayerControllerBoundaryTest {
         val mediaController = mockk<MediaController>(relaxed = true)
         val listener = slot<Player.Listener>()
         val flac = SongFixtures.song("flac", container = "FLAC", mime = "audio/flac")
-        val dsd = SongFixtures.song("dsd", container = "DSD", mime = "audio/x-dsf")
+        val dsd = SongFixtures.song(
+            "dsd",
+            container = "FLAC",
+            mime = "audio/flac",
+            fileExtension = "dsf",
+        )
         val flacItem = SongMediaItemCodec.encode(flac)
         val dsdItem = SongMediaItemCodec.encode(dsd)
         var currentItem = flacItem

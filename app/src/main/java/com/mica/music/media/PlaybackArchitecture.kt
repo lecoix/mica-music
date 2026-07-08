@@ -50,9 +50,7 @@ object PlaybackSourceRevision {
 
 object PlaybackRouter {
     fun decide(song: Song): PlaybackRouteDecision {
-        val decision = if (DsdSupport.isDsdMetadata(song.metadata) ||
-            DsdSupport.isDsdExtension(song.fileName.substringAfterLast('.', ""))
-        ) {
+        val decision = if (DsdSupport.isDsdSong(song)) {
             if (isDsfFile(song)) {
                 PlaybackRouteDecision.Supported("dsf-exo-extractor")
             } else {

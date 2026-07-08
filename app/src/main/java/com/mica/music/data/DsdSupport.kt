@@ -18,6 +18,10 @@ object DsdSupport {
             metadata.bitsPerSample == 1 ||
             isDsdMime(metadata.playbackMimeType)
 
+    fun isDsdSong(song: Song): Boolean =
+        isDsdMetadata(song.metadata) ||
+            isDsdExtension(song.fileName.substringAfterLast('.', ""))
+
     fun mimeForExtension(ext: String): String = when (ext.lowercase()) {
         "dsf" -> "audio/x-dsf"
         "dff", "dsdiff" -> "audio/x-dsdiff"

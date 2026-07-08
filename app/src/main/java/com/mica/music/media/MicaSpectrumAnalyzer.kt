@@ -27,7 +27,8 @@ object MicaSpectrumAnalyzer {
     private const val MaxQueuedAudioSeconds = 1.2f
     private const val SilenceDecay = 0.88f
     private const val ProbeTag = "MicaSpectrumProbe"
-    private const val ProbeEnabled = true
+    private val ProbeEnabled: Boolean
+        get() = AudioPipelineDebugDiagnostics.formatTraceEnabled
 
     // 时间常数（秒）。攻/放/beat 的平滑基于两帧之间的真实 dt，
     // 而非"按帧固定系数"，因此与解码器喂 PCM 的帧率（采样率/缓冲区）无关，

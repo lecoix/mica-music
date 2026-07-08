@@ -7,7 +7,7 @@ import com.mica.music.util.DiagnosticLog
  *
  * Bundles [PlaybackOutputMode] (SharedPcm vs USB paths) with [DsdDecimationOutputMode]
  * (DSD int vs float delivery). Renderer-split sink selection in [MicaRenderersFactory] reads
- * this object; changing it requires rebuilding Exo (same as [PcmSinkDeliveryConfig]).
+ * this object; changing it requires rebuilding Exo.
  */
 data class AudioOutputPathConfig(
     val outputMode: PlaybackOutputMode = PlaybackOutputMode.SharedPcm,

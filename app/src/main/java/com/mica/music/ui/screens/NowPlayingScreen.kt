@@ -221,7 +221,7 @@ fun NowPlayingContent(
     } else {
         null
     }
-    val playbackTuningAvailable = !DsdSupport.isDsdMetadata(song.metadata)
+    val playbackTuningAvailable = !DsdSupport.isDsdSong(song)
 
     LaunchedEffect(playbackTuningAvailable) {
         if (!playbackTuningAvailable) {

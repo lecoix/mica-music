@@ -19,7 +19,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.mica.music.MainActivity
-import com.mica.music.data.Song
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.util.DiagnosticLog
@@ -33,7 +32,6 @@ class MicaMediaService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
     private var compositePlayer: MicaCompositePlayer? = null
-    private var activeSinkDelivery: PcmSinkDeliveryConfig = PcmSinkDeliveryConfig.PRODUCTION
     /** Fixed at Exo build; P6 USB attach/detach will change this via full-mode rebuild. */
     private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
@@ -67,7 +65,7 @@ class MicaMediaService : MediaSessionService() {
         PcmDeliveryExperiment.logActiveExperiments()
         MicaSpectrumAnalyzer.setEnabled(spectrumTapEnabled(), notifyPipeline = false)
 
-        val stack = ExoPlaybackStackFactory.build(this, activeSinkDelivery, activeOutputPath)
+        val stack = ExoPlaybackStackFactory.build(this, activeOutputPath)
         exoPlayer = stack.exoPlayer
         compositePlayer = stack.compositePlayer
 
@@ -81,12 +79,7 @@ class MicaMediaService : MediaSessionService() {
         playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
             player = stack.compositePlayer,
             context = this,
-        ).also { coordinator ->
-            coordinator.ensureSinkDelivery = { song, playbackParameters ->
-                ensureSinkDeliveryForSong(song, playbackParameters)
-            }
-            coordinator.start()
-        }
+        ).also { coordinator -> coordinator.start() }
 
         playbackStateCoordinator = ServicePlaybackStateCoordinator(
             player = stack.compositePlayer,
@@ -110,16 +103,6 @@ class MicaMediaService : MediaSessionService() {
                         playbackParameters = compositePlayer?.playbackParameters
                             ?: PlaybackParameters.DEFAULT,
                     )
-                }
-            }
-            coordinator.onPlaybackParametersChanged = { playbackParameters ->
-                mainHandler.post {
-                    val song = compositePlayer?.currentMediaItem
-                        ?.let(SongMediaItemCodec::decode)
-                        ?: return@post
-                    if (!ensureSinkDeliveryForSong(song, playbackParameters)) {
-                        return@post
-                    }
                 }
             }
             coordinator.start()
@@ -189,12 +172,7 @@ class MicaMediaService : MediaSessionService() {
                     dspEnabled = enabled,
                     spectrumTapEnabled = spectrumTapEnabled(),
                 )
-                val song = compositePlayer?.currentMediaItem?.let(SongMediaItemCodec::decode)
-                val playbackParameters = compositePlayer?.playbackParameters ?: PlaybackParameters.DEFAULT
-                val rebuilt = song?.let { ensureSinkDeliveryForSong(it, playbackParameters) } == true
-                if (!rebuilt) {
-                    flushAudioPipeline("equalizer-enabled=$enabled")
-                }
+                flushAudioPipeline("equalizer-enabled=$enabled")
             }
         }
 
@@ -254,78 +232,6 @@ class MicaMediaService : MediaSessionService() {
         DiagnosticLog.event(
             "AudioPipeline",
             "pipeline-flush reason=$reason pos=$positionMs resume=$shouldResume",
-        )
-    }
-
-    /**
-     * Gate 3-1b: rebuild Exo when probe-selected sink delivery differs from the active player.
-     * Returns true when a rebuild occurred.
-     */
-    private fun ensureSinkDeliveryForSong(
-        song: Song,
-        playbackParameters: PlaybackParameters,
-    ): Boolean {
-        val desired = PcmSinkDeliveryDecider.decide(this, song, playbackParameters)
-        if (desired == activeSinkDelivery) return false
-        rebuildExoPlayerForSinkDelivery(desired, song.id)
-        return true
-    }
-
-    private fun rebuildExoPlayerForSinkDelivery(
-        delivery: PcmSinkDeliveryConfig,
-        reasonSongId: String,
-    ) {
-        val currentComposite = compositePlayer ?: return
-        val snapshot = currentComposite.playbackQueueSnapshot()
-        if (snapshot.items.isEmpty()) return
-
-        val index = snapshot.currentIndex
-        val positionMs = currentComposite.currentPosition.coerceAtLeast(0L)
-        val playWhenReady = currentComposite.playWhenReady
-        val playbackParameters = currentComposite.playbackParameters
-
-        playbackEngineCoordinator?.detachPlayer()
-        playbackStateCoordinator?.detachPlayer()
-        notificationLyricsCoordinator?.detachPlayer()
-
-        val oldExo = exoPlayer
-        val stack = ExoPlaybackStackFactory.build(this, delivery, activeOutputPath)
-        exoPlayer = stack.exoPlayer
-        compositePlayer = stack.compositePlayer
-        activeSinkDelivery = delivery
-
-        attachEqualizerSessionListener(stack.exoPlayer)
-        configureQualityMode(
-            stack.exoPlayer,
-            dspEnabled = EqualizerPreferences.equalizerEnabled(this),
-            spectrumTapEnabled = spectrumTapEnabled(),
-        )
-
-        val session = mediaSession
-        if (session == null) {
-            oldExo?.release()
-            return
-        }
-        session.setPlayer(stack.compositePlayer)
-
-        playbackEngineCoordinator?.attachPlayer(stack.compositePlayer)
-        playbackStateCoordinator?.attachPlayer(stack.compositePlayer)
-        notificationLyricsCoordinator?.attachPlayer(stack.compositePlayer)
-
-        stack.compositePlayer.playbackParameters = playbackParameters
-        stack.compositePlayer.startExoPlayback(
-            snapshot.items,
-            index,
-            positionMs,
-            playWhenReady = playWhenReady,
-        )
-
-        oldExo?.release()
-
-        DiagnosticLog.event(
-            "AudioPipeline",
-            "pipeline-rebuild reason=g31b-sink song=$reasonSongId " +
-                "enableFloatOutput=${delivery.enableFloatOutput} profile=${delivery.profileLabel}",
         )
     }
 

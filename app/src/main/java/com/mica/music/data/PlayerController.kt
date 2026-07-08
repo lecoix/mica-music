@@ -1208,7 +1208,7 @@ class PlayerController internal constructor(
         if (playbackTuningAvailableFor(currentSong)) requested else PlaybackTuning()
 
     private fun playbackTuningAvailableFor(song: Song?): Boolean =
-        song?.let { !DsdSupport.isDsdMetadata(it.metadata) } ?: true
+        song?.let { !DsdSupport.isDsdSong(it) } ?: true
 
     private fun playbackTuningsEqual(left: PlaybackTuning, right: PlaybackTuning): Boolean =
         abs(left.speed - right.speed) < PLAYBACK_TUNING_EPSILON &&

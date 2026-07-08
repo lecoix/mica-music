@@ -18,7 +18,5 @@ object SharedPcmPipelineDiagnostics {
         )
     }
 
-    private fun isDsdSong(song: Song): Boolean =
-        DsdSupport.isDsdMetadata(song.metadata) ||
-            song.fileName.substringAfterLast('.', "").equals("dsf", ignoreCase = true)
+    private fun isDsdSong(song: Song): Boolean = DsdSupport.isDsdSong(song)
 }

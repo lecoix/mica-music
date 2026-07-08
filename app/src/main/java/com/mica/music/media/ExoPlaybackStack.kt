@@ -21,13 +21,12 @@ internal object ExoPlaybackStackFactory {
 
     fun build(
         context: Context,
-        sinkDelivery: PcmSinkDeliveryConfig = PcmSinkDeliveryConfig.PRODUCTION,
         outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
     ): ExoPlaybackStack {
         outputPath.requireSupportedForPlayback()
         outputPath.logForDiagnostics()
         val dataSourceFactory = DefaultDataSource.Factory(context)
-        val renderersFactory = MicaRenderersFactory(context, sinkDelivery, outputPath)
+        val renderersFactory = MicaRenderersFactory(context, outputPath)
         val mediaSourceFactory = DefaultMediaSourceFactory(
             dataSourceFactory,
             MicaExtractorsFactory.create(),

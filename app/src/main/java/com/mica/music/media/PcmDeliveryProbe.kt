@@ -142,7 +142,5 @@ internal object PcmDeliveryProbe {
     private fun List<PcmDeliveryLadderStep>.firstSupported(): PcmDeliveryFormat? =
         firstOrNull { it.supported }?.format
 
-    private fun isDsdSong(song: Song): Boolean =
-        DsdSupport.isDsdMetadata(song.metadata) ||
-            song.fileName.substringAfterLast('.', "").equals("dsf", ignoreCase = true)
+    private fun isDsdSong(song: Song): Boolean = DsdSupport.isDsdSong(song)
 }

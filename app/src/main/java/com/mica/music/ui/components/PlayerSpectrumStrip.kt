@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.media.AudioPipelineDebugDiagnostics
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.util.DiagnosticLog
@@ -26,7 +27,8 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 private const val SpectrumProbeTag = "MicaSpectrumProbe"
-private const val SpectrumProbeEnabled = true
+private val SpectrumProbeEnabled: Boolean
+    get() = AudioPipelineDebugDiagnostics.formatTraceEnabled
 
 @Composable
 fun LivePlayerSpectrumStrip(

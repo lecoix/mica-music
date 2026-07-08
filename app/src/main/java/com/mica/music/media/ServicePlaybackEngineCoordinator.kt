@@ -2,45 +2,27 @@ package com.mica.music.media
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import com.mica.music.data.PlaybackQueueMode
 import com.mica.music.data.Song
 import com.mica.music.util.DiagnosticLog
 
 internal class ServicePlaybackEngineCoordinator(
-    player: MicaCompositePlayer,
+    private val player: MicaCompositePlayer,
     private val context: android.content.Context,
     private val requestState: ServicePlaybackRequestState = ServicePlaybackRequestState(),
 ) : AlacSessionCommandHandler, Player.Listener {
 
-    private var player: MicaCompositePlayer = player
-
     var onPlaybackFailure: ((PlaybackFailure) -> Unit)? = null
-
-    /** Gate 3-1b: returns true when Exo was rebuilt for sink delivery. */
-    var ensureSinkDelivery: ((Song, PlaybackParameters) -> Boolean)? = null
 
     fun start() {
         player.playbackCoordinator = this
         player.addListener(this)
     }
 
-    fun attachPlayer(newPlayer: MicaCompositePlayer) {
-        player.removeListener(this)
-        player.playbackCoordinator = null
-        player = newPlayer
-        newPlayer.playbackCoordinator = this
-        newPlayer.addListener(this)
-    }
-
-    fun detachPlayer() {
-        player.removeListener(this)
-        player.playbackCoordinator = null
-    }
-
     fun release() {
-        detachPlayer()
+        player.removeListener(this)
+        player.playbackCoordinator = null
         onPlaybackFailure = null
     }
 
@@ -194,7 +176,6 @@ internal class ServicePlaybackEngineCoordinator(
             "PlaybackEngine",
             "start request=${request.id} source=${request.sourceRevision}",
         )
-        prepareSinkDelivery(song)
         logDeliveryProbe(song)
         player.startExoPlayback(items, index, positionMs, playWhenReady = playWhenReady)
     }
@@ -221,7 +202,6 @@ internal class ServicePlaybackEngineCoordinator(
                     "auto-transition route=${route.reason} song=${song.id}",
                 )
                 requestState.begin(song, position)
-                prepareSinkDelivery(song)
                 logDeliveryProbe(song)
             }
         }
@@ -283,7 +263,6 @@ internal class ServicePlaybackEngineCoordinator(
             "PlaybackEngine",
             "start-existing request=${request.id} index=$safe source=${request.sourceRevision}",
         )
-        prepareSinkDelivery(song)
         logDeliveryProbe(song)
         player.startExistingItem(safe, position, playWhenReady)
     }
@@ -395,10 +374,6 @@ internal class ServicePlaybackEngineCoordinator(
         player.repeatMode == Player.REPEAT_MODE_ALL -> PlaybackQueueMode.REPEAT_ALL
         player.repeatMode == Player.REPEAT_MODE_ONE -> PlaybackQueueMode.REPEAT_ONE
         else -> PlaybackQueueMode.OFF
-    }
-
-    private fun prepareSinkDelivery(song: Song) {
-        ensureSinkDelivery?.invoke(song, player.playbackParameters)
     }
 
     private fun logDeliveryProbe(song: Song) {
