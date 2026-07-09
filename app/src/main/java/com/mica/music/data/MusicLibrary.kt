@@ -2,10 +2,14 @@ package com.mica.music.data
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
+import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.library.MusicLibraryBacking
+import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MusicLibrary internal constructor(
     context: Context,
@@ -23,6 +27,14 @@ class MusicLibrary internal constructor(
         mainDispatcher = mainDispatcher,
         ioDispatcher = ioDispatcher,
     )
+    private var artistGroupCacheSongIds: List<String>? = null
+    private var artistGroupCacheField: ArtistBrowseSortField? = null
+    private var artistGroupCacheDirection: SortDirection? = null
+    private var artistGroupCache: BrowseGroupPresentation? = null
+    private var albumGroupCacheSongIds: List<String>? = null
+    private var albumGroupCacheField: AlbumBrowseSortField? = null
+    private var albumGroupCacheDirection: SortDirection? = null
+    private var albumGroupCache: BrowseGroupPresentation? = null
 
     constructor(context: Context) : this(
         context = context,
@@ -105,6 +117,85 @@ class MusicLibrary internal constructor(
     fun artistGroups(): List<BrowseGroup> = LibraryBrowse.groupByArtist(songs)
 
     fun albumGroups(): List<BrowseGroup> = LibraryBrowse.groupByAlbum(songs)
+
+    fun artistGroupPresentation(
+        field: ArtistBrowseSortField,
+        direction: SortDirection,
+    ): BrowseGroupPresentation {
+        val source = songs
+        val sourceIds = songIds
+        artistGroupCache?.takeIf {
+            artistGroupCacheSongIds === sourceIds &&
+                artistGroupCacheField == field &&
+                artistGroupCacheDirection == direction
+        }?.let { return it }
+        return LibraryBrowse.artistGroupPresentation(source, field, direction).also {
+            artistGroupCacheSongIds = sourceIds
+            artistGroupCacheField = field
+            artistGroupCacheDirection = direction
+            artistGroupCache = it
+        }
+    }
+
+    fun albumGroupPresentation(
+        field: AlbumBrowseSortField,
+        direction: SortDirection,
+    ): BrowseGroupPresentation {
+        val source = songs
+        val sourceIds = songIds
+        albumGroupCache?.takeIf {
+            albumGroupCacheSongIds === sourceIds &&
+                albumGroupCacheField == field &&
+                albumGroupCacheDirection == direction
+        }?.let { return it }
+        return LibraryBrowse.albumGroupPresentation(source, field, direction).also {
+            albumGroupCacheSongIds = sourceIds
+            albumGroupCacheField = field
+            albumGroupCacheDirection = direction
+            albumGroupCache = it
+        }
+    }
+
+    suspend fun prewarmBrowseGroupCache() {
+        val source = songs
+        val sourceIds = songIds
+        if (source.isEmpty()) return
+        val artistField = LibraryBrowseSettings.artistBrowseSortField(backing.context)
+        val artistDirection = LibraryBrowseSettings.artistBrowseSortDirection(backing.context)
+        val albumField = LibraryBrowseSettings.albumBrowseSortField(backing.context)
+        val albumDirection = LibraryBrowseSettings.albumBrowseSortDirection(backing.context)
+        if (
+            artistGroupCacheSongIds === sourceIds &&
+            artistGroupCacheField == artistField &&
+            artistGroupCacheDirection == artistDirection &&
+            albumGroupCacheSongIds === sourceIds &&
+            albumGroupCacheField == albumField &&
+            albumGroupCacheDirection == albumDirection
+        ) {
+            return
+        }
+
+        val startedMs = SystemClock.elapsedRealtime()
+        val prewarmed = withContext(backing.ioDispatcher) {
+            LibraryBrowse.artistGroupPresentation(source, artistField, artistDirection) to
+                LibraryBrowse.albumGroupPresentation(source, albumField, albumDirection)
+        }
+        if (sourceIds !== songIds) return
+        artistGroupCacheSongIds = sourceIds
+        artistGroupCacheField = artistField
+        artistGroupCacheDirection = artistDirection
+        artistGroupCache = prewarmed.first
+        albumGroupCacheSongIds = sourceIds
+        albumGroupCacheField = albumField
+        albumGroupCacheDirection = albumDirection
+        albumGroupCache = prewarmed.second
+        DiagnosticLog.event(
+            "LibraryLoad",
+            "prewarmBrowseGroups durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "songs=${source.size} artists=${prewarmed.first.groups.size} albums=${prewarmed.second.groups.size} " +
+                "artistSort=$artistField/$artistDirection albumSort=$albumField/$albumDirection",
+        )
+    }
 
     fun folderGroups(pathSegments: List<String> = emptyList()): List<FolderBrowseGroup> =
         LibraryBrowse.folderGroups(songs, pathSegments)

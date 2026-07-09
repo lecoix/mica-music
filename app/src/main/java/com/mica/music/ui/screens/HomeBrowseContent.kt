@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -48,8 +49,8 @@ import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.BrowseGroup
+import com.mica.music.data.BrowseGroupPresentation
 import com.mica.music.data.FolderBrowseGroup
-import com.mica.music.data.LibraryBrowse
 import com.mica.music.data.LibraryBrowseDetails
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
@@ -66,6 +67,9 @@ import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.screens.home.BrowseDestination
 import com.mica.music.ui.screens.home.HomeSection
 import com.mica.music.ui.screens.home.browseDestinationDepth
+import com.mica.music.util.DiagnosticLog
+
+private const val BrowseDetailDebugTag = "[DEBUG-BROWSE-DETAIL-4F7C]"
 
 @Composable
 internal fun HomeBrowseContent(
@@ -129,7 +133,9 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Artist -> {
                         val songListState = rememberBrowseDetailSongListState("artist:${dest.name}")
-                        val songs = library.songsForArtist(dest.name)
+                        val songs = timedBrowseDetail("artist filter", "artist=${dest.name}", library.songs.size) {
+                            library.songsForArtist(dest.name)
+                        }
                         ArtistDetailPanel(
                             artistName = dest.name,
                             songs = songs,
@@ -172,7 +178,9 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Album -> {
                         val songListState = rememberBrowseDetailSongListState("album:${dest.title}")
-                        val songs = library.songsForAlbum(dest.title)
+                        val songs = timedBrowseDetail("album filter", "album=${dest.title}", library.songs.size) {
+                            library.songsForAlbum(dest.title)
+                        }
                         AlbumDetailPanel(
                             albumTitle = dest.title,
                             songs = songs,
@@ -300,6 +308,41 @@ internal fun HomeBrowseContent(
 private fun rememberBrowseDetailSongListState(key: String): LazyListState =
     rememberSaveable(key, saver = LazyListState.Saver) { LazyListState() }
 
+private inline fun <T> timedBrowseDetail(
+    stage: String,
+    target: String,
+    inputCount: Int,
+    block: () -> T,
+): T {
+    val startedMs = SystemClock.elapsedRealtime()
+    return block().also { result ->
+        val resultCount = when (result) {
+            is Collection<*> -> result.size
+            is LibraryBrowseDetails.AlbumDetail -> result.orderedSongs.size
+            is BrowseGroupPresentation -> result.groups.size
+            else -> -1
+        }
+        DiagnosticLog.event(
+            "LibraryUi",
+            "$BrowseDetailDebugTag stage=\"$stage\" durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "input=$inputCount result=$resultCount $target",
+        )
+    }
+}
+
+private fun logBrowseGroupList(
+    stage: String,
+    groups: List<BrowseGroup>,
+    gridColumns: Int,
+    fastScrollLabels: List<String>?,
+) {
+    DiagnosticLog.event(
+        "LibraryUi",
+        "$BrowseDetailDebugTag stage=\"$stage\" groups=${groups.size} " +
+            "gridColumns=${gridColumns.coerceIn(1, 4)} fastScrollLabels=${fastScrollLabels?.size ?: 0}",
+    )
+}
+
 private fun List<String>.scopeForFolderDepth(depth: Int): List<String> = when {
     depth <= 0 -> emptyList()
     size > depth -> take(depth)
@@ -326,7 +369,11 @@ private fun AlbumDetailPanel(
         return
     }
 
-    val detail = remember(songs) { LibraryBrowseDetails.albumDetail(songs) }
+    val detail = remember(songs) {
+        timedBrowseDetail("album detail", "album=$albumTitle", songs.size) {
+            LibraryBrowseDetails.albumDetail(songs)
+        }
+    }
     val orderedSongs = detail.orderedSongs
     LazyColumn(
         state = listState,
@@ -514,7 +561,11 @@ private fun ArtistDetailPanel(
         return
     }
 
-    val albumSections = remember(songs) { LibraryBrowseDetails.artistAlbumSections(songs) }
+    val albumSections = remember(songs) {
+        timedBrowseDetail("artist detail", "artist=$artistName", songs.size) {
+            LibraryBrowseDetails.artistAlbumSections(songs)
+        }
+    }
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize(),
@@ -818,23 +869,32 @@ private fun ArtistGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val groups = remember(library.songs, sortField, sortDirection) {
-        LibraryBrowse.sortArtistGroups(library.artistGroups(), sortField, sortDirection)
+    val presentation = remember(library.songs, sortField, sortDirection) {
+        timedBrowseDetail("artist groups", "sort=$sortField/$sortDirection", library.songs.size) {
+            library.artistGroupPresentation(sortField, sortDirection)
+        }
     }
+    val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无艺术家", modifier)
         return
     }
+    val fastScrollLabels = presentation.fastScrollIndex?.labels
+    val fastScrollSectionTargets = presentation.fastScrollIndex?.sectionTargets
+    logBrowseGroupList(
+        stage = "artist group list",
+        groups = groups,
+        gridColumns = gridColumns,
+        fastScrollLabels = fastScrollLabels,
+    )
     BrowseGroupList(
         groups = groups,
         listState = listState,
         gridColumns = gridColumns,
         onSelect = onSelect,
         gridTitleMaxLines = 1,
-        fastScrollLabels = when (sortField) {
-            ArtistBrowseSortField.TITLE -> groups.map { it.title }
-            ArtistBrowseSortField.SONG_COUNT -> null
-        },
+        fastScrollLabels = fastScrollLabels,
+        fastScrollSectionTargets = fastScrollSectionTargets,
         fastScrollDescending = sortDirection == SortDirection.DESC,
         listBottomPadding = listBottomPadding,
         modifier = modifier,
@@ -852,26 +912,32 @@ private fun AlbumGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val groups = remember(library.songs, sortField, sortDirection) {
-        LibraryBrowse.sortAlbumGroups(library.albumGroups(), sortField, sortDirection)
+    val presentation = remember(library.songs, sortField, sortDirection) {
+        timedBrowseDetail("album groups", "sort=$sortField/$sortDirection", library.songs.size) {
+            library.albumGroupPresentation(sortField, sortDirection)
+        }
     }
+    val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无专辑", modifier)
         return
     }
+    val fastScrollLabels = presentation.fastScrollIndex?.labels
+    val fastScrollSectionTargets = presentation.fastScrollIndex?.sectionTargets
+    logBrowseGroupList(
+        stage = "album group list",
+        groups = groups,
+        gridColumns = gridColumns,
+        fastScrollLabels = fastScrollLabels,
+    )
     BrowseGroupList(
         groups = groups,
         listState = listState,
         gridColumns = gridColumns,
         onSelect = onSelect,
         rowSubtitle = ::albumRowSubtitle,
-        fastScrollLabels = when (sortField) {
-            AlbumBrowseSortField.TITLE -> groups.map { it.title }
-            AlbumBrowseSortField.ARTIST -> groups.map { it.artist }
-            AlbumBrowseSortField.YEAR,
-            AlbumBrowseSortField.SONG_COUNT,
-            -> null
-        },
+        fastScrollLabels = fastScrollLabels,
+        fastScrollSectionTargets = fastScrollSectionTargets,
         fastScrollDescending = sortDirection == SortDirection.DESC,
         listBottomPadding = listBottomPadding,
         modifier = modifier,
@@ -886,6 +952,7 @@ private fun BrowseGroupList(
     onSelect: (String) -> Unit,
     rowSubtitle: (BrowseGroup) -> String = { it.subtitle },
     fastScrollLabels: List<String>? = groups.map { it.title },
+    fastScrollSectionTargets: Map<String, Int>? = null,
     fastScrollDescending: Boolean = false,
     gridTitleMaxLines: Int = 2,
     listBottomPadding: Dp,
@@ -918,6 +985,7 @@ private fun BrowseGroupList(
         } else {
             AlphabetFastScroller(
                 labels = fastScrollLabels,
+                sectionTargetsOverride = fastScrollSectionTargets,
                 scrollToIndex = { gridState.scrollToItem(it) },
                 descending = fastScrollDescending,
                 modifier = modifier.fillMaxSize(),
@@ -968,6 +1036,7 @@ private fun BrowseGroupList(
 
     AlphabetFastScroller(
         labels = fastScrollLabels,
+        sectionTargetsOverride = fastScrollSectionTargets,
         scrollToIndex = { listState.scrollToItem(it) },
         descending = fastScrollDescending,
         modifier = modifier.fillMaxSize(),

@@ -102,6 +102,55 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun browseGroupPresentationPrecomputesFastScrollIndexWhenAlphabetical() {
+        val songs = listOf(
+            SongFixtures.song(id = "a").copy(album = "Alpha", artist = "Artist A"),
+            SongFixtures.song(id = "b").copy(album = "Beta", artist = "Artist B"),
+        )
+
+        val albums = LibraryBrowse.albumGroupPresentation(
+            songs,
+            AlbumBrowseSortField.TITLE,
+            SortDirection.ASC,
+        )
+        val artists = LibraryBrowse.artistGroupPresentation(
+            songs,
+            ArtistBrowseSortField.TITLE,
+            SortDirection.ASC,
+        )
+
+        assertEquals(listOf("Alpha", "Beta"), albums.fastScrollIndex?.labels)
+        assertEquals(mapOf("A" to 0, "B" to 1), albums.fastScrollIndex?.sectionTargets)
+        assertEquals(listOf("Artist A", "Artist B"), artists.fastScrollIndex?.labels)
+        assertEquals(mapOf("A" to 0), artists.fastScrollIndex?.sectionTargets)
+    }
+
+    @Test
+    fun browseGroupPresentationSkipsFastScrollIndexForCountSorts() {
+        val songs = listOf(
+            SongFixtures.song(id = "a").copy(album = "Alpha", artist = "Artist A"),
+            SongFixtures.song(id = "b").copy(album = "Beta", artist = "Artist B"),
+        )
+
+        assertEquals(
+            null,
+            LibraryBrowse.albumGroupPresentation(
+                songs,
+                AlbumBrowseSortField.SONG_COUNT,
+                SortDirection.ASC,
+            ).fastScrollIndex,
+        )
+        assertEquals(
+            null,
+            LibraryBrowse.artistGroupPresentation(
+                songs,
+                ArtistBrowseSortField.SONG_COUNT,
+                SortDirection.ASC,
+            ).fastScrollIndex,
+        )
+    }
+
+    @Test
     fun folderGroupsAggregateOneDepthAtATime() {
         val songs = listOf(
             song("queen-1", "Music/Rock/Queen"),

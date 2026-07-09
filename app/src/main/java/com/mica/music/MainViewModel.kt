@@ -39,6 +39,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "loadCached returned durMs=${SystemClock.elapsedRealtime() - startupStartedMs} " +
                     "songs=${songs.size} hasScanned=${library.hasScanned}",
             )
+            if (songs.isNotEmpty()) {
+                library.prewarmBrowseGroupCache()
+            }
             val pruneStartedMs = SystemClock.elapsedRealtime()
             ScanCacheManager.pruneAlbumArtCache(application, songs)
             DiagnosticLog.event(

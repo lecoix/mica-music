@@ -15,6 +15,11 @@ data class BrowseGroup(
     val coverColorArgb: Int = BrowseFallbackColorArgb,
 )
 
+data class BrowseGroupPresentation(
+    val groups: List<BrowseGroup>,
+    val fastScrollIndex: FastScrollIndex?,
+)
+
 enum class AlbumBrowseSortField(val storageValue: String, val label: String) {
     TITLE("title", "标题"),
     YEAR("year", "年份"),
@@ -155,6 +160,53 @@ object LibraryBrowse {
         } else {
             sorted
         }
+    }
+
+    fun artistGroupPresentation(
+        songs: List<Song>,
+        field: ArtistBrowseSortField,
+        direction: SortDirection,
+    ): BrowseGroupPresentation {
+        val groups = sortArtistGroups(groupByArtist(songs), field, direction)
+        return BrowseGroupPresentation(
+            groups = groups,
+            fastScrollIndex = fastScrollIndexFor(groups, artistFastScrollLabels(groups, field)),
+        )
+    }
+
+    fun albumGroupPresentation(
+        songs: List<Song>,
+        field: AlbumBrowseSortField,
+        direction: SortDirection,
+    ): BrowseGroupPresentation {
+        val groups = sortAlbumGroups(groupByAlbum(songs), field, direction)
+        return BrowseGroupPresentation(
+            groups = groups,
+            fastScrollIndex = fastScrollIndexFor(groups, albumFastScrollLabels(groups, field)),
+        )
+    }
+
+    private fun artistFastScrollLabels(groups: List<BrowseGroup>, field: ArtistBrowseSortField): List<String>? =
+        when (field) {
+            ArtistBrowseSortField.TITLE -> groups.map { it.title }
+            ArtistBrowseSortField.SONG_COUNT -> null
+        }
+
+    private fun albumFastScrollLabels(groups: List<BrowseGroup>, field: AlbumBrowseSortField): List<String>? =
+        when (field) {
+            AlbumBrowseSortField.TITLE -> groups.map { it.title }
+            AlbumBrowseSortField.ARTIST -> groups.map { it.artist }
+            AlbumBrowseSortField.YEAR,
+            AlbumBrowseSortField.SONG_COUNT,
+            -> null
+        }
+
+    private fun fastScrollIndexFor(groups: List<BrowseGroup>, labels: List<String>?): FastScrollIndex? {
+        if (labels == null) return null
+        return FastScrollIndex(
+            labels = labels,
+            sectionTargets = LibraryFastScrollIndex.sectionTargets(labels),
+        )
     }
 
     private fun summarizeAlbumArtists(songs: List<Song>): String {
