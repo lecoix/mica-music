@@ -38,9 +38,11 @@ internal class MicaFloatDspAudioSink(
     private var linearPcm = false
 
     // Buffer state machine: while a source buffer is not yet fully consumed by the inner sink we
-    // must keep forwarding the SAME processed buffer (never reprocess), to satisfy the
-    // AudioSink.handleBuffer contract (a rejected buffer is re-presented unchanged).
-    private var processedSource: ByteBuffer? = null
+    // must keep forwarding the SAME buffer object chosen on the first attempt. Active EQ/spectrum
+    // state is sampled only for new source buffers; retries keep their original forwarding mode.
+    private var inFlightSource: ByteBuffer? = null
+    private var inFlightForwarded: ByteBuffer? = null
+    private var inFlightMode: InFlightMode = InFlightMode.NONE
     private var processedBuffer: ByteBuffer = ByteBuffer.allocate(0)
     private var scratchBytes = ByteArray(0)
     private var scratchDirect: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
@@ -61,7 +63,7 @@ internal class MicaFloatDspAudioSink(
         channelCount = inputFormat.channelCount
         linearPcm = MimeTypes.AUDIO_RAW == inputFormat.sampleMimeType &&
             androidEncoding != android.media.AudioFormat.ENCODING_INVALID
-        processedSource = null
+        clearInFlight()
         if (linearPcm) {
             tap.configure(sampleRate, channelCount)
         }
@@ -79,29 +81,68 @@ internal class MicaFloatDspAudioSink(
         presentationTimeUs: Long,
         encodedAccessUnitCount: Int,
     ): Boolean {
-        // Retry of an in-flight source: keep forwarding the already-processed buffer as-is.
-        if (buffer === processedSource) {
-            val accepted = super.handleBuffer(processedBuffer, presentationTimeUs, encodedAccessUnitCount)
-            if (accepted) {
-                buffer.position(buffer.limit())
-                processedSource = null
-            }
-            return accepted
+        val active = tap.isActive()
+
+        inFlightSource?.let {
+            return handleInFlightBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
         }
 
-        if (!linearPcm || !tap.isActive()) {
-            // Bit-exact passthrough when there is nothing to do.
-            recordHandle(processed = false)
-            return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        if (!linearPcm || !active) {
+            return startPassthroughBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
         }
 
+        return startProcessedBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+    }
+
+    private fun startPassthroughBuffer(
+        source: ByteBuffer,
+        presentationTimeUs: Long,
+        encodedAccessUnitCount: Int,
+    ): Boolean {
+        // Bit-exact passthrough when there is nothing to do.
+        recordHandle(processed = false)
+        inFlightSource = source
+        inFlightForwarded = source
+        inFlightMode = InFlightMode.PASSTHROUGH
+        val accepted = super.handleBuffer(source, presentationTimeUs, encodedAccessUnitCount)
+        if (accepted) {
+            clearInFlight()
+        }
+        return accepted
+    }
+
+    private fun startProcessedBuffer(
+        source: ByteBuffer,
+        presentationTimeUs: Long,
+        encodedAccessUnitCount: Int,
+    ): Boolean {
         recordHandle(processed = true)
-        processedBuffer = process(buffer)
-        processedSource = buffer
+        processedBuffer = process(source)
+        inFlightSource = source
+        inFlightForwarded = processedBuffer
+        inFlightMode = InFlightMode.PROCESSED
         val accepted = super.handleBuffer(processedBuffer, presentationTimeUs, encodedAccessUnitCount)
         if (accepted) {
-            buffer.position(buffer.limit())
-            processedSource = null
+            source.position(source.limit())
+            clearInFlight()
+        }
+        return accepted
+    }
+
+    private fun handleInFlightBuffer(
+        source: ByteBuffer,
+        presentationTimeUs: Long,
+        encodedAccessUnitCount: Int,
+    ): Boolean {
+        val mode = inFlightMode
+        val originalSource = inFlightSource ?: source
+        val forwarded = inFlightForwarded ?: source
+        val accepted = super.handleBuffer(forwarded, presentationTimeUs, encodedAccessUnitCount)
+        if (accepted) {
+            if (mode == InFlightMode.PROCESSED) {
+                originalSource.position(originalSource.limit())
+            }
+            clearInFlight()
         }
         return accepted
     }
@@ -136,12 +177,12 @@ internal class MicaFloatDspAudioSink(
     }
 
     override fun flush() {
-        processedSource = null
+        clearInFlight()
         super.flush()
     }
 
     override fun reset() {
-        processedSource = null
+        clearInFlight()
         androidEncoding = android.media.AudioFormat.ENCODING_INVALID
         linearPcm = false
         super.reset()
@@ -166,12 +207,24 @@ internal class MicaFloatDspAudioSink(
         return scratchDirect
     }
 
+    private fun clearInFlight() {
+        inFlightSource = null
+        inFlightForwarded = null
+        inFlightMode = InFlightMode.NONE
+    }
+
     private fun media3EncodingToAndroid(encoding: Int): Int = when (encoding) {
         C.ENCODING_PCM_16BIT -> android.media.AudioFormat.ENCODING_PCM_16BIT
         C.ENCODING_PCM_24BIT -> android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED
         C.ENCODING_PCM_32BIT -> android.media.AudioFormat.ENCODING_PCM_32BIT
         C.ENCODING_PCM_FLOAT -> android.media.AudioFormat.ENCODING_PCM_FLOAT
         else -> android.media.AudioFormat.ENCODING_INVALID
+    }
+
+    private enum class InFlightMode {
+        NONE,
+        PASSTHROUGH,
+        PROCESSED,
     }
 
     /**

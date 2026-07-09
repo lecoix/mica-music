@@ -7,6 +7,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import java.nio.ByteBuffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
@@ -103,6 +104,49 @@ class MicaFloatDspAudioSinkTest {
         assertTrue(sink.handleBuffer(source, 0L, 1))
         assertEquals(1, tap.processCalls)
         assertEquals(source.limit(), source.position())
+    }
+
+    @Test
+    fun passthroughRetry_keepsOriginalBuffer_whenTapBecomesActive() {
+        val inner = mockk<AudioSink>(relaxed = true)
+        val captured = mutableListOf<ByteBuffer>()
+        every { inner.handleBuffer(capture(captured), any(), any()) } returnsMany listOf(false, true)
+        val tap = FakeTap().apply { active = false }
+        val sink = MicaFloatDspAudioSink(inner, tap)
+        sink.configure(floatFormat(), 0, null)
+
+        val source = sourceBuffer()
+        assertEquals(false, sink.handleBuffer(source, 0L, 1))
+
+        tap.active = true
+        assertTrue(sink.handleBuffer(source, 0L, 1))
+
+        assertEquals(0, tap.processCalls)
+        assertEquals(2, captured.size)
+        assertSame(source, captured[0])
+        assertSame(source, captured[1])
+    }
+
+    @Test
+    fun processedRetry_keepsProcessedBuffer_whenTapBecomesInactive() {
+        val inner = mockk<AudioSink>(relaxed = true)
+        val captured = mutableListOf<ByteBuffer>()
+        every { inner.handleBuffer(capture(captured), any(), any()) } returnsMany listOf(false, true)
+        val tap = FakeTap().apply { active = true }
+        val sink = MicaFloatDspAudioSink(inner, tap)
+        sink.configure(floatFormat(), 0, null)
+
+        val source = sourceBuffer()
+        assertEquals(false, sink.handleBuffer(source, 0L, 1))
+
+        tap.active = false
+        assertTrue(sink.handleBuffer(source, 0L, 1))
+
+        assertEquals(1, tap.processCalls)
+        assertEquals(2, captured.size)
+        assertNotSame(source, captured[0])
+        assertSame(captured[0], captured[1])
+        verify(exactly = 2) { inner.handleBuffer(any(), 0L, 1) }
     }
 
     @Test
