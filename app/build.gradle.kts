@@ -40,8 +40,8 @@ android {
         applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 34
-        versionName = "0.2.0.2-renderer" + if (qaSideBySide) "-qa" else ""
+        versionCode = 35
+        versionName = "0.2.0.3-renderer" + if (qaSideBySide) "-qa" else ""
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")
