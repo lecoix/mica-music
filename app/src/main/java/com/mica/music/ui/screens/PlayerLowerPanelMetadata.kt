@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.mica.music.data.ArtistNames
+import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.Song
 import com.mica.music.data.buildPlayerInfoSegments
@@ -42,6 +43,7 @@ internal fun HiFiBadgeSection(
     song: Song,
     colors: PlayerContentColors,
     playerInfoVisibility: PlayerInfoVisibility,
+    playbackTuning: PlaybackTuning,
 ) {
     val locale = LocalContext.current.resources.configuration.locales[0]
     var currentTimeLabel by remember { mutableStateOf(formatPlayerInfoCurrentTime(locale = locale)) }
@@ -56,6 +58,7 @@ internal fun HiFiBadgeSection(
         song = song,
         visibility = playerInfoVisibility,
         currentTimeLabel = currentTimeLabel.takeIf { playerInfoVisibility.showCurrentTime },
+        playbackTuning = playbackTuning,
     )
     if (segments.isEmpty()) return
     Row(

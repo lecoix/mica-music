@@ -168,21 +168,23 @@ private fun PlaybackTuningRuler(
     val majorStepIndex = (majorStep / step).roundToInt().coerceAtLeast(1)
     val selectedFraction = (clamped - valueRange.start) / range
 
-    Column(modifier) {
+    Column(
+        modifier = modifier
+            .onSizeChanged { widthPx = it.width.toFloat() }
+            .pointerInput(valueRange, step) {
+                detectTapGestures { offset -> onValueChange(xToValue(offset.x)) }
+            }
+            .pointerInput(valueRange, step) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    onValueChange(xToValue(change.position.x))
+                }
+            },
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
-                .onSizeChanged { widthPx = it.width.toFloat() }
-                .pointerInput(valueRange, step) {
-                    detectTapGestures { offset -> onValueChange(xToValue(offset.x)) }
-                }
-                .pointerInput(valueRange, step) {
-                    detectDragGestures { change, _ ->
-                        change.consume()
-                        onValueChange(xToValue(change.position.x))
-                    }
-                },
+                .height(42.dp),
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val centerY = size.height / 2f

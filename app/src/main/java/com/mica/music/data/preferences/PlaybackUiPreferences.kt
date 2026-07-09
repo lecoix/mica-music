@@ -41,6 +41,8 @@ object PlaybackUiPreferences {
     private const val KEY_PLAYER_INFO_SHOW_SAMPLE_RATE = "player_info_show_sample_rate"
     private const val KEY_PLAYER_INFO_SHOW_BITRATE = "player_info_show_bitrate"
     private const val KEY_PLAYER_INFO_SHOW_DURATION = "player_info_show_duration"
+    private const val KEY_PLAYER_INFO_SHOW_PLAYBACK_SPEED = "player_info_show_playback_speed"
+    private const val KEY_PLAYER_INFO_SHOW_PLAYBACK_PITCH = "player_info_show_playback_pitch"
     private const val KEY_PLAYER_INFO_SHOW_CURRENT_TIME = "player_info_show_current_time"
     private const val KEY_PLAYER_INFO_SHOW_CUSTOM = "player_info_show_custom"
     private const val KEY_PLAYER_INFO_CUSTOM_TEXT = "player_info_custom_text"
@@ -244,6 +246,8 @@ object PlaybackUiPreferences {
             showFormat = p.getBoolean(KEY_PLAYER_INFO_SHOW_FORMAT, true),
             showSampleRate = p.getBoolean(KEY_PLAYER_INFO_SHOW_SAMPLE_RATE, true),
             showBitrate = p.getBoolean(KEY_PLAYER_INFO_SHOW_BITRATE, true),
+            showPlaybackSpeed = p.getBoolean(KEY_PLAYER_INFO_SHOW_PLAYBACK_SPEED, false),
+            showPlaybackPitch = p.getBoolean(KEY_PLAYER_INFO_SHOW_PLAYBACK_PITCH, false),
             showCurrentTime = when {
                 p.contains(KEY_PLAYER_INFO_SHOW_CURRENT_TIME) ->
                     p.getBoolean(KEY_PLAYER_INFO_SHOW_CURRENT_TIME, false)
@@ -261,6 +265,8 @@ object PlaybackUiPreferences {
             .putBoolean(KEY_PLAYER_INFO_SHOW_FORMAT, visibility.showFormat)
             .putBoolean(KEY_PLAYER_INFO_SHOW_SAMPLE_RATE, visibility.showSampleRate)
             .putBoolean(KEY_PLAYER_INFO_SHOW_BITRATE, visibility.showBitrate)
+            .putBoolean(KEY_PLAYER_INFO_SHOW_PLAYBACK_SPEED, visibility.showPlaybackSpeed)
+            .putBoolean(KEY_PLAYER_INFO_SHOW_PLAYBACK_PITCH, visibility.showPlaybackPitch)
             .putBoolean(KEY_PLAYER_INFO_SHOW_CURRENT_TIME, visibility.showCurrentTime)
             .putBoolean(KEY_PLAYER_INFO_SHOW_CUSTOM, visibility.showCustomText)
             .putString(KEY_PLAYER_INFO_CUSTOM_TEXT, visibility.customText)

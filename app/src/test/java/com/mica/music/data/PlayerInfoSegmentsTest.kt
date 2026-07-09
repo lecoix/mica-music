@@ -58,6 +58,26 @@ class PlayerInfoSegmentsTest {
     }
 
     @Test
+    fun playbackTuningSegmentsRespectToggles() {
+        val song = SongFixtures.song(durationSec = 125)
+
+        assertEquals(
+            listOf("1.25x", "+2 半音"),
+            buildPlayerInfoSegments(
+                song,
+                PlayerInfoVisibility(
+                    showFormat = false,
+                    showSampleRate = false,
+                    showBitrate = false,
+                    showPlaybackSpeed = true,
+                    showPlaybackPitch = true,
+                ),
+                playbackTuning = PlaybackTuning(speed = 1.25f, pitchSemitones = 2f),
+            ),
+        )
+    }
+
+    @Test
     fun allDisabledProducesEmptySegments() {
         val song = SongFixtures.song()
 

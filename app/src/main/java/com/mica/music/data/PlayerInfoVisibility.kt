@@ -5,11 +5,14 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 
 data class PlayerInfoVisibility(
     val showFormat: Boolean = true,
     val showSampleRate: Boolean = true,
     val showBitrate: Boolean = true,
+    val showPlaybackSpeed: Boolean = false,
+    val showPlaybackPitch: Boolean = false,
     val showCurrentTime: Boolean = false,
     val showCustomText: Boolean = false,
     val customText: String = "",
@@ -18,6 +21,8 @@ data class PlayerInfoVisibility(
         showFormat ||
             showSampleRate ||
             showBitrate ||
+            showPlaybackSpeed ||
+            showPlaybackPitch ||
             showCurrentTime ||
             (showCustomText && customText.trim().isNotEmpty())
 }
@@ -42,6 +47,7 @@ fun buildPlayerInfoSegments(
     song: Song,
     visibility: PlayerInfoVisibility,
     currentTimeLabel: String? = null,
+    playbackTuning: PlaybackTuning? = null,
 ): List<String> {
     val segments = mutableListOf<String>()
     if (visibility.showFormat) {
@@ -53,6 +59,12 @@ fun buildPlayerInfoSegments(
     if (visibility.showBitrate) {
         segments += song.bitrateLabel
     }
+    if (visibility.showPlaybackSpeed) {
+        playbackTuning?.let { segments += formatPlayerInfoPlaybackSpeed(it.speed) }
+    }
+    if (visibility.showPlaybackPitch) {
+        playbackTuning?.let { segments += formatPlayerInfoPlaybackPitch(it.pitchSemitones) }
+    }
     if (visibility.showCurrentTime) {
         currentTimeLabel?.takeIf { it.isNotBlank() }?.let { segments += it }
     }
@@ -60,4 +72,16 @@ fun buildPlayerInfoSegments(
         visibility.customText.trim().takeIf { it.isNotEmpty() }?.let { segments += it }
     }
     return segments
+}
+
+private fun formatPlayerInfoPlaybackSpeed(speed: Float): String =
+    String.format(Locale.US, "%.2fx", speed)
+
+private fun formatPlayerInfoPlaybackPitch(semitones: Float): String {
+    val rounded = semitones.roundToInt()
+    return when {
+        rounded > 0 -> "+$rounded 半音"
+        rounded < 0 -> "$rounded 半音"
+        else -> "0 半音"
+    }
 }

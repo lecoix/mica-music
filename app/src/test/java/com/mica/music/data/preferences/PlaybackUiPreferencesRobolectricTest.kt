@@ -87,6 +87,8 @@ class PlaybackUiPreferencesRobolectricTest {
             showFormat = false,
             showSampleRate = true,
             showBitrate = false,
+            showPlaybackSpeed = true,
+            showPlaybackPitch = true,
             showCurrentTime = true,
             showCustomText = true,
             customText = "Hi-Res",

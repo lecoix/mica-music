@@ -26,6 +26,7 @@ import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
@@ -59,6 +60,7 @@ internal fun PlayerLowerPanelSection(
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
     stripSongTitleParentheses: Boolean,
     playerInfoVisibility: PlayerInfoVisibility,
+    playbackTuning: PlaybackTuning,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -157,6 +159,7 @@ internal fun PlayerLowerPanelSection(
                                 song = activeSong,
                                 colors = infoBarColors,
                                 playerInfoVisibility = playerInfoVisibility,
+                                playbackTuning = playbackTuning,
                             )
                         }
                         Spacer(Modifier.height(spacing.afterInfo))

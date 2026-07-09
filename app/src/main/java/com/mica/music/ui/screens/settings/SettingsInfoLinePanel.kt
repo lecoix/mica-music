@@ -49,6 +49,24 @@ internal fun InfoLineSettingsPanel(uiSettings: AppUiSettings) {
     )
 
     SettingsToggleRow(
+        title = "速度",
+        subtitle = "显示当前播放速度，如 1.25x",
+        checked = playerInfo.showPlaybackSpeed,
+        onCheckedChange = { checked ->
+            updatePlayerInfo { it.copy(showPlaybackSpeed = checked) }
+        },
+    )
+
+    SettingsToggleRow(
+        title = "音高",
+        subtitle = "显示当前变调，如 +2 半音",
+        checked = playerInfo.showPlaybackPitch,
+        onCheckedChange = { checked ->
+            updatePlayerInfo { it.copy(showPlaybackPitch = checked) }
+        },
+    )
+
+    SettingsToggleRow(
         title = "时间",
         subtitle = "显示当前系统时间",
         checked = playerInfo.showCurrentTime,
