@@ -331,7 +331,7 @@ fun NowPlayingContent(
     val coverFlowNavigation = remember { CoverFlowCarouselNavigationBridge() }
     val photoStackNavigation = remember { PhotoStackCarouselNavigationBridge() }
 
-    BackHandler(enabled = handleBackToClose && lyricsExpanded) {
+    BackHandler(enabled = lyricsExpanded) {
         logBackFlow("back-consume source=now-playing-lyrics song=${song.id}")
         lyricsExpanded = false
     }
