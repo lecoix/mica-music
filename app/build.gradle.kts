@@ -21,6 +21,9 @@ val media3FfmpegGeneratedAar =
     layout.buildDirectory.file("generated/media3-ffmpeg/media3-ffmpeg-decoder-dsd.aar").get().asFile
 val media3FfmpegLocalJni =
     rootProject.file("third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so")
+val hasDsdFfmpeg = media3FfmpegLocalAar.exists() ||
+    media3FfmpegGeneratedAar.exists() ||
+    media3FfmpegLocalJni.exists()
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
@@ -204,21 +207,13 @@ dependencies {
     testImplementation(libs.roborazzi.junit.rule)
 }
 
-tasks.named("preBuild") {
+tasks.matching { it.name == "preReleaseBuild" || it.name == "prePerfBuild" }.configureEach {
     doFirst {
-        if (
-            !media3FfmpegLocalAar.exists() &&
-            !media3FfmpegGeneratedAar.exists() &&
-            !media3FfmpegLocalJni.exists()
-        ) {
-            logger.warn(
-                """
-                |
-                | *** libffmpegJNI with dsd_lsbf missing.
-                | *** Run: .\scripts\build-media3-ffmpeg-dsd.ps1 for Exo DSF playback.
-                |
-                """.trimMargin(),
-            )
+        check(hasDsdFfmpeg) {
+            """
+            |DSD-enabled Media3 FFmpeg is required for release and perf builds.
+            |Run: .\scripts\build-media3-ffmpeg-dsd.ps1
+            """.trimMargin()
         }
     }
 }
