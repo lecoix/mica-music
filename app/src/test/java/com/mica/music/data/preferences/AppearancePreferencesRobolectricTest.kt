@@ -1,7 +1,7 @@
 package com.mica.music.data.preferences
 
 import com.mica.music.data.AppAccentColor
-import com.mica.music.ui.theme.MicaPreset
+import com.mica.music.data.MicaPreset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before

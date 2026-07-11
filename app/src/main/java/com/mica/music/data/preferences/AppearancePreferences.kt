@@ -3,8 +3,8 @@ package com.mica.music.data.preferences
 import android.content.Context
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
-import com.mica.music.ui.theme.CustomMicaBackground
-import com.mica.music.ui.theme.MicaPreset
+import com.mica.music.data.CustomMicaBackground
+import com.mica.music.data.MicaPreset
 
 /** 主题、状态栏、强调色与云母背景偏好。 */
 object AppearancePreferences {

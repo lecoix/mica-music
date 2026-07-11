@@ -27,7 +27,10 @@ fun resolveAppAccent(
     when (accent) {
         AppAccentColor.DYNAMIC -> systemDynamicAccent(context, isDark)
         AppAccentColor.CUSTOM -> Color(customAccentColorArgb)
-        else -> accent.resolve(isDark)
+        AppAccentColor.PURPLE -> HifiPalette.PurplePrimary
+        AppAccentColor.GOLD -> HifiPalette.HiResGold
+        AppAccentColor.TEAL -> Color(0xFF5BA8A0)
+        AppAccentColor.CORAL -> Color(0xFFE07A7A)
     }
 
 private fun systemDynamicAccent(context: Context, isDark: Boolean): Color {

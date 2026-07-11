@@ -14,7 +14,6 @@ import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.util.DiagnosticLog
-import com.mica.music.ui.theme.MicaPreset
 
 /**
  * 界面偏好（主题、状态栏、强调色、云母背景等），供 [com.mica.music.MainActivity] 与设置页共享并即时刷新。
