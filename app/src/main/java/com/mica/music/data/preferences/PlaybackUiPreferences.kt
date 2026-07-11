@@ -32,6 +32,10 @@ object PlaybackUiPreferences {
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
     private const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
     private const val KEY_SONG_LIST_INFO_SHOW_COUNT = "song_list_info_show_count"
+    private const val KEY_SONG_LIST_INFO_SHOW_SONG_ARTIST = "song_list_info_show_song_artist"
+    private const val KEY_SONG_LIST_INFO_SHOW_SONG_ALBUM = "song_list_info_show_song_album"
+    private const val KEY_SONG_LIST_INFO_SHOW_SONG_PLAY_COUNT = "song_list_info_show_song_play_count"
+    private const val KEY_SONG_LIST_INFO_SHOW_SONG_DURATION = "song_list_info_show_song_duration"
     private const val KEY_SONG_LIST_INFO_SHOW_SIZE = "song_list_info_show_size"
     private const val KEY_SONG_LIST_INFO_SHOW_SORT = "song_list_info_show_sort"
     private const val KEY_SONG_LIST_INFO_SHOW_LAST_SCAN = "song_list_info_show_last_scan"
@@ -220,6 +224,10 @@ object PlaybackUiPreferences {
     fun songListInfoVisibility(context: Context): SongListInfoVisibility {
         val p = MicaSettingsStore.prefs(context)
         return SongListInfoVisibility(
+            showSongArtist = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_ARTIST, true),
+            showSongAlbum = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_ALBUM, true),
+            showSongPlayCount = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_PLAY_COUNT, true),
+            showSongDuration = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_DURATION, false),
             showSongCount = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_COUNT, true),
             showLibrarySize = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SIZE, true),
             showSortOrder = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_SORT, true),
@@ -231,6 +239,10 @@ object PlaybackUiPreferences {
 
     fun setSongListInfoVisibility(context: Context, visibility: SongListInfoVisibility) {
         MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_ARTIST, visibility.showSongArtist)
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_ALBUM, visibility.showSongAlbum)
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_PLAY_COUNT, visibility.showSongPlayCount)
+            .putBoolean(KEY_SONG_LIST_INFO_SHOW_SONG_DURATION, visibility.showSongDuration)
             .putBoolean(KEY_SONG_LIST_INFO_SHOW_COUNT, visibility.showSongCount)
             .putBoolean(KEY_SONG_LIST_INFO_SHOW_SIZE, visibility.showLibrarySize)
             .putBoolean(KEY_SONG_LIST_INFO_SHOW_SORT, visibility.showSortOrder)

@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.data.LibraryFastScrollIndex
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.ui.theme.MicaTheme
@@ -40,6 +41,7 @@ fun SongListPanel(
     selectionMode: Boolean = false,
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
+    infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     modifier: Modifier = Modifier,
 ) {
     val lazyListState = listState ?: rememberLazyListState()
@@ -72,6 +74,7 @@ fun SongListPanel(
             selectionMode = selectionMode,
             selectedSongIds = selectedSongIds,
             onSelectionToggle = onSelectionToggle,
+            infoVisibility = infoVisibility,
             modifier = modifier.fillMaxSize(),
         )
     } else {
@@ -93,6 +96,7 @@ fun SongListPanel(
                 selectionMode = selectionMode,
                 selectedSongIds = selectedSongIds,
                 onSelectionToggle = onSelectionToggle,
+                infoVisibility = infoVisibility,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -122,6 +126,7 @@ private fun SongRows(
     selectionMode: Boolean = false,
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
+    infoVisibility: SongListInfoVisibility,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -145,6 +150,7 @@ private fun SongRows(
                 onLongClick = if (selectionMode) null else onSongOpenMenu?.let { open -> { open(song) } },
                 selectionMode = selectionMode,
                 isSelected = song.id in selectedSongIds,
+                infoVisibility = infoVisibility,
             )
         }
     }

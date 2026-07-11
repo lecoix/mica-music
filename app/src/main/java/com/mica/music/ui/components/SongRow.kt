@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -55,6 +56,7 @@ fun SongRow(
     showCover: Boolean = true,
     compact: Boolean = false,
     subtitleOverride: String? = null,
+    infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     modifier: Modifier = Modifier,
 ) {
     val titleStyle = if (compact) MicaTheme.typography.bodyMd else MicaTheme.typography.bodyLg
@@ -136,22 +138,16 @@ fun SongRow(
                     }
                 }
                 if (!compact || subtitleOverride != null) {
-                    val meta = subtitleOverride ?: buildString {
-                        append(ArtistNames.normalizeDisplay(song.artist))
-                        append(" · ")
-                        append(song.album)
-                        if (song.playCount > 0) {
-                            append(" · ")
-                            append("${song.playCount} 次播放")
-                        }
+                    val meta = subtitleOverride ?: songSubtitle(song, infoVisibility)
+                    if (meta.isNotBlank()) {
+                        Text(
+                            text = meta,
+                            style = MicaTheme.typography.bodySm,
+                            color = MicaTheme.colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
-                    Text(
-                        text = meta,
-                        style = MicaTheme.typography.bodySm,
-                        color = MicaTheme.colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
             }
 
@@ -169,3 +165,11 @@ fun SongRow(
         }
     }
 }
+
+internal fun songSubtitle(song: Song, visibility: SongListInfoVisibility): String =
+    listOfNotNull(
+        ArtistNames.normalizeDisplay(song.artist).takeIf { visibility.showSongArtist },
+        song.album.takeIf { visibility.showSongAlbum },
+        "${song.playCount} 次播放".takeIf { visibility.showSongPlayCount && song.playCount > 0 },
+        song.durationLabel.takeIf { visibility.showSongDuration && song.durationSec > 0 },
+    ).joinToString(" · ")

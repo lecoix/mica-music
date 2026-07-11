@@ -102,6 +102,39 @@ internal fun InfoLineSettingsPanel(uiSettings: AppUiSettings) {
         uiSettings.updateSongListInfoVisibility(transform(uiSettings.songListInfoVisibility))
     }
 
+    SettingsSectionTitle("歌曲副行")
+
+    SettingsToggleRow(
+        title = "艺术家",
+        subtitle = "在歌曲副行显示艺术家",
+        checked = songListInfo.showSongArtist,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongArtist = checked) } },
+    )
+
+    SettingsToggleRow(
+        title = "专辑",
+        subtitle = "在歌曲副行显示专辑",
+        checked = songListInfo.showSongAlbum,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongAlbum = checked) } },
+    )
+
+    SettingsToggleRow(
+        title = "播放次数",
+        subtitle = "歌曲播放过后在副行显示播放次数",
+        checked = songListInfo.showSongPlayCount,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongPlayCount = checked) } },
+    )
+
+    SettingsToggleRow(
+        title = "歌曲时长",
+        subtitle = "在歌曲副行显示歌曲时长，如 3:45",
+        checked = songListInfo.showSongDuration,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongDuration = checked) } },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+    SettingsSectionTitle("列表信息栏")
+
     SettingsToggleRow(
         title = "歌曲数量",
         subtitle = "显示「N 首歌曲」或未扫描提示",

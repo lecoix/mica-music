@@ -614,6 +614,7 @@ fun HomeScreen(
                     )
                     HomePaneKey.Songs -> HomeLibraryPane(
                         library = library,
+                        songListInfoVisibility = uiSettings.songListInfoVisibility,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,

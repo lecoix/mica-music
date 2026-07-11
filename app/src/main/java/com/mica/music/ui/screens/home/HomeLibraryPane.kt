@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.lazy.LazyListState
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongSortField
 import com.mica.music.ui.components.EmptyStatePresets
 import com.mica.music.ui.components.PlaylistSongListPanel
@@ -32,6 +33,7 @@ internal fun HomeLibraryPane(
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
     onMoveSong: (Int, Int) -> Unit = { _, _ -> },
+    songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
 ) {
     val folderLabel = library.libraryFolderLabel
     when {
@@ -83,6 +85,7 @@ internal fun HomeLibraryPane(
                 selectedSongIds = selectedSongIds,
                 onSelectionToggle = onSelectionToggle,
                 onMoveSong = onMoveSong,
+                songListInfoVisibility = songListInfoVisibility,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -106,6 +109,7 @@ private fun LibrarySongsPanel(
     selectedSongIds: Set<String>,
     onSelectionToggle: (String) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
+    songListInfoVisibility: SongListInfoVisibility,
     modifier: Modifier = Modifier,
 ) {
     if (library.sortField == SongSortField.CUSTOM && !library.customSongOrderLocked && !selectionMode) {
@@ -122,6 +126,7 @@ private fun LibrarySongsPanel(
             sortField = library.sortField,
             sortDirection = library.sortDirection,
             listBottomPadding = listBottomPadding,
+            infoVisibility = songListInfoVisibility,
             modifier = modifier,
         )
     } else {
@@ -140,6 +145,7 @@ private fun LibrarySongsPanel(
             selectionMode = selectionMode,
             selectedSongIds = selectedSongIds,
             onSelectionToggle = onSelectionToggle,
+            infoVisibility = songListInfoVisibility,
             modifier = modifier,
         )
     }

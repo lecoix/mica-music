@@ -26,6 +26,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.ui.theme.HifiSize
@@ -48,6 +49,7 @@ fun PlaylistSongListPanel(
     sortField: SongSortField = library.sortField,
     sortDirection: SortDirection = library.sortDirection,
     listBottomPadding: Dp = 0.dp,
+    infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     modifier: Modifier = Modifier,
 ) {
     if (songs.isEmpty()) {
@@ -73,6 +75,7 @@ fun PlaylistSongListPanel(
             fastScrollSortField = sortField,
             fastScrollSortDirection = sortDirection,
             listBottomPadding = listBottomPadding,
+            infoVisibility = infoVisibility,
             modifier = modifier,
         )
         return
@@ -113,6 +116,7 @@ fun PlaylistSongListPanel(
                         isPlaying = isCurrent && isPlaying,
                         onClick = { onSongClick(song.id) },
                         onLongClick = { onSongOpenMenu(song) },
+                        infoVisibility = infoVisibility,
                         modifier = Modifier.weight(1f),
                     )
                     Icon(

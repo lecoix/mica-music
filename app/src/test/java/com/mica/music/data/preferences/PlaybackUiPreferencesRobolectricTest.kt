@@ -4,6 +4,7 @@ import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.SongListInfoVisibility
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -97,6 +98,20 @@ class PlaybackUiPreferencesRobolectricTest {
         PlaybackUiPreferences.setPlayerInfoVisibility(context, visibility)
 
         assertEquals(visibility, PlaybackUiPreferences.playerInfoVisibility(context))
+    }
+
+    @Test
+    fun songListInfoVisibilityRoundTrips() {
+        val visibility = SongListInfoVisibility(
+            showSongArtist = false,
+            showSongAlbum = false,
+            showSongPlayCount = false,
+            showSongDuration = true,
+        )
+
+        PlaybackUiPreferences.setSongListInfoVisibility(context, visibility)
+
+        assertEquals(visibility, PlaybackUiPreferences.songListInfoVisibility(context))
     }
 
     @Test
