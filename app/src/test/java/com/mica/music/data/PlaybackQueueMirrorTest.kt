@@ -82,6 +82,51 @@ class PlaybackQueueMirrorTest {
         assertTrue(coordinator.hasSignature(PlaybackQueueMirror.orderSignature(items)))
     }
 
+    @Test
+    fun coordinatorRejectsPartialMirrorAndAllowsRetry() {
+        val dispatcher = StandardTestDispatcher()
+        val coordinator = PlaybackQueueMirrorCoordinator(
+            scope = TestScope(dispatcher),
+            workerDispatcher = dispatcher,
+            debounceMs = 0L,
+        )
+        val first = SongFixtures.song("first")
+        val missing = SongFixtures.song("missing")
+        val last = SongFixtures.song("last")
+        val items = listOf(item(first.id), item(missing.id), item(last.id))
+        var applied: List<Song>? = null
+
+        val failed = coordinator.rebuildNow(
+            player = mockPlayer(items, currentIndex = 1),
+            resolver = { id -> listOf(first, last).firstOrNull { it.id == id } },
+        ) { songs, _ -> applied = songs }
+
+        assertEquals(3, failed.itemsCount)
+        assertEquals(2, failed.resolvedCount)
+        assertTrue(!failed.applied)
+        assertNull(applied)
+        assertTrue(!coordinator.hasSignature(PlaybackQueueMirror.orderSignature(items)))
+
+        coordinator.rebuildNow(
+            player = mockPlayer(items, currentIndex = 1),
+            resolver = { id -> listOf(first, missing, last).firstOrNull { it.id == id } },
+        ) { songs, _ -> applied = songs }
+
+        assertEquals(listOf(first, missing, last), applied)
+        assertTrue(coordinator.hasSignature(PlaybackQueueMirror.orderSignature(items)))
+    }
+
+    @Test
+    fun snapshotItemsRejectsIncompletePlayerSnapshot() {
+        val player = mockk<Player>()
+        every { player.mediaItemCount } returns 3
+        every { player.getMediaItemAt(0) } returns item("first")
+        every { player.getMediaItemAt(1) } throws IndexOutOfBoundsException()
+        every { player.getMediaItemAt(2) } returns item("last")
+
+        assertTrue(PlaybackQueueMirror.snapshotItems(player).isEmpty())
+    }
+
     private fun item(id: String): MediaItem =
         MediaItem.Builder().setMediaId(id).build()
 

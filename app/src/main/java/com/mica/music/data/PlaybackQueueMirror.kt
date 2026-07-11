@@ -15,11 +15,13 @@ internal data class QueueMirrorBuild(
 internal object PlaybackQueueMirror {
     fun snapshotItems(player: Player): List<MediaItem> {
         if (player.mediaItemCount <= 0) return emptyList()
-        return buildList(player.mediaItemCount) {
-            for (index in 0 until player.mediaItemCount) {
-                runCatching { player.getMediaItemAt(index) }.getOrNull()?.let(::add)
-            }
+        val items = ArrayList<MediaItem>(player.mediaItemCount)
+        for (index in 0 until player.mediaItemCount) {
+            val item = runCatching { player.getMediaItemAt(index) }.getOrNull()
+                ?: return emptyList()
+            items += item
         }
+        return items
     }
 
     fun orderSignature(items: List<MediaItem>): QueueOrderSignature =

@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 internal data class PlaybackQueueMirrorResult(
     val itemsCount: Int,
     val resolvedCount: Int,
+    val applied: Boolean,
 )
 
 internal class PlaybackQueueMirrorCoordinator(
@@ -38,11 +39,12 @@ internal class PlaybackQueueMirrorCoordinator(
     ): PlaybackQueueMirrorResult {
         val items = PlaybackQueueMirror.snapshotItems(player)
         val mirrored = PlaybackQueueMirror.rebuildSongs(items, resolver)
-        if (mirrored.isNotEmpty()) {
+        val complete = mirrored.isNotEmpty() && mirrored.size == items.size
+        if (complete) {
             applyMirrored(mirrored, player.currentMediaItemIndex)
             lastOrderSignature = PlaybackQueueMirror.orderSignature(items)
         }
-        return PlaybackQueueMirrorResult(items.size, mirrored.size)
+        return PlaybackQueueMirrorResult(items.size, mirrored.size, complete)
     }
 
     fun schedule(
@@ -62,7 +64,10 @@ internal class PlaybackQueueMirrorCoordinator(
 
             val mirrorStartedNs = SystemClock.elapsedRealtimeNanos()
             val items = PlaybackQueueMirror.snapshotItems(player)
-            if (items.isEmpty()) return@launch
+            if (items.isEmpty()) {
+                log("mirror-rebuild-rejected", mirrorStartedNs, "reason=incomplete-snapshot")
+                return@launch
+            }
             val previousSignature = lastOrderSignature
             val build = buildMirror(items, previousSignature, localQueue(), fallbackResolver())
             if (requestId != refreshRequestId || !isCurrentPlayer()) return@launch
@@ -77,10 +82,16 @@ internal class PlaybackQueueMirrorCoordinator(
                 )
                 return@launch
             }
-            if (mirrored.isNotEmpty()) {
-                applyMirrored(mirrored, player.currentMediaItemIndex)
-                lastOrderSignature = build.signature
+            if (mirrored.isEmpty() || mirrored.size != items.size) {
+                log(
+                    "mirror-rebuild-rejected",
+                    mirrorStartedNs,
+                    "playerItems=${items.size} resolved=${mirrored.size} reason=incomplete-decode",
+                )
+                return@launch
             }
+            applyMirrored(mirrored, player.currentMediaItemIndex)
+            lastOrderSignature = build.signature
             syncIndex()
             log(
                 "mirror-rebuild",

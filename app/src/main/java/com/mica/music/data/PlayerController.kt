@@ -844,7 +844,7 @@ class PlayerController internal constructor(
         ) { mirrored, playerIndex ->
             installQueueModel(queueModel().mirrorFromPlayer(mirrored, playerIndex))
         }
-        if (c is MediaController) {
+        if (result.applied && c is MediaController) {
             syncIndexFromPlayer(c)
         }
         logQueueSyncMs(
