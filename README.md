@@ -107,5 +107,5 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 - 测试：[`docs/TESTING.md`](./docs/TESTING.md)
 
 ---
-
-**Made with care · 2026-07**
+#爱发电：https://ifdian.net/a/lwcoz
+**Made with AI · 2026-07**
