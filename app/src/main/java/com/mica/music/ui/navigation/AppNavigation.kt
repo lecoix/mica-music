@@ -455,10 +455,10 @@ private fun rememberNowPlayingActions(
 
 private fun homePlaybackState(playerController: PlayerController): HomePlaybackState =
     HomePlaybackState(
-        currentSong = playerController.currentSong,
+        currentSong = playerController.playbackSurfaceState.currentSong,
         isPlaying = playerController.playbackSurfaceState.isPlaying,
         positionMs = playerController.playbackProgressState.positionMs,
-        queue = playerController.songQueue,
+        queue = playerController.playbackQueueState.queue,
     )
 
 @Composable
@@ -472,7 +472,7 @@ private fun rememberHomePlaybackActions(
             setQueue = playerController::setQueue,
             appendToQueue = { songs ->
                 if (songs.isNotEmpty()) {
-                    playerController.setQueue(playerController.songQueue + songs)
+                    playerController.setQueue(playerController.playbackQueueState.queue + songs)
                 }
             },
             togglePlay = playerController::togglePlay,
