@@ -12,6 +12,22 @@ _Avoid_: track（除切歌动画 `TrackSkipDirection` 外）、media item
 带时间戳的一句歌词，用于同步滚动与行内 seek。
 _Avoid_: caption、subtitle
 
+**LyricsDocument（歌词文档）**：
+渲染器无关的版本化歌词模型：来源、行、原文/译文分段、逐字 token 与行结束时间。当前持久化在 `songs.lyricsJson`，新格式为对象 JSON；历史 `[{t,x,c,e}]` 数组必须继续可读。`LyricLine` 仍是扫描与既有调用链的兼容桥，不新增独立 Room 表。
+_Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构
+
+**Lyrics timeline（歌词时间轴）**：
+`LyricsTimelineEngine` 基于 `LyricsDocument` 和播放位置输出行、行间空档、首行前与末行后阶段；当前行索引仍由兼容的 `LyricsSync` 计算，并在 `LyricsRenderState` 集中汇合。
+_Avoid_: 每个歌词界面各自计算当前行或空档
+
+**LyricsRenderState（歌词渲染状态）**：
+全屏、紧凑与通知歌词共用的渲染输入，包含当前行索引和时间轴快照。歌词 UI 不直接调用 `LyricsSync.indexForPosition()`。
+_Avoid_: 在不同显示面各自解释 `lyrics + positionMs`
+
+**Y 间奏行（Y interlude）**：
+全屏歌词中的合成三点间奏。仅当当前 active line id 集合为空、存在 `begin > playbackPositionMs` 的下一句、到下一句的 `delta >= 7000ms`，且上一句具有来源提供的 `endTimeMs` 并已结束时插入；普通 LRC 不得由大时间戳间隔推断间奏。
+_Avoid_: 静态地按相邻歌词开始时间插入间奏
+
 **Playlist（歌单）**：
 用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。
 _Avoid_: 与「播放队列」混用

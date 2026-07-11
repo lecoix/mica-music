@@ -132,6 +132,19 @@ class LyricsParsingTest {
     }
 
     @Test
+    fun lrcParsesCompatibilityDocumentWithStructuredBilingualParts() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:01.000]<00:01.000>original
+            [00:01.000]translation
+            """.trimIndent(),
+        )
+
+        assertEquals(com.mica.music.data.LyricsSource.LRC, document.source)
+        assertEquals(listOf("original", "translation"), document.lines.single().parts.map { it.text })
+    }
+
+    @Test
     fun nearbyPlainLineDoesNotMergeWithWordTimedLine() {
         val parsed = LrcParser.parse(
             """
@@ -172,6 +185,54 @@ class LyricsParsingTest {
 
         val malicious = """<!DOCTYPE tt [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><tt><body><p begin="1s">&xxe;</p></body></tt>"""
         assertTrue(LrcParser.parse(malicious).isEmpty())
+    }
+
+    @Test
+    fun ttmlPreservesParagraphEndAndDuration() {
+        val parsed = LrcParser.parse(
+            """
+            <tt><body><div>
+              <p begin="1s" end="2.5s">first</p>
+              <p begin="3s" dur="1200ms">second</p>
+            </div></body></tt>
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf(2_500, 4_200), parsed.map { it.endTimeMs })
+    }
+
+    @Test
+    fun ttmlKeepsRoleMarkedTranslationAsSecondDisplayRow() {
+        val parsed = LrcParser.parse(
+            """
+            <tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+              <p begin="1s" end="2s"><span begin="1s">original</span><span ttm:role="x-translation">translation</span></p>
+            </div></body></tt>
+            """.trimIndent(),
+        ).single()
+
+        assertEquals("original\ntranslation", parsed.text)
+        assertEquals(listOf("original"), parsed.cues.map { it.text })
+    }
+
+    @Test
+    fun ttmlParsesStructuredDocumentWithoutRecoveringRolesFromText() {
+        val document = TtmlLyricsParser.parseDocument(
+            """
+            <tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+              <p begin="1s" end="2s"><span begin="1s">original</span><span ttm:role="x-translation">translation</span></p>
+            </div></body></tt>
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(com.mica.music.data.LyricsSource.TTML, document.source)
+        assertEquals(
+            listOf(com.mica.music.data.LyricTextRole.ORIGINAL, com.mica.music.data.LyricTextRole.TRANSLATION),
+            line.parts.map { it.role },
+        )
+        assertEquals(listOf("original", "translation"), line.parts.map { it.text })
+        assertEquals(2_000, line.tokens.single().endMs)
     }
 
     @Test

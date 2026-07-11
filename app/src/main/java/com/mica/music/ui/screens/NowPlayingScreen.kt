@@ -1,6 +1,8 @@
 package com.mica.music.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
@@ -31,6 +35,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.LyricsPageTheme
+import com.mica.music.data.LyricsSync
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
@@ -39,6 +45,7 @@ import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
+import com.mica.music.data.renderStateAt
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
@@ -51,12 +58,14 @@ import com.mica.music.ui.components.cachedCoverAspectRatio
 import com.mica.music.ui.components.formatPlaybackTuningMenuLabel
 import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.system.StatusBarEffect
 import com.mica.music.ui.theme.NowPlayingBackground
 import com.mica.music.ui.theme.rememberPlaybackContentColors
+import com.mica.music.ui.theme.rememberLyricsContentColors
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.ui.theme.relativeLuminance
 import com.mica.music.util.TrackSwitchPerformance
@@ -359,6 +368,7 @@ fun NowPlayingContent(
             val bottomInset = contentPadding.calculateBottomPadding()
             val screenHeight = fullHeight - bottomInset
             val screenWidth = fullWidth
+            val density = LocalDensity.current
 
             val appearance = rememberPlayerScreenAppearance(song, lowerBackground)
             val playerUiColors = rememberPlaybackContentColors(
@@ -375,11 +385,25 @@ fun NowPlayingContent(
                 ),
             )
 
+            val lyricsCloudAvailable = uiSettings.lyricsPageTheme == LyricsPageTheme.CLOUD &&
+                LyricsSync.hasTimedLyrics(song.lyrics)
+            val lyricsCloudRequested = lyricsExpanded && lyricsCloudAvailable
+            val classicLyricsExpanded = lyricsExpanded && !lyricsCloudAvailable
+            val useVerticalCloudSplit = lyricsCloudUsesVerticalSplit(uiSettings.playerCoverFlowMode)
+            val cloudTransition by animateFloatAsState(
+                targetValue = if (lyricsCloudRequested) 1f else 0f,
+                animationSpec = tween(
+                    durationMillis = if (rememberMicaMotionEnabled()) MicaMotion.DurationLongMs else 0,
+                    easing = MicaMotion.Easing,
+                ),
+                label = "lyricsCloudPageTransition",
+            )
+
             val previewModel = rememberPlayerPageUiModel(
                 surfaceState = surfaceState,
                 queueState = queueState,
                 uiSettings = uiSettings,
-                lyricsExpanded = lyricsExpanded,
+                lyricsExpanded = classicLyricsExpanded,
                 panelHeight = screenHeight * 0.45f,
                 screenHeight = screenHeight,
                 screenWidth = screenWidth,
@@ -446,6 +470,38 @@ fun NowPlayingContent(
                 modifier = Modifier.fillMaxSize(),
             )
 
+            if (lyricsCloudRequested || cloudTransition > 0f) {
+                val cloudRenderState = remember(song.lyrics, progressState.positionMs) {
+                    song.lyrics.renderStateAt(progressState.positionMs)
+                }
+                val cloudColors = rememberLyricsContentColors(
+                    appearance.contentColors,
+                    uiSettings.lyricsPageTextColorMode,
+                )
+                LyricsCloudPanel(
+                    renderState = cloudRenderState,
+                    isPlaying = surfaceState.isPlaying,
+                    isVisible = lyricsCloudRequested,
+                    colors = cloudColors,
+                    onLineClick = actions.seekToMs,
+                    bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = if (useVerticalCloudSplit) {
+                            0f
+                        } else {
+                            -with(density) { fullWidth.toPx() } * cloudTransition
+                        }
+                    },
+            ) {
             ParticleCoverPlayerLayer(
                 song = previewModel.song,
                 frame = previewModel.frame,
@@ -478,7 +534,7 @@ fun NowPlayingContent(
                         isPlaying = previewModel.isPlaying,
                         coverFlowMode = uiSettings.playerCoverFlowMode,
                         particleCoverTuning = uiSettings.particleCoverTuning,
-                        lyricsExpanded = lyricsExpanded,
+                        lyricsExpanded = classicLyricsExpanded,
                         coverContentAlpha = coverContentAlpha,
                         onCoverBoundsChanged = onCoverBoundsChanged,
                         onCoverAspectRatioChanged = { coverAspectRatio = it },
@@ -495,18 +551,32 @@ fun NowPlayingContent(
                         photoStackNavigation = photoStackNavigation,
                         screenWidth = screenWidth,
                         stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
+                        modifier = Modifier.graphicsLayer {
+                            translationY = if (useVerticalCloudSplit) {
+                                -with(density) { fullHeight.toPx() } * 1.1f * cloudTransition
+                            } else {
+                                0f
+                            }
+                        },
                     )
                     BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                translationY = if (useVerticalCloudSplit) {
+                                    with(density) { fullHeight.toPx() } * 1.1f * cloudTransition
+                                } else {
+                                    0f
+                                }
+                            },
                     ) {
                         val panelHeight = maxHeight
                         val pageModel = rememberPlayerPageUiModel(
                             surfaceState = surfaceState,
                             queueState = queueState,
                             uiSettings = uiSettings,
-                            lyricsExpanded = lyricsExpanded,
+                            lyricsExpanded = classicLyricsExpanded,
                             panelHeight = panelHeight,
                             screenHeight = screenHeight,
                             screenWidth = screenWidth,
@@ -526,7 +596,7 @@ fun NowPlayingContent(
                             lower = pageModel.frame.lower,
                             seekState = seekState,
                             immersiveLower = immersiveLower,
-                            lyricsPageOpen = lyricsExpanded,
+                            lyricsPageOpen = classicLyricsExpanded,
                             lyricsPageImmersive = uiSettings.lyricsPageImmersive,
                             lyricsTextColorMode = uiSettings.lyricsPageTextColorMode,
                             lyricsAlignment = uiSettings.lyricsPageAlignment,
@@ -551,6 +621,7 @@ fun NowPlayingContent(
                         )
                     }
                 }
+            }
         }
 
         SnackbarHost(
@@ -645,6 +716,9 @@ fun NowPlayingContent(
         }
     }
 }
+
+internal fun lyricsCloudUsesVerticalSplit(mode: com.mica.music.data.PlayerCoverFlowMode): Boolean =
+    mode == com.mica.music.data.PlayerCoverFlowMode.STANDARD || mode.usesCoverFlowStage
 
 private fun playerStatusBarUsesDarkIcons(
     coverColor: Color,

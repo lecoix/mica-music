@@ -18,7 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
-import com.mica.music.data.LyricsSync
+import com.mica.music.data.LyricsRenderState
 import com.mica.music.ui.components.LyricLineBlock
 import com.mica.music.ui.components.LyricsAreaEdgeFade
 import com.mica.music.ui.components.PlayerLyricsIndexRoll
@@ -38,8 +38,7 @@ internal fun safeLyricDisplayIndex(lyricsSize: Int, displayIndex: Int): Int? =
 
 @Composable
 internal fun LyricsSection(
-    lyrics: List<LyricLine>,
-    positionMs: Int,
+    renderState: LyricsRenderState,
     isPlaying: Boolean,
     colors: PlayerContentColors,
     lineSlots: Int,
@@ -47,7 +46,9 @@ internal fun LyricsSection(
     modifier: Modifier = Modifier,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
 ) {
-    val index = LyricsSync.indexForPosition(lyrics, positionMs)
+    val lyrics = renderState.lyrics
+    val positionMs = renderState.positionMs
+    val index = renderState.activeLineIndex
     val compact = lineSlots <= 1
     val textStyle = rememberPlayerPanelLyricStyle()
     val colorSpec = rememberLyricLineColorSpec()

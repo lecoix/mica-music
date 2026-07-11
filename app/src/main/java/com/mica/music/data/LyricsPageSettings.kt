@@ -15,6 +15,20 @@ enum class LyricsPageAlignment(
     }
 }
 
+enum class LyricsPageTheme(
+    val storageValue: String,
+    val settingsLabel: String,
+) {
+    LIST("list", "经典列表"),
+    CLOUD("cloud", "歌词云"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): LyricsPageTheme =
+            entries.firstOrNull { it.storageValue == value } ?: LIST
+    }
+}
+
 /** 播放页控件/歌词前景色覆盖（自动 / 固定浅色 / 固定深色）。 */
 enum class PlaybackContentColorMode(
     val storageValue: String,

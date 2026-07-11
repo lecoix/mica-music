@@ -2,6 +2,13 @@ package com.mica.music.data.scanner
 
 import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricLineNode
+import com.mica.music.data.LyricTextPart
+import com.mica.music.data.LyricTextRole
+import com.mica.music.data.LyricToken
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsSource
+import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.util.DiagnosticLog
 import java.io.StringReader
 import javax.xml.XMLConstants
@@ -25,12 +32,19 @@ internal object TtmlLyricsParser {
     }
 
     fun parse(text: String): List<LyricLine> {
-        return parseWithFactory(text, DocumentBuilderFactory.newInstance())
+        return parseDocument(text).toLegacyLyricLines()
     }
 
+    fun parseDocument(text: String): LyricsDocument =
+        parseDocumentWithFactory(text, DocumentBuilderFactory.newInstance())
+
     internal fun parseWithFactory(text: String, factory: DocumentBuilderFactory): List<LyricLine> {
+        return parseDocumentWithFactory(text, factory).toLegacyLyricLines()
+    }
+
+    internal fun parseDocumentWithFactory(text: String, factory: DocumentBuilderFactory): LyricsDocument {
         if (!looksLikeTtml(text) || text.length > MAX_DOCUMENT_CHARS || forbiddenDeclaration.containsMatchIn(text)) {
-            return emptyList()
+            return LyricsDocument(source = LyricsSource.TTML)
         }
         return runCatching {
             factory.apply {
@@ -51,40 +65,68 @@ internal object TtmlLyricsParser {
             }
             val document = builder.parse(InputSource(StringReader(text)))
             val paragraphs = document.getElementsByTagNameNS("*", "p")
-            if (paragraphs.length !in 1..MAX_PARAGRAPHS) return emptyList()
+            if (paragraphs.length !in 1..MAX_PARAGRAPHS) return LyricsDocument(source = LyricsSource.TTML)
 
             var totalCues = 0
-            buildList {
+            val lines = buildList {
                 for (index in 0 until paragraphs.length) {
                     val paragraph = paragraphs.item(index) as? Element ?: continue
                     val rendered = renderParagraph(paragraph)
                     totalCues += rendered.cues.size
-                    if (totalCues > MAX_CUES) return emptyList()
-                    val lineText = MetadataTextFix.normalize(rendered.text).trim()
-                    if (lineText.isEmpty()) continue
+                    if (totalCues > MAX_CUES) return LyricsDocument(source = LyricsSource.TTML)
+                    val originalText = MetadataTextFix.normalize(rendered.text).trim()
+                    val translationText = MetadataTextFix.normalize(rendered.translation).trim()
+                    if (originalText.isEmpty() && translationText.isEmpty()) continue
                     val lineStart = parseTime(paragraph.getAttribute("begin"))
                         ?: rendered.cues.firstOrNull()?.timeMs
                         ?: continue
+                    val lineStartMs = lineStart.coerceAtLeast(0)
+                    val lineEndMs = parseTime(paragraph.getAttribute("end"))
+                        ?: parseTime(paragraph.getAttribute("dur"))?.let { durationMs -> lineStartMs + durationMs }
                     val cues = rendered.cues.takeIf { candidate ->
                         candidate.isNotEmpty() &&
-                            candidate.first().timeMs >= lineStart &&
+                            candidate.first().timeMs >= lineStartMs &&
                             candidate.zipWithNext().none { (left, right) -> right.timeMs < left.timeMs }
                     }.orEmpty()
-                    add(LyricLine(lineStart.coerceAtLeast(0), lineText, cues))
+                    val endMs = lineEndMs?.takeIf { it > lineStartMs }
+                    add(
+                        LyricLineNode(
+                            id = "$index-$lineStartMs",
+                            startMs = lineStartMs,
+                            endMs = endMs,
+                            parts = buildList {
+                                if (originalText.isNotEmpty()) add(LyricTextPart(LyricTextRole.ORIGINAL, originalText))
+                                if (translationText.isNotEmpty()) add(LyricTextPart(LyricTextRole.TRANSLATION, translationText))
+                            },
+                            tokens = cues.mapIndexed { cueIndex, cue ->
+                                LyricToken(
+                                    text = cue.text,
+                                    startMs = cue.timeMs,
+                                    endMs = cues.getOrNull(cueIndex + 1)?.timeMs ?: endMs,
+                                )
+                            },
+                        ),
+                    )
                 }
-            }.sortedBy { it.timeMs }
+            }.sortedBy { it.startMs }
+            LyricsDocument(source = LyricsSource.TTML, lines = lines)
         }.onFailure { error ->
             DiagnosticLog.event(
                 LYRICS_TRACE,
                 "ttml-parser failed error=${error.javaClass.simpleName}:${error.message.orEmpty().take(160)}",
             )
-        }.getOrDefault(emptyList())
+        }.getOrDefault(LyricsDocument(source = LyricsSource.TTML))
     }
 
-    private data class RenderedParagraph(val text: String, val cues: List<LyricCue>)
+    private data class RenderedParagraph(
+        val text: String,
+        val translation: String,
+        val cues: List<LyricCue>,
+    )
 
     private fun renderParagraph(paragraph: Element): RenderedParagraph {
         val text = StringBuilder()
+        val translation = StringBuilder()
         val cues = mutableListOf<LyricCue>()
 
         fun append(node: Node) {
@@ -96,6 +138,10 @@ internal object TtmlLyricsParser {
                         "br" -> text.append('\n')
                         "span" -> {
                             val visible = element.textContent.orEmpty()
+                            if (element.isTranslationSpan()) {
+                                translation.append(visible)
+                                return
+                            }
                             val begin = parseTime(element.getAttribute("begin"))
                             if (begin != null && visible.isNotEmpty()) {
                                 text.append(visible)
@@ -125,8 +171,14 @@ internal object TtmlLyricsParser {
             append(child)
             child = child.nextSibling
         }
-        return RenderedParagraph(text.toString(), cues)
+        return RenderedParagraph(text.toString(), translation.toString(), cues)
     }
+
+    private fun Element.isTranslationSpan(): Boolean =
+        getAttributeNS("http://www.w3.org/ns/ttml#metadata", "role")
+            .ifBlank { getAttribute("ttm:role") }
+            .split(Regex("\\s+"))
+            .any { it == "x-translation" }
 
     private fun parseTime(raw: String?): Int? {
         val value = raw?.trim().orEmpty()

@@ -1,6 +1,7 @@
 package com.mica.music.data.preferences
 
 import com.mica.music.data.PlaybackContentColorMode
+import com.mica.music.data.LyricsPageTheme
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -36,6 +37,15 @@ class LyricsPreferencesRobolectricTest {
 
         LyricsPreferences.setLyricsPageTextColorMode(context, PlaybackContentColorMode.DARK)
         assertEquals(PlaybackContentColorMode.DARK, LyricsPreferences.lyricsPageTextColorMode(context))
+    }
+
+    @Test
+    fun lyricsPageThemeDefaultsToListAndRoundTrips() {
+        assertEquals(LyricsPageTheme.LIST, LyricsPreferences.lyricsPageTheme(context))
+
+        LyricsPreferences.setLyricsPageTheme(context, LyricsPageTheme.CLOUD)
+
+        assertEquals(LyricsPageTheme.CLOUD, LyricsPreferences.lyricsPageTheme(context))
     }
 
     @Test

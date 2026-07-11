@@ -15,6 +15,7 @@ import com.mica.music.data.AppFontSource
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
+import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
@@ -27,7 +28,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun LyricsSettingsPanel(uiSettings: AppUiSettings) {
+internal fun LyricsSettingsPanel(
+    uiSettings: AppUiSettings,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val fontPicker = rememberLauncherForActivityResult(
@@ -44,6 +47,16 @@ internal fun LyricsSettingsPanel(uiSettings: AppUiSettings) {
     }
 
     SettingsSectionTitle("歌词页")
+
+    SettingsChoiceRow(
+        title = "歌词页主题",
+        subtitle = "歌词云会隐藏标题、进度条和播放按钮，让整页用于显示歌词",
+        choices = LyricsPageThemeChoices,
+        selectedValue = uiSettings.lyricsPageTheme.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateLyricsPageTheme(LyricsPageTheme.entries[ordinal])
+        },
+    )
 
     SettingsToggleRow(
         title = "分割双语歌词",

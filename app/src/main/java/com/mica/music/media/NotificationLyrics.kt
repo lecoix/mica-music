@@ -9,6 +9,7 @@ import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
 import com.mica.music.data.Song
+import com.mica.music.data.renderStateAt
 
 /** 媒体通知栏歌词：主位歌词、副位「歌名 - 歌手」。 */
 object NotificationLyrics {
@@ -32,8 +33,7 @@ object NotificationLyrics {
         }
 
     fun lyricIndexForPosition(lyrics: List<LyricLine>, positionMs: Int): Int {
-        if (!LyricsSync.hasTimedLyrics(lyrics)) return -1
-        return LyricsSync.indexForPosition(lyrics, positionMs)
+        return lyrics.renderStateAt(positionMs).activeLineIndex
     }
 
     fun lyricLineText(

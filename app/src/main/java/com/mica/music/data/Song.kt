@@ -58,6 +58,8 @@ data class LyricLine(
     val timeMs: Int,
     val text: String,
     val cues: List<LyricCue> = emptyList(),
+    /** Source-provided line end; null when the lyric format does not define one. */
+    val endTimeMs: Int? = null,
 )
 
 /** A timed visible fragment within a lyric line. The text retains source spacing and punctuation. */

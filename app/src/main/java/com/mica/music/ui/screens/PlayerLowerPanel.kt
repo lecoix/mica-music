@@ -21,6 +21,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
+import com.mica.music.data.renderStateAt
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageAlignment
@@ -78,6 +79,9 @@ internal fun PlayerLowerPanelSection(
     val lyricsFocus = lower.lyricsLayoutFocus
     val hideInfoAndLyrics = lower.hideInfoAndLyrics
     val displayTitle = SongTitleDisplay.displayTitle(activeSong.title, stripSongTitleParentheses)
+    val lyricsRenderState = remember(lyrics, progressState.positionMs) {
+        lyrics.renderStateAt(progressState.positionMs)
+    }
     val hideLyricsPageChrome = lyricsPageOpen && lyricsPageImmersive
     val playLongPress = if (lyricsPageOpen) onToggleLyricsPageImmersive else null
     val lyricsColors = rememberLyricsContentColors(autoContentColors, lyricsTextColorMode)
@@ -193,8 +197,7 @@ internal fun PlayerLowerPanelSection(
                         contentAlignment = Alignment.Center,
                     ) {
                         LyricsSection(
-                            lyrics = lyrics,
-                            positionMs = progressState.positionMs,
+                            renderState = lyricsRenderState,
                             isPlaying = surfaceState.isPlaying,
                             colors = lyricsColors,
                             lineSlots = lower.lyricLineSlots,
@@ -218,8 +221,7 @@ internal fun PlayerLowerPanelSection(
             }
             if (lyricsFocus > 0.01f && !hideInfoAndLyrics) {
                 ExpandedLyricsPanel(
-                    lyrics = lyrics,
-                    positionMs = progressState.positionMs,
+                    renderState = lyricsRenderState,
                     isPlaying = surfaceState.isPlaying,
                     colors = lyricsColors,
                     onLineClick = { timeMs ->

@@ -118,6 +118,9 @@ class AppUiSettings(context: Context) {
     var lyricsPageAlignment by mutableStateOf(LyricsPreferences.lyricsPageAlignment(appContext))
         private set
 
+    var lyricsPageTheme by mutableStateOf(LyricsPreferences.lyricsPageTheme(appContext))
+        private set
+
     var lyricsPageFontSizeSp by mutableIntStateOf(LyricsPreferences.lyricsPageFontSizeSp(appContext))
         private set
 
@@ -302,6 +305,11 @@ class AppUiSettings(context: Context) {
     fun updateLyricsPageAlignment(alignment: LyricsPageAlignment) {
         lyricsPageAlignment = alignment
         LyricsPreferences.setLyricsPageAlignment(appContext, alignment)
+    }
+
+    fun updateLyricsPageTheme(theme: LyricsPageTheme) {
+        lyricsPageTheme = theme
+        LyricsPreferences.setLyricsPageTheme(appContext, theme)
     }
 
     fun updateLyricsPageFontSizeSp(fontSizeSp: Int) {

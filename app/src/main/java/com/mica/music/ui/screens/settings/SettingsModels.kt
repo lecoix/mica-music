@@ -6,6 +6,7 @@ import com.mica.music.data.AppThemeMode
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
+import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MiniPlayerSwipeAction
@@ -75,6 +76,10 @@ internal val ReplayGainChoices = listOf(
 internal val LyricsPageTextColorChoices = PlaybackContentColorChoices
 
 internal val LyricsPageAlignmentChoices = LyricsPageAlignment.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+internal val LyricsPageThemeChoices = LyricsPageTheme.entries.map {
     it.ordinal to it.settingsLabel
 }
 
