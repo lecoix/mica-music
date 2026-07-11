@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
@@ -37,6 +38,7 @@ internal fun rememberLibraryStatsBarModel(
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
+    browseListInfoVisibility: BrowseListInfoVisibility = BrowseListInfoVisibility(),
 ): LibraryStatsBarModel? {
     val songs = library.songs
     return remember(
@@ -53,6 +55,7 @@ internal fun rememberLibraryStatsBarModel(
         artistSortDirection,
         artistGridColumns,
         songListInfoVisibility,
+        browseListInfoVisibility,
         songs,
         library.totalSizeMb,
         library.lastScanAtMs,
@@ -76,6 +79,7 @@ internal fun rememberLibraryStatsBarModel(
             artistSortDirection,
             artistGridColumns,
             songListInfoVisibility,
+            browseListInfoVisibility,
         )
     }
 }
@@ -98,6 +102,7 @@ internal fun resolveLibraryStatsBarModel(
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
+    browseListInfoVisibility: BrowseListInfoVisibility = BrowseListInfoVisibility(),
 ): LibraryStatsBarModel? {
     if (section == HomeSection.Settings) {
         return null
@@ -153,10 +158,14 @@ internal fun resolveLibraryStatsBarModel(
         HomeSection.Artists -> when (browseDestination) {
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    "${library.artistGroups().size} 位艺术家",
-                    formatBrowseSortLabel(artistSortField, artistSortDirection),
-                    formatGridColumnsLabel(artistGridColumns),
-                ) + scanSegments,
+                    "${library.artistGroups().size} 位艺术家".takeIf { browseListInfoVisibility.showArtistCount },
+                    formatBrowseSortLabel(artistSortField, artistSortDirection)
+                        .takeIf { browseListInfoVisibility.showArtistSortOrder },
+                    formatGridColumnsLabel(artistGridColumns)
+                        .takeIf { browseListInfoVisibility.showArtistGridColumns },
+                    browseListInfoVisibility.artistCustomText.trim()
+                        .takeIf { browseListInfoVisibility.showArtistCustomText && it.isNotEmpty() },
+                ) + browseScanSegments(library, browseListInfoVisibility.showArtistLastScanTime),
                 isScanning = library.isScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
@@ -169,10 +178,14 @@ internal fun resolveLibraryStatsBarModel(
         HomeSection.Albums -> when (browseDestination) {
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    "${library.albumGroups().size} 张专辑",
-                    formatBrowseSortLabel(albumSortField, albumSortDirection),
-                    formatGridColumnsLabel(albumGridColumns),
-                ) + scanSegments,
+                    "${library.albumGroups().size} 张专辑".takeIf { browseListInfoVisibility.showAlbumCount },
+                    formatBrowseSortLabel(albumSortField, albumSortDirection)
+                        .takeIf { browseListInfoVisibility.showAlbumSortOrder },
+                    formatGridColumnsLabel(albumGridColumns)
+                        .takeIf { browseListInfoVisibility.showAlbumGridColumns },
+                    browseListInfoVisibility.albumCustomText.trim()
+                        .takeIf { browseListInfoVisibility.showAlbumCustomText && it.isNotEmpty() },
+                ) + browseScanSegments(library, browseListInfoVisibility.showAlbumLastScanTime),
                 isScanning = library.isScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
@@ -260,6 +273,14 @@ private fun libraryScanSegments(library: MusicLibrary): List<String> =
         library.isScanning -> listOf("扫描中")
         !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
         library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
+        else -> emptyList()
+    }
+
+private fun browseScanSegments(library: MusicLibrary, showLastScanTime: Boolean): List<String> =
+    when {
+        library.isScanning -> listOf("扫描中")
+        !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
+        showLastScanTime && library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
         else -> emptyList()
     }
 

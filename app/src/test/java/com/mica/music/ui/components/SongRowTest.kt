@@ -3,10 +3,18 @@ package com.mica.music.ui.components
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.TrackMetadata
+import com.mica.music.data.SongTrailingInfo
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SongRowTest {
+    @Test
+    fun trailingInfoSupportsPlayCountFormatDurationAndNone() {
+        assertEquals("2", songTrailingLabel(song, SongTrailingInfo.PLAY_COUNT))
+        assertEquals(song.formatLabel, songTrailingLabel(song, SongTrailingInfo.FORMAT))
+        assertEquals(song.durationLabel, songTrailingLabel(song, SongTrailingInfo.DURATION))
+        assertEquals(null, songTrailingLabel(song, SongTrailingInfo.NONE))
+    }
     private val song = Song(
         id = "song",
         title = "Title",

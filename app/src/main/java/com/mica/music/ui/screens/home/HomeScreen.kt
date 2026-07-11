@@ -422,6 +422,7 @@ fun HomeScreen(
             artistSortDirection = uiState.browseSort.artistSortDirection,
             artistGridColumns = uiState.browseSort.artistGridColumns,
             songListInfoVisibility = uiSettings.songListInfoVisibility,
+            browseListInfoVisibility = uiSettings.browseListInfoVisibility,
         )
     } else {
         null

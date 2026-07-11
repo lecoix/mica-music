@@ -1,6 +1,7 @@
 package com.mica.music.data.preferences
 
 import android.content.Context
+import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
@@ -9,6 +10,7 @@ import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.SongListInfoVisibility
+import com.mica.music.data.SongTrailingInfo
 
 /** 播放页、迷你栏、封面与列表信息相关 UI 偏好。 */
 object PlaybackUiPreferences {
@@ -41,6 +43,19 @@ object PlaybackUiPreferences {
     private const val KEY_SONG_LIST_INFO_SHOW_LAST_SCAN = "song_list_info_show_last_scan"
     private const val KEY_SONG_LIST_INFO_SHOW_CUSTOM = "song_list_info_show_custom"
     private const val KEY_SONG_LIST_INFO_CUSTOM_TEXT = "song_list_info_custom_text"
+    private const val KEY_SONG_LIST_TRAILING_INFO = "song_list_trailing_info"
+    private const val KEY_ARTIST_INFO_SHOW_COUNT = "artist_info_show_count"
+    private const val KEY_ARTIST_INFO_SHOW_SORT = "artist_info_show_sort"
+    private const val KEY_ARTIST_INFO_SHOW_GRID = "artist_info_show_grid"
+    private const val KEY_ARTIST_INFO_SHOW_LAST_SCAN = "artist_info_show_last_scan"
+    private const val KEY_ARTIST_INFO_SHOW_CUSTOM = "artist_info_show_custom"
+    private const val KEY_ARTIST_INFO_CUSTOM_TEXT = "artist_info_custom_text"
+    private const val KEY_ALBUM_INFO_SHOW_COUNT = "album_info_show_count"
+    private const val KEY_ALBUM_INFO_SHOW_SORT = "album_info_show_sort"
+    private const val KEY_ALBUM_INFO_SHOW_GRID = "album_info_show_grid"
+    private const val KEY_ALBUM_INFO_SHOW_LAST_SCAN = "album_info_show_last_scan"
+    private const val KEY_ALBUM_INFO_SHOW_CUSTOM = "album_info_show_custom"
+    private const val KEY_ALBUM_INFO_CUSTOM_TEXT = "album_info_custom_text"
     private const val KEY_PLAYER_INFO_SHOW_FORMAT = "player_info_show_format"
     private const val KEY_PLAYER_INFO_SHOW_SAMPLE_RATE = "player_info_show_sample_rate"
     private const val KEY_PLAYER_INFO_SHOW_BITRATE = "player_info_show_bitrate"
@@ -234,6 +249,7 @@ object PlaybackUiPreferences {
             showLastScanTime = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_LAST_SCAN, true),
             showCustomText = p.getBoolean(KEY_SONG_LIST_INFO_SHOW_CUSTOM, false),
             customText = p.getString(KEY_SONG_LIST_INFO_CUSTOM_TEXT, "") ?: "",
+            trailingInfo = SongTrailingInfo.fromStorage(p.getInt(KEY_SONG_LIST_TRAILING_INFO, SongTrailingInfo.FORMAT.storageValue)),
         )
     }
 
@@ -249,6 +265,42 @@ object PlaybackUiPreferences {
             .putBoolean(KEY_SONG_LIST_INFO_SHOW_LAST_SCAN, visibility.showLastScanTime)
             .putBoolean(KEY_SONG_LIST_INFO_SHOW_CUSTOM, visibility.showCustomText)
             .putString(KEY_SONG_LIST_INFO_CUSTOM_TEXT, visibility.customText)
+            .putInt(KEY_SONG_LIST_TRAILING_INFO, visibility.trailingInfo.storageValue)
+            .apply()
+    }
+
+    fun browseListInfoVisibility(context: Context): BrowseListInfoVisibility {
+        val p = MicaSettingsStore.prefs(context)
+        return BrowseListInfoVisibility(
+            showArtistCount = p.getBoolean(KEY_ARTIST_INFO_SHOW_COUNT, true),
+            showArtistSortOrder = p.getBoolean(KEY_ARTIST_INFO_SHOW_SORT, true),
+            showArtistGridColumns = p.getBoolean(KEY_ARTIST_INFO_SHOW_GRID, true),
+            showArtistLastScanTime = p.getBoolean(KEY_ARTIST_INFO_SHOW_LAST_SCAN, true),
+            showArtistCustomText = p.getBoolean(KEY_ARTIST_INFO_SHOW_CUSTOM, false),
+            artistCustomText = p.getString(KEY_ARTIST_INFO_CUSTOM_TEXT, "") ?: "",
+            showAlbumCount = p.getBoolean(KEY_ALBUM_INFO_SHOW_COUNT, true),
+            showAlbumSortOrder = p.getBoolean(KEY_ALBUM_INFO_SHOW_SORT, true),
+            showAlbumGridColumns = p.getBoolean(KEY_ALBUM_INFO_SHOW_GRID, true),
+            showAlbumLastScanTime = p.getBoolean(KEY_ALBUM_INFO_SHOW_LAST_SCAN, true),
+            showAlbumCustomText = p.getBoolean(KEY_ALBUM_INFO_SHOW_CUSTOM, false),
+            albumCustomText = p.getString(KEY_ALBUM_INFO_CUSTOM_TEXT, "") ?: "",
+        )
+    }
+
+    fun setBrowseListInfoVisibility(context: Context, visibility: BrowseListInfoVisibility) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_ARTIST_INFO_SHOW_COUNT, visibility.showArtistCount)
+            .putBoolean(KEY_ARTIST_INFO_SHOW_SORT, visibility.showArtistSortOrder)
+            .putBoolean(KEY_ARTIST_INFO_SHOW_GRID, visibility.showArtistGridColumns)
+            .putBoolean(KEY_ARTIST_INFO_SHOW_LAST_SCAN, visibility.showArtistLastScanTime)
+            .putBoolean(KEY_ARTIST_INFO_SHOW_CUSTOM, visibility.showArtistCustomText)
+            .putString(KEY_ARTIST_INFO_CUSTOM_TEXT, visibility.artistCustomText)
+            .putBoolean(KEY_ALBUM_INFO_SHOW_COUNT, visibility.showAlbumCount)
+            .putBoolean(KEY_ALBUM_INFO_SHOW_SORT, visibility.showAlbumSortOrder)
+            .putBoolean(KEY_ALBUM_INFO_SHOW_GRID, visibility.showAlbumGridColumns)
+            .putBoolean(KEY_ALBUM_INFO_SHOW_LAST_SCAN, visibility.showAlbumLastScanTime)
+            .putBoolean(KEY_ALBUM_INFO_SHOW_CUSTOM, visibility.showAlbumCustomText)
+            .putString(KEY_ALBUM_INFO_CUSTOM_TEXT, visibility.albumCustomText)
             .apply()
     }
 

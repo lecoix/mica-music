@@ -30,6 +30,7 @@ import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
+import com.mica.music.data.SongTrailingInfo
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -156,14 +157,23 @@ fun SongRow(
             if (selectionMode) {
                 SongSelectionCheckbox(selected = isSelected)
             } else {
-                Text(
-                    text = trailingLabel ?: song.formatLabel,
-                    style = MicaTheme.typography.monoSm,
-                    color = MicaTheme.colors.textTertiary,
-                )
+                (trailingLabel ?: songTrailingLabel(song, infoVisibility.trailingInfo))?.let { label ->
+                    Text(
+                        text = label,
+                        style = MicaTheme.typography.monoSm,
+                        color = MicaTheme.colors.textTertiary,
+                    )
+                }
             }
         }
     }
+}
+
+internal fun songTrailingLabel(song: Song, mode: SongTrailingInfo): String? = when (mode) {
+    SongTrailingInfo.PLAY_COUNT -> song.playCount.toString()
+    SongTrailingInfo.FORMAT -> song.formatLabel
+    SongTrailingInfo.DURATION -> song.durationLabel
+    SongTrailingInfo.NONE -> null
 }
 
 internal fun songSubtitle(song: Song, visibility: SongListInfoVisibility): String =

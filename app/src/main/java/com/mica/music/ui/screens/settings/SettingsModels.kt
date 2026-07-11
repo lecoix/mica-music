@@ -98,8 +98,8 @@ internal enum class SettingsCategory(
         subtitle = "封面、播放页背景/UI 颜色、特殊主题、频谱",
     ),
     INFO_LINE(
-        title = "信息行自定义",
-        subtitle = "播放页与歌曲列表信息行的显示项与自定义文字",
+        title = "信息显示自定义",
+        subtitle = "播放页、歌曲列表、艺术家列表与专辑列表的信息显示",
     ),
     LYRICS(
         title = "歌词页",

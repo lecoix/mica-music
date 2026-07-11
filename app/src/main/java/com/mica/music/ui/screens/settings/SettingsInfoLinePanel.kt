@@ -5,8 +5,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.SongListInfoVisibility
+import com.mica.music.data.SongTrailingInfo
+import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsTextFieldRow
 import com.mica.music.ui.components.SettingsToggleRow
@@ -95,45 +98,12 @@ internal fun InfoLineSettingsPanel(uiSettings: AppUiSettings) {
 
     Spacer(Modifier.height(HifiSpacing.lg))
 
-    SettingsSectionTitle("歌曲列表")
+    SettingsSectionTitle("歌曲列表 · 信息栏")
 
     val songListInfo = uiSettings.songListInfoVisibility
     fun updateSongListInfo(transform: (SongListInfoVisibility) -> SongListInfoVisibility) {
         uiSettings.updateSongListInfoVisibility(transform(uiSettings.songListInfoVisibility))
     }
-
-    SettingsSectionTitle("歌曲副行")
-
-    SettingsToggleRow(
-        title = "艺术家",
-        subtitle = "在歌曲副行显示艺术家",
-        checked = songListInfo.showSongArtist,
-        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongArtist = checked) } },
-    )
-
-    SettingsToggleRow(
-        title = "专辑",
-        subtitle = "在歌曲副行显示专辑",
-        checked = songListInfo.showSongAlbum,
-        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongAlbum = checked) } },
-    )
-
-    SettingsToggleRow(
-        title = "播放次数",
-        subtitle = "歌曲播放过后在副行显示播放次数",
-        checked = songListInfo.showSongPlayCount,
-        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongPlayCount = checked) } },
-    )
-
-    SettingsToggleRow(
-        title = "歌曲时长",
-        subtitle = "在歌曲副行显示歌曲时长，如 3:45",
-        checked = songListInfo.showSongDuration,
-        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongDuration = checked) } },
-    )
-
-    Spacer(Modifier.height(HifiSpacing.lg))
-    SettingsSectionTitle("列表信息栏")
 
     SettingsToggleRow(
         title = "歌曲数量",
@@ -187,5 +157,107 @@ internal fun InfoLineSettingsPanel(uiSettings: AppUiSettings) {
         },
         placeholder = "输入自定义文本",
         enabled = songListInfo.showCustomText,
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+    SettingsSectionTitle("歌曲列表 · 歌曲副行")
+
+    SettingsToggleRow(
+        title = "艺术家",
+        subtitle = "在歌曲副行显示艺术家",
+        checked = songListInfo.showSongArtist,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongArtist = checked) } },
+    )
+
+    SettingsToggleRow(
+        title = "专辑",
+        subtitle = "在歌曲副行显示专辑",
+        checked = songListInfo.showSongAlbum,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongAlbum = checked) } },
+    )
+
+    SettingsToggleRow(
+        title = "播放次数",
+        subtitle = "歌曲播放过后在副行显示播放次数",
+        checked = songListInfo.showSongPlayCount,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongPlayCount = checked) } },
+    )
+
+    SettingsToggleRow(
+        title = "歌曲时长",
+        subtitle = "在歌曲副行显示歌曲时长，如 3:45",
+        checked = songListInfo.showSongDuration,
+        onCheckedChange = { checked -> updateSongListInfo { it.copy(showSongDuration = checked) } },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+    SettingsSectionTitle("歌曲列表 · 右侧信息")
+
+    SettingsChoiceRow(
+        title = "显示内容",
+        subtitle = "选择每首歌曲右侧显示的内容",
+        choices = SongTrailingInfo.entries.map { it.storageValue to it.label },
+        selectedValue = songListInfo.trailingInfo.storageValue,
+        onSelect = { value ->
+            updateSongListInfo { it.copy(trailingInfo = SongTrailingInfo.fromStorage(value)) }
+        },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+    BrowseListInfoSettings(uiSettings)
+}
+
+@Composable
+private fun BrowseListInfoSettings(uiSettings: AppUiSettings) {
+    val info = uiSettings.browseListInfoVisibility
+    fun update(transform: (BrowseListInfoVisibility) -> BrowseListInfoVisibility) {
+        uiSettings.updateBrowseListInfoVisibility(transform(uiSettings.browseListInfoVisibility))
+    }
+
+    SettingsSectionTitle("艺术家列表")
+    SettingsToggleRow("艺术家数量", "显示艺术家总数", info.showArtistCount, onCheckedChange = {
+        update { value -> value.copy(showArtistCount = it) }
+    })
+    SettingsToggleRow("排序方式", "显示当前艺术家列表排序", info.showArtistSortOrder, onCheckedChange = {
+        update { value -> value.copy(showArtistSortOrder = it) }
+    })
+    SettingsToggleRow("列表列数", "显示当前列表列数", info.showArtistGridColumns, onCheckedChange = {
+        update { value -> value.copy(showArtistGridColumns = it) }
+    })
+    SettingsToggleRow("上次扫描时间", "显示距离上次扫描的时间", info.showArtistLastScanTime, onCheckedChange = {
+        update { value -> value.copy(showArtistLastScanTime = it) }
+    })
+    SettingsToggleRow("自定义", "在统计行末尾追加自定义文字", info.showArtistCustomText, onCheckedChange = {
+        update { value -> value.copy(showArtistCustomText = it) }
+    })
+    SettingsTextFieldRow(
+        value = info.artistCustomText,
+        onValueChange = { text -> update { it.copy(artistCustomText = text) } },
+        placeholder = "输入自定义文本",
+        enabled = info.showArtistCustomText,
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+    SettingsSectionTitle("专辑列表")
+    SettingsToggleRow("专辑数量", "显示专辑总数", info.showAlbumCount, onCheckedChange = {
+        update { value -> value.copy(showAlbumCount = it) }
+    })
+    SettingsToggleRow("排序方式", "显示当前专辑列表排序", info.showAlbumSortOrder, onCheckedChange = {
+        update { value -> value.copy(showAlbumSortOrder = it) }
+    })
+    SettingsToggleRow("列表列数", "显示当前列表列数", info.showAlbumGridColumns, onCheckedChange = {
+        update { value -> value.copy(showAlbumGridColumns = it) }
+    })
+    SettingsToggleRow("上次扫描时间", "显示距离上次扫描的时间", info.showAlbumLastScanTime, onCheckedChange = {
+        update { value -> value.copy(showAlbumLastScanTime = it) }
+    })
+    SettingsToggleRow("自定义", "在统计行末尾追加自定义文字", info.showAlbumCustomText, onCheckedChange = {
+        update { value -> value.copy(showAlbumCustomText = it) }
+    })
+    SettingsTextFieldRow(
+        value = info.albumCustomText,
+        onValueChange = { text -> update { it.copy(albumCustomText = text) } },
+        placeholder = "输入自定义文本",
+        enabled = info.showAlbumCustomText,
     )
 }

@@ -1,10 +1,12 @@
 package com.mica.music.data.preferences
 
+import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.SongListInfoVisibility
+import com.mica.music.data.SongTrailingInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -107,11 +109,30 @@ class PlaybackUiPreferencesRobolectricTest {
             showSongAlbum = false,
             showSongPlayCount = false,
             showSongDuration = true,
+            trailingInfo = SongTrailingInfo.PLAY_COUNT,
         )
 
         PlaybackUiPreferences.setSongListInfoVisibility(context, visibility)
 
         assertEquals(visibility, PlaybackUiPreferences.songListInfoVisibility(context))
+    }
+
+    @Test
+    fun browseListInfoVisibilityRoundTrips() {
+        val visibility = BrowseListInfoVisibility(
+            showArtistCount = false,
+            showArtistGridColumns = false,
+            showArtistCustomText = true,
+            artistCustomText = "现场录音",
+            showAlbumCount = false,
+            showAlbumLastScanTime = false,
+            showAlbumCustomText = true,
+            albumCustomText = "珍藏版",
+        )
+
+        PlaybackUiPreferences.setBrowseListInfoVisibility(context, visibility)
+
+        assertEquals(visibility, PlaybackUiPreferences.browseListInfoVisibility(context))
     }
 
     @Test

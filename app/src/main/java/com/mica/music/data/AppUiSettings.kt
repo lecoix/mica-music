@@ -141,6 +141,9 @@ class AppUiSettings(context: Context) {
     var songListInfoVisibility by mutableStateOf(PlaybackUiPreferences.songListInfoVisibility(appContext))
         private set
 
+    var browseListInfoVisibility by mutableStateOf(PlaybackUiPreferences.browseListInfoVisibility(appContext))
+        private set
+
     var playerInfoVisibility by mutableStateOf(PlaybackUiPreferences.playerInfoVisibility(appContext))
         private set
 
@@ -342,6 +345,11 @@ class AppUiSettings(context: Context) {
     fun updateSongListInfoVisibility(visibility: SongListInfoVisibility) {
         songListInfoVisibility = visibility
         PlaybackUiPreferences.setSongListInfoVisibility(appContext, visibility)
+    }
+
+    fun updateBrowseListInfoVisibility(visibility: BrowseListInfoVisibility) {
+        browseListInfoVisibility = visibility
+        PlaybackUiPreferences.setBrowseListInfoVisibility(appContext, visibility)
     }
 
     fun updatePlayerInfoVisibility(visibility: PlayerInfoVisibility) {
