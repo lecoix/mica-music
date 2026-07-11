@@ -226,6 +226,47 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun migrationSevenToEightAddsNullableReplayGainColumns() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(7) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                            db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_7_8.migrate(db)
+
+        val columns = tableColumns(db, "songs")
+        assertTrue(columns.containsAll(listOf(
+            "replayGainTrackDb",
+            "replayGainTrackPeak",
+            "replayGainAlbumDb",
+            "replayGainAlbumPeak",
+        )))
+        db.query("SELECT replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak FROM songs")
+            .use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                repeat(4) { index -> assertTrue(cursor.isNull(index)) }
+            }
+        helper.close()
+    }
+
+    @Test
     fun freshDatabaseMatchesExportedEntitySchema() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, MicaDatabase::class.java)
@@ -249,6 +290,10 @@ class DatabaseMigrationTest {
                     "externalLyricsSignature",
                     "lyricsJson",
                     "queueOrder",
+                    "replayGainTrackDb",
+                    "replayGainTrackPeak",
+                    "replayGainAlbumDb",
+                    "replayGainAlbumPeak",
                 ),
             ),
         )

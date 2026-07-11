@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricCue
+import com.mica.music.data.ReplayGainTags
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import org.json.JSONArray
@@ -41,6 +42,10 @@ data class SongEntity(
     val playCount: Int,
     val lyricsJson: String,
     val queueOrder: Int,
+    val replayGainTrackDb: Float? = null,
+    val replayGainTrackPeak: Float? = null,
+    val replayGainAlbumDb: Float? = null,
+    val replayGainAlbumPeak: Float? = null,
 )
 
 @Entity(tableName = "library_meta")
@@ -87,6 +92,7 @@ fun SongEntity.toSong(): Song = Song(
     dateModifiedMs = dateModifiedMs,
     externalLyricsSignature = externalLyricsSignature,
     playCount = playCount,
+    replayGain = ReplayGainTags(replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak),
     lyrics = decodeLyrics(lyricsJson),
 )
 
@@ -141,6 +147,10 @@ fun Song.toEntity(queueOrder: Int): SongEntity = SongEntity(
     playCount = playCount,
     lyricsJson = encodeLyrics(lyrics),
     queueOrder = queueOrder,
+    replayGainTrackDb = replayGain.trackGainDb,
+    replayGainTrackPeak = replayGain.trackPeak,
+    replayGainAlbumDb = replayGain.albumGainDb,
+    replayGainAlbumPeak = replayGain.albumPeak,
 )
 
 private fun encodeLyrics(lines: List<LyricLine>): String {

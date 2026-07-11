@@ -44,6 +44,10 @@ object SongMediaItemCodec {
             putInt("${PREFIX}playCount", song.playCount)
             putLong("${PREFIX}totalListenSeconds", song.totalListenSeconds)
             putLong("${PREFIX}lastPlayedAtMs", song.lastPlayedAtMs)
+            song.replayGain.trackGainDb?.let { putFloat("${PREFIX}replayGainTrackDb", it) }
+            song.replayGain.trackPeak?.let { putFloat("${PREFIX}replayGainTrackPeak", it) }
+            song.replayGain.albumGainDb?.let { putFloat("${PREFIX}replayGainAlbumDb", it) }
+            song.replayGain.albumPeak?.let { putFloat("${PREFIX}replayGainAlbumPeak", it) }
         }
         val metadata = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -113,6 +117,20 @@ object SongMediaItemCodec {
             playCount = extras.getInt("${PREFIX}playCount", 0),
             totalListenSeconds = extras.getLong("${PREFIX}totalListenSeconds", 0L).coerceAtLeast(0L),
             lastPlayedAtMs = extras.getLong("${PREFIX}lastPlayedAtMs", 0L),
+            replayGain = com.mica.music.data.ReplayGainTags(
+                trackGainDb = extras.getFloat("${PREFIX}replayGainTrackDb").takeIf {
+                    extras.containsKey("${PREFIX}replayGainTrackDb")
+                },
+                trackPeak = extras.getFloat("${PREFIX}replayGainTrackPeak").takeIf {
+                    extras.containsKey("${PREFIX}replayGainTrackPeak")
+                },
+                albumGainDb = extras.getFloat("${PREFIX}replayGainAlbumDb").takeIf {
+                    extras.containsKey("${PREFIX}replayGainAlbumDb")
+                },
+                albumPeak = extras.getFloat("${PREFIX}replayGainAlbumPeak").takeIf {
+                    extras.containsKey("${PREFIX}replayGainAlbumPeak")
+                },
+            ),
         )
     }
 }

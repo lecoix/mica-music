@@ -54,3 +54,12 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
         )
     }
 }
+
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN replayGainTrackDb REAL")
+        db.execSQL("ALTER TABLE songs ADD COLUMN replayGainTrackPeak REAL")
+        db.execSQL("ALTER TABLE songs ADD COLUMN replayGainAlbumDb REAL")
+        db.execSQL("ALTER TABLE songs ADD COLUMN replayGainAlbumPeak REAL")
+    }
+}

@@ -13,6 +13,7 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.ReplayGainMode
 import com.mica.music.ui.theme.MicaPreset
 
 internal val DurationChoices = listOf(
@@ -64,6 +65,12 @@ internal val PlayerCoverFlowChoices = PlayerCoverFlowMode.entries.map {
 internal val PlaybackContentColorChoices = PlaybackContentColorMode.entries.map {
     it.ordinal to it.settingsLabel
 }
+
+internal val ReplayGainChoices = listOf(
+    ReplayGainMode.OFF.ordinal to "关闭",
+    ReplayGainMode.TRACK.ordinal to "按曲目",
+    ReplayGainMode.ALBUM.ordinal to "按专辑",
+)
 
 internal val LyricsPageTextColorChoices = PlaybackContentColorChoices
 

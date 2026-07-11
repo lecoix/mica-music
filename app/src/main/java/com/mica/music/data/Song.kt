@@ -38,6 +38,7 @@ data class Song(
     val totalListenSeconds: Long = 0L,
     /** 最近一次开始播放的时间戳（毫秒），未播放过为 0 */
     val lastPlayedAtMs: Long = 0L,
+    val replayGain: ReplayGainTags = ReplayGainTags(),
     val lyrics: List<LyricLine> = emptyList(),
 ) {
     val effectivePlaybackUri: String get() = playbackUri ?: mediaUri

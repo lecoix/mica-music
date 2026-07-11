@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.kyant.taglib.AudioPropertiesReadStyle
 import com.kyant.taglib.TagLib
+import com.mica.music.data.ReplayGainTags
 
 /**
  * 基于 TagLib（io.github.kyant0:taglib）的标签/封面/歌词/音频属性读取。
@@ -29,6 +30,7 @@ internal object TagLibReader {
         val discNumber: Int,
         val lyricsCandidates: List<String>,
         val frontCoverBytes: ByteArray?,
+        val replayGain: ReplayGainTags,
     )
 
     fun read(context: Context, uri: Uri): Result? = runCatching {
@@ -59,6 +61,7 @@ internal object TagLibReader {
                 ),
                 lyricsCandidates = lyricsCandidates(tags),
                 frontCoverBytes = frontCover?.data?.takeIf { it.isNotEmpty() },
+                replayGain = ReplayGainTags.fromProperties(tags),
             )
         }
     }.getOrNull()

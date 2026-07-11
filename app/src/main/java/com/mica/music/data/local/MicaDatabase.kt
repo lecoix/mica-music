@@ -9,7 +9,7 @@ import com.mica.music.util.DiagnosticLog
 
 @Database(
     entities = [SongEntity::class, LibraryMetaEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -38,6 +38,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_4_5,
                             MIGRATION_5_6,
                             MIGRATION_6_7,
+                            MIGRATION_7_8,
                         )
                         .build()
                         .also {

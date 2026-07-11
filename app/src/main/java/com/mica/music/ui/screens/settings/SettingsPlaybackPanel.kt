@@ -3,12 +3,19 @@ package com.mica.music.ui.screens.settings
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.ReplayGainMode
+import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
@@ -16,6 +23,22 @@ import com.mica.music.ui.theme.HifiSpacing
 
 @Composable
 internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
+    val context = LocalContext.current
+    var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
+
+    SettingsSectionTitle("音量标准化")
+    SettingsChoiceRow(
+        title = "ReplayGain",
+        subtitle = "按标签降低音量并防止削波；无有效标签时保持原始音量",
+        choices = ReplayGainChoices,
+        selectedValue = replayGainMode.ordinal,
+        onSelect = { ordinal ->
+            replayGainMode = ReplayGainMode.entries[ordinal]
+            ReplayGainPreferences.setMode(context, replayGainMode)
+        },
+    )
+    Spacer(Modifier.height(HifiSpacing.lg))
+
     SettingsSectionTitle("封面与播放页")
 
     SettingsChoiceRow(

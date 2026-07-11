@@ -28,6 +28,19 @@ class MicaCompositePlayer(
     private val beforePlaybackStart: () -> Unit = {},
 ) : ForwardingPlayer(exoPlayer) {
 
+    private var requestedVolume = 1f
+    private var replayGainVolume = 1f
+
+    override fun setVolume(volume: Float) {
+        requestedVolume = volume.coerceIn(0f, 1f)
+        exoPlayer.volume = requestedVolume * replayGainVolume
+    }
+
+    fun setReplayGainVolume(volume: Float) {
+        replayGainVolume = volume.coerceIn(0f, 1f)
+        exoPlayer.volume = requestedVolume * replayGainVolume
+    }
+
     internal var playbackCoordinator: ServicePlaybackEngineCoordinator? = null
 
     private var queueRevision: Long = 0L

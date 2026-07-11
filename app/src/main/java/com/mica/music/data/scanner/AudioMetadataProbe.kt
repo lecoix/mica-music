@@ -495,7 +495,7 @@ object AudioMetadataProbe {
             lyrics = lyrics,
             trackNumber = tags.trackNumber,
             discNumber = tags.discNumber,
-        )
+        ).copy(replayGain = tagLib.replayGain)
         } finally {
             retriever?.let { runCatching { it.release() } }
         }

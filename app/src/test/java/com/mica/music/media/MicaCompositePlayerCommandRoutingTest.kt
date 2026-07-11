@@ -121,6 +121,22 @@ class MicaCompositePlayerCommandRoutingTest {
         assertEquals(1, starts)
     }
 
+    @Test
+    fun replayGainMultipliesRequestedVolume() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val player = MicaCompositePlayer(exo)
+
+        player.volume = 0.8f
+        player.setReplayGainVolume(0.5f)
+        player.volume = 0.6f
+
+        verifySequence {
+            exo.volume = 0.8f
+            exo.volume = 0.4f
+            exo.volume = 0.3f
+        }
+    }
+
     private fun items(count: Int): List<MediaItem> =
         List(count) { index ->
             MediaItem.Builder().setMediaId("song-$index").build()
