@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.sync.Mutex
+import java.util.concurrent.atomic.AtomicLong
 
 internal class MusicLibraryBacking(
     val context: Context,
@@ -33,6 +34,7 @@ internal class MusicLibraryBacking(
     var scanGeneration = 0
     var released = false
     val storeSyncMutex = Mutex()
+    private val latestStoreRevision = AtomicLong(0L)
 
     var songs by mutableStateOf<List<Song>>(emptyList())
     var songIds by mutableStateOf<List<String>>(emptyList())
@@ -62,6 +64,11 @@ internal class MusicLibraryBacking(
 
     fun isActiveGeneration(generation: Int): Boolean =
         !released && generation == scanGeneration
+
+    fun nextStoreRevision(): Long = latestStoreRevision.incrementAndGet()
+
+    fun isLatestStoreRevision(revision: Long): Boolean =
+        revision == latestStoreRevision.get()
 
     fun release() {
         released = true

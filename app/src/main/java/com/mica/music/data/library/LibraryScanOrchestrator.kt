@@ -219,9 +219,11 @@ internal class LibraryScanOrchestrator(
         )
         catalog.adoptPrepared(prepared)
         val scanAt = backing.lastScanAtMs ?: return
+        val storeRevision = backing.nextStoreRevision()
         val syncStartedMs = SystemClock.elapsedRealtime()
         val sync = backing.storeSyncMutex.withLock {
             if (!backing.isActiveGeneration(generation)) return
+            if (!backing.isLatestStoreRevision(storeRevision)) return
             withContext(backing.ioDispatcher) {
                 backing.libraryStore.syncIncremental(
                     songs = backing.songs,

@@ -141,6 +141,41 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun latestCatalogChangeIsPersistedAfterAnOlderSaveAlreadyStarted() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val scanner = ControlledScanner()
+        val store = BlockingLibraryStore()
+        val library = library(scanner, store)
+        val a = SongFixtures.song(id = "a", title = "Alpha")
+        val b = SongFixtures.song(id = "b", title = "Beta")
+
+        val scan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(a, b), totalSizeMb = 1))
+        runCurrent()
+        store.requests.single().release.complete(Unit)
+        scan.await()
+
+        library.updateSort(SongSortField.CUSTOM, SortDirection.ASC)
+        runCurrent()
+        assertEquals(listOf("a", "b"), store.requests[1].songs.map { it.id })
+
+        assertTrue(library.moveSongInLibrary(1, 0))
+        runCurrent()
+        assertEquals(2, store.requests.size)
+
+        store.requests[1].release.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("b", "a"), store.requests[2].songs.map { it.id })
+        store.requests[2].release.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("b", "a"), store.persistedSongs.map { it.id })
+        library.release()
+    }
+
+    @Test
     fun customSortSeedsVisibleOrderAndReusesSavedOrderAfterOtherSorts() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         PreferencesTestFixtures.clearMicaSettings(context)

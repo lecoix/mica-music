@@ -11,6 +11,7 @@ import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal class LibraryCatalogPublisher(
@@ -104,8 +105,12 @@ internal class LibraryCatalogPublisher(
         val field = backing.sortField
         val direction = backing.sortDirection
         val sectionTargets = backing.songFastScrollSectionTargets
+        val revision = backing.nextStoreRevision()
         backing.ioScope.launch {
-            backing.libraryStore.save(snapshot, scanAt, source, sizeMb, field, direction, sectionTargets)
+            backing.storeSyncMutex.withLock {
+                if (!backing.isLatestStoreRevision(revision)) return@withLock
+                backing.libraryStore.save(snapshot, scanAt, source, sizeMb, field, direction, sectionTargets)
+            }
         }
     }
 
