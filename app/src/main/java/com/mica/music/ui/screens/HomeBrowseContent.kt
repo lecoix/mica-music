@@ -82,6 +82,7 @@ internal fun HomeBrowseContent(
     isPlaying: Boolean,
     onQueueSongs: (List<Song>) -> Unit,
     onAppendSongsToQueue: (List<Song>) -> Unit = {},
+    onAddSongsToPlaylist: (List<Song>) -> Unit = {},
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onAlbumClick: (String) -> Unit = {},
@@ -143,6 +144,7 @@ internal fun HomeBrowseContent(
                             isPlaying = isPlaying,
                             onQueueSongs = onQueueSongs,
                             onAppendSongsToQueue = onAppendSongsToQueue,
+                            onAddSongsToPlaylist = onAddSongsToPlaylist,
                             onSongClick = onSongClick,
                             onSongOpenMenu = onSongOpenMenu,
                             onAlbumClick = onAlbumClick,
@@ -188,6 +190,7 @@ internal fun HomeBrowseContent(
                             isPlaying = isPlaying,
                             onQueueSongs = onQueueSongs,
                             onAppendSongsToQueue = onAppendSongsToQueue,
+                            onAddSongsToPlaylist = onAddSongsToPlaylist,
                             onSongClick = onSongClick,
                             onSongOpenMenu = onSongOpenMenu,
                             emptyMessage = "该专辑下暂无歌曲",
@@ -357,6 +360,7 @@ private fun AlbumDetailPanel(
     isPlaying: Boolean,
     onQueueSongs: (List<Song>) -> Unit,
     onAppendSongsToQueue: (List<Song>) -> Unit,
+    onAddSongsToPlaylist: (List<Song>) -> Unit,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     emptyMessage: String,
@@ -388,11 +392,7 @@ private fun AlbumDetailPanel(
                     onQueueSongs(orderedSongs)
                     orderedSongs.firstOrNull()?.let { onSongClick(it.id) }
                 },
-                onShuffle = {
-                    val shuffled = orderedSongs.shuffled()
-                    onQueueSongs(shuffled)
-                    shuffled.firstOrNull()?.let { onSongClick(it.id) }
-                },
+                onAddToPlaylist = { onAddSongsToPlaylist(orderedSongs) },
                 onAddToQueue = { onAppendSongsToQueue(orderedSongs) },
             )
         }
@@ -456,7 +456,7 @@ private fun AlbumDetailHeader(
     albumTitle: String,
     songs: List<Song>,
     onPlayAll: () -> Unit,
-    onShuffle: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     onAddToQueue: () -> Unit,
 ) {
     val artworkSong = remember(songs) {
@@ -516,7 +516,7 @@ private fun AlbumDetailHeader(
         }
         ArtistActionRow(
             onPlayAll = onPlayAll,
-            onShuffle = onShuffle,
+            onAddToPlaylist = onAddToPlaylist,
             onAddToQueue = onAddToQueue,
         )
     }
@@ -548,6 +548,7 @@ private fun ArtistDetailPanel(
     isPlaying: Boolean,
     onQueueSongs: (List<Song>) -> Unit,
     onAppendSongsToQueue: (List<Song>) -> Unit,
+    onAddSongsToPlaylist: (List<Song>) -> Unit,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onAlbumClick: (String) -> Unit,
@@ -566,6 +567,7 @@ private fun ArtistDetailPanel(
             LibraryBrowseDetails.artistAlbumSections(songs)
         }
     }
+    val displayedSongs = remember(albumSections) { albumSections.flatMap { it.songs } }
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize(),
@@ -580,11 +582,7 @@ private fun ArtistDetailPanel(
                     onQueueSongs(songs)
                     songs.firstOrNull()?.let { onSongClick(it.id) }
                 },
-                onShuffle = {
-                    val shuffled = songs.shuffled()
-                    onQueueSongs(shuffled)
-                    shuffled.firstOrNull()?.let { onSongClick(it.id) }
-                },
+                onAddToPlaylist = { onAddSongsToPlaylist(displayedSongs) },
                 onAddToQueue = { onAppendSongsToQueue(songs) },
             )
         }
@@ -623,7 +621,7 @@ private fun ArtistDetailHeader(
     songs: List<Song>,
     albumSections: List<LibraryBrowseDetails.ArtistAlbumSection>,
     onPlayAll: () -> Unit,
-    onShuffle: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     onAddToQueue: () -> Unit,
 ) {
     val artworkSong = remember(songs) {
@@ -672,7 +670,7 @@ private fun ArtistDetailHeader(
         }
         ArtistActionRow(
             onPlayAll = onPlayAll,
-            onShuffle = onShuffle,
+            onAddToPlaylist = onAddToPlaylist,
             onAddToQueue = onAddToQueue,
         )
     }
@@ -681,7 +679,7 @@ private fun ArtistDetailHeader(
 @Composable
 private fun ArtistActionRow(
     onPlayAll: () -> Unit,
-    onShuffle: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     onAddToQueue: () -> Unit,
 ) {
     Row(
@@ -690,7 +688,7 @@ private fun ArtistActionRow(
     ) {
         ArtistActionText("播放全部", emphasized = true, onClick = onPlayAll, modifier = Modifier.weight(1f))
         ArtistActionDivider()
-        ArtistActionText("随机播放", onClick = onShuffle, modifier = Modifier.weight(1f))
+        ArtistActionText("加入歌单", onClick = onAddToPlaylist, modifier = Modifier.weight(1f))
         ArtistActionDivider()
         ArtistActionText("加入队列", onClick = onAddToQueue, modifier = Modifier.weight(1f))
     }

@@ -674,6 +674,12 @@ fun HomeScreen(
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,
                         onAppendSongsToQueue = playbackActions.appendToQueue,
+                        onAddSongsToPlaylist = { songs ->
+                            overlay = overlay.copy(
+                                addToPlaylistSongs = songs,
+                                addToPlaylistAsCustomOrder = true,
+                            )
+                        },
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         onAlbumClick = ::openAlbumBrowse,
@@ -698,6 +704,12 @@ fun HomeScreen(
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,
                         onAppendSongsToQueue = playbackActions.appendToQueue,
+                        onAddSongsToPlaylist = { songs ->
+                            overlay = overlay.copy(
+                                addToPlaylistSongs = songs,
+                                addToPlaylistAsCustomOrder = true,
+                            )
+                        },
                         onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         onAlbumClick = ::openAlbumBrowse,
@@ -782,6 +794,7 @@ fun HomeScreen(
         HomeOverlays(
             overlay = overlay,
             playlistStore = playlistStore,
+            resolveSong = library::songById,
             onDismissActionMenu = {
                 overlay = homeController.dismissActionMenu(overlay)
             },

@@ -244,6 +244,8 @@ private fun SongMenuItem(
 fun AddToPlaylistSheet(
     songs: List<Song>,
     playlistStore: PlaylistStore,
+    addAsCustomOrder: Boolean = false,
+    resolveSong: (String) -> Song? = { null },
     onDismiss: () -> Unit,
     onCreated: (String) -> Unit,
 ) {
@@ -259,7 +261,12 @@ fun AddToPlaylistSheet(
         else -> "已选 ${songs.size} 首"
     }
     fun addToPlaylist(playlistId: String, playlistName: String) {
-        songIds.forEach { playlistStore.addSongToPlaylist(playlistId, it) }
+        if (addAsCustomOrder) {
+            val displayedIds = playlistStore.songsForPlaylist(playlistId, resolveSong).map { it.id }
+            playlistStore.appendSongsAsCustomOrder(playlistId, displayedIds, songIds)
+        } else {
+            songIds.forEach { playlistStore.addSongToPlaylist(playlistId, it) }
+        }
         val message = if (songs.size == 1) {
             "已添加到「$playlistName」"
         } else {

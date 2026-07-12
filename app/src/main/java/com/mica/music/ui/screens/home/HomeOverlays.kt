@@ -13,6 +13,7 @@ import com.mica.music.ui.components.SongMenuAction
 internal fun HomeOverlays(
     overlay: HomeOverlayState,
     playlistStore: PlaylistStore,
+    resolveSong: (String) -> Song?,
     onDismissActionMenu: () -> Unit,
     onSongMenuAction: (SongMenuAction, Song) -> Unit,
     onArtistClick: (String) -> Unit,
@@ -47,6 +48,8 @@ internal fun HomeOverlays(
         AddToPlaylistSheet(
             songs = songs,
             playlistStore = playlistStore,
+            addAsCustomOrder = overlay.addToPlaylistAsCustomOrder,
+            resolveSong = resolveSong,
             onDismiss = onDismissAddToPlaylist,
             onCreated = onAddToPlaylistCreated,
         )

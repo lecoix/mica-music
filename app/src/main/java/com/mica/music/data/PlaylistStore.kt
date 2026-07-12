@@ -54,6 +54,30 @@ class PlaylistStore(context: Context) {
         return true
     }
 
+    fun appendSongsAsCustomOrder(
+        playlistId: String,
+        currentDisplayedSongIds: List<String>,
+        appendedSongIds: List<String>,
+    ): Boolean {
+        val index = playlists.indexOfFirst { it.id == playlistId }
+        if (index < 0) return false
+        val target = playlists[index]
+        val existingIds = target.songIds.toSet()
+        val orderedExistingIds = currentDisplayedSongIds.filter { it in existingIds }.distinct()
+        val missingExistingIds = target.songIds.filterNot { it in orderedExistingIds }
+        val newIds = appendedSongIds.filterNot { it in existingIds }.distinct()
+        val updated = target.copy(
+            songIds = orderedExistingIds + missingExistingIds + newIds,
+            sortField = SongSortField.CUSTOM,
+            sortDirection = SortDirection.ASC,
+        )
+        if (updated == target) return true
+        playlists = playlists.toMutableList().also { it[index] = updated }
+        persist()
+        revision++
+        return true
+    }
+
     fun playlistById(id: String): UserPlaylist? = playlists.find { it.id == id }
 
     fun deletePlaylist(id: String): Boolean {

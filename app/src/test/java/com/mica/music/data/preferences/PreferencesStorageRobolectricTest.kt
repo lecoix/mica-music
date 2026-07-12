@@ -5,6 +5,8 @@ import com.mica.music.data.EqSelection
 import com.mica.music.data.PlaybackSession
 import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.data.PlaylistStore
+import com.mica.music.data.SongSortField
+import com.mica.music.data.SortDirection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -45,5 +47,26 @@ class PreferencesStorageRobolectricTest {
             .putString("playlists_json", "[{\"id\":")
             .commit()
         assertTrue(PlaylistStore(context).playlists.isEmpty())
+    }
+
+    @Test
+    fun playlistBatchAppendKeepsDisplayedOrderAndSwitchesToCustomSort() {
+        val store = PlaylistStore(context)
+        val playlist = store.createPlaylist("Test")
+        listOf("a", "b", "c").forEach { store.addSongToPlaylist(playlist.id, it) }
+        store.updateSort(playlist.id, SongSortField.TITLE, SortDirection.DESC)
+
+        assertTrue(
+            store.appendSongsAsCustomOrder(
+                playlistId = playlist.id,
+                currentDisplayedSongIds = listOf("c", "b", "a"),
+                appendedSongIds = listOf("b", "d", "d", "e"),
+            ),
+        )
+
+        val updated = store.playlistById(playlist.id)!!
+        assertEquals(listOf("c", "b", "a", "d", "e"), updated.songIds)
+        assertEquals(SongSortField.CUSTOM, updated.sortField)
+        assertEquals(SortDirection.ASC, updated.sortDirection)
     }
 }

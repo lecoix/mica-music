@@ -15,6 +15,7 @@ data class HomeOverlayState(
     val actionMenuSong: Song? = null,
     val actionMenuPlaylistId: String? = null,
     val addToPlaylistSongs: List<Song>? = null,
+    val addToPlaylistAsCustomOrder: Boolean = false,
     val pendingDeleteSong: Song? = null,
     val pendingDeletePlaylistId: String? = null,
     val showCreatePlaylistDialog: Boolean = false,
@@ -123,7 +124,7 @@ class HomeScreenController(
         overlay.copy(showCreatePlaylistDialog = false)
 
     fun dismissAddToPlaylist(overlay: HomeOverlayState): HomeOverlayState =
-        overlay.copy(addToPlaylistSongs = null)
+        overlay.copy(addToPlaylistSongs = null, addToPlaylistAsCustomOrder = false)
 
     suspend fun deleteSong(
         context: Context,
