@@ -63,4 +63,13 @@ class LyricsPreferencesRobolectricTest {
         assertEquals(22, LyricsPreferences.lyricsPageFontSizeSp(context))
         assertEquals(14, LyricsPreferences.lyricsPageTranslationFontSizeSp(context))
     }
+
+    @Test
+    fun lyricsPageLineSpacingDefaultsToTwentyFourAndRoundTrips() {
+        assertEquals(24, LyricsPreferences.lyricsPageLineSpacingDp(context))
+
+        LyricsPreferences.setLyricsPageLineSpacingDp(context, 36)
+
+        assertEquals(36, LyricsPreferences.lyricsPageLineSpacingDp(context))
+    }
 }

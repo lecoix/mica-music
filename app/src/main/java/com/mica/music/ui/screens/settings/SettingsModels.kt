@@ -8,7 +8,9 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaybackContentColorMode
@@ -89,6 +91,9 @@ internal val LyricsBilingualDisplayChoices = LyricsBilingualDisplayMode.entries.
 
 internal val LyricsPageFontSizeChoices = (MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP)
     .map { it to "$it sp" }
+
+internal val LyricsPageLineSpacingChoices =
+    (MIN_LYRICS_PAGE_LINE_SPACING_DP..MAX_LYRICS_PAGE_LINE_SPACING_DP).map { it to "$it dp" }
 
 internal enum class SettingsCategory(
     val title: String,

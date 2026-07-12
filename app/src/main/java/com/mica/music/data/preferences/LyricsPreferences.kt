@@ -2,11 +2,14 @@ package com.mica.music.data.preferences
 
 import android.content.Context
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.DEFAULT_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.PlaybackContentColorMode
 
 /** 歌词页、通知歌词与播放页歌词文字相关偏好。 */
@@ -20,6 +23,7 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_THEME = "lyrics_page_theme"
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
     private const val KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE = "lyrics_page_translation_font_size"
+    private const val KEY_LYRICS_PAGE_LINE_SPACING = "lyrics_page_line_spacing"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
 
@@ -120,6 +124,21 @@ object LyricsPreferences {
             .putInt(
                 KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE,
                 fontSizeSp.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP),
+            )
+            .apply()
+    }
+
+    fun lyricsPageLineSpacingDp(context: Context): Int =
+        MicaSettingsStore.prefs(context).getInt(
+            KEY_LYRICS_PAGE_LINE_SPACING,
+            DEFAULT_LYRICS_PAGE_LINE_SPACING_DP,
+        ).coerceIn(MIN_LYRICS_PAGE_LINE_SPACING_DP, MAX_LYRICS_PAGE_LINE_SPACING_DP)
+
+    fun setLyricsPageLineSpacingDp(context: Context, spacingDp: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_LYRICS_PAGE_LINE_SPACING,
+                spacingDp.coerceIn(MIN_LYRICS_PAGE_LINE_SPACING_DP, MAX_LYRICS_PAGE_LINE_SPACING_DP),
             )
             .apply()
     }

@@ -29,7 +29,10 @@ class NowPlayingLyricsExpandedTest {
         val interludes = expandedLyricsDisplayItems(lyrics, playbackPositionMs = 5_000)
             .filterIsInstance<ExpandedLyricDisplayItem.Interlude>()
 
-        assertEquals(listOf(ExpandedLyricDisplayItem.Interlude(nextLyricIndex = 1)), interludes)
+        assertEquals(
+            listOf(ExpandedLyricDisplayItem.Interlude(1, 2_000, 15_000)),
+            interludes,
+        )
     }
 
     @Test
@@ -58,14 +61,14 @@ class NowPlayingLyricsExpandedTest {
     }
 
     @Test
-    fun expandedDisplayItems_removeYInterludeWithinSevenSecondsOfNextEvent() {
+    fun expandedDisplayItems_keepYInterludeUntilNextEvent() {
         val lyrics = listOf(
             LyricLine(1_000, "first", endTimeMs = 2_000),
             LyricLine(15_000, "second"),
         )
 
         assertEquals(
-            emptyList<ExpandedLyricDisplayItem.Interlude>(),
+            listOf(ExpandedLyricDisplayItem.Interlude(1, 2_000, 15_000)),
             expandedLyricsDisplayItems(lyrics, playbackPositionMs = 8_001)
                 .filterIsInstance<ExpandedLyricDisplayItem.Interlude>(),
         )
@@ -79,7 +82,7 @@ class NowPlayingLyricsExpandedTest {
         )
 
         assertEquals(
-            listOf(ExpandedLyricDisplayItem.Interlude(nextLyricIndex = 1)),
+            listOf(ExpandedLyricDisplayItem.Interlude(1, 2_000, 15_000)),
             expandedLyricsDisplayItems(lyrics, playbackPositionMs = 8_000)
                 .filterIsInstance<ExpandedLyricDisplayItem.Interlude>(),
         )
@@ -120,4 +123,35 @@ class NowPlayingLyricsExpandedTest {
             ),
         )
     }
+
+    @Test
+    fun classicLyricsMoveSpring_isStifferForRapidLines() {
+        val rapid = classicLyricsMoveStiffness(100)
+        val relaxed = classicLyricsMoveStiffness(800)
+
+        assertEquals(true, rapid > relaxed)
+        assertEquals(220f, rapid)
+        assertEquals(170f, relaxed)
+    }
+
+    @Test
+    fun classicInterludeVisuals_fadesAtBothEndsAndLightsDotsInOrder() {
+        val start = classicInterludeVisuals(2_000, 12_000, 2_000)
+        val middle = classicInterludeVisuals(2_000, 12_000, 7_000)
+        val end = classicInterludeVisuals(2_000, 12_000, 12_000)
+
+        assertEquals(0f, start.globalAlpha)
+        assertEquals(true, middle.dotAlpha[0] >= middle.dotAlpha[1])
+        assertEquals(true, middle.dotAlpha[1] >= middle.dotAlpha[2])
+        assertEquals(0f, end.globalAlpha)
+    }
+
+    @Test
+    fun classicLyricsStaggerDelay_usesShrinkingFiftyMillisecondSteps() {
+        assertEquals(0L, classicLyricsStaggerDelayMs(0))
+        assertEquals(50L, classicLyricsStaggerDelayMs(1))
+        assertEquals(true, classicLyricsStaggerDelayMs(3) < 150L)
+        assertEquals(true, classicLyricsStaggerDelayMs(3) > classicLyricsStaggerDelayMs(2))
+    }
+
 }

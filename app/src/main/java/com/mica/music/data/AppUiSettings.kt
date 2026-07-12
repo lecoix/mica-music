@@ -129,6 +129,9 @@ class AppUiSettings(context: Context) {
     )
         private set
 
+    var lyricsPageLineSpacingDp by mutableIntStateOf(LyricsPreferences.lyricsPageLineSpacingDp(appContext))
+        private set
+
     var lyricsPageImmersive by mutableStateOf(LyricsPreferences.lyricsPageImmersive(appContext))
         private set
 
@@ -326,6 +329,14 @@ class AppUiSettings(context: Context) {
             MAX_LYRICS_PAGE_FONT_SIZE_SP,
         )
         LyricsPreferences.setLyricsPageTranslationFontSizeSp(appContext, lyricsPageTranslationFontSizeSp)
+    }
+
+    fun updateLyricsPageLineSpacingDp(spacingDp: Int) {
+        lyricsPageLineSpacingDp = spacingDp.coerceIn(
+            MIN_LYRICS_PAGE_LINE_SPACING_DP,
+            MAX_LYRICS_PAGE_LINE_SPACING_DP,
+        )
+        LyricsPreferences.setLyricsPageLineSpacingDp(appContext, lyricsPageLineSpacingDp)
     }
 
     fun updateLyricsPageImmersive(enabled: Boolean) {

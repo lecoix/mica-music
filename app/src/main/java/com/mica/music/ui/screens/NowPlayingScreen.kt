@@ -602,6 +602,7 @@ fun NowPlayingContent(
                             lyricsAlignment = uiSettings.lyricsPageAlignment,
                             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
                             lyricsTranslationFontSizeSp = uiSettings.lyricsPageTranslationFontSizeSp,
+                            lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
                             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                             playerInfoVisibility = uiSettings.playerInfoVisibility,

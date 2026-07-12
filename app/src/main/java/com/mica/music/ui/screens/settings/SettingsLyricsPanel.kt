@@ -119,6 +119,13 @@ internal fun LyricsSettingsPanel(
         onSelect = { uiSettings.updateLyricsPageTranslationFontSizeSp(it) },
     )
 
+    SettingsDropdownRow(
+        title = "经典列表行间距",
+        choices = LyricsPageLineSpacingChoices,
+        selectedValue = uiSettings.lyricsPageLineSpacingDp,
+        onSelect = { uiSettings.updateLyricsPageLineSpacingDp(it) },
+    )
+
     SettingsToggleRow(
         title = "歌词页沉浸模式",
         subtitle = "开启后歌词页隐藏进度条和底部五个按钮；在歌词页长按播放按钮也可切换",

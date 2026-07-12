@@ -2,6 +2,7 @@ package com.mica.music.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,12 +24,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -224,6 +227,8 @@ fun LyricLineBlock(
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     translationTextStyle: TextStyle = textStyle,
+    karaokeSyllableLift: Boolean = false,
+    karaokeWordFadeWidthEm: Float = 0f,
 ) {
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
@@ -251,22 +256,28 @@ fun LyricLineBlock(
             val rowHasCueRanges = cueRanges.any { it.overlaps(row) }
             val rowTextStyle = if (row.splitIndex > 0) translationTextStyle else textStyle
             if (cueRanges.isNotEmpty() && rowHasCueRanges) {
+                val wordSync = if (isCurrent && lyricLine != null) {
+                    wordSyncedFill(
+                        line = lyricLine,
+                        row = row,
+                        cueRanges = cueRanges,
+                        positionMs = fillPositionMs,
+                        nextLineTimeMs = nextLineTimeMs,
+                        discreteActiveCue = karaokeSyllableLift,
+                    )
+                } else {
+                    WordSyncedFill.Empty
+                }
                 KaraokeLyricLineText(
                     text = row.text,
                     isCurrent = isCurrent,
                     colors = colors,
                     textStyle = rowTextStyle,
-                    fillFraction = if (isCurrent && lyricLine != null) {
-                        wordSyncedFillFraction(
-                            line = lyricLine,
-                            row = row,
-                            cueRanges = cueRanges,
-                            positionMs = fillPositionMs,
-                            nextLineTimeMs = nextLineTimeMs,
-                        )
-                    } else {
-                        0f
-                    },
+                    fillFraction = wordSync.fillFraction,
+                    liftedCharacterRange = wordSync.activeRange,
+                    syllableProgress = wordSync.activeProgress,
+                    syllableLiftEnabled = karaokeSyllableLift,
+                    wordFadeWidthEm = if (karaokeSyllableLift) 0f else karaokeWordFadeWidthEm,
                     maxLines = maxLines,
                     textAlign = textAlign,
                 )
@@ -361,24 +372,35 @@ private fun lineTimedFillFraction(
     return rowFillFraction(row, lineProgress, line.text.length)
 }
 
-private fun wordSyncedFillFraction(
+private data class WordSyncedFill(
+    val fillFraction: Float,
+    val activeRange: IntRange? = null,
+    val activeProgress: Float = 0f,
+) {
+    companion object {
+        val Empty = WordSyncedFill(0f)
+    }
+}
+
+private fun wordSyncedFill(
     line: LyricLine,
     row: LyricDisplayRows.DisplayRow,
     cueRanges: List<LyricCueRange>,
     positionMs: Int,
     nextLineTimeMs: Int?,
-): Float {
+    discreteActiveCue: Boolean,
+): WordSyncedFill {
     val cueCount = line.cues.size
-    if (cueCount == 0) return 0f
+    if (cueCount == 0) return WordSyncedFill.Empty
     val t = positionMs + LyricsSync.LEAD_MS
-    if (t < line.cues.first().timeMs) return 0f
+    if (t < line.cues.first().timeMs) return WordSyncedFill.Empty
 
     val activeCueIndex = LyricsSync.cueIndexForPosition(line, positionMs)
-    if (activeCueIndex < 0) return 0f
+    if (activeCueIndex < 0) return WordSyncedFill.Empty
     val activeRange = cueRanges.firstOrNull { it.cueIndex == activeCueIndex }
     if (activeRange == null) {
         val completedTextFraction = (activeCueIndex + 1).toFloat() / cueCount
-        return rowFillFraction(row, completedTextFraction, line.text.length)
+        return WordSyncedFill(rowFillFraction(row, completedTextFraction, line.text.length))
     }
 
     val cueStart = line.cues[activeCueIndex].timeMs
@@ -389,8 +411,18 @@ private fun wordSyncedFillFraction(
     } else {
         ((t - cueStart).toFloat() / (cueEnd - cueStart)).coerceIn(0f, 1f)
     }
-    val filledChars = activeRange.start + (activeRange.endExclusive - activeRange.start) * cueProgress
-    return rowFillFraction(row, filledChars / line.text.length.coerceAtLeast(1), line.text.length)
+    val filledChars = if (discreteActiveCue) {
+        activeRange.endExclusive.toFloat()
+    } else {
+        activeRange.start + (activeRange.endExclusive - activeRange.start) * cueProgress
+    }
+    val localStart = (activeRange.start - row.start).coerceAtLeast(0)
+    val localEnd = (activeRange.endExclusive - row.start).coerceAtMost(row.text.length)
+    return WordSyncedFill(
+        fillFraction = rowFillFraction(row, filledChars / line.text.length.coerceAtLeast(1), line.text.length),
+        activeRange = if (localEnd > localStart) localStart until localEnd else null,
+        activeProgress = cueProgress,
+    )
 }
 
 @Composable
@@ -400,6 +432,10 @@ private fun KaraokeLyricLineText(
     colors: PlayerContentColors,
     textStyle: TextStyle,
     fillFraction: Float,
+    liftedCharacterRange: IntRange? = null,
+    syllableProgress: Float = 0f,
+    syllableLiftEnabled: Boolean = false,
+    wordFadeWidthEm: Float = 0f,
     maxLines: Int,
     textAlign: TextAlign = TextAlign.Center,
 ) {
@@ -445,20 +481,77 @@ private fun KaraokeLyricLineText(
                         val lineWidth = (right - left).coerceAtLeast(0f)
                         if (lineWidth <= 0f || remainingFillPx <= 0f) continue
                         val fillRight = (left + remainingFillPx.coerceAtMost(lineWidth)).coerceIn(left, right)
+                        val featherPx = style.fontSize.toPx() * wordFadeWidthEm.coerceAtLeast(0f)
+                        val featherRight = (fillRight + featherPx).coerceAtMost(right)
                         clipRect(
                             left = left,
                             top = textLayout.getLineTop(lineIndex),
-                            right = fillRight,
+                            right = featherRight,
                             bottom = textLayout.getLineBottom(lineIndex),
                         ) {
-                            this@drawWithContent.drawContent()
+                            if (featherPx <= 0f || fillRight >= right) {
+                                this@drawWithContent.drawContent()
+                            } else {
+                                val bounds = Rect(
+                                    left,
+                                    textLayout.getLineTop(lineIndex),
+                                    featherRight,
+                                    textLayout.getLineBottom(lineIndex),
+                                )
+                                drawContext.canvas.saveLayer(bounds, androidx.compose.ui.graphics.Paint())
+                                this@drawWithContent.drawContent()
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        0f to Color.White,
+                                        1f to Color.Transparent,
+                                        startX = fillRight,
+                                        endX = featherRight,
+                                    ),
+                                    topLeft = bounds.topLeft,
+                                    size = bounds.size,
+                                    blendMode = BlendMode.DstIn,
+                                )
+                                drawContext.canvas.restore()
+                            }
                         }
                         remainingFillPx -= lineWidth
                     }
                 },
         )
+        if (syllableLiftEnabled && isCurrent && liftedCharacterRange != null) {
+            val progress = syllableProgress.coerceIn(0f, 1f)
+            val liftProgress = if (progress < 0.5f) {
+                AppleLyricsWordEasing.transform(progress * 2f)
+            } else {
+                1f - AppleLyricsWordEasing.transform((progress - 0.5f) * 2f)
+            }
+            val liftPx = with(LocalDensity.current) { 2.dp.toPx() } * liftProgress
+            Text(
+                text = lineText,
+                style = style,
+                color = colors.primary,
+                textAlign = textAlign,
+                maxLines = maxLines,
+                overflow = overflow,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawWithContent {
+                        val textLayout = layout ?: return@drawWithContent
+                        val start = liftedCharacterRange.first.coerceIn(0, lineText.lastIndex)
+                        val end = liftedCharacterRange.last.coerceIn(start, lineText.lastIndex)
+                        for (offset in start..end) {
+                            val bounds = textLayout.getBoundingBox(offset)
+                            clipRect(bounds.left, bounds.top - liftPx, bounds.right, bounds.bottom) {
+                                translate(top = -liftPx) { this@drawWithContent.drawContent() }
+                            }
+                        }
+                    },
+            )
+        }
     }
 }
+
+private val AppleLyricsWordEasing = CubicBezierEasing(0.39f, 0.575f, 0.565f, 1f)
 
 private fun lyricFillEndTime(startMs: Int, nextTimeMs: Int?): Int =
     nextTimeMs?.takeIf { it > startMs } ?: (startMs + LyricFillFallbackDurationMs)
