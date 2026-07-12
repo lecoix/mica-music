@@ -9,6 +9,7 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
+import com.mica.music.data.AppUiSettings
 import com.mica.music.ui.components.BrowseGroupDisplaySheet
 import com.mica.music.ui.components.SongSortSheet
 
@@ -38,6 +39,7 @@ internal fun HomeSortSheets(
     playlistSortDirection: SortDirection?,
     onDismiss: () -> Unit,
     onMultiSelectClick: (() -> Unit)?,
+    uiSettings: AppUiSettings,
 ) {
     if (!visible) return
 
@@ -66,6 +68,8 @@ internal fun HomeSortSheets(
                     onBrowseSortChange(browseSort.copy(albumGridColumns = normalized))
                     LibraryBrowseSettings.setAlbumBrowseGridColumns(context, normalized)
                 },
+                uiSettings = uiSettings,
+                isArtist = false,
             )
         }
         isArtistRootSort -> {
@@ -92,6 +96,8 @@ internal fun HomeSortSheets(
                     onBrowseSortChange(browseSort.copy(artistGridColumns = normalized))
                     LibraryBrowseSettings.setArtistBrowseGridColumns(context, normalized)
                 },
+                uiSettings = uiSettings,
+                isArtist = true,
             )
         }
         else -> {
@@ -130,6 +136,7 @@ internal fun HomeSortSheets(
                 } else {
                     null
                 },
+                uiSettings = uiSettings.takeIf { section == HomeSection.Songs && !isPlaylistSort },
             )
         }
     }

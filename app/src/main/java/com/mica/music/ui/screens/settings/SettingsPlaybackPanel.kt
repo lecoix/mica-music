@@ -14,11 +14,13 @@ import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
+import com.mica.music.ui.components.SettingsTextFieldRow
 import com.mica.music.ui.theme.HifiSpacing
 
 @Composable
@@ -131,5 +133,40 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         subtitle = "显示随音乐跳动的频段条；位置跟随当前进度条布局",
         checked = uiSettings.spectrumEnabled,
         onCheckedChange = { uiSettings.updateSpectrumEnabled(it) },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+    SettingsSectionTitle("信息行内容")
+
+    val playerInfo = uiSettings.playerInfoVisibility
+    fun updatePlayerInfo(transform: (PlayerInfoVisibility) -> PlayerInfoVisibility) {
+        uiSettings.updatePlayerInfoVisibility(transform(uiSettings.playerInfoVisibility))
+    }
+    SettingsToggleRow("格式", "显示容器格式，如 FLAC、MP3", playerInfo.showFormat, { checked ->
+        updatePlayerInfo { it.copy(showFormat = checked) }
+    })
+    SettingsToggleRow("位深/采样率", "显示如 24bit/96kHz", playerInfo.showSampleRate, { checked ->
+        updatePlayerInfo { it.copy(showSampleRate = checked) }
+    })
+    SettingsToggleRow("比特率", "显示如 320 kbps", playerInfo.showBitrate, { checked ->
+        updatePlayerInfo { it.copy(showBitrate = checked) }
+    })
+    SettingsToggleRow("速度", "显示当前播放速度，如 1.25x", playerInfo.showPlaybackSpeed, { checked ->
+        updatePlayerInfo { it.copy(showPlaybackSpeed = checked) }
+    })
+    SettingsToggleRow("音高", "显示当前变调，如 +2 半音", playerInfo.showPlaybackPitch, { checked ->
+        updatePlayerInfo { it.copy(showPlaybackPitch = checked) }
+    })
+    SettingsToggleRow("时间", "显示当前系统时间", playerInfo.showCurrentTime, { checked ->
+        updatePlayerInfo { it.copy(showCurrentTime = checked) }
+    })
+    SettingsToggleRow("自定义文字", "在信息行末尾追加自定义文字", playerInfo.showCustomText, { checked ->
+        updatePlayerInfo { it.copy(showCustomText = checked) }
+    })
+    SettingsTextFieldRow(
+        value = playerInfo.customText,
+        onValueChange = { text -> updatePlayerInfo { it.copy(customText = text) } },
+        placeholder = "输入自定义文本",
+        enabled = playerInfo.showCustomText,
     )
 }

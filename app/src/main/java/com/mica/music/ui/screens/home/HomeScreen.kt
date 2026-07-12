@@ -584,6 +584,7 @@ fun HomeScreen(
                 playlistSortDirection = activePlaylist?.sortDirection,
                 onDismiss = { sortSheetOpen = false },
                 onMultiSelectClick = ::openSongMultiSelect,
+                uiSettings = uiSettings,
             )
 
             val paneKey = resolveHomePaneKey(

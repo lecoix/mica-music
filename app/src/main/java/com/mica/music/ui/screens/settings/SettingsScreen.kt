@@ -182,10 +182,6 @@ fun SettingsScreen(
                         LyricsSettingsPanel(uiSettings = uiSettings)
                     }
 
-                    SettingsCategory.INFO_LINE -> {
-                        InfoLineSettingsPanel(uiSettings = uiSettings)
-                    }
-
                     SettingsCategory.LIBRARY -> {
                         LibraryScanSettingsPanel(
                             library = library,
