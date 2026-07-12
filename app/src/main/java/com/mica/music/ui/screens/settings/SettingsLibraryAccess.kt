@@ -15,6 +15,7 @@ import com.mica.music.util.openAppSettings
 class SettingsLibraryAccessHandle(
     val onChooseLibraryFolder: () -> Unit,
     val onRescan: () -> Unit,
+    val onScanAllMusic: () -> Unit,
 )
 
 @Composable
@@ -63,8 +64,17 @@ fun rememberSettingsLibraryAccess(
         }
     }
 
+    fun dispatchScanAllMusic() {
+        if (library.hasAudioReadPermission()) {
+            LibraryAccessCoordinator.executeScan(library, LibraryScanRequest.ScanDeviceWide)
+        } else {
+            permissionLauncher.launch(audioPermission)
+        }
+    }
+
     return SettingsLibraryAccessHandle(
         onChooseLibraryFolder = { folderPickerLauncher.launch(null) },
         onRescan = ::dispatchRescan,
+        onScanAllMusic = ::dispatchScanAllMusic,
     )
 }

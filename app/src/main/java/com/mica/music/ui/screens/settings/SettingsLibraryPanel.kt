@@ -13,6 +13,7 @@ internal fun LibraryScanSettingsPanel(
     minDurationSec: Int,
     onChooseLibraryFolder: () -> Unit,
     onRescan: () -> Unit,
+    onScanAllMusic: () -> Unit,
     onEditExcludedDirectories: () -> Unit,
     onMinDurationSelected: (Int) -> Unit,
 ) {
@@ -37,6 +38,13 @@ internal fun LibraryScanSettingsPanel(
             else -> "共 ${library.songs.size} 首 · ${library.totalSizeMb} MB"
         },
         onClick = onRescan,
+        enabled = !library.isScanning,
+    )
+
+    SettingsActionRow(
+        title = "扫描全部音乐",
+        subtitle = "扫描本机全部音频 · 需要读取音频权限",
+        onClick = onScanAllMusic,
         enabled = !library.isScanning,
     )
 

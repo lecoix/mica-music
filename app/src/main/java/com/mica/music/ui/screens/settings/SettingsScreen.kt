@@ -189,6 +189,7 @@ fun SettingsScreen(
                             minDurationSec = scanState.minDurationSec,
                             onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
                             onRescan = libraryAccess.onRescan,
+                            onScanAllMusic = libraryAccess.onScanAllMusic,
                             onEditExcludedDirectories = {
                                 overlays = overlays.copy(showExcludedDirectories = true)
                             },

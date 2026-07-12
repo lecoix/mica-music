@@ -2,7 +2,7 @@
 
 > 极简直角 · 多种主题 · Jetpack Compose
 
-基于 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md) 实现的 **本地 HiFi 播放器**：多种主题样式、Media3 ExoPlayer 单链路播放、Room 持久化、内嵌/外挂歌词与 ALAC/DSF 支持。
+一款不专业的 **本地 HiFi 播放器**，特色包括：多种主题样式、Media3 ExoPlayer 单链路播放、Room 持久化、内嵌/外挂歌词与 ALAC/DSF 支持。
 
 ---
 <p align="center">
