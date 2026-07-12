@@ -3,12 +3,42 @@ package com.mica.music.ui.screens
 import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricLine
 import com.mica.music.data.PlayerCoverFlowMode
+import com.mica.music.data.renderStateAt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LyricsCloudLayoutTest {
+    @Test
+    fun explicitLongGapBecomesCloudInterludeForItsWholeDuration() {
+        val lyrics = listOf(
+            LyricLine(timeMs = 1_000, text = "first", endTimeMs = 2_000),
+            LyricLine(timeMs = 15_000, text = "second"),
+        )
+
+        val interlude = lyricsCloudInterlude(lyrics.renderStateAt(14_000))
+
+        assertEquals(0, interlude?.previousIndex)
+        assertEquals(1, interlude?.nextIndex)
+        assertEquals(12f / 13f, interlude?.progress ?: 0f, 0.0001f)
+    }
+
+    @Test
+    fun inferredOrShortGapDoesNotBecomeCloudInterlude() {
+        val inferred = listOf(
+            LyricLine(timeMs = 1_000, text = "first"),
+            LyricLine(timeMs = 15_000, text = "second"),
+        )
+        val short = listOf(
+            LyricLine(timeMs = 1_000, text = "first", endTimeMs = 2_000),
+            LyricLine(timeMs = 8_000, text = "second"),
+        )
+
+        assertEquals(null, lyricsCloudInterlude(inferred.renderStateAt(5_000)))
+        assertEquals(null, lyricsCloudInterlude(short.renderStateAt(5_000)))
+    }
+
     @Test
     fun layoutIsStableAndDoesNotOverlap() {
         val sizes = List(80) { index ->

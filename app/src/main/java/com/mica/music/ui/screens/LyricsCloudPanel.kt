@@ -2,7 +2,12 @@ package com.mica.music.ui.screens
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +27,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
@@ -51,6 +58,9 @@ import kotlinx.coroutines.delay
 
 internal data class LyricsCloudSize(val width: Float, val height: Float)
 internal data class LyricsCloudNode(val x: Float, val y: Float, val width: Float, val height: Float)
+internal data class LyricsCloudInterlude(val previousIndex: Int, val nextIndex: Int, val progress: Float)
+
+private const val MIN_CLOUD_INTERLUDE_DURATION_MS = 7_000
 
 @Composable
 internal fun LyricsCloudPanel(
@@ -122,7 +132,6 @@ internal fun LyricsCloudPanel(
     }
     val nodes = remember(sizes, seed) { buildLyricsCloudLayout(sizes, seed) }
     val currentIndex = renderState.activeLineIndex.coerceIn(0, nodes.lastIndex.coerceAtLeast(0))
-    val currentNode = nodes.getOrNull(currentIndex) ?: LyricsCloudNode(0f, 0f, 0f, 0f)
     val reveal = remember(seed) { Animatable(0f) }
     LaunchedEffect(seed, motionEnabled, isVisible) {
         if (!motionEnabled) {
@@ -145,8 +154,12 @@ internal fun LyricsCloudPanel(
         anchorPositionMs = renderState.positionMs,
         isPlaying = isPlaying,
     )
+    val interlude = lyricsCloudInterlude(renderState, framePositionMs)
+    val currentNode = interlude?.let { cloudInterludeCameraNode(nodes, it) }
+        ?: nodes.getOrNull(currentIndex)
+        ?: LyricsCloudNode(0f, 0f, 0f, 0f)
     val nextLineTimeMs = lyrics.getOrNull(currentIndex + 1)?.timeMs
-    val cueOffset = if (currentLine != null) {
+    val cueOffset = if (currentLine != null && interlude == null) {
         lyricsCloudPanOffset(
             lineStartMs = currentLine.timeMs,
             lineEndMs = currentLine.endTimeMs ?: nextLineTimeMs,
@@ -172,6 +185,11 @@ internal fun LyricsCloudPanel(
         animatedX to animatedY
     }
     val cameraX = cameraBaseX + cueOffset
+    val cloudScale by animateFloatAsState(
+        targetValue = if (interlude != null) 0.92f else 1f,
+        animationSpec = tween(if (motionEnabled) 600 else 0, easing = MicaMotion.Easing),
+        label = "lyricsCloudInterludeScale",
+    )
 
     Box(
         modifier = modifier
@@ -183,8 +201,8 @@ internal fun LyricsCloudPanel(
             },
     ) {
         nodes.forEachIndexed { index, node ->
-            val screenX = (node.x - cameraX) * unit
-            val screenY = (node.y - cameraY) * unit
+            val screenX = (node.x - cameraX) * unit * cloudScale
+            val screenY = (node.y - cameraY) * unit * cloudScale
             val nearby = abs(screenX) <= widthPx + node.width * unit / 2f &&
                 abs(screenY) <= heightPx + node.height * unit / 2f
             if (!nearby) return@forEachIndexed
@@ -192,12 +210,12 @@ internal fun LyricsCloudPanel(
             val revealProgress = lyricsCloudRevealProgress(
                 globalProgress = reveal.value,
                 distanceFromCurrent = hypot(node.x - currentNode.x, node.y - currentNode.y),
-                isCurrent = index == currentIndex,
+                isCurrent = interlude == null && index == currentIndex,
             )
             CloudLyricLine(
                 rows = displayRows[index],
                 line = line,
-                isCurrent = index == currentIndex,
+                isCurrent = interlude == null && index == currentIndex,
                 colors = colors,
                 textStyle = lineStyles[index],
                 translationTextStyle = translationStyles[index],
@@ -210,7 +228,7 @@ internal fun LyricsCloudPanel(
                         IntOffset(screenX.roundToInt(), screenY.roundToInt())
                     }
                     .graphicsLayer {
-                        val scale = if (index == currentIndex) 1.08f else 1f
+                        val scale = cloudScale * if (interlude == null && index == currentIndex) 1.08f else 1f
                         scaleX = scale
                         scaleY = scale
                         alpha = revealProgress
@@ -218,7 +236,78 @@ internal fun LyricsCloudPanel(
                     .clickable { onLineClick(line.timeMs) },
             )
         }
+        if (interlude != null) {
+            CloudInterludeGlow(colors = colors, animate = isPlaying && motionEnabled)
+        }
     }
+}
+
+internal fun lyricsCloudInterlude(
+    renderState: LyricsRenderState,
+    positionMs: Int = renderState.positionMs,
+): LyricsCloudInterlude? {
+    val gap = renderState.timeline.phase as? com.mica.music.data.LyricsTimelinePhase.Gap ?: return null
+    if (gap.durationMs < MIN_CLOUD_INTERLUDE_DURATION_MS) return null
+    val previousEndMs = renderState.lyrics.getOrNull(gap.previousIndex)?.endTimeMs ?: return null
+    val nextStartMs = renderState.lyrics.getOrNull(gap.nextIndex)?.timeMs ?: return null
+    val progress = ((positionMs - previousEndMs).toFloat() / (nextStartMs - previousEndMs))
+        .coerceIn(0f, 1f)
+    return LyricsCloudInterlude(gap.previousIndex, gap.nextIndex, progress)
+}
+
+internal fun cloudInterludeCameraNode(
+    nodes: List<LyricsCloudNode>,
+    interlude: LyricsCloudInterlude,
+): LyricsCloudNode? {
+    val previous = nodes.getOrNull(interlude.previousIndex) ?: return null
+    val next = nodes.getOrNull(interlude.nextIndex) ?: return null
+    val midpointX = (previous.x + next.x) / 2f
+    val midpointY = (previous.y + next.y) / 2f
+    val approach = ((interlude.progress - 0.72f) / 0.28f).coerceIn(0f, 1f)
+    val eased = approach * approach * (3f - 2f * approach)
+    return LyricsCloudNode(
+        x = midpointX + (next.x - midpointX) * eased,
+        y = midpointY + (next.y - midpointY) * eased,
+        width = 0f,
+        height = 0f,
+    )
+}
+
+@Composable
+private fun CloudInterludeGlow(
+    colors: PlayerContentColors,
+    animate: Boolean,
+) {
+    val transition = rememberInfiniteTransition(label = "lyricsCloudInterludeGlow")
+    val pulse = if (animate) {
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1_400, easing = MicaMotion.Easing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "lyricsCloudInterludeGlowPulse",
+        ).value
+    } else {
+        0.45f
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = 0.08f + pulse * 0.08f
+                scaleX = 0.88f + pulse * 0.18f
+                scaleY = scaleX
+            }
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(colors.primary, colors.primary.copy(alpha = 0f)),
+                    center = Offset.Unspecified,
+                    radius = Float.POSITIVE_INFINITY,
+                ),
+            ),
+    )
 }
 
 internal fun buildLyricsCloudLayout(
