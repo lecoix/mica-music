@@ -125,6 +125,24 @@ class NowPlayingLyricsExpandedTest {
     }
 
     @Test
+    fun expandedLyricsTrailingPadding_keepsTheEndScrollableToItsAnchor() {
+        assertEquals(500, expandedLyricsTrailingPaddingPx(1000, currentLineAnchorYPx = null))
+        assertEquals(700, expandedLyricsTrailingPaddingPx(1000, currentLineAnchorYPx = 300f))
+    }
+
+    @Test
+    fun expandedLyricsLeadingPadding_keepsTheStartAtItsAnchor() {
+        assertEquals(450, expandedLyricsLeadingPaddingPx(1000, 100, currentLineAnchorYPx = null))
+        assertEquals(250, expandedLyricsLeadingPaddingPx(1000, 100, currentLineAnchorYPx = 300f))
+    }
+
+    @Test
+    fun expandedLyricsIndexedScrollOffset_doesNotCountLeadingPaddingTwice() {
+        assertEquals(0, expandedLyricsIndexedScrollOffset(leadingPaddingPx = 450, viewportOffsetPx = -450))
+        assertEquals(50, expandedLyricsIndexedScrollOffset(leadingPaddingPx = 450, viewportOffsetPx = -400))
+    }
+
+    @Test
     fun classicLyricsMoveSpring_isStifferForRapidLines() {
         val rapid = classicLyricsMoveStiffness(100)
         val relaxed = classicLyricsMoveStiffness(800)
@@ -152,6 +170,13 @@ class NowPlayingLyricsExpandedTest {
         assertEquals(50L, classicLyricsStaggerDelayMs(1))
         assertEquals(true, classicLyricsStaggerDelayMs(3) < 150L)
         assertEquals(true, classicLyricsStaggerDelayMs(3) > classicLyricsStaggerDelayMs(2))
+    }
+
+    @Test
+    fun classicLyricsLagOffset_compensatesOnlyTheDelayedScrollDistance() {
+        assertEquals(0f, classicLyricsLagOffset(actualScrollPx = 0f, delayedScrollPx = 0f))
+        assertEquals(7.5f, classicLyricsLagOffset(actualScrollPx = 30f, delayedScrollPx = 0f))
+        assertEquals(0f, classicLyricsLagOffset(actualScrollPx = 30f, delayedScrollPx = 30f))
     }
 
 }

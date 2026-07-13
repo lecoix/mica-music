@@ -10,15 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
 import com.mica.music.data.renderStateAt
@@ -91,7 +86,6 @@ internal fun PlayerLowerPanelSection(
         lowerBackground.usesBlurredArtwork -> hifiBadgeColors
         else -> colors
     }
-    var compactLyricsCenterYPx by remember { mutableFloatStateOf(Float.NaN) }
     val showPlayerInfoRow = playerInfoVisibility.hasAnyEnabledSegment()
 
     if (hideInfoAndLyrics) {
@@ -188,13 +182,7 @@ internal fun PlayerLowerPanelSection(
                     Box(
                         Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .onGloballyPositioned { coordinates ->
-                                if (!lyricsPageOpen && lyricsFocus <= 0.01f) {
-                                    compactLyricsCenterYPx =
-                                        coordinates.positionInParent().y + coordinates.size.height / 2f
-                                }
-                            },
+                            .fillMaxWidth(),
                         contentAlignment = Alignment.Center,
                     ) {
                         LyricsSection(
@@ -233,7 +221,6 @@ internal fun PlayerLowerPanelSection(
                     lyricsTranslationFontSizeSp = lyricsTranslationFontSizeSp,
                     lyricsLineSpacingDp = lyricsLineSpacingDp,
                     bilingualDisplayMode = lyricsBilingualDisplayMode,
-                    currentLineAnchorYPx = compactLyricsCenterYPx.takeIf { it.isFinite() },
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = lower.lyricsChromeFade },
