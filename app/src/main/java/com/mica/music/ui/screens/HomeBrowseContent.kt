@@ -55,6 +55,8 @@ import com.mica.music.data.LibraryBrowseDetails
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongDetails
+import com.mica.music.data.SongListInfoVisibility
+import com.mica.music.data.SongTrailingInfo
 import com.mica.music.data.SortDirection
 import com.mica.music.ui.components.AlphabetFastScroller
 import com.mica.music.ui.components.BrowseGroupRow
@@ -70,6 +72,11 @@ import com.mica.music.ui.screens.home.browseDestinationDepth
 import com.mica.music.util.DiagnosticLog
 
 private const val BrowseDetailDebugTag = "[DEBUG-BROWSE-DETAIL-4F7C]"
+
+private val FolderSongInfoVisibility = SongListInfoVisibility(showSongPlayCount = false)
+private val RecentSongInfoVisibility = FolderSongInfoVisibility.copy(
+    trailingInfo = SongTrailingInfo.PLAY_COUNT,
+)
 
 @Composable
 internal fun HomeBrowseContent(
@@ -217,6 +224,7 @@ internal fun HomeBrowseContent(
                 onSongOpenMenu = onSongOpenMenu,
                 fastScrollSortField = null,
                 emptyMessage = "暂无播放记录",
+                infoVisibility = RecentSongInfoVisibility,
                 listBottomPadding = listBottomPadding,
                 modifier = modifier,
             )
@@ -848,6 +856,7 @@ private fun FolderDepthPage(
                 },
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "该文件夹下暂无歌曲",
+                infoVisibility = FolderSongInfoVisibility,
                 listBottomPadding = listBottomPadding,
                 modifier = modifier,
             )
@@ -1134,6 +1143,7 @@ private fun FolderContentList(
                 isPlaying = isCurrent && isPlaying,
                 onClick = { onSongClick(song.id) },
                 onLongClick = { onSongOpenMenu(song) },
+                infoVisibility = FolderSongInfoVisibility,
             )
         }
     }
