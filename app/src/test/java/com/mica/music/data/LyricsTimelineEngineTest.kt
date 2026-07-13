@@ -15,10 +15,10 @@ class LyricsTimelineEngineTest {
                 cues = listOf(LyricCue(1_000, "original")),
                 endTimeMs = 2_000,
             ),
-        ).toLyricsDocumentCompat(LyricsSource.TTML)
+        ).toLyricsDocumentCompat(format = LyricsFormat.TTML)
 
         val line = document.lines.single()
-        assertEquals(LyricsSource.TTML, document.source)
+        assertEquals(LyricsFormat.TTML, document.format)
         assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION), line.parts.map { it.role })
         assertEquals(listOf("original", "translation"), line.parts.map { it.text })
         assertEquals(2_000, line.tokens.single().endMs)

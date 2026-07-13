@@ -113,7 +113,7 @@ class SleepTimerController(
         fadeJob = null
         tickJob?.cancel()
         tickJob = null
-        if (playerController.isPlaying) {
+        if (playerController.playbackSurfaceState.isPlaying) {
             playerController.pauseIfPlaying()
         }
         playerController.setPlaybackVolume(1f)

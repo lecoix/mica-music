@@ -83,9 +83,10 @@ object MetadataProbe {
         out += entry("应用内", "trackNumber", song.trackNumber.toString())
         out += entry("应用内", "durationSec", song.durationSec.toString())
         out += entry("应用内", "sizeBytes", song.sizeBytes.toString())
-        out += entry("应用内", "lyrics.lineCount", song.lyrics.size.toString())
-        song.lyrics.take(5).forEachIndexed { i, line ->
-            out += entry("应用内", "lyrics[$i]", "[${line.timeMs}ms] ${line.text.take(200)}")
+        out += entry("应用内", "lyrics.lineCount", song.lyricsDocument.lines.size.toString())
+        song.lyricsDocument.lines.take(5).forEachIndexed { i, line ->
+            val text = line.parts.joinToString(" / ") { it.text }
+            out += entry("应用内", "lyrics[$i]", "[${line.startMs}ms] ${text.take(200)}")
         }
         val m = song.metadata
         out += entry("应用内", "metadata.containerName", m.containerName)
@@ -118,16 +119,20 @@ object MetadataProbe {
     private fun appendDerived(out: MutableList<MetadataEntry>, context: Context, uri: Uri, song: Song) {
         out += entry("解析器", "EncoderSettingsReader", EncoderSettingsReader.read(context, uri).ifBlank { "—" })
         val lyrics = runCatching {
-            EmbeddedLyricsReader.readFastEmbeddedOnly(
+            EmbeddedLyricsReader.readFastEmbeddedDocument(
                 context,
                 uri,
                 song.metadata.playbackMimeType,
                 song.fileName,
             )
-        }.getOrElse { emptyList() }
-        out += entry("解析器", "EmbeddedLyricsReader.lines", lyrics.size.toString())
-        lyrics.take(3).forEachIndexed { i, line ->
-            out += entry("解析器", "EmbeddedLyricsReader[$i]", line.text.take(200))
+        }.getOrElse { com.mica.music.data.LyricsDocument() }
+        out += entry("解析器", "EmbeddedLyricsReader.lines", lyrics.lines.size.toString())
+        lyrics.lines.take(3).forEachIndexed { i, line ->
+            out += entry(
+                "解析器",
+                "EmbeddedLyricsReader[$i]",
+                line.parts.joinToString(" / ") { it.text }.take(200),
+            )
         }
     }
 

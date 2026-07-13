@@ -23,6 +23,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlayerController
 import com.mica.music.data.SleepTimerController
 import com.mica.music.ui.components.PlayerSheetHost
@@ -68,6 +69,7 @@ object Routes {
 fun AppNavigation(
     coordinator: AppNavigationCoordinator,
     library: MusicLibrary,
+    playlistStore: PlaylistStore,
     playerController: PlayerController,
     sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
@@ -76,6 +78,7 @@ fun AppNavigation(
     AppNavigationMain(
         coordinator = coordinator,
         library = library,
+        playlistStore = playlistStore,
         playerController = playerController,
         uiSettings = uiSettings,
     )
@@ -85,6 +88,7 @@ fun AppNavigation(
 fun AppNavigationMain(
     coordinator: AppNavigationCoordinator,
     library: MusicLibrary,
+    playlistStore: PlaylistStore,
     playerController: PlayerController,
     uiSettings: AppUiSettings,
 ) {
@@ -93,7 +97,7 @@ fun AppNavigationMain(
     val motionEnabled = rememberMicaMotionEnabled()
     val navFade = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)
     val navSlide = MicaMotion.tweenIntOffset(motionEnabled, MicaMotion.DurationMediumMs)
-    val bottomOverlayClearance = if (playerController.currentSong != null) {
+    val bottomOverlayClearance = if (playerController.playbackSurfaceState.currentSong != null) {
         miniPlayerListClearance(uiSettings.miniPlayerStyle)
     } else {
         0.dp
@@ -156,6 +160,7 @@ fun AppNavigationMain(
             val homePlaybackActions = rememberHomePlaybackActions(playerController)
             HomeScreen(
                 library = library,
+                playlistStore = playlistStore,
                 playbackState = homePlaybackState,
                 playbackActions = homePlaybackActions,
                 uiSettings = uiSettings,
@@ -362,6 +367,7 @@ fun AppNavigationMain(
 fun PlayerSheetOverlay(
     coordinator: AppNavigationCoordinator,
     library: MusicLibrary,
+    playlistStore: PlaylistStore,
     playerController: PlayerController,
     sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
@@ -371,6 +377,7 @@ fun PlayerSheetOverlay(
     val actions = rememberNowPlayingActions(playerController, uiSettings)
     PlayerSheetHost(
         library = library,
+        playlistStore = playlistStore,
         surfaceState = playerController.playbackSurfaceState,
         progressState = playerController.playbackProgressState,
         queueState = playerController.playbackQueueState,

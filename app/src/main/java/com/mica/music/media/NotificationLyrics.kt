@@ -7,7 +7,7 @@ import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
-import com.mica.music.data.LyricsSync
+import com.mica.music.data.LyricsSession
 import com.mica.music.data.Song
 import com.mica.music.data.renderStateAt
 
@@ -36,6 +36,9 @@ object NotificationLyrics {
         return lyrics.renderStateAt(positionMs).activeLineIndex
     }
 
+    fun lyricIndexForPosition(session: LyricsSession, positionMs: Int): Int =
+        session.snapshotAt(positionMs).activeLineIndex
+
     fun lyricLineText(
         lyrics: List<LyricLine>,
         index: Int,
@@ -55,14 +58,13 @@ object NotificationLyrics {
 
     fun metadataWithLyric(
         song: Song,
-        lyricIndex: Int,
+        line: String,
         base: MediaMetadata,
-        display: DisplayOptions,
     ): MediaMetadata? {
-        val line = lyricLineText(song.lyrics, lyricIndex, display) ?: return null
+        val displayLine = line.trim().takeIf { it.isNotEmpty() } ?: return null
         return base.buildUpon()
-            .setTitle(line)
-            .setDisplayTitle(line)
+            .setTitle(displayLine)
+            .setDisplayTitle(displayLine)
             .setArtist(subtitle(song.title, song.artist))
             .setExtras(ensureCanonicalTitleExtras(base.extras, song.title))
             .build()

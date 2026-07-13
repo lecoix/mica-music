@@ -8,17 +8,19 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppFontSelection
 import com.mica.music.data.AppFontSource
-import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
+import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import java.io.File
 
 val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
@@ -26,10 +28,22 @@ val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
 val LocalMicaBackgroundPreset = staticCompositionLocalOf { MicaPreset.Dawn }
 val LocalCustomMicaBackground = staticCompositionLocalOf { CustomMicaBackground.Default }
 val LocalCustomWallpaperPath = staticCompositionLocalOf<String?> { null }
-val LocalAppUiSettings = staticCompositionLocalOf<AppUiSettings?> { null }
+internal val LocalWallpaperViewportState = staticCompositionLocalOf<WallpaperViewportState?> { null }
 val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
 val LocalLyricSplitEnabled = staticCompositionLocalOf { true }
 val LocalLyricLineFillEnabled = staticCompositionLocalOf { false }
+
+class WallpaperViewportState {
+    var topPx by mutableFloatStateOf(0f)
+        private set
+    var heightPx by mutableFloatStateOf(0f)
+        private set
+
+    fun update(topPx: Float, heightPx: Float) {
+        this.topPx = topPx
+        this.heightPx = heightPx
+    }
+}
 
 @Composable
 fun MicaTheme(

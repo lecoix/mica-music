@@ -86,6 +86,38 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun sameIdsWithChangedMetadataAdvanceQueueRevisionAndInvalidateBrowseCache() = runTest {
+        val scanner = ControlledScanner()
+        val library = library(scanner, FakeLibraryStore())
+        val oldSong = SongFixtures.song("same-id").copy(artist = "Old Artist")
+
+        val firstScan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[0].result.complete(ScanResult(listOf(oldSong), totalSizeMb = 1))
+        firstScan.await()
+        val firstRevision = library.queueMetadataRevision
+        assertEquals("Old Artist", library.artistGroupPresentation(
+            ArtistBrowseSortField.TITLE,
+            SortDirection.ASC,
+        ).groups.single().title)
+
+        val secondScan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[1].result.complete(
+            ScanResult(listOf(oldSong.copy(artist = "New Artist")), totalSizeMb = 1),
+        )
+        secondScan.await()
+
+        assertEquals(listOf("same-id"), library.songIds)
+        assertTrue(library.queueMetadataRevision > firstRevision)
+        assertEquals("New Artist", library.artistGroupPresentation(
+            ArtistBrowseSortField.TITLE,
+            SortDirection.ASC,
+        ).groups.single().title)
+        library.release()
+    }
+
+    @Test
     fun scannerFailureIsExposedAndLeavesPreviousSongsUntouched() = runTest {
         val scanner = ControlledScanner()
         val store = FakeLibraryStore()

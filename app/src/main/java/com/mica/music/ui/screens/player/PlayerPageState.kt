@@ -9,7 +9,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackQueueState
@@ -19,6 +21,7 @@ import com.mica.music.data.Song
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.system.homeStatusBarTopPadding
+import com.mica.music.ui.theme.HifiTypography
 import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.util.TrackSwitchPerformance
@@ -27,21 +30,29 @@ import kotlinx.coroutines.delay
 private const val LyricsLayoutShiftDelayOnCloseMs = 220
 private const val CoverLetterboxFadeMs = 480
 
-data class PlayerPageUiModel(
+internal class PlayerPageUiModel(
     val song: Song,
     val queue: List<Song>,
     val currentIndex: Int,
     val isPlaying: Boolean,
-    val frame: PlayerPageFrame,
-)
+    private val layoutInput: PlayerPageLayoutInput,
+    private val density: Density,
+    private val typography: HifiTypography,
+) {
+    fun frameFor(panelHeight: Dp): PlayerPageFrame =
+        PlayerPageLayoutEngine.computeFrame(
+            input = layoutInput.copy(panelHeight = panelHeight),
+            density = density,
+            typography = typography,
+        )
+}
 
 @Composable
-fun rememberPlayerPageUiModel(
+internal fun rememberPlayerPageUiModel(
     surfaceState: PlaybackSurfaceState,
     queueState: PlaybackQueueState,
     uiSettings: AppUiSettings,
     lyricsExpanded: Boolean,
-    panelHeight: Dp,
     screenHeight: Dp,
     screenWidth: Dp,
     coverAspectRatio: Float,
@@ -127,30 +138,26 @@ fun rememberPlayerPageUiModel(
         spectrumDeferred = false
     }
 
-    val frame = PlayerPageLayoutEngine.computeFrame(
-        input = PlayerPageLayoutInput(
-            panelHeight = panelHeight,
-            screenHeight = screenHeight,
-            screenWidth = screenWidth,
-            statusBarTop = statusBarTop,
-            lyricsExpanded = lyricsExpanded,
-            lyricsProgress = lyricsProgress,
-            lyricsChromeFade = lyricsChromeFade,
-            immersiveLower = immersiveLower,
-            immersiveProgress = immersiveProgress,
-            coverFlowProgress = coverFlowProgress,
-            coverFlowModeEnabled = coverFlowModeEnabled,
-            useCoverEdgeProgress = useCoverEdgeProgress,
-            particleCoverMode = ParticleCoverThemePolicy.particleCoverMode(coverFlowMode),
-            photoStackMode = photoStackMode,
-            fitOriginal = fitOriginal,
-            coverAspectRatio = coverAspectRatio,
-            spectrumSettingEnabled = uiSettings.spectrumEnabled,
-            spectrumDeferred = spectrumDeferred,
-            coverSwitching = coverSwitching,
-        ),
-        density = density,
-        typography = typography,
+    val layoutInput = PlayerPageLayoutInput(
+        panelHeight = 0.dp,
+        screenHeight = screenHeight,
+        screenWidth = screenWidth,
+        statusBarTop = statusBarTop,
+        lyricsExpanded = lyricsExpanded,
+        lyricsProgress = lyricsProgress,
+        lyricsChromeFade = lyricsChromeFade,
+        immersiveLower = immersiveLower,
+        immersiveProgress = immersiveProgress,
+        coverFlowProgress = coverFlowProgress,
+        coverFlowModeEnabled = coverFlowModeEnabled,
+        useCoverEdgeProgress = useCoverEdgeProgress,
+        particleCoverMode = ParticleCoverThemePolicy.particleCoverMode(coverFlowMode),
+        photoStackMode = photoStackMode,
+        fitOriginal = fitOriginal,
+        coverAspectRatio = coverAspectRatio,
+        spectrumSettingEnabled = uiSettings.spectrumEnabled,
+        spectrumDeferred = spectrumDeferred,
+        coverSwitching = coverSwitching,
     )
 
     return PlayerPageUiModel(
@@ -158,6 +165,8 @@ fun rememberPlayerPageUiModel(
         queue = queueState.queue,
         currentIndex = queueState.currentIndex,
         isPlaying = surfaceState.isPlaying,
-        frame = frame,
+        layoutInput = layoutInput,
+        density = density,
+        typography = typography,
     )
 }

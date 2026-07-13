@@ -7,7 +7,7 @@ import com.mica.music.data.LyricTextPart
 import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricsDocument
-import com.mica.music.data.LyricsSource
+import com.mica.music.data.LyricsFormat
 import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.util.DiagnosticLog
 import java.io.StringReader
@@ -44,7 +44,7 @@ internal object TtmlLyricsParser {
 
     internal fun parseDocumentWithFactory(text: String, factory: DocumentBuilderFactory): LyricsDocument {
         if (!looksLikeTtml(text) || text.length > MAX_DOCUMENT_CHARS || forbiddenDeclaration.containsMatchIn(text)) {
-            return LyricsDocument(source = LyricsSource.TTML)
+            return LyricsDocument(format = LyricsFormat.TTML)
         }
         return runCatching {
             factory.apply {
@@ -65,7 +65,7 @@ internal object TtmlLyricsParser {
             }
             val document = builder.parse(InputSource(StringReader(text)))
             val paragraphs = document.getElementsByTagNameNS("*", "p")
-            if (paragraphs.length !in 1..MAX_PARAGRAPHS) return LyricsDocument(source = LyricsSource.TTML)
+            if (paragraphs.length !in 1..MAX_PARAGRAPHS) return LyricsDocument(format = LyricsFormat.TTML)
 
             var totalCues = 0
             val lines = buildList {
@@ -73,7 +73,7 @@ internal object TtmlLyricsParser {
                     val paragraph = paragraphs.item(index) as? Element ?: continue
                     val rendered = renderParagraph(paragraph)
                     totalCues += rendered.cues.size
-                    if (totalCues > MAX_CUES) return LyricsDocument(source = LyricsSource.TTML)
+                    if (totalCues > MAX_CUES) return LyricsDocument(format = LyricsFormat.TTML)
                     val originalText = MetadataTextFix.normalize(rendered.text).trim()
                     val translationText = MetadataTextFix.normalize(rendered.translation).trim()
                     if (originalText.isEmpty() && translationText.isEmpty()) continue
@@ -109,13 +109,13 @@ internal object TtmlLyricsParser {
                     )
                 }
             }.sortedBy { it.startMs }
-            LyricsDocument(source = LyricsSource.TTML, lines = lines)
+            LyricsDocument(format = LyricsFormat.TTML, lines = lines)
         }.onFailure { error ->
             DiagnosticLog.event(
                 LYRICS_TRACE,
                 "ttml-parser failed error=${error.javaClass.simpleName}:${error.message.orEmpty().take(160)}",
             )
-        }.getOrDefault(LyricsDocument(source = LyricsSource.TTML))
+        }.getOrDefault(LyricsDocument(format = LyricsFormat.TTML))
     }
 
     private data class RenderedParagraph(

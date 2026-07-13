@@ -2,21 +2,9 @@ package com.mica.music.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.mica.music.data.LyricLine
-import com.mica.music.data.LyricCue
-import com.mica.music.data.LyricLineNode
-import com.mica.music.data.LyricTextPart
-import com.mica.music.data.LyricTextRole
-import com.mica.music.data.LyricToken
-import com.mica.music.data.LyricsDocument
-import com.mica.music.data.LyricsSource
 import com.mica.music.data.ReplayGainTags
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
-import com.mica.music.data.toLegacyLyricLines
-import com.mica.music.data.toLyricsDocumentCompat
-import org.json.JSONArray
-import org.json.JSONObject
 
 @Entity(tableName = "songs")
 data class SongEntity(
@@ -101,7 +89,7 @@ fun SongEntity.toSong(): Song = Song(
     externalLyricsSignature = externalLyricsSignature,
     playCount = playCount,
     replayGain = ReplayGainTags(replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak),
-    lyrics = decodeLyrics(lyricsJson),
+    lyricsDocument = LyricsDocumentCodec.decode(lyricsJson),
 )
 
 /** 用于增量扫描：元数据或路径变化时判定为「已更新」。 */
@@ -121,7 +109,7 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(discNumber); append('\u0001')
     append(albumArtUri); append('\u0001')
     append(externalLyricsSignature); append('\u0001')
-    append(lyricsJson)
+    append(LyricsDocumentCodec.canonicalFingerprint(lyricsJson))
 }
 
 fun Song.toEntity(queueOrder: Int): SongEntity = SongEntity(
@@ -153,117 +141,10 @@ fun Song.toEntity(queueOrder: Int): SongEntity = SongEntity(
     dateModifiedMs = dateModifiedMs,
     externalLyricsSignature = externalLyricsSignature,
     playCount = playCount,
-    lyricsJson = encodeLyrics(lyrics),
+    lyricsJson = LyricsDocumentCodec.encode(lyricsDocument),
     queueOrder = queueOrder,
     replayGainTrackDb = replayGain.trackGainDb,
     replayGainTrackPeak = replayGain.trackPeak,
     replayGainAlbumDb = replayGain.albumGainDb,
     replayGainAlbumPeak = replayGain.albumPeak,
 )
-
-private fun encodeLyrics(lines: List<LyricLine>): String {
-    return encodeLyricsDocument(lines.toLyricsDocumentCompat())
-}
-
-private fun decodeLyrics(json: String): List<LyricLine> {
-    if (json.isBlank() || json == "[]") return emptyList()
-    return runCatching {
-        if (json.trimStart().startsWith("[")) decodeLegacyLyrics(JSONArray(json))
-        else decodeLyricsDocument(JSONObject(json)).toLegacyLyricLines()
-    }.getOrDefault(emptyList())
-}
-
-private fun encodeLyricsDocument(document: LyricsDocument): String = JSONObject()
-    .put("version", document.version)
-    .put("source", document.source.name)
-    .put("lines", JSONArray().apply {
-        document.lines.forEach { line ->
-            put(JSONObject()
-                .put("id", line.id)
-                .put("startMs", line.startMs)
-                .put("parts", JSONArray().apply {
-                    line.parts.forEach { part -> put(JSONObject().put("role", part.role.name).put("text", part.text)) }
-                })
-                .put("tokens", JSONArray().apply {
-                    line.tokens.forEach { token -> put(JSONObject()
-                        .put("text", token.text)
-                        .put("startMs", token.startMs)
-                        .put("partRole", token.partRole.name)
-                        .apply { token.endMs?.let { put("endMs", it) } }) }
-                })
-                .apply { line.endMs?.let { put("endMs", it) } })
-        }
-    })
-    .toString()
-
-private fun decodeLyricsDocument(json: JSONObject): LyricsDocument {
-    val source = runCatching { LyricsSource.valueOf(json.optString("source")) }.getOrDefault(LyricsSource.COMPATIBILITY)
-    val lines = json.optJSONArray("lines") ?: return LyricsDocument(source = source)
-    return LyricsDocument(
-        version = json.optInt("version", 1),
-        source = source,
-        lines = buildList(lines.length()) {
-            for (index in 0 until lines.length()) {
-                val line = lines.optJSONObject(index) ?: continue
-                if (!line.has("startMs")) continue
-                val parts = line.optJSONArray("parts")?.let { values ->
-                    buildList(values.length()) {
-                        for (partIndex in 0 until values.length()) {
-                            val part = values.optJSONObject(partIndex) ?: continue
-                            if (!part.has("text")) continue
-                            val role = runCatching { LyricTextRole.valueOf(part.optString("role")) }
-                                .getOrDefault(LyricTextRole.EXTRA)
-                            add(LyricTextPart(role, part.getString("text")))
-                        }
-                    }
-                }.orEmpty()
-                if (parts.isEmpty()) continue
-                val tokens = line.optJSONArray("tokens")?.let { values ->
-                    buildList(values.length()) {
-                        for (tokenIndex in 0 until values.length()) {
-                            val token = values.optJSONObject(tokenIndex) ?: continue
-                            if (!token.has("text") || !token.has("startMs")) continue
-                            val role = runCatching { LyricTextRole.valueOf(token.optString("partRole")) }
-                                .getOrDefault(LyricTextRole.ORIGINAL)
-                            add(LyricToken(
-                                text = token.getString("text"),
-                                startMs = token.getInt("startMs"),
-                                endMs = token.optInt("endMs").takeIf { token.has("endMs") },
-                                partRole = role,
-                            ))
-                        }
-                    }
-                }.orEmpty()
-                add(LyricLineNode(
-                    id = line.optString("id").ifBlank { "$index-${line.getInt("startMs")}" },
-                    startMs = line.getInt("startMs"),
-                    endMs = line.optInt("endMs").takeIf { line.has("endMs") },
-                    parts = parts,
-                    tokens = tokens,
-                ))
-            }
-        },
-    )
-}
-
-private fun decodeLegacyLyrics(array: JSONArray): List<LyricLine> = buildList(array.length()) {
-    for (i in 0 until array.length()) {
-        val obj = array.optJSONObject(i) ?: continue
-        if (!obj.has("t") || !obj.has("x")) continue
-        val cues = obj.optJSONArray("c")?.let { cueArray ->
-            buildList(cueArray.length()) {
-                for (cueIndex in 0 until cueArray.length()) {
-                    val cue = cueArray.optJSONObject(cueIndex) ?: continue
-                    if (!cue.has("t") || !cue.has("x")) continue
-                    add(LyricCue(timeMs = cue.getInt("t"), text = cue.getString("x")))
-                }
-            }
-        }.orEmpty()
-        add(LyricLine(
-            timeMs = obj.getInt("t"),
-            text = obj.getString("x"),
-            cues = cues,
-            endTimeMs = obj.optInt("e").takeIf { obj.has("e") },
-        ))
-    }
-}

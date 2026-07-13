@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     library: MusicLibrary,
+    playlistStore: PlaylistStore,
     playbackState: HomePlaybackState,
     playbackActions: HomePlaybackActions,
     uiSettings: AppUiSettings,
@@ -98,7 +99,6 @@ fun HomeScreen(
     var songMultiSelectActive by remember { mutableStateOf(false) }
     var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val playlistStore = remember { PlaylistStore(context) }
     val homeController = rememberHomeScreenController(library, playlistStore)
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()

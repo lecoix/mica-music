@@ -14,6 +14,8 @@ import com.mica.music.data.PlaybackMimeResolver
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsOrigin
 import com.mica.music.media.AlacPlayback
 import com.mica.music.util.DiagnosticLog
 import java.io.File
@@ -140,7 +142,7 @@ object AudioMetadataProbe {
             appCtx,
             metadata,
             albumArtUri = albumArtUri,
-            lyrics = lyrics,
+            lyricsDocument = lyrics,
             copyrightOverride = copyright,
         )
     }
@@ -316,7 +318,7 @@ object AudioMetadataProbe {
                 albumArtUri = profiler.measureOptional("albumArt") {
                     resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
                 },
-                lyrics = lyrics,
+                lyricsDocument = lyrics,
                 copyrightOverride = copyright,
             )
         } finally {
@@ -492,7 +494,7 @@ object AudioMetadataProbe {
             context = context,
             metadata = metadata,
             albumArtUri = albumArtUri,
-            lyrics = lyrics,
+            lyricsDocument = lyrics,
             trackNumber = tags.trackNumber,
             discNumber = tags.discNumber,
         ).copy(replayGain = tagLib.replayGain)
@@ -507,22 +509,22 @@ object AudioMetadataProbe {
         cachedSong: Song?,
         retriever: MediaMetadataRetriever? = null,
         taglibLyricsCandidates: List<String> = emptyList(),
-    ): List<com.mica.music.data.LyricLine> {
-        ExternalLyricsReader.readDirectUris(context, draft.externalLyricsUris)
-            ?.takeIf { it.isNotEmpty() }
+    ): LyricsDocument {
+        ExternalLyricsReader.readDirectDocuments(context, draft.externalLyricsUris)
+            ?.takeIf { it.lines.isNotEmpty() }
             ?.let { return it }
-        cachedSong?.lyrics?.takeIf { it.isNotEmpty() }?.let { return it }
+        cachedSong?.lyricsDocument?.takeIf { it.lines.isNotEmpty() }?.let { return it }
         taglibLyricsCandidates
             .mapNotNull { parseLyricsTextForScan(MetadataTextFix.normalize(it)) }
-            .filter { it.isNotEmpty() }
+            .filter { it.lines.isNotEmpty() }
             .takeIf { it.isNotEmpty() }
-            ?.let { LyricsSanitizer.pickBest(it) }
-            ?.takeIf { it.isNotEmpty() }
+            ?.let { LyricsSanitizer.pickBestDocument(it) }
+            ?.takeIf { it.lines.isNotEmpty() }
             ?.let { return it }
         retriever?.let { readRetrieverLyrics(it) }
-            ?.takeIf { it.isNotEmpty() }
+            ?.takeIf { it.lines.isNotEmpty() }
             ?.let { return it }
-        val embedded = EmbeddedLyricsReader.readFastEmbeddedOnly(
+        val embedded = EmbeddedLyricsReader.readFastEmbeddedDocument(
             context = context,
             uri = Uri.parse(draft.mediaUri),
             mimeType = draft.mimeType,
@@ -531,16 +533,16 @@ object AudioMetadataProbe {
         return embedded
     }
 
-    private fun readRetrieverLyrics(retriever: MediaMetadataRetriever): List<com.mica.music.data.LyricLine>? {
-        val candidates = mutableListOf<List<com.mica.music.data.LyricLine>>()
+    private fun readRetrieverLyrics(retriever: MediaMetadataRetriever): LyricsDocument? {
+        val candidates = mutableListOf<LyricsDocument>()
         for (key in retrieverLyricsKeys) {
             extractMetadataString(retriever, key)
                 ?.let { MetadataTextFix.normalize(it) }
                 ?.let { parseLyricsTextForScan(it) }
-                ?.takeIf { it.isNotEmpty() }
+                ?.takeIf { it.lines.isNotEmpty() }
                 ?.let { candidates += it }
         }
-        return LyricsSanitizer.pickBest(candidates)
+        return LyricsSanitizer.pickBestDocument(candidates)
     }
 
     private fun readCopyright(context: Context, uri: Uri, draft: TrackDraft): String {
@@ -557,11 +559,15 @@ object AudioMetadataProbe {
             .orEmpty()
     }
 
-    private fun parseLyricsTextForScan(raw: String): List<com.mica.music.data.LyricLine>? {
+    private fun parseLyricsTextForScan(raw: String): LyricsDocument? {
         if (raw.isBlank()) return null
-        LyricsSanitizer.parseFiltered(raw).takeIf { it.isNotEmpty() }?.let { return it }
-        LyricsSanitizer.finalize(LrcParser.parse(raw)).takeIf { it.isNotEmpty() }?.let { return it }
-        return LyricsSanitizer.finalizeRelaxed(raw)
+        LyricsSanitizer.parseFilteredDocument(raw, LyricsOrigin.EMBEDDED)
+            .takeIf { it.lines.isNotEmpty() }
+            ?.let { return it }
+        LyricsSanitizer.finalizeDocument(
+            LrcParser.parseDocument(raw).copy(origin = LyricsOrigin.EMBEDDED),
+        ).takeIf { it.lines.isNotEmpty() }?.let { return it }
+        return LyricsSanitizer.finalizeRelaxedDocument(raw, LyricsOrigin.EMBEDDED)
     }
 
     /** [MediaMetadataRetriever.extractMetadata] 的字符串 key 在部分 SDK 绑定中不可用，用反射读取。 */
@@ -803,7 +809,7 @@ object AudioMetadataProbe {
             context = context,
             metadata = metadata,
             albumArtUri = albumArtUri,
-            lyrics = lyrics,
+            lyricsDocument = lyrics,
             trackNumber = tags.trackNumber,
             discNumber = tags.discNumber,
         )
@@ -947,7 +953,7 @@ object AudioMetadataProbe {
         context: Context,
         metadata: TrackMetadata,
         albumArtUri: String?,
-        lyrics: List<com.mica.music.data.LyricLine> = emptyList(),
+        lyricsDocument: LyricsDocument = LyricsDocument(),
         copyrightOverride: String = "",
         trackNumber: Int = 0,
         discNumber: Int = 0,
@@ -977,7 +983,7 @@ object AudioMetadataProbe {
             dateAddedMs = dateAddedMs,
             dateModifiedMs = dateModifiedMs,
             externalLyricsSignature = externalLyricsSignature,
-            lyrics = lyrics,
+            lyricsDocument = lyricsDocument,
         )
     }
     /**

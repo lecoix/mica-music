@@ -1,6 +1,8 @@
 package com.mica.music.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReplayGainTest {
@@ -39,5 +41,43 @@ class ReplayGainTest {
 
         assertEquals(0.5f, ReplayGainPolicy.linearGain(tags, ReplayGainMode.TRACK), 0.0001f)
         assertEquals(0.5f, ReplayGainPolicy.linearGain(tags, ReplayGainMode.ALBUM), 0.0001f)
+    }
+
+    @Test
+    fun decisionReportsActualFactorAndTagSource() {
+        val decision = ReplayGainPolicy.resolve(
+            ReplayGainTags(trackGainDb = -6.0206f, trackPeak = 1f),
+            ReplayGainMode.TRACK,
+        )
+
+        assertEquals(ReplayGainMode.TRACK, decision.mode)
+        assertEquals(ReplayGainSource.TRACK_TAG, decision.source)
+        assertEquals(0.5f, decision.linearFactor, 0.0001f)
+        assertTrue(decision.modifiesSignal)
+    }
+
+    @Test
+    fun albumModeWithoutAlbumTagStaysUnityInsteadOfFallingBackToTrack() {
+        val decision = ReplayGainPolicy.resolve(
+            ReplayGainTags(trackGainDb = -6f),
+            ReplayGainMode.ALBUM,
+        )
+
+        assertEquals(ReplayGainMode.ALBUM, decision.mode)
+        assertEquals(ReplayGainSource.MISSING_TAG, decision.source)
+        assertEquals(1f, decision.linearFactor)
+        assertFalse(decision.modifiesSignal)
+    }
+
+    @Test
+    fun selectedPositiveGainReportsTagButNotSignalModification() {
+        val decision = ReplayGainPolicy.resolve(
+            ReplayGainTags(trackGainDb = 6f, trackPeak = 0.5f),
+            ReplayGainMode.TRACK,
+        )
+
+        assertEquals(ReplayGainSource.TRACK_TAG, decision.source)
+        assertEquals(1f, decision.linearFactor)
+        assertFalse(decision.modifiesSignal)
     }
 }

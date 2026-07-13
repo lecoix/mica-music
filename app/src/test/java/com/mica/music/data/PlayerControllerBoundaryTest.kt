@@ -1,5 +1,6 @@
 package com.mica.music.data
 
+import android.os.Looper
 import androidx.media3.session.MediaController
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -31,6 +32,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
 class PlayerControllerBoundaryTest {
@@ -75,7 +77,7 @@ class PlayerControllerBoundaryTest {
         advanceTimeBy(1)
         runCurrent()
         assertEquals(playerQueue.size, resolverCalls)
-        assertEquals(playerQueue.map { it.id }, controller.songQueue.map { it.id })
+        assertEquals(playerQueue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
 
         listener.captured.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
         advanceTimeBy(100)
@@ -111,7 +113,7 @@ class PlayerControllerBoundaryTest {
 
         verify(exactly = 1) { mediaController.moveMediaItem(4_000, 10) }
         verify(exactly = 0) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
-        assertEquals("song-2000", controller.currentSong?.id)
+        assertEquals("song-2000", controller.playbackSurfaceState.currentSong?.id)
         controller.release()
     }
 
@@ -143,7 +145,7 @@ class PlayerControllerBoundaryTest {
 
         verify(exactly = 0) { mediaController.moveMediaItem(any(), any()) }
         verify(exactly = 1) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
-        assertEquals("song-1", controller.currentSong?.id)
+        assertEquals("song-1", controller.playbackSurfaceState.currentSong?.id)
         controller.release()
     }
 
@@ -170,12 +172,13 @@ class PlayerControllerBoundaryTest {
         connector.requests.single().onConnected(mediaController)
 
         controller.playSong(0)
+        shadowOf(Looper.getMainLooper()).idle()
 
         val expected = "不支持 DFF/DSDIFF 格式，请使用 DSF"
-        assertEquals(expected, controller.playbackError)
+        assertEquals(expected, controller.playbackSurfaceState.playbackError)
         assertEquals(expected, controller.userMessage?.text)
         listener.captured.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
-        assertEquals(expected, controller.playbackError)
+        assertEquals(expected, controller.playbackSurfaceState.playbackError)
         controller.release()
     }
 
@@ -215,7 +218,7 @@ class PlayerControllerBoundaryTest {
         listener.captured.onMediaItemTransition(dsdItem, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
         listener.captured.onPlaybackParametersChanged(PlaybackParameters.DEFAULT)
 
-        assertEquals(2.0f, controller.playbackTuning.speed, 0.0001f)
+        assertEquals(2.0f, controller.playbackSurfaceState.playbackTuning.speed, 0.0001f)
         verify {
             mediaController.setPlaybackParameters(match { it.speed == 1.0f && it.pitch == 1.0f })
         }
@@ -256,7 +259,7 @@ class PlayerControllerBoundaryTest {
         currentIndex = 0
         listener.captured.onMediaItemTransition(flacItem, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
 
-        assertEquals(1.5f, controller.playbackTuning.speed, 0.0001f)
+        assertEquals(1.5f, controller.playbackSurfaceState.playbackTuning.speed, 0.0001f)
         verify {
             mediaController.setPlaybackParameters(match { it.speed == 1.5f })
         }
@@ -305,7 +308,7 @@ class PlayerControllerBoundaryTest {
         controller.restoreSession(PlaybackSession("missing", 5_000))
 
         assertEquals(1, storage.clearCount)
-        assertEquals(0, controller.currentIndex)
+        assertEquals(0, controller.playbackQueueState.currentIndex)
         controller.release()
     }
 
@@ -318,9 +321,9 @@ class PlayerControllerBoundaryTest {
         controller.restoreSession(PlaybackSession("song-2", 12_345))
         controller.reconcileRestoredSessionIndex()
 
-        assertEquals("song-2", controller.currentSong?.id)
+        assertEquals("song-2", controller.playbackSurfaceState.currentSong?.id)
         assertEquals(12_345, controller.uiPositionMs())
-        assertFalse(controller.isPlaying)
+        assertFalse(controller.playbackSurfaceState.isPlaying)
 
         controller.persistPlaybackSessionNow()
         assertEquals(PlaybackSession("song-2", 12_345), storage.saved)
@@ -761,12 +764,12 @@ class PlayerControllerBoundaryTest {
 
         verify { mediaController.shuffleModeEnabled = false }
         verify { mediaController.repeatMode = Player.REPEAT_MODE_ALL }
-        assertEquals(PlaybackQueueMode.OFF, controller.playbackQueueMode)
+        assertEquals(PlaybackQueueMode.OFF, controller.playbackSurfaceState.playbackQueueMode)
 
         repeatMode = Player.REPEAT_MODE_ALL
         listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ALL)
 
-        assertEquals(PlaybackQueueMode.REPEAT_ALL, controller.playbackQueueMode)
+        assertEquals(PlaybackQueueMode.REPEAT_ALL, controller.playbackSurfaceState.playbackQueueMode)
         controller.release()
     }
 
@@ -807,10 +810,10 @@ class PlayerControllerBoundaryTest {
 
         verify { mediaController.shuffleModeEnabled = false }
         verify { mediaController.repeatMode = Player.REPEAT_MODE_OFF }
-        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackQueueMode)
-        assertEquals(queue[2].id, controller.currentSong?.id)
-        assertEquals(queue.map { it.id }.toSet(), controller.songQueue.map { it.id }.toSet())
-        assertEquals(queue.size, controller.songQueue.distinctBy { it.id }.size)
+        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
+        assertEquals(queue[2].id, controller.playbackSurfaceState.currentSong?.id)
+        assertEquals(queue.map { it.id }.toSet(), controller.playbackQueueState.queue.map { it.id }.toSet())
+        assertEquals(queue.size, controller.playbackQueueState.queue.distinctBy { it.id }.size)
         controller.release()
     }
 
@@ -832,7 +835,7 @@ class PlayerControllerBoundaryTest {
         every { mediaController.playWhenReady } returns true
         every { mediaController.duration } returns 60_000L
         every { mediaController.getMediaItemAt(any()) } answers {
-            MediaItem.Builder().setMediaId(controller.songQueue[firstArg()].id).build()
+            MediaItem.Builder().setMediaId(controller.playbackQueueState.queue[firstArg()].id).build()
         }
         controller.setQueue(queue)
         controller.connectIfNeeded()
@@ -843,9 +846,10 @@ class PlayerControllerBoundaryTest {
         clearMocks(mediaController, answers = false, recordedCalls = true)
 
         controller.next()
+        shadowOf(Looper.getMainLooper()).idle()
 
         verify { mediaController.seekTo(target ?: -1, 0L) }
-        assertEquals(target, controller.currentIndex)
+        assertEquals(target, controller.playbackQueueState.currentIndex)
         controller.release()
     }
 
@@ -868,7 +872,7 @@ class PlayerControllerBoundaryTest {
         every { mediaController.duration } returns 60_000L
         every { mediaController.repeatMode } answers { repeatMode }
         every { mediaController.getMediaItemAt(any()) } answers {
-            MediaItem.Builder().setMediaId(controller.songQueue[firstArg()].id).build()
+            MediaItem.Builder().setMediaId(controller.playbackQueueState.queue[firstArg()].id).build()
         }
         controller.setQueue(queue)
         controller.connectIfNeeded()
@@ -881,11 +885,11 @@ class PlayerControllerBoundaryTest {
         repeatMode = Player.REPEAT_MODE_ONE
         listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ONE)
         controller.cyclePlaybackQueueMode()
-        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackQueueMode)
+        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
 
         controller.cyclePlaybackQueueMode()
 
-        assertEquals(PlaybackQueueMode.OFF, controller.playbackQueueMode)
+        assertEquals(PlaybackQueueMode.OFF, controller.playbackSurfaceState.playbackQueueMode)
         verify(atLeast = 1) { mediaController.shuffleModeEnabled = false }
         controller.release()
     }
@@ -927,7 +931,7 @@ class PlayerControllerBoundaryTest {
             listOf("song-b", "song-a", "song-c"),
             submittedItems.captured.map(MediaItem::mediaId),
         )
-        assertEquals("song-b", controller.currentSong?.id)
+        assertEquals("song-b", controller.playbackSurfaceState.currentSong?.id)
         controller.release()
     }
 
@@ -1042,9 +1046,10 @@ class PlayerControllerBoundaryTest {
         every { mediaController.duration } returns 312_000L
 
         controller.playSong(1)
+        shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(218_000, controller.playbackProgressState.durationMs)
-        assertEquals("song-short", controller.currentSong?.id)
+        assertEquals("song-short", controller.playbackSurfaceState.currentSong?.id)
         controller.release()
     }
 
@@ -1123,7 +1128,7 @@ class PlayerControllerBoundaryTest {
             Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
         )
 
-        assertEquals(queue[0].id, controller.currentSong?.id)
+        assertEquals(queue[0].id, controller.playbackSurfaceState.currentSong?.id)
         assertEquals(40_000, controller.uiPositionMs())
         controller.release()
     }
@@ -1157,7 +1162,7 @@ class PlayerControllerBoundaryTest {
             Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
         )
 
-        assertEquals(queue[1].id, controller.currentSong?.id)
+        assertEquals(queue[1].id, controller.playbackSurfaceState.currentSong?.id)
         assertEquals(0, controller.uiPositionMs())
         controller.release()
     }
@@ -1186,11 +1191,12 @@ class PlayerControllerBoundaryTest {
         connector.requests.single().onConnected(mediaController)
 
         controller.playSong(1)
+        shadowOf(Looper.getMainLooper()).idle()
         listener.captured.onMediaItemTransition(
             firstItem,
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
         )
-        assertEquals("song-b", controller.currentSong?.id)
+        assertEquals("song-b", controller.playbackSurfaceState.currentSong?.id)
 
         currentItem = secondItem
         currentIndex = 1
@@ -1201,7 +1207,7 @@ class PlayerControllerBoundaryTest {
                 PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
             ),
         )
-        assertEquals("无法读取音频文件", controller.playbackError)
+        assertEquals("无法读取音频文件", controller.playbackSurfaceState.playbackError)
         assertNull(controller.userMessage)
 
         currentItem = firstItem
@@ -1211,7 +1217,7 @@ class PlayerControllerBoundaryTest {
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
         )
 
-        assertEquals("song-a", controller.currentSong?.id)
+        assertEquals("song-a", controller.playbackSurfaceState.currentSong?.id)
         controller.release()
     }
 
@@ -1242,7 +1248,8 @@ class PlayerControllerBoundaryTest {
 
         controller.next()
         controller.next()
-        assertEquals("song-c", controller.currentSong?.id)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("song-c", controller.playbackSurfaceState.currentSong?.id)
 
         currentItem = secondItem
         currentIndex = 1
@@ -1257,8 +1264,8 @@ class PlayerControllerBoundaryTest {
                 PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
             ),
         )
-        assertEquals("song-c", controller.currentSong?.id)
-        assertNull(controller.playbackError)
+        assertEquals("song-c", controller.playbackSurfaceState.currentSong?.id)
+        assertNull(controller.playbackSurfaceState.playbackError)
 
         currentItem = thirdItem
         currentIndex = 2
@@ -1267,7 +1274,7 @@ class PlayerControllerBoundaryTest {
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
         )
 
-        assertEquals("song-c", controller.currentSong?.id)
+        assertEquals("song-c", controller.playbackSurfaceState.currentSong?.id)
         controller.release()
     }
 
@@ -1298,8 +1305,8 @@ class PlayerControllerBoundaryTest {
         currentIndex = 1
         controller.syncPlaybackState()
 
-        assertEquals("song-d", controller.currentSong?.id)
-        assertEquals(3, controller.currentIndex)
+        assertEquals("song-d", controller.playbackSurfaceState.currentSong?.id)
+        assertEquals(3, controller.playbackQueueState.currentIndex)
         controller.release()
     }
 

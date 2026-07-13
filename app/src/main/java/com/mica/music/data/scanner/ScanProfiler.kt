@@ -67,15 +67,15 @@ internal fun TrackDraft.reusableCachedSong(
     forceRefreshArtwork: Boolean = false,
 ): Song? {
     val cached = unchangedCachedSong(cachedById) ?: return null
-    if (forceRefreshLyrics && cached.lyrics.isNotEmpty()) return null
+    if (forceRefreshLyrics && cached.lyricsDocument.lines.isNotEmpty()) return null
     if (forceRefreshArtwork && cached.hasRefreshableArtwork(context)) return null
     return cached.takeIf {
         AlbumArtCache.hasReadableCachedArt(context, it) &&
         (!requireDeepMetadata || it.hasDeepMetadata()) &&
             (!requireDeepMetadata || it.discNumber >= 0) &&
             (!requireDeepMetadata || !isDsdDraft() || DsdSupport.isDsdMetadata(it.metadata)) &&
-            (!requireDirectLyrics || it.lyrics.isNotEmpty()) &&
-            (!requireFreshEmbeddedLyrics || it.lyrics.isNotEmpty())
+            (!requireDirectLyrics || it.lyricsDocument.lines.isNotEmpty()) &&
+            (!requireFreshEmbeddedLyrics || it.lyricsDocument.lines.isNotEmpty())
     }
 }
 
@@ -94,7 +94,7 @@ internal fun TrackDraft.unchangedCachedSongForProbe(
     forceRefreshLyrics: Boolean,
 ): Song? =
     unchangedCachedSong(cachedById)?.let { cached ->
-        if (forceRefreshLyrics) cached.copy(lyrics = emptyList()) else cached
+        if (forceRefreshLyrics) cached.copy(lyricsDocument = com.mica.music.data.LyricsDocument()) else cached
     }
 
 private fun Song.hasDeepMetadata(): Boolean =

@@ -22,7 +22,7 @@ class PlayerControllerQueueModelTest {
         }
 
         assertEquals(complete, mirrored)
-        assertEquals(2, mirrored?.lyrics?.size)
+        assertEquals(2, mirrored?.lyricsDocument?.lines?.size)
     }
 
     @Test
@@ -36,7 +36,7 @@ class PlayerControllerQueueModelTest {
 
         repeat(10_000) { step ->
             beforeState = "beforeModel=${model.queue.getOrNull(model.currentIndex)}@${model.currentIndex} " +
-                "beforeController=${controller.currentSong?.id}@${controller.currentIndex}"
+                "beforeController=${controller.playbackSurfaceState.currentSong?.id}@${controller.playbackQueueState.currentIndex}"
             when (random.nextInt(6)) {
                 0 -> {
                     val songs = List(random.nextInt(0, 12)) {
@@ -93,18 +93,22 @@ class PlayerControllerQueueModelTest {
             assertEquals(
                 "queue mismatch at step=$step seed=$SEED operation=$lastOperation $beforeState",
                 model.queue,
-                controller.songQueue.map { it.id },
+                controller.playbackQueueState.queue.map { it.id },
             )
             assertEquals(
                 "index mismatch at step=$step seed=$SEED operation=$lastOperation $beforeState",
                 model.currentIndex,
-                controller.currentIndex,
+                controller.playbackQueueState.currentIndex,
             )
-            assertEquals("mode mismatch at step=$step seed=$SEED operation=$lastOperation", model.mode, controller.playbackQueueMode)
+            assertEquals(
+                "mode mismatch at step=$step seed=$SEED operation=$lastOperation",
+                model.mode,
+                controller.playbackSurfaceState.playbackQueueMode,
+            )
             assertEquals(
                 "current song mismatch at step=$step seed=$SEED operation=$lastOperation",
                 model.queue.getOrNull(model.currentIndex),
-                controller.currentSong?.id,
+                controller.playbackSurfaceState.currentSong?.id,
             )
         }
 
@@ -124,7 +128,7 @@ class PlayerControllerQueueModelTest {
             if (song.id == "a") {
                 song.copy(
                     title = "Alpha (remastered)",
-                    lyrics = listOf(LyricLine(0, "updated lyric")),
+                    lyricsDocument = listOf(LyricLine(0, "updated lyric")).toLyricsDocumentCompat(),
                 )
             } else {
                 song
@@ -132,9 +136,12 @@ class PlayerControllerQueueModelTest {
         }
         controller.setQueue(metadataOnly)
 
-        assertEquals(metadataOnly, controller.songQueue)
-        assertEquals("Alpha (remastered)", controller.songQueue[0].title)
-        assertEquals("updated lyric", controller.songQueue[0].lyrics.single().text)
+        assertEquals(metadataOnly, controller.playbackQueueState.queue)
+        assertEquals("Alpha (remastered)", controller.playbackQueueState.queue[0].title)
+        assertEquals(
+            "updated lyric",
+            controller.playbackQueueState.queue[0].lyricsDocument.lines.single().parts.single().text,
+        )
         controller.release()
     }
 
@@ -169,7 +176,7 @@ class PlayerControllerQueueModelTest {
         assertEquals(source.map { it.id }, state.sourceIds)
         assertEquals(playback.map { it.id }, state.playbackIds)
         assertEquals("a", state.currentId)
-        assertEquals(metadataOnly, controller.songQueue)
+        assertEquals(metadataOnly, controller.playbackQueueState.queue)
         controller.release()
     }
 
@@ -187,16 +194,19 @@ class PlayerControllerQueueModelTest {
             listOf(
                 SongFixtures.song(id = "a", title = "Alpha (rescanned)"),
                 SongFixtures.song(id = "b", title = "Beta (rescanned)").copy(
-                    lyrics = listOf(LyricLine(0, "fresh lyric")),
+                    lyricsDocument = listOf(LyricLine(0, "fresh lyric")).toLyricsDocumentCompat(),
                 ),
             ),
         )
 
-        assertEquals(listOf("b", "missing", "a"), controller.songQueue.map { it.id })
-        assertEquals("Beta (rescanned)", controller.songQueue[0].title)
-        assertEquals("fresh lyric", controller.songQueue[0].lyrics.single().text)
-        assertEquals("Not in library", controller.songQueue[1].title)
-        assertEquals("Alpha (rescanned)", controller.songQueue[2].title)
+        assertEquals(listOf("b", "missing", "a"), controller.playbackQueueState.queue.map { it.id })
+        assertEquals("Beta (rescanned)", controller.playbackQueueState.queue[0].title)
+        assertEquals(
+            "fresh lyric",
+            controller.playbackQueueState.queue[0].lyricsDocument.lines.single().parts.single().text,
+        )
+        assertEquals("Not in library", controller.playbackQueueState.queue[1].title)
+        assertEquals("Alpha (rescanned)", controller.playbackQueueState.queue[2].title)
         controller.release()
     }
 
@@ -205,11 +215,11 @@ class PlayerControllerQueueModelTest {
         val controller = PlayerController(ApplicationProvider.getApplicationContext())
         val songs = listOf(SongFixtures.song(id = "a"))
         controller.setQueue(songs)
-        val queueBefore = controller.songQueue
+        val queueBefore = controller.playbackQueueState.queue
 
         controller.setQueue(songs)
 
-        assertEquals(queueBefore, controller.songQueue)
+        assertEquals(queueBefore, controller.playbackQueueState.queue)
         controller.release()
     }
 

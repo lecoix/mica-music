@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricLine
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
+import com.mica.music.data.toLyricsDocumentCompat
 import com.mica.music.testutil.SongFixtures
 import com.mica.music.ui.theme.MicaTheme
 import org.junit.Assert.assertEquals
@@ -151,7 +152,11 @@ class LibraryAccessibilityTest {
                     MiniPlayer(
                         style = MiniPlayerStyle.FLOATING_ISLAND,
                         song = SongFixtures.song("golden", "Golden Track")
-                            .copy(albumArtUri = null, lyrics = listOf(LyricLine(0, "   "))),
+                            .copy(
+                                albumArtUri = null,
+                                lyricsDocument = listOf(LyricLine(0, "   "))
+                                    .toLyricsDocumentCompat(),
+                            ),
                         isPlaying = true,
                         positionMs = 0,
                         onPlayPause = {},

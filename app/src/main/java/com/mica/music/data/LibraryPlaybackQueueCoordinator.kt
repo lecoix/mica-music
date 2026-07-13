@@ -117,10 +117,10 @@ internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQue
             }
 
         override val currentQueueIds: List<String>
-            get() = songQueue.map { it.id }
+            get() = playbackQueueState.queue.map { it.id }
 
         override val queueSize: Int
-            get() = songQueue.size
+            get() = playbackQueueState.queue.size
 
         override fun connectIfNeeded() = this@asLibraryPlaybackQueueTarget.connectIfNeeded()
 

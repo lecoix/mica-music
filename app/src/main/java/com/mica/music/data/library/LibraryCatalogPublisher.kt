@@ -69,11 +69,26 @@ internal class LibraryCatalogPublisher(
     }
 
     fun publishVisibleSongs(list: List<Song>, fastScrollIndex: com.mica.music.data.FastScrollIndex? = null) {
+        val previous = backing.songs
+        if (previous != list) backing.catalogRevision++
+        if (!previous.hasSameQueueMetadata(list)) backing.queueMetadataRevision++
         backing.songs = list
         backing.songIds = list.map { it.id }
         backing.songFastScrollLabels = fastScrollIndex?.labels
         backing.songFastScrollSectionTargets = fastScrollIndex?.sectionTargets
     }
+
+    private fun List<Song>.hasSameQueueMetadata(other: List<Song>): Boolean =
+        size == other.size && other.associateBy(Song::id).let { byId ->
+            all { old ->
+                val new = byId[old.id] ?: return@let false
+                old.copy(
+                    playCount = new.playCount,
+                    totalListenSeconds = new.totalListenSeconds,
+                    lastPlayedAtMs = new.lastPlayedAtMs,
+                ) == new
+            }
+        }
 
     fun applyCurrentSort(diagnosticReason: String? = null) {
         if (scannedSongs.isEmpty()) return

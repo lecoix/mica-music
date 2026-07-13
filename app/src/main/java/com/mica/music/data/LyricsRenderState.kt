@@ -10,15 +10,24 @@ data class LyricsRenderState(
     val timeline: LyricsTimelineSnapshot,
 )
 
-fun List<LyricLine>.renderStateAt(positionMs: Int): LyricsRenderState {
-    val document = toLyricsDocumentCompat()
-    val hasTimedLyrics = LyricsSync.hasTimedLyrics(this)
-    return LyricsRenderState(
-        lyrics = this,
+/** Stable runtime owner for a canonical lyrics document and its compatibility view. */
+class LyricsSession(val document: LyricsDocument) {
+    val lyrics: List<LyricLine> = document.toLegacyLyricLines()
+    val hasTimedLyrics: Boolean = LyricsSync.hasTimedLyrics(lyrics)
+    private val timelineEngine = LyricsTimelineEngine(document)
+
+    fun snapshotAt(positionMs: Int): LyricsRenderState = LyricsRenderState(
+        lyrics = lyrics,
         document = document,
         positionMs = positionMs,
         hasTimedLyrics = hasTimedLyrics,
-        activeLineIndex = if (hasTimedLyrics) LyricsSync.indexForPosition(this, positionMs) else -1,
-        timeline = LyricsTimelineEngine(document).snapshotAt(positionMs),
+        activeLineIndex = if (hasTimedLyrics) LyricsSync.indexForPosition(lyrics, positionMs) else -1,
+        timeline = timelineEngine.snapshotAt(positionMs),
     )
 }
+
+fun List<LyricLine>.renderStateAt(positionMs: Int): LyricsRenderState =
+    LyricsSession(toLyricsDocumentCompat()).snapshotAt(positionMs)
+
+fun LyricsDocument.renderStateAt(positionMs: Int): LyricsRenderState =
+    LyricsSession(this).snapshotAt(positionMs)

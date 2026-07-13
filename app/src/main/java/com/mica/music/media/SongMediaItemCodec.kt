@@ -4,17 +4,69 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.mica.music.data.LyricsDocument
 import com.mica.music.data.PlaybackMimeResolver
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
+import java.security.MessageDigest
 
 object SongMediaItemCodec {
     private const val PREFIX = "mica.song."
+    private const val METADATA_REVISION = "${PREFIX}metadataRevision"
+    private const val LYRICS_REVISION = "${PREFIX}lyricsRevision"
 
     internal fun canonicalTitleExtraKey(): String = "${PREFIX}title"
 
+    fun metadataRevision(song: Song): String =
+        metadataRevision(song, lyricsRevision(song))
+
+    private fun metadataRevision(song: Song, lyricsRevision: String): String = sha256(
+        song.copy(
+            playCount = 0,
+            totalListenSeconds = 0L,
+            lastPlayedAtMs = 0L,
+            lyricsDocument = LyricsDocument(),
+        ).toString() + lyricsRevision,
+    )
+
+    fun metadataRevision(item: MediaItem): String? = item.mediaMetadata.extras?.getString(METADATA_REVISION)
+
+    fun lyricsRevision(item: MediaItem): String =
+        item.mediaMetadata.extras?.getString(LYRICS_REVISION).orEmpty()
+
     fun encode(song: Song, includeUri: Boolean = true): MediaItem {
-        val extras = Bundle().apply {
+        val extras = buildExtras(song)
+        val metadata = MediaMetadata.Builder()
+            .setTitle(song.title)
+            .setArtist(song.artist)
+            .setAlbumTitle(song.album)
+            .setAlbumArtist(song.albumArtist)
+            .setDurationMs(song.durationSec.coerceAtLeast(0) * 1000L)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setExtras(extras)
+            .apply {
+                song.albumArtUri?.let { runCatching { setArtworkUri(Uri.parse(it)) } }
+            }
+            .build()
+        val builder = MediaItem.Builder()
+            .setMediaId(song.id)
+            .setMediaMetadata(metadata)
+        if (includeUri) {
+            val mime = PlaybackMimeResolver.resolve(
+                storeMime = song.metadata.playbackMimeType,
+                probeMime = song.metadata.playbackMimeType,
+                displayName = song.fileName,
+                mediaUri = song.mediaUri,
+                containerName = song.metadata.containerName,
+            )
+            builder.setUri(song.mediaUri).setMimeType(mime)
+        }
+        return builder.build()
+    }
+
+    private fun buildExtras(song: Song): Bundle {
+        val lyricsRevision = lyricsRevision(song)
+        return Bundle().apply {
             putString(canonicalTitleExtraKey(), song.title)
             putString("${PREFIX}artist", song.artist)
             putString("${PREFIX}album", song.album)
@@ -48,34 +100,25 @@ object SongMediaItemCodec {
             song.replayGain.trackPeak?.let { putFloat("${PREFIX}replayGainTrackPeak", it) }
             song.replayGain.albumGainDb?.let { putFloat("${PREFIX}replayGainAlbumDb", it) }
             song.replayGain.albumPeak?.let { putFloat("${PREFIX}replayGainAlbumPeak", it) }
+            putString(LYRICS_REVISION, lyricsRevision)
+            putString(METADATA_REVISION, metadataRevision(song, lyricsRevision))
         }
-        val metadata = MediaMetadata.Builder()
-            .setTitle(song.title)
-            .setArtist(song.artist)
-            .setAlbumTitle(song.album)
-            .setAlbumArtist(song.albumArtist)
-            .setDurationMs(song.durationSec.coerceAtLeast(0) * 1000L)
-            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-            .setExtras(extras)
-            .apply {
-                song.albumArtUri?.let { runCatching { setArtworkUri(Uri.parse(it)) } }
-            }
-            .build()
-        val builder = MediaItem.Builder()
-            .setMediaId(song.id)
-            .setMediaMetadata(metadata)
-        if (includeUri) {
-            val mime = PlaybackMimeResolver.resolve(
-                storeMime = song.metadata.playbackMimeType,
-                probeMime = song.metadata.playbackMimeType,
-                displayName = song.fileName,
-                mediaUri = song.mediaUri,
-                containerName = song.metadata.containerName,
-            )
-            builder.setUri(song.mediaUri).setMimeType(mime)
-        }
-        return builder.build()
     }
+
+    private fun lyricsRevision(song: Song): String = sha256(song.lyricsDocument.toString())
+
+    private fun sha256(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return buildString(bytes.size * 2) {
+            bytes.forEach { byte ->
+                val value = byte.toInt() and 0xff
+                append(HEX[value ushr 4])
+                append(HEX[value and 0x0f])
+            }
+        }
+    }
+
+    private const val HEX = "0123456789abcdef"
 
     fun decode(item: MediaItem): Song? {
         val metadata = item.mediaMetadata ?: return null

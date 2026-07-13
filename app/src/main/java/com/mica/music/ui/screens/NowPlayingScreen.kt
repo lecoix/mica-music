@@ -36,7 +36,7 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.LyricsPageTheme
-import com.mica.music.data.LyricsSync
+import com.mica.music.data.LyricsSession
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
@@ -45,7 +45,6 @@ import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
-import com.mica.music.data.renderStateAt
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
@@ -117,6 +116,7 @@ internal fun nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics: Boolean): Lon
 @Composable
 fun NowPlayingScreen(
     library: MusicLibrary,
+    playlistStore: PlaylistStore,
     surfaceState: PlaybackSurfaceState,
     progressState: PlaybackProgressState,
     queueState: PlaybackQueueState,
@@ -135,6 +135,7 @@ fun NowPlayingScreen(
 ) {
     NowPlayingContent(
         library = library,
+        playlistStore = playlistStore,
         surfaceState = surfaceState,
         progressState = progressState,
         queueState = queueState,
@@ -156,6 +157,7 @@ fun NowPlayingScreen(
 @Composable
 fun NowPlayingContent(
     library: MusicLibrary,
+    playlistStore: PlaylistStore,
     surfaceState: PlaybackSurfaceState,
     progressState: PlaybackProgressState,
     queueState: PlaybackQueueState,
@@ -186,7 +188,6 @@ fun NowPlayingContent(
         onDispose { view.keepScreenOn = false }
     }
 
-    val playlistStore = remember { PlaylistStore(context) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var actionMenuSong by remember { mutableStateOf<Song?>(null) }
@@ -238,12 +239,13 @@ fun NowPlayingContent(
         }
     }
 
-    LaunchedEffect(sleepTimer) {
+    DisposableEffect(sleepTimer) {
         sleepTimer.onExpired = {
             scope.launch {
                 snackbarHostState.showSnackbar("睡眠定时已结束，播放已暂停")
             }
         }
+        onDispose { sleepTimer.onExpired = null }
     }
 
     fun openSongActionMenu(target: Song) {
@@ -299,7 +301,9 @@ fun NowPlayingContent(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    val hasWordSyncedLyrics = remember(song.lyrics) { song.lyrics.any { it.cues.isNotEmpty() } }
+    val hasWordSyncedLyrics = remember(song.lyricsDocument) {
+        song.lyricsDocument.lines.any { it.tokens.isNotEmpty() }
+    }
     LaunchedEffect(actions, surfaceState.isPlaying, lifecycleOwner, hasWordSyncedLyrics) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             pollNowPlayingProgress(
@@ -386,7 +390,7 @@ fun NowPlayingContent(
             )
 
             val lyricsCloudAvailable = uiSettings.lyricsPageTheme == LyricsPageTheme.CLOUD &&
-                LyricsSync.hasTimedLyrics(song.lyrics)
+                song.lyricsDocument.lines.any { it.startMs > 0 }
             val lyricsCloudRequested = lyricsExpanded && lyricsCloudAvailable
             val classicLyricsExpanded = lyricsExpanded && !lyricsCloudAvailable
             val useVerticalCloudSplit = lyricsCloudUsesVerticalSplit(uiSettings.playerCoverFlowMode)
@@ -399,23 +403,23 @@ fun NowPlayingContent(
                 label = "lyricsCloudPageTransition",
             )
 
-            val previewModel = rememberPlayerPageUiModel(
+            val pageModel = rememberPlayerPageUiModel(
                 surfaceState = surfaceState,
                 queueState = queueState,
                 uiSettings = uiSettings,
                 lyricsExpanded = classicLyricsExpanded,
-                panelHeight = screenHeight * 0.45f,
                 screenHeight = screenHeight,
                 screenWidth = screenWidth,
                 coverAspectRatio = coverAspectRatio,
                 coverSwitching = coverMotionActive,
             ) ?: return@BoxWithConstraints
+            val previewFrame = pageModel.frameFor(screenHeight * 0.45f)
 
             val motionEnabled = rememberMicaMotionEnabled()
             LaunchedEffect(
                 uiSettings.playerCoverFlowMode,
                 lowerBackground,
-                previewModel.frame.coverFlowStageActive,
+                previewFrame.coverFlowStageActive,
                 motionEnabled,
                 queueState.queue.size,
             ) {
@@ -423,7 +427,7 @@ fun NowPlayingContent(
                     TrackSwitchPerformance.VisualContext(
                         coverFlowMode = uiSettings.playerCoverFlowMode.name,
                         lowerBackground = lowerBackground.name,
-                        coverFlowStageActive = previewModel.frame.coverFlowStageActive,
+                        coverFlowStageActive = previewFrame.coverFlowStageActive,
                         motionEnabled = motionEnabled,
                         queueSize = queueState.queue.size,
                     ),
@@ -431,14 +435,14 @@ fun NowPlayingContent(
             }
 
             val backgroundZoneStop = if (fullHeight.value > 0f) {
-                previewModel.frame.cover.zoneStop * (screenHeight.value / fullHeight.value)
+                previewFrame.cover.zoneStop * (screenHeight.value / fullHeight.value)
             } else {
-                previewModel.frame.cover.zoneStop
+                previewFrame.cover.zoneStop
             }
 
-            val coverFlowStageActive = previewModel.frame.coverFlowStageActive
+            val coverFlowStageActive = previewFrame.coverFlowStageActive
             val photoStackStageActive = uiSettings.playerCoverFlowMode.usesPhotoStack &&
-                previewModel.frame.photoStack.normalLayerVisible
+                previewFrame.photoStack.normalLayerVisible
             val onPlayerNext: () -> Unit = {
                 if (coverFlowStageActive) {
                     val target = actions.coverFlowNextTarget()
@@ -470,16 +474,18 @@ fun NowPlayingContent(
                 modifier = Modifier.fillMaxSize(),
             )
 
+            val lyricsSession = remember(song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
+            val lyricsRenderState = remember(lyricsSession, progressState.positionMs) {
+                lyricsSession.snapshotAt(progressState.positionMs)
+            }
+
             if (lyricsCloudRequested || cloudTransition > 0f) {
-                val cloudRenderState = remember(song.lyrics, progressState.positionMs) {
-                    song.lyrics.renderStateAt(progressState.positionMs)
-                }
                 val cloudColors = rememberLyricsContentColors(
                     appearance.contentColors,
                     uiSettings.lyricsPageTextColorMode,
                 )
                 LyricsCloudPanel(
-                    renderState = cloudRenderState,
+                    renderState = lyricsRenderState,
                     isPlaying = surfaceState.isPlaying,
                     isVisible = lyricsCloudRequested,
                     colors = cloudColors,
@@ -503,8 +509,8 @@ fun NowPlayingContent(
                     },
             ) {
             ParticleCoverPlayerLayer(
-                song = previewModel.song,
-                frame = previewModel.frame,
+                song = pageModel.song,
+                frame = previewFrame,
                 seekState = seekState,
                 screenWidth = fullWidth,
                 screenHeight = fullHeight,
@@ -522,16 +528,16 @@ fun NowPlayingContent(
                     .padding(contentPadding),
             ) {
                     NowPlayingCoverSection(
-                        song = previewModel.song,
-                        queue = previewModel.queue,
-                        currentIndex = previewModel.currentIndex,
-                        frame = previewModel.frame,
+                        song = pageModel.song,
+                        queue = pageModel.queue,
+                        currentIndex = pageModel.currentIndex,
+                        frame = previewFrame,
                         coverColor = appearance.coverColor,
                         contentColors = playerUiColors,
                         lowerBackground = lowerBackground,
                         artworkJunction = appearance.artworkJunction,
                         seekState = seekState,
-                        isPlaying = previewModel.isPlaying,
+                        isPlaying = pageModel.isPlaying,
                         coverFlowMode = uiSettings.playerCoverFlowMode,
                         particleCoverTuning = uiSettings.particleCoverTuning,
                         lyricsExpanded = classicLyricsExpanded,
@@ -572,28 +578,17 @@ fun NowPlayingContent(
                             },
                     ) {
                         val panelHeight = maxHeight
-                        val pageModel = rememberPlayerPageUiModel(
-                            surfaceState = surfaceState,
-                            queueState = queueState,
-                            uiSettings = uiSettings,
-                            lyricsExpanded = classicLyricsExpanded,
-                            panelHeight = panelHeight,
-                            screenHeight = screenHeight,
-                            screenWidth = screenWidth,
-                            coverAspectRatio = coverAspectRatio,
-                            coverSwitching = coverMotionActive,
-                        ) ?: return@BoxWithConstraints
+                        val actualFrame = pageModel.frameFor(panelHeight)
                         PlayerLowerPanelSection(
                             surfaceState = surfaceState,
-                            progressState = progressState,
                             activeSong = song,
-                            lyrics = song.lyrics,
+                            lyricsRenderState = lyricsRenderState,
                             autoContentColors = appearance.contentColors,
                             colors = playerUiColors,
                             hifiBadgeColors = appearance.hifiBadgeColors,
                             playerPageTextColorMode = uiSettings.playerPageTextColorMode,
                             lowerBackground = lowerBackground,
-                            lower = pageModel.frame.lower,
+                            lower = actualFrame.lower,
                             seekState = seekState,
                             immersiveLower = immersiveLower,
                             lyricsPageOpen = classicLyricsExpanded,
@@ -607,7 +602,7 @@ fun NowPlayingContent(
                             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                             playerInfoVisibility = uiSettings.playerInfoVisibility,
                             playbackTuning = surfaceState.playbackTuning,
-                            spectrumEnabled = pageModel.frame.spectrumEnabled,
+                            spectrumEnabled = actualFrame.spectrumEnabled,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                             onPrevious = onPlayerPrevious,
                             onTogglePlay = actions.togglePlay,

@@ -4,6 +4,7 @@ import androidx.media3.common.MediaMetadata
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
+import com.mica.music.data.toLyricsDocumentCompat
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -25,10 +26,10 @@ class NotificationLyricsTest {
     fun metadataWithLyricSwapsTitleAndArtist() {
         val song = SongFixtures.song(id = "lyric", title = "晴天").copy(
             artist = "周杰伦",
-            lyrics = listOf(
+            lyricsDocument = listOf(
                 LyricLine(timeMs = 0, text = "故事的小黄花"),
                 LyricLine(timeMs = 5_000, text = "从出生那年就飘着"),
-            ),
+            ).toLyricsDocumentCompat(),
         )
         val base = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -37,12 +38,8 @@ class NotificationLyricsTest {
 
         val metadata = NotificationLyrics.metadataWithLyric(
             song,
-            lyricIndex = 1,
-            base,
-            NotificationLyrics.DisplayOptions(
-                splitEnabled = true,
-                bilingualMode = LyricsBilingualDisplayMode.ALL,
-            ),
+            line = "从出生那年就飘着",
+            base = base,
         )
 
         assertEquals("从出生那年就飘着", metadata?.title?.toString())
@@ -132,24 +129,22 @@ class NotificationLyricsTest {
         val lyricItem = item.buildUpon().setMediaMetadata(lyricMetadata).build()
 
         assertEquals("晴天", SongMediaItemCodec.decode(lyricItem)?.title)
+        assertEquals(
+            SongMediaItemCodec.metadataRevision(item),
+            SongMediaItemCodec.metadataRevision(lyricItem),
+        )
     }
 
     @Test
     fun metadataWithLyricReturnsNullForBlankLine() {
-        val song = SongFixtures.song(id = "blank").copy(
-            lyrics = listOf(LyricLine(timeMs = 0, text = "   ")),
-        )
+        val song = SongFixtures.song(id = "blank")
         val base = MediaMetadata.Builder().setTitle(song.title).build()
 
         assertNull(
             NotificationLyrics.metadataWithLyric(
                 song,
-                lyricIndex = 0,
-                base,
-                NotificationLyrics.DisplayOptions(
-                    splitEnabled = true,
-                    bilingualMode = LyricsBilingualDisplayMode.ALL,
-                ),
+                line = "   ",
+                base = base,
             ),
         )
     }

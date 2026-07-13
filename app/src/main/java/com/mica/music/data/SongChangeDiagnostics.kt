@@ -25,7 +25,7 @@ internal object SongChangeDiagnostics {
         if (old.playCount != new.playCount) add("playCount")
         if (old.totalListenSeconds != new.totalListenSeconds) add("totalListenSeconds")
         if (old.lastPlayedAtMs != new.lastPlayedAtMs) add("lastPlayedAtMs")
-        if (old.lyrics != new.lyrics) add("lyrics")
+        if (old.lyricsDocument != new.lyricsDocument) add("lyrics")
     }
 
     fun summarizeChangedFields(old: Song, new: Song): String =

@@ -2,6 +2,7 @@ package com.mica.music.data
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
@@ -10,7 +11,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class MediaControllerQueueSyncTest {
     @Test
     fun canMoveItemIncrementallyRequiresAlignedSourceAndDestination() {
@@ -33,7 +37,7 @@ class MediaControllerQueueSyncTest {
     @Test
     fun syncToPlayerSkipsWhenPreservingAlreadyAlignedQueue() {
         val queue = SongFixtures.queue(2)
-        val player = mockPlayer(queue.map { item(it.id) }, currentIndex = 0, currentPosition = 12_000L)
+        val player = mockPlayer(queue.map(SongMediaItemCodec::encode), currentIndex = 0, currentPosition = 12_000L)
 
         MediaControllerQueueSync.syncToPlayer(
             player = player,
@@ -49,7 +53,7 @@ class MediaControllerQueueSyncTest {
     @Test
     fun planSyncSeparatesAlignedSkipFromExecution() {
         val queue = SongFixtures.queue(2)
-        val player = mockPlayer(queue.map { item(it.id) }, currentIndex = 0, currentPosition = 12_000L)
+        val player = mockPlayer(queue.map(SongMediaItemCodec::encode), currentIndex = 0, currentPosition = 12_000L)
 
         val plan = MediaControllerQueueSync.planSync(
             player = player,
@@ -103,6 +107,45 @@ class MediaControllerQueueSyncTest {
         verify(exactly = 1) {
             player.setMediaItems(match { it.map(MediaItem::mediaId) == queue.map(Song::id) }, 0, 12_000L)
         }
+    }
+
+    @Test
+    fun sameIdentityWithChangedMetadataUsesIncrementalReplacement() {
+        val oldSong = SongFixtures.song(id = "same-id", title = "old")
+        val refreshed = oldSong.copy(title = "new")
+        val player = mockPlayer(listOf(SongMediaItemCodec.encode(oldSong)))
+        every { player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+
+        val plan = MediaControllerQueueSync.planSync(
+            player = player,
+            queue = listOf(refreshed),
+            targetIndex = 0,
+            positionMs = 0L,
+            preserveCurrentPlayback = true,
+        )
+
+        assertTrue(plan is PlaybackQueueSyncPlan.ReplaceMediaItems)
+        MediaControllerQueueSync.executeSyncPlan(player, plan!!)
+        verify(exactly = 1) {
+            player.replaceMediaItem(0, match { SongMediaItemCodec.decode(it)?.title == "new" })
+        }
+        verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+    }
+
+    @Test
+    fun playbackStatsDoNotInvalidateQueueMetadata() {
+        val song = SongFixtures.song(id = "same-id")
+        val player = mockPlayer(listOf(SongMediaItemCodec.encode(song)))
+
+        val plan = MediaControllerQueueSync.planSync(
+            player = player,
+            queue = listOf(song.copy(playCount = 99, totalListenSeconds = 1_234L, lastPlayedAtMs = 5_678L)),
+            targetIndex = 0,
+            positionMs = 0L,
+            preserveCurrentPlayback = true,
+        )
+
+        assertTrue(plan is PlaybackQueueSyncPlan.Skip)
     }
 
     private fun item(id: String): MediaItem =

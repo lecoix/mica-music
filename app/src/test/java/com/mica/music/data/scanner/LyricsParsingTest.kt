@@ -3,6 +3,8 @@ package com.mica.music.data.scanner
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricsSync
+import com.mica.music.data.LyricsFormat
+import com.mica.music.data.LyricsOrigin
 import java.io.File
 import java.nio.charset.StandardCharsets
 import javax.xml.parsers.DocumentBuilder
@@ -15,6 +17,18 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class LyricsParsingTest {
+
+    @Test
+    fun externalTtmlKeepsFormatOriginAndStructuredRoles() {
+        val document = LyricsSanitizer.parseFilteredDocument(
+            """<tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><p begin="1s"><span>main</span><span ttm:role="x-translation">译文</span></p></body></tt>""",
+            origin = LyricsOrigin.EXTERNAL,
+        )
+
+        assertEquals(LyricsFormat.TTML, document.format)
+        assertEquals(LyricsOrigin.EXTERNAL, document.origin)
+        assertEquals(listOf("main", "译文"), document.lines.single().parts.map { it.text })
+    }
 
     @Test
     fun lrcSupportsMultipleTimestampsFractionsAndSorting() {
@@ -140,7 +154,7 @@ class LyricsParsingTest {
             """.trimIndent(),
         )
 
-        assertEquals(com.mica.music.data.LyricsSource.LRC, document.source)
+        assertEquals(com.mica.music.data.LyricsFormat.LRC, document.format)
         assertEquals(listOf("original", "translation"), document.lines.single().parts.map { it.text })
     }
 
@@ -226,7 +240,7 @@ class LyricsParsingTest {
         )
 
         val line = document.lines.single()
-        assertEquals(com.mica.music.data.LyricsSource.TTML, document.source)
+        assertEquals(com.mica.music.data.LyricsFormat.TTML, document.format)
         assertEquals(
             listOf(com.mica.music.data.LyricTextRole.ORIGINAL, com.mica.music.data.LyricTextRole.TRANSLATION),
             line.parts.map { it.role },

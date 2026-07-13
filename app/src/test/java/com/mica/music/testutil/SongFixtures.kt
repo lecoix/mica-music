@@ -3,6 +3,7 @@ package com.mica.music.testutil
 import com.mica.music.data.LyricLine
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
+import com.mica.music.data.toLyricsDocumentCompat
 
 object SongFixtures {
     fun song(
@@ -43,10 +44,10 @@ object SongFixtures {
         dateModifiedMs = 2_000L + queueOrder,
         playCount = queueOrder,
         totalListenSeconds = totalListenSeconds,
-        lyrics = listOf(
+        lyricsDocument = listOf(
             LyricLine(0, "intro"),
             LyricLine(1_000, "line"),
-        ),
+        ).toLyricsDocumentCompat(),
     )
 
     fun queue(size: Int): List<Song> =

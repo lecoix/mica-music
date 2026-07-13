@@ -1,6 +1,6 @@
 # Mica 音频播放链路改造计划
 
-> **状态（2026-07-08）**：**Gate 1 ✅ Gate 2 ✅ Gate 4 ✅**；**G3-0 ✅**；**G3-1a 证伪**；**G3-1b 已废弃**；**候选 R = 终选架构（全 build type，2026-07-08 推广 release）**：R0–R4 ✅（log 33–41）；DsdOnly int sink（频谱+EQ）+ PcmOnly float sink（频谱+EQ+硬件变速）+ 平台 fallback。遗留（另立项、需 consent）：DSD 变速变调、USB 独占（P6）。
+> **状态（2026-07-13）**：**Gate 1 ✅ Gate 2 ✅ Gate 4 ✅**；**G3-0 ✅**；**G3-1a 证伪**；**G3-1b 已废弃**；**候选 R = 终选架构（全 build type，2026-07-08 推广 release）**：R0–R4 ✅（log 33–41）；DsdOnly int sink（频谱+EQ）+ PcmOnly float sink（频谱+EQ+硬件变速）+ 平台 fallback。远期 USB 独占已确定采用 **USB Host 独立输出**（[`ADR-0001`](adr/0001-usb-host-exclusive-output.md)），当前不实现；近期实施仅限 [`ReplayGain 实际应用状态`](REPLAYGAIN_SIGNAL_STATE_PLAN.md)。
 > **目标分支**：`exoplayer-only`  
 > **整理日期**：2026-07-07（§18 终态/Gate：2026-07-08）  
 > **关联文档**：[`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md)（背景讨论）、[`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md)（DSD 现网行为）、[`CONTEXT.md`](../CONTEXT.md) → **Audio quality consent**  
@@ -75,7 +75,7 @@ P1 文档曾写「bit-preserve + Profile 拆分」→ P0 证 Split 不解决 toI
 4. Quantizer 是 fallback，不是默认交付路径。
 5. FloatBridge 是 DSP path 的入口，不是所有播放的默认入口。
 6. 频谱 tap 不改变主链格式。
-7. USB Direct 是独立输出模式，不是 SharedPcm 上的一个开关。
+7. USB Host 真独占是绕过系统共享 AudioTrack 的独立 output adapter，不是 SharedPcm 上的开关或最小 processor chain。
 8. 任何可能降音质的默认行为变更，须遵守 Audio quality consent（事先说明 + 明确允许）。
 ```
 
@@ -208,7 +208,7 @@ Sink Builder 参数（`enableFloatOutput`、Processor 链）在 ExoPlayer 创建
 
 1. **DSD 变速变调**（P4 延伸）：当前 DSD 走 int 链、解码为 24-bit int，`SonicAudioProcessor` 只支持 16-bit/float → 变速变调失效。**兼容骨架已落地**（`DsdDecimationOutputMode.FloatPcm` + processor float 输出路径）；`PRODUCTION` 仍 IntPcm，启用 FloatPcm 须 consent + 实机验 176.4k float。
 2. ~~**R 上 release**~~ **✅ 已推广（2026-07-08）**：`PcmDeliveryExperiment.rendererSplit` 去掉 debug/perf 门控，全 build type 走 renderer-split。release 实机回归仍建议跑 §18.5 矩阵。
-3. **USB Direct PCM / Native DSD**（P6，见 §P6 / §8.6）：独立输出模式。**兼容骨架已落地**（`PlaybackOutputMode`、`AudioOutputPathConfig`、`MicaRenderersFactory` USB 最小链分支）；`requireSupportedForPlayback()` 在 stack 构建时 fail-fast，默认仍 SharedPcm。实机/USB 探测/Native DSD 路径未实现。
+3. **USB Host 真独占 / Native DSD**（P6，见 §P6、[`ADR-0001`](adr/0001-usb-host-exclusive-output.md)）：未来由独立 USB output adapter 管理 permission、interface claim、格式协商和传输，绕过系统共享 `AudioTrack`。现有 `PlaybackOutputMode`、`AudioOutputPathConfig` 和 USB 最小 `DefaultAudioSink` 仅为兼容骨架；`requireSupportedForPlayback()` 继续 fail-fast。USB 传输层、实机矩阵和 Native DSD 路径未实现，且不在当前 ReplayGain 实施范围。
 4. **清理**：✅ 已删除 G3-1b 的 inert 代码（`PcmSinkDeliveryDecider` / service per-song rebuild 逻辑）。
 
 **兼容骨架（2026-07-08，无运行时行为变更）**：
@@ -870,25 +870,26 @@ ProcessorFormat: name, inputEncoding, outputEncoding, sampleRate, active
 
 ---
 
-### P6 — PlaybackOutputMode 与 USB DirectPcm 预留
+### P6 — USB Host 真独占预留（远期）
 
 **任务**：
 
-1. `PlaybackOutputMode` 路由  
-2. UsbDirectPcm：最小链；禁 EQ/Sonic/频谱（默认）；不混 FloatBridge/Quantizer  
-3. USB `AudioDeviceInfo` 绑定设计  
-4. 插拔 → full mode rebuild  
+1. 独立 USB output adapter：绕过系统共享 `AudioTrack`，拥有 USB permission、interface claim、格式协商、传输和释放。
+2. USB output session owner：处理 attach/detach、设备 identity、重连、失败原因和显式 fallback。
+3. 输出事实：区分 requested、active、fallback、实际设备、协商格式和信号修改；USB exclusive 与 bit-perfect 分开表达。
+4. SharedPcm ↔ USB Host 切换采用 full mode rebuild，并保全队列、当前曲目、位置、播放意图、歌词与通知状态。
+5. Native DSD/DoP 以后作为 USB adapter 的独立传输能力，不通过 Exo PCM processor chain。
 
-**不实现**：UsbNativeDsd 具体 native 路径。
+**当前不实现**：上述全部运行时能力。`PlaybackOutputMode.UsbDirectPcm`、`usbAudioDeviceId` 和 `buildUsbDirectMinimalSink()` 保留为历史兼容骨架，但不得通过解除 fail-fast 冒充 USB 独占。
 
 **与候选 R（renderer-split）的兼容 seam（远期实现时按此接，无需返工）**：
 
-- **sink 按 renderer 构造**：`MicaRenderersFactory.buildDsdAudioSink` / `buildPcmAudioSink` 各自独立建 sink。未来 USB 独占模式只需在这两处按 `PlaybackOutputMode` **分支出"最小链 sink"**（禁 EQ/Sonic/频谱、`enableFloatOutput` 按 DAC 能力、无 `MicaFloatDspAudioSink` 包装），不动 renderer 路由与 `MicaRendererSupportPolicies` 互斥逻辑。
-- **role/policy 可加项**：`FfmpegFormatPolicy` + `MicaRendererSupportPolicies`（现 DsdOnly/PcmOnly）是 allowlist 模型，未来加 `UsbNativeDsd` role（DSD 原生码流直送 DAC、绕过 `DsdDecimationAudioProcessor`）是**追加一个 renderer+policy**，与现有互斥。
-- **PlaybackOutputMode 正交于 sink 拆分**：输出模式（内置/USB 独占/Native DSD）是 sink 之上的**路由 gate**，插拔 → full-mode rebuild（§7.4 重建路径），不与 renderer-split 的"稳态不 rebuild"冲突（换 DAC 本就是设备事件）。
-- **consent 边界**：USB 最小链默认禁 EQ/频谱/Sonic 属**有意 bit-perfect 取向**，非降质；但若默认对普通 PCM 升采样到 DAC 最高档或改变默认交付，须另行说明并取得允许（§3.2 非目标 #5）。
+- **真实 seam**：当前 SharedPcm/AudioTrack 是第一个 implementation；未来 USB Host adapter 是第二个 implementation。不要把 USB 协议实现塞进 `MicaRenderersFactory` 的 Sink builder。
+- **renderer 复用**：现有 DsdOnly/PcmOnly 解码与 support policy 可提供 PCM/DSD 输入，但 USB adapter 如何取得并发送帧必须单独设计，不能假定最小 `DefaultAudioSink` 可复用。
+- **PlaybackOutputMode 正交于 renderer-split**：插拔或用户切换 → full-mode rebuild，不改变 renderer-split 的 SharedPcm 稳态策略。
+- **consent 边界**：USB 模式如何处理 ReplayGain、EQ、频谱、变速、重采样和 fallback 必须逐项定义；默认改变交付格式或信号处理前仍需明确允许。
 
-> 结论：候选 R 不阻塞 USB Direct / Native DSD；两者以"追加 renderer/policy + 输出模式分支 sink"的方式增量接入。真正实现见 §3.3 远期 TODO。
+> 结论：候选 R 不阻塞 USB Host，但现有最小 Sink 分支也不构成 USB Host 实现。真正实现必须新增独立 adapter/session；当前先完成 ReplayGain 实际应用状态，不触碰 P6 运行时。
 
 ---
 
@@ -1020,7 +1021,7 @@ P6  PlaybackOutputMode + USB DirectPcm 预留
 有 DSP：float in / float out
 float 不支持：链路末尾一次 Quantizer fallback
 DSD 与普通 PCM：不共用 Sink Builder 配置
-USB Direct：独立 PlaybackOutputMode
+USB Host 真独占：独立 output adapter；现有 PlaybackOutputMode 仅为兼容骨架
 ```
 
 ---

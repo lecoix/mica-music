@@ -41,6 +41,8 @@
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md) | Exo PCM **改造计划**（**§0 摘要、§18 Gate/验收**；P1 过渡态；P2–P6） |
 | [`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md) | Exo PCM 链路**讨论记录**（背景与机制分析；结论已并入 REFACTOR） |
+| [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) | 当前音频实施范围：实际 ReplayGain 系数的事实来源、兼容契约与测试计划 |
+| [`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md) | 远期 USB 独占采用 USB Host 独立 output adapter 的架构决策 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
@@ -108,4 +110,5 @@
 | 2026-07-07 | 新增 `AUDIO_PIPELINE_DISCUSSION.md`（变速/频谱/Sonic/Hi-Res 探测/USB 前瞻讨论记录） |
 | 2026-07-07 | 新增 `AUDIO_PIPELINE_REFACTOR.md`（可执行改造计划：Sink Profile、P0–P6、验收与测试） |
 | 2026-07-08 | 更新 `AUDIO_PIPELINE_REFACTOR.md`：§0 一页摘要、§18 终态/Gate/验收、P1 过渡态与 §7.3 勘误 |
+| 2026-07-13 | 接受 ADR-0001：远期 USB Host 真独占；新增 ReplayGain 实际应用状态计划并将其设为当前音频实施范围 |
 | 2026-07-07 | 新增 **Audio quality consent**：`.cursor/rules/audio-quality-consent.mdc`、`CONTEXT.md` |

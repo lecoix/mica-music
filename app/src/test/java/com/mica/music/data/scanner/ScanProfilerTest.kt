@@ -95,7 +95,7 @@ class ScanProfilerTest {
             cachedById = mapOf(cached.id to cached),
             forceRefreshLyrics = true,
         )
-        assertTrue(probeCached?.lyrics?.isEmpty() == true)
+        assertTrue(probeCached?.lyricsDocument?.lines?.isEmpty() == true)
     }
 
     @Test

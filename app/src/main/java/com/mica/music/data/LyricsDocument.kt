@@ -1,18 +1,25 @@
 package com.mica.music.data
 
-/** Versioned, renderer-neutral lyrics data. Legacy [LyricLine] remains the storage bridge for now. */
+/** Versioned, renderer-neutral lyrics data. */
 data class LyricsDocument(
     val version: Int = CURRENT_LYRICS_DOCUMENT_VERSION,
-    val source: LyricsSource = LyricsSource.COMPATIBILITY,
+    val format: LyricsFormat = LyricsFormat.UNKNOWN,
+    val origin: LyricsOrigin = LyricsOrigin.UNKNOWN,
     val lines: List<LyricLineNode> = emptyList(),
 )
 
-const val CURRENT_LYRICS_DOCUMENT_VERSION = 1
+const val CURRENT_LYRICS_DOCUMENT_VERSION = 2
 
-enum class LyricsSource {
-    COMPATIBILITY,
+enum class LyricsFormat {
+    UNKNOWN,
+    PLAIN,
     LRC,
     TTML,
+    SYLT,
+}
+
+enum class LyricsOrigin {
+    UNKNOWN,
     EMBEDDED,
     EXTERNAL,
 }
@@ -43,11 +50,13 @@ data class LyricToken(
     val partRole: LyricTextRole = LyricTextRole.ORIGINAL,
 )
 
-/** Compatibility normalizer until parsers write [LyricsDocument] directly. */
+/** Compatibility view for legacy producers that still emit flat lyric lines. */
 fun List<LyricLine>.toLyricsDocumentCompat(
-    source: LyricsSource = LyricsSource.COMPATIBILITY,
+    format: LyricsFormat = LyricsFormat.UNKNOWN,
+    origin: LyricsOrigin = LyricsOrigin.UNKNOWN,
 ): LyricsDocument = LyricsDocument(
-    source = source,
+    format = format,
+    origin = origin,
     lines = mapIndexed { index, line ->
         val parts = LyricDisplayRows.splitForDisplay(line.text).mapIndexed { partIndex, text ->
             LyricTextPart(

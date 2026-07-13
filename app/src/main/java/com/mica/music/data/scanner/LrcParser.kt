@@ -3,7 +3,7 @@ package com.mica.music.data.scanner
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricsDocument
-import com.mica.music.data.LyricsSource
+import com.mica.music.data.LyricsFormat
 import com.mica.music.data.toLyricsDocumentCompat
 
 internal object LrcParser {
@@ -80,7 +80,12 @@ internal object LrcParser {
 
     fun parseDocument(text: String): LyricsDocument {
         if (TtmlLyricsParser.looksLikeTtml(text)) return TtmlLyricsParser.parseDocument(text)
-        return parse(text).toLyricsDocumentCompat(LyricsSource.LRC)
+        val format = if (timestamp.containsMatchIn(text) || kugouLine.containsMatchIn(text)) {
+            LyricsFormat.LRC
+        } else {
+            LyricsFormat.PLAIN
+        }
+        return parse(text).toLyricsDocumentCompat(format = format)
     }
 
     private data class ParsedBody(val text: String, val cues: List<LyricCue>) {

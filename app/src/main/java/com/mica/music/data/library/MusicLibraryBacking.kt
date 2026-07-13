@@ -3,6 +3,7 @@ package com.mica.music.data.library
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mica.music.data.LibraryScanner
@@ -38,6 +39,8 @@ internal class MusicLibraryBacking(
 
     var songs by mutableStateOf<List<Song>>(emptyList())
     var songIds by mutableStateOf<List<String>>(emptyList())
+    var catalogRevision by mutableLongStateOf(0L)
+    var queueMetadataRevision by mutableLongStateOf(0L)
     var sortField by mutableStateOf(SongSortField.TITLE)
     var sortDirection by mutableStateOf(SortDirection.ASC)
     var customSongOrderLocked by mutableStateOf(false)

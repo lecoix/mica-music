@@ -5,15 +5,15 @@ Mica 本地音乐播放器的领域语言：曲目与队列、出声路径、播
 ## 曲库与曲目
 
 **Song（曲目）**：
-曲库中的一首可播放音频，携带元数据、封面、歌词与媒体 URI。
+曲库中的一首可播放音频，携带元数据、封面、canonical `LyricsDocument` 与媒体 URI。`Song` 不提供第二个可写歌词列表。
 _Avoid_: track（除切歌动画 `TrackSkipDirection` 外）、media item
 
 **LyricLine（歌词行）**：
-带时间戳的一句歌词，用于同步滚动与行内 seek。
+由 `LyricsSession` 从歌词文档派生的兼容歌词行，用于既有同步滚动与行内 seek UI；不得回写扫描或 Room。
 _Avoid_: caption、subtitle
 
 **LyricsDocument（歌词文档）**：
-渲染器无关的版本化歌词模型：来源、行、原文/译文分段、逐字 token 与行结束时间。当前持久化在 `songs.lyricsJson`，新格式为对象 JSON；历史 `[{t,x,c,e}]` 数组必须继续可读。`LyricLine` 仍是扫描与既有调用链的兼容桥，不新增独立 Room 表。
+渲染器无关的版本化歌词事实来源：格式（`LyricsFormat`）、来源位置（`LyricsOrigin`）、行、原文/译文分段、逐字 token 与行结束时间。parser 只判定格式，reader 只判定来源位置，因此外挂 TTML、内嵌 LRC 等组合可以被准确表达。当前以 v2 对象 JSON 持久化在 `songs.lyricsJson`；v1 `source` 与历史 `[{t,x,c,e}]` 数组仅由 `LyricsDocumentCodec` 兼容读取，不新增独立 Room 表。
 _Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构
 
 **Lyrics timeline（歌词时间轴）**：
@@ -22,6 +22,10 @@ _Avoid_: 每个歌词界面各自计算当前行或空档
 
 **LyricsRenderState（歌词渲染状态）**：
 全屏、紧凑与通知歌词共用的渲染输入，包含当前行索引和时间轴快照。歌词 UI 不直接调用 `LyricsSync.indexForPosition()`。
+
+**LyricsSession（歌词会话）**：
+一首歌在单个运行时消费链路中的歌词解释模块，直接接收 canonical `LyricsDocument`，持有稳定的兼容行视图、`LyricsTimelineEngine` 与定时歌词判定，并按播放位置产生 `LyricsRenderState`。播放页、迷你播放器与通知协调器复用各自会话；兼容 `LyricLine` 只在此处派生。
+_Avoid_: 在 UI 或轮询回调中直接调用 `renderStateAt()` 重建会话；把运行时会话写入 Room
 _Avoid_: 在不同显示面各自解释 `lyrics + positionMs`
 
 **Y 间奏行（Y interlude）**：
@@ -33,8 +37,8 @@ _Avoid_: 静态地按相邻歌词开始时间插入间奏
 _Avoid_: 从普通 LRC 的相邻开始时间推断歌词云间奏；让光团拦截歌词点击
 
 **Playlist（歌单）**：
-用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。
-_Avoid_: 与「播放队列」混用
+用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。
+_Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`
 
 **Library scan settings（曲库扫描设置）**：
 曲库扫描相关偏好的窄门面（`LibraryScanSettings`）：最短时长、纳入非音乐音频、深度元数据探测、排除目录、SAF 曲库目录、上次扫描来源与歌词 parser 版本。与浏览排序、播放页 UI、外观、歌词、EQ 分属不同 preference 门面；物理存储仍为单一 `mica_settings`（经 `MicaSettingsStore`）。
@@ -45,8 +49,12 @@ _Avoid_: 把主题、播放页、歌词页、EQ 等非扫描偏好塞进此门�
 _Avoid_: 在 Home 或 catalog 内直接读 `SharedPreferences`
 
 **Playback UI preferences（播放页 UI 偏好）**：
-`PlaybackUiPreferences`：播放页背景、迷你栏、封面行为、粒子参数、频谱资格相关开关、列表/播放页信息可见性、常亮与沉浸等。`AppUiSettings` 的 playback 字段与 `MicaMediaService.spectrumTapEnabled` 经此读取。
+`PlaybackUiPreferences`：播放页背景、迷你栏、封面行为、粒子参数、频谱资格相关开关、列表/播放页信息可见性、常亮与沉浸等。`AppUiSettings` 的 playback 字段与媒体侧 `SpectrumAnalyzerStateOwner` 经此读取。
 _Avoid_: 在 Service 或 Composable 内散落读取 mini player / spectrum key
+
+**Wallpaper viewport state（壁纸视口状态）**：
+Activity 窗口生命周期内的瞬时布局坐标，由同一 Activity 的背景与悬浮播放栏两个 Compose root 共享；不属于用户偏好，也不由 `AppUiSettings` / ViewModel 持有。
+_Avoid_: 在每个 Compose root 内分别 `remember` viewport；把像素坐标持久化或塞回 AppUiSettings
 
 **Appearance preferences（外观偏好）**：
 `AppearancePreferences`：主题模式、隐藏状态栏、强调色、云母背景。`AppUiSettings` 与 `StatusBarController` 经此读写。
@@ -73,7 +81,7 @@ _Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内�
 _Avoid_: 在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策
 
 **Library catalog publisher（曲库目录发布器）**：
-`data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / fast scroll 发布、async persist、播放统计写回、`removeSong`。外部只读 `MusicLibrary.songs` / `songIds`。
+`data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / `catalogRevision` / `queueMetadataRevision` / fast scroll 发布、async persist、播放统计写回、`removeSong`。外部只读曲库快照及其结构/元数据版本。
 _Avoid_: 在 orchestrator / UI 直接读写 `scannedSongs`；绕过 catalog 改可见列表或排序
 
 **Library browse details（曲库浏览详情模型）**：
@@ -91,7 +99,7 @@ _Avoid_: 在多个 Composable 内复制 `deleteSongFile -> removeFromLibrary -> 
 _Avoid_: playlist、播放列表（指歌单时）
 
 **Library playback queue sync（曲库队列同步）**：
-曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / 整队替换 / 仅刷新元数据）。由 `MainActivity` 监听 `MusicLibrary.songIds` 触发；**不**监听 `songs`（避免播放统计等元数据更新误触发）。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。
+曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / 整队替换 / 仅刷新元数据）。由 `MainActivity` 分别监听结构身份 `MusicLibrary.songIds` 与静态内容版本 `queueMetadataRevision`；后者排除播放次数、收听时长和最近播放时间，避免统计写回触发 MediaItem 刷新。同 ID 静态元数据通过 `replaceMediaItem` 增量写入服务，不重建权威队列。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。
 _Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `LaunchedEffect` 各调一次 sync、用 `library.songs` 作 sync 触发键
 
 **PlaybackQueueMode（播放模式）**：
@@ -105,6 +113,10 @@ _Avoid_: 在业务层手写 `index + 1`
 **PlayerController**：
 App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaController` 写入服务；`songQueue` / `PlaybackQueueState` 由服务队列镜像填充，**不是**出声权威源。
 _Avoid_: player view model、media player（指底层引擎时）
+
+**PlaybackStatisticsTracker（播放统计跟踪器）**：
+App 侧运行时统计规则模块：接收 `PlayerController` 转发的播放请求、Media3 切歌和播放状态信号；只在目标歌曲真正开始播放后发布一次播放次数，并按连续收听 session 向下取整发布整秒时长。它不写曲库、不持久化，也不参与出声或队列推进；`MainViewModel` 将发布结果适配到 `MusicLibrary`。
+_Avoid_: 在 `PlayerController` callbacks 中重新实现去重、pending target 或收听 session 结算
 
 **Authoritative playback queue（权威播放队列）**：
 服务侧 `MicaCompositePlayer.playlistItems`（经 `playbackQueueSnapshot()` 暴露）为唯一真相源；`ServicePlaybackEngineCoordinator` 的 `onEnded` / `startAt` / 失败跳曲均读此快照。App 内 `PendingPlaybackNavigation` 在 binder 延迟时携带切歌意图。
@@ -154,9 +166,21 @@ _Avoid_: scrubbing（文档与 issue 中用中文描述）
 独立于 Activity 的 `MediaSessionService`：持有 `ExoPlayer`、`MediaSession` 与播放协调器，对接通知栏、锁屏、蓝牙与系统媒体控制。
 _Avoid_: playback service（无专名时）、background service
 
+**SpectrumAnalyzerStateOwner（频谱分析状态 owner）**：
+媒体生命周期内将 `PlaybackUiPreferences.spectrumTapEnabled` 的派生资格应用到 `MicaSpectrumAnalyzer`：启动恢复不通知管线，三个资格偏好在运行时变化时沿既有 callback 重配 offload 并按需 flush；UI 只写偏好。
+_Avoid_: 由 `AppUiSettings` 直接调用 `MicaSpectrumAnalyzer.setEnabled`
+
 **Exo playback pipeline（Exo 播放管线）**：
 唯一出声路径：`ExoPlayer` → `MicaExtractorsFactory` / `MicaRenderersFactory` → `libffmpegJNI.so`（ALAC、DSD 等扩展）→ `MicaAudioProcessorChain`（DSD 降采样 / 频谱 / EQ）→ `AudioTrack`。
 _Avoid_: 软件播、双后端、libmica_ffmpeg
+
+**USB-exclusive output（USB Host 真独占输出）**：
+远期独立输出路径：App 通过 Android USB Host 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。当前仅有输出模式兼容骨架，生产环境尚未实现；决策见 `docs/adr/0001-usb-host-exclusive-output.md`。
+_Avoid_: 把 `AudioTrack.setPreferredDevice`、framework direct support 或现有 `UsbDirectPcm` 最小链称为 USB 独占
+
+**Applied ReplayGain（实际 ReplayGain）**：
+当前曲目最终传给播放器的 ReplayGain 线性系数；以实际受限后的系数为事实，`1f` 表示未修改信号。TRACK/ALBUM 设置本身不等于已衰减，缺少可用标签时仍为 `1f`。
+_Avoid_: 仅从 ReplayGain 设置或标签推测实际增益
 
 **Audio quality consent（音质改动许可）**：
 任何可能降低播放保真度的实现（位深/采样率缩减、关闭 float 或 hi-res 直通、全格式共用劣化链路、有损转码、默认 EQ/限幅等）**必须先向用户明确说明影响范围与对象格式**，并**在得到明确允许之前不得实现或默认启用**。Agent 与贡献者均须遵守；细则见 `.cursor/rules/audio-quality-consent.mdc`。

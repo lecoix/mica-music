@@ -1,6 +1,7 @@
 package com.mica.music.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,5 +25,19 @@ class LyricsRenderStateTest {
 
         assertEquals(-1, state.activeLineIndex)
         assertTrue(!state.hasTimedLyrics)
+    }
+
+    @Test
+    fun sessionKeepsDocumentAndMatchesLegacySnapshots() {
+        val lyrics = listOf(
+            LyricLine(1_000, "one", endTimeMs = 1_500),
+            LyricLine(3_000, "two", endTimeMs = 4_000),
+        )
+        val session = LyricsSession(lyrics.toLyricsDocumentCompat())
+
+        listOf(500, 2_000, 3_500).forEach { positionMs ->
+            assertEquals(lyrics.renderStateAt(positionMs), session.snapshotAt(positionMs))
+            assertSame(session.document, session.snapshotAt(positionMs).document)
+        }
     }
 }

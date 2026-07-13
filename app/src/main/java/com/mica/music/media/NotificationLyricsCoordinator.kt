@@ -8,6 +8,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.Song
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsSession
 import com.mica.music.data.local.LibraryRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +32,8 @@ internal class NotificationLyricsCoordinator(
     private var released = false
     private var lastSignature: String? = null
     private var syncing = false
+    private var sessionDocument: LyricsDocument? = null
+    private var lyricsSession: LyricsSession? = null
     private val lyricsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val songCache = NotificationLyricsSongCache(
         scope = lyricsScope,
@@ -107,19 +111,23 @@ internal class NotificationLyricsCoordinator(
         }
 
         val display = NotificationLyrics.displayOptions(context)
-        val lyricIndex = NotificationLyrics.lyricIndexForPosition(song.lyrics, player.currentPosition.toInt())
+        val session = sessionFor(song.lyricsDocument)
+        val lyricIndex = NotificationLyrics.lyricIndexForPosition(
+            session,
+            player.currentPosition.toInt(),
+        )
         if (lyricIndex < 0) {
             clearLyricMetadataIfNeeded(song)
             return
         }
 
-        val displayLine = NotificationLyrics.lyricLineText(song.lyrics, lyricIndex, display) ?: return
+        val displayLine = NotificationLyrics.lyricLineText(session.lyrics, lyricIndex, display) ?: return
         val signature = NotificationLyrics.signature(song.id, lyricIndex, displayLine)
         if (signature == lastSignature) return
 
         val item = player.currentMediaItem ?: return
         if (item.mediaId != song.id) return
-        val metadata = NotificationLyrics.metadataWithLyric(song, lyricIndex, item.mediaMetadata, display)
+        val metadata = NotificationLyrics.metadataWithLyric(song, displayLine, item.mediaMetadata)
             ?: return
         if (metadataMatches(item.mediaMetadata, metadata)) {
             lastSignature = signature
@@ -163,9 +171,17 @@ internal class NotificationLyricsCoordinator(
     private fun currentSong(): Song? {
         val item = player.currentMediaItem ?: return null
         val decoded = SongMediaItemCodec.decode(item) ?: return null
-        return songCache.songWithLyrics(decoded) {
+        return songCache.songWithLyrics(decoded, SongMediaItemCodec.lyricsRevision(item)) {
             if (!released) maybeSync()
         }
+    }
+
+    private fun sessionFor(document: LyricsDocument): LyricsSession {
+        if (sessionDocument !== document) {
+            sessionDocument = document
+            lyricsSession = LyricsSession(document)
+        }
+        return checkNotNull(lyricsSession)
     }
 
     private fun metadataMatches(current: MediaMetadata, target: MediaMetadata): Boolean =

@@ -3,7 +3,6 @@ package com.mica.music.data
 import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,7 +11,6 @@ import com.mica.music.data.preferences.AppearancePreferences
 import com.mica.music.data.preferences.FontPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
-import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.util.DiagnosticLog
 
 /**
@@ -88,12 +86,6 @@ class AppUiSettings(context: Context) {
     var customWallpaperPath by mutableStateOf(AppearancePreferences.customWallpaperPath(appContext))
         private set
 
-    var customWallpaperViewportTopPx by mutableFloatStateOf(0f)
-        private set
-
-    var customWallpaperViewportHeightPx by mutableFloatStateOf(0f)
-        private set
-
     var globalFont by mutableStateOf(FontPreferences.globalFont(appContext))
         private set
 
@@ -153,10 +145,6 @@ class AppUiSettings(context: Context) {
     var playerInfoVisibility by mutableStateOf(PlaybackUiPreferences.playerInfoVisibility(appContext))
         private set
 
-    init {
-        syncSpectrumAnalyzer()
-    }
-
     fun updateThemeMode(mode: AppThemeMode) {
         themeMode = mode
         AppearancePreferences.setThemeMode(appContext, mode)
@@ -195,7 +183,6 @@ class AppUiSettings(context: Context) {
     fun updateMiniPlayerStyle(style: MiniPlayerStyle) {
         miniPlayerStyle = style
         PlaybackUiPreferences.setMiniPlayerStyle(appContext, style)
-        syncSpectrumAnalyzer(notifyPipeline = true)
     }
 
     fun updateMiniPlayerLyricsEnabled(enabled: Boolean) {
@@ -226,7 +213,6 @@ class AppUiSettings(context: Context) {
     fun updatePlayerCoverFlowMode(mode: PlayerCoverFlowMode) {
         playerCoverFlowMode = mode
         PlaybackUiPreferences.setPlayerCoverFlowMode(appContext, mode)
-        syncSpectrumAnalyzer(notifyPipeline = true)
     }
 
     fun updateParticleCoverTuning(tuning: ParticleCoverTuning) {
@@ -263,11 +249,6 @@ class AppUiSettings(context: Context) {
     fun updateCustomWallpaperPath(path: String?) {
         customWallpaperPath = path
         AppearancePreferences.setCustomWallpaperPath(appContext, path)
-    }
-
-    fun updateCustomWallpaperViewport(topPx: Float, heightPx: Float) {
-        customWallpaperViewportTopPx = topPx
-        customWallpaperViewportHeightPx = heightPx
     }
 
     fun updateGlobalFont(selection: AppFontSelection) {
@@ -352,8 +333,7 @@ class AppUiSettings(context: Context) {
     fun updateSpectrumEnabled(enabled: Boolean) {
         spectrumEnabled = enabled
         PlaybackUiPreferences.setSpectrumEnabled(appContext, enabled)
-        syncSpectrumAnalyzer(notifyPipeline = true)
-        DiagnosticLog.event("Spectrum", "setting enabled=$enabled analyzer=${MicaSpectrumAnalyzer.isEnabledForProcessing()}")
+        DiagnosticLog.event("Spectrum", "setting enabled=$enabled")
     }
 
     fun updateAudioFocusEnabled(enabled: Boolean) {
@@ -398,10 +378,4 @@ class AppUiSettings(context: Context) {
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
 
-    private fun syncSpectrumAnalyzer(notifyPipeline: Boolean = false) {
-        MicaSpectrumAnalyzer.setEnabled(
-            PlaybackUiPreferences.spectrumTapEnabled(appContext),
-            notifyPipeline = notifyPipeline,
-        )
-    }
 }

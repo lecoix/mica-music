@@ -15,13 +15,13 @@ import com.mica.music.data.SongTrailingInfo
 /** 播放页、迷你栏、封面与列表信息相关 UI 偏好。 */
 object PlaybackUiPreferences {
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
-    private const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
+    internal const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_MINI_PLAYER_LYRICS_ENABLED = "mini_player_lyrics_enabled"
     private const val KEY_MINI_PLAYER_SWIPE_ENABLED = "mini_player_swipe_enabled"
     private const val KEY_MINI_PLAYER_LEFT_SWIPE_ACTION = "mini_player_left_swipe_action"
     private const val KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION = "mini_player_right_swipe_action"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
-    private const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
+    internal const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -32,7 +32,7 @@ object PlaybackUiPreferences {
     private const val KEY_KEEP_SCREEN_ON_WHEN_PLAYING = "keep_screen_on_when_playing"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
-    private const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
+    internal const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
     private const val KEY_SONG_LIST_INFO_SHOW_COUNT = "song_list_info_show_count"
     private const val KEY_SONG_LIST_INFO_SHOW_SONG_ARTIST = "song_list_info_show_song_artist"
     private const val KEY_SONG_LIST_INFO_SHOW_SONG_ALBUM = "song_list_info_show_song_album"
@@ -230,7 +230,7 @@ object PlaybackUiPreferences {
             .apply()
     }
 
-    /** 与 [com.mica.music.media.MicaSpectrumAnalyzer] 及 [com.mica.music.data.AppUiSettings] 一致。 */
+    /** 频谱 PCM tap 的派生资格，由媒体侧 owner 应用到 analyzer。 */
     fun spectrumTapEnabled(context: Context): Boolean =
         spectrumEnabled(context) ||
             miniPlayerStyle(context) == MiniPlayerStyle.AUDIOPHILE ||

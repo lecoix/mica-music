@@ -95,7 +95,7 @@ class LibraryScanOrchestratorTest {
 
         val scan = async { harness.orchestrator.scanDeviceWide() }
         runCurrent()
-        assertTrue(scanner.deviceRequests.single().cachedSongs.single().lyrics.isEmpty())
+        assertTrue(scanner.deviceRequests.single().cachedSongs.single().lyricsDocument.lines.isEmpty())
         scanner.deviceRequests.single().result.complete(ScanResult(listOf(cached), 1))
         scan.await()
 

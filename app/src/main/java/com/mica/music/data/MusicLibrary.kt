@@ -27,11 +27,11 @@ class MusicLibrary internal constructor(
         mainDispatcher = mainDispatcher,
         ioDispatcher = ioDispatcher,
     )
-    private var artistGroupCacheSongIds: List<String>? = null
+    private var artistGroupCacheRevision = -1L
     private var artistGroupCacheField: ArtistBrowseSortField? = null
     private var artistGroupCacheDirection: SortDirection? = null
     private var artistGroupCache: BrowseGroupPresentation? = null
-    private var albumGroupCacheSongIds: List<String>? = null
+    private var albumGroupCacheRevision = -1L
     private var albumGroupCacheField: AlbumBrowseSortField? = null
     private var albumGroupCacheDirection: SortDirection? = null
     private var albumGroupCache: BrowseGroupPresentation? = null
@@ -49,6 +49,8 @@ class MusicLibrary internal constructor(
 
     /** 可见曲库 id 序列；仅顺序/成员变化时更新，供播放队列同步 LaunchedEffect 使用。 */
     val songIds get() = backing.songIds
+
+    val queueMetadataRevision get() = backing.queueMetadataRevision
 
     val sortField get() = backing.sortField
 
@@ -123,14 +125,14 @@ class MusicLibrary internal constructor(
         direction: SortDirection,
     ): BrowseGroupPresentation {
         val source = songs
-        val sourceIds = songIds
+        val sourceRevision = backing.catalogRevision
         artistGroupCache?.takeIf {
-            artistGroupCacheSongIds === sourceIds &&
+            artistGroupCacheRevision == sourceRevision &&
                 artistGroupCacheField == field &&
                 artistGroupCacheDirection == direction
         }?.let { return it }
         return LibraryBrowse.artistGroupPresentation(source, field, direction).also {
-            artistGroupCacheSongIds = sourceIds
+            artistGroupCacheRevision = sourceRevision
             artistGroupCacheField = field
             artistGroupCacheDirection = direction
             artistGroupCache = it
@@ -142,14 +144,14 @@ class MusicLibrary internal constructor(
         direction: SortDirection,
     ): BrowseGroupPresentation {
         val source = songs
-        val sourceIds = songIds
+        val sourceRevision = backing.catalogRevision
         albumGroupCache?.takeIf {
-            albumGroupCacheSongIds === sourceIds &&
+            albumGroupCacheRevision == sourceRevision &&
                 albumGroupCacheField == field &&
                 albumGroupCacheDirection == direction
         }?.let { return it }
         return LibraryBrowse.albumGroupPresentation(source, field, direction).also {
-            albumGroupCacheSongIds = sourceIds
+            albumGroupCacheRevision = sourceRevision
             albumGroupCacheField = field
             albumGroupCacheDirection = direction
             albumGroupCache = it
@@ -158,17 +160,17 @@ class MusicLibrary internal constructor(
 
     suspend fun prewarmBrowseGroupCache() {
         val source = songs
-        val sourceIds = songIds
+        val sourceRevision = backing.catalogRevision
         if (source.isEmpty()) return
         val artistField = LibraryBrowseSettings.artistBrowseSortField(backing.context)
         val artistDirection = LibraryBrowseSettings.artistBrowseSortDirection(backing.context)
         val albumField = LibraryBrowseSettings.albumBrowseSortField(backing.context)
         val albumDirection = LibraryBrowseSettings.albumBrowseSortDirection(backing.context)
         if (
-            artistGroupCacheSongIds === sourceIds &&
+            artistGroupCacheRevision == sourceRevision &&
             artistGroupCacheField == artistField &&
             artistGroupCacheDirection == artistDirection &&
-            albumGroupCacheSongIds === sourceIds &&
+            albumGroupCacheRevision == sourceRevision &&
             albumGroupCacheField == albumField &&
             albumGroupCacheDirection == albumDirection
         ) {
@@ -180,12 +182,12 @@ class MusicLibrary internal constructor(
             LibraryBrowse.artistGroupPresentation(source, artistField, artistDirection) to
                 LibraryBrowse.albumGroupPresentation(source, albumField, albumDirection)
         }
-        if (sourceIds !== songIds) return
-        artistGroupCacheSongIds = sourceIds
+        if (sourceRevision != backing.catalogRevision) return
+        artistGroupCacheRevision = sourceRevision
         artistGroupCacheField = artistField
         artistGroupCacheDirection = artistDirection
         artistGroupCache = prewarmed.first
-        albumGroupCacheSongIds = sourceIds
+        albumGroupCacheRevision = sourceRevision
         albumGroupCacheField = albumField
         albumGroupCacheDirection = albumDirection
         albumGroupCache = prewarmed.second

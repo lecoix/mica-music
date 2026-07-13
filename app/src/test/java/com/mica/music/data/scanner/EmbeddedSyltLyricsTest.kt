@@ -2,6 +2,8 @@ package com.mica.music.data.scanner
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import com.mica.music.data.LyricsFormat
+import com.mica.music.data.LyricsOrigin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -21,12 +23,15 @@ class EmbeddedSyltLyricsTest {
         val id3 = id3v23(frame("USLT", uslt), frame("SYLT", sylt))
 
         val parsed = EmbeddedLyricsReader.readFromBinaryForTest(id3).orEmpty()
+        val document = requireNotNull(EmbeddedLyricsReader.readDocumentFromBinaryForTest(id3))
 
         assertEquals(listOf("你好", "世界"), parsed.map { it.text })
         assertEquals(listOf(1_000, 2_000), parsed.map { it.timeMs })
         assertEquals(listOf(1_000, 1_200), parsed[0].cues.map { it.timeMs })
         assertEquals(listOf(2_000, 2_200), parsed[1].cues.map { it.timeMs })
         assertTrue(parsed.all { it.cues.isNotEmpty() })
+        assertEquals(LyricsFormat.SYLT, document.format)
+        assertEquals(LyricsOrigin.EMBEDDED, document.origin)
     }
 
     @Test

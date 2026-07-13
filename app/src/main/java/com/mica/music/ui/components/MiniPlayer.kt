@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.LyricsSession
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.Song
@@ -154,8 +155,10 @@ fun MiniPlayer(
             onPrevious = onPrevious,
             onNext = onNext,
         )
+    val lyricsSession = remember(song.id, song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
     val displayText = miniPlayerText(
         song = song,
+        lyricsSession = lyricsSession,
         isPlaying = isPlaying,
         positionMs = positionMs,
         enabled = miniPlayerLyricsEnabled,
@@ -191,6 +194,7 @@ fun MiniPlayer(
 
 private fun miniPlayerText(
     song: Song,
+    lyricsSession: LyricsSession,
     isPlaying: Boolean,
     positionMs: Int,
     enabled: Boolean,
@@ -204,11 +208,11 @@ private fun miniPlayerText(
     )
     if (!enabled || !isPlaying) return fallback
 
-    val lyricIndex = NotificationLyrics.lyricIndexForPosition(song.lyrics, positionMs)
+    val lyricIndex = NotificationLyrics.lyricIndexForPosition(lyricsSession, positionMs)
     if (lyricIndex < 0) return fallback
 
     val lyric = NotificationLyrics.lyricLineText(
-        lyrics = song.lyrics,
+        lyrics = lyricsSession.lyrics,
         index = lyricIndex,
         display = NotificationLyrics.DisplayOptions(
             splitEnabled = lyricSplitEnabled,

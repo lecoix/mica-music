@@ -264,44 +264,44 @@ DSD 降采样当前输出 `ENCODING_PCM_24BIT`（[`DsdDecimationAudioProcessor.k
 
 ---
 
-## 8. 未来 USB 独占 / 直通的前瞻影响
+## 8. 未来 USB Host 真独占的前瞻影响
 
-> Android **无** Windows 式内核独占；发烧语境通常指：**固定 USB 设备 + 格式匹配 + direct playback（少混音/少重采样）**；极端为 **DoP / Native DSD 比特流**（[`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) §后续可扩展）。
+> **已决策（2026-07-13）**：采用 Android USB Host 独立输出，由 App claim 目标 USB audio interface 并负责格式协商与传输，绕过系统共享 `AudioTrack`；不把 framework preferred device / direct playback 称为 USB 独占。见 [`ADR-0001`](adr/0001-usb-host-exclusive-output.md)。
 
 ### 8.1 与当前共享 PCM 链的冲突
 
-| 能力 | 共享 PCM 链（现状） | USB 独占/直通（未来） |
+| 能力 | 共享 PCM 链（现状） | USB Host 真独占（未来） |
 |------|-------------------|---------------------|
 | `DsdDecimation` 降采样 PCM | ✅ | ❌ 与 Native DSD 目标冲突 |
 | `SpectrumAudioProcessor` | ✅ | ❌ 或仅旁路 tap |
 | `SoftwareEqualizerAudioProcessor` | ✅ | ❌ 破坏 bit-perfect |
 | Sonic / `PlaybackParams` 变速 | 讨论中 | ❌ 或限制 1.0x |
-| `getDirectPlaybackSupport` 探测 | ✅ 已有 | ✅ **更关键**（须绑 USB 设备） |
+| `getDirectPlaybackSupport` 探测 | ✅ 已有 | 不能作为 USB Host DAC 能力或实际输出的事实来源 |
 
-结论：USB 独占不是「在现有链上加探测」，而是 **输出 path 分叉**。
+结论：USB Host 真独占不是「在现有链上加探测」或「减少 processor」，而是新增独立 output adapter。
 
-### 8.2 建议的模式枚举（前瞻，未实现）
+### 8.2 输出模式（兼容骨架，运行时未实现）
 
 ```text
 SharedPcm(route)      → 现有链 + 可选 Sonic；频谱/EQ 按设置
-UsbDirectPcm(device)  → 最小 Processor；probe 该 DAC 最高 PCM direct 档
-UsbNativeDsd(device)  → 解复用后分叉；Raw DSD/DoP → USB（无 Exo PCM 链）
+UsbDirectPcm(device)  → 历史预留名；未来对应 USB Host PCM adapter，不是 DefaultAudioSink 最小链
+UsbNativeDsd(device)  → Raw DSD/DoP → USB Host adapter（无 Exo PCM 输出链）
 ```
 
 与现有机制类比：
 
-- `configureQualityMode`：EQ/频谱开 → 关 offload；
-- USB 独占：可能需 **更强约束**（旁路整段 Processor 或禁用 EQ/频谱/变速）。
+- `configureQualityMode`：只属于 SharedPcm；EQ/频谱开 → 关 offload；
+- USB Host：必须单独定义 ReplayGain、EQ、频谱、变速、重采样与 fallback 语义；exclusive 与 bit-perfect 分开判断。
 
 ### 8.3 对当前 Sonic/频谱决策的约束
 
 - **Sonic 修复频谱** 应限定在 **`SharedPcm` 模式**；
 - 架构上预留 **`PlaybackOutputMode`**（或等价）维度，避免 USB 直通与 Sonic 链硬耦合；
-- 插拔 USB、切换独占开关 → **`flushAudioPipeline`** + 重新 probe + 可能切换 path（项目已有 flush 机制，[`MicaMediaService.kt`](../app/src/main/java/com/mica/music/media/MicaMediaService.kt)）。
+- 插拔 USB、切换独占开关 → 保存播放状态并执行 full-mode rebuild；仅 `flushAudioPipeline` 不足以切换到独立 USB adapter。
 
 ### 8.4 产品 spec 缺口
 
-[`DESIGN_SPEC.md`](../DESIGN_SPEC.md) §十五：设置 · 音频（输出 / 独占 / Hi‑Res 直通）仍为 **❌ 未实现**。USB 行为的产品定义（何时 bit-perfect、何时允许 EQ）需在实现 path 分叉前补齐。
+[`DESIGN_SPEC.md`](../DESIGN_SPEC.md) §十五：设置 · 音频（输出 / 独占 / Hi‑Res 直通）仍为 **❌ 未实现**。USB Host 技术方向已确定，但 UI、fallback、何时 bit-perfect、何时允许信号处理仍需在实现前补齐。当前实施仅限 [`ReplayGain 实际应用状态`](REPLAYGAIN_SIGNAL_STATE_PLAN.md)。
 
 ---
 
@@ -312,9 +312,9 @@ UsbNativeDsd(device)  → 解复用后分叉；Raw DSD/DoP → USB（无 Exo PCM
 | **P0 验证** | `enableAudioOutputPlaybackParameters(false)` + 临时 Default 尾链 Sonic；**16-bit FLAC** 上对比 `maxInputGapMs` | 低；可快速验证假设 |
 | **P1 正式接入** | `MicaAudioProcessorChain` 持有 Sonic；Spectrum 在 Sonic 前；正确实现 `applyPlaybackParameters` | 中；需处理 DSD 24-bit |
 | **P2 DSD 兼容** | 方案 D（链内 float / Sonic，出链量化 24-bit）或方案 C（Sonic 路径 16-bit） | 中；需回归 DSD 与 EQ |
-| **P3 USB** | `UsbDirectPcm` / `UsbNativeDsd` path；USB 专用 ladder + 绑设备 probe | 高；依赖产品与实机矩阵 |
+| **P3 USB（远期）** | USB Host adapter/session；permission、claim、协商、传输、fallback、实机矩阵 | 高；当前不实施 |
 
-**不建议**：在 USB 独占未定义前，为 Sonic 统一全格式 float 输出并假设所有设备 AudioTrack 支持。
+**当前范围**：只落实 ReplayGain 实际应用状态；不因远期 USB Host 改动 Sonic、频谱、Sink 或 AudioTrack。
 
 ---
 

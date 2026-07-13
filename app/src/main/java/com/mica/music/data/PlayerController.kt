@@ -77,59 +77,6 @@ internal class PendingMediaSelection {
     }
 }
 
-private class PlayCountStateMachine {
-    private var statsCurrentSongId: String? = null
-    private var requestedTargetSongId: String? = null
-    private var pendingPublishSongId: String? = null
-
-    val currentSongId: String?
-        get() = statsCurrentSongId
-
-    val pendingSongId: String?
-        get() = pendingPublishSongId
-
-    fun reset(currentSongId: String?) {
-        statsCurrentSongId = currentSongId
-        requestedTargetSongId = null
-        pendingPublishSongId = null
-    }
-
-    fun requestPlayback(songId: String) {
-        requestedTargetSongId = songId
-    }
-
-    fun clearRequestAndPending() {
-        requestedTargetSongId = null
-        pendingPublishSongId = null
-    }
-
-    fun onTransition(songId: String?, reason: Int): Boolean {
-        val to = songId
-        val from = statsCurrentSongId
-        val requested = requestedTargetSongId == to
-        val shouldCount = when {
-            to == null -> false
-            requested && to != from -> true
-            reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && to != from -> true
-            reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> true
-            reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && to != from -> true
-            else -> false
-        }
-        if (to != null) statsCurrentSongId = to
-        if (requested) requestedTargetSongId = null
-        if (shouldCount) pendingPublishSongId = to
-        return shouldCount
-    }
-
-    fun consumeIfStarted(playerSongId: String?, playing: Boolean): String? {
-        val pending = pendingPublishSongId ?: return null
-        if (!playing || pending != playerSongId) return null
-        pendingPublishSongId = null
-        statsCurrentSongId = pending
-        return pending
-    }
-}
-
 private data class PendingRestorePosition(
     val songId: String,
     val positionMs: Int,
@@ -144,7 +91,7 @@ class PlayerController internal constructor(
     private val sessionStorage: PlaybackSessionStorage,
     dispatcher: CoroutineDispatcher,
     private val queueMirrorDispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val monotonicNowMs: () -> Long = { SystemClock.elapsedRealtime() },
+    monotonicNowMs: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
     constructor(context: Context) : this(
         context = context,
@@ -190,12 +137,10 @@ class PlayerController internal constructor(
     /** 从曲库按 ID 补全 [MediaItem] 镜像时缺失的 [Song] 元数据。 */
     var songResolver: ((String) -> Song?)? = null
 
-    var currentIndex by mutableIntStateOf(0)
-        private set
+    private var currentIndex by mutableIntStateOf(0)
 
     /** 供播放页切歌擦除动画消费；在 [next]/[previous]/自动下一曲 时设置。 */
-    var trackSkipDirection by mutableStateOf<TrackSkipDirection?>(null)
-        private set
+    private var trackSkipDirection by mutableStateOf<TrackSkipDirection?>(null)
 
     fun consumeTrackSkipDirection(): TrackSkipDirection? {
         val direction = trackSkipDirection
@@ -203,22 +148,17 @@ class PlayerController internal constructor(
         return direction
     }
 
-    var isPlaying by mutableStateOf(false)
-        private set
+    private var isPlaying by mutableStateOf(false)
 
-    var positionSec by mutableIntStateOf(0)
-        private set
+    private var positionSec by mutableIntStateOf(0)
 
     /** 播放进度（毫秒），供歌词同步等需要 finer 粒度的 UI 使用。 */
-    var positionMs by mutableIntStateOf(0)
-        private set
+    private var positionMs by mutableIntStateOf(0)
 
-    var durationSec by mutableIntStateOf(0)
-        private set
+    private var durationSec by mutableIntStateOf(0)
 
     /** seek 后暂存目标直至进度接近。 */
-    var pendingSeekMs by mutableIntStateOf(-1)
-        private set
+    private var pendingSeekMs by mutableIntStateOf(-1)
 
     private var pendingSeekSetAtElapsedMs = 0L
 
@@ -230,9 +170,9 @@ class PlayerController internal constructor(
     }
 
     @Deprecated("Use setSeekUiActive", ReplaceWith("setSeekUiActive(active)"))
-    fun setAlacSeekUiActive(active: Boolean) = setSeekUiActive(active)
+    internal fun setAlacSeekUiActive(active: Boolean) = setSeekUiActive(active)
 
-    fun uiPositionMs(): Int {
+    internal fun uiPositionMs(): Int {
         val maxMs = uiDurationMs()
         val pos = if (maxMs > 0) positionMs.coerceIn(0, maxMs) else positionMs.coerceAtLeast(0)
         pendingSeekMs.takeIf { it >= 0 }?.let { pending ->
@@ -241,7 +181,7 @@ class PlayerController internal constructor(
         return pos
     }
 
-    fun uiDurationMs(): Int {
+    internal fun uiDurationMs(): Int {
         val metaMs = (currentSong?.durationSec ?: 0) * 1000
         val playerMs = durationSec * 1000
         return maxOf(metaMs, playerMs).coerceAtLeast(0)
@@ -351,7 +291,7 @@ class PlayerController internal constructor(
         return controller.currentMediaItem?.mediaId == expectedSongId
     }
 
-    fun persistPlaybackSessionNow() {
+    internal fun persistPlaybackSessionNow() {
         savePlaybackSession(sync = true)
     }
 
@@ -376,7 +316,7 @@ class PlayerController internal constructor(
 
     /** 曲库就绪后恢复上次播放的歌曲与进度（不自动开始播放）。优先使用 [bootstrapQueue]。 */
     @Deprecated("Use bootstrapQueue(ServicePlaybackStateStore) instead")
-    fun restoreSession(session: PlaybackSession) {
+    internal fun restoreSession(session: PlaybackSession) {
         if (songQueue.isEmpty()) return
         val index = songQueue.indexOfFirst { it.id == session.songId }
         if (index < 0) {
@@ -405,7 +345,7 @@ class PlayerController internal constructor(
 
     /** 曲库与 [restoreSession] 就绪后再次对齐索引，避免 [onConnected] 与恢复竞态。 */
     @Deprecated("Use bootstrapQueue instead")
-    fun reconcileRestoredSessionIndex() {
+    internal fun reconcileRestoredSessionIndex() {
         pendingRestorePosition?.let { setPositionMsClamped(it.positionMs) }
     }
 
@@ -422,28 +362,23 @@ class PlayerController internal constructor(
         publishProgressState()
     }
 
-    var isBuffering by mutableStateOf(false)
+    private var isBuffering by mutableStateOf(false)
+
+    internal var isConnected by mutableStateOf(false)
         private set
 
-    var isConnected by mutableStateOf(false)
-        private set
-
-    var playbackError by mutableStateOf<String?>(null)
-        private set
+    private var playbackError by mutableStateOf<String?>(null)
 
     var userMessage by mutableStateOf<UserMessage?>(null)
         private set
 
-    var songQueue by mutableStateOf<List<Song>>(emptyList())
-        private set
+    private var songQueue by mutableStateOf<List<Song>>(emptyList())
 
-    var playbackQueueMode by mutableStateOf(PlaybackQueueMode.OFF)
-        private set
+    private var playbackQueueMode by mutableStateOf(PlaybackQueueMode.OFF)
 
-    var playbackTuning by mutableStateOf(PlaybackTuning())
-        private set
+    private var playbackTuning by mutableStateOf(PlaybackTuning())
 
-    val currentSong: Song?
+    private val currentSong: Song?
         get() = songQueue.getOrNull(currentIndex.coerceIn(0, (songQueue.size - 1).coerceAtLeast(0)))
 
     var playbackSurfaceState by mutableStateOf(PlaybackSurfaceState())
@@ -513,9 +448,12 @@ class PlayerController internal constructor(
     private var pendingEffectivePlaybackTuning: PlaybackTuning? = null
     private var connectStarted = false
     private var pendingRestorePosition: PendingRestorePosition? = null
-    private val playCountState = PlayCountStateMachine()
-    private var listenSessionSongId: String? = null
-    private var listenSessionStartedAtMs: Long = 0L
+    private val playbackStatistics = PlaybackStatisticsTracker(
+        monotonicNowMs = monotonicNowMs,
+        onListenSecondsAdded = { songId, seconds ->
+            onSongListenSecondsAdded?.invoke(songId, seconds)
+        },
+    )
     private var lastSessionPersistMs: Long = 0L
 
     private fun releasePendingRestorePosition(songId: String?) {
@@ -559,7 +497,7 @@ class PlayerController internal constructor(
                         "current=${currentSong?.id.shortSongIdOrNone()} " +
                         "playerIndex=${c.currentMediaItemIndex} playerItems=${c.mediaItemCount} " +
                         "queueSize=${songQueue.size} mirrorAligned=$mirrorAligned " +
-                        "pending=${playCountState.pendingSongId?.shortSongId() ?: "none"}",
+                        "pending=${playbackStatistics.pendingSongId?.shortSongId() ?: "none"}",
                 )
                 if (!mirrorAligned) {
                     scheduleQueueMirrorFromPlayer(c)
@@ -575,9 +513,9 @@ class PlayerController internal constructor(
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val previousSongId = currentSong?.id
-                val previousStatsSongId = playCountState.currentSongId
+                val previousStatsSongId = playbackStatistics.statisticsSongId
                 val transitionSongId = mediaItem?.mediaId
-                val pendingBefore = playCountState.pendingSongId
+                val pendingBefore = playbackStatistics.pendingSongId
                 if (!syncIndexFromPlayer(c)) {
                     logPlayCountProbe(
                         "transition-skip reason=${mediaTransitionReasonForLog(reason)} " +
@@ -589,7 +527,7 @@ class PlayerController internal constructor(
                     )
                     return
                 }
-                updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
+                playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
                 val newSongId = currentSong?.id
                 val currentSongChanged = previousSongId != newSongId
                 val shouldResetPosition =
@@ -610,7 +548,7 @@ class PlayerController internal constructor(
                 } else {
                     playbackError = null
                 }
-                val shouldArmPlayCount = playCountState.onTransition(transitionSongId, reason)
+                val shouldArmPlayCount = playbackStatistics.onTransition(transitionSongId, reason)
                 logPlayCountProbe(
                     "transition reason=${mediaTransitionReasonForLog(reason)} " +
                         "transitionSong=${transitionSongId.shortSongIdOrNone()} " +
@@ -622,7 +560,7 @@ class PlayerController internal constructor(
                         "isPlaying=${c.isPlaying} playerIndex=${c.currentMediaItemIndex} " +
                         "playerItems=${c.mediaItemCount} queueIndex=$currentIndex queueSize=${songQueue.size} " +
                         "pendingBefore=${pendingBefore.shortSongIdOrNone()} " +
-                        "pendingAfter=${playCountState.pendingSongId.shortSongIdOrNone()}",
+                        "pendingAfter=${playbackStatistics.pendingSongId.shortSongIdOrNone()}",
                 )
                 if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
                 syncEffectivePlaybackTuning(reason = "transition")
@@ -632,8 +570,8 @@ class PlayerController internal constructor(
 
             override fun onPlayerError(error: PlaybackException) {
                 if (!pendingMediaSelection.accepts(c.currentMediaItem?.mediaId)) return
-                updateListenSession(c.currentMediaItem?.mediaId, false)
-                playCountState.clearRequestAndPending()
+                playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, false)
+                playbackStatistics.clearRequestAndPending()
                 val song = c.currentMediaItem?.let { SongMediaItemCodec.decode(it) }
                 val presentation = song
                     ?.let(PlaybackRouter::unsupportedMessage)
@@ -654,13 +592,13 @@ class PlayerController internal constructor(
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
-                updateListenSession(c.currentMediaItem?.mediaId, playing)
+                playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, playing)
                 isPlaying = playing
-                if (playCountState.pendingSongId != null) {
+                if (playbackStatistics.pendingSongId != null) {
                     logPlayCountProbe(
                         "is-playing-changed playing=$playing " +
                             "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
-                            "pending=${playCountState.pendingSongId.shortSongIdOrNone()}",
+                            "pending=${playbackStatistics.pendingSongId.shortSongIdOrNone()}",
                     )
                 }
                 if (playing) {
@@ -677,7 +615,7 @@ class PlayerController internal constructor(
 
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
-                    updateListenSession(c.currentMediaItem?.mediaId, false)
+                    playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, false)
                 }
                 isBuffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_READY && c.duration > 0) {
@@ -749,19 +687,19 @@ class PlayerController internal constructor(
             pendingEffectivePlaybackTuning = null
         }
 
-        playCountState.reset(c.currentMediaItem?.mediaId)
+        playbackStatistics.reset(c.currentMediaItem?.mediaId)
         isPlaying = c.isPlaying
-        updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
+        playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
         if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
         syncPosition()
         publishPlaybackStates()
     }
 
     private fun onControllerDisconnected() {
-        updateListenSession(controller?.currentMediaItem?.mediaId, false)
+        playbackStatistics.observePlayback(controller?.currentMediaItem?.mediaId, false)
         queueMirrorCoordinator.clear()
         pendingMediaSelection.clear()
-        playCountState.reset(null)
+        playbackStatistics.reset(null)
         PendingPlaybackNavigation.clear()
         controller = null
         controllerConnection = null
@@ -771,7 +709,7 @@ class PlayerController internal constructor(
     }
 
     private fun publishPlayCountIfStarted(player: Player, playing: Boolean) {
-        val pendingSongId = playCountState.pendingSongId ?: return
+        val pendingSongId = playbackStatistics.pendingSongId ?: return
         val playerSongId = player.currentMediaItem?.mediaId
         if (!playing) {
             logPlayCountProbe(
@@ -787,27 +725,13 @@ class PlayerController internal constructor(
             )
             return
         }
-        val publishedSongId = playCountState.consumeIfStarted(playerSongId, playing) ?: return
+        val publishedSongId = playbackStatistics.publishPlayStartedIfReady(playerSongId, playing)
+            ?: return
         logPlayCountProbe(
             "publish-consume song=${publishedSongId.shortSongId()} " +
                 "playerIndex=${player.currentMediaItemIndex} playerItems=${player.mediaItemCount}",
         )
         onSongPlayStarted?.invoke(publishedSongId)
-    }
-
-    private fun updateListenSession(songId: String?, playing: Boolean) {
-        val now = monotonicNowMs()
-        val activeSongId = listenSessionSongId
-        if (activeSongId != null && (!playing || songId != activeSongId)) {
-            val seconds = ((now - listenSessionStartedAtMs).coerceAtLeast(0L)) / 1_000L
-            listenSessionSongId = null
-            listenSessionStartedAtMs = 0L
-            if (seconds > 0L) onSongListenSecondsAdded?.invoke(activeSongId, seconds)
-        }
-        if (playing && songId != null && listenSessionSongId == null) {
-            listenSessionSongId = songId
-            listenSessionStartedAtMs = now
-        }
     }
 
     private fun syncIndexFromPlayer(c: MediaController): Boolean {
@@ -941,7 +865,7 @@ class PlayerController internal constructor(
         if (!syncIndexFromPlayer(c)) return
         syncEffectivePlaybackTuning(reason = "sync-state")
         syncPosition()
-        updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
+        playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
         isPlaying = c.isPlaying
         isBuffering = c.playbackState == Player.STATE_BUFFERING
         if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
@@ -1150,7 +1074,7 @@ class PlayerController internal constructor(
             return
         }
         notifyPlaybackProgress(c.currentPosition.toInt().coerceAtLeast(0))
-        updateListenSession(c.currentMediaItem?.mediaId, c.isPlaying)
+        playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
         isPlaying = c.isPlaying
         isBuffering = c.playbackState == Player.STATE_BUFFERING
         publishSurfaceState()
@@ -1402,14 +1326,14 @@ class PlayerController internal constructor(
         }
         deferredPlaybackPublish = publish
         mainHandler.post(publish)
-        playCountState.requestPlayback(song.id)
+        playbackStatistics.requestPlayback(song.id)
         pendingMediaSelection.select(song.id)
         startControllerPlayback(c, safe, requestedStartMs, song.id)
     }
 
     private fun clearPendingMediaSelection() {
         pendingMediaSelection.clear()
-        playCountState.clearRequestAndPending()
+        playbackStatistics.clearRequestAndPending()
     }
 
     private fun startControllerPlayback(
@@ -1521,7 +1445,11 @@ class PlayerController internal constructor(
         }
         MediaControllerQueueSync.executeSyncPlan(c, plan)
         logQueueSyncMs(
-            action = "controller-setMediaItems",
+            action = if (plan is PlaybackQueueSyncPlan.ReplaceMediaItems) {
+                "controller-replaceMediaItems"
+            } else {
+                "controller-setMediaItems"
+            },
             syncStartedNs,
             "items=${result.itemsCount} startIndex=${result.startIndex} " +
                 "preserve=${result.preserveCurrentPlayback} aligned=${result.queueAligned} " +
@@ -1736,7 +1664,7 @@ class PlayerController internal constructor(
     }
 
     fun release() {
-        updateListenSession(controller?.currentMediaItem?.mediaId, false)
+        playbackStatistics.observePlayback(controller?.currentMediaItem?.mediaId, false)
         queueMirrorCoordinator.clear()
         clearPendingMediaSelection()
         deferredPlaybackPublish?.let { mainHandler.removeCallbacks(it) }

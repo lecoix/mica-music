@@ -94,9 +94,9 @@ internal fun MicaCustomWallpaperSlice(
     val (gradientStart, gradientEnd) = preset.gradientColors(isDark, customMica)
     val wallpaperPath = LocalCustomWallpaperPath.current
     val wallpaperBitmap = remember(wallpaperPath) { loadCustomWallpaperBitmap(wallpaperPath) }
-    val uiSettings = LocalAppUiSettings.current
-    val viewportTopPx = uiSettings?.customWallpaperViewportTopPx ?: 0f
-    val viewportHeightPx = uiSettings?.customWallpaperViewportHeightPx ?: 0f
+    val viewport = LocalWallpaperViewportState.current
+    val viewportTopPx = viewport?.topPx ?: 0f
+    val viewportHeightPx = viewport?.heightPx ?: 0f
     var sliceTopPx by remember { mutableFloatStateOf(Float.NaN) }
     var sliceHeightPx by remember { mutableFloatStateOf(Float.NaN) }
     var cachedTopPx by remember { mutableFloatStateOf(Float.NaN) }
@@ -237,13 +237,13 @@ fun AnimatedMicaAppBackground(modifier: Modifier = Modifier) {
     val start = animateColorAsState(targetStart, spec, label = "micaGradStart").value
     val end = animateColorAsState(targetEnd, spec, label = "micaGradEnd").value
     val wallpaperPath = LocalCustomWallpaperPath.current
-    val uiSettings = LocalAppUiSettings.current
+    val viewport = LocalWallpaperViewportState.current
     Box(
         modifier = modifier
             .fillMaxSize()
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
-                uiSettings?.updateCustomWallpaperViewport(bounds.top, bounds.height)
+                viewport?.update(bounds.top, bounds.height)
             }
             .background(Brush.verticalGradient(listOf(start, end))),
     ) {

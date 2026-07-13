@@ -1,6 +1,11 @@
 package com.mica.music.data.scanner
 
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsFormat
+import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.toLegacyLyricLines
+import com.mica.music.data.toLyricsDocumentCompat
 
 /**
  * 歌词文本清理：严格过滤 FFmpeg 元数据噪声；仅拒绝明显二进制乱码。
@@ -29,6 +34,13 @@ internal object LyricsSanitizer {
             compareBy<List<LyricLine>> { score(it) }
                 .thenBy { lines -> lines.count { it.timeMs > 0 } }
                 .thenBy { it.size },
+        )
+
+    fun pickBestDocument(candidates: List<LyricsDocument>): LyricsDocument? =
+        candidates.maxWithOrNull(
+            compareBy<LyricsDocument> { score(it.toLegacyLyricLines()) }
+                .thenBy { document -> document.lines.count { it.startMs > 0 } }
+                .thenBy { it.lines.size },
         )
 
     /** FFmpeg / 容器元数据行（绝不是歌词） */
@@ -99,11 +111,19 @@ internal object LyricsSanitizer {
             .filter { it.isNotEmpty() && !isNoiseLine(it) }
             .joinToString("\n")
 
-    fun parseFiltered(raw: String): List<LyricLine> {
-        if (TtmlLyricsParser.looksLikeTtml(raw)) return finalize(TtmlLyricsParser.parse(raw))
+    fun parseFiltered(raw: String): List<LyricLine> =
+        parseFilteredDocument(raw).toLegacyLyricLines()
+
+    fun parseFilteredDocument(
+        raw: String,
+        origin: LyricsOrigin = LyricsOrigin.UNKNOWN,
+    ): LyricsDocument {
+        if (TtmlLyricsParser.looksLikeTtml(raw)) {
+            return finalizeDocument(TtmlLyricsParser.parseDocument(raw).copy(origin = origin))
+        }
         val body = filterNoise(raw.trim())
-        if (body.isBlank()) return emptyList()
-        return finalize(LrcParser.parse(body))
+        if (body.isBlank()) return LyricsDocument(origin = origin)
+        return finalizeDocument(LrcParser.parseDocument(body).copy(origin = origin))
     }
 
     fun finalize(lines: List<LyricLine>): List<LyricLine> {
@@ -115,6 +135,24 @@ internal object LyricsSanitizer {
         return cleaned.takeIf { it.isNotEmpty() && it.any { it.text.length >= 1 } } ?: emptyList()
     }
 
+    fun finalizeDocument(document: LyricsDocument): LyricsDocument {
+        val cleaned = document.lines.mapNotNull { line ->
+            val legacyText = MetadataTextFix.normalize(
+                line.parts.joinToString("\n") { it.text }.trim(),
+            )
+            if (legacyText.isEmpty() || isPlaceholderLyric(legacyText) || isBinaryGarbage(legacyText)) {
+                return@mapNotNull null
+            }
+            val parts = line.parts.mapNotNull { part ->
+                MetadataTextFix.normalize(part.text.trim())
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { part.copy(text = it) }
+            }
+            line.copy(parts = parts).takeIf { parts.isNotEmpty() }
+        }
+        return document.copy(lines = cleaned)
+    }
+
     fun finalizeRelaxed(text: String): List<LyricLine>? {
         val lines = text.lines()
             .map { MetadataTextFix.normalize(it.trim()) }
@@ -124,6 +162,12 @@ internal object LyricsSanitizer {
             .filter { !LyricsEncoding.looksLikeMojibake(it) }
         return lines.map { LyricLine(timeMs = 0, it) }.takeIf { it.isNotEmpty() }
     }
+
+    fun finalizeRelaxedDocument(
+        text: String,
+        origin: LyricsOrigin = LyricsOrigin.UNKNOWN,
+    ): LyricsDocument? = finalizeRelaxed(text)
+        ?.toLyricsDocumentCompat(format = LyricsFormat.PLAIN, origin = origin)
 
     fun score(lines: List<LyricLine>): Int {
         if (lines.isEmpty()) return 0
@@ -139,4 +183,6 @@ internal object LyricsSanitizer {
         val lineBonus = valid.size * 30
         return chars + timed + cueBonus + lineBonus
     }
+
+    fun score(document: LyricsDocument): Int = score(document.toLegacyLyricLines())
 }

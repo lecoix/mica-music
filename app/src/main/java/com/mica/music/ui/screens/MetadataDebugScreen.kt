@@ -54,8 +54,8 @@ fun MetadataDebugContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val songs = library.songs
-    var songIndex by remember(songs.size, playerController.currentSong?.id) {
-        val current = playerController.currentSong
+    var songIndex by remember(songs.size, playerController.playbackSurfaceState.currentSong?.id) {
+        val current = playerController.playbackSurfaceState.currentSong
         val idx = if (current != null) songs.indexOfFirst { it.id == current.id } else -1
         mutableIntStateOf(if (idx >= 0) idx else 0)
     }

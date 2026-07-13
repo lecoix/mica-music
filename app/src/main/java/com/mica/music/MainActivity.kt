@@ -44,6 +44,7 @@ import com.mica.music.ui.theme.AnimatedMicaAppBackground
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
+import com.mica.music.ui.theme.WallpaperViewportState
 import eightbitlab.com.blurview.BlurTarget
 
 @Composable
@@ -177,12 +178,16 @@ class MainActivity : ComponentActivity() {
         root.addView(blurTarget)
         root.addView(overlayCompose)
         setContentView(root)
+        val wallpaperViewportState = WallpaperViewportState()
 
         mainCompose.setContent {
             val coordinator = navigationCoordinator
             val snackbarHostState = remember { SnackbarHostState() }
 
-            MicaAppRoot(uiSettings = uiSettings) {
+            MicaAppRoot(
+                uiSettings = uiSettings,
+                wallpaperViewportState = wallpaperViewportState,
+            ) {
                 val postNotificationsLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
                 ) {
@@ -203,8 +208,8 @@ class MainActivity : ComponentActivity() {
                     playerController.connectIfNeeded()
                 }
 
-                LaunchedEffect(library.songIds) {
-                    viewModel.syncPlaybackQueueWithLibrarySongs("libraryIds")
+                LaunchedEffect(library.songIds, library.queueMetadataRevision) {
+                    viewModel.syncPlaybackQueueWithLibrarySongs("libraryQueueRevision")
                 }
 
                 CompositionLocalProvider(LocalMicaBlurTarget provides blurTarget) {
@@ -220,6 +225,7 @@ class MainActivity : ComponentActivity() {
                         AppNavigationMain(
                             coordinator = coordinator,
                             library = library,
+                            playlistStore = viewModel.playlistStore,
                             playerController = playerController,
                             uiSettings = uiSettings,
                         )
@@ -246,11 +252,15 @@ class MainActivity : ComponentActivity() {
                 overlayCompose.layoutParams = lp
             }
 
-            MicaAppRoot(uiSettings = uiSettings) {
+            MicaAppRoot(
+                uiSettings = uiSettings,
+                wallpaperViewportState = wallpaperViewportState,
+            ) {
                 CompositionLocalProvider(LocalMicaBlurTarget provides blurTarget) {
                     PlayerSheetOverlay(
                         coordinator = coordinator,
                         library = library,
+                        playlistStore = viewModel.playlistStore,
                         playerController = playerController,
                         sleepTimer = viewModel.sleepTimer,
                         uiSettings = uiSettings,

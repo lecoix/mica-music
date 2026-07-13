@@ -2,6 +2,7 @@ package com.mica.music
 
 import android.app.Application
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlayerController
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.util.BluetoothAudioDiagnostics
@@ -15,6 +16,10 @@ class MicaApp : Application() {
      */
     val playerController: PlayerController by lazy(LazyThreadSafetyMode.NONE) {
         PlayerController(this)
+    }
+
+    val playlistStore: PlaylistStore by lazy(LazyThreadSafetyMode.NONE) {
+        PlaylistStore(this)
     }
 
     override fun onCreate() {

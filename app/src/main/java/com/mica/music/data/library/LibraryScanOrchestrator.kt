@@ -160,7 +160,7 @@ internal class LibraryScanOrchestrator(
             val lyricsParserUpgrade =
                 backing.scanEnvironment.lyricsParserVersion() < CURRENT_LYRICS_PARSER_VERSION
             val scanCachedSongs = if (lyricsParserUpgrade) {
-                cachedSongs.map { it.copy(lyrics = emptyList()) }
+                cachedSongs.map { it.copy(lyricsDocument = com.mica.music.data.LyricsDocument()) }
             } else {
                 cachedSongs
             }

@@ -4,6 +4,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsFormat
+import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.toLegacyLyricLines
+import com.mica.music.data.toLyricsDocumentCompat
 /**
  * 读取内嵌歌词：外挂 .lrc → ID3v2（USLT 等）/ FLAC Vorbis / M4A(©ly) / APE。
  * 主扫描路径由 TagLib 提供候选；此处做二进制帧解析，不再使用 FFmpeg 兜底。
@@ -25,6 +30,17 @@ internal object EmbeddedLyricsReader {
     ): List<LyricLine> =
         ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUris)
 
+    fun readExternalDocumentOnly(
+        context: Context,
+        uri: Uri,
+        displayName: String?,
+        filePath: String = "",
+        externalLyricsParent: DocumentFile? = null,
+        externalLyricsUris: List<String> = emptyList(),
+    ): LyricsDocument = ExternalLyricsReader.readDocument(
+        context, uri, displayName, filePath, externalLyricsParent, externalLyricsUris,
+    )
+
     fun read(
         context: Context,
         uri: Uri,
@@ -33,15 +49,29 @@ internal object EmbeddedLyricsReader {
         filePath: String = "",
         externalLyricsParent: DocumentFile? = null,
         externalLyricsUris: List<String> = emptyList(),
-    ): List<LyricLine> {
-        val candidates = mutableListOf<List<LyricLine>>()
-        ExternalLyricsReader.read(context, uri, displayName, filePath, externalLyricsParent, externalLyricsUris)
-            .takeIf { it.isNotEmpty() }
+    ): List<LyricLine> = readDocument(
+        context, uri, mimeType, displayName, filePath, externalLyricsParent, externalLyricsUris,
+    ).toLegacyLyricLines()
+
+    fun readDocument(
+        context: Context,
+        uri: Uri,
+        mimeType: String?,
+        displayName: String?,
+        filePath: String = "",
+        externalLyricsParent: DocumentFile? = null,
+        externalLyricsUris: List<String> = emptyList(),
+    ): LyricsDocument {
+        val candidates = mutableListOf<LyricsDocument>()
+        ExternalLyricsReader.readDocument(
+            context, uri, displayName, filePath, externalLyricsParent, externalLyricsUris,
+        )
+            .takeIf { it.lines.isNotEmpty() }
             ?.let { candidates += it }
-        readFastEmbeddedOnly(context, uri, mimeType, displayName)
-            .takeIf { it.isNotEmpty() }
+        readFastEmbeddedDocument(context, uri, mimeType, displayName)
+            .takeIf { it.lines.isNotEmpty() }
             ?.let { candidates += it }
-        return pickBestLyricsCandidate(candidates) ?: emptyList()
+        return LyricsSanitizer.pickBestDocument(candidates) ?: LyricsDocument()
     }
 
     fun readFastEmbeddedOnly(
@@ -49,7 +79,14 @@ internal object EmbeddedLyricsReader {
         uri: Uri,
         mimeType: String?,
         displayName: String?,
-    ): List<LyricLine> {
+    ): List<LyricLine> = readFastEmbeddedDocument(context, uri, mimeType, displayName).toLegacyLyricLines()
+
+    fun readFastEmbeddedDocument(
+        context: Context,
+        uri: Uri,
+        mimeType: String?,
+        displayName: String?,
+    ): LyricsDocument {
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         val mime = mimeType.orEmpty().lowercase()
         val bytes = AudioProbeBytes.readFastForLyrics(
@@ -57,38 +94,45 @@ internal object EmbeddedLyricsReader {
             uri = uri,
             mimeType = mime,
             displayName = displayName,
-        ) ?: return emptyList()
-        return readFromBinary(bytes, mime, ext).orEmpty()
+        ) ?: return LyricsDocument(origin = LyricsOrigin.EMBEDDED)
+        return readFromBinary(bytes, mime, ext) ?: LyricsDocument(origin = LyricsOrigin.EMBEDDED)
     }
 
-    private fun pickBestLyricsCandidate(candidates: List<List<LyricLine>>): List<LyricLine>? =
-        LyricsSanitizer.pickBest(candidates)
-
-    private fun parseLyricsText(raw: String): List<LyricLine>? {
+    private fun parseLyricsText(raw: String): LyricsDocument? {
         if (raw.isBlank()) return null
         val normalized = MetadataTextFix.normalize(raw)
-        LyricsSanitizer.parseFiltered(normalized).takeIf { it.isNotEmpty() }?.let { return it }
-        LyricsSanitizer.finalize(LrcParser.parse(normalized)).takeIf { it.isNotEmpty() }?.let { return it }
-        return LyricsSanitizer.finalizeRelaxed(normalized)
+        LyricsSanitizer.parseFilteredDocument(normalized, LyricsOrigin.EMBEDDED)
+            .takeIf { it.lines.isNotEmpty() }
+            ?.let { return it }
+        LyricsSanitizer.finalizeDocument(
+            LrcParser.parseDocument(normalized).copy(origin = LyricsOrigin.EMBEDDED),
+        ).takeIf { it.lines.isNotEmpty() }?.let { return it }
+        return LyricsSanitizer.finalizeRelaxedDocument(normalized, LyricsOrigin.EMBEDDED)
     }
 
-    private fun readFromBinary(bytes: ByteArray, mime: String, ext: String): List<LyricLine>? {
-        val candidates = mutableListOf<List<LyricLine>>()
+    private fun readFromBinary(bytes: ByteArray, mime: String, ext: String): LyricsDocument? {
+        val candidates = mutableListOf<LyricsDocument>()
         parseId3(bytes)?.let { candidates += it }
         parseFlac(bytes)?.let { candidates += it }
         parseApe(bytes)?.let { candidates += it }
         if (mime.contains("mp4") || mime.contains("alac") || ext in setOf("m4a", "m4b", "mp4", "aac", "alac")) {
             Mp4LyricsReader.read(bytes)?.let { parseLyricsText(it) }?.let { candidates += it }
         }
-        return LyricsSanitizer.pickBest(candidates)
+        return LyricsSanitizer.pickBestDocument(candidates)
     }
 
     internal fun readFromBinaryForTest(bytes: ByteArray, mime: String = "audio/wav", ext: String = "wav"): List<LyricLine>? =
-        readFromBinary(bytes, mime, ext)
+        readFromBinary(bytes, mime, ext)?.toLegacyLyricLines()
 
-    private fun parseId3(bytes: ByteArray): List<LyricLine>? {
+    internal fun readDocumentFromBinaryForTest(
+        bytes: ByteArray,
+        mime: String = "audio/wav",
+        ext: String = "wav",
+    ): LyricsDocument? = readFromBinary(bytes, mime, ext)
+
+    private fun parseId3(bytes: ByteArray): LyricsDocument? {
         var searchFrom = 0
-        var best: List<LyricLine>? = null
+        var best: LyricsDocument? = null
         var bestScore = 0
         while (searchFrom < bytes.size - 10) {
             val idx = indexOf(bytes, "ID3".toByteArray(), searchFrom)
@@ -105,7 +149,7 @@ internal object EmbeddedLyricsReader {
         return best
     }
 
-    private fun parseId3TagAt(bytes: ByteArray, start: Int): List<LyricLine>? {
+    private fun parseId3TagAt(bytes: ByteArray, start: Int): LyricsDocument? {
         if (start + 10 > bytes.size) return null
         if (bytes[start] != 'I'.code.toByte() || bytes[start + 1] != 'D'.code.toByte() ||
             bytes[start + 2] != '3'.code.toByte()
@@ -130,7 +174,7 @@ internal object EmbeddedLyricsReader {
         }
         val end = (start + 10 + tagSize).coerceAtMost(bytes.size)
         val frameIdLen = if (versionMajor == 2) 3 else 4
-        val byFrame = linkedMapOf<String, List<LyricLine>>()
+        val byFrame = linkedMapOf<String, LyricsDocument>()
 
         while (offset + frameIdLen + 6 <= end) {
             val frameId = String(bytes, offset, frameIdLen, Charsets.US_ASCII)
@@ -151,16 +195,16 @@ internal object EmbeddedLyricsReader {
                     "SYLT" -> parseSylt(payload)
                     else -> extractLyricsTextPayload(frameId, payload)?.let(::parseLyricsText)
                 }
-                parsed?.takeIf { it.isNotEmpty() }?.let { lines ->
+                parsed?.takeIf { it.lines.isNotEmpty() }?.let { document ->
                     val prev = byFrame[frameId]
-                    if (prev == null || LyricsSanitizer.score(lines) > LyricsSanitizer.score(prev)) {
-                        byFrame[frameId] = lines
+                    if (prev == null || LyricsSanitizer.score(document) > LyricsSanitizer.score(prev)) {
+                        byFrame[frameId] = document
                     }
                 }
             }
             offset = frameEnd
         }
-        return LyricsSanitizer.pickBest(byFrame.values.toList())
+        return LyricsSanitizer.pickBestDocument(byFrame.values.toList())
     }
 
     private fun extractLyricsTextPayload(frameId: String, payload: ByteArray): String? = when (frameId) {
@@ -183,7 +227,7 @@ internal object EmbeddedLyricsReader {
 
     private data class SyltEntry(val timeMs: Int, val text: String)
 
-    private fun parseSylt(payload: ByteArray): List<LyricLine>? {
+    private fun parseSylt(payload: ByteArray): LyricsDocument? {
         if (payload.size < 10) return null
         val encoding = payload[0].toInt() and 0xFF
         if (encoding !in 0..3) return null
@@ -207,7 +251,10 @@ internal object EmbeddedLyricsReader {
             if (field.text.isNotEmpty()) entries += SyltEntry(timeMs, field.text)
         }
         if (entries.isEmpty() || entries.size >= MAX_SYLT_ENTRIES) return null
-        return groupSyltEntries(entries)
+        return groupSyltEntries(entries)?.toLyricsDocumentCompat(
+            format = LyricsFormat.SYLT,
+            origin = LyricsOrigin.EMBEDDED,
+        )
     }
 
     private data class DecodedId3Field(val text: String, val nextOffset: Int)
@@ -332,11 +379,11 @@ internal object EmbeddedLyricsReader {
         return LyricsEncoding.decodeId3Bytes(slice, encoding).takeIf { it.isNotEmpty() }
     }
 
-    private fun parseFlac(bytes: ByteArray): List<LyricLine>? {
+    private fun parseFlac(bytes: ByteArray): LyricsDocument? {
         val start = indexOf(bytes, "fLaC".toByteArray(), 0)
         if (start < 0) return null
         var offset = start + 4
-        var best: List<LyricLine>? = null
+        var best: LyricsDocument? = null
         var bestScore = 0
         while (offset + 4 <= bytes.size) {
             val header = bytes[offset].toInt() and 0xFF
@@ -360,14 +407,14 @@ internal object EmbeddedLyricsReader {
         return best
     }
 
-    private fun parseVorbisComment(bytes: ByteArray, start: Int, end: Int): List<LyricLine>? {
+    private fun parseVorbisComment(bytes: ByteArray, start: Int, end: Int): LyricsDocument? {
         if (start + 8 > end) return null
         val vendorLen = readUInt32Le(bytes, start).toInt()
         var pos = start + 4 + vendorLen
         if (pos + 4 > end) return null
         val count = readUInt32Le(bytes, pos).toInt()
         pos += 4
-        var best: List<LyricLine>? = null
+        var best: LyricsDocument? = null
         var bestScore = 0
         for (i in 0 until count) {
             if (pos + 4 > end) return best
@@ -393,7 +440,7 @@ internal object EmbeddedLyricsReader {
         return best
     }
 
-    private fun parseApe(bytes: ByteArray): List<LyricLine>? {
+    private fun parseApe(bytes: ByteArray): LyricsDocument? {
         val marker = "APETAGEX".toByteArray()
         var search = bytes.size - marker.size
         while (search >= 0) {
@@ -405,7 +452,7 @@ internal object EmbeddedLyricsReader {
         return null
     }
 
-    private fun parseApeAt(bytes: ByteArray, start: Int): List<LyricLine>? {
+    private fun parseApeAt(bytes: ByteArray, start: Int): LyricsDocument? {
         if (start + 32 > bytes.size) return null
         val tagSize = readUInt32Le(bytes, start + 12).toInt()
         val itemCount = readUInt32Le(bytes, start + 16).toInt()

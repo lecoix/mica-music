@@ -6,7 +6,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
@@ -20,11 +19,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.mica.music.MainActivity
-import com.mica.music.data.ReplayGainPolicy
 import com.mica.music.data.preferences.EqualizerPreferences
-import com.mica.music.data.preferences.MicaSettingsStore
 import com.mica.music.data.preferences.PlaybackUiPreferences
-import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.util.DiagnosticLog
 
 /**
@@ -36,6 +32,8 @@ class MicaMediaService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
     private var compositePlayer: MicaCompositePlayer? = null
+    private var replayGainStateOwner: ReplayGainStateOwner? = null
+    private var spectrumAnalyzerStateOwner: SpectrumAnalyzerStateOwner? = null
     /** Fixed at Exo build; P6 USB attach/detach will change this via full-mode rebuild. */
     private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
@@ -43,17 +41,6 @@ class MicaMediaService : MediaSessionService() {
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
     private var noisyReceiverRegistered = false
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val replayGainPlayerListener = object : Player.Listener {
-        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-            applyReplayGain(mediaItem)
-        }
-    }
-    private val replayGainPreferenceListener =
-        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == ReplayGainPreferences.KEY_MODE) {
-                applyReplayGain(compositePlayer?.currentMediaItem)
-            }
-        }
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -78,15 +65,12 @@ class MicaMediaService : MediaSessionService() {
 
         PlaybackCapabilityDiagnostics.logStartup(this)
         PcmDeliveryExperiment.logActiveExperiments()
-        MicaSpectrumAnalyzer.setEnabled(spectrumTapEnabled(), notifyPipeline = false)
+        spectrumAnalyzerStateOwner = SpectrumAnalyzerStateOwner(this).also { it.start() }
 
         val stack = ExoPlaybackStackFactory.build(this, activeOutputPath)
         exoPlayer = stack.exoPlayer
         compositePlayer = stack.compositePlayer
-        stack.compositePlayer.addListener(replayGainPlayerListener)
-        MicaSettingsStore.prefs(this)
-            .registerOnSharedPreferenceChangeListener(replayGainPreferenceListener)
-        applyReplayGain(stack.compositePlayer.currentMediaItem)
+        replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
 
         wireEqualizerAndSpectrumHandlers()
         configureQualityMode(
@@ -158,9 +142,10 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        MicaSettingsStore.prefs(this)
-            .unregisterOnSharedPreferenceChangeListener(replayGainPreferenceListener)
-        compositePlayer?.removeListener(replayGainPlayerListener)
+        replayGainStateOwner?.release()
+        replayGainStateOwner = null
+        spectrumAnalyzerStateOwner?.release()
+        spectrumAnalyzerStateOwner = null
         if (noisyReceiverRegistered) {
             runCatching { unregisterReceiver(noisyReceiver) }
             noisyReceiverRegistered = false
@@ -243,13 +228,8 @@ class MicaMediaService : MediaSessionService() {
         )
     }
 
-    private fun spectrumTapEnabled(): Boolean = PlaybackUiPreferences.spectrumTapEnabled(this)
-
-    private fun applyReplayGain(mediaItem: androidx.media3.common.MediaItem?) {
-        val tags = mediaItem?.let(SongMediaItemCodec::decode)?.replayGain
-        val gain = tags?.let { ReplayGainPolicy.linearGain(it, ReplayGainPreferences.mode(this)) } ?: 1f
-        compositePlayer?.setReplayGainVolume(gain)
-    }
+    private fun spectrumTapEnabled(): Boolean =
+        spectrumAnalyzerStateOwner?.currentEnabled ?: PlaybackUiPreferences.spectrumTapEnabled(this)
 
     private fun flushAudioPipeline(reason: String) {
         val player = compositePlayer ?: return

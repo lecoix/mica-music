@@ -74,7 +74,7 @@ class LibraryRepositoryTest {
 
         val loaded = repository.songById(song.id)
 
-        assertEquals(song.lyrics, loaded?.lyrics)
+        assertEquals(song.lyricsDocument, loaded?.lyricsDocument)
         assertEquals(song.id, loaded?.id)
     }
 

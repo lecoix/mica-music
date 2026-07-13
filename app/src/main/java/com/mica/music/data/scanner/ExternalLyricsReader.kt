@@ -5,6 +5,9 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.util.DiagnosticLog
 import java.io.File
 /**
@@ -15,15 +18,18 @@ internal object ExternalLyricsReader {
     private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
     private val sidecarExtensions = listOf("lrc", "ttml")
 
-    fun readDirectUris(context: Context, uriStrings: List<String>): List<LyricLine>? {
+    fun readDirectUris(context: Context, uriStrings: List<String>): List<LyricLine>? =
+        readDirectDocuments(context, uriStrings)?.toLegacyLyricLines()
+
+    fun readDirectDocuments(context: Context, uriStrings: List<String>): LyricsDocument? {
         if (uriStrings.isEmpty()) return null
         DiagnosticLog.event(LYRICS_TRACE, "direct-read start uris=${uriStrings.size}")
         val candidates = uriStrings.mapNotNull { readLyricsByUri(context, it) }
-        val selected = LyricsSanitizer.pickBest(candidates)
+        val selected = LyricsSanitizer.pickBestDocument(candidates)
         DiagnosticLog.event(
             LYRICS_TRACE,
-            "direct-read finish candidates=${candidates.size} selectedLines=${selected?.size ?: 0} " +
-                "selectedCues=${selected?.sumOf { it.cues.size } ?: 0}",
+            "direct-read finish candidates=${candidates.size} selectedLines=${selected?.lines?.size ?: 0} " +
+                "selectedTokens=${selected?.lines?.sumOf { it.tokens.size } ?: 0}",
         )
         return selected
     }
@@ -35,8 +41,19 @@ internal object ExternalLyricsReader {
         filePath: String,
         parentDirectory: DocumentFile? = null,
         directLyricsUris: List<String> = emptyList(),
-    ): List<LyricLine> {
-        val candidates = mutableListOf<List<LyricLine>>()
+    ): List<LyricLine> = readDocument(
+        context, uri, displayName, filePath, parentDirectory, directLyricsUris,
+    ).toLegacyLyricLines()
+
+    fun readDocument(
+        context: Context,
+        uri: Uri,
+        displayName: String?,
+        filePath: String,
+        parentDirectory: DocumentFile? = null,
+        directLyricsUris: List<String> = emptyList(),
+    ): LyricsDocument {
+        val candidates = mutableListOf<LyricsDocument>()
         directLyricsUris.mapNotNullTo(candidates) { readLyricsByUri(context, it) }
         for (base in basenameCandidates(displayName, filePath)) {
             parentDirectory
@@ -46,7 +63,7 @@ internal object ExternalLyricsReader {
             readLyricsByAbsolutePath(filePath, base)?.let { candidates += it }
             readLyricsViaDocumentTree(context, uri, base)?.let { candidates += it }
         }
-        return LyricsSanitizer.pickBest(candidates) ?: emptyList()
+        return LyricsSanitizer.pickBestDocument(candidates) ?: LyricsDocument(origin = LyricsOrigin.EXTERNAL)
     }
 
     private fun basenameCandidates(
@@ -69,7 +86,7 @@ internal object ExternalLyricsReader {
         return names.toList()
     }
 
-    private fun readLyricsByAbsolutePath(audioPath: String, baseName: String): List<LyricLine>? {
+    private fun readLyricsByAbsolutePath(audioPath: String, baseName: String): LyricsDocument? {
         if (audioPath.isBlank()) return null
         val audioFile = File(audioPath)
         val parent = when {
@@ -84,7 +101,7 @@ internal object ExternalLyricsReader {
         context: Context,
         audioUri: Uri,
         baseName: String,
-    ): List<LyricLine>? {
+    ): LyricsDocument? {
         if (!DocumentsContract.isDocumentUri(context, audioUri)) return null
         val audioDoc = DocumentFile.fromSingleUri(context, audioUri) ?: return null
         val parent = audioDoc.parentFile ?: return null
@@ -99,8 +116,8 @@ internal object ExternalLyricsReader {
         context: Context,
         parent: DocumentFile,
         baseName: String,
-    ): List<LyricLine>? {
-        val candidates = mutableListOf<List<LyricLine>>()
+    ): LyricsDocument? {
+        val candidates = mutableListOf<LyricsDocument>()
         sidecarExtensions.forEach { extension ->
             val direct = parent.findFile("$baseName.$extension")
                 ?: parent.findFile("$baseName.${extension.uppercase()}")
@@ -115,12 +132,12 @@ internal object ExternalLyricsReader {
                 readLyricsText(context, child)?.let(::parseLyricsFile)?.let { candidates += it }
             }
         }
-        return LyricsSanitizer.pickBest(candidates)
+        return LyricsSanitizer.pickBestDocument(candidates)
     }
 
-    private fun readLyricsInDirectory(dir: File, baseName: String): List<LyricLine>? {
+    private fun readLyricsInDirectory(dir: File, baseName: String): LyricsDocument? {
         if (!dir.isDirectory) return null
-        val candidates = mutableListOf<List<LyricLine>>()
+        val candidates = mutableListOf<LyricsDocument>()
         sidecarExtensions.forEach { extension ->
             val exact = File(dir, "$baseName.$extension")
             if (exact.isFile) readLyricsTextFromFile(exact)?.let(::parseLyricsFile)?.let { candidates += it }
@@ -131,7 +148,7 @@ internal object ExternalLyricsReader {
                 readLyricsTextFromFile(file)?.let(::parseLyricsFile)?.let { candidates += it }
             }
         }
-        return LyricsSanitizer.pickBest(candidates)
+        return LyricsSanitizer.pickBestDocument(candidates)
     }
 
     private fun readLyricsText(context: Context, doc: DocumentFile): String? =
@@ -144,7 +161,7 @@ internal object ExternalLyricsReader {
     private fun readLyricsTextFromFile(file: File): String? =
         runCatching { decodeLyricsBytes(file.readBytes()) }.getOrNull()
 
-    private fun readLyricsByUri(context: Context, uriString: String?): List<LyricLine>? {
+    private fun readLyricsByUri(context: Context, uriString: String?): LyricsDocument? {
         if (uriString.isNullOrBlank()) {
             DiagnosticLog.event(LYRICS_TRACE, "uri-read rejected blank-uri")
             return null
@@ -168,7 +185,7 @@ internal object ExternalLyricsReader {
                     LYRICS_TRACE,
                     "uri-read parsed uri=$uri bytes=${bytes.size} chars=${decoded.length} " +
                         "format=${if (TtmlLyricsParser.looksLikeTtml(decoded)) "ttml" else "text"} " +
-                        "lines=${parsed?.size ?: 0} cues=${parsed?.sumOf { line -> line.cues.size } ?: 0}",
+                        "lines=${parsed?.lines?.size ?: 0} tokens=${parsed?.lines?.sumOf { line -> line.tokens.size } ?: 0}",
                 )
                 parsed
             }
@@ -183,10 +200,14 @@ internal object ExternalLyricsReader {
     private fun decodeLyricsBytes(bytes: ByteArray): String =
         LyricsEncoding.decodeBytes(bytes)
 
-    private fun parseLyricsFile(text: String): List<LyricLine>? {
+    private fun parseLyricsFile(text: String): LyricsDocument? {
         if (text.isBlank()) return null
         val normalized = MetadataTextFix.normalize(text)
-        LyricsSanitizer.parseFiltered(normalized).takeIf { it.isNotEmpty() }?.let { return it }
-        return LyricsSanitizer.finalize(LrcParser.parse(normalized)).takeIf { it.isNotEmpty() }
+        LyricsSanitizer.parseFilteredDocument(normalized, LyricsOrigin.EXTERNAL)
+            .takeIf { it.lines.isNotEmpty() }
+            ?.let { return it }
+        return LyricsSanitizer.finalizeDocument(
+            LrcParser.parseDocument(normalized).copy(origin = LyricsOrigin.EXTERNAL),
+        ).takeIf { it.lines.isNotEmpty() }
     }
 }

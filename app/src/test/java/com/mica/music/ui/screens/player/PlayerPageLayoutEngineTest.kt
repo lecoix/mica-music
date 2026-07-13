@@ -58,6 +58,38 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun panelHeight_onlyChangesLowerPanelGeometry() {
+        val preview = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 360.dp,
+                lyricsProgress = 0.35f,
+                lyricsChromeFade = 0.2f,
+                lyricsExpanded = true,
+                useCoverEdgeProgress = true,
+                coverFlowModeEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val actual = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 500.dp,
+                lyricsProgress = 0.35f,
+                lyricsChromeFade = 0.2f,
+                lyricsExpanded = true,
+                useCoverEdgeProgress = true,
+                coverFlowModeEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(preview.copy(lower = actual.lower), actual)
+        assertEquals(preview.lower.coverEdgeOnPlaySurface, actual.lower.coverEdgeOnPlaySurface)
+        assertEquals(preview.lower.chromeProgressAlpha, actual.lower.chromeProgressAlpha)
+    }
+
+    @Test
     fun lyricsProgress_fadesMeta() {
         val normal = PlayerPageLayoutEngine.computeFrame(
             input = baseInput(lyricsProgress = 0f),

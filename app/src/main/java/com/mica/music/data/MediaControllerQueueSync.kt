@@ -2,6 +2,7 @@ package com.mica.music.data
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.mica.music.media.SongMediaItemCodec
 
 internal data class QueueSyncResult(
     val itemsCount: Int,
@@ -22,6 +23,11 @@ internal sealed class PlaybackQueueSyncPlan {
     data class SetMediaItems(
         val items: List<MediaItem>,
         val startPositionMs: Long,
+        override val result: QueueSyncResult,
+    ) : PlaybackQueueSyncPlan()
+
+    data class ReplaceMediaItems(
+        val replacements: List<IndexedValue<MediaItem>>,
         override val result: QueueSyncResult,
     ) : PlaybackQueueSyncPlan()
 }
@@ -70,11 +76,22 @@ internal object MediaControllerQueueSync {
         val targetSongId = queue.getOrNull(safeTarget)?.id
         val serviceIdAtTarget = runCatching { player.getMediaItemAt(safeTarget).mediaId }.getOrNull()
         val targetMismatch = targetSongId != null && targetSongId != serviceIdAtTarget
-        val queueAligned = player.mediaItemCount == queue.size &&
+        val identityAligned = player.mediaItemCount == queue.size &&
             queue.indices.all { index ->
                 runCatching { player.getMediaItemAt(index).mediaId == queue[index].id }
                     .getOrDefault(false)
             }
+        val metadataChangedIndices = if (identityAligned) {
+            queue.indices.filter { index ->
+                runCatching {
+                    SongMediaItemCodec.metadataRevision(player.getMediaItemAt(index)) !=
+                        SongMediaItemCodec.metadataRevision(queue[index])
+                }.getOrDefault(true)
+            }
+        } else {
+            emptyList()
+        }
+        val queueAligned = identityAligned && metadataChangedIndices.isEmpty()
         if (preserveCurrentPlayback && queueAligned && !targetMismatch) {
             return PlaybackQueueSyncPlan.Skip(
                 QueueSyncResult(
@@ -83,6 +100,23 @@ internal object MediaControllerQueueSync {
                     preserveCurrentPlayback = preserveCurrentPlayback,
                     queueAligned = queueAligned,
                     targetMismatch = targetMismatch,
+                    reusedMap = prebuiltItems != null,
+                ),
+            )
+        }
+        if (preserveCurrentPlayback && identityAligned && !targetMismatch &&
+            metadataChangedIndices.isNotEmpty() &&
+            player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)
+        ) {
+            val items = prebuiltItems ?: queue.map { it.toMediaItem() }
+            return PlaybackQueueSyncPlan.ReplaceMediaItems(
+                replacements = metadataChangedIndices.map { index -> IndexedValue(index, items[index]) },
+                result = QueueSyncResult(
+                    itemsCount = items.size,
+                    startIndex = startIndex,
+                    preserveCurrentPlayback = true,
+                    queueAligned = false,
+                    targetMismatch = false,
                     reusedMap = prebuiltItems != null,
                 ),
             )
@@ -103,8 +137,13 @@ internal object MediaControllerQueueSync {
     }
 
     fun executeSyncPlan(player: Player, plan: PlaybackQueueSyncPlan): QueueSyncResult {
-        if (plan is PlaybackQueueSyncPlan.SetMediaItems) {
-            player.setMediaItems(plan.items, plan.result.startIndex, plan.startPositionMs)
+        when (plan) {
+            is PlaybackQueueSyncPlan.Skip -> Unit
+            is PlaybackQueueSyncPlan.ReplaceMediaItems -> plan.replacements.forEach { replacement ->
+                player.replaceMediaItem(replacement.index, replacement.value)
+            }
+            is PlaybackQueueSyncPlan.SetMediaItems ->
+                player.setMediaItems(plan.items, plan.result.startIndex, plan.startPositionMs)
         }
         return plan.result
     }

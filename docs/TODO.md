@@ -190,6 +190,8 @@
 - [x] **ExoPlayer 单链路优先**：普通格式与扩展格式统一走 ExoPlayer / Media3 解码播放，避免旧的多播放管线分叉
 - [x] **内存流式解码**：已移除整首 `.pcm` 落盘播放路径；seek 与进度状态跟随 ExoPlayer 当前播放状态
 - [ ] **MediaSession 外部控制边界**：做车机 / Android Auto / 外部 controller 接入前复查 `MicaMediaService` 的 `exported=true`；优先用连接身份粗分 + 命令限制，保留系统媒体控件、蓝牙、车机所需的标准播放命令，不做品牌包名白名单
+- [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变
+- [ ] **USB Host 真独占（远期）**：按 [`ADR-0001`](adr/0001-usb-host-exclusive-output.md) 新增独立 output adapter/session；当前不得解除 P6 fail-fast 或把最小 `DefaultAudioSink` 称为 USB 独占
 
 
 

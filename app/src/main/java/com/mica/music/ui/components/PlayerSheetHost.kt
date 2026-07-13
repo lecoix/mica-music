@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
@@ -61,6 +62,7 @@ internal fun playerSheetProgressForPredictiveBack(
 @Composable
 fun PlayerSheetHost(
     library: MusicLibrary,
+    playlistStore: PlaylistStore,
     surfaceState: PlaybackSurfaceState,
     progressState: PlaybackProgressState,
     queueState: PlaybackQueueState,
@@ -165,6 +167,7 @@ fun PlayerSheetHost(
             ) {
                 NowPlayingContent(
                     library = library,
+                    playlistStore = playlistStore,
                     surfaceState = surfaceState,
                     progressState = progressState,
                     queueState = queueState,

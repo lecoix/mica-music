@@ -10,13 +10,14 @@ import com.mica.music.ui.system.StatusBarEffect
 @Composable
 fun MicaAppRoot(
     uiSettings: AppUiSettings,
+    wallpaperViewportState: WallpaperViewportState,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = uiSettings.isDarkTheme()
     val reduceMotion = rememberReduceMotion()
     CompositionLocalProvider(
         MicaMotion.LocalEnabled provides !reduceMotion,
-        LocalAppUiSettings provides uiSettings,
+        LocalWallpaperViewportState provides wallpaperViewportState,
     ) {
         MicaTheme(
             darkTheme = darkTheme,

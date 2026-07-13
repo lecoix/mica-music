@@ -3,6 +3,7 @@ package com.mica.music.media
 import com.mica.music.data.ReplayGainTags
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,7 +25,7 @@ class SongMediaItemCodecTest {
 
         val decoded = SongMediaItemCodec.decode(SongMediaItemCodec.encode(song))
 
-        assertEquals(song.copy(lyrics = emptyList()), decoded)
+        assertEquals(song.copy(lyricsDocument = com.mica.music.data.LyricsDocument()), decoded)
     }
 
     @Test
@@ -34,5 +35,23 @@ class SongMediaItemCodecTest {
 
         assertNull(item.localConfiguration)
         assertEquals(song.id, SongMediaItemCodec.decode(item)?.id)
+    }
+
+    @Test
+    fun metadataRevisionExcludesPlaybackStatsButIncludesLyricsAndStaticMetadata() {
+        val song = SongFixtures.song("revision")
+        val revision = SongMediaItemCodec.metadataRevision(song)
+
+        assertEquals(
+            revision,
+            SongMediaItemCodec.metadataRevision(
+                song.copy(playCount = 99, totalListenSeconds = 1234, lastPlayedAtMs = 5678),
+            ),
+        )
+        assertNotEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(title = "updated")))
+        assertNotEquals(
+            revision,
+            SongMediaItemCodec.metadataRevision(song.copy(lyricsDocument = com.mica.music.data.LyricsDocument())),
+        )
     }
 }
