@@ -16,6 +16,7 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
+import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
@@ -46,7 +47,7 @@ internal fun LyricsSettingsPanel(
         }
     }
 
-    SettingsSectionTitle("歌词页")
+    SettingsSectionTitle("主题")
 
     SettingsChoiceRow(
         title = "歌词页主题",
@@ -57,6 +58,10 @@ internal fun LyricsSettingsPanel(
             uiSettings.updateLyricsPageTheme(LyricsPageTheme.entries[ordinal])
         },
     )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+
+    SettingsSectionTitle("通用显示")
 
     SettingsToggleRow(
         title = "分割双语歌词",
@@ -77,13 +82,6 @@ internal fun LyricsSettingsPanel(
         },
     )
 
-    SettingsToggleRow(
-        title = "强制使用逐字歌词样式",
-        subtitle = "对没有逐字时间轴的歌词，当前句按本句到下一句的播放进度从左到右填充",
-        checked = uiSettings.lyricLineFillEnabled,
-        onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
-    )
-
     SettingsChoiceRow(
         title = "歌词颜色",
         subtitle = "自动：随播放页背景与封面取色；浅色/深色：全屏歌词与播放页迷你歌词统一使用该颜色",
@@ -94,6 +92,27 @@ internal fun LyricsSettingsPanel(
                 PlaybackContentColorMode.entries[ordinal],
             )
         },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+
+    SettingsSectionTitle("经典列表")
+
+    SettingsChoiceRow(
+        title = "逐字动画",
+        subtitle = "用于经典列表及歌词云不可用时的回退页面；仅影响带有真实逐字时间轴的歌词",
+        choices = LyricsWordAnimationPresetChoices,
+        selectedValue = uiSettings.lyricsWordAnimationPreset.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateLyricsWordAnimationPreset(LyricsWordAnimationPreset.entries[ordinal])
+        },
+    )
+
+    SettingsToggleRow(
+        title = "强制使用逐字歌词样式",
+        subtitle = "用于经典列表与播放页迷你歌词；没有逐字时间轴时，当前句按播放进度从左到右填充",
+        checked = uiSettings.lyricLineFillEnabled,
+        onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
     )
 
     SettingsChoiceRow(
@@ -120,7 +139,7 @@ internal fun LyricsSettingsPanel(
     )
 
     SettingsDropdownRow(
-        title = "经典列表行间距",
+        title = "行间距",
         choices = LyricsPageLineSpacingChoices,
         selectedValue = uiSettings.lyricsPageLineSpacingDp,
         onSelect = { uiSettings.updateLyricsPageLineSpacingDp(it) },
@@ -131,13 +150,6 @@ internal fun LyricsSettingsPanel(
         subtitle = "开启后歌词页隐藏进度条和底部五个按钮；在歌词页长按播放按钮也可切换",
         checked = uiSettings.lyricsPageImmersive,
         onCheckedChange = { uiSettings.updateLyricsPageImmersive(it) },
-    )
-
-    SettingsToggleRow(
-        title = "通知栏歌词",
-        subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
-        checked = uiSettings.notificationLyricsEnabled,
-        onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )
 
     Spacer(Modifier.height(HifiSpacing.lg))
@@ -165,5 +177,16 @@ internal fun LyricsSettingsPanel(
             uiSettings.updateLyricFont(AppFontSelection.SystemDefault)
             Toast.makeText(context, "已恢复系统默认歌词字体", Toast.LENGTH_SHORT).show()
         },
+    )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+
+    SettingsSectionTitle("其他歌词位置")
+
+    SettingsToggleRow(
+        title = "通知栏歌词",
+        subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
+        checked = uiSettings.notificationLyricsEnabled,
+        onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )
 }

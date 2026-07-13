@@ -113,6 +113,9 @@ class AppUiSettings(context: Context) {
     var lyricsPageTheme by mutableStateOf(LyricsPreferences.lyricsPageTheme(appContext))
         private set
 
+    var lyricsWordAnimationPreset by mutableStateOf(LyricsPreferences.lyricsWordAnimationPreset(appContext))
+        private set
+
     var lyricsPageFontSizeSp by mutableIntStateOf(LyricsPreferences.lyricsPageFontSizeSp(appContext))
         private set
 
@@ -294,6 +297,11 @@ class AppUiSettings(context: Context) {
     fun updateLyricsPageTheme(theme: LyricsPageTheme) {
         lyricsPageTheme = theme
         LyricsPreferences.setLyricsPageTheme(appContext, theme)
+    }
+
+    fun updateLyricsWordAnimationPreset(preset: LyricsWordAnimationPreset) {
+        lyricsWordAnimationPreset = preset
+        LyricsPreferences.setLyricsWordAnimationPreset(appContext, preset)
     }
 
     fun updateLyricsPageFontSizeSp(fontSizeSp: Int) {

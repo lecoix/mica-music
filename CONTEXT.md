@@ -61,7 +61,7 @@ _Avoid_: 在每个 Compose root 内分别 `remember` viewport；把像素坐标�
 _Avoid_: 在 UI 层直接写 theme / accent key
 
 **Lyrics preferences（歌词偏好）**：
-`LyricsPreferences`：歌词拆分、双语展示、字号与对齐、通知歌词开关等。`AppUiSettings`、`NotificationLyricsCoordinator` 与 `NotificationLyrics` 经此读写。
+`LyricsPreferences`：歌词拆分、双语展示、字号与对齐、列表主题逐字动画预设、通知歌词开关等。列表主题逐字动画预设只改变具有真实逐字时间轴的当前行渲染，默认保持音节抬升；`AppUiSettings`、`NotificationLyricsCoordinator` 与 `NotificationLyrics` 经此读写。
 _Avoid_: 在通知或播放页组件内直接读 lyric key
 
 **Equalizer preferences（均衡器偏好）**：

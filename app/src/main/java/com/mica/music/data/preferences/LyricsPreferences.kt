@@ -6,6 +6,7 @@ import com.mica.music.data.DEFAULT_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
+import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
@@ -21,6 +22,7 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_TEXT_COLOR = "lyrics_page_text_color"
     private const val KEY_LYRICS_PAGE_ALIGNMENT = "lyrics_page_alignment"
     private const val KEY_LYRICS_PAGE_THEME = "lyrics_page_theme"
+    private const val KEY_LYRICS_WORD_ANIMATION_PRESET = "lyrics_word_animation_preset"
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
     private const val KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE = "lyrics_page_translation_font_size"
     private const val KEY_LYRICS_PAGE_LINE_SPACING = "lyrics_page_line_spacing"
@@ -97,6 +99,17 @@ object LyricsPreferences {
     fun setLyricsPageTheme(context: Context, theme: LyricsPageTheme) {
         MicaSettingsStore.prefs(context).edit()
             .putString(KEY_LYRICS_PAGE_THEME, theme.storageValue)
+            .apply()
+    }
+
+    fun lyricsWordAnimationPreset(context: Context): LyricsWordAnimationPreset =
+        LyricsWordAnimationPreset.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_LYRICS_WORD_ANIMATION_PRESET, null),
+        )
+
+    fun setLyricsWordAnimationPreset(context: Context, preset: LyricsWordAnimationPreset) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_LYRICS_WORD_ANIMATION_PRESET, preset.storageValue)
             .apply()
     }
 

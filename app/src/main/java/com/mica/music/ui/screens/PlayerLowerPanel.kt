@@ -18,6 +18,7 @@ import com.mica.music.data.LyricsRenderState
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageAlignment
+import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
@@ -50,6 +51,7 @@ internal fun PlayerLowerPanelSection(
     lyricsFontSizeSp: Int,
     lyricsTranslationFontSizeSp: Int,
     lyricsLineSpacingDp: Int,
+    lyricsWordAnimationPreset: LyricsWordAnimationPreset,
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
     stripSongTitleParentheses: Boolean,
     playerInfoVisibility: PlayerInfoVisibility,
@@ -213,6 +215,7 @@ internal fun PlayerLowerPanelSection(
                     lyricsFontSizeSp = lyricsFontSizeSp,
                     lyricsTranslationFontSizeSp = lyricsTranslationFontSizeSp,
                     lyricsLineSpacingDp = lyricsLineSpacingDp,
+                    lyricsWordAnimationPreset = lyricsWordAnimationPreset,
                     bilingualDisplayMode = lyricsBilingualDisplayMode,
                     modifier = Modifier
                         .fillMaxSize()

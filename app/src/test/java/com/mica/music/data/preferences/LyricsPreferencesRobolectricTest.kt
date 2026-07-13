@@ -2,6 +2,7 @@ package com.mica.music.data.preferences
 
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageTheme
+import com.mica.music.data.LyricsWordAnimationPreset
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -46,6 +47,38 @@ class LyricsPreferencesRobolectricTest {
         LyricsPreferences.setLyricsPageTheme(context, LyricsPageTheme.CLOUD)
 
         assertEquals(LyricsPageTheme.CLOUD, LyricsPreferences.lyricsPageTheme(context))
+    }
+
+    @Test
+    fun lyricsWordAnimationPresetDefaultsToCurrentLiftAndRoundTrips() {
+        assertEquals(
+            LyricsWordAnimationPreset.SYLLABLE_LIFT,
+            LyricsPreferences.lyricsWordAnimationPreset(context),
+        )
+
+        LyricsPreferences.setLyricsWordAnimationPreset(context, LyricsWordAnimationPreset.WORD_STEP)
+
+        assertEquals(
+            LyricsWordAnimationPreset.WORD_STEP,
+            LyricsPreferences.lyricsWordAnimationPreset(context),
+        )
+    }
+
+    @Test
+    fun lyricsWordAnimationPresetsMapToDistinctRenderingParameters() {
+        val actual = LyricsWordAnimationPreset.entries.map {
+            Triple(it.usesDiscreteCueFill, it.syllableLiftEnabled, it.wordFadeWidthEm)
+        }
+
+        assertEquals(
+            listOf(
+                Triple(false, false, 0f),
+                Triple(true, true, 0f),
+                Triple(false, false, 1f),
+                Triple(true, false, 0f),
+            ),
+            actual,
+        )
     }
 
     @Test

@@ -48,6 +48,7 @@ import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
+import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.ui.components.LyricLineBlock
 import com.mica.music.ui.components.LyricsAreaEdgeFade
@@ -69,6 +70,7 @@ internal fun ExpandedLyricsPanel(
     lyricsFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
     lyricsTranslationFontSizeSp: Int = lyricsFontSizeSp,
     lyricsLineSpacingDp: Int = DEFAULT_LYRICS_PAGE_LINE_SPACING_DP,
+    lyricsWordAnimationPreset: LyricsWordAnimationPreset = LyricsWordAnimationPreset.SYLLABLE_LIFT,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
 ) {
     val lyrics = renderState.lyrics
@@ -287,8 +289,9 @@ internal fun ExpandedLyricsPanel(
                             horizontalAlignment = horizontalAlignment,
                             bilingualDisplayMode = bilingualDisplayMode,
                             translationTextStyle = translationTextStyle,
-                            karaokeSyllableLift = true,
-                            karaokeWordFadeWidthEm = 1f,
+                            karaokeSyllableLift = lyricsWordAnimationPreset.syllableLiftEnabled,
+                            karaokeDiscreteActiveCue = lyricsWordAnimationPreset.usesDiscreteCueFill,
+                            karaokeWordFadeWidthEm = lyricsWordAnimationPreset.wordFadeWidthEm,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .animateItem(

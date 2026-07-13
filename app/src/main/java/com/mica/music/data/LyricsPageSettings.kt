@@ -29,6 +29,25 @@ enum class LyricsPageTheme(
     }
 }
 
+enum class LyricsWordAnimationPreset(
+    val storageValue: String,
+    val settingsLabel: String,
+    val usesDiscreteCueFill: Boolean,
+    val syllableLiftEnabled: Boolean,
+    val wordFadeWidthEm: Float,
+) {
+    HARD_FILL("hard_fill", "硬边逐字填充", false, false, 0f),
+    SYLLABLE_LIFT("syllable_lift", "音节抬升", true, true, 0f),
+    SOFT_FILL("soft_fill", "柔边逐字填充", false, false, 1f),
+    WORD_STEP("word_step", "纯逐字切换", true, false, 0f),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): LyricsWordAnimationPreset =
+            entries.firstOrNull { it.storageValue == value } ?: SYLLABLE_LIFT
+    }
+}
+
 /** 播放页控件/歌词前景色覆盖（自动 / 固定浅色 / 固定深色）。 */
 enum class PlaybackContentColorMode(
     val storageValue: String,

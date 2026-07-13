@@ -228,6 +228,7 @@ fun LyricLineBlock(
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     translationTextStyle: TextStyle = textStyle,
     karaokeSyllableLift: Boolean = false,
+    karaokeDiscreteActiveCue: Boolean = karaokeSyllableLift,
     karaokeWordFadeWidthEm: Float = 0f,
 ) {
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
@@ -263,7 +264,7 @@ fun LyricLineBlock(
                         cueRanges = cueRanges,
                         positionMs = fillPositionMs,
                         nextLineTimeMs = nextLineTimeMs,
-                        discreteActiveCue = karaokeSyllableLift,
+                        discreteActiveCue = karaokeDiscreteActiveCue,
                     )
                 } else {
                     WordSyncedFill.Empty
