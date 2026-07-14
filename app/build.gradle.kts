@@ -43,8 +43,8 @@ android {
         applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 40
-        versionName = "0.2.1-Lyrics-renew" + if (qaSideBySide) "-qa" else ""
+        versionCode = 41
+        versionName = "0.2.1.1-Lyrics-renew" + if (qaSideBySide) "-qa" else ""
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
