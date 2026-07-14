@@ -45,6 +45,7 @@ android {
         targetSdk = 34
         versionCode = 40
         versionName = "0.2.1-Lyrics-renew" + if (qaSideBySide) "-qa" else ""
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
             abiFilters += listOf("arm64-v8a")
@@ -205,6 +206,10 @@ dependencies {
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
+
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }
 
 tasks.matching { it.name == "preReleaseBuild" || it.name == "prePerfBuild" }.configureEach {

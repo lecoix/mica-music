@@ -115,7 +115,7 @@ App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaCon
 _Avoid_: player view model、media player（指底层引擎时）
 
 **PlaybackStatisticsTracker（播放统计跟踪器）**：
-App 侧运行时统计规则模块：接收 `PlayerController` 转发的播放请求、Media3 切歌和播放状态信号；只在目标歌曲真正开始播放后发布一次播放次数，并按连续收听 session 向下取整发布整秒时长。它不写曲库、不持久化，也不参与出声或队列推进；`MainViewModel` 将发布结果适配到 `MusicLibrary`。
+App 侧运行时统计状态机。用户明确点播/重播仍由 `PlayerController` 的请求加匹配的 seek/transition 证据确认；自然下一首和单曲循环的权威边界来自 Service 所持有的原始 `Player.onPositionDiscontinuity(AUTO_TRANSITION)`，经一次性 `MediaSession` custom command 送到 Controller，避免依赖 `MediaController` 对相同 `PositionInfo` / `MediaItem` 的差分合并。状态机只接受跨 mediaId 的自动边界，或同 mediaId 且位置从后向前回卷的自动边界；Controller 侧 AUTO/REPEAT 回调仅作状态同步，不能自行创建自动播放会话。每个确认边界最多创建一个待发布会话，且只在目标歌曲实际处于 playing 时发布一次；同曲 seek、暂停恢复、连接恢复和通知歌词 `replaceMediaItem` 元数据刷新均不得创建会话。连续收听时长仍按 session 向下取整发布整秒。它不写曲库、不持久化，也不参与出声或队列推进；`MainViewModel` 将发布结果适配到 `MusicLibrary`。
 _Avoid_: 在 `PlayerController` callbacks 中重新实现去重、pending target 或收听 session 结算
 
 **Authoritative playback queue（权威播放队列）**：

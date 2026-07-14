@@ -9,6 +9,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.media.AudioQualityMode
+import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PendingPlaybackNavigation
 import com.mica.music.media.ServicePlaybackSnapshot
 import com.mica.music.media.ServicePlaybackStateStore
@@ -414,6 +415,22 @@ class PlayerControllerBoundaryTest {
         }
     }
 
+    private fun positionInfo(
+        item: MediaItem,
+        mediaItemIndex: Int,
+        positionMs: Long,
+    ) = Player.PositionInfo(
+        null,
+        mediaItemIndex,
+        item,
+        null,
+        mediaItemIndex,
+        positionMs,
+        positionMs,
+        -1,
+        -1,
+    )
+
     private fun controller(
         connector: FakeConnector = FakeConnector(),
         storage: FakeSessionStorage = FakeSessionStorage(),
@@ -468,9 +485,18 @@ class PlayerControllerBoundaryTest {
 
         currentItem = secondItem
         currentIndex = 1
+        listener.captured.onPositionDiscontinuity(
+            positionInfo(firstItem, 0, 59_900L),
+            positionInfo(secondItem, 1, 0L),
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
         listener.captured.onMediaItemTransition(
             secondItem,
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary("song-1", "song-2", 59_900L, 0L),
         )
         assertEquals(0, count)
         playing = true
@@ -508,9 +534,18 @@ class PlayerControllerBoundaryTest {
         currentItem = secondItem
         currentIndex = 1
         controller.syncPlaybackState()
+        listener.captured.onPositionDiscontinuity(
+            positionInfo(firstItem, 0, 59_900L),
+            positionInfo(secondItem, 1, 0L),
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
         listener.captured.onMediaItemTransition(
             secondItem,
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary("song-1", "song-2", 59_900L, 0L),
         )
         playing = true
         listener.captured.onIsPlayingChanged(true)
@@ -553,8 +588,43 @@ class PlayerControllerBoundaryTest {
             secondItem,
             Player.MEDIA_ITEM_TRANSITION_REASON_SEEK,
         )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
         playing = true
         listener.captured.onIsPlayingChanged(true)
+
+        assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
+    fun explicitlyReplayingCurrentSongPublishesOneNewPlaySession() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.getMediaItemAt(0) } returns item
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.currentPosition } returns 20_000L
+        every { mediaController.isPlaying } returns true
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.playSong(0)
+        assertEquals(0, count)
+        listener.captured.onPositionDiscontinuity(
+            positionInfo(item, 0, 20_000L),
+            positionInfo(item, 0, 0L),
+            Player.DISCONTINUITY_REASON_SEEK,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
 
         assertEquals(1, count)
         controller.release()
@@ -585,7 +655,16 @@ class PlayerControllerBoundaryTest {
 
         currentItem = secondItem
         currentIndex = 1
+        listener.captured.onPositionDiscontinuity(
+            positionInfo(firstItem, 0, 59_900L),
+            positionInfo(secondItem, 1, 0L),
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
         listener.captured.onMediaItemTransition(secondItem, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary("song-1", "song-2", 59_900L, 0L),
+        )
         playing = true
         listener.captured.onIsPlayingChanged(true)
         assertEquals(1, count)
@@ -593,6 +672,7 @@ class PlayerControllerBoundaryTest {
         playing = false
         listener.captured.onIsPlayingChanged(false)
         listener.captured.onMediaItemTransition(secondItem, Player.MEDIA_ITEM_TRANSITION_REASON_SEEK)
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
         playing = true
         listener.captured.onIsPlayingChanged(true)
 
@@ -624,6 +704,7 @@ class PlayerControllerBoundaryTest {
             item,
             Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
         )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
         playing = true
         listener.captured.onIsPlayingChanged(true)
 
@@ -661,6 +742,233 @@ class PlayerControllerBoundaryTest {
             metadataItem,
             Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
         )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+
+        assertEquals(0, count)
+        controller.release()
+    }
+
+    @Test
+    fun playCountIsNotPublishedWhenMetadataReplacementIsReportedAsRepeat() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        val metadataItem = item.buildUpon()
+            .setMediaMetadata(
+                androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle("current lyric")
+                    .build(),
+            )
+            .build()
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns metadataItem
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        listener.captured.onMediaItemTransition(
+            metadataItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+
+        assertEquals(0, count)
+        controller.release()
+    }
+
+    @Test
+    fun playCountIsPublishedOncePerConfirmedRepeatBoundary() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        val oldPosition = positionInfo(item, 0, 59_900L)
+        val newPosition = positionInfo(item, 0, 0L)
+        repeat(2) {
+            listener.captured.onMediaItemTransition(
+                item,
+                Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+            )
+            listener.captured.onPositionDiscontinuity(
+                oldPosition,
+                newPosition,
+                Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+            )
+        }
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        assertEquals(0, count)
+
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary("song-1", "song-1", 59_900L, 0L),
+        )
+        assertEquals(1, count)
+
+        listener.captured.onMediaItemTransition(
+            item,
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        assertEquals(1, count)
+
+        listener.captured.onPositionDiscontinuity(
+            oldPosition,
+            newPosition,
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
+        listener.captured.onMediaItemTransition(
+            item,
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        assertEquals(1, count)
+
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary("song-1", "song-1", 59_900L, 0L),
+        )
+
+        assertEquals(2, count)
+        controller.release()
+    }
+
+    @Test
+    fun repeatEvidenceDoesNotLeakAcrossControllerEventBatches() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        val oldPosition = positionInfo(item, 0, 59_900L)
+        val newPosition = positionInfo(item, 0, 0L)
+
+        listener.captured.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        listener.captured.onPositionDiscontinuity(
+            oldPosition,
+            newPosition,
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        assertEquals(0, count)
+
+        listener.captured.onMediaItemTransition(item, Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
+        listener.captured.onPositionDiscontinuity(
+            oldPosition,
+            newPosition,
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+
+        assertEquals(0, count)
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary("song-1", "song-1", 59_900L, 0L),
+        )
+        assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
+    fun automaticNextCountsOnceWhenTransitionPrecedesBoundaryAndCallbacksRepeat() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val firstItem = MediaItem.Builder().setMediaId("song-1").build()
+        val secondItem = MediaItem.Builder().setMediaId("song-2").build()
+        var currentItem = firstItem
+        var currentIndex = 0
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } returns 2
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1"), SongFixtures.song("song-2")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        currentItem = secondItem
+        currentIndex = 1
+
+        repeat(2) {
+            listener.captured.onMediaItemTransition(
+                secondItem,
+                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+            )
+            listener.captured.onPositionDiscontinuity(
+                positionInfo(firstItem, 0, 59_900L),
+                positionInfo(secondItem, 1, 0L),
+                Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+            )
+        }
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+
+        assertEquals(0, count)
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary("song-1", "song-2", 59_900L, 0L),
+        )
+        assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
+    fun seekFromEndToStartDiscontinuityDoesNotPublishPlayCount() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("song-1").build()
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(SongFixtures.song("song-1")))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        listener.captured.onPositionDiscontinuity(
+            positionInfo(item, 0, 59_900L),
+            positionInfo(item, 0, 0L),
+            Player.DISCONTINUITY_REASON_SEEK,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        listener.captured.onIsPlayingChanged(true)
 
         assertEquals(0, count)
         controller.release()
@@ -1317,8 +1625,15 @@ class PlayerControllerBoundaryTest {
             onConnected: (MediaController) -> Unit,
             onDisconnected: () -> Unit,
             onFailure: (Throwable) -> Unit,
+            onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
         ): MediaControllerConnection {
-            val request = Request(onConnected, onDisconnected, onFailure, FakeConnection())
+            val request = Request(
+                onConnected,
+                onDisconnected,
+                onFailure,
+                onPlaybackBoundary,
+                FakeConnection(),
+            )
             requests += request
             return request.connection
         }
@@ -1327,6 +1642,7 @@ class PlayerControllerBoundaryTest {
             val onConnected: (MediaController) -> Unit,
             val onDisconnected: () -> Unit,
             val onFailure: (Throwable) -> Unit,
+            val onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
             val connection: FakeConnection,
         )
     }

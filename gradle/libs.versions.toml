@@ -24,6 +24,7 @@ junit = "4.13.2"
 blurview = "version-3.2.0"
 androidxTestCore = "1.6.1"
 androidxTestExtJunit = "1.2.1"
+androidxTestRunner = "1.6.2"
 coroutinesTest = "1.8.1"
 mockk = "1.13.13"
 robolectric = "4.13"
@@ -65,6 +66,7 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 blurview = { group = "com.github.Dimezis", name = "BlurView", version.ref = "blurview" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }

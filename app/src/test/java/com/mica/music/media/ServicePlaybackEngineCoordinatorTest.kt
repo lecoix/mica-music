@@ -21,6 +21,58 @@ import org.robolectric.RuntimeEnvironment
 class ServicePlaybackEngineCoordinatorTest {
 
     @Test
+    fun automaticPositionDiscontinuityPublishesExactPlaybackBoundary() {
+        val first = SongMediaItemCodec.encode(SongFixtures.song("first"))
+        val second = SongMediaItemCodec.encode(SongFixtures.song("second"))
+        val player = MicaCompositePlayer(mockExoWithQueue(listOf(first, second), currentIndex = 1))
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        val boundaries = mutableListOf<ConfirmedPlaybackBoundary>()
+        coordinator.onPlaybackBoundary = boundaries::add
+
+        coordinator.onPositionDiscontinuity(
+            positionInfo(first, mediaItemIndex = 0, positionMs = 59_900L),
+            positionInfo(second, mediaItemIndex = 1, positionMs = 0L),
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
+        coordinator.onPositionDiscontinuity(
+            positionInfo(second, mediaItemIndex = 1, positionMs = 59_900L),
+            positionInfo(second, mediaItemIndex = 1, positionMs = 0L),
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
+
+        assertEquals(
+            listOf(
+                ConfirmedPlaybackBoundary("first", "second", 59_900L, 0L),
+                ConfirmedPlaybackBoundary("second", "second", 59_900L, 0L),
+            ),
+            boundaries,
+        )
+    }
+
+    @Test
+    fun seekPositionDiscontinuityDoesNotPublishPlaybackBoundary() {
+        val item = SongMediaItemCodec.encode(SongFixtures.song("song"))
+        val player = MicaCompositePlayer(mockExoWithQueue(listOf(item), currentIndex = 0))
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        val boundaries = mutableListOf<ConfirmedPlaybackBoundary>()
+        coordinator.onPlaybackBoundary = boundaries::add
+
+        coordinator.onPositionDiscontinuity(
+            positionInfo(item, mediaItemIndex = 0, positionMs = 59_900L),
+            positionInfo(item, mediaItemIndex = 0, positionMs = 0L),
+            Player.DISCONTINUITY_REASON_SEEK,
+        )
+
+        assertEquals(emptyList<ConfirmedPlaybackBoundary>(), boundaries)
+    }
+
+    @Test
     fun dffSelectionStopsOldPlaybackAndCannotRestartIt() {
         val dff = SongFixtures.song(
             "dff",
@@ -249,4 +301,20 @@ class ServicePlaybackEngineCoordinatorTest {
         every { exo.playWhenReady } returns playWhenReady
         return exo
     }
+
+    private fun positionInfo(
+        item: MediaItem,
+        mediaItemIndex: Int,
+        positionMs: Long,
+    ) = Player.PositionInfo(
+        null,
+        mediaItemIndex,
+        item,
+        null,
+        mediaItemIndex,
+        positionMs,
+        positionMs,
+        -1,
+        -1,
+    )
 }

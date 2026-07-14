@@ -129,6 +129,23 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 .\gradlew :app:testDebugUnitTest --tests com.mica.music.LibraryQueueSyncPolicyTest --tests com.mica.music.data.LibraryPlaybackQueueCoordinatorTest --tests com.mica.music.util.SongActionsTest --no-configuration-cache
 ```
 
+### 播放统计状态机覆盖矩阵
+
+播放次数测试按四层维护，不能用 `MediaController` 的单个 mocked reason 代替 Service 原始 Player 边界：
+
+1. **纯状态机契约（JVM）**：显式播放等待新的 transition/seek 证据，无关 batch 不消耗请求，新请求替换尚未发布的旧会话；Service 确认的跨 mediaId 自动边界和同 mediaId 位置回卷各计一次，连续三个确认边界每轮各计一次；Controller 的 AUTO/REPEAT 组合、重复 callback、歌词元数据伪 REPEAT、同曲 seek、暂停恢复、无位置回卷和 mediaId 不匹配均为 0。
+2. **Service 边界与 Session 事件（Robolectric）**：`ServicePlaybackEngineCoordinatorTest` 验证原始 Player 的 AUTO discontinuity 原样产生自然切歌/单曲循环边界，而 SEEK 不产生边界；`PlaybackBoundarySessionEventTest` 验证 custom command 参数无损往返且忽略无关 command。
+3. **PlayerController 接线（Robolectric）**：覆盖自动下一首、连续单曲循环、playing 延迟到达和显式同曲 seek 重播；确认旧 Controller callback 不计数、不跨 batch 配对，也不与 Service 边界重复计数；从结尾手动 seek 到开头、暂停恢复、歌词元数据替换和连接恢复均为 0。
+4. **真实 Media3 契约（设备/模拟器）**：`NotificationLyricsMedia3ContractTest` 使用运行时生成的 4 秒静音 WAV、真实 ExoPlayer/MediaSession/MediaController、repeat-one 和 `NotificationLyricsCoordinator`，覆盖歌词 `replaceMediaItem` 后三次真实连续循环各计一次、暂停恢复与手动 seek 为 0、自然下一首与显式重播各计一次，以及播放中连接第二个 Controller 为 0。该测试需要已连接的 arm64 设备，不属于纯 JVM 门禁。
+
+仅运行真实 Media3 契约测试：
+
+```powershell
+.\gradlew :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=com.mica.music.media.NotificationLyricsMedia3ContractTest" --no-configuration-cache
+```
+
+以后新增或修改 `replaceMediaItem`、`setMediaItems`、队列增删移动、`seekTo`、repeat 或 shuffle 写操作时，必须检查其 timeline/transition/discontinuity 回调是否会影响播放次数、收听时长、当前曲、队列索引或进度；无法由前两层证明时补真实 Player 契约测试。
+
 ### a257a0f 架构重构：P1 真机验收清单
 
 P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限与 Service 持久化。下列清单在 **至少一台真机** 上手测；失败时导出诊断日志（`LibraryQueue`、`LibraryStartup`、`LibraryScan`、`Player`、`PlaybackRestore`）。
@@ -179,7 +196,7 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 - **SAF 文件夹扫描**：选文件夹 → 扫描 → 杀进程再开，目录权限与曲库仍在；上次来源为文件夹时重扫走文件夹路径。
 - **扫描中再次触发重扫**：设置页或主页连点重扫，最终列表以最后一次为准（不出现旧结果覆盖新结果）。
 - **排序切换**：标题/艺术家/播放次数等排序后列表顺序与 fast scroll 索引正确；杀进程再开排序偏好仍生效。
-- **播放统计**：播放一首后，按「播放次数」「最近播放」排序时该曲位置更新；列表内元数据（次数）刷新。
+- **播放统计**：播放一首后，按「播放次数」「最近播放」排序时该曲位置更新；列表内元数据（次数）刷新。明确点歌、手动切歌、自动下一曲和真实单曲循环各新增一次；同曲 seek、暂停恢复、通知栏逐行歌词更新、队列元数据刷新和连接恢复均不新增。开启通知栏歌词并使用单曲循环完整播放一轮，播放次数应只在真实循环边界增加一次，不能随歌词逐行增长。
 - **从曲库移除**：菜单移除歌曲后列表消失；若该曲在播放队列中，队列同步后也应移除（见下方队列清单）。
 - **撤销权限清空曲库**：无 SAF 文件夹时撤销音频读取权限，曲库应被清空。
 - **封面缓存修复**：故意让缓存封面缺失或损坏后冷启动，日志应有 `AlbumArtCache repair-check` / `repair-start`，且修复扫描仅刷新封面（不强制重拉歌词）；列表封面恢复。

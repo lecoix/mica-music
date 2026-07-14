@@ -122,6 +122,12 @@ class MicaMediaService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, stack.compositePlayer)
             .setSessionActivity(createSessionActivityPendingIntent())
             .build()
+        playbackEngineCoordinator?.onPlaybackBoundary = { boundary ->
+            mediaSession?.broadcastCustomCommand(
+                PlaybackBoundarySessionEvent.command,
+                PlaybackBoundarySessionEvent.encode(boundary),
+            )
+        }
 
         registerNoisyReceiver()
     }

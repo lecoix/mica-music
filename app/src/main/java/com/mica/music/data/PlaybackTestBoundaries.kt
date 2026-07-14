@@ -4,8 +4,13 @@ import android.content.ComponentName
 import android.content.Context
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
 import androidx.media3.session.SessionToken
+import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.MicaMediaService
+import com.mica.music.media.PlaybackBoundarySessionEvent
 
 internal interface MediaControllerConnection {
     fun cancel()
@@ -16,6 +21,7 @@ internal interface MediaControllerConnector {
         onConnected: (MediaController) -> Unit,
         onDisconnected: () -> Unit,
         onFailure: (Throwable) -> Unit,
+        onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
     ): MediaControllerConnection
 }
 
@@ -32,6 +38,7 @@ internal class AndroidMediaControllerConnector(
         onConnected: (MediaController) -> Unit,
         onDisconnected: () -> Unit,
         onFailure: (Throwable) -> Unit,
+        onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
     ): MediaControllerConnection {
         val token = SessionToken(
             context,
@@ -42,6 +49,18 @@ internal class AndroidMediaControllerConnector(
                 override fun onDisconnected(controller: MediaController) {
                     onDisconnected()
                 }
+
+                override fun onCustomCommand(
+                    controller: MediaController,
+                    command: SessionCommand,
+                    args: android.os.Bundle,
+                ) = Futures.immediateFuture(
+                    if (PlaybackBoundarySessionEvent.decode(command, args)?.also(onPlaybackBoundary) != null) {
+                        SessionResult(SessionResult.RESULT_SUCCESS)
+                    } else {
+                        SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED)
+                    },
+                )
             })
             .buildAsync()
         future.addListener(

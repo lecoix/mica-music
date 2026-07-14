@@ -14,6 +14,7 @@ internal class ServicePlaybackEngineCoordinator(
 ) : AlacSessionCommandHandler, Player.Listener {
 
     var onPlaybackFailure: ((PlaybackFailure) -> Unit)? = null
+    var onPlaybackBoundary: ((ConfirmedPlaybackBoundary) -> Unit)? = null
 
     fun start() {
         player.playbackCoordinator = this
@@ -24,6 +25,7 @@ internal class ServicePlaybackEngineCoordinator(
         player.removeListener(this)
         player.playbackCoordinator = null
         onPlaybackFailure = null
+        onPlaybackBoundary = null
     }
 
     fun playCurrent() {
@@ -126,6 +128,22 @@ internal class ServicePlaybackEngineCoordinator(
             return
         }
         beginAutoTransition(song)
+    }
+
+    override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+    ) {
+        if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) return
+        onPlaybackBoundary?.invoke(
+            ConfirmedPlaybackBoundary(
+                oldSongId = oldPosition.mediaItem?.mediaId,
+                newSongId = newPosition.mediaItem?.mediaId,
+                oldPositionMs = oldPosition.positionMs,
+                newPositionMs = newPosition.positionMs,
+            ),
+        )
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {

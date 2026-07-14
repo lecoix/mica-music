@@ -20,6 +20,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import com.mica.music.media.PendingPlaybackNavigation
+import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PlaybackRouter
 import com.mica.music.media.ServicePlaybackStateStore
 import com.mica.music.media.SongMediaItemCodec
@@ -481,7 +482,26 @@ class PlayerController internal constructor(
                 connectStarted = false
                 postUserMessage("无法连接播放服务，请稍后重试")
             },
+            onPlaybackBoundary = ::onConfirmedPlaybackBoundary,
         )
+    }
+
+    private fun onConfirmedPlaybackBoundary(boundary: ConfirmedPlaybackBoundary) {
+        val armed = playbackStatistics.onConfirmedAutomaticBoundary(
+            PlaybackPositionDiscontinuity(
+                oldSongId = boundary.oldSongId,
+                newSongId = boundary.newSongId,
+                oldPositionMs = boundary.oldPositionMs,
+                newPositionMs = boundary.newPositionMs,
+                automatic = true,
+            ),
+        )
+        logPlayCountProbe(
+            "service-boundary arm=$armed oldSong=${boundary.oldSongId.shortSongIdOrNone()} " +
+                "newSong=${boundary.newSongId.shortSongIdOrNone()} " +
+                "oldPositionMs=${boundary.oldPositionMs} newPositionMs=${boundary.newPositionMs}",
+        )
+        controller?.let { publishPlayCountIfStarted(it, it.isPlaying) }
     }
 
     private fun onConnected(c: MediaController) {
@@ -548,7 +568,10 @@ class PlayerController internal constructor(
                 } else {
                     playbackError = null
                 }
-                val shouldArmPlayCount = playbackStatistics.onTransition(transitionSongId, reason)
+                playbackStatistics.onTransition(
+                    transitionSongId,
+                    reason.toPlaybackMediaTransition(),
+                )
                 logPlayCountProbe(
                     "transition reason=${mediaTransitionReasonForLog(reason)} " +
                         "transitionSong=${transitionSongId.shortSongIdOrNone()} " +
@@ -556,7 +579,7 @@ class PlayerController internal constructor(
                         "previous=${previousSongId.shortSongIdOrNone()} " +
                         "new=${newSongId.shortSongIdOrNone()} changed=$currentSongChanged " +
                         "statsPrevious=${previousStatsSongId.shortSongIdOrNone()} " +
-                        "arm=$shouldArmPlayCount reset=$shouldResetPosition " +
+                        "reset=$shouldResetPosition " +
                         "isPlaying=${c.isPlaying} playerIndex=${c.currentMediaItemIndex} " +
                         "playerItems=${c.mediaItemCount} queueIndex=$currentIndex queueSize=${songQueue.size} " +
                         "pendingBefore=${pendingBefore.shortSongIdOrNone()} " +
@@ -565,7 +588,6 @@ class PlayerController internal constructor(
                 if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
                 syncEffectivePlaybackTuning(reason = "transition")
                 publishPlaybackStates()
-                publishPlayCountIfStarted(c, c.isPlaying)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -611,6 +633,16 @@ class PlayerController internal constructor(
 
             override fun onEvents(player: Player, events: Player.Events) {
                 syncPlaybackState()
+                val armed = playbackStatistics.finishEventBatch()
+                if (armed || playbackStatistics.pendingSongId != null) {
+                    logPlayCountProbe(
+                        "event-batch arm=$armed " +
+                            "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
+                            "pending=${playbackStatistics.pendingSongId.shortSongIdOrNone()} " +
+                            "isPlaying=${c.isPlaying}",
+                    )
+                }
+                publishPlayCountIfStarted(c, c.isPlaying)
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -633,7 +665,32 @@ class PlayerController internal constructor(
                 newPosition: Player.PositionInfo,
                 reason: Int,
             ) {
-                if (reason == Player.DISCONTINUITY_REASON_SEEK ||
+                val automatic = reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION
+                if (automatic ||
+                    reason == Player.DISCONTINUITY_REASON_SEEK ||
+                    reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
+                ) {
+                    val oldSongId = oldPosition.mediaItem?.mediaId
+                    val newSongId = newPosition.mediaItem?.mediaId ?: c.currentMediaItem?.mediaId
+                    playbackStatistics.onPositionDiscontinuity(
+                        PlaybackPositionDiscontinuity(
+                            oldSongId = oldSongId,
+                            newSongId = newSongId,
+                            oldPositionMs = oldPosition.positionMs,
+                            newPositionMs = newPosition.positionMs,
+                            automatic = automatic,
+                        ),
+                    )
+                }
+                if (automatic) {
+                    val songId = newPosition.mediaItem?.mediaId ?: c.currentMediaItem?.mediaId
+                    logPlayCountProbe(
+                        "playback-boundary reason=auto-transition " +
+                            "song=${songId.shortSongIdOrNone()} " +
+                            "oldPositionMs=${oldPosition.positionMs} " +
+                            "newPositionMs=${newPosition.positionMs} isPlaying=${c.isPlaying}",
+                    )
+                } else if (reason == Player.DISCONTINUITY_REASON_SEEK ||
                     reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
                 ) {
                     clearPendingSeek("discontinuity")
@@ -1698,6 +1755,14 @@ private fun mediaTransitionReasonForLog(reason: Int): String =
         Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "seek"
         Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "playlist-changed"
         else -> "unknown-$reason"
+    }
+
+private fun Int.toPlaybackMediaTransition(): PlaybackMediaTransition =
+    when (this) {
+        Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> PlaybackMediaTransition.Explicit
+        Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> PlaybackMediaTransition.Automatic
+        Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> PlaybackMediaTransition.Repeat
+        else -> PlaybackMediaTransition.Other
     }
 
 private fun timelineChangeReasonForLog(reason: Int): String =
