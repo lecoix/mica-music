@@ -1,6 +1,7 @@
 package com.mica.music.ui.screens
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.TargetBasedAnimation
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
@@ -8,6 +9,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,7 +37,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -53,6 +59,7 @@ import com.mica.music.data.LyricsRenderState
 import com.mica.music.ui.components.LyricLineBlock
 import com.mica.music.ui.components.LyricsAreaEdgeFade
 import com.mica.music.ui.components.rememberLyricUniformStyle
+import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
@@ -270,11 +277,38 @@ internal fun ExpandedLyricsPanel(
                             ),
                             label = "classicLyricsLineScale",
                         )
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+                        val pressScale = remember { Animatable(1f) }
+                        LaunchedEffect(isPressed, motionEnabled) {
+                            if (!motionEnabled) {
+                                pressScale.snapTo(1f)
+                            } else if (isPressed) {
+                                pressScale.animateTo(0.985f, tween(90, easing = MicaMotion.Easing))
+                            } else if (pressScale.value < 1f) {
+                                pressScale.animateTo(1.015f, tween(120, easing = MicaMotion.Easing))
+                                pressScale.animateTo(1f, tween(180, easing = MicaMotion.Easing))
+                            }
+                        }
+                        val pressEmphasis by animateFloatAsState(
+                            targetValue = if (isPressed) 1f else 0f,
+                            animationSpec = tween(if (motionEnabled) 90 else 0, easing = MicaMotion.Easing),
+                            label = "classicLyricsPressEmphasis",
+                        )
+                        val pressedColors = colors.copy(
+                            secondary = lerp(colors.secondary, colors.primary, pressEmphasis * 0.35f),
+                            tertiary = lerp(colors.tertiary, colors.primary, pressEmphasis * 0.35f),
+                        )
+                        val pressShadow = Shadow(
+                            color = colors.primary.copy(alpha = 0.38f * pressEmphasis),
+                            offset = Offset.Zero,
+                            blurRadius = 12f * pressEmphasis,
+                        )
                         LyricLineBlock(
                             text = line.text,
                             isCurrent = isCurrent,
-                            colors = colors,
-                            textStyle = textStyle,
+                            colors = pressedColors,
+                            textStyle = textStyle.copy(shadow = pressShadow),
                             colorSpec = if (isCurrent) {
                                 tween(250, delayMillis = 250, easing = ClassicLyricsColorEasing)
                             } else {
@@ -288,7 +322,7 @@ internal fun ExpandedLyricsPanel(
                             textAlign = textAlign,
                             horizontalAlignment = horizontalAlignment,
                             bilingualDisplayMode = bilingualDisplayMode,
-                            translationTextStyle = translationTextStyle,
+                            translationTextStyle = translationTextStyle.copy(shadow = pressShadow),
                             karaokeSyllableLift = lyricsWordAnimationPreset.syllableLiftEnabled,
                             karaokeDiscreteActiveCue = lyricsWordAnimationPreset.usesDiscreteCueFill,
                             karaokeWordFadeWidthEm = lyricsWordAnimationPreset.wordFadeWidthEm,
@@ -300,13 +334,16 @@ internal fun ExpandedLyricsPanel(
                                     placementSpec = moveSpring,
                                 )
                                 .graphicsLayer {
-                                    scaleX = lineScale
-                                    scaleY = lineScale
+                                    scaleX = lineScale * pressScale.value
+                                    scaleY = lineScale * pressScale.value
                                     translationY = staggerOffsetY
                                 }
                                 .then(
                                     if (timed) {
-                                        Modifier.clickable { onLineClick(line.timeMs) }
+                                        Modifier.clickable(
+                                            interactionSource = interactionSource,
+                                            indication = null,
+                                        ) { onLineClick(line.timeMs) }
                                     } else {
                                         Modifier
                                     },

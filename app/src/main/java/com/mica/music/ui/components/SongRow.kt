@@ -68,8 +68,6 @@ fun SongRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(rowHeight)
-                // 与 LibraryStatsRow 右侧（排序/重载）同一内边距
-                .padding(end = HifiSpacing.lg)
                 .semantics(mergeDescendants = true) {
                     contentDescription = if (selectionMode) {
                         "${if (isSelected) "取消选择" else "选择"} ${song.title}，${ArtistNames.normalizeDisplay(song.artist)}"
@@ -90,7 +88,9 @@ fun SongRow(
                     } else {
                         Modifier.clickable(onClick = onClick)
                     },
-                ),
+                )
+                // 与 LibraryStatsRow 右侧（排序/重载）同一内容边距
+                .padding(end = HifiSpacing.lg),
         ) {
             Box(
                 Modifier

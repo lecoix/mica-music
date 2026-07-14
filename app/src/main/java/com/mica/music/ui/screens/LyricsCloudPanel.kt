@@ -9,6 +9,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
@@ -212,29 +215,54 @@ internal fun LyricsCloudPanel(
                 distanceFromCurrent = hypot(node.x - currentNode.x, node.y - currentNode.y),
                 isCurrent = interlude == null && index == currentIndex,
             )
-            CloudLyricLine(
-                rows = displayRows[index],
-                line = line,
-                isCurrent = interlude == null && index == currentIndex,
-                colors = colors,
-                textStyle = lineStyles[index],
-                translationTextStyle = translationStyles[index],
-                nextLineTimeMs = lyrics.getOrNull(index + 1)?.timeMs,
-                positionMs = framePositionMs,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .requiredWidth(with(density) { (node.width * unit).toDp() })
-                    .offset {
-                        IntOffset(screenX.roundToInt(), screenY.roundToInt())
+            key(index) {
+                val interactionSource = remember { MutableInteractionSource() }
+                val isPressed by interactionSource.collectIsPressedAsState()
+                val pressScale = remember { Animatable(1f) }
+                LaunchedEffect(isPressed, motionEnabled) {
+                    if (!motionEnabled) {
+                        pressScale.snapTo(1f)
+                    } else if (isPressed) {
+                        pressScale.animateTo(0.985f, tween(90, easing = MicaMotion.Easing))
+                    } else if (pressScale.value < 1f) {
+                        pressScale.animateTo(1.015f, tween(120, easing = MicaMotion.Easing))
+                        pressScale.animateTo(1f, tween(180, easing = MicaMotion.Easing))
                     }
-                    .graphicsLayer {
-                        val scale = cloudScale * if (interlude == null && index == currentIndex) 1.08f else 1f
-                        scaleX = scale
-                        scaleY = scale
-                        alpha = revealProgress
-                    }
-                    .clickable { onLineClick(line.timeMs) },
-            )
+                }
+                val pressEmphasis by animateFloatAsState(
+                    targetValue = if (isPressed) 1f else 0f,
+                    animationSpec = tween(if (motionEnabled) 90 else 0, easing = MicaMotion.Easing),
+                    label = "lyricsCloudPressEmphasis",
+                )
+                CloudLyricLine(
+                    rows = displayRows[index],
+                    line = line,
+                    isCurrent = interlude == null && index == currentIndex,
+                    pressEmphasis = pressEmphasis,
+                    colors = colors,
+                    textStyle = lineStyles[index],
+                    translationTextStyle = translationStyles[index],
+                    nextLineTimeMs = lyrics.getOrNull(index + 1)?.timeMs,
+                    positionMs = framePositionMs,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .requiredWidth(with(density) { (node.width * unit).toDp() })
+                        .offset {
+                            IntOffset(screenX.roundToInt(), screenY.roundToInt())
+                        }
+                        .graphicsLayer {
+                            val scale = cloudScale * pressScale.value *
+                                if (interlude == null && index == currentIndex) 1.08f else 1f
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = revealProgress
+                        }
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                        ) { onLineClick(line.timeMs) },
+                )
+            }
         }
         if (interlude != null) {
             CloudInterludeGlow(colors = colors, animate = isPlaying && motionEnabled)
@@ -438,6 +466,7 @@ private fun CloudLyricLine(
     rows: List<LyricDisplayRows.DisplayRow>,
     line: LyricLine,
     isCurrent: Boolean,
+    pressEmphasis: Float,
     colors: PlayerContentColors,
     textStyle: TextStyle,
     translationTextStyle: TextStyle,
@@ -453,32 +482,42 @@ private fun CloudLyricLine(
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         rows.forEach { row ->
             val style = if (row.splitIndex > 0) translationTextStyle else textStyle
+            val pressedStyle = style.copy(
+                fontWeight = FontWeight.Normal,
+                shadow = Shadow(
+                    color = colors.primary.copy(alpha = 0.38f * pressEmphasis),
+                    offset = Offset.Zero,
+                    blurRadius = 12f * pressEmphasis,
+                ),
+            )
             if (characterState != null && characterState.activeIndex in row.start until row.endExclusive) {
                 Row {
                     row.text.forEachIndexed { localIndex, character ->
                         val sourceIndex = row.start + localIndex
                         val isActiveCharacter = sourceIndex == characterState.activeIndex
                         val completed = sourceIndex < characterState.activeIndex
+                        val baseColor = when {
+                            completed -> colors.primary
+                            isActiveCharacter -> lerp(
+                                colors.tertiary,
+                                colors.primary,
+                                characterState.progress,
+                            )
+                            else -> colors.tertiary
+                        }
                         Text(
                             text = character.toString(),
-                            style = style.copy(fontWeight = FontWeight.Normal),
-                            color = when {
-                                completed -> colors.primary
-                                isActiveCharacter -> lerp(
-                                    colors.tertiary,
-                                    colors.primary,
-                                    characterState.progress,
-                                )
-                                else -> colors.tertiary
-                            },
+                            style = pressedStyle,
+                            color = lerp(baseColor, colors.primary, pressEmphasis * 0.35f),
                         )
                     }
                 }
             } else {
+                val baseColor = if (isCurrent) colors.primary else colors.tertiary
                 Text(
                     text = row.text,
-                    style = style.copy(fontWeight = FontWeight.Normal),
-                    color = if (isCurrent) colors.primary else colors.tertiary,
+                    style = pressedStyle,
+                    color = lerp(baseColor, colors.primary, pressEmphasis * 0.35f),
                     textAlign = TextAlign.Center,
                     softWrap = false,
                 )
