@@ -9,8 +9,16 @@ enum class PlayerCoverFlowMode(
     val usesPhotoStack: Boolean = false,
     val forcesSquareCrop: Boolean = false,
     val supportsImmersiveLower: Boolean = true,
+    val usesHorizontalLyricsPage: Boolean = false,
 ) {
     STANDARD("standard", "标准"),
+
+    CUSTOM_STANDARD(
+        storageValue = "custom_standard",
+        settingsLabel = "自定义标准",
+        supportsImmersiveLower = false,
+        usesHorizontalLyricsPage = true,
+    ),
 
     PARTICLE_COVER(
         storageValue = "particle_cover",

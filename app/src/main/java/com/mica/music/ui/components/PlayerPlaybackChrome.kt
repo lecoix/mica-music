@@ -82,6 +82,7 @@ internal fun PlayerProgressBarSection(
     spectrumPlaying: Boolean = true,
     spectrumAlpha: Float = 1f,
     spectrumHeight: Dp = 56.dp,
+    visualScale: Float = 1f,
 ) {
     val spectrumProgress = spectrumAlpha.coerceIn(0f, 1f)
     val showSpectrum = spectrumEnabled && spectrumProgress > 0.01f
@@ -89,7 +90,7 @@ internal fun PlayerProgressBarSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(32.dp),
+                .height(32.dp * visualScale),
             contentAlignment = Alignment.BottomCenter,
         ) {
             if (showSpectrum) {
@@ -113,13 +114,23 @@ internal fun PlayerProgressBarSection(
         Row(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = formatPlaybackTime(seekState.displaySec),
-                style = MicaTheme.typography.monoMd,
+                style = MicaTheme.typography.monoMd.let { style ->
+                    style.copy(
+                        fontSize = style.fontSize * visualScale,
+                        lineHeight = style.lineHeight * visualScale,
+                    )
+                },
                 color = colors.secondary,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = formatPlaybackTime(seekState.totalSec),
-                style = MicaTheme.typography.monoMd,
+                style = MicaTheme.typography.monoMd.let { style ->
+                    style.copy(
+                        fontSize = style.fontSize * visualScale,
+                        lineHeight = style.lineHeight * visualScale,
+                    )
+                },
                 color = colors.secondary,
             )
         }
@@ -158,6 +169,7 @@ internal fun PlayerPlaybackControlsSection(
     onOpenEqualizer: (() -> Unit)? = null,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
+    visualScale: Float = 1f,
 ) {
     val mode = surfaceState.playbackQueueMode
     val modeActive = mode != PlaybackQueueMode.OFF
@@ -174,7 +186,7 @@ internal fun PlayerPlaybackControlsSection(
                 imageVector = playbackQueueModeIcon(mode),
                 contentDescription = playbackQueueModeDescription(mode),
                 tint = if (modeActive) colors.primary else colors.secondary,
-                modifier = Modifier.size(HifiSize.iconLg),
+                modifier = Modifier.size(HifiSize.iconLg * visualScale),
             )
         }
         IconButton(
@@ -185,14 +197,14 @@ internal fun PlayerPlaybackControlsSection(
                 Icons.Default.SkipPrevious,
                 contentDescription = "上一首",
                 tint = colors.primary,
-                modifier = Modifier.size(HifiSize.iconXl),
+                modifier = Modifier.size(HifiSize.iconXl * visualScale),
             )
         }
         SharpPlayPauseButton(
             isPlaying = surfaceState.isPlaying,
             onToggle = onTogglePlay,
             onLongPress = onPlayLongPress,
-            size = HifiSize.iconXxl,
+            size = HifiSize.iconXxl * visualScale,
             color = colors.primary,
         )
         IconButton(
@@ -203,7 +215,7 @@ internal fun PlayerPlaybackControlsSection(
                 Icons.Default.SkipNext,
                 contentDescription = "下一首",
                 tint = colors.primary,
-                modifier = Modifier.size(HifiSize.iconXl),
+                modifier = Modifier.size(HifiSize.iconXl * visualScale),
             )
         }
         IconButton(
@@ -214,7 +226,7 @@ internal fun PlayerPlaybackControlsSection(
                 imageVector = Icons.AutoMirrored.Outlined.QueueMusic,
                 contentDescription = "播放列表",
                 tint = colors.secondary,
-                modifier = Modifier.size(HifiSize.iconLg),
+                modifier = Modifier.size(HifiSize.iconLg * visualScale),
             )
         }
     }

@@ -106,7 +106,15 @@ class LyricsCloudLayoutTest {
         assertTrue(lyricsCloudUsesVerticalSplit(PlayerCoverFlowMode.STANDARD))
         assertTrue(lyricsCloudUsesVerticalSplit(PlayerCoverFlowMode.PAUSE_FOLD))
         assertTrue(lyricsCloudUsesVerticalSplit(PlayerCoverFlowMode.RETRO_3D))
+        assertFalse(lyricsCloudUsesVerticalSplit(PlayerCoverFlowMode.CUSTOM_STANDARD))
         assertFalse(lyricsCloudUsesVerticalSplit(PlayerCoverFlowMode.PARTICLE_COVER))
         assertFalse(lyricsCloudUsesVerticalSplit(PlayerCoverFlowMode.PHOTO_STACK))
+    }
+
+    @Test
+    fun customStandardUsesHorizontalClassicPageOnlyWhenCloudIsUnavailable() {
+        assertTrue(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.CUSTOM_STANDARD, false))
+        assertFalse(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.CUSTOM_STANDARD, true))
+        assertFalse(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.STANDARD, false))
     }
 }

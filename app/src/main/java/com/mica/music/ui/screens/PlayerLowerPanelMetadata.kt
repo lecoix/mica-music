@@ -44,6 +44,7 @@ internal fun HiFiBadgeSection(
     colors: PlayerContentColors,
     playerInfoVisibility: PlayerInfoVisibility,
     playbackTuning: PlaybackTuning,
+    modifier: Modifier = Modifier,
 ) {
     val locale = LocalContext.current.resources.configuration.locales[0]
     var currentTimeLabel by remember { mutableStateOf(formatPlayerInfoCurrentTime(locale = locale)) }
@@ -63,7 +64,7 @@ internal fun HiFiBadgeSection(
     if (segments.isEmpty()) return
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = HifiSpacing.lg),
     ) {
@@ -89,10 +90,16 @@ internal fun SongTitleSection(
     colors: PlayerContentColors,
     immersiveProgress: Float,
     modifier: Modifier = Modifier,
+    contentScale: Float = 1f,
     onLongPress: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    val titleStyle = MicaTheme.typography.titleLg
+    val titleStyle = MicaTheme.typography.titleLg.let { style ->
+        style.copy(
+            fontSize = style.fontSize * contentScale,
+            lineHeight = style.lineHeight * contentScale,
+        )
+    }
     val titleLineHeight = textLineHeightDp(titleStyle)
     val artistLine = when {
         !playbackError.isNullOrBlank() -> playbackError
@@ -109,7 +116,7 @@ internal fun SongTitleSection(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm * contentScale),
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = HifiSpacing.lg)
@@ -135,7 +142,12 @@ internal fun SongTitleSection(
         Box(Modifier.fillMaxWidth()) {
             Text(
                 text = fullSubtitle,
-                style = MicaTheme.typography.bodyMd,
+                style = MicaTheme.typography.bodyMd.let { style ->
+                    style.copy(
+                        fontSize = style.fontSize * contentScale,
+                        lineHeight = style.lineHeight * contentScale,
+                    )
+                },
                 color = subtitleColor,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
@@ -146,7 +158,12 @@ internal fun SongTitleSection(
             )
             Text(
                 text = artistLine,
-                style = MicaTheme.typography.bodyMd,
+                style = MicaTheme.typography.bodyMd.let { style ->
+                    style.copy(
+                        fontSize = style.fontSize * contentScale,
+                        lineHeight = style.lineHeight * contentScale,
+                    )
+                },
                 color = subtitleColor,
                 textAlign = TextAlign.Center,
                 maxLines = 2,

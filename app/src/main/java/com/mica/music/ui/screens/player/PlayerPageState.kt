@@ -45,6 +45,20 @@ internal class PlayerPageUiModel(
             density = density,
             typography = typography,
         )
+
+    fun lyricsFrameFor(panelHeight: Dp): PlayerPageFrame =
+        PlayerPageLayoutEngine.computeFrame(
+            input = layoutInput.copy(
+                panelHeight = panelHeight,
+                lyricsExpanded = true,
+                lyricsProgress = 1f,
+                lyricsChromeFade = 1f,
+                immersiveLower = false,
+                immersiveProgress = 0f,
+            ),
+            density = density,
+            typography = typography,
+        )
 }
 
 @Composable
@@ -68,11 +82,12 @@ internal fun rememberPlayerPageUiModel(
     val immersiveLower = uiSettings.playerImmersiveLower && coverFlowMode.supportsImmersiveLower
     val coverFlowModeEnabled = ParticleCoverThemePolicy.coverFlowStageEnabled(coverFlowMode)
     val photoStackMode = coverFlowMode.usesPhotoStack
-    val useCoverEdgeProgress = when {
-        photoStackMode -> true
-        coverFlowModeEnabled -> uiSettings.coverEdgeProgress
-        else -> uiSettings.useCoverEdgeProgressNow()
-    }
+    val useCoverEdgeProgress = resolveUseCoverEdgeProgress(
+        mode = coverFlowMode,
+        coverFlowModeEnabled = coverFlowModeEnabled,
+        coverEdgeProgressSetting = uiSettings.coverEdgeProgress,
+        standardCoverEdgeProgress = uiSettings.useCoverEdgeProgressNow(),
+    )
 
     val lyricsChromeFade by animateFloatAsState(
         targetValue = if (lyricsExpanded) 1f else 0f,
@@ -169,4 +184,16 @@ internal fun rememberPlayerPageUiModel(
         density = density,
         typography = typography,
     )
+}
+
+internal fun resolveUseCoverEdgeProgress(
+    mode: PlayerCoverFlowMode,
+    coverFlowModeEnabled: Boolean,
+    coverEdgeProgressSetting: Boolean,
+    standardCoverEdgeProgress: Boolean,
+): Boolean = when {
+    mode == PlayerCoverFlowMode.CUSTOM_STANDARD -> false
+    mode.usesPhotoStack -> true
+    coverFlowModeEnabled -> coverEdgeProgressSetting
+    else -> standardCoverEdgeProgress
 }

@@ -13,6 +13,19 @@ class PlayerPageLayoutEngineTest {
     private val density = Density(1f)
     private val typography = HifiTypography()
 
+    @Test
+    fun customStandardNeverUsesCoverEdgeProgress() {
+        assertEquals(
+            false,
+            resolveUseCoverEdgeProgress(
+                mode = com.mica.music.data.PlayerCoverFlowMode.CUSTOM_STANDARD,
+                coverFlowModeEnabled = false,
+                coverEdgeProgressSetting = true,
+                standardCoverEdgeProgress = true,
+            ),
+        )
+    }
+
     private fun baseInput(
         panelHeight: Dp = 400.dp,
         lyricsProgress: Float = 0f,

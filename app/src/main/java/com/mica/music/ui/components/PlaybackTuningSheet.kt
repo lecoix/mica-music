@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -137,7 +138,7 @@ private fun PlaybackTuningSlider(
 }
 
 @Composable
-private fun PlaybackTuningRuler(
+internal fun PlaybackTuningRuler(
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
     step: Float,
@@ -151,6 +152,7 @@ private fun PlaybackTuningRuler(
     val tickColor = MicaTheme.colors.textTertiary.copy(alpha = 0.78f)
     val majorTickColor = MicaTheme.colors.textSecondary.copy(alpha = 0.92f)
     val selectedColor = MicaTheme.colors.accent
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
     var widthPx by remember { mutableFloatStateOf(0f) }
 
     fun snap(raw: Float): Float {
@@ -172,12 +174,12 @@ private fun PlaybackTuningRuler(
         modifier = modifier
             .onSizeChanged { widthPx = it.width.toFloat() }
             .pointerInput(valueRange, step) {
-                detectTapGestures { offset -> onValueChange(xToValue(offset.x)) }
+                detectTapGestures { offset -> currentOnValueChange(xToValue(offset.x)) }
             }
             .pointerInput(valueRange, step) {
                 detectDragGestures { change, _ ->
                     change.consume()
-                    onValueChange(xToValue(change.position.x))
+                    currentOnValueChange(xToValue(change.position.x))
                 }
             },
     ) {

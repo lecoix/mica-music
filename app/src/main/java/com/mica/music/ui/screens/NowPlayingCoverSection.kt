@@ -96,6 +96,7 @@ internal fun NowPlayingCoverSection(
     onCoverBoundsChanged: (Rect?) -> Unit,
     onCoverAspectRatioChanged: (Float) -> Unit,
     onCloseLyrics: () -> Unit,
+    onCoverClick: (() -> Unit)?,
     onPlayQueueIndex: (Int) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -293,7 +294,7 @@ internal fun NowPlayingCoverSection(
                             .padding(start = cover.startPadding, top = cover.topPadding)
                             .size(cover.width, cover.height)
                             .zIndex(2f)
-                            .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverLongPress)),
+                            .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverClick, onCoverLongPress)),
                     )
                 }
             }
@@ -307,7 +308,7 @@ internal fun NowPlayingCoverSection(
                             clip = false
                         }
                         .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
-                        .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverLongPress)),
+                        .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverClick, onCoverLongPress)),
                     contentAlignment = Alignment.Center,
                 ) {
                     PhotoStackThemeHost(
@@ -348,7 +349,7 @@ internal fun NowPlayingCoverSection(
                             )
                         }
                     }
-                    .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverLongPress)),
+                    .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverClick, onCoverLongPress)),
             ) {
                 Box(
                     modifier = Modifier
@@ -488,20 +489,24 @@ private fun CoverEdgePlaybackOverlay(
 private fun coverClickModifier(
     lyricsExpanded: Boolean,
     onCloseLyrics: () -> Unit,
+    onCoverClick: (() -> Unit)?,
     onCoverLongPress: (() -> Unit)?,
-): Modifier = when {
-    lyricsExpanded && onCoverLongPress != null ->
-        Modifier.combinedClickable(
-            onClick = onCloseLyrics,
-            onLongClick = onCoverLongPress,
-        )
-    lyricsExpanded -> Modifier.clickable(onClick = onCloseLyrics)
-    onCoverLongPress != null ->
-        Modifier.combinedClickable(
-            onClick = {},
-            onLongClick = onCoverLongPress,
-        )
-    else -> Modifier
+): Modifier {
+    val onClick = if (lyricsExpanded) onCloseLyrics else onCoverClick
+    return when {
+        onClick != null && onCoverLongPress != null ->
+            Modifier.combinedClickable(
+                onClick = onClick,
+                onLongClick = onCoverLongPress,
+            )
+        onClick != null -> Modifier.clickable(onClick = onClick)
+        onCoverLongPress != null ->
+            Modifier.combinedClickable(
+                onClick = {},
+                onLongClick = onCoverLongPress,
+            )
+        else -> Modifier
+    }
 }
 
 @Composable

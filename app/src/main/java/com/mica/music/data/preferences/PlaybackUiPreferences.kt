@@ -8,6 +8,8 @@ import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.PlayerLowerComponent
+import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
@@ -22,6 +24,13 @@ object PlaybackUiPreferences {
     private const val KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION = "mini_player_right_swipe_action"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     internal const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
+    private const val KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE = "custom_standard_cover_tap_play_pause"
+    private const val KEY_CUSTOM_PLAYER_LOWER_ORDER = "custom_player_lower_order"
+    private const val KEY_CUSTOM_PLAYER_LOWER_HIDDEN = "custom_player_lower_hidden"
+    private const val KEY_CUSTOM_PLAYER_LOWER_SIZES = "custom_player_lower_sizes"
+    private const val KEY_CUSTOM_PLAYER_LOWER_SPACING = "custom_player_lower_spacing"
+    private const val KEY_CUSTOM_PLAYER_LOWER_TOP_PADDING = "custom_player_lower_top_padding"
+    private const val KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING = "custom_player_lower_bottom_padding"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -147,6 +156,84 @@ object PlaybackUiPreferences {
         MicaSettingsStore.prefs(context).edit()
             .putString(KEY_PLAYER_COVER_FLOW_MODE, mode.storageValue)
             .apply()
+    }
+
+    fun customStandardCoverTapPlayPause(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE, false)
+
+    fun setCustomStandardCoverTapPlayPause(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE, enabled)
+            .apply()
+    }
+
+    fun customPlayerLowerLayout(context: Context): PlayerLowerLayoutConfig {
+        val prefs = MicaSettingsStore.prefs(context)
+        val order = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_ORDER, null)
+            ?.split(',')
+            ?.mapNotNull(PlayerLowerComponent::fromStorage)
+            .orEmpty()
+        val hidden = prefs.getStringSet(KEY_CUSTOM_PLAYER_LOWER_HIDDEN, emptySet())
+            .orEmpty()
+            .mapNotNull(PlayerLowerComponent::fromStorage)
+            .toSet()
+        val scalePercents = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_SIZES, null)
+            ?.split(',')
+            ?.mapNotNull { encoded ->
+                val parts = encoded.split(':', limit = 2)
+                val component = parts.getOrNull(0)?.let(PlayerLowerComponent::fromStorage)
+                val percent = parts.getOrNull(1)?.let(::decodePlayerLowerScalePercent)
+                if (component != null && percent != null) component to percent else null
+            }
+            ?.toMap()
+            .orEmpty()
+        return PlayerLowerLayoutConfig(
+            order = order,
+            hidden = hidden,
+            scalePercents = scalePercents,
+            spacingDp = prefs.getInt(
+                KEY_CUSTOM_PLAYER_LOWER_SPACING,
+                PlayerLowerLayoutConfig.DEFAULT_SPACING_DP,
+            ),
+            topPaddingDp = prefs.getInt(
+                KEY_CUSTOM_PLAYER_LOWER_TOP_PADDING,
+                PlayerLowerLayoutConfig.DEFAULT_BOUNDARY_PADDING_DP,
+            ),
+            bottomPaddingDp = prefs.getInt(
+                KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING,
+                PlayerLowerLayoutConfig.DEFAULT_BOUNDARY_PADDING_DP,
+            ),
+        ).normalized()
+    }
+
+    fun setCustomPlayerLowerLayout(context: Context, config: PlayerLowerLayoutConfig) {
+        val normalized = config.normalized()
+        MicaSettingsStore.prefs(context).edit()
+            .putString(
+                KEY_CUSTOM_PLAYER_LOWER_ORDER,
+                normalized.order.joinToString(",") { it.storageValue },
+            )
+            .putStringSet(
+                KEY_CUSTOM_PLAYER_LOWER_HIDDEN,
+                normalized.hidden.mapTo(mutableSetOf()) { it.storageValue },
+            )
+            .putString(
+                KEY_CUSTOM_PLAYER_LOWER_SIZES,
+                normalized.scalePercents.entries.joinToString(",") { (component, percent) ->
+                    "${component.storageValue}:$percent"
+                },
+            )
+            .putInt(KEY_CUSTOM_PLAYER_LOWER_SPACING, normalized.spacingDp)
+            .putInt(KEY_CUSTOM_PLAYER_LOWER_TOP_PADDING, normalized.topPaddingDp)
+            .putInt(KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING, normalized.bottomPaddingDp)
+            .apply()
+    }
+
+    private fun decodePlayerLowerScalePercent(value: String): Int? = when (value) {
+        "small" -> 85
+        "medium" -> 100
+        "large" -> 115
+        else -> value.toIntOrNull()
     }
 
     fun particleCoverTuning(context: Context): ParticleCoverTuning {

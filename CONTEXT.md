@@ -208,6 +208,10 @@ _Avoid_: mini bar、bottom player、now playing bar
 播放页封面以下的区域：元数据、歌词、进度与控制区（chrome）。
 _Avoid_: bottom sheet、footer
 
+**自定义下半屏布局（custom lower layout）**：
+`CUSTOM_STANDARD` 专属的受约束布局：五个区域块（信息行、歌曲标题、紧凑歌词、进度条、播放控制）可排序、按 `50%..200%` 缩放、隐藏并统一调节间距；顶部与底部留白分别可调。该主题可单独开启“点击封面暂停/播放”，默认关闭，不改变长按菜单或滑动切歌。`PlayerLowerLayoutConfig` 经 `PlaybackUiPreferences` 持久化；配置总高度超过下半屏时统一按比例收敛并裁边兜底。它不是任意 XY 画布，不允许组件绕过安全布局自行偏移。
+_Avoid_: layout editor（泛指设置页时）、自由画布、custom theme（未指封面行为时）
+
 **Playback chrome（播放控制区）**：
 下半屏中的进度条、播放按钮五件套、频谱与相关间距；与封面区相对。
 _Avoid_: controls only、transport
@@ -224,6 +228,7 @@ _Avoid_: mode、state（与三态 `Playback*State` 混淆时）
 
 **Lyrics focus（歌词聚焦）**：
 从普通播放页过渡到全屏歌词页的连续布局动画进度（`lyricsProgress` / `lyricsFocus`）；驱动封面缩小与底栏几何插值。
+`CUSTOM_STANDARD` 不进入该布局变形，而是复用粒子封面进入歌词云的横向整页滑动；播放页保持正常态，歌词目标页预先挂载。
 _Avoid_: lyrics mode（指布尔 `lyricsExpanded` 时）、歌词页（指动画结束后的稳定态时）
 
 **Lyrics page（歌词页）**：
@@ -267,11 +272,12 @@ _Avoid_: debounce、loading
 **PlayerCoverFlowMode（播放页封面行为）**：
 封面区交互形态，设置 → 播放页封面行为：
 `STANDARD`（标准大封面，横向轻扫切歌）；
+`CUSTOM_STANDARD`（以标准大封面为基准，下半屏使用 `PlayerLowerLayoutConfig`，禁止下半屏沉浸，歌词页统一横向整页滑动）；
 `PARTICLE_COVER`（粒子封面，封面边缘粒子化与切歌分解动画；现网 **GLES** `TextureView` + `ParticleCoverRenderer`，`UseNativeParticleCoverInPlayer = true`；WebView 回退见 `ThreeParticleCoverHost`；产品说明见 `docs/PARTICLE_COVER_OPENGL_MIGRATION.md` §0）；
 `PAUSE_FOLD`（平行封面带）；
 `RETRO_3D`（复古立体封面流）；
 `PHOTO_STACK`（拍立得回忆，拍立得叠放转场）。
-非 `STANDARD` 模式均强制裁切填充、忽略「原样比例」；`PARTICLE_COVER` 与 `PHOTO_STACK` 不支持下半屏沉浸。
+`PARTICLE_COVER`、`PAUSE_FOLD`、`RETRO_3D`、`PHOTO_STACK` 强制裁切填充、忽略「原样比例」；`CUSTOM_STANDARD` 保留标准封面的显示策略。`CUSTOM_STANDARD`、`PARTICLE_COVER` 与 `PHOTO_STACK` 不支持下半屏沉浸。
 _Avoid_: carousel（无专名时）、cover flow（小写泛指全部非标准模式时）
 
 **Cover flow（封面流）**：

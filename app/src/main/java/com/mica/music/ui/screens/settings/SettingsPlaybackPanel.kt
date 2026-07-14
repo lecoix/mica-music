@@ -39,6 +39,7 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
             ReplayGainPreferences.setMode(context, replayGainMode)
         },
     )
+
     Spacer(Modifier.height(HifiSpacing.lg))
 
     SettingsSectionTitle("封面与播放页")
@@ -84,19 +85,34 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         },
     )
 
-    SettingsToggleRow(
-        title = "封面底边进度",
-        subtitle = when (uiSettings.playerLowerBackground) {
-            PlayerLowerBackgroundMode.THEME,
-            PlayerLowerBackgroundMode.COVER_GLOW,
-            PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
-            PlayerLowerBackgroundMode.DYNAMIC_ARTWORK,
-            -> "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
-            else -> "标准主题仅「主题色」「封面模糊」下生效；特殊主题仍可在普通与底边布局间切换"
-        },
-        checked = uiSettings.coverEdgeProgress,
-        onCheckedChange = { uiSettings.updateCoverEdgeProgress(it) },
-    )
+    if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
+        SettingsToggleRow(
+            title = "点击封面暂停/播放",
+            subtitle = "仅在自定义标准主题生效；不影响左右滑动切歌与长按菜单",
+            checked = uiSettings.customStandardCoverTapPlayPause,
+            onCheckedChange = uiSettings::updateCustomStandardCoverTapPlayPause,
+        )
+        CustomPlayerLayoutEditor(
+            config = uiSettings.customPlayerLowerLayout,
+            onChange = uiSettings::updateCustomPlayerLowerLayout,
+        )
+    }
+
+    if (uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD) {
+        SettingsToggleRow(
+            title = "封面底边进度",
+            subtitle = when (uiSettings.playerLowerBackground) {
+                PlayerLowerBackgroundMode.THEME,
+                PlayerLowerBackgroundMode.COVER_GLOW,
+                PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
+                PlayerLowerBackgroundMode.DYNAMIC_ARTWORK,
+                -> "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
+                else -> "标准主题仅「主题色」「封面模糊」下生效；特殊主题仍可在普通与底边布局间切换"
+            },
+            checked = uiSettings.coverEdgeProgress,
+            onCheckedChange = { uiSettings.updateCoverEdgeProgress(it) },
+        )
+    }
 
     SettingsToggleRow(
         title = "播放时屏幕常亮",
@@ -105,17 +121,19 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         onCheckedChange = { uiSettings.updateKeepScreenOnWhenPlaying(it) },
     )
 
-    SettingsToggleRow(
-        title = "下半屏沉浸",
-        subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关，粒子封面&拍立得回忆不适用（制作中）",
-        checked = uiSettings.playerImmersiveLower &&
-            uiSettings.playerCoverFlowMode.supportsImmersiveLower,
-        onCheckedChange = {
-            if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
-                uiSettings.updatePlayerImmersiveLower(it)
-            }
-        },
-    )
+    if (uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD) {
+        SettingsToggleRow(
+            title = "下半屏沉浸",
+            subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关，粒子封面&拍立得回忆不适用（制作中）",
+            checked = uiSettings.playerImmersiveLower &&
+                uiSettings.playerCoverFlowMode.supportsImmersiveLower,
+            onCheckedChange = {
+                if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
+                    uiSettings.updatePlayerImmersiveLower(it)
+                }
+            },
+        )
+    }
 
     SettingsToggleRow(
         title = "隐藏歌名括号内容",

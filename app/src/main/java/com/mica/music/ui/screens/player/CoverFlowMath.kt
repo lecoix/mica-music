@@ -33,6 +33,7 @@ internal object CoverFlowMath {
             PlayerCoverFlowMode.RETRO_3D -> RetroLaneStepFraction
             PlayerCoverFlowMode.PAUSE_FOLD -> LaneStepFraction
             PlayerCoverFlowMode.STANDARD,
+            PlayerCoverFlowMode.CUSTOM_STANDARD,
             PlayerCoverFlowMode.PARTICLE_COVER,
             PlayerCoverFlowMode.PHOTO_STACK,
             -> LaneStepFraction
@@ -53,6 +54,7 @@ internal object CoverFlowMath {
             PlayerCoverFlowMode.RETRO_3D -> 1f - 0.38f * foldProgress
             PlayerCoverFlowMode.PAUSE_FOLD -> 1f - 0.24f * foldProgress
             PlayerCoverFlowMode.STANDARD,
+            PlayerCoverFlowMode.CUSTOM_STANDARD,
             PlayerCoverFlowMode.PARTICLE_COVER,
             PlayerCoverFlowMode.PHOTO_STACK,
             -> 1f

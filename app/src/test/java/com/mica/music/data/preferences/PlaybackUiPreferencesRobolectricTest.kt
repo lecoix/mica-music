@@ -5,6 +5,8 @@ import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.PlayerLowerComponent
+import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 import org.junit.Assert.assertEquals
@@ -49,6 +51,15 @@ class PlaybackUiPreferencesRobolectricTest {
         PlaybackUiPreferences.setKeepScreenOnWhenPlaying(context, true)
 
         assertTrue(PlaybackUiPreferences.keepScreenOnWhenPlaying(context))
+    }
+
+    @Test
+    fun customStandardCoverTapPlayPauseDefaultsOffAndRoundTrips() {
+        assertEquals(false, PlaybackUiPreferences.customStandardCoverTapPlayPause(context))
+
+        PlaybackUiPreferences.setCustomStandardCoverTapPlayPause(context, true)
+
+        assertTrue(PlaybackUiPreferences.customStandardCoverTapPlayPause(context))
     }
 
     @Test
@@ -103,6 +114,31 @@ class PlaybackUiPreferencesRobolectricTest {
     }
 
     @Test
+    fun customPlayerLowerLayoutRoundTrips() {
+        val config = PlayerLowerLayoutConfig.Default
+            .move(PlayerLowerComponent.CONTROLS, -2)
+            .withVisibility(PlayerLowerComponent.INFO, false)
+            .withScalePercent(PlayerLowerComponent.TITLE, 175)
+            .copy(spacingDp = 16, topPaddingDp = 32, bottomPaddingDp = 48)
+
+        PlaybackUiPreferences.setCustomPlayerLowerLayout(context, config)
+
+        assertEquals(config, PlaybackUiPreferences.customPlayerLowerLayout(context))
+    }
+
+    @Test
+    fun legacyCustomPlayerSizesMigrateToPercentages() {
+        MicaSettingsStore.prefs(context).edit()
+            .putString("custom_player_lower_sizes", "info:small,title:large")
+            .apply()
+
+        val config = PlaybackUiPreferences.customPlayerLowerLayout(context)
+
+        assertEquals(85, config.scalePercentOf(PlayerLowerComponent.INFO))
+        assertEquals(115, config.scalePercentOf(PlayerLowerComponent.TITLE))
+    }
+
+    @Test
     fun songListInfoVisibilityRoundTrips() {
         val visibility = SongListInfoVisibility(
             showSongArtist = false,
@@ -138,6 +174,7 @@ class PlaybackUiPreferencesRobolectricTest {
     @Test
     fun photoStackModeFromStorage() {
         assertEquals(PlayerCoverFlowMode.PHOTO_STACK, PlayerCoverFlowMode.fromStorage("photo_stack"))
+        assertEquals(PlayerCoverFlowMode.CUSTOM_STANDARD, PlayerCoverFlowMode.fromStorage("custom_standard"))
         assertEquals(PlayerCoverFlowMode.STANDARD, PlayerCoverFlowMode.fromStorage("missing"))
     }
 }

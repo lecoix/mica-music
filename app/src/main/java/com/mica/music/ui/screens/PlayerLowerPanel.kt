@@ -22,6 +22,7 @@ import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
@@ -67,6 +68,7 @@ internal fun PlayerLowerPanelSection(
     onOpenLyrics: () -> Unit,
     onOpenQueue: () -> Unit,
     spectrumEnabled: Boolean,
+    customLayout: PlayerLowerLayoutConfig? = null,
     modifier: Modifier = Modifier,
 ) {
     val spacing = lower.spacing
@@ -82,6 +84,35 @@ internal fun PlayerLowerPanelSection(
         else -> colors
     }
     val showPlayerInfoRow = playerInfoVisibility.hasAnyEnabledSegment()
+
+    if (customLayout != null && !lyricsPageOpen) {
+        CustomPlayerLowerPanel(
+            config = customLayout,
+            surfaceState = surfaceState,
+            activeSong = activeSong,
+            lyricsRenderState = lyricsRenderState,
+            autoContentColors = autoContentColors,
+            colors = colors,
+            hifiBadgeColors = hifiBadgeColors,
+            playerPageTextColorMode = playerPageTextColorMode,
+            lowerBackground = lowerBackground,
+            seekState = seekState,
+            lyricsTextColorMode = lyricsTextColorMode,
+            bilingualDisplayMode = lyricsBilingualDisplayMode,
+            stripSongTitleParentheses = stripSongTitleParentheses,
+            playerInfoVisibility = playerInfoVisibility,
+            playbackTuning = playbackTuning,
+            spectrumEnabled = spectrumEnabled,
+            onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+            onPrevious = onPrevious,
+            onTogglePlay = onTogglePlay,
+            onNext = onNext,
+            onOpenLyrics = onOpenLyrics,
+            onOpenQueue = onOpenQueue,
+            modifier = modifier,
+        )
+        return
+    }
 
     if (hideInfoAndLyrics) {
         Column(modifier.fillMaxSize()) {

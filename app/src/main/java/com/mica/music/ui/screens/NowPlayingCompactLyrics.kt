@@ -45,12 +45,18 @@ internal fun LyricsSection(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+    contentScale: Float = 1f,
 ) {
     val lyrics = renderState.lyrics
     val positionMs = renderState.positionMs
     val index = renderState.activeLineIndex
     val compact = lineSlots <= 1
-    val textStyle = rememberPlayerPanelLyricStyle()
+    val textStyle = rememberPlayerPanelLyricStyle().let { style ->
+        style.copy(
+            fontSize = style.fontSize * contentScale,
+            lineHeight = style.lineHeight * contentScale,
+        )
+    }
     val colorSpec = rememberLyricLineColorSpec()
     val lineStepPx = rememberPlayerLyricLineStepPx(textStyle)
 
