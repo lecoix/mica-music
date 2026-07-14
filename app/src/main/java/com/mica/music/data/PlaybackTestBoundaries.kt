@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import androidx.media3.session.SessionToken
@@ -58,7 +59,7 @@ internal class AndroidMediaControllerConnector(
                     if (PlaybackBoundarySessionEvent.decode(command, args)?.also(onPlaybackBoundary) != null) {
                         SessionResult(SessionResult.RESULT_SUCCESS)
                     } else {
-                        SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED)
+                        SessionResult(SessionError.ERROR_NOT_SUPPORTED)
                     },
                 )
             })

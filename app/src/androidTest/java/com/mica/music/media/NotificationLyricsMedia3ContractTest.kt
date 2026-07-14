@@ -190,6 +190,123 @@ class NotificationLyricsMedia3ContractTest {
         }
     }
 
+    @Test
+    fun realQueueWritesKeepPlayerAndMirrorAlignedWithoutFalsePlayCounts() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val files = (1..3).map { index ->
+            createSilentWav(context.cacheDir, "queue-$index", durationSeconds = 20)
+        }
+        val songs = files.mapIndexed { index, file ->
+            testSong("queue-$index", Uri.fromFile(file).toString(), durationSeconds = 20)
+        }
+
+        try {
+            withPlayback(context, songs, Player.REPEAT_MODE_OFF) { contract ->
+                onMain {
+                    contract.playerController.pauseIfPlaying()
+                    contract.playerController.seekToMs(4_000)
+                }
+                await("paused queue cursor") {
+                    onMain {
+                        !contract.player.isPlaying &&
+                            contract.player.currentPosition >= 3_500L
+                    }
+                }
+
+                var refreshed = songs
+                repeat(3) { revision ->
+                    refreshed = refreshed.mapIndexed { index, song ->
+                        song.copy(title = "queue-title-$revision-$index")
+                    }
+                    onMain { contract.playerController.refreshQueueMetadata(refreshed) }
+                    await("metadata replacement $revision") {
+                        onMain {
+                            (0 until contract.mediaController.mediaItemCount).all { index ->
+                                contract.mediaController.getMediaItemAt(index)
+                                    .mediaMetadata.title?.toString() == refreshed[index].title
+                            } && contract.playerController.playbackQueueState.queue == refreshed
+                        }
+                    }
+                    assertQueueCursor(contract, refreshed.map(Song::id), currentId = songs[0].id, index = 0)
+                    assertEquals(listOf(songs[0].id), contract.playSessions.toList())
+                }
+
+                val reordered = listOf(refreshed[2], refreshed[0], refreshed[1])
+                onMain { contract.playerController.setQueue(reordered) }
+                awaitQueue(contract, reordered.map(Song::id))
+                assertQueueCursor(contract, reordered.map(Song::id), currentId = songs[0].id, index = 1)
+
+                onMain { contract.playerController.moveInQueue(1, 2) }
+                val moved = listOf(refreshed[2], refreshed[1], refreshed[0])
+                awaitQueue(contract, moved.map(Song::id))
+                assertQueueCursor(contract, moved.map(Song::id), currentId = songs[0].id, index = 2)
+
+                onMain { contract.playerController.removeFromQueue(0) }
+                val removedBeforeCurrent = listOf(refreshed[1], refreshed[0])
+                awaitQueue(contract, removedBeforeCurrent.map(Song::id))
+                assertQueueCursor(
+                    contract,
+                    removedBeforeCurrent.map(Song::id),
+                    currentId = songs[0].id,
+                    index = 1,
+                )
+
+                onMain { contract.playerController.removeFromQueue(1) }
+                awaitQueue(contract, listOf(songs[1].id))
+                assertQueueCursor(
+                    contract,
+                    listOf(songs[1].id),
+                    currentId = songs[1].id,
+                    index = 0,
+                    requirePreservedPosition = false,
+                )
+
+                onMain { contract.playerController.removeFromQueue(0) }
+                await("empty queue") {
+                    onMain {
+                        contract.mediaController.mediaItemCount == 0 &&
+                            contract.playerController.playbackQueueState.queue.isEmpty()
+                    }
+                }
+                assertEquals(listOf(songs[0].id), contract.playSessions.toList())
+            }
+        } finally {
+            files.forEach(File::delete)
+        }
+    }
+
+    private fun awaitQueue(contract: PlaybackContract, expectedIds: List<String>) {
+        await("queue ${expectedIds.joinToString()}") {
+            onMain {
+                (0 until contract.mediaController.mediaItemCount).map { index ->
+                    contract.mediaController.getMediaItemAt(index).mediaId
+                } == expectedIds &&
+                    contract.playerController.playbackQueueState.queue.map(Song::id) == expectedIds
+            }
+        }
+    }
+
+    private fun assertQueueCursor(
+        contract: PlaybackContract,
+        expectedIds: List<String>,
+        currentId: String,
+        index: Int,
+        requirePreservedPosition: Boolean = true,
+    ) {
+        onMain {
+            assertEquals(expectedIds, (0 until contract.mediaController.mediaItemCount).map { itemIndex ->
+                contract.mediaController.getMediaItemAt(itemIndex).mediaId
+            })
+            assertEquals(currentId, contract.mediaController.currentMediaItem?.mediaId)
+            assertEquals(index, contract.mediaController.currentMediaItemIndex)
+            assertEquals(currentId, contract.playerController.playbackSurfaceState.currentSong?.id)
+            assertEquals(index, contract.playerController.playbackQueueState.currentIndex)
+            if (requirePreservedPosition) {
+                assertTrue(contract.mediaController.currentPosition >= 3_500L)
+            }
+        }
+    }
+
     private fun withPlayback(
         context: Context,
         songs: List<Song>,

@@ -57,6 +57,10 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 
+    sourceSets {
+        getByName("androidTest").assets.srcDir(file("schemas"))
+    }
+
     signingConfigs {
         create("release") {
             val ciKeystoreFile = readReleaseSigningEnv("MICA_KEYSTORE_FILE")?.let(::file)
@@ -210,6 +214,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
 }
 
 tasks.matching { it.name == "preReleaseBuild" || it.name == "prePerfBuild" }.configureEach {

@@ -2,12 +2,8 @@ package com.mica.music.media
 
 import android.Manifest
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -39,16 +35,7 @@ class MicaMediaService : MediaSessionService() {
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
-    private var noisyReceiverRegistered = false
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    private val noisyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                compositePlayer?.pause()
-            }
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -129,7 +116,6 @@ class MicaMediaService : MediaSessionService() {
             )
         }
 
-        registerNoisyReceiver()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -152,10 +138,6 @@ class MicaMediaService : MediaSessionService() {
         replayGainStateOwner = null
         spectrumAnalyzerStateOwner?.release()
         spectrumAnalyzerStateOwner = null
-        if (noisyReceiverRegistered) {
-            runCatching { unregisterReceiver(noisyReceiver) }
-            noisyReceiverRegistered = false
-        }
         MicaEqualizerManager.onEnabledChanged = null
         MicaSpectrumAnalyzer.onEnabledChanged = null
         MicaEqualizerManager.release()
@@ -210,17 +192,6 @@ class MicaMediaService : MediaSessionService() {
         if (exo.audioSessionId != 0) {
             MicaEqualizerManager.attach(this, exo.audioSessionId)
         }
-    }
-
-    private fun registerNoisyReceiver() {
-        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(noisyReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(noisyReceiver, filter)
-        }
-        noisyReceiverRegistered = true
     }
 
     private fun createSessionActivityPendingIntent(): PendingIntent {

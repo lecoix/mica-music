@@ -146,6 +146,28 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 以后新增或修改 `replaceMediaItem`、`setMediaItems`、队列增删移动、`seekTo`、repeat 或 shuffle 写操作时，必须检查其 timeline/transition/discontinuity 回调是否会影响播放次数、收听时长、当前曲、队列索引或进度；无法由前两层证明时补真实 Player 契约测试。
 
+### P0 外部组件契约
+
+下列测试使用真实 Android/Media3 组件，不以 mocked callback 代替生产输入：
+
+- `ServicePlaybackRestorationContractTest`：真实 `MicaMediaService` + MediaSession/MediaController 保存并重建；重新注入队列后恢复当前曲、进度和 repeat，且不自动播放。它验证 Service 重建，不代替进程死亡/OEM 后台限制验收。
+- `SafFolderContractTest`：debug-only DocumentsProvider 发放持久读写 URI 权限，经 `DocumentFile` 与真实 provider cursor 递归扫描合成 WAV，最后释放授权。
+- `RealAudioDecodeContractTest`：运行时生成最短合法 DSF，并使用 1 秒生成静音 ALAC；两者均须由生产 `ExoPlaybackStackFactory` 初始化 FFmpeg decoder、到达 AudioTrack，DSF 另验证 seek。
+
+仅运行这组三项：
+
+```powershell
+.\gradlew :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=com.mica.music.media.ServicePlaybackRestorationContractTest,com.mica.music.data.SafFolderContractTest,com.mica.music.media.RealAudioDecodeContractTest" --no-configuration-cache
+```
+
+### P1 状态写入、迁移与系统事件契约
+
+- `NotificationLyricsMedia3ContractTest.realQueueWritesKeepPlayerAndMirrorAlignedWithoutFalsePlayCounts`：真实 ExoPlayer/MediaSession/MediaController/PlayerController 连续执行三次 metadata replacement、preserve-current 重排、移动、删除当前/非当前项及删空；同时断言 Player 队列、UI 镜像、当前曲、进度和播放计数回调。
+- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证 4→5 `trackNumber` 默认值及 2→8 全链 identity/schema；迁移后通过真实 `SongDao`/`LibraryMetaDao` 读回代表数据。
+- `MicaMediaServiceNoisyReceiverTest`：Robolectric 验证 Service 只保留 Media3 内置 noisy receiver，一次广播只暂停一次，销毁时完成注销。设备端普通 App/shell UID 不能伪造受保护的 `AUDIO_BECOMING_NOISY`；OEM 音频焦点、真实耳机拔出和连续系统事件仍属于设备矩阵。
+
+Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极简表代替 `runMigrationsAndValidate`。
+
 ### a257a0f 架构重构：P1 真机验收清单
 
 P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限与 Service 持久化。下列清单在 **至少一台真机** 上手测；失败时导出诊断日志（`LibraryQueue`、`LibraryStartup`、`LibraryScan`、`Player`、`PlaybackRestore`）。
