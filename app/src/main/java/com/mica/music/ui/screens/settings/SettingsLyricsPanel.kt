@@ -184,6 +184,13 @@ internal fun LyricsSettingsPanel(
     SettingsSectionTitle("其他歌词位置")
 
     SettingsToggleRow(
+        title = "信息行歌词",
+        subtitle = "播放时在列表信息行显示当前歌词；暂停或无歌词时仍显示列表信息",
+        checked = uiSettings.infoRowLyricsEnabled,
+        onCheckedChange = { uiSettings.updateInfoRowLyricsEnabled(it) },
+    )
+
+    SettingsToggleRow(
         title = "通知栏歌词",
         subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
         checked = uiSettings.notificationLyricsEnabled,

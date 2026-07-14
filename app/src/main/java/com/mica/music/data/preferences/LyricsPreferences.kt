@@ -28,6 +28,7 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_LINE_SPACING = "lyrics_page_line_spacing"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
+    private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
 
     fun lyricSplitEnabled(context: Context): Boolean =
         MicaSettingsStore.prefs(context).getBoolean(KEY_LYRIC_SPLIT_ENABLED, true)
@@ -171,6 +172,15 @@ object LyricsPreferences {
     fun setNotificationLyricsEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_NOTIFICATION_LYRICS_ENABLED, enabled)
+            .apply()
+    }
+
+    fun infoRowLyricsEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_INFO_ROW_LYRICS_ENABLED, false)
+
+    fun setInfoRowLyricsEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_INFO_ROW_LYRICS_ENABLED, enabled)
             .apply()
     }
 

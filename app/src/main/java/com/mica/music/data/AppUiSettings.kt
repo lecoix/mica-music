@@ -141,6 +141,9 @@ class AppUiSettings(context: Context) {
     var notificationLyricsEnabled by mutableStateOf(LyricsPreferences.notificationLyricsEnabled(appContext))
         private set
 
+    var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
+        private set
+
     var spectrumEnabled by mutableStateOf(PlaybackUiPreferences.spectrumEnabled(appContext))
         private set
 
@@ -354,6 +357,11 @@ class AppUiSettings(context: Context) {
     fun updateNotificationLyricsEnabled(enabled: Boolean) {
         notificationLyricsEnabled = enabled
         LyricsPreferences.setNotificationLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateInfoRowLyricsEnabled(enabled: Boolean) {
+        infoRowLyricsEnabled = enabled
+        LyricsPreferences.setInfoRowLyricsEnabled(appContext, enabled)
     }
 
     fun updateSpectrumEnabled(enabled: Boolean) {

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mica.music.R
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.LyricsSession
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
@@ -440,6 +441,17 @@ fun HomeScreen(
 
     val miniPlayerStyle = uiSettings.miniPlayerStyle
     val currentSong = playbackState.currentSong
+    val infoRowLyricsSession = remember(currentSong?.id, currentSong?.lyricsDocument) {
+        currentSong?.let { LyricsSession(it.lyricsDocument) }
+    }
+    val infoRowLyricText = infoRowLyricText(
+        enabled = uiSettings.infoRowLyricsEnabled,
+        isPlaying = playbackState.isPlaying,
+        lyricsSession = infoRowLyricsSession,
+        positionMs = playbackState.positionMs,
+        lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+        lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+    )
     val listBottomPadding = if (currentSong != null) {
         miniPlayerListClearance(miniPlayerStyle)
     } else {
@@ -554,6 +566,7 @@ fun HomeScreen(
                         } else {
                             LibraryStatsRow(
                                 model = model,
+                                lyricText = infoRowLyricText,
                                 onSortClick = { sortSheetOpen = true },
                                 onRescan = libraryAccess.onRequestRescan,
                                 onDeletePlaylist = {

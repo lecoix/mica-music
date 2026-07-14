@@ -4,6 +4,8 @@ import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -104,5 +106,14 @@ class LyricsPreferencesRobolectricTest {
         LyricsPreferences.setLyricsPageLineSpacingDp(context, 36)
 
         assertEquals(36, LyricsPreferences.lyricsPageLineSpacingDp(context))
+    }
+
+    @Test
+    fun infoRowLyricsDefaultsOffAndRoundTrips() {
+        assertFalse(LyricsPreferences.infoRowLyricsEnabled(context))
+
+        LyricsPreferences.setInfoRowLyricsEnabled(context, true)
+
+        assertTrue(LyricsPreferences.infoRowLyricsEnabled(context))
     }
 }

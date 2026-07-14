@@ -1,5 +1,7 @@
 package com.mica.music.ui.screens.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +20,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.LyricsSession
+import com.mica.music.media.NotificationLyrics
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -86,9 +92,32 @@ internal fun SongMultiSelectStatsRow(
     }
 }
 
+internal fun infoRowLyricText(
+    enabled: Boolean,
+    isPlaying: Boolean,
+    lyricsSession: LyricsSession?,
+    positionMs: Int,
+    lyricSplitEnabled: Boolean,
+    lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
+): String? {
+    if (!enabled || !isPlaying || lyricsSession == null) return null
+    val lyricIndex = NotificationLyrics.lyricIndexForPosition(lyricsSession, positionMs)
+    if (lyricIndex < 0) return null
+    return NotificationLyrics.lyricLineText(
+        lyrics = lyricsSession.lyrics,
+        index = lyricIndex,
+        display = NotificationLyrics.DisplayOptions(
+            splitEnabled = lyricSplitEnabled,
+            bilingualMode = lyricsBilingualDisplayMode,
+        ),
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun LibraryStatsRow(
     model: LibraryStatsBarModel,
+    lyricText: String? = null,
     onSortClick: () -> Unit,
     onRescan: () -> Unit,
     onDeletePlaylist: () -> Unit,
@@ -103,10 +132,14 @@ internal fun LibraryStatsRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = lineText,
-                style = MicaTheme.typography.monoSm,
+                text = lyricText ?: lineText,
+                style = if (lyricText == null) MicaTheme.typography.monoSm else MicaTheme.typography.monoMd,
                 color = MicaTheme.colors.textTertiary,
-                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .basicMarquee(),
             )
             if (model.showSortAction) {
                 Icon(
