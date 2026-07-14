@@ -26,6 +26,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -69,10 +72,20 @@ fun AlphabetFastScroller(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val indexHeightPx = with(density) { AlphabetFastScrollHeight.toPx() }
+    val baseIndexHeightPx = with(density) { AlphabetFastScrollHeight.toPx() }
+    var viewport by remember { mutableStateOf<AlphabetIndexViewport?>(null) }
+    val indexLayout = alphabetIndexLayout(viewport, baseIndexHeightPx)
     var activeSection by remember { mutableStateOf<String?>(null) }
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier.onGloballyPositioned { coordinates ->
+            viewport = AlphabetIndexViewport(
+                containerTop = coordinates.positionInRoot().y,
+                containerHeight = coordinates.size.height.toFloat(),
+                rootHeight = coordinates.findRootCoordinates().size.height.toFloat(),
+            )
+        },
+    ) {
         content()
 
         activeSection?.let { section ->
@@ -101,13 +114,13 @@ fun AlphabetFastScroller(
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
                 .width(32.dp)
-                .pointerInput(sectionTargets, indexHeightPx, sectionLabels) {
+                .pointerInput(sectionTargets, indexLayout, sectionLabels) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var lastSection: String? = null
 
                         fun selectAt(y: Float) {
-                            val section = alphabetSectionAt(y, size.height, indexHeightPx, sectionLabels) ?: return
+                            val section = alphabetSectionAt(y, indexLayout, sectionLabels) ?: return
                             activeSection = section
                             if (section == lastSection) return
                             lastSection = section
@@ -135,7 +148,9 @@ fun AlphabetFastScroller(
             if (activeSection != null) {
                 Column(
                     modifier = Modifier
-                        .height(AlphabetFastScrollHeight)
+                        .align(Alignment.TopEnd)
+                        .offset(y = with(density) { indexLayout.top.toDp() })
+                        .height(with(density) { indexLayout.height.toDp() })
                         .width(24.dp)
                         .background(
                             color = MicaTheme.colors.surfaceGlass,
@@ -162,6 +177,31 @@ fun AlphabetFastScroller(
     }
 }
 
+internal data class AlphabetIndexViewport(
+    val containerTop: Float,
+    val containerHeight: Float,
+    val rootHeight: Float,
+)
+
+internal data class AlphabetIndexLayout(val top: Float, val height: Float)
+
+internal fun alphabetIndexLayout(
+    viewport: AlphabetIndexViewport?,
+    baseHeight: Float,
+): AlphabetIndexLayout {
+    val containerHeight = viewport?.containerHeight ?: baseHeight
+    val baselineHeight = baseHeight.coerceAtMost(containerHeight)
+    val baselineTop = (containerHeight - baselineHeight) / 2f
+    if (viewport == null || viewport.rootHeight <= 0f) {
+        return AlphabetIndexLayout(baselineTop, baselineHeight)
+    }
+
+    val baselineBottom = baselineTop + baselineHeight
+    val bottomScreenGap = (viewport.rootHeight - viewport.containerTop - baselineBottom).coerceAtLeast(0f)
+    val mirroredTop = (bottomScreenGap - viewport.containerTop).coerceIn(0f, baselineBottom)
+    return AlphabetIndexLayout(mirroredTop, baselineBottom - mirroredTop)
+}
+
 internal fun alphabetFastScrollLabels(descending: Boolean): List<String> =
     if (descending) listOf("#") + ('Z' downTo 'A').map(Char::toString) else AlphabetFastScrollLabels
 
@@ -171,16 +211,12 @@ internal fun alphabetSectionTargets(labels: List<String>): Map<String, Int> {
 
 private fun alphabetSectionAt(
     y: Float,
-    height: Int,
-    indexHeight: Float,
+    indexLayout: AlphabetIndexLayout,
     sectionLabels: List<String>,
 ): String? {
-    if (height <= 0) return null
-    val activeHeight = indexHeight.coerceAtMost(height.toFloat())
-    val activeTop = (height - activeHeight) / 2f
-    val slot = activeHeight / sectionLabels.size.toFloat()
+    val slot = indexLayout.height / sectionLabels.size.toFloat()
     if (slot <= 0f) return null
-    val index = floor((y - activeTop).coerceIn(0f, activeHeight - 1f) / slot)
+    val index = floor((y - indexLayout.top).coerceIn(0f, indexLayout.height - 1f) / slot)
         .toInt()
         .coerceIn(0, sectionLabels.lastIndex)
     return sectionLabels[index]
