@@ -36,6 +36,7 @@
 
 | 文档 | 用途 |
 |------|------|
+| [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md) | 外部事件源、框架回调与状态机之间的契约测试原则；防止 mock 输入模型与生产事件流脱节 |
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
@@ -112,3 +113,4 @@
 | 2026-07-08 | 更新 `AUDIO_PIPELINE_REFACTOR.md`：§0 一页摘要、§18 终态/Gate/验收、P1 过渡态与 §7.3 勘误 |
 | 2026-07-13 | 接受 ADR-0001：远期 USB Host 真独占；新增 ReplayGain 实际应用状态计划并将其设为当前音频实施范围 |
 | 2026-07-07 | 新增 **Audio quality consent**：`.cursor/rules/audio-quality-consent.mdc`、`CONTEXT.md` |
+| 2026-07-14 | 新增 `EXTERNAL_EVENT_CONTRACT_TESTING.md`：记录播放计数漏测原因，并提炼跨模块外部事件契约测试规则 |

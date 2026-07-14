@@ -38,6 +38,10 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 ## 测试分层
 
+涉及框架回调、Service/IPC、系统组件或外部文件提供者时，先阅读 [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md)。内部状态机的高覆盖率不能证明生产事件会无损到达。
+
+**开发规则：所有 Player 写操作都必须审计观察者副作用。** 包括仅修改元数据的 `replaceMediaItem`；必须检查 timeline、transition、discontinuity、状态回调及其对统计、队列镜像、持久化、通知和 UI 的影响。依赖真实 Media3 派发行为时补真实组件契约测试。
+
 - 纯 JVM：队列策略、播放时钟、音频算法、歌词和二进制解析。
 - Robolectric：Room、迁移、偏好损坏恢复、Activity 多 API 创建。
 - Roborazzi：主界面边缘覆盖和关键尺寸布局。
