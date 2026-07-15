@@ -3,6 +3,9 @@ package com.mica.music.data.scanner
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
 
 /**
  * 读取编码器/转码信息：ENCODERSETTINGS、ID3 TSSE/TENC、FLAC vendor、MP4 ©too 等。
@@ -228,6 +231,9 @@ internal object EncoderSettingsReader {
 
 /** ID3/文件探测共用二进制工具 */
 internal object AudioProbeBytes {
+    private const val MAX_FAST_LYRICS_BYTES = 4 * 1024 * 1024
+    private val flacMarker = "fLaC".toByteArray(Charsets.US_ASCII)
+
     fun read(context: Context, uri: Uri): ByteArray? = readOrNull {
         readBytes(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 8 * 1024 * 1024)
     }
@@ -261,7 +267,7 @@ internal object AudioProbeBytes {
         val mime = mimeType.lowercase()
         return when {
             ext == "mp3" || mime.contains("mpeg") -> readId3Tag(context, uri)
-            ext == "flac" || mime.contains("flac") -> readHead(context, uri, 4 * 1024 * 1024)
+            ext == "flac" || mime.contains("flac") -> readFlacMetadata(context, uri)
             ext == "ape" -> readTail(context, uri, 2 * 1024 * 1024)
             ext in setOf("m4a", "m4b", "mp4", "aac", "alac") || mime.contains("mp4") -> {
                 readMp4Moov(context, uri)
@@ -302,6 +308,59 @@ internal object AudioProbeBytes {
     private fun readHead(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
         (context.contentResolver.openInputStream(uri)
             ?: throw java.io.IOException("Unable to open $uri")).use { it.readUpToCompat(maxBytes) }
+
+    private fun readFlacMetadata(context: Context, uri: Uri): ByteArray =
+        (context.contentResolver.openInputStream(uri)
+            ?: throw IOException("Unable to open $uri")).use { input ->
+                readFlacMetadata(input, MAX_FAST_LYRICS_BYTES)
+            }
+
+    internal fun readFlacMetadata(input: InputStream, maxBytes: Int = MAX_FAST_LYRICS_BYTES): ByteArray {
+        require(maxBytes >= 8) { "FLAC metadata window must hold the marker and one block header" }
+        val out = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+        val first = input.readExactlyCompat(4)
+        out.write(first)
+
+        var marker = first
+        if (first.copyOfRange(0, 3).contentEquals("ID3".toByteArray(Charsets.US_ASCII))) {
+            val headerTail = input.readExactlyCompat(6)
+            out.write(headerTail)
+            val header = first + headerTail
+            if (!Id3Binary.isId3Header(header, 0)) return readToLimit(input, out, maxBytes)
+            val footerBytes = if (header[5].toInt() and 0x10 != 0) 10 else 0
+            val tagBytesRemaining = Id3Binary.synchsafeSize(header, 6) + footerBytes
+            if (tagBytesRemaining > maxBytes - out.size()) return readToLimit(input, out, maxBytes)
+            out.write(input.readExactlyCompat(tagBytesRemaining))
+            if (maxBytes - out.size() < 4) return out.toByteArray()
+            marker = input.readExactlyCompat(4)
+            out.write(marker)
+        }
+
+        if (!marker.contentEquals(flacMarker)) return readToLimit(input, out, maxBytes)
+        while (maxBytes - out.size() >= 4) {
+            val blockHeader = input.readExactlyCompat(4)
+            out.write(blockHeader)
+            val isLast = blockHeader[0].toInt() and 0x80 != 0
+            val blockLength = ((blockHeader[1].toInt() and 0xFF) shl 16) or
+                ((blockHeader[2].toInt() and 0xFF) shl 8) or
+                (blockHeader[3].toInt() and 0xFF)
+            val readable = minOf(blockLength, maxBytes - out.size())
+            out.write(input.readExactlyCompat(readable))
+            if (readable < blockLength || isLast) return out.toByteArray()
+        }
+        return out.toByteArray()
+    }
+
+    private fun readToLimit(input: InputStream, out: ByteArrayOutputStream, maxBytes: Int): ByteArray {
+        val remaining = maxBytes - out.size()
+        if (remaining > 0) out.write(input.readUpToCompat(remaining))
+        return out.toByteArray()
+    }
+
+    private fun InputStream.readExactlyCompat(byteCount: Int): ByteArray =
+        readUpToCompat(byteCount).also { bytes ->
+            if (bytes.size != byteCount) throw IOException("Unexpected end of FLAC metadata")
+        }
 
     private fun readTail(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
         (context.contentResolver.openFileDescriptor(uri, "r")

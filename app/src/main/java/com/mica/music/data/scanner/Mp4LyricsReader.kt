@@ -15,7 +15,26 @@ internal object Mp4LyricsReader {
     private val meanType = "mean".toByteArray(Charsets.US_ASCII)
     private val nameType = "name".toByteArray(Charsets.US_ASCII)
 
-    fun read(bytes: ByteArray): String? {
+    fun read(bytes: ByteArray, profiler: ScanProfiler? = null): String? {
+        var best = profiler.measureOptional("lyrics.embedded.mp4.canonical") {
+            readCanonicalLyrics(bytes)
+        }
+        var bestLen = best?.length ?: 0
+        profiler.measureOptional("lyrics.embedded.mp4.fallback") {
+            scanTextDataAtoms(bytes, maxPreviewChars = Int.MAX_VALUE, profiler = profiler)
+        }
+            .map { it.valuePreview }
+            .filter { looksLikeLyrics(it) }
+            .forEach { text ->
+                if (text.length > bestLen) {
+                    best = text
+                    bestLen = text.length
+                }
+            }
+        return best?.takeIf { it.isNotBlank() }
+    }
+
+    private fun readCanonicalLyrics(bytes: ByteArray): String? {
         var best: String? = null
         var bestLen = 0
         var from = 0
@@ -33,15 +52,6 @@ internal object Mp4LyricsReader {
             }
             from = idx + 4
         }
-        scanTextDataAtoms(bytes, maxPreviewChars = Int.MAX_VALUE)
-            .map { it.valuePreview }
-            .filter { looksLikeLyrics(it) }
-            .forEach { text ->
-                if (text.length > bestLen) {
-                    best = text
-                    bestLen = text.length
-                }
-            }
         return best?.takeIf { it.isNotBlank() }
     }
 
@@ -60,7 +70,11 @@ internal object Mp4LyricsReader {
         return out
     }
 
-    fun scanTextDataAtoms(bytes: ByteArray, maxPreviewChars: Int = 500): List<IlstItem> {
+    fun scanTextDataAtoms(
+        bytes: ByteArray,
+        maxPreviewChars: Int = 500,
+        profiler: ScanProfiler? = null,
+    ): List<IlstItem> {
         val out = mutableListOf<IlstItem>()
         var from = 0
         while (from < bytes.size) {
@@ -70,7 +84,10 @@ internal object Mp4LyricsReader {
             val atomSize = Id3Binary.readUInt32Be(bytes, atomStart).toInt()
             val atomEnd = atomStart + atomSize
             if (atomSize >= 16 && atomEnd <= bytes.size) {
-                readDataAtomText(bytes, atomStart, atomEnd)?.let { text ->
+                val typeCode = readDataTypeCode(bytes, atomStart)
+                if (typeCode == 13 || typeCode == 14) {
+                    profiler?.recordBytes("lyrics.embedded.mp4.artworkSkipped", atomSize.toLong())
+                } else readDataAtomText(bytes, atomStart, atomEnd)?.let { text ->
                     val cleaned = MetadataTextFix.normalize(text).trim()
                     if (
                         cleaned.isNotBlank() &&
@@ -86,6 +103,9 @@ internal object Mp4LyricsReader {
         }
         return out
     }
+
+    private fun <T> ScanProfiler?.measureOptional(stage: String, block: () -> T): T =
+        this?.measure(stage, block) ?: block()
 
     private fun readIlstLyrics(bytes: ByteArray, ilstBoxStart: Int): String? {
         val ilstSize = Id3Binary.readUInt32Be(bytes, ilstBoxStart).toInt()

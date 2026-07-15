@@ -571,6 +571,7 @@ object AudioMetadataProbe {
                 uri = Uri.parse(draft.mediaUri),
                 mimeType = draft.mimeType,
                 displayName = draft.displayName,
+                profiler = profiler,
             )
         }
         when (embeddedBinary) {

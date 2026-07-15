@@ -67,6 +67,16 @@ class BinaryParserGoldenTest {
     }
 
     @Test
+    fun mp4FallbackSkipsArtworkDataAtoms() {
+        val imagePayload = int32Be(13) + ByteArray(4) +
+            "[00:01.00]This binary artwork must not become lyrics".toByteArray(Charsets.UTF_8)
+        val bytes = box("data", imagePayload)
+
+        assertTrue(Mp4LyricsReader.scanTextDataAtoms(bytes).isEmpty())
+        assertNull(Mp4LyricsReader.read(bytes))
+    }
+
+    @Test
     fun flacStreamInfoRevealsBitDepthFromHeadBytes() {
         val streamInfo = ByteArray(34).also {
             it[12] = 0x01

@@ -103,12 +103,21 @@ internal object EmbeddedLyricsReader {
         uri: Uri,
         mimeType: String?,
         displayName: String?,
+        profiler: ScanProfiler? = null,
     ): ProbeResult<LyricsDocument?> {
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         val mime = mimeType.orEmpty().lowercase()
+        val format = embeddedFormatKey(ext, mime)
         return try {
-            val bytes = AudioProbeBytes.readFastForLyricsOrThrow(context, uri, mime, displayName)
-            ProbeResult.Ok(bytes?.let { readFromBinary(it, mime, ext) })
+            val bytes = profiler.measureOptional("lyrics.embedded.read.$format") {
+                AudioProbeBytes.readFastForLyricsOrThrow(context, uri, mime, displayName)
+            }
+            profiler?.recordBytes("lyrics.embedded.bytes.$format", bytes?.size?.toLong() ?: 0L)
+            ProbeResult.Ok(bytes?.let {
+                profiler.measureOptional("lyrics.embedded.parse.$format") {
+                    readFromBinary(it, mime, ext, profiler)
+                }
+            })
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (_: Exception) {
@@ -128,16 +137,41 @@ internal object EmbeddedLyricsReader {
         return LyricsSanitizer.finalizeRelaxedDocument(normalized, LyricsOrigin.EMBEDDED)
     }
 
-    private fun readFromBinary(bytes: ByteArray, mime: String, ext: String): LyricsDocument? {
+    private fun readFromBinary(
+        bytes: ByteArray,
+        mime: String,
+        ext: String,
+        profiler: ScanProfiler? = null,
+    ): LyricsDocument? {
         val candidates = mutableListOf<LyricsDocument>()
-        parseId3(bytes)?.let { candidates += it }
-        parseFlac(bytes)?.let { candidates += it }
-        parseApe(bytes)?.let { candidates += it }
+        profiler.measureOptional("lyrics.embedded.parser.id3") { parseId3(bytes) }
+            ?.let { candidates += it }
+        profiler.measureOptional("lyrics.embedded.parser.flac") { parseFlac(bytes) }
+            ?.let { candidates += it }
+        profiler.measureOptional("lyrics.embedded.parser.ape") { parseApe(bytes) }
+            ?.let { candidates += it }
         if (mime.contains("mp4") || mime.contains("alac") || ext in setOf("m4a", "m4b", "mp4", "aac", "alac")) {
-            Mp4LyricsReader.read(bytes)?.let { parseLyricsText(it) }?.let { candidates += it }
+            profiler.measureOptional("lyrics.embedded.parser.mp4") {
+                val raw = Mp4LyricsReader.read(bytes, profiler)
+                profiler.measureOptional("lyrics.embedded.mp4.parseText") {
+                    raw?.let { parseLyricsText(it) }
+                }
+            }?.let { candidates += it }
         }
         return LyricsSanitizer.pickBestDocument(candidates)
     }
+
+    private fun embeddedFormatKey(ext: String, mime: String): String = when {
+        ext in setOf("m4a", "m4b", "mp4", "aac", "alac") ||
+            mime.contains("mp4") || mime.contains("alac") -> "mp4"
+        ext == "flac" || mime.contains("flac") -> "flac"
+        ext == "mp3" || mime.contains("mpeg") || mime.contains("mp3") -> "mp3"
+        ext == "ape" || mime.contains("ape") -> "ape"
+        else -> "other"
+    }
+
+    private fun <T> ScanProfiler?.measureOptional(stage: String, block: () -> T): T =
+        this?.measure(stage, block) ?: block()
 
     internal fun readFromBinaryForTest(bytes: ByteArray, mime: String = "audio/wav", ext: String = "wav"): List<LyricLine>? =
         readFromBinary(bytes, mime, ext)?.toLegacyLyricLines()

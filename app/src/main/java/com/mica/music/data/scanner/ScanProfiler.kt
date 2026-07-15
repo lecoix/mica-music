@@ -15,6 +15,7 @@ private const val ScanPerfTag = "ScanPerf"
 internal class ScanProfiler(private val source: String) {
     private val startedAtNs = SystemClock.elapsedRealtimeNanos()
     private val stages = ConcurrentHashMap<String, Stage>()
+    private val byteStages = ConcurrentHashMap<String, ByteStage>()
 
     fun <T> measure(stage: String, block: () -> T): T {
         val start = SystemClock.elapsedRealtimeNanos()
@@ -40,6 +41,12 @@ internal class ScanProfiler(private val source: String) {
         item.totalNs.addAndGet(elapsedNs)
     }
 
+    fun recordBytes(stage: String, byteCount: Long) {
+        val item = byteStages.computeIfAbsent(stage) { ByteStage() }
+        item.count.incrementAndGet()
+        item.totalBytes.addAndGet(byteCount.coerceAtLeast(0L))
+    }
+
     fun finish(total: Int, reused: Int, probed: Int): String {
         val totalMs = (SystemClock.elapsedRealtimeNanos() - startedAtNs).nanosToMs()
         val stageSummary = stages.entries
@@ -50,7 +57,20 @@ internal class ScanProfiler(private val source: String) {
                 val avgMs = if (count > 0) totalStageMs / count else 0
                 "$name=${totalStageMs}ms/${count}x(avg ${avgMs}ms)"
             }
-        return "source=$source wall=${totalMs}ms tracks=$total reused=$reused probed=$probed stages(cumulative): $stageSummary"
+        val byteSummary = byteStages.entries
+            .sortedByDescending { it.value.totalBytes.get() }
+            .joinToString(" | ") { (name, stage) ->
+                val count = stage.count.get()
+                val totalBytes = stage.totalBytes.get()
+                val totalMiB = totalBytes / (1024L * 1024L)
+                val avgKiB = if (count > 0) totalBytes / count / 1024L else 0L
+                "$name=${totalMiB}MiB/${count}x(avg ${avgKiB}KiB)"
+            }
+        return buildString {
+            append("source=$source wall=${totalMs}ms tracks=$total reused=$reused probed=$probed")
+            append(" stages(cumulative): $stageSummary")
+            if (byteSummary.isNotEmpty()) append(" bytes(cumulative): $byteSummary")
+        }
             .also {
                 Log.i(ScanPerfTag, it)
                 DiagnosticLog.event(ScanPerfTag, it)
@@ -60,6 +80,12 @@ internal class ScanProfiler(private val source: String) {
     private class Stage {
         val count = AtomicInteger(0)
         val totalNs = AtomicLong(0)
+    }
+
+
+    private class ByteStage {
+        val count = AtomicInteger(0)
+        val totalBytes = AtomicLong(0)
     }
 }
 
