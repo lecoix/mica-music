@@ -2,6 +2,8 @@ package com.mica.music.data.preferences
 
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.ArtistSeparator
+import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.SortDirection
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -59,5 +61,18 @@ class LibraryBrowsePreferencesRobolectricTest {
 
         assertEquals(listOf("c", "a", "b"), LibraryBrowseSettings.customSongOrderIds(context))
         assertEquals(true, LibraryBrowseSettings.customSongOrderLocked(context))
+    }
+
+    @Test
+    fun artistSplitConfigRoundTrip() {
+        assertEquals(ArtistSeparator.defaults, LibraryBrowseSettings.artistSplitConfig(context).enabledSeparators)
+
+        val config = ArtistSplitConfig(
+            enabledSeparators = setOf(ArtistSeparator.COMMA, ArtistSeparator.FEAT),
+            whitelist = listOf("AC/DC", "Earth, Wind & Fire"),
+        )
+        LibraryBrowseSettings.setArtistSplitConfig(context, config)
+
+        assertEquals(config, LibraryBrowseSettings.artistSplitConfig(context))
     }
 }

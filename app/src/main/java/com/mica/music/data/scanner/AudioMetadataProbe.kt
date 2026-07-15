@@ -11,7 +11,6 @@ import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.PlaybackMimeResolver
-import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.LyricsDocument
@@ -409,12 +408,10 @@ object AudioMetadataProbe {
             fallbackTitle = draft.title,
         )
         val albumArtist = MetadataTextFix.normalize(tags.albumArtist)
-        val artist = ArtistNames.normalizeDisplay(
-            MetadataTextFix.normalize(
-                tags.artist.takeIf { it.isNotBlank() }
-                    ?: albumArtist.takeIf { it.isNotBlank() }
-                    ?: draft.artist,
-            ),
+        val artist = MetadataTextFix.normalize(
+            tags.artist.takeIf { it.isNotBlank() }
+                ?: albumArtist.takeIf { it.isNotBlank() }
+                ?: draft.artist,
         )
         val album = MetadataTextFix.normalize(tags.album.takeIf { it.isNotBlank() } ?: draft.album)
         val durationSec = when {
@@ -675,13 +672,11 @@ object AudioMetadataProbe {
                 ?.takeIf { it.isNotBlank() }
                 ?: "",
         )
-        val artist = ArtistNames.normalizeDisplay(
-            MetadataTextFix.normalize(
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
-                    ?.takeIf { it.isNotBlank() }
-                    ?: albumArtist.takeIf { it.isNotBlank() }
-                    ?: draft.artist,
-            ),
+        val artist = MetadataTextFix.normalize(
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                ?.takeIf { it.isNotBlank() }
+                ?: albumArtist.takeIf { it.isNotBlank() }
+                ?: draft.artist,
         )
         val album = MetadataTextFix.normalize(
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
@@ -840,7 +835,7 @@ object AudioMetadataProbe {
         cachedSong: Song?,
     ): ScannedSong {
         val title = tags.title.ifBlank { draft.title }
-        val artist = ArtistNames.normalizeDisplay(tags.artist.ifBlank { draft.artist })
+        val artist = tags.artist.ifBlank { draft.artist }
         val album = tags.album.ifBlank { draft.album }
         val albumArtist = tags.albumArtist
         val enriched = draft.copy(
@@ -1026,7 +1021,7 @@ object AudioMetadataProbe {
         return Song(
             id = id,
             title = title,
-            artist = ArtistNames.normalizeDisplay(artist),
+            artist = artist,
             album = album,
             albumArtist = albumArtist,
             durationSec = durationSec,

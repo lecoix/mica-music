@@ -1,6 +1,7 @@
 package com.mica.music.ui.screens.settings
 
 import androidx.compose.runtime.Composable
+import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.MusicLibrary
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
@@ -11,11 +12,13 @@ internal fun LibraryScanSettingsPanel(
     library: MusicLibrary,
     excludedDirectories: List<String>,
     minDurationSec: Int,
+    artistSplitConfig: ArtistSplitConfig,
     onChooseLibraryFolder: () -> Unit,
     onRescan: () -> Unit,
     onScanAllMusic: () -> Unit,
     onEditExcludedDirectories: () -> Unit,
     onMinDurationSelected: (Int) -> Unit,
+    onEditArtistSplit: () -> Unit,
 ) {
     SettingsSectionTitle("曲库与扫描")
 
@@ -66,5 +69,14 @@ internal fun LibraryScanSettingsPanel(
         choices = DurationChoices,
         selectedValue = minDurationSec,
         onSelect = onMinDurationSelected,
+    )
+
+    SettingsSectionTitle("艺术家")
+
+    SettingsActionRow(
+        title = "艺术家分割",
+        subtitle = "已启用 ${artistSplitConfig.enabledSeparators.size} 项 · " +
+            "白名单 ${artistSplitConfig.whitelist.size} 位",
+        onClick = onEditArtistSplit,
     )
 }

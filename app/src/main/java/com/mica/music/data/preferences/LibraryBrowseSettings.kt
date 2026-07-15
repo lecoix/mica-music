@@ -3,6 +3,8 @@ package com.mica.music.data.preferences
 import android.content.Context
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.ArtistSeparator
+import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import org.json.JSONArray
@@ -19,6 +21,8 @@ object LibraryBrowseSettings {
     private const val KEY_ARTIST_BROWSE_GRID_COLUMNS = "artist_browse_grid_columns"
     private const val KEY_CUSTOM_SONG_ORDER = "custom_song_order"
     private const val KEY_CUSTOM_SONG_ORDER_LOCKED = "custom_song_order_locked"
+    private const val KEY_ARTIST_SPLIT_SEPARATORS = "artist_split_separators"
+    private const val KEY_ARTIST_SPLIT_WHITELIST = "artist_split_whitelist"
 
     fun songSortField(context: Context): SongSortField =
         SongSortField.fromStorage(MicaSettingsStore.prefs(context).getString(KEY_SONG_SORT_FIELD, null))
@@ -112,4 +116,39 @@ object LibraryBrowseSettings {
             .putInt(KEY_ARTIST_BROWSE_GRID_COLUMNS, columns.coerceIn(1, 4))
             .apply()
     }
+
+    fun artistSplitConfig(context: Context): ArtistSplitConfig {
+        val prefs = MicaSettingsStore.prefs(context)
+        val storedSeparators = prefs.getStringSet(KEY_ARTIST_SPLIT_SEPARATORS, null)
+        val separators = storedSeparators
+            ?.mapNotNull(ArtistSeparator::fromStorage)
+            ?.toSet()
+            ?: ArtistSeparator.defaults
+        val whitelist = prefs.getString(KEY_ARTIST_SPLIT_WHITELIST, null)
+            ?.let(::readStringArray)
+            .orEmpty()
+        return ArtistSplitConfig(separators, whitelist)
+    }
+
+    fun setArtistSplitConfig(context: Context, config: ArtistSplitConfig) {
+        val whitelist = JSONArray().apply {
+            config.whitelist.forEach { artist ->
+                artist.trim().takeIf(String::isNotEmpty)?.let(::put)
+            }
+        }
+        MicaSettingsStore.prefs(context).edit()
+            .putStringSet(
+                KEY_ARTIST_SPLIT_SEPARATORS,
+                config.enabledSeparators.mapTo(linkedSetOf(), ArtistSeparator::storageValue),
+            )
+            .putString(KEY_ARTIST_SPLIT_WHITELIST, whitelist.toString())
+            .apply()
+    }
+
+    private fun readStringArray(raw: String): List<String> = runCatching {
+        val array = JSONArray(raw)
+        buildList(array.length()) {
+            for (index in 0 until array.length()) add(array.getString(index))
+        }
+    }.getOrDefault(emptyList())
 }

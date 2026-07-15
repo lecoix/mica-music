@@ -2,6 +2,7 @@ package com.mica.music.ui.screens.settings
 
 import androidx.compose.runtime.Composable
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.scanner.scanDirectoryCandidates
 import com.mica.music.ui.screens.settings.color.CustomAccentColorDialog
@@ -11,6 +12,7 @@ data class SettingsOverlayState(
     val showCustomAccent: Boolean = false,
     val showCustomMica: Boolean = false,
     val showExcludedDirectories: Boolean = false,
+    val showArtistSplit: Boolean = false,
 )
 
 @Composable
@@ -19,10 +21,13 @@ internal fun SettingsOverlays(
     uiSettings: AppUiSettings,
     library: MusicLibrary,
     excludedDirectories: List<String>,
+    artistSplitConfig: ArtistSplitConfig,
     onDismissCustomAccent: () -> Unit,
     onDismissCustomMica: () -> Unit,
     onDismissExcludedDirectories: () -> Unit,
     onConfirmExcludedDirectories: (List<String>) -> Unit,
+    onDismissArtistSplit: () -> Unit,
+    onConfirmArtistSplit: (ArtistSplitConfig) -> Unit,
 ) {
     if (overlays.showCustomAccent) {
         CustomAccentColorDialog(
@@ -58,6 +63,17 @@ internal fun SettingsOverlays(
                 onDismissExcludedDirectories()
             },
             onDismiss = onDismissExcludedDirectories,
+        )
+    }
+
+    if (overlays.showArtistSplit) {
+        ArtistSplitSettingsDialog(
+            config = artistSplitConfig,
+            onConfirm = { updated ->
+                onConfirmArtistSplit(updated)
+                onDismissArtistSplit()
+            },
+            onDismiss = onDismissArtistSplit,
         )
     }
 }

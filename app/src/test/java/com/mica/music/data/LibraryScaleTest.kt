@@ -38,6 +38,7 @@ class LibraryScaleTest {
 
     @Test(timeout = 5_000)
     fun tenThousandSongsCanBeSearchedGroupedAndResolved() {
+        ArtistNames.configure(ArtistSplitConfig())
         val featured = LibraryBrowse.search(songs, "featured artist")
         val artists = LibraryBrowse.groupByArtist(songs)
         val albums = LibraryBrowse.groupByAlbum(songs)
@@ -50,6 +51,22 @@ class LibraryScaleTest {
         assertTrue(artists.zipWithNext().all { (a, b) ->
             a.title.lowercase(Locale.CHINA) <= b.title.lowercase(Locale.CHINA)
         })
+    }
+
+    @Test(timeout = 5_000)
+    fun configurableArtistSplittingStaysBoundedAtTenThousandSongs() {
+        ArtistNames.configure(
+            ArtistSplitConfig(
+                enabledSeparators = ArtistSeparator.entries.toSet(),
+                whitelist = listOf("Featured Artist / Guest 1"),
+            ),
+        )
+
+        val artists = LibraryBrowse.groupByArtist(songs)
+
+        assertTrue(artists.isNotEmpty())
+        assertTrue(artists.sumOf { it.songCount } <= songs.size * ArtistNames.MAX_ARTISTS_PER_TAG)
+        ArtistNames.configure(ArtistSplitConfig())
     }
 
     @Test(timeout = 8_000)

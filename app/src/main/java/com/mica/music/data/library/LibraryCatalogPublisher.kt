@@ -2,7 +2,6 @@ package com.mica.music.data.library
 
 import android.os.SystemClock
 import com.mica.music.data.preferences.LibraryBrowseSettings
-import com.mica.music.data.ArtistNames
 import com.mica.music.data.LibraryPresentationBuilder
 import com.mica.music.data.PlayStats
 import com.mica.music.data.Song
@@ -250,7 +249,6 @@ internal class LibraryCatalogPublisher(
             playCount = stats.count,
             totalListenSeconds = stats.totalListenSeconds,
             lastPlayedAtMs = stats.lastPlayedAtMs,
-            artist = ArtistNames.normalizeDisplay(artist),
         )
     }
 

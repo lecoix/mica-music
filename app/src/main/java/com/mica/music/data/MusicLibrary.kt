@@ -3,6 +3,7 @@ package com.mica.music.data
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import androidx.compose.runtime.mutableLongStateOf
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.library.MusicLibraryBacking
@@ -23,6 +24,7 @@ class MusicLibrary internal constructor(
     ioDispatcher: CoroutineDispatcher,
 ) {
     private val lyricsLoadMutex = Mutex()
+    private val artistSplitRevisionState = mutableLongStateOf(0L)
     private val backing = MusicLibraryBacking(
         context = context,
         libraryScanner = libraryScanner,
@@ -57,6 +59,8 @@ class MusicLibrary internal constructor(
     val queueMetadataRevision get() = backing.queueMetadataRevision
 
     val lyricsDataVersion get() = backing.lyricsDataVersion
+
+    val artistSplitRevision get() = artistSplitRevisionState.longValue
 
     val sortField get() = backing.sortField
 
@@ -93,6 +97,7 @@ class MusicLibrary internal constructor(
     val songFastScrollSectionTargets get() = backing.songFastScrollSectionTargets
 
     init {
+        ArtistNames.configure(LibraryBrowseSettings.artistSplitConfig(context))
         backing.folder.reloadLibraryFolderFromPrefs()
         backing.catalog.reloadSortFromPrefs()
         backing.lastScanSource = LibraryScanSettings.lastScanSource(context)
@@ -106,6 +111,21 @@ class MusicLibrary internal constructor(
 
     fun updateCustomSongOrderLocked(locked: Boolean) =
         backing.catalog.updateCustomSongOrderLocked(locked)
+
+    fun updateArtistSplitConfig(config: ArtistSplitConfig) {
+        val previous = ArtistNames.currentConfig()
+        ArtistNames.configure(config)
+        if (ArtistNames.currentConfig() == previous) return
+        artistSplitRevisionState.longValue++
+        artistGroupCacheRevision = -1L
+        artistGroupCache = null
+        albumGroupCacheRevision = -1L
+        albumGroupCache = null
+        if (backing.sortField == SongSortField.ARTIST) {
+            backing.catalog.applyCurrentSort()
+            backing.catalog.persistPresentationAsync()
+        }
+    }
 
     fun onSongPlayed(songId: String) = backing.playStats.onSongPlayed(songId)
 
@@ -217,6 +237,7 @@ class MusicLibrary internal constructor(
     suspend fun prewarmBrowseGroupCache() {
         val source = songs
         val sourceRevision = backing.catalogRevision
+        val splitRevision = artistSplitRevision
         if (source.isEmpty()) return
         val artistField = LibraryBrowseSettings.artistBrowseSortField(backing.context)
         val artistDirection = LibraryBrowseSettings.artistBrowseSortDirection(backing.context)
@@ -238,7 +259,7 @@ class MusicLibrary internal constructor(
             LibraryBrowse.artistGroupPresentation(source, artistField, artistDirection) to
                 LibraryBrowse.albumGroupPresentation(source, albumField, albumDirection)
         }
-        if (sourceRevision != backing.catalogRevision) return
+        if (sourceRevision != backing.catalogRevision || splitRevision != artistSplitRevision) return
         artistGroupCacheRevision = sourceRevision
         artistGroupCacheField = artistField
         artistGroupCacheDirection = artistDirection

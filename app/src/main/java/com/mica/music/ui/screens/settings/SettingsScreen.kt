@@ -29,7 +29,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.ArtistNames
+import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -56,6 +59,7 @@ fun SettingsScreen(
     val activity = context as ComponentActivity
 
     var scanState by remember { mutableStateOf(SettingsScanState.initial(context)) }
+    var artistSplitConfig by remember { mutableStateOf(LibraryBrowseSettings.artistSplitConfig(context)) }
     var overlays by remember { mutableStateOf(SettingsOverlayState()) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
     val settingsSubpageBackEnabled = canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
@@ -99,10 +103,17 @@ fun SettingsScreen(
         uiSettings = uiSettings,
         library = library,
         excludedDirectories = scanState.excludedDirectories,
+        artistSplitConfig = artistSplitConfig,
         onDismissCustomAccent = { overlays = overlays.copy(showCustomAccent = false) },
         onDismissCustomMica = { overlays = overlays.copy(showCustomMica = false) },
         onDismissExcludedDirectories = { overlays = overlays.copy(showExcludedDirectories = false) },
         onConfirmExcludedDirectories = ::updateExcludedDirectories,
+        onDismissArtistSplit = { overlays = overlays.copy(showArtistSplit = false) },
+        onConfirmArtistSplit = { updated: ArtistSplitConfig ->
+            LibraryBrowseSettings.setArtistSplitConfig(context, updated)
+            library.updateArtistSplitConfig(updated)
+            artistSplitConfig = ArtistNames.currentConfig()
+        },
     )
 
     Column(
@@ -187,6 +198,7 @@ fun SettingsScreen(
                             library = library,
                             excludedDirectories = scanState.excludedDirectories,
                             minDurationSec = scanState.minDurationSec,
+                            artistSplitConfig = artistSplitConfig,
                             onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
                             onRescan = libraryAccess.onRescan,
                             onScanAllMusic = libraryAccess.onScanAllMusic,
@@ -195,6 +207,9 @@ fun SettingsScreen(
                             },
                             onMinDurationSelected = { sec ->
                                 scanState = scanState.withMinDurationSec(context, sec)
+                            },
+                            onEditArtistSplit = {
+                                overlays = overlays.copy(showArtistSplit = true)
                             },
                         )
                     }

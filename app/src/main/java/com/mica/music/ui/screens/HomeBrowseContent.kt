@@ -876,7 +876,7 @@ private fun ArtistGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = remember(library.songs, sortField, sortDirection) {
+    val presentation = remember(library.songs, library.artistSplitRevision, sortField, sortDirection) {
         timedBrowseDetail("artist groups", "sort=$sortField/$sortDirection", library.songs.size) {
             library.artistGroupPresentation(sortField, sortDirection)
         }
@@ -919,7 +919,7 @@ private fun AlbumGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = remember(library.songs, sortField, sortDirection) {
+    val presentation = remember(library.songs, library.artistSplitRevision, sortField, sortDirection) {
         timedBrowseDetail("album groups", "sort=$sortField/$sortDirection", library.songs.size) {
             library.albumGroupPresentation(sortField, sortDirection)
         }
