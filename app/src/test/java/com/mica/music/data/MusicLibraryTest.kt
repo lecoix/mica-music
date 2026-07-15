@@ -58,6 +58,55 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun cachedSortMismatchRepairsPresentationWithoutRewritingLibrary() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        LibraryBrowseSettings.setSongSort(context, SongSortField.TITLE, SortDirection.DESC)
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(
+                songs = listOf(
+                    SongFixtures.song(id = "a", title = "Alpha"),
+                    SongFixtures.song(id = "b", title = "Beta"),
+                ),
+                lastScanAtMs = 100,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+            ),
+        )
+        val library = library(ControlledScanner(), store)
+
+        library.loadCachedLibrary()
+        runCurrent()
+
+        assertEquals(listOf("b", "a"), library.songs.map { it.id })
+        assertEquals(0, store.fullSaveCount)
+        assertEquals(listOf("b", "a"), store.presentationSongIds)
+        assertEquals(SongSortField.TITLE, store.presentationSortField)
+        assertEquals(SortDirection.DESC, store.presentationSortDirection)
+        library.release()
+    }
+
+    @Test
+    fun lyricsAreLoadedOnceAndThenServedFromTheBoundedCache() = runTest {
+        SharedLyricsMemoryCache.clear()
+        val fullSong = SongFixtures.song("lazy-cache")
+        val summary = fullSong.copy(lyricsDocument = LyricsDocument(), lyricsLoaded = false)
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(listOf(summary), 100, ScanSource.DEVICE, 1),
+        ).also { it.lyricsDocument = fullSong.lyricsDocument }
+        val library = library(ControlledScanner(), store)
+        library.loadCachedLibrary()
+
+        val first = library.songWithLyrics(library.songs.single())
+        val second = library.songWithLyrics(library.songs.single())
+
+        assertEquals(fullSong.lyricsDocument, first.lyricsDocument)
+        assertEquals(fullSong.lyricsDocument, second.lyricsDocument)
+        assertEquals(1, store.lyricsLoadCount)
+        library.release()
+    }
+
+    @Test
     fun artworkCacheRepairStartsForcedArtworkOnlyScanWhenCachedArtNeedsRepair() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val missingArt = File(context.cacheDir, "album_art/missing-startup.jpg")
@@ -247,6 +296,37 @@ class MusicLibraryTest {
         library.release()
     }
 
+    @Test
+    fun changingSortDoesNotRewriteTheFullLibrarySnapshot() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val library = library(scanner, store)
+
+        val scan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(
+            ScanResult(
+                listOf(
+                    SongFixtures.song(id = "a", title = "Alpha"),
+                    SongFixtures.song(id = "b", title = "Beta"),
+                ),
+                totalSizeMb = 1,
+            ),
+        )
+        scan.await()
+
+        library.updateSort(SongSortField.TITLE, SortDirection.DESC)
+        runCurrent()
+
+        assertEquals(0, store.fullSaveCount)
+        assertEquals(listOf("b", "a"), store.presentationSongIds)
+        assertEquals(SongSortField.TITLE, store.presentationSortField)
+        assertEquals(SortDirection.DESC, store.presentationSortDirection)
+        library.release()
+    }
+
     private fun kotlinx.coroutines.test.TestScope.library(
         scanner: ControlledScanner,
         store: LibraryStore,
@@ -278,6 +358,7 @@ class MusicLibraryTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
+            onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
         ): ScanResult {
             onProgress(0, cachedSongs.size)
             return ScanRequest(
@@ -293,6 +374,7 @@ class MusicLibraryTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
+            onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
         ): ScanResult = error("folder scan not expected")
     }
 
@@ -301,8 +383,23 @@ class MusicLibraryTest {
     ) : LibraryStore {
         var syncedSongs: List<Song> = emptyList()
         var syncedSource: ScanSource? = null
+        var fullSaveCount: Int = 0
+        var presentationSongIds: List<String> = emptyList()
+        var presentationSortField: SongSortField? = null
+        var presentationSortDirection: SortDirection? = null
+        var lyricsDocument: LyricsDocument = LyricsDocument()
+        var lyricsLoadCount: Int = 0
 
         override suspend fun loadCached(): CachedLibrary? = cached
+
+        override suspend fun loadLyrics(
+            songId: String,
+            revision: String,
+            priority: List<LyricsSlot>,
+        ): LyricsDocument {
+            lyricsLoadCount++
+            return lyricsDocument
+        }
 
         override suspend fun save(
             songs: List<Song>,
@@ -312,15 +409,18 @@ class MusicLibraryTest {
             sortField: SongSortField?,
             sortDirection: SortDirection?,
             fastScrollSectionTargets: Map<String, Int>?,
-        ): LibrarySyncResult = syncIncremental(
-            songs,
-            lastScanAtMs,
-            lastScanSource,
-            totalSizeMb,
-            sortField,
-            sortDirection,
-            fastScrollSectionTargets,
-        )
+        ): LibrarySyncResult {
+            fullSaveCount++
+            return syncIncremental(
+                songs,
+                lastScanAtMs,
+                lastScanSource,
+                totalSizeMb,
+                sortField,
+                sortDirection,
+                fastScrollSectionTargets,
+            )
+        }
 
         override suspend fun syncIncremental(
             songs: List<Song>,
@@ -334,6 +434,17 @@ class MusicLibraryTest {
             syncedSongs = songs
             syncedSource = lastScanSource
             return LibrarySyncResult(songs.size, 0, 0, 0)
+        }
+
+        override suspend fun updatePresentation(
+            songIds: List<String>,
+            sortField: SongSortField,
+            sortDirection: SortDirection,
+            fastScrollSectionTargets: Map<String, Int>?,
+        ) {
+            presentationSongIds = songIds
+            presentationSortField = sortField
+            presentationSortDirection = sortDirection
         }
 
         override suspend fun clear() {
@@ -384,6 +495,18 @@ class MusicLibraryTest {
             request.release.await()
             persistedSongs = songs
             return LibrarySyncResult(songs.size, 0, 0, 0)
+        }
+
+        override suspend fun updatePresentation(
+            songIds: List<String>,
+            sortField: SongSortField,
+            sortDirection: SortDirection,
+            fastScrollSectionTargets: Map<String, Int>?,
+        ) {
+            val request = StoreRequest(songIds.map { SongFixtures.song(it) })
+            requests += request
+            request.release.await()
+            persistedSongs = request.songs
         }
 
         override suspend fun clear() = Unit

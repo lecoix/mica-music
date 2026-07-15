@@ -10,11 +10,13 @@ import com.mica.music.data.LyricsOrigin
 import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.util.DiagnosticLog
 import java.io.File
+import java.io.InputStream
 /**
  * 读取与音频同目录的外挂 `.lrc`（同名或 displayName 去扩展名）。
  */
 internal object ExternalLyricsReader {
 
+    internal const val MAX_EXTERNAL_LYRICS_BYTES = 10 * 1024 * 1024
     private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
     private val sidecarExtensions = listOf("lrc", "ttml")
 
@@ -154,12 +156,16 @@ internal object ExternalLyricsReader {
     private fun readLyricsText(context: Context, doc: DocumentFile): String? =
         runCatching {
             context.contentResolver.openInputStream(doc.uri)?.use { stream ->
-                decodeLyricsBytes(stream.readBytes())
+                readBoundedLyricsBytes(stream)?.let(::decodeLyricsBytes)
             }
         }.getOrNull()
 
     private fun readLyricsTextFromFile(file: File): String? =
-        runCatching { decodeLyricsBytes(file.readBytes()) }.getOrNull()
+        runCatching {
+            file.inputStream().use { stream ->
+                readBoundedLyricsBytes(stream)?.let(::decodeLyricsBytes)
+            }
+        }.getOrNull()
 
     private fun readLyricsByUri(context: Context, uriString: String?): LyricsDocument? {
         if (uriString.isNullOrBlank()) {
@@ -178,7 +184,7 @@ internal object ExternalLyricsReader {
                 return@runCatching null
             }
             stream.use {
-                val bytes = it.readBytes()
+                val bytes = readBoundedLyricsBytes(it) ?: return@runCatching null
                 val decoded = decodeLyricsBytes(bytes)
                 val parsed = parseLyricsFile(decoded)
                 DiagnosticLog.event(
@@ -199,6 +205,14 @@ internal object ExternalLyricsReader {
 
     private fun decodeLyricsBytes(bytes: ByteArray): String =
         LyricsEncoding.decodeBytes(bytes)
+
+    internal fun readBoundedLyricsBytes(
+        input: InputStream,
+        maxBytes: Int = MAX_EXTERNAL_LYRICS_BYTES,
+    ): ByteArray? {
+        val bytes = input.readNBytes(maxBytes + 1)
+        return bytes.takeIf { it.size <= maxBytes }
+    }
 
     private fun parseLyricsFile(text: String): LyricsDocument? {
         if (text.isBlank()) return null

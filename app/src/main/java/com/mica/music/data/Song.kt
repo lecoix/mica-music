@@ -40,6 +40,10 @@ data class Song(
     val lastPlayedAtMs: Long = 0L,
     val replayGain: ReplayGainTags = ReplayGainTags(),
     val lyricsDocument: LyricsDocument = LyricsDocument(),
+    /** False when the lyrics payload was intentionally omitted from a lightweight library row. */
+    val lyricsLoaded: Boolean = true,
+    /** Scan-only payload; persisted in bounded batches and removed before catalog publication. */
+    val scannedLyrics: LyricsSlots? = null,
 ) {
     val effectivePlaybackUri: String get() = playbackUri ?: mediaUri
 
@@ -52,6 +56,9 @@ data class Song(
     val sampleRateLabel: String get() = metadata.sampleRateLabel
     val bitrateLabel: String get() = metadata.bitrateLabel
     val isHiRes: Boolean get() = metadata.isHiRes
+
+    val lyricsCacheRevision: String
+        get() = "$dateModifiedMs:$externalLyricsSignature"
 }
 
 data class LyricLine(

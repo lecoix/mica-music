@@ -4,6 +4,14 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.ScanSource
+import com.mica.music.data.SongSortField
+import com.mica.music.data.SortDirection
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsFormat
+import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.LyricsSlots
+import com.mica.music.data.ScannedSongLyrics
+import com.mica.music.data.LyricsSlot
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -76,6 +84,75 @@ class LibraryRepositoryTest {
 
         assertEquals(song.lyricsDocument, loaded?.lyricsDocument)
         assertEquals(song.id, loaded?.id)
+    }
+
+    @Test
+    fun cachedCatalogOmitsLyricsUntilRequested() = runTest {
+        val song = SongFixtures.song("summary-only")
+        repository.save(listOf(song), 100, ScanSource.DEVICE, 1)
+
+        val cachedSong = repository.loadCached()!!.songs.single()
+
+        assertEquals(LyricsDocument(), cachedSong.lyricsDocument)
+        assertEquals(false, cachedSong.lyricsLoaded)
+        assertEquals(song.lyricsDocument, repository.lyricsById(song.id))
+    }
+
+    @Test
+    fun syncingUnloadedSummaryPreservesStoredLyrics() = runTest {
+        val song = SongFixtures.song("preserve-lazy")
+        repository.save(listOf(song), 100, ScanSource.DEVICE, 1)
+        val summary = repository.loadCached()!!.songs.single()
+
+        repository.syncIncremental(
+            songs = listOf(summary.copy(title = "Updated without lyrics")),
+            lastScanAtMs = 200,
+            lastScanSource = ScanSource.DEVICE,
+            totalSizeMb = 1,
+        )
+
+        val stored = repository.songById(song.id)!!
+        assertEquals("Updated without lyrics", stored.title)
+        assertEquals(song.lyricsDocument, stored.lyricsDocument)
+    }
+
+    @Test
+    fun threeSlotsAreStoredAndDefaultSelectionPrefersExternalTtml() = runTest {
+        val song = SongFixtures.song("three-slots")
+        repository.save(listOf(song.copy(lyricsLoaded = false)), 100, ScanSource.DEVICE, 1)
+        val embedded = song.lyricsDocument.copy(format = LyricsFormat.SYLT, origin = LyricsOrigin.EMBEDDED)
+        val lrc = song.lyricsDocument.copy(format = LyricsFormat.LRC, origin = LyricsOrigin.EXTERNAL)
+        val ttml = song.lyricsDocument.copy(format = LyricsFormat.TTML, origin = LyricsOrigin.EXTERNAL)
+
+        repository.replaceLyricsBatch(listOf(
+            ScannedSongLyrics(song.id, song.lyricsCacheRevision, LyricsSlots(embedded, lrc, ttml)),
+        ))
+
+        assertEquals(3, database.songLyricsDao().getBySongId(song.id).size)
+        assertEquals(ttml, repository.lyricsById(song.id))
+        assertEquals(embedded, repository.lyricsById(song.id, listOf(LyricsSlot.EMBEDDED)))
+        assertEquals(LyricsDocument(), repository.lyricsById(song.id, revision = "stale-revision"))
+    }
+
+    @Test
+    fun presentationUpdatePreservesLyricsPayloadAndUpdatesCachedOrder() = runTest {
+        val songs = SongFixtures.queue(2)
+        repository.save(songs, 100, ScanSource.DEVICE, 2)
+        val lyricsBefore = database.songDao().getById(songs[0].id)!!.lyricsJson
+
+        repository.updatePresentation(
+            songIds = songs.reversed().map { it.id },
+            sortField = SongSortField.SIZE,
+            sortDirection = SortDirection.DESC,
+            fastScrollSectionTargets = mapOf("#" to 0),
+        )
+
+        val cached = repository.loadCached()!!
+        assertEquals(songs.reversed().map { it.id }, cached.songs.map { it.id })
+        assertEquals(SongSortField.SIZE, cached.sortField)
+        assertEquals(SortDirection.DESC, cached.sortDirection)
+        assertEquals(mapOf("#" to 0), cached.fastScrollSectionTargets)
+        assertEquals(lyricsBefore, database.songDao().getById(songs[0].id)!!.lyricsJson)
     }
 
     @Test

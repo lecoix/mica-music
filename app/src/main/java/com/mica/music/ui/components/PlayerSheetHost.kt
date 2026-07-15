@@ -81,11 +81,14 @@ fun PlayerSheetHost(
     modifier: Modifier = Modifier,
     predictiveBackProgress: Float? = null,
 ) {
-    val song = surfaceState.currentSong
-    if (song == null) {
+    val summarySong = surfaceState.currentSong
+    if (summarySong == null) {
         SideEffect { onOverlayFullScreenChange(false) }
         return
     }
+    val nextSong = queueState.queue.getOrNull(queueState.currentIndex + 1)
+    val song = rememberSongWithLyrics(library, summarySong, nextSong, uiSettings.lyricsSlotPriority)
+    val hydratedSurfaceState = surfaceState.copy(currentSong = song)
     val motionEnabled = rememberMicaMotionEnabled()
     val expansion = remember { Animatable(if (expanded) 1f else 0f) }
     var sheetPhase by remember {
@@ -168,7 +171,7 @@ fun PlayerSheetHost(
                 NowPlayingContent(
                     library = library,
                     playlistStore = playlistStore,
-                    surfaceState = surfaceState,
+                    surfaceState = hydratedSurfaceState,
                     progressState = progressState,
                     queueState = queueState,
                     sleepTimer = sleepTimer,

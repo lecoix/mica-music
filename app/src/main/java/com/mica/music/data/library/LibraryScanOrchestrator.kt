@@ -58,12 +58,13 @@ internal class LibraryScanOrchestrator(
 
     suspend fun scanDeviceWide() {
         if (!folder.hasAudioReadPermission()) return
-        performScan(ScanSource.DEVICE) { onProgress, cachedSongs ->
+        performScan(ScanSource.DEVICE) { onProgress, cachedSongs, onLyricsBatch ->
             backing.libraryScanner.scanDevice(
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = true,
                 forceRefreshArtwork = true,
+                onLyricsBatch = onLyricsBatch,
             )
         }
     }
@@ -76,13 +77,14 @@ internal class LibraryScanOrchestrator(
             backing.hasScanned = true
             return
         }
-        performScan(ScanSource.FOLDER) { onProgress, cachedSongs ->
+        performScan(ScanSource.FOLDER) { onProgress, cachedSongs, onLyricsBatch ->
             backing.libraryScanner.scanFolder(
                 treeUri = treeUri,
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = true,
                 forceRefreshArtwork = true,
+                onLyricsBatch = onLyricsBatch,
             )
         }
     }
@@ -97,12 +99,13 @@ internal class LibraryScanOrchestrator(
     }
 
     private suspend fun repairDeviceArtwork() {
-        performScan(ScanSource.DEVICE) { onProgress, cachedSongs ->
+        performScan(ScanSource.DEVICE) { onProgress, cachedSongs, onLyricsBatch ->
             backing.libraryScanner.scanDevice(
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = false,
                 forceRefreshArtwork = true,
+                onLyricsBatch = onLyricsBatch,
             )
         }
     }
@@ -114,13 +117,14 @@ internal class LibraryScanOrchestrator(
             DiagnosticLog.event("AlbumArtCache", "repair-folder-skip cannot-read-tree uri=$treeUri")
             return
         }
-        performScan(ScanSource.FOLDER) { onProgress, cachedSongs ->
+        performScan(ScanSource.FOLDER) { onProgress, cachedSongs, onLyricsBatch ->
             backing.libraryScanner.scanFolder(
                 treeUri = treeUri,
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = false,
                 forceRefreshArtwork = true,
+                onLyricsBatch = onLyricsBatch,
             )
         }
     }
@@ -130,6 +134,7 @@ internal class LibraryScanOrchestrator(
         block: suspend (
             onProgress: (Int, Int) -> Unit,
             cachedSongs: List<com.mica.music.data.Song>,
+            onLyricsBatch: suspend (List<com.mica.music.data.ScannedSongLyrics>) -> Unit,
         ) -> ScanResult,
     ) {
         if (backing.released) return
@@ -171,6 +176,13 @@ internal class LibraryScanOrchestrator(
                     }
                 },
                 scanCachedSongs,
+                { batch ->
+                    if (backing.isActiveGeneration(generation)) {
+                        withContext(backing.ioDispatcher) {
+                            backing.libraryStore.replaceLyricsBatch(batch)
+                        }
+                    }
+                },
             )
             DiagnosticLog.event(
                 "LibraryScan",
@@ -241,6 +253,7 @@ internal class LibraryScanOrchestrator(
             "publishSongs dbSync durMs=${SystemClock.elapsedRealtime() - syncStartedMs} " +
                 "generation=$generation visible=${backing.songs.size}",
         )
+        catalog.releaseLoadedLyrics()
         if (backing.isActiveGeneration(generation)) {
             backing.lastScanSyncSummary = sync.toSummary()
         }

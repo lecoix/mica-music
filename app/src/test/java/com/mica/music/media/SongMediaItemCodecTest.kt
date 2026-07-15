@@ -25,7 +25,13 @@ class SongMediaItemCodecTest {
 
         val decoded = SongMediaItemCodec.decode(SongMediaItemCodec.encode(song))
 
-        assertEquals(song.copy(lyricsDocument = com.mica.music.data.LyricsDocument()), decoded)
+        assertEquals(
+            song.copy(
+                lyricsDocument = com.mica.music.data.LyricsDocument(),
+                lyricsLoaded = false,
+            ),
+            decoded,
+        )
     }
 
     @Test

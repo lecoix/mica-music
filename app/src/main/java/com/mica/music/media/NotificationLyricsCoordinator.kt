@@ -26,7 +26,10 @@ internal class NotificationLyricsCoordinator(
     private val player: Player,
     private val handler: Handler,
     private val songLoader: suspend (String) -> Song? = { id ->
-        LibraryRepository(context.applicationContext).songById(id)
+        LibraryRepository(context.applicationContext).songById(
+            id,
+            LyricsPreferences.lyricsSlotPriority(context.applicationContext),
+        )
     },
 ) {
     private var released = false
@@ -171,7 +174,12 @@ internal class NotificationLyricsCoordinator(
     private fun currentSong(): Song? {
         val item = player.currentMediaItem ?: return null
         val decoded = SongMediaItemCodec.decode(item) ?: return null
-        return songCache.songWithLyrics(decoded, SongMediaItemCodec.lyricsRevision(item)) {
+        val priority = LyricsPreferences.lyricsSlotPriority(context.applicationContext)
+        val priorityRevision = priority.joinToString(",") { it.name }
+        return songCache.songWithLyrics(
+            decoded,
+            "${SongMediaItemCodec.lyricsRevision(item)}:$priorityRevision",
+        ) {
             if (!released) maybeSync()
         }
     }

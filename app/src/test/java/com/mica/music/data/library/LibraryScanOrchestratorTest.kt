@@ -140,6 +140,7 @@ class LibraryScanOrchestratorTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
+            onLyricsBatch: (suspend (List<com.mica.music.data.ScannedSongLyrics>) -> Unit)?,
         ): ScanResult {
             onProgress(0, cachedSongs.size)
             return ScanRequest(
@@ -155,6 +156,7 @@ class LibraryScanOrchestratorTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
+            onLyricsBatch: (suspend (List<com.mica.music.data.ScannedSongLyrics>) -> Unit)?,
         ): ScanResult = error("folder scan not expected")
     }
 

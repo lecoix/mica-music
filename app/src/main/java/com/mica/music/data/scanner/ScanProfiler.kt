@@ -67,7 +67,7 @@ internal fun TrackDraft.reusableCachedSong(
     forceRefreshArtwork: Boolean = false,
 ): Song? {
     val cached = unchangedCachedSong(cachedById) ?: return null
-    if (forceRefreshLyrics && cached.lyricsDocument.lines.isNotEmpty()) return null
+    if (forceRefreshLyrics) return null
     if (forceRefreshArtwork && cached.hasRefreshableArtwork(context)) return null
     return cached.takeIf {
         AlbumArtCache.hasReadableCachedArt(context, it) &&

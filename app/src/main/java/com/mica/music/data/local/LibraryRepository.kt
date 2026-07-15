@@ -5,8 +5,15 @@ import android.os.SystemClock
 import androidx.room.withTransaction
 import com.mica.music.data.ScanSource
 import com.mica.music.data.Song
+import com.mica.music.data.LyricsDocument
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
+import com.mica.music.data.LyricsSlot
+import com.mica.music.data.LyricsSlots
+import com.mica.music.data.ScannedSongLyrics
+import com.mica.music.data.LyricsFormat
+import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
 import com.mica.music.util.DiagnosticLog
 import org.json.JSONObject
 
@@ -26,6 +33,7 @@ class LibraryRepository internal constructor(
     constructor(context: Context) : this(MicaDatabase.get(context))
 
     private val songDao = db.songDao()
+    private val lyricsDao = db.songLyricsDao()
     private val metaDao = db.libraryMetaDao()
 
     suspend fun loadCached(): CachedLibrary? {
@@ -42,7 +50,7 @@ class LibraryRepository internal constructor(
             return null
         }
         val queryStartedMs = SystemClock.elapsedRealtime()
-        val entities = songDao.getAllOrdered()
+        val entities = songDao.getAllSummariesOrdered()
         DiagnosticLog.event(
             "LibraryDb",
             "loadCached songsQuery durMs=${SystemClock.elapsedRealtime() - queryStartedMs} rows=${entities.size}",
@@ -51,16 +59,10 @@ class LibraryRepository internal constructor(
             DiagnosticLog.event("LibraryDb", "loadCached empty-songs durMs=${SystemClock.elapsedRealtime() - startedMs}")
             return null
         }
-        val payloadStartedMs = SystemClock.elapsedRealtime()
-        val lyricsChars = entities.sumOf { it.lyricsJson.length }
-        val maxLyricsChars = entities.maxOfOrNull { it.lyricsJson.length } ?: 0
-        val songsWithLyrics = entities.count { it.lyricsJson.length > 2 }
         val albumArtUris = entities.count { !it.albumArtUri.isNullOrBlank() }
         DiagnosticLog.event(
             "LibraryDb",
-            "loadCached payload durMs=${SystemClock.elapsedRealtime() - payloadStartedMs} " +
-                "rows=${entities.size} lyricsChars=$lyricsChars maxLyricsChars=$maxLyricsChars " +
-                "songsWithLyrics=$songsWithLyrics albumArtUris=$albumArtUris",
+            "loadCached summaries rows=${entities.size} lyricsPayloads=0 albumArtUris=$albumArtUris",
         )
         val mapStartedMs = SystemClock.elapsedRealtime()
         val songs = entities.map { it.toSong() }
@@ -85,8 +87,56 @@ class LibraryRepository internal constructor(
         )
     }
 
-    suspend fun songById(id: String): Song? =
-        songDao.getById(id)?.toSong()
+    suspend fun songById(
+        id: String,
+        priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
+    ): Song? = songDao.getById(id)?.toSong()?.let { song ->
+        song.copy(
+            lyricsDocument = lyricsById(id, priority, song.lyricsCacheRevision),
+            lyricsLoaded = true,
+        )
+    }
+
+    suspend fun lyricsById(
+        id: String,
+        priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
+        revision: String? = null,
+    ): LyricsDocument {
+        val startedMs = SystemClock.elapsedRealtime()
+        val rows = lyricsDao.getBySongId(id, revision)
+        val queryMs = SystemClock.elapsedRealtime() - startedMs
+        val bySlot = rows.associateBy { runCatching { LyricsSlot.valueOf(it.slot) }.getOrNull() }
+        val slots = LyricsSlots(
+            embedded = bySlot[LyricsSlot.EMBEDDED]?.lyricsJson?.let(LyricsDocumentCodec::decode),
+            externalLrc = bySlot[LyricsSlot.EXTERNAL_LRC]?.lyricsJson?.let(LyricsDocumentCodec::decode),
+            externalTtml = bySlot[LyricsSlot.EXTERNAL_TTML]?.lyricsJson?.let(LyricsDocumentCodec::decode),
+        )
+        val document = slots.selected(priority)
+        DiagnosticLog.event(
+            "LyricsLoad",
+            "song=${id.takeLast(12)} queryMs=$queryMs totalMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "slots=${rows.size} jsonChars=${rows.sumOf { it.lyricsJson.length }} lines=${document.lines.size}",
+        )
+        return document
+    }
+
+    suspend fun replaceLyricsBatch(batch: List<ScannedSongLyrics>) {
+        if (batch.isEmpty()) return
+        db.withTransaction {
+            val songIds = batch.map { it.songId }
+            lyricsDao.deleteBySongIds(songIds)
+            lyricsDao.insertAll(batch.flatMap { payload ->
+                payload.slots.entries().map { (slot, document) ->
+                    SongLyricsEntity(
+                        songId = payload.songId,
+                        slot = slot.name,
+                        revision = payload.revision,
+                        lyricsJson = LyricsDocumentCodec.encode(document),
+                    )
+                }
+            })
+        }
+    }
 
     suspend fun save(
         songs: List<Song>,
@@ -115,27 +165,57 @@ class LibraryRepository internal constructor(
         sortDirection: SortDirection? = null,
         fastScrollSectionTargets: Map<String, Int>? = null,
     ): LibrarySyncResult {
-        val existing = songDao.getAllOrdered().associateBy { it.id }
-        val incoming = songs.mapIndexed { index, song -> song.toEntity(index) }
-        val incomingIds = incoming.map { it.id }.toSet()
+        val existing = songDao.getAllSummariesOrdered().associateBy { it.id }
+        val incomingIds = songs.mapTo(HashSet(songs.size), Song::id)
         val removeIds = (existing.keys - incomingIds).toList()
+        val upserts = ArrayList<SongEntity>()
+        val directlyLoadedLyrics = songs.mapNotNull { song ->
+            song.lyricsDocument.takeIf { song.lyricsLoaded && it.lines.isNotEmpty() }?.let { document ->
+                SongLyricsEntity(
+                    songId = song.id,
+                    slot = when {
+                        document.origin != LyricsOrigin.EXTERNAL -> LyricsSlot.EMBEDDED
+                        document.format == LyricsFormat.TTML -> LyricsSlot.EXTERNAL_TTML
+                        else -> LyricsSlot.EXTERNAL_LRC
+                    }.name,
+                    revision = song.lyricsCacheRevision,
+                    lyricsJson = LyricsDocumentCodec.encode(document),
+                )
+            }
+        }
 
         var added = 0
         var updated = 0
         var unchanged = 0
-        incoming.forEach { entity ->
-            val old = existing[entity.id]
+        songs.forEachIndexed { index, song ->
+            val old = existing[song.id]
             when {
-                old == null -> added++
-                old.scanFingerprint() == entity.scanFingerprint() &&
-                    old.queueOrder == entity.queueOrder &&
-                    old.playCount == entity.playCount -> unchanged++
-                else -> updated++
+                old == null -> {
+                    added++
+                    upserts += song.copy(lyricsLoaded = false).toEntity(index)
+                }
+                else -> {
+                    val oldComparable = old.toSong().toEntity(old.queueOrder, "")
+                    val incomingComparable = song.copy(
+                        lyricsDocument = LyricsDocument(),
+                        lyricsLoaded = false,
+                    ).toEntity(index, "")
+                    val metadataChanged = oldComparable.copy(queueOrder = 0) !=
+                        incomingComparable.copy(queueOrder = 0)
+                    val orderChanged = old.queueOrder != index
+                    if (metadataChanged) {
+                        upserts += song.copy(lyricsLoaded = false).toEntity(index)
+                    }
+                    if (metadataChanged || orderChanged) updated++ else unchanged++
+                }
             }
         }
 
         db.withTransaction {
-            songDao.syncIncremental(incoming, removeIds)
+            if (removeIds.isNotEmpty()) lyricsDao.deleteBySongIds(removeIds)
+            if (directlyLoadedLyrics.isNotEmpty()) lyricsDao.insertAll(directlyLoadedLyrics)
+            songDao.syncIncremental(upserts, removeIds, songs.map(Song::id))
+            lyricsDao.deleteOrphans()
             metaDao.upsert(
                 LibraryMetaEntity(
                     lastScanAtMs = lastScanAtMs,
@@ -156,8 +236,30 @@ class LibraryRepository internal constructor(
         )
     }
 
+    suspend fun updatePresentation(
+        songIds: List<String>,
+        sortField: SongSortField,
+        sortDirection: SortDirection,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ) {
+        db.withTransaction {
+            val meta = metaDao.get() ?: return@withTransaction
+            songDao.updateQueueOrders(songIds)
+            metaDao.upsert(
+                meta.copy(
+                    sortField = sortField.storageValue,
+                    sortDirection = sortDirection.storageValue,
+                    fastScrollSectionsJson = encodeSectionTargets(fastScrollSectionTargets),
+                ),
+            )
+        }
+    }
+
     suspend fun clear() {
-        songDao.deleteAll()
+        db.withTransaction {
+            lyricsDao.deleteAll()
+            songDao.deleteAll()
+        }
     }
 
     private fun encodeSectionTargets(targets: Map<String, Int>?): String {

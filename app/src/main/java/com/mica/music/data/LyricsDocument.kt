@@ -24,6 +24,44 @@ enum class LyricsOrigin {
     EXTERNAL,
 }
 
+/** The only lyric payloads retained for a song. */
+enum class LyricsSlot {
+    EMBEDDED,
+    EXTERNAL_LRC,
+    EXTERNAL_TTML,
+}
+
+data class LyricsSlots(
+    val embedded: LyricsDocument? = null,
+    val externalLrc: LyricsDocument? = null,
+    val externalTtml: LyricsDocument? = null,
+) {
+    fun document(slot: LyricsSlot): LyricsDocument? = when (slot) {
+        LyricsSlot.EMBEDDED -> embedded
+        LyricsSlot.EXTERNAL_LRC -> externalLrc
+        LyricsSlot.EXTERNAL_TTML -> externalTtml
+    }?.takeIf { it.lines.isNotEmpty() }
+
+    fun selected(priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY): LyricsDocument =
+        priority.firstNotNullOfOrNull(::document) ?: LyricsDocument()
+
+    fun entries(): List<Pair<LyricsSlot, LyricsDocument>> = LyricsSlot.entries.mapNotNull { slot ->
+        document(slot)?.let { slot to it }
+    }
+}
+
+val DEFAULT_LYRICS_SLOT_PRIORITY = listOf(
+    LyricsSlot.EXTERNAL_TTML,
+    LyricsSlot.EXTERNAL_LRC,
+    LyricsSlot.EMBEDDED,
+)
+
+data class ScannedSongLyrics(
+    val songId: String,
+    val revision: String,
+    val slots: LyricsSlots,
+)
+
 data class LyricLineNode(
     val id: String,
     val startMs: Int,

@@ -4,10 +4,14 @@ internal data class ExternalLyricsRef(
     val uri: String,
     val sizeBytes: Long = 0L,
     val dateModifiedMs: Long = 0L,
+    val extension: String = "",
 )
 
 internal fun List<ExternalLyricsRef>.externalLyricsUris(): List<String> =
     map { it.uri }.distinct()
+
+internal fun List<ExternalLyricsRef>.externalLyricsUris(extension: String): List<String> =
+    filter { it.extension.equals(extension, ignoreCase = true) }.map { it.uri }.distinct()
 
 internal fun List<ExternalLyricsRef>.externalLyricsSignature(): String =
     sortedBy { it.uri }

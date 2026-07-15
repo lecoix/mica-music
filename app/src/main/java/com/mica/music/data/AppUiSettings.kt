@@ -144,6 +144,9 @@ class AppUiSettings(context: Context) {
     var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
         private set
 
+    var lyricsSlotPriority by mutableStateOf(LyricsPreferences.lyricsSlotPriority(appContext))
+        private set
+
     var spectrumEnabled by mutableStateOf(PlaybackUiPreferences.spectrumEnabled(appContext))
         private set
 
@@ -362,6 +365,11 @@ class AppUiSettings(context: Context) {
     fun updateInfoRowLyricsEnabled(enabled: Boolean) {
         infoRowLyricsEnabled = enabled
         LyricsPreferences.setInfoRowLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateLyricsSlotPriority(priority: List<LyricsSlot>) {
+        lyricsSlotPriority = priority
+        LyricsPreferences.setLyricsSlotPriority(appContext, priority)
     }
 
     fun updateSpectrumEnabled(enabled: Boolean) {

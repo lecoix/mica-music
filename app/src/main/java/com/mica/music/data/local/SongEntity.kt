@@ -6,6 +6,14 @@ import com.mica.music.data.ReplayGainTags
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 
+@Entity(tableName = "song_lyrics", primaryKeys = ["songId", "slot"])
+data class SongLyricsEntity(
+    val songId: String,
+    val slot: String,
+    val revision: String,
+    val lyricsJson: String,
+)
+
 @Entity(tableName = "songs")
 data class SongEntity(
     @PrimaryKey val id: String,
@@ -43,6 +51,45 @@ data class SongEntity(
     val replayGainAlbumDb: Float? = null,
     val replayGainAlbumPeak: Float? = null,
 )
+
+/** Room projection used by catalog loading; deliberately excludes the large lyrics payload. */
+data class SongSummaryEntity(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val albumArtist: String,
+    val durationSec: Int,
+    val containerName: String,
+    val sampleRateHz: Int,
+    val bitsPerSample: Int?,
+    val bitrateKbps: Int,
+    val channelCount: Int,
+    val playbackMimeType: String,
+    val albumArtUri: String?,
+    val coverColorArgb: Int,
+    val mediaUri: String,
+    val fileName: String,
+    val sizeBytes: Long,
+    val year: Int,
+    val trackNumber: Int,
+    val discNumber: Int,
+    val folderPath: String,
+    val filePath: String,
+    val copyright: String,
+    val codecLabel: String,
+    val dateAddedMs: Long,
+    val dateModifiedMs: Long,
+    val externalLyricsSignature: String,
+    val playCount: Int,
+    val queueOrder: Int,
+    val replayGainTrackDb: Float?,
+    val replayGainTrackPeak: Float?,
+    val replayGainAlbumDb: Float?,
+    val replayGainAlbumPeak: Float?,
+)
+
+data class LyricsJsonRow(val lyricsJson: String)
 
 @Entity(tableName = "library_meta")
 data class LibraryMetaEntity(
@@ -92,6 +139,41 @@ fun SongEntity.toSong(): Song = Song(
     lyricsDocument = LyricsDocumentCodec.decode(lyricsJson),
 )
 
+fun SongSummaryEntity.toSong(): Song = Song(
+    id = id,
+    title = title,
+    artist = artist,
+    album = album,
+    albumArtist = albumArtist,
+    durationSec = durationSec,
+    metadata = TrackMetadata(
+        containerName = containerName,
+        sampleRateHz = sampleRateHz,
+        bitsPerSample = bitsPerSample,
+        bitrateKbps = bitrateKbps,
+        channelCount = channelCount,
+        playbackMimeType = playbackMimeType,
+    ),
+    albumArtUri = albumArtUri,
+    coverColorArgb = coverColorArgb,
+    mediaUri = mediaUri,
+    fileName = fileName,
+    sizeBytes = sizeBytes,
+    year = year,
+    trackNumber = trackNumber,
+    discNumber = discNumber,
+    folderPath = folderPath,
+    filePath = filePath,
+    copyright = copyright,
+    codecLabel = codecLabel,
+    dateAddedMs = dateAddedMs,
+    dateModifiedMs = dateModifiedMs,
+    externalLyricsSignature = externalLyricsSignature,
+    playCount = playCount,
+    replayGain = ReplayGainTags(replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak),
+    lyricsLoaded = false,
+)
+
 /** 用于增量扫描：元数据或路径变化时判定为「已更新」。 */
 fun SongEntity.scanFingerprint(): String = buildString {
     append(title); append('\u0001')
@@ -109,10 +191,9 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(discNumber); append('\u0001')
     append(albumArtUri); append('\u0001')
     append(externalLyricsSignature); append('\u0001')
-    append(LyricsDocumentCodec.canonicalFingerprint(lyricsJson))
 }
 
-fun Song.toEntity(queueOrder: Int): SongEntity = SongEntity(
+fun Song.toEntity(queueOrder: Int, preservedLyricsJson: String? = null): SongEntity = SongEntity(
     id = id,
     title = title,
     artist = artist,
@@ -141,7 +222,7 @@ fun Song.toEntity(queueOrder: Int): SongEntity = SongEntity(
     dateModifiedMs = dateModifiedMs,
     externalLyricsSignature = externalLyricsSignature,
     playCount = playCount,
-    lyricsJson = LyricsDocumentCodec.encode(lyricsDocument),
+    lyricsJson = if (lyricsLoaded) LyricsDocumentCodec.encode(lyricsDocument) else preservedLyricsJson.orEmpty(),
     queueOrder = queueOrder,
     replayGainTrackDb = replayGain.trackGainDb,
     replayGainTrackPeak = replayGain.trackPeak,

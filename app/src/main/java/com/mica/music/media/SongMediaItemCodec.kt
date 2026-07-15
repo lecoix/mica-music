@@ -26,6 +26,7 @@ object SongMediaItemCodec {
             totalListenSeconds = 0L,
             lastPlayedAtMs = 0L,
             lyricsDocument = LyricsDocument(),
+            lyricsLoaded = false,
         ).toString() + lyricsRevision,
     )
 
@@ -105,7 +106,8 @@ object SongMediaItemCodec {
         }
     }
 
-    private fun lyricsRevision(song: Song): String = sha256(song.lyricsDocument.toString())
+    private fun lyricsRevision(song: Song): String =
+        if (song.lyricsLoaded) sha256(song.lyricsDocument.toString()) else song.lyricsCacheRevision
 
     private fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
@@ -174,6 +176,7 @@ object SongMediaItemCodec {
                     extras.containsKey("${PREFIX}replayGainAlbumPeak")
                 },
             ),
+            lyricsLoaded = false,
         )
     }
 }

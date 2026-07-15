@@ -2,6 +2,8 @@ package com.mica.music.media
 
 import android.os.Handler
 import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsCacheKey
+import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -12,20 +14,19 @@ internal class NotificationLyricsSongCache(
     private val handler: Handler,
     private val loadSong: suspend (String) -> Song?,
 ) {
-    private data class CacheKey(val songId: String, val lyricsRevision: String)
-
-    private val lyricsByKey = ConcurrentHashMap<CacheKey, LyricsDocument>()
-    private val loadingKeys = ConcurrentHashMap.newKeySet<CacheKey>()
+    private val loadingKeys = ConcurrentHashMap.newKeySet<LyricsCacheKey>()
 
     fun songWithLyrics(decoded: Song, lyricsRevision: String, onLoaded: () -> Unit): Song {
-        val key = CacheKey(decoded.id, lyricsRevision)
-        lyricsByKey[key]?.let { return decoded.copy(lyricsDocument = it) }
+        val key = LyricsCacheKey(decoded.id, lyricsRevision)
+        SharedLyricsMemoryCache.get(key)?.let {
+            return decoded.copy(lyricsDocument = it, lyricsLoaded = true)
+        }
         if (loadingKeys.add(key)) {
             scope.launch {
                 val lyrics = runCatching { loadSong(decoded.id)?.lyricsDocument }
                     .getOrNull()
                     ?: LyricsDocument()
-                lyricsByKey[key] = lyrics
+                SharedLyricsMemoryCache.put(key, lyrics)
                 loadingKeys.remove(key)
                 handler.post(onLoaded)
             }
@@ -34,7 +35,6 @@ internal class NotificationLyricsSongCache(
     }
 
     fun clear() {
-        lyricsByKey.clear()
         loadingKeys.clear()
     }
 }

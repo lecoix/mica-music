@@ -3,12 +3,14 @@ package com.mica.music.media
 import android.os.Handler
 import android.os.Looper
 import com.mica.music.data.LyricsDocument
+import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -16,6 +18,11 @@ import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
 class NotificationLyricsSongCacheTest {
+    @Before
+    fun clearSharedCache() {
+        SharedLyricsMemoryCache.clear()
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun loadsCurrentSongLyricsOnDemandAndCachesThem() {

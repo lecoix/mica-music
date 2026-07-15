@@ -17,6 +17,7 @@ internal interface LibraryScanner {
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean = false,
         forceRefreshArtwork: Boolean = false,
+        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
     ): ScanResult
 
     suspend fun scanFolder(
@@ -25,11 +26,20 @@ internal interface LibraryScanner {
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean = false,
         forceRefreshArtwork: Boolean = false,
+        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
     ): ScanResult
 }
 
 internal interface LibraryStore {
     suspend fun loadCached(): CachedLibrary?
+
+    suspend fun loadLyrics(
+        songId: String,
+        revision: String,
+        priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
+    ): LyricsDocument = LyricsDocument()
+
+    suspend fun replaceLyricsBatch(batch: List<ScannedSongLyrics>) = Unit
 
     suspend fun save(
         songs: List<Song>,
@@ -51,10 +61,17 @@ internal interface LibraryStore {
         fastScrollSectionTargets: Map<String, Int>? = null,
     ): LibrarySyncResult
 
+    suspend fun updatePresentation(
+        songIds: List<String>,
+        sortField: SongSortField,
+        sortDirection: SortDirection,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ) = Unit
+
     suspend fun clear()
 }
 
-internal const val CURRENT_LYRICS_PARSER_VERSION = 4
+internal const val CURRENT_LYRICS_PARSER_VERSION = 5
 
 internal interface ScanEnvironment {
     fun hasAudioReadPermission(): Boolean
@@ -75,6 +92,7 @@ internal class AndroidLibraryScanner(
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean,
         forceRefreshArtwork: Boolean,
+        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
     ): ScanResult = MediaStoreScanner.scan(
         context = context,
         options = LibraryScanSettings.scanOptions(context).copy(
@@ -83,6 +101,7 @@ internal class AndroidLibraryScanner(
         ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,
+        onLyricsBatch = onLyricsBatch,
     )
 
     override suspend fun scanFolder(
@@ -91,6 +110,7 @@ internal class AndroidLibraryScanner(
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean,
         forceRefreshArtwork: Boolean,
+        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
     ): ScanResult = FolderScanner.scan(
         context = context,
         treeUri = treeUri,
@@ -100,6 +120,7 @@ internal class AndroidLibraryScanner(
         ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,
+        onLyricsBatch = onLyricsBatch,
     )
 }
 
@@ -109,6 +130,15 @@ internal class RoomLibraryStore(
     private val repository = LibraryRepository(context)
 
     override suspend fun loadCached(): CachedLibrary? = repository.loadCached()
+
+    override suspend fun loadLyrics(
+        songId: String,
+        revision: String,
+        priority: List<LyricsSlot>,
+    ): LyricsDocument = repository.lyricsById(songId, priority, revision)
+
+    override suspend fun replaceLyricsBatch(batch: List<ScannedSongLyrics>) =
+        repository.replaceLyricsBatch(batch)
 
     override suspend fun save(
         songs: List<Song>,
@@ -146,6 +176,18 @@ internal class RoomLibraryStore(
             sortDirection,
             fastScrollSectionTargets,
         )
+
+    override suspend fun updatePresentation(
+        songIds: List<String>,
+        sortField: SongSortField,
+        sortDirection: SortDirection,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ) = repository.updatePresentation(
+        songIds,
+        sortField,
+        sortDirection,
+        fastScrollSectionTargets,
+    )
 
     override suspend fun clear() = repository.clear()
 }

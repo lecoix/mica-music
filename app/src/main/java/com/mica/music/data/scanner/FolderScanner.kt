@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
+import com.mica.music.data.ScannedSongLyrics
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -21,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object FolderScanner {
 
-    private const val PROBE_PARALLELISM = 6
+    private const val PROBE_PARALLELISM = MediaStoreScanner.LYRICS_SCAN_BATCH_SIZE
     private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
 
     private val audioExtensions = setOf(
@@ -34,6 +35,7 @@ object FolderScanner {
         options: ScanOptions = ScanOptions(),
         cachedSongs: List<Song> = emptyList(),
         onProgress: ((done: Int, total: Int) -> Unit)? = null,
+        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
     ): ScanResult = withContext(Dispatchers.IO) {
         val profiler = ScanProfiler("Folder")
         AudioMetadataProbe.clearArtCache()
@@ -64,9 +66,11 @@ object FolderScanner {
         val probed = AtomicInteger(0)
         val technicalFailed = AtomicInteger(0)
 
-        val songs = if (!options.deepMetadataProbe) {
-            onProgress?.invoke(drafts.size, drafts.size)
-            drafts.map { draft ->
+        val songs = mutableListOf<Song>()
+        if (!options.deepMetadataProbe) {
+            var done = 0
+            drafts.chunked(PROBE_PARALLELISM).forEach { chunk ->
+                val batch = chunk.map { draft ->
                 draft.reusableCachedSong(
                     context = context,
                     cachedById = cachedById,
@@ -87,13 +91,18 @@ object FolderScanner {
                             ),
                         )
                     }
+                }
+                songs += persistScannedLyricsBatch(batch.filterForDuration(options), onLyricsBatch)
+                done += chunk.size
+                onProgress?.invoke(done, drafts.size)
             }
         } else {
             val total = drafts.size
             val done = AtomicInteger(0)
             val semaphore = Semaphore(PROBE_PARALLELISM)
-            coroutineScope {
-                drafts.map { draft ->
+            drafts.chunked(PROBE_PARALLELISM).forEach { chunk ->
+                val batch = coroutineScope {
+                    chunk.map { draft ->
                     async {
                         semaphore.withPermit {
                             val song = draft.reusableCachedSong(
@@ -124,16 +133,11 @@ object FolderScanner {
                         }
                     }
                 }.awaitAll()
+                }
+                songs += persistScannedLyricsBatch(batch.filterForDuration(options), onLyricsBatch)
             }
         }
 
-        val filtered = if (options.minDurationMs > 0) {
-            songs.filter { s ->
-                s.durationSec == 0 || s.durationSec * 1000L >= options.minDurationMs
-            }
-        } else {
-            songs
-        }
         val totalBytes = drafts.sumOf { it.sizeBytes }
         val summary = profiler.finish(
             total = drafts.size,
@@ -141,7 +145,7 @@ object FolderScanner {
             probed = probed.get(),
         )
         ScanResult(
-            songs = filtered,
+            songs = songs,
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
             probeStats = ScanProbeStats(technicalFailed = technicalFailed.get()),
@@ -203,7 +207,8 @@ object FolderScanner {
 
             val title = name.substringBeforeLast('.').ifBlank { name }
             val externalLyricsRefs = lyricsByAudioKey[lyricsKey(entry.folderPath, title)].orEmpty()
-            val externalLyricsUris = externalLyricsRefs.map { it.uri.toString() }.distinct()
+            val typedExternalLyricsRefs = externalLyricsRefs.toExternalLyricsRefs()
+            val externalLyricsUris = typedExternalLyricsRefs.externalLyricsUris()
             if (externalLyricsUris.isNotEmpty()) {
                 DiagnosticLog.event(
                     LYRICS_TRACE,
@@ -239,7 +244,9 @@ object FolderScanner {
                 dateModifiedMs = modifiedMs,
                 externalLyricsParent = null,
                 externalLyricsUris = externalLyricsUris,
-                externalLyricsSignature = externalLyricsRefs.toExternalLyricsRefs().externalLyricsSignature(),
+                externalLrcUris = typedExternalLyricsRefs.externalLyricsUris("lrc"),
+                externalTtmlUris = typedExternalLyricsRefs.externalLyricsUris("ttml"),
+                externalLyricsSignature = typedExternalLyricsRefs.externalLyricsSignature(),
             )
         }
 
@@ -259,6 +266,7 @@ object FolderScanner {
         val uri: Uri,
         val folderPath: String,
         val baseName: String,
+        val extension: String,
         val sizeBytes: Long,
         val lastModifiedMs: Long,
     )
@@ -372,6 +380,7 @@ object FolderScanner {
                         uri = uri,
                         folderPath = folderPath,
                         baseName = baseName,
+                        extension = ext,
                         sizeBytes = size,
                         lastModifiedMs = lastModified,
                     )
@@ -386,6 +395,7 @@ object FolderScanner {
                 uri = entry.uri.toString(),
                 sizeBytes = entry.sizeBytes,
                 dateModifiedMs = entry.lastModifiedMs,
+                extension = entry.extension,
             )
         }
 
@@ -399,3 +409,8 @@ object FolderScanner {
         "${folderPath.trim('/').lowercase()}\u0001${baseName.trim().lowercase()}"
 
 }
+
+private fun List<Song>.filterForDuration(options: ScanOptions): List<Song> =
+    if (options.minDurationMs <= 0) this else filter { song ->
+        song.durationSec == 0 || song.durationSec * 1000L >= options.minDurationMs
+    }

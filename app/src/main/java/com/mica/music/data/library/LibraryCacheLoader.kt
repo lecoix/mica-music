@@ -53,7 +53,7 @@ internal class LibraryCacheLoader(
             backing.hasScanned = true
             backing.lastScanError = null
             if (!sortCanUseStoredOrder || cached.fastScrollSectionTargets == null) {
-                catalog.persistSongsAsync()
+                catalog.persistPresentationAsync()
             }
             DiagnosticLog.event(
                 "LibraryLoad",

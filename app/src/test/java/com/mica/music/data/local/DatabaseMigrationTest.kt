@@ -276,6 +276,7 @@ class DatabaseMigrationTest {
 
         val songColumns = tableColumns(db, "songs")
         val metaColumns = tableColumns(db, "library_meta")
+        val lyricsColumns = tableColumns(db, "song_lyrics")
 
         assertTrue(
             songColumns.containsAll(
@@ -310,7 +311,42 @@ class DatabaseMigrationTest {
             ),
             metaColumns,
         )
+        assertEquals(setOf("songId", "slot", "revision", "lyricsJson"), lyricsColumns)
         database.close()
+    }
+
+    @Test
+    fun migrationEightToNineMovesLegacyPayloadIntoMatchingSlot() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(8) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            "CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY, lyricsJson TEXT NOT NULL, " +
+                                "dateModifiedMs INTEGER NOT NULL, externalLyricsSignature TEXT NOT NULL)",
+                        )
+                        db.execSQL(
+                            "INSERT INTO songs VALUES ('legacy', " +
+                                "'{\"format\":\"TTML\",\"origin\":\"EXTERNAL\",\"lines\":[]}', 7, 'sig')",
+                        )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_8_9.migrate(db)
+
+        db.query("SELECT slot, revision FROM song_lyrics WHERE songId = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("EXTERNAL_TTML", cursor.getString(0))
+            assertEquals("7:sig", cursor.getString(1))
+        }
+        helper.close()
     }
 
     private fun tableColumns(

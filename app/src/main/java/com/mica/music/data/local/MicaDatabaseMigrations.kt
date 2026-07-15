@@ -63,3 +63,35 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
         db.execSQL("ALTER TABLE songs ADD COLUMN replayGainAlbumPeak REAL")
     }
 }
+
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS song_lyrics (
+                songId TEXT NOT NULL,
+                slot TEXT NOT NULL,
+                revision TEXT NOT NULL,
+                lyricsJson TEXT NOT NULL,
+                PRIMARY KEY(songId, slot)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson)
+            SELECT id,
+                CASE
+                    WHEN lyricsJson LIKE '%"origin":"EXTERNAL"%'
+                         AND lyricsJson LIKE '%"format":"TTML"%' THEN 'EXTERNAL_TTML'
+                    WHEN lyricsJson LIKE '%"origin":"EXTERNAL"%' THEN 'EXTERNAL_LRC'
+                    ELSE 'EMBEDDED'
+                END,
+                CAST(dateModifiedMs AS TEXT) || ':' || externalLyricsSignature,
+                lyricsJson
+            FROM songs
+            WHERE lyricsJson <> '' AND lyricsJson <> '[]'
+            """.trimIndent(),
+        )
+    }
+}

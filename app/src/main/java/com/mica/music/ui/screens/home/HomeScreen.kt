@@ -53,6 +53,7 @@ import com.mica.music.data.Song
 import com.mica.music.ui.components.HomeDrawerPanel
 import com.mica.music.ui.components.LibrarySearchPanel
 import com.mica.music.ui.components.MiniPlayer
+import com.mica.music.ui.components.rememberSongWithLyrics
 import com.mica.music.ui.components.SongMenuAction
 import com.mica.music.ui.components.homeDrawerWidth
 import com.mica.music.ui.components.miniPlayerListClearance
@@ -440,7 +441,12 @@ fun HomeScreen(
         uiState.section == HomeSection.Artists && visibleBrowseDestination == BrowseDestination.Root
 
     val miniPlayerStyle = uiSettings.miniPlayerStyle
-    val currentSong = playbackState.currentSong
+    val currentSongSummary = playbackState.currentSong
+    val currentQueueIndex = playbackState.queue.indexOfFirst { it.id == currentSongSummary?.id }
+    val nextSong = playbackState.queue.getOrNull(currentQueueIndex + 1)
+    val currentSong = currentSongSummary?.let {
+        rememberSongWithLyrics(library, it, nextSong, uiSettings.lyricsSlotPriority)
+    }
     val infoRowLyricsSession = remember(currentSong?.id, currentSong?.lyricsDocument) {
         currentSong?.let { LyricsSession(it.lyricsDocument) }
     }

@@ -12,6 +12,8 @@ import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.PlaybackContentColorMode
+import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
+import com.mica.music.data.LyricsSlot
 
 /** 歌词页、通知歌词与播放页歌词文字相关偏好。 */
 object LyricsPreferences {
@@ -29,6 +31,26 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
     private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
+    private const val KEY_LYRICS_SLOT_PRIORITY = "lyrics_slot_priority"
+
+    fun lyricsSlotPriority(context: Context): List<LyricsSlot> {
+        val slots = MicaSettingsStore.prefs(context)
+            .getString(KEY_LYRICS_SLOT_PRIORITY, null)
+            ?.split(',')
+            ?.mapNotNull { value -> runCatching { LyricsSlot.valueOf(value) }.getOrNull() }
+            .orEmpty()
+        return slots.takeIf { it.size == LyricsSlot.entries.size && it.toSet() == LyricsSlot.entries.toSet() }
+            ?: DEFAULT_LYRICS_SLOT_PRIORITY
+    }
+
+    fun setLyricsSlotPriority(context: Context, priority: List<LyricsSlot>) {
+        val normalized = priority.takeIf {
+            it.size == LyricsSlot.entries.size && it.toSet() == LyricsSlot.entries.toSet()
+        } ?: DEFAULT_LYRICS_SLOT_PRIORITY
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_LYRICS_SLOT_PRIORITY, normalized.joinToString(",", transform = LyricsSlot::name))
+            .apply()
+    }
 
     fun lyricSplitEnabled(context: Context): Boolean =
         MicaSettingsStore.prefs(context).getBoolean(KEY_LYRIC_SPLIT_ENABLED, true)

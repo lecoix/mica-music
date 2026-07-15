@@ -2,7 +2,9 @@ package com.mica.music.ui.screens.settings
 
 import androidx.compose.runtime.Composable
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.LyricsSlot
 import com.mica.music.ui.components.SettingsActionRow
+import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
 
@@ -24,6 +26,17 @@ internal fun AdvancedSettingsPanel(
         subtitle = "开启时播放会让其他应用暂停；关闭后允许与其他应用一起播放，下次切歌或开始播放时生效",
         checked = uiSettings.audioFocusEnabled,
         onCheckedChange = { uiSettings.updateAudioFocusEnabled(it) },
+    )
+
+    SettingsDropdownRow(
+        title = "歌词优先级",
+        subtitle = "按顺序选择已扫描的歌词；缺少前一项时自动使用下一项",
+        choices = lyricsPriorityChoices.mapIndexed { index, (_, label) -> index to label },
+        selectedValue = lyricsPriorityChoices.indexOfFirst { it.first == uiSettings.lyricsSlotPriority }
+            .coerceAtLeast(0),
+        onSelect = { index ->
+            lyricsPriorityChoices.getOrNull(index)?.first?.let(uiSettings::updateLyricsSlotPriority)
+        },
     )
 
     SettingsToggleRow(
@@ -53,3 +66,18 @@ internal fun AdvancedSettingsPanel(
         onClick = onOpenAppSettings,
     )
 }
+
+private val lyricsPriorityChoices = listOf(
+    listOf(LyricsSlot.EXTERNAL_TTML, LyricsSlot.EXTERNAL_LRC, LyricsSlot.EMBEDDED) to
+        "外部 TTML → 外部 LRC → 内嵌",
+    listOf(LyricsSlot.EXTERNAL_TTML, LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_LRC) to
+        "外部 TTML → 内嵌 → 外部 LRC",
+    listOf(LyricsSlot.EXTERNAL_LRC, LyricsSlot.EXTERNAL_TTML, LyricsSlot.EMBEDDED) to
+        "外部 LRC → 外部 TTML → 内嵌",
+    listOf(LyricsSlot.EXTERNAL_LRC, LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_TTML) to
+        "外部 LRC → 内嵌 → 外部 TTML",
+    listOf(LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_TTML, LyricsSlot.EXTERNAL_LRC) to
+        "内嵌 → 外部 TTML → 外部 LRC",
+    listOf(LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_LRC, LyricsSlot.EXTERNAL_TTML) to
+        "内嵌 → 外部 LRC → 外部 TTML",
+)

@@ -33,6 +33,14 @@ internal class LibraryCatalogPublisher(
         publishVisibleSongs(emptyList())
     }
 
+    fun releaseLoadedLyrics() {
+        if (scannedSongs.none(Song::lyricsLoaded)) return
+        scannedSongs = scannedSongs.map { song ->
+            song.copy(lyricsDocument = com.mica.music.data.LyricsDocument(), lyricsLoaded = false)
+        }
+        applyCurrentSort()
+    }
+
     fun reloadSortFromPrefs() {
         backing.sortField = LibraryBrowseSettings.songSortField(backing.context)
         backing.sortDirection = LibraryBrowseSettings.songSortDirection(backing.context)
@@ -47,7 +55,7 @@ internal class LibraryCatalogPublisher(
         backing.sortDirection = if (field == SongSortField.CUSTOM) SortDirection.ASC else direction
         LibraryBrowseSettings.setSongSort(backing.context, field, backing.sortDirection)
         applyCurrentSort()
-        persistSongsAsync()
+        persistPresentationAsync()
     }
 
     fun moveVisibleSong(fromIndex: Int, toIndex: Int): Boolean {
@@ -59,7 +67,7 @@ internal class LibraryCatalogPublisher(
         reordered.add(toIndex, moved)
         publishVisibleSongs(reordered)
         LibraryBrowseSettings.setCustomSongOrderIds(backing.context, reordered.map { it.id })
-        persistSongsAsync()
+        persistPresentationAsync()
         return true
     }
 
@@ -125,6 +133,21 @@ internal class LibraryCatalogPublisher(
             backing.storeSyncMutex.withLock {
                 if (!backing.isLatestStoreRevision(revision)) return@withLock
                 backing.libraryStore.save(snapshot, scanAt, source, sizeMb, field, direction, sectionTargets)
+            }
+        }
+    }
+
+    fun persistPresentationAsync() {
+        if (scannedSongs.isEmpty() || backing.lastScanAtMs == null) return
+        val songIds = backing.songIds
+        val field = backing.sortField
+        val direction = backing.sortDirection
+        val sectionTargets = backing.songFastScrollSectionTargets
+        val revision = backing.nextStoreRevision()
+        backing.ioScope.launch {
+            backing.storeSyncMutex.withLock {
+                if (!backing.isLatestStoreRevision(revision)) return@withLock
+                backing.libraryStore.updatePresentation(songIds, field, direction, sectionTargets)
             }
         }
     }

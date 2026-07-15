@@ -3,6 +3,8 @@ package com.mica.music.data.preferences
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
+import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
+import com.mica.music.data.LyricsSlot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -115,5 +117,24 @@ class LyricsPreferencesRobolectricTest {
         LyricsPreferences.setInfoRowLyricsEnabled(context, true)
 
         assertTrue(LyricsPreferences.infoRowLyricsEnabled(context))
+    }
+
+    @Test
+    fun lyricsSlotPriorityDefaultsRoundTripsAndRejectsDuplicates() {
+        assertEquals(DEFAULT_LYRICS_SLOT_PRIORITY, LyricsPreferences.lyricsSlotPriority(context))
+        val embeddedFirst = listOf(
+            LyricsSlot.EMBEDDED,
+            LyricsSlot.EXTERNAL_TTML,
+            LyricsSlot.EXTERNAL_LRC,
+        )
+
+        LyricsPreferences.setLyricsSlotPriority(context, embeddedFirst)
+        assertEquals(embeddedFirst, LyricsPreferences.lyricsSlotPriority(context))
+
+        LyricsPreferences.setLyricsSlotPriority(
+            context,
+            listOf(LyricsSlot.EMBEDDED, LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_LRC),
+        )
+        assertEquals(DEFAULT_LYRICS_SLOT_PRIORITY, LyricsPreferences.lyricsSlotPriority(context))
     }
 }

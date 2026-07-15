@@ -7,6 +7,8 @@ import android.provider.MediaStore
 import androidx.compose.ui.graphics.toArgb
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.ScannedSongLyrics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -28,13 +30,15 @@ data class ScanResult(
  */
 object MediaStoreScanner {
 
-    private const val PROBE_PARALLELISM = 6
+    internal const val LYRICS_SCAN_BATCH_SIZE = 6
+    private const val PROBE_PARALLELISM = LYRICS_SCAN_BATCH_SIZE
 
     suspend fun scan(
         context: Context,
         options: ScanOptions = ScanOptions(),
         cachedSongs: List<Song> = emptyList(),
         onProgress: ((done: Int, total: Int) -> Unit)? = null,
+        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
     ): ScanResult = withContext(Dispatchers.IO) {
         val profiler = ScanProfiler("MediaStore")
         AudioMetadataProbe.clearArtCache()
@@ -51,9 +55,11 @@ object MediaStoreScanner {
         val probed = AtomicInteger(0)
         val technicalFailed = AtomicInteger(0)
 
-        val songs = if (!options.deepMetadataProbe) {
-            onProgress?.invoke(drafts.size, drafts.size)
-            drafts.map { draft ->
+        val songs = mutableListOf<Song>()
+        if (!options.deepMetadataProbe) {
+            var done = 0
+            drafts.chunked(PROBE_PARALLELISM).forEach { chunk ->
+                val batch = chunk.map { draft ->
                 draft.reusableCachedSong(
                     context = context,
                     cachedById = cachedById,
@@ -74,13 +80,18 @@ object MediaStoreScanner {
                             ),
                         )
                     }
+                }
+                songs += persistScannedLyricsBatch(batch, onLyricsBatch)
+                done += chunk.size
+                onProgress?.invoke(done, drafts.size)
             }
         } else {
             val total = drafts.size
             val done = AtomicInteger(0)
             val semaphore = Semaphore(PROBE_PARALLELISM)
-            coroutineScope {
-                drafts.map { draft ->
+            drafts.chunked(PROBE_PARALLELISM).forEach { chunk ->
+                val batch = coroutineScope {
+                    chunk.map { draft ->
                     async {
                         semaphore.withPermit {
                             val song = draft.reusableCachedSong(
@@ -111,6 +122,8 @@ object MediaStoreScanner {
                         }
                     }
                 }.awaitAll()
+                }
+                songs += persistScannedLyricsBatch(batch, onLyricsBatch)
             }
         }
 
@@ -265,6 +278,8 @@ object MediaStoreScanner {
                     folderPath = folderPath,
                     filePath = filePath,
                     externalLyricsUris = externalLyricsUris,
+                    externalLrcUris = externalLyricsRefs.externalLyricsUris("lrc"),
+                    externalTtmlUris = externalLyricsRefs.externalLyricsUris("ttml"),
                     externalLyricsSignature = externalLyricsRefs.externalLyricsSignature(),
                     dateAddedMs = dateAddedMs,
                     dateModifiedMs = dateModifiedMs,
@@ -367,6 +382,8 @@ object MediaStoreScanner {
                     folderPath = folderPath,
                     filePath = filePath,
                     externalLyricsUris = externalLyricsRefs.externalLyricsUris(),
+                    externalLrcUris = externalLyricsRefs.externalLyricsUris("lrc"),
+                    externalTtmlUris = externalLyricsRefs.externalLyricsUris("ttml"),
                     externalLyricsSignature = externalLyricsRefs.externalLyricsSignature(),
                     dateAddedMs = if (dateAddedCol >= 0) c.getLong(dateAddedCol) * 1000L else 0L,
                     dateModifiedMs = if (dateModifiedCol >= 0) c.getLong(dateModifiedCol) * 1000L else 0L,
@@ -435,6 +452,7 @@ object MediaStoreScanner {
                     uri = uri,
                     sizeBytes = cursor.getLongOrZero(sizeCol),
                     dateModifiedMs = if (dateModifiedCol >= 0) cursor.getLong(dateModifiedCol) * 1000L else 0L,
+                    extension = name.substringAfterLast('.', "").lowercase(),
                 )
             }
         }
@@ -459,4 +477,24 @@ object MediaStoreScanner {
     private fun android.database.Cursor.getLongOrZero(columnIndex: Int): Long =
         if (columnIndex >= 0 && !isNull(columnIndex)) getLong(columnIndex) else 0L
 
+}
+
+internal suspend fun persistScannedLyricsBatch(
+    songs: List<Song>,
+    onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
+): List<Song> {
+    if (onLyricsBatch == null) return songs
+    val payloads = songs.mapNotNull { song ->
+        song.scannedLyrics?.let { slots ->
+            ScannedSongLyrics(song.id, song.lyricsCacheRevision, slots)
+        }
+    }
+    if (payloads.isNotEmpty()) onLyricsBatch(payloads)
+    return songs.map { song ->
+        if (song.scannedLyrics == null) song else song.copy(
+            lyricsDocument = LyricsDocument(),
+            lyricsLoaded = false,
+            scannedLyrics = null,
+        )
+    }
 }

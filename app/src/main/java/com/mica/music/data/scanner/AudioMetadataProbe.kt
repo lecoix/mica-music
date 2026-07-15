@@ -16,6 +16,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.LyricsSlots
 import com.mica.music.media.AlacPlayback
 import com.mica.music.util.DiagnosticLog
 import java.io.File
@@ -48,6 +49,8 @@ internal data class TrackDraft(
     val dateModifiedMs: Long = 0L,
     val externalLyricsParent: DocumentFile? = null,
     val externalLyricsUris: List<String> = emptyList(),
+    val externalLrcUris: List<String> = emptyList(),
+    val externalTtmlUris: List<String> = emptyList(),
     val externalLyricsSignature: String = "",
 )
 
@@ -142,9 +145,9 @@ object AudioMetadataProbe {
             appCtx,
             metadata,
             albumArtUri = albumArtUri,
-            lyricsDocument = lyrics,
+            lyricsDocument = lyrics.selected(),
             copyrightOverride = copyright,
-        )
+        ).copy(scannedLyrics = lyrics)
     }
 
     internal fun probeTrack(
@@ -278,10 +281,10 @@ object AudioMetadataProbe {
                 appCtx,
                 metadata,
                 albumArtUri,
-                lyrics,
+                lyrics.selected(),
                 trackNumber = tags.trackNumber,
                 discNumber = tags.discNumber,
-            )
+            ).copy(scannedLyrics = lyrics)
         } catch (_: Exception) {
             val metadata = if (trackProbe != null) {
                 TrackMetadata.fallback(
@@ -318,9 +321,9 @@ object AudioMetadataProbe {
                 albumArtUri = profiler.measureOptional("albumArt") {
                     resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
                 },
-                lyricsDocument = lyrics,
+                lyricsDocument = lyrics.selected(),
                 copyrightOverride = copyright,
-            )
+            ).copy(scannedLyrics = lyrics)
         } finally {
             runCatching { retriever.release() }
         }
@@ -494,10 +497,10 @@ object AudioMetadataProbe {
             context = context,
             metadata = metadata,
             albumArtUri = albumArtUri,
-            lyricsDocument = lyrics,
+            lyricsDocument = lyrics.selected(),
             trackNumber = tags.trackNumber,
             discNumber = tags.discNumber,
-        ).copy(replayGain = tagLib.replayGain)
+        ).copy(replayGain = tagLib.replayGain, scannedLyrics = lyrics)
         } finally {
             retriever?.let { runCatching { it.release() } }
         }
@@ -509,28 +512,33 @@ object AudioMetadataProbe {
         cachedSong: Song?,
         retriever: MediaMetadataRetriever? = null,
         taglibLyricsCandidates: List<String> = emptyList(),
-    ): LyricsDocument {
-        ExternalLyricsReader.readDirectDocuments(context, draft.externalLyricsUris)
-            ?.takeIf { it.lines.isNotEmpty() }
-            ?.let { return it }
-        cachedSong?.lyricsDocument?.takeIf { it.lines.isNotEmpty() }?.let { return it }
+    ): LyricsSlots {
+        val externalLrc = ExternalLyricsReader.readDirectDocuments(context, draft.externalLrcUris)
+        val externalTtml = ExternalLyricsReader.readDirectDocuments(context, draft.externalTtmlUris)
+        val embeddedCandidates = mutableListOf<LyricsDocument>()
         taglibLyricsCandidates
             .mapNotNull { parseLyricsTextForScan(MetadataTextFix.normalize(it)) }
             .filter { it.lines.isNotEmpty() }
-            .takeIf { it.isNotEmpty() }
-            ?.let { LyricsSanitizer.pickBestDocument(it) }
-            ?.takeIf { it.lines.isNotEmpty() }
-            ?.let { return it }
+            .let(embeddedCandidates::addAll)
         retriever?.let { readRetrieverLyrics(it) }
             ?.takeIf { it.lines.isNotEmpty() }
-            ?.let { return it }
-        val embedded = EmbeddedLyricsReader.readFastEmbeddedDocument(
+            ?.let(embeddedCandidates::add)
+        EmbeddedLyricsReader.readFastEmbeddedDocument(
             context = context,
             uri = Uri.parse(draft.mediaUri),
             mimeType = draft.mimeType,
             displayName = draft.displayName,
+        ).takeIf { it.lines.isNotEmpty() }?.let(embeddedCandidates::add)
+        if (embeddedCandidates.isEmpty()) {
+            cachedSong?.lyricsDocument
+                ?.takeIf { it.origin == LyricsOrigin.EMBEDDED && it.lines.isNotEmpty() }
+                ?.let(embeddedCandidates::add)
+        }
+        return LyricsSlots(
+            embedded = LyricsSanitizer.pickBestDocument(embeddedCandidates),
+            externalLrc = externalLrc,
+            externalTtml = externalTtml,
         )
-        return embedded
     }
 
     private fun readRetrieverLyrics(retriever: MediaMetadataRetriever): LyricsDocument? {
@@ -809,10 +817,10 @@ object AudioMetadataProbe {
             context = context,
             metadata = metadata,
             albumArtUri = albumArtUri,
-            lyricsDocument = lyrics,
+            lyricsDocument = lyrics.selected(),
             trackNumber = tags.trackNumber,
             discNumber = tags.discNumber,
-        )
+        ).copy(scannedLyrics = lyrics)
     }
 
     private fun artCacheKey(draft: TrackDraft): String = when {
