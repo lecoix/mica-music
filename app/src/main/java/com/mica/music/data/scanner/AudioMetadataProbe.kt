@@ -17,6 +17,7 @@ import com.mica.music.data.TrackMetadata
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsOrigin
 import com.mica.music.data.LyricsSlots
+import com.mica.music.data.LyricsProbeResult
 import com.mica.music.media.AlacPlayback
 import com.mica.music.util.DiagnosticLog
 import java.io.File
@@ -52,6 +53,12 @@ internal data class TrackDraft(
     val externalLrcUris: List<String> = emptyList(),
     val externalTtmlUris: List<String> = emptyList(),
     val externalLyricsSignature: String = "",
+)
+
+/** Scanner-only result; [lyrics] never enters the runtime [Song] model. */
+internal data class ScannedSong(
+    val song: Song,
+    val lyrics: LyricsProbeResult = LyricsProbeResult.NotProbed,
 )
 
 internal data class TagInfo(
@@ -107,14 +114,14 @@ object AudioMetadataProbe {
         draft: TrackDraft,
         profiler: ScanProfiler? = null,
         cachedSong: Song? = null,
-    ): Song {
+    ): ScannedSong {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
         if (draft.isDsdDraft()) {
             profiler.measureOptional("dsdMetadata") {
                 DsdMetadataReader.read(appCtx, uri, draft)
             }?.let { dsd ->
-                return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+                return dsd.toScannedSong(appCtx, draft, uri, profiler, cachedSong)
             }
         }
         val metadata = TrackMetadata.fallback(
@@ -129,6 +136,7 @@ object AudioMetadataProbe {
                 appCtx,
                 lyricDraft,
                 cachedSong,
+                profiler = profiler,
             )
         }
         val copyright = profiler.measureOptional("copyright") {
@@ -141,13 +149,16 @@ object AudioMetadataProbe {
             resolveCoverColor(appCtx, null, uri, draft.albumId, albumArtUri)
         }
             ?: draft.coverColorArgb
-        return draft.copy(coverColorArgb = coverArgb).toSong(
-            appCtx,
-            metadata,
-            albumArtUri = albumArtUri,
-            lyricsDocument = lyrics.selected(),
-            copyrightOverride = copyright,
-        ).copy(scannedLyrics = lyrics)
+        return ScannedSong(
+            song = draft.copy(coverColorArgb = coverArgb).toSong(
+                appCtx,
+                metadata,
+                albumArtUri = albumArtUri,
+                lyricsDocument = lyrics.selectedOrCached(cachedSong),
+                copyrightOverride = copyright,
+            ),
+            lyrics = lyrics,
+        )
     }
 
     internal fun probeTrack(
@@ -156,14 +167,14 @@ object AudioMetadataProbe {
         profiler: ScanProfiler? = null,
         cachedSong: Song? = null,
         technicalProbeFailures: AtomicInteger? = null,
-    ): Song {
+    ): ScannedSong {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
         if (draft.isDsdDraft()) {
             profiler.measureOptional("dsdMetadata") {
                 DsdMetadataReader.read(appCtx, uri, draft)
             }?.let { dsd ->
-                return dsd.toSong(appCtx, draft, uri, profiler, cachedSong)
+                return dsd.toScannedSong(appCtx, draft, uri, profiler, cachedSong)
             }
         }
         val requiresTrackProbe = draft.requiresAudioTrackProbe()
@@ -270,6 +281,7 @@ object AudioMetadataProbe {
                     withMeta.copy(mimeType = metadata.playbackMimeType.ifBlank { withMeta.mimeType }),
                     cachedSong,
                     retriever,
+                    profiler = profiler,
                 )
             }
             val coverArgb = profiler.measureOptional("coverColor") {
@@ -277,14 +289,17 @@ object AudioMetadataProbe {
                     ?: resolveCoverColor(appCtx, retriever, uri, withMeta.albumId, albumArtUri)
             }
                 ?: withMeta.coverColorArgb
-            withMeta.copy(coverColorArgb = coverArgb).toSong(
-                appCtx,
-                metadata,
-                albumArtUri,
-                lyrics.selected(),
-                trackNumber = tags.trackNumber,
-                discNumber = tags.discNumber,
-            ).copy(scannedLyrics = lyrics)
+            ScannedSong(
+                song = withMeta.copy(coverColorArgb = coverArgb).toSong(
+                    appCtx,
+                    metadata,
+                    albumArtUri,
+                    lyrics.selectedOrCached(cachedSong),
+                    trackNumber = tags.trackNumber,
+                    discNumber = tags.discNumber,
+                ),
+                lyrics = lyrics,
+            )
         } catch (_: Exception) {
             val metadata = if (trackProbe != null) {
                 TrackMetadata.fallback(
@@ -310,20 +325,24 @@ object AudioMetadataProbe {
                     appCtx,
                     lyricDraft,
                     cachedSong,
+                    profiler = profiler,
                 )
             }
             val copyright = profiler.measureOptional("copyright") {
                 readCopyright(appCtx, uri, lyricDraft)
             }
-            draft.toSong(
-                appCtx,
-                metadata,
-                albumArtUri = profiler.measureOptional("albumArt") {
-                    resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
-                },
-                lyricsDocument = lyrics.selected(),
-                copyrightOverride = copyright,
-            ).copy(scannedLyrics = lyrics)
+            ScannedSong(
+                song = draft.toSong(
+                    appCtx,
+                    metadata,
+                    albumArtUri = profiler.measureOptional("albumArt") {
+                        resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
+                    },
+                    lyricsDocument = lyrics.selectedOrCached(cachedSong),
+                    copyrightOverride = copyright,
+                ),
+                lyrics = lyrics,
+            )
         } finally {
             runCatching { retriever.release() }
         }
@@ -344,7 +363,7 @@ object AudioMetadataProbe {
         profiler: ScanProfiler?,
         cachedSong: Song?,
         technicalProbeFailures: AtomicInteger? = null,
-    ): Song {
+    ): ScannedSong {
         val primaryTags = TagInfo(
             title = tagLib.title,
             artist = tagLib.artist,
@@ -487,20 +506,24 @@ object AudioMetadataProbe {
                 cachedSong,
                 retriever = retriever,
                 taglibLyricsCandidates = tagLib.lyricsCandidates,
+                profiler = profiler,
             )
         }
         val coverArgb = profiler.measureOptional("coverColor") {
             coverBytes?.let { CoverColorExtractor.fromBytes(it) }
                 ?: resolveCoverColor(context, null, uri, withMeta.albumId, albumArtUri)
         } ?: withMeta.coverColorArgb
-        return withMeta.copy(coverColorArgb = coverArgb).toSong(
-            context = context,
-            metadata = metadata,
-            albumArtUri = albumArtUri,
-            lyricsDocument = lyrics.selected(),
-            trackNumber = tags.trackNumber,
-            discNumber = tags.discNumber,
-        ).copy(replayGain = tagLib.replayGain, scannedLyrics = lyrics)
+        return ScannedSong(
+            song = withMeta.copy(coverColorArgb = coverArgb).toSong(
+                context = context,
+                metadata = metadata,
+                albumArtUri = albumArtUri,
+                lyricsDocument = lyrics.selectedOrCached(cachedSong),
+                trackNumber = tags.trackNumber,
+                discNumber = tags.discNumber,
+            ).copy(replayGain = tagLib.replayGain),
+            lyrics = lyrics,
+        )
         } finally {
             retriever?.let { runCatching { it.release() } }
         }
@@ -512,33 +535,62 @@ object AudioMetadataProbe {
         cachedSong: Song?,
         retriever: MediaMetadataRetriever? = null,
         taglibLyricsCandidates: List<String> = emptyList(),
-    ): LyricsSlots {
-        val externalLrc = ExternalLyricsReader.readDirectDocuments(context, draft.externalLrcUris)
-        val externalTtml = ExternalLyricsReader.readDirectDocuments(context, draft.externalTtmlUris)
+        profiler: ScanProfiler? = null,
+    ): LyricsProbeResult {
+        val externalLrc = profiler.measureOptional("lyrics.externalLrc") {
+            ExternalLyricsReader.probeDirectDocuments(context, draft.externalLrcUris)
+        }
+        val externalTtml = profiler.measureOptional("lyrics.externalTtml") {
+            ExternalLyricsReader.probeDirectDocuments(context, draft.externalTtmlUris)
+        }
+        if (externalLrc is ProbeResult.Failed || externalTtml is ProbeResult.Failed) {
+            return LyricsProbeResult.ReadFailed
+        }
         val embeddedCandidates = mutableListOf<LyricsDocument>()
-        taglibLyricsCandidates
-            .mapNotNull { parseLyricsTextForScan(MetadataTextFix.normalize(it)) }
-            .filter { it.lines.isNotEmpty() }
-            .let(embeddedCandidates::addAll)
-        retriever?.let { readRetrieverLyrics(it) }
+        val taglibCandidatesRead = profiler.measureOptional("lyrics.tagCandidates") {
+            val parsedCandidates = mutableListOf<LyricsDocument>()
+            for (candidate in taglibLyricsCandidates) {
+                val normalized = MetadataTextFix.normalize(candidate)
+                if (normalized.isBlank()) continue
+                val parsed = parseLyricsTextForScan(normalized)
+                    ?: return@measureOptional null
+                if (parsed.lines.isNotEmpty()) parsedCandidates += parsed
+            }
+            parsedCandidates
+        }
+        if (taglibCandidatesRead == null) return LyricsProbeResult.ReadFailed
+        embeddedCandidates += taglibCandidatesRead
+        profiler.measureOptional("lyrics.retriever") {
+            retriever?.let { readRetrieverLyrics(it) }
+        }
             ?.takeIf { it.lines.isNotEmpty() }
             ?.let(embeddedCandidates::add)
-        EmbeddedLyricsReader.readFastEmbeddedDocument(
-            context = context,
-            uri = Uri.parse(draft.mediaUri),
-            mimeType = draft.mimeType,
-            displayName = draft.displayName,
-        ).takeIf { it.lines.isNotEmpty() }?.let(embeddedCandidates::add)
-        if (embeddedCandidates.isEmpty()) {
-            cachedSong?.lyricsDocument
-                ?.takeIf { it.origin == LyricsOrigin.EMBEDDED && it.lines.isNotEmpty() }
+        val embeddedBinary = profiler.measureOptional("lyrics.embeddedBinary") {
+            EmbeddedLyricsReader.probeFastEmbeddedDocument(
+                context = context,
+                uri = Uri.parse(draft.mediaUri),
+                mimeType = draft.mimeType,
+                displayName = draft.displayName,
+            )
+        }
+        when (embeddedBinary) {
+            is ProbeResult.Failed -> return LyricsProbeResult.ReadFailed
+            is ProbeResult.Ok -> embeddedBinary.value
+                ?.takeIf { it.lines.isNotEmpty() }
                 ?.let(embeddedCandidates::add)
         }
-        return LyricsSlots(
+        return LyricsProbeResult.Complete(LyricsSlots(
             embedded = LyricsSanitizer.pickBestDocument(embeddedCandidates),
-            externalLrc = externalLrc,
-            externalTtml = externalTtml,
-        )
+            externalLrc = (externalLrc as ProbeResult.Ok).value,
+            externalTtml = (externalTtml as ProbeResult.Ok).value,
+        ))
+    }
+
+    private fun LyricsProbeResult.selectedOrCached(cachedSong: Song?): LyricsDocument = when (this) {
+        is LyricsProbeResult.Complete -> slots.selected()
+        LyricsProbeResult.ReadFailed,
+        LyricsProbeResult.NotProbed,
+        -> cachedSong?.lyricsDocument ?: LyricsDocument()
     }
 
     private fun readRetrieverLyrics(retriever: MediaMetadataRetriever): LyricsDocument? {
@@ -779,13 +831,13 @@ object AudioMetadataProbe {
             finalContainer == "FLAC"
     }
 
-    private fun DsdMetadataReader.Result.toSong(
+    private fun DsdMetadataReader.Result.toScannedSong(
         context: Context,
         draft: TrackDraft,
         uri: Uri,
         profiler: ScanProfiler?,
         cachedSong: Song?,
-    ): Song {
+    ): ScannedSong {
         val title = tags.title.ifBlank { draft.title }
         val artist = ArtistNames.normalizeDisplay(tags.artist.ifBlank { draft.artist })
         val album = tags.album.ifBlank { draft.album }
@@ -802,7 +854,7 @@ object AudioMetadataProbe {
             mimeType = metadata.playbackMimeType,
         )
         val lyrics = profiler.measureOptional("lyrics") {
-            readScanLyrics(context, enriched, cachedSong)
+            readScanLyrics(context, enriched, cachedSong, profiler = profiler)
         }
         val artKey = artCacheKey(enriched)
         val albumArtUri = profiler.measureOptional("albumArt") {
@@ -813,14 +865,17 @@ object AudioMetadataProbe {
                 ?.let { CoverColorExtractor.fromBytes(it) }
                 ?: resolveCoverColor(context, null, uri, enriched.albumId, albumArtUri)
         } ?: enriched.coverColorArgb
-        return enriched.copy(coverColorArgb = coverArgb).toSong(
-            context = context,
-            metadata = metadata,
-            albumArtUri = albumArtUri,
-            lyricsDocument = lyrics.selected(),
-            trackNumber = tags.trackNumber,
-            discNumber = tags.discNumber,
-        ).copy(scannedLyrics = lyrics)
+        return ScannedSong(
+            song = enriched.copy(coverColorArgb = coverArgb).toSong(
+                context = context,
+                metadata = metadata,
+                albumArtUri = albumArtUri,
+                lyricsDocument = lyrics.selectedOrCached(cachedSong),
+                trackNumber = tags.trackNumber,
+                discNumber = tags.discNumber,
+            ),
+            lyrics = lyrics,
+        )
     }
 
     private fun artCacheKey(draft: TrackDraft): String = when {

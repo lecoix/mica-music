@@ -42,8 +42,6 @@ data class Song(
     val lyricsDocument: LyricsDocument = LyricsDocument(),
     /** False when the lyrics payload was intentionally omitted from a lightweight library row. */
     val lyricsLoaded: Boolean = true,
-    /** Scan-only payload; persisted in bounded batches and removed before catalog publication. */
-    val scannedLyrics: LyricsSlots? = null,
 ) {
     val effectivePlaybackUri: String get() = playbackUri ?: mediaUri
 

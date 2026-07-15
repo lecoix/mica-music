@@ -98,6 +98,24 @@ internal object EmbeddedLyricsReader {
         return readFromBinary(bytes, mime, ext) ?: LyricsDocument(origin = LyricsOrigin.EMBEDDED)
     }
 
+    fun probeFastEmbeddedDocument(
+        context: Context,
+        uri: Uri,
+        mimeType: String?,
+        displayName: String?,
+    ): ProbeResult<LyricsDocument?> {
+        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        val mime = mimeType.orEmpty().lowercase()
+        return try {
+            val bytes = AudioProbeBytes.readFastForLyricsOrThrow(context, uri, mime, displayName)
+            ProbeResult.Ok(bytes?.let { readFromBinary(it, mime, ext) })
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            ProbeResult.Failed("embeddedLyricsRead")
+        }
+    }
+
     private fun parseLyricsText(raw: String): LyricsDocument? {
         if (raw.isBlank()) return null
         val normalized = MetadataTextFix.normalize(raw)

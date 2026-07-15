@@ -14,6 +14,17 @@ data class SongLyricsEntity(
     val lyricsJson: String,
 )
 
+/** Deprecated v10 staging schema retained until a later explicit Room migration removes the table. */
+@Entity(tableName = "song_lyrics_pending", primaryKeys = ["scanId", "songId"])
+data class PendingSongLyricsEntity(
+    val scanId: String,
+    val songId: String,
+    val revision: String,
+    val embeddedJson: String? = null,
+    val externalLrcJson: String? = null,
+    val externalTtmlJson: String? = null,
+)
+
 @Entity(tableName = "songs")
 data class SongEntity(
     @PrimaryKey val id: String,
@@ -44,6 +55,13 @@ data class SongEntity(
     val dateModifiedMs: Long,
     val externalLyricsSignature: String = "",
     val playCount: Int,
+    /**
+     * Legacy v8 payload copied into `song_lyrics` by MIGRATION_8_9.
+     *
+     * Schema v9+ keeps this deprecated column for migration and compatibility code. It is not
+     * authoritative: runtime lyrics selection/loading must use `song_lyrics`. Remove this field
+     * only through a later explicit Room schema migration.
+     */
     val lyricsJson: String,
     val queueOrder: Int,
     val replayGainTrackDb: Float? = null,

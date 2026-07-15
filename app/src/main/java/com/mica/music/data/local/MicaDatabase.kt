@@ -8,8 +8,13 @@ import androidx.room.RoomDatabase
 import com.mica.music.util.DiagnosticLog
 
 @Database(
-    entities = [SongEntity::class, SongLyricsEntity::class, LibraryMetaEntity::class],
-    version = 9,
+    entities = [
+        SongEntity::class,
+        SongLyricsEntity::class,
+        PendingSongLyricsEntity::class,
+        LibraryMetaEntity::class,
+    ],
+    version = 10,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -42,6 +47,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_6_7,
                             MIGRATION_7_8,
                             MIGRATION_8_9,
+                            MIGRATION_9_10,
                         )
                         .build()
                         .also {

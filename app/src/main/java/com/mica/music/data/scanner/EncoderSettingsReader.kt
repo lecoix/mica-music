@@ -228,13 +228,30 @@ internal object EncoderSettingsReader {
 
 /** ID3/文件探测共用二进制工具 */
 internal object AudioProbeBytes {
-    fun read(context: Context, uri: Uri): ByteArray? = readBytes(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 8 * 1024 * 1024)
+    fun read(context: Context, uri: Uri): ByteArray? = readOrNull {
+        readBytes(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 8 * 1024 * 1024)
+    }
 
     /** 歌词扫描：大文件加大头尾窗口，避免 ID3/标签落在中间被截断。 */
     fun readForLyrics(context: Context, uri: Uri): ByteArray? =
-        readBytes(context, uri, headBytes = 8 * 1024 * 1024, tailBytes = 16 * 1024 * 1024)
+        readOrNull { readBytes(context, uri, headBytes = 8 * 1024 * 1024, tailBytes = 16 * 1024 * 1024) }
 
     fun readFastForLyrics(
+        context: Context,
+        uri: Uri,
+        mimeType: String,
+        displayName: String?,
+    ): ByteArray? = readOrNull { readFastForLyricsOrThrow(context, uri, mimeType, displayName) }
+
+    private inline fun <T> readOrNull(block: () -> T): T? = try {
+        block()
+    } catch (error: kotlinx.coroutines.CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        null
+    }
+
+    fun readFastForLyricsOrThrow(
         context: Context,
         uri: Uri,
         mimeType: String,
@@ -269,50 +286,46 @@ internal object AudioProbeBytes {
     }
 
     private fun readAll(context: Context, uri: Uri): ByteArray? =
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull()
+        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw java.io.IOException("Unable to open $uri")
 
     private fun readId3Tag(context: Context, uri: Uri): ByteArray? =
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val header = input.readNBytes(10)
-                if (header.size < 10 || !Id3Binary.isId3Header(header, 0)) return@use null
+        (context.contentResolver.openInputStream(uri)
+            ?: throw java.io.IOException("Unable to open $uri")).use { input ->
+                val header = input.readUpToCompat(10)
+                if (header.size < 10 || !Id3Binary.isId3Header(header, 0)) return null
                 val tagSize = Id3Binary.synchsafeSize(header, 6)
                 val totalSize = (tagSize + 10).coerceAtMost(4 * 1024 * 1024)
-                header + input.readNBytes(totalSize - header.size)
+                header + input.readUpToCompat(totalSize - header.size)
             }
-        }.getOrNull()
 
     private fun readHead(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.use { it.readNBytes(maxBytes) }
-        }.getOrNull()
+        (context.contentResolver.openInputStream(uri)
+            ?: throw java.io.IOException("Unable to open $uri")).use { it.readUpToCompat(maxBytes) }
 
     private fun readTail(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
-        runCatching {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+        (context.contentResolver.openFileDescriptor(uri, "r")
+            ?: throw java.io.IOException("Unable to open $uri")).use { pfd ->
                 val size = pfd.statSize
-                if (size <= 0L) return@use null
+                if (size <= 0L) throw java.io.IOException("Unknown size for $uri")
                 val tailLen = maxBytes.toLong().coerceAtMost(size).toInt()
                 java.io.FileInputStream(pfd.fileDescriptor).use { fis ->
                     if (size > tailLen) fis.skipFully(size - tailLen)
-                    fis.readNBytes(tailLen)
+                    fis.readUpToCompat(tailLen)
                 }
             }
-        }.getOrNull()
 
     private fun readMp4Moov(context: Context, uri: Uri): ByteArray? =
-        runCatching {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+        (context.contentResolver.openFileDescriptor(uri, "r")
+            ?: throw java.io.IOException("Unable to open $uri")).use { pfd ->
                 java.io.FileInputStream(pfd.fileDescriptor).use { fis ->
                     val channel = fis.channel
                     val fileSize = pfd.statSize.takeIf { it > 0L } ?: channel.size()
-                    if (fileSize <= 0L) return@use null
+                    if (fileSize <= 0L) return null
                     var offset = 0L
                     while (offset + 8 <= fileSize) {
-                        val header = channel.readAt(offset, 16) ?: return@use null
-                        if (header.size < 8) return@use null
+                        val header = channel.readAt(offset, 16) ?: return null
+                        if (header.size < 8) return null
                         val boxSize32 = header.readUInt32Be(0)
                         val type = String(header, 4, 4, Charsets.US_ASCII)
                         val headerSize: Long
@@ -323,7 +336,7 @@ internal object AudioProbeBytes {
                                 boxSize = fileSize - offset
                             }
                             1L -> {
-                                if (header.size < 16) return@use null
+                                if (header.size < 16) return null
                                 headerSize = 16L
                                 boxSize = header.readUInt64Be(8)
                             }
@@ -332,7 +345,7 @@ internal object AudioProbeBytes {
                                 boxSize = boxSize32
                             }
                         }
-                        if (boxSize < headerSize) return@use null
+                        if (boxSize < headerSize) return null
                         if (type == "moov") {
                             val safeSize = boxSize.coerceAtMost(16L * 1024L * 1024L).toInt()
                             return@use channel.readAt(offset, safeSize)
@@ -342,22 +355,22 @@ internal object AudioProbeBytes {
                     null
                 }
             }
-        }.getOrNull()
 
     private fun readHeadAndTail(context: Context, uri: Uri, headBytes: Int, tailBytes: Int): ByteArray? =
-        runCatching {
-            val head = context.contentResolver.openInputStream(uri)?.use { it.readNBytes(headBytes) }
-                ?: return@runCatching null
-            val tail = context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+        (context.contentResolver.openInputStream(uri)
+            ?: throw java.io.IOException("Unable to open $uri")).use { it.readUpToCompat(headBytes) }.let { head ->
+            val tail = (context.contentResolver.openFileDescriptor(uri, "r")
+                ?: throw java.io.IOException("Unable to open $uri")).use { pfd ->
                 val size = pfd.statSize
+                if (size <= 0L) throw java.io.IOException("Unknown size for $uri")
                 val tailLen = tailBytes.toLong().coerceAtMost(size).toInt()
                 java.io.FileInputStream(pfd.fileDescriptor).use { fis ->
                     if (size > tailLen) fis.skipFully(size - tailLen)
-                    fis.readNBytes(tailLen)
+                    fis.readUpToCompat(tailLen)
                 }
-            } ?: return@runCatching null
+            }
             head + tail
-        }.getOrNull()
+        }
 
     private fun java.io.InputStream.skipFully(bytes: Long) {
         var remaining = bytes

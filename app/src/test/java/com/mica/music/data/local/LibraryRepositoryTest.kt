@@ -124,14 +124,79 @@ class LibraryRepositoryTest {
         val lrc = song.lyricsDocument.copy(format = LyricsFormat.LRC, origin = LyricsOrigin.EXTERNAL)
         val ttml = song.lyricsDocument.copy(format = LyricsFormat.TTML, origin = LyricsOrigin.EXTERNAL)
 
-        repository.replaceLyricsBatch(listOf(
-            ScannedSongLyrics(song.id, song.lyricsCacheRevision, LyricsSlots(embedded, lrc, ttml)),
-        ))
+        repository.applyLyricsBatch(
+            listOf(ScannedSongLyrics(song.id, song.lyricsCacheRevision, LyricsSlots(embedded, lrc, ttml))),
+        )
+        repository.commitScan(
+            listOf(song.copy(lyricsLoaded = false)),
+            100,
+            ScanSource.DEVICE,
+            1,
+        )
 
         assertEquals(3, database.songLyricsDao().getBySongId(song.id).size)
         assertEquals(ttml, repository.lyricsById(song.id))
         assertEquals(embedded, repository.lyricsById(song.id, listOf(LyricsSlot.EMBEDDED)))
-        assertEquals(LyricsDocument(), repository.lyricsById(song.id, revision = "stale-revision"))
+        assertEquals(ttml, repository.lyricsById(song.id, revision = "stale-revision"))
+    }
+
+    @Test
+    fun completedBatchIsVisibleImmediatelyAndRevisionDoesNotHideConservativeLyrics() = runTest {
+        val oldSong = SongFixtures.song("staged").copy(dateModifiedMs = 1L, lyricsLoaded = false)
+        val oldLyrics = SongFixtures.song("old-lyrics").lyricsDocument.copy(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EXTERNAL,
+        )
+        repository.save(
+            listOf(oldSong.copy(lyricsDocument = oldLyrics, lyricsLoaded = true)),
+            100,
+            ScanSource.DEVICE,
+            1,
+        )
+
+        val newSong = oldSong.copy(dateModifiedMs = 2L)
+        val newLyrics = oldLyrics.copy(format = LyricsFormat.TTML)
+        repository.applyLyricsBatch(
+            listOf(
+                ScannedSongLyrics(
+                    newSong.id,
+                    newSong.lyricsCacheRevision,
+                    LyricsSlots(externalTtml = newLyrics),
+                ),
+            ),
+        )
+
+        assertEquals(newLyrics, repository.lyricsById(oldSong.id, revision = oldSong.lyricsCacheRevision))
+        assertEquals(newLyrics, repository.lyricsById(newSong.id, revision = newSong.lyricsCacheRevision))
+
+        repository.commitScan(listOf(newSong), 200, ScanSource.DEVICE, 1)
+
+        assertEquals(newLyrics, repository.lyricsById(newSong.id, revision = newSong.lyricsCacheRevision))
+        assertEquals(newLyrics, repository.lyricsById(oldSong.id, revision = oldSong.lyricsCacheRevision))
+    }
+
+    @Test
+    fun authoritativeEmptyBatchDeletesAllThreeSlots() = runTest {
+        val song = SongFixtures.song("empty-complete")
+        val document = song.lyricsDocument
+        repository.save(listOf(song.copy(lyricsLoaded = false)), 100, ScanSource.DEVICE, 1)
+        repository.applyLyricsBatch(
+            listOf(
+                ScannedSongLyrics(
+                    song.id,
+                    song.lyricsCacheRevision,
+                    LyricsSlots(document, document, document),
+                ),
+            ),
+        )
+        assertEquals(3, database.songLyricsDao().getBySongId(song.id).size)
+
+        repository.applyLyricsBatch(
+            listOf(ScannedSongLyrics(song.id, song.lyricsCacheRevision, LyricsSlots())),
+        )
+
+        assertEquals(0, database.songLyricsDao().getBySongId(song.id).size)
+        assertEquals(LyricsDocument(), repository.lyricsById(song.id))
     }
 
     @Test

@@ -11,6 +11,7 @@ import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.util.DiagnosticLog
 import java.io.File
 import java.io.InputStream
+import kotlinx.coroutines.CancellationException
 /**
  * 读取与音频同目录的外挂 `.lrc`（同名或 displayName 去扩展名）。
  */
@@ -34,6 +35,35 @@ internal object ExternalLyricsReader {
                 "selectedTokens=${selected?.lines?.sumOf { it.tokens.size } ?: 0}",
         )
         return selected
+    }
+
+    fun probeDirectDocuments(
+        context: Context,
+        uriStrings: List<String>,
+    ): ProbeResult<LyricsDocument?> {
+        if (uriStrings.isEmpty()) return ProbeResult.Ok(null)
+        val candidates = mutableListOf<LyricsDocument>()
+        for (uriString in uriStrings) {
+            try {
+                val uri = Uri.parse(uriString.takeIf { it.isNotBlank() }
+                    ?: return ProbeResult.Failed("externalLyricsUri"))
+                val stream = context.contentResolver.openInputStream(uri)
+                    ?: return ProbeResult.Failed("externalLyricsOpen")
+                val document = stream.use { input ->
+                    val bytes = readBoundedLyricsBytes(input)
+                        ?: return ProbeResult.Failed("externalLyricsTooLarge")
+                    val text = decodeLyricsBytes(bytes)
+                    parseLyricsFile(text)
+                        ?: return ProbeResult.Failed("externalLyricsParse")
+                }
+                candidates += document
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return ProbeResult.Failed("externalLyricsRead")
+            }
+        }
+        return ProbeResult.Ok(LyricsSanitizer.pickBestDocument(candidates))
     }
 
     fun read(
@@ -210,7 +240,7 @@ internal object ExternalLyricsReader {
         input: InputStream,
         maxBytes: Int = MAX_EXTERNAL_LYRICS_BYTES,
     ): ByteArray? {
-        val bytes = input.readNBytes(maxBytes + 1)
+        val bytes = input.readUpToCompat(maxBytes + 1)
         return bytes.takeIf { it.size <= maxBytes }
     }
 

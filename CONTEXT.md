@@ -13,8 +13,8 @@ _Avoid_: track（除切歌动画 `TrackSkipDirection` 外）、media item
 _Avoid_: caption、subtitle
 
 **LyricsDocument（歌词文档）**：
-渲染器无关的版本化歌词事实来源：格式（`LyricsFormat`）、来源位置（`LyricsOrigin`）、行、原文/译文分段、逐字 token 与行结束时间。parser 只判定格式，reader 只判定来源位置，因此外挂 TTML、内嵌 LRC 等组合可以被准确表达。当前以 v2 对象 JSON 持久化在 `songs.lyricsJson`；v1 `source` 与历史 `[{t,x,c,e}]` 数组仅由 `LyricsDocumentCodec` 兼容读取，不新增独立 Room 表。
-_Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构
+渲染器无关的版本化歌词事实来源：格式（`LyricsFormat`）、来源位置（`LyricsOrigin`）、行、原文/译文分段、逐字 token 与行结束时间。parser 只判定格式，reader 只判定来源位置，因此外挂 TTML、内嵌 LRC 等组合可以被准确表达。自数据库 v9 起，v2 对象 JSON 按 `EMBEDDED`、`EXTERNAL_LRC`、`EXTERNAL_TTML` 三槽持久化在 `song_lyrics.lyricsJson`，运行时按用户优先级选择；`songs.lyricsJson` 仅作为 `MIGRATION_8_9` 的旧数据输入保留，不再是运行时事实来源，并应在后续显式 Room schema migration 中删除。`song_lyrics.revision` 为兼容字段，不作为读取可见性条件；读取失败时旧歌词按稳定 `songId` 保持可见。`lyricsDataVersion` 表示数据库已成功提交的 parser 代次，并参与 UI 与通知歌词的内存缓存键；parser 升级只有在完整扫描零歌词读取失败时才推进。v1 `source` 与历史 `[{t,x,c,e}]` 数组仅由 `LyricsDocumentCodec` 兼容读取。
+_Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构；把 `songs.lyricsJson` 重新作为运行时歌词事实来源
 
 **Lyrics timeline（歌词时间轴）**：
 `LyricsTimelineEngine` 基于 `LyricsDocument` 和播放位置输出行、行间空档、首行前与末行后阶段；当前行索引仍由兼容的 `LyricsSync` 计算，并在 `LyricsRenderState` 集中汇合。
@@ -77,8 +77,8 @@ Compose 可见曲库状态与对外 API：`songs` / `songIds`、浏览查询、�
 _Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内恢复扫描编排或 catalog 逻辑
 
 **Library scan orchestrator（曲库扫描编排器）**：
-`data/library/LibraryScanOrchestrator`：扫描生命周期、`scanGeneration` 取消、Room incremental sync、封面修复**执行**。在 IO 跑 scanner，**publish 回主线程**写 Compose State 的边界不变。
-_Avoid_: 在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策
+`data/library/LibraryScanOrchestrator`：扫描生命周期、串行执行互斥、Room incremental sync、封面修复**执行**。歌词探测返回 `NotProbed` / `Complete` / `ReadFailed`：每个有界批次只把 `Complete` 结果用短 Room 事务直接替换到正式 `song_lyrics`，`ReadFailed` 不修改该歌曲任何歌词槽并持久化全局重试标记。批次可以在扫描结束前生效；歌曲摘要、删除、扫描元数据和 Compose 曲库仍仅在完整扫描成功后统一提交和发布。parser 升级或重试标记存在时，所有扫描类型（包括封面修复）都强制重新探测歌词；完整零失败扫描后才清除重试标记并推进 parser 版本。
+_Avoid_: 把 `ReadFailed` 当成空歌词替换正式槽；让歌词批次直接发布 Compose 曲库；把全库歌词留在内存等结束后一次写入；用覆盖整次扫描的长 Room 事务；在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策
 
 **Library catalog publisher（曲库目录发布器）**：
 `data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / `catalogRevision` / `queueMetadataRevision` / fast scroll 发布、async persist、播放统计写回、`removeSong`。外部只读曲库快照及其结构/元数据版本。

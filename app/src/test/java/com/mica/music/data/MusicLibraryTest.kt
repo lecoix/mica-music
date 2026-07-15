@@ -107,6 +107,35 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun parserUpgradeDoesNotReuseLyricsCachedFromPreviousDataVersion() = runTest {
+        SharedLyricsMemoryCache.clear()
+        val summary = SongFixtures.song("parser-cache")
+            .copy(lyricsDocument = LyricsDocument(), lyricsLoaded = false)
+        val oldLyrics = SongFixtures.song("old-lyrics").lyricsDocument
+        val newLyrics = LyricsDocument()
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(listOf(summary), 100, ScanSource.DEVICE, 1),
+        ).also { it.lyricsDocument = oldLyrics }
+        val environment = FakeScanEnvironment(parserVersion = 0)
+        val library = library(scanner, store, environment)
+        library.loadCachedLibrary()
+
+        assertEquals(oldLyrics, library.songWithLyrics(summary).lyricsDocument)
+        store.lyricsDocument = newLyrics
+
+        val scan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(summary), totalSizeMb = 1))
+        scan.await()
+
+        assertEquals(CURRENT_LYRICS_PARSER_VERSION, library.lyricsDataVersion)
+        assertEquals(newLyrics, library.songWithLyrics(summary).lyricsDocument)
+        assertEquals(2, store.lyricsLoadCount)
+        library.release()
+    }
+
+    @Test
     fun artworkCacheRepairStartsForcedArtworkOnlyScanWhenCachedArtNeedsRepair() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val missingArt = File(context.cacheDir, "album_art/missing-startup.jpg")
@@ -202,17 +231,18 @@ class MusicLibraryTest {
 
         val newScan = async { library.scanDeviceWide() }
         runCurrent()
+        assertEquals(1, scanner.deviceRequests.size)
+        assertEquals(1, store.requests.size)
+
+        store.requests[0].release.complete(Unit)
+        oldScan.await()
+        runCurrent()
         scanner.deviceRequests[1].result.complete(
             ScanResult(listOf(SongFixtures.song("new")), 20),
         )
         runCurrent()
-        assertEquals(1, store.requests.size)
-
-        store.requests[0].release.complete(Unit)
-        runCurrent()
         assertEquals(listOf("new"), store.requests[1].songs.map { it.id })
         store.requests[1].release.complete(Unit)
-        oldScan.await()
         newScan.await()
 
         assertEquals(listOf("new"), library.songs.map { it.id })
@@ -358,7 +388,7 @@ class MusicLibraryTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
-            onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
+            onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
         ): ScanResult {
             onProgress(0, cachedSongs.size)
             return ScanRequest(
@@ -374,7 +404,7 @@ class MusicLibraryTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
-            onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
+            onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
         ): ScanResult = error("folder scan not expected")
     }
 

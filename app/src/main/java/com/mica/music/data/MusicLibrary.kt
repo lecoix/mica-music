@@ -56,6 +56,8 @@ class MusicLibrary internal constructor(
 
     val queueMetadataRevision get() = backing.queueMetadataRevision
 
+    val lyricsDataVersion get() = backing.lyricsDataVersion
+
     val sortField get() = backing.sortField
 
     val sortDirection get() = backing.sortDirection
@@ -120,7 +122,11 @@ class MusicLibrary internal constructor(
     ): Song {
         if (song.lyricsLoaded) return song
         val priorityRevision = priority.joinToString(separator = ",", transform = LyricsSlot::name)
-        val key = LyricsCacheKey(song.id, "${song.lyricsCacheRevision}:$priorityRevision")
+        val key = LyricsCacheKey(
+            song.id,
+            "${song.lyricsCacheRevision}:$priorityRevision",
+            backing.lyricsDataVersion,
+        )
         SharedLyricsMemoryCache.get(key)?.let {
             DiagnosticLog.event(
                 "LyricsCache",

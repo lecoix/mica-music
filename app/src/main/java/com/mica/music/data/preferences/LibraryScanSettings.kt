@@ -17,6 +17,7 @@ internal object LibraryScanSettings {
     private const val KEY_LIBRARY_FOLDER_LABEL = "library_folder_label"
     private const val KEY_LAST_SCAN_SOURCE = "last_scan_source"
     private const val KEY_LYRICS_PARSER_VERSION = "lyrics_parser_version"
+    private const val KEY_LYRICS_RETRY_REQUIRED = "lyrics_retry_required"
 
     fun minTrackDurationSec(context: Context): Int =
         MicaSettingsStore.prefs(context).getInt(KEY_MIN_TRACK_DURATION_SEC, 60)
@@ -95,6 +96,15 @@ internal object LibraryScanSettings {
         MicaSettingsStore.prefs(context).edit()
             .putInt(KEY_LYRICS_PARSER_VERSION, version.coerceAtLeast(0))
             .apply()
+    }
+
+    fun lyricsRetryRequired(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_LYRICS_RETRY_REQUIRED, false)
+
+    fun setLyricsRetryRequired(context: Context, required: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_LYRICS_RETRY_REQUIRED, required)
+            .commit()
     }
 
     fun scanOptions(context: Context): ScanOptions = ScanOptions(

@@ -9,6 +9,8 @@ import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.ScannedSongLyrics
+import com.mica.music.data.LyricsProbeResult
+import com.mica.music.data.LyricsScanBatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -17,6 +19,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
+import java.io.IOException
 
 data class ScanResult(
     val songs: List<Song>,
@@ -31,14 +34,14 @@ data class ScanResult(
 object MediaStoreScanner {
 
     internal const val LYRICS_SCAN_BATCH_SIZE = 6
-    private const val PROBE_PARALLELISM = LYRICS_SCAN_BATCH_SIZE
+    internal const val PROBE_PARALLELISM = 8
 
     suspend fun scan(
         context: Context,
         options: ScanOptions = ScanOptions(),
         cachedSongs: List<Song> = emptyList(),
         onProgress: ((done: Int, total: Int) -> Unit)? = null,
-        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
     ): ScanResult = withContext(Dispatchers.IO) {
         val profiler = ScanProfiler("MediaStore")
         AudioMetadataProbe.clearArtCache()
@@ -54,6 +57,7 @@ object MediaStoreScanner {
         val reused = AtomicInteger(0)
         val probed = AtomicInteger(0)
         val technicalFailed = AtomicInteger(0)
+        val lyricsReadFailed = AtomicInteger(0)
 
         val songs = mutableListOf<Song>()
         if (!options.deepMetadataProbe) {
@@ -67,7 +71,7 @@ object MediaStoreScanner {
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
                     forceRefreshLyrics = options.forceRefreshLyrics,
                     forceRefreshArtwork = options.forceRefreshArtwork,
-                )?.also { reused.incrementAndGet() }
+                )?.let { song -> ScannedSong(song).also { reused.incrementAndGet() } }
                     ?: profiler.measure("quickSong") {
                         probed.incrementAndGet()
                         AudioMetadataProbe.quickSong(
@@ -81,7 +85,7 @@ object MediaStoreScanner {
                         )
                     }
                 }
-                songs += persistScannedLyricsBatch(batch, onLyricsBatch)
+                songs += persistScannedLyricsBatches(batch, lyricsReadFailed, profiler, onLyricsBatch)
                 done += chunk.size
                 onProgress?.invoke(done, drafts.size)
             }
@@ -103,7 +107,7 @@ object MediaStoreScanner {
                                 forceRefreshLyrics = options.forceRefreshLyrics,
                                 forceRefreshArtwork = options.forceRefreshArtwork,
                             )
-                                ?.also { reused.incrementAndGet() }
+                                ?.let { cached -> ScannedSong(cached).also { reused.incrementAndGet() } }
                                 ?: profiler.measure("probeTrack") {
                                     probed.incrementAndGet()
                                     AudioMetadataProbe.probeTrack(
@@ -123,7 +127,7 @@ object MediaStoreScanner {
                     }
                 }.awaitAll()
                 }
-                songs += persistScannedLyricsBatch(batch, onLyricsBatch)
+                songs += persistScannedLyricsBatches(batch, lyricsReadFailed, profiler, onLyricsBatch)
             }
         }
 
@@ -137,7 +141,10 @@ object MediaStoreScanner {
             songs = songs,
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
-            probeStats = ScanProbeStats(technicalFailed = technicalFailed.get()),
+            probeStats = ScanProbeStats(
+                technicalFailed = technicalFailed.get(),
+                lyricsReadFailed = lyricsReadFailed.get(),
+            ),
         )
     }
 
@@ -187,7 +194,7 @@ object MediaStoreScanner {
         val sortOrder = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
         val cursor = context.contentResolver.query(collection, projection, selection, null, sortOrder)
-            ?: return emptyList()
+            ?: throw IOException("MediaStore audio query returned no cursor")
 
         val drafts = mutableListOf<TrackDraft>()
         cursor.use { c ->
@@ -393,7 +400,7 @@ object MediaStoreScanner {
         out
     }.getOrDefault(emptyList())
 
-    private fun loadLyricsIndex(context: Context): Map<String, List<ExternalLyricsRef>> = runCatching {
+    private fun loadLyricsIndex(context: Context): Map<String, List<ExternalLyricsRef>> {
         val filesUri = MediaStore.Files.getContentUri("external")
         val projection = mutableListOf(
             MediaStore.Files.FileColumns._ID,
@@ -416,14 +423,15 @@ object MediaStoreScanner {
         }
 
         val out = LinkedHashMap<String, MutableList<ExternalLyricsRef>>()
-        context.contentResolver.query(
+        val cursor = context.contentResolver.query(
             filesUri,
             projection.toTypedArray(),
             "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ? OR " +
                 "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?",
             arrayOf("%.lrc", "%.ttml"),
             null,
-        )?.use { cursor ->
+        ) ?: throw IOException("MediaStore lyrics query returned no cursor")
+        cursor.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
             val sizeCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
@@ -456,8 +464,8 @@ object MediaStoreScanner {
                 )
             }
         }
-        out.mapValues { (_, refs) -> refs.distinctBy { it.uri } }
-    }.getOrDefault(emptyMap())
+        return out.mapValues { (_, refs) -> refs.distinctBy { it.uri } }
+    }
 
     private fun lyricsFolderPath(relativePath: String, absolutePath: String): String = when {
         relativePath.isNotBlank() -> relativePath
@@ -480,21 +488,45 @@ object MediaStoreScanner {
 }
 
 internal suspend fun persistScannedLyricsBatch(
-    songs: List<Song>,
-    onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
+    songs: List<ScannedSong>,
+    lyricsReadFailures: AtomicInteger? = null,
+    profiler: ScanProfiler? = null,
+    onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
 ): List<Song> {
-    if (onLyricsBatch == null) return songs
-    val payloads = songs.mapNotNull { song ->
-        song.scannedLyrics?.let { slots ->
-            ScannedSongLyrics(song.id, song.lyricsCacheRevision, slots)
+    val readFailedCount = songs.count { it.lyrics is LyricsProbeResult.ReadFailed }
+    lyricsReadFailures?.addAndGet(readFailedCount)
+    if (onLyricsBatch == null) return songs.map(ScannedSong::song)
+    val payloads = songs.mapNotNull { scanned ->
+        (scanned.lyrics as? LyricsProbeResult.Complete)?.let { completed ->
+            ScannedSongLyrics(scanned.song.id, scanned.song.lyricsCacheRevision, completed.slots)
         }
     }
-    if (payloads.isNotEmpty()) onLyricsBatch(payloads)
-    return songs.map { song ->
-        if (song.scannedLyrics == null) song else song.copy(
+    if (payloads.isNotEmpty() || readFailedCount > 0) {
+        val batch = LyricsScanBatch(payloads, readFailedCount)
+        if (profiler == null) {
+            onLyricsBatch(batch)
+        } else {
+            profiler.measureSuspend("lyrics.persist") { onLyricsBatch(batch) }
+        }
+    }
+    return songs.map { scanned ->
+        if (scanned.lyrics is LyricsProbeResult.NotProbed) scanned.song else scanned.song.copy(
             lyricsDocument = LyricsDocument(),
             lyricsLoaded = false,
-            scannedLyrics = null,
         )
     }
+}
+
+internal suspend fun persistScannedLyricsBatches(
+    songs: List<ScannedSong>,
+    lyricsReadFailures: AtomicInteger? = null,
+    profiler: ScanProfiler? = null,
+    onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+): List<Song> {
+    if (songs.isEmpty()) return emptyList()
+    val retained = ArrayList<Song>(songs.size)
+    songs.chunked(MediaStoreScanner.LYRICS_SCAN_BATCH_SIZE).forEach { batch ->
+        retained += persistScannedLyricsBatch(batch, lyricsReadFailures, profiler, onLyricsBatch)
+    }
+    return retained
 }

@@ -16,6 +16,9 @@ internal fun ProbeResult<AudioTechnicalProbe.Result>.technicalValue(): AudioTech
 
 data class ScanProbeStats(
     val technicalFailed: Int = 0,
+    val lyricsReadFailed: Int = 0,
 ) {
     fun hasTechnicalFailures(): Boolean = technicalFailed > 0
+
+    fun hasLyricsReadFailures(): Boolean = lyricsReadFailed > 0
 }

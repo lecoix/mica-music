@@ -25,6 +25,15 @@ internal class ScanProfiler(private val source: String) {
         }
     }
 
+    suspend fun <T> measureSuspend(stage: String, block: suspend () -> T): T {
+        val start = SystemClock.elapsedRealtimeNanos()
+        return try {
+            block()
+        } finally {
+            record(stage, SystemClock.elapsedRealtimeNanos() - start)
+        }
+    }
+
     fun record(stage: String, elapsedNs: Long) {
         val item = stages.computeIfAbsent(stage) { Stage() }
         item.count.incrementAndGet()

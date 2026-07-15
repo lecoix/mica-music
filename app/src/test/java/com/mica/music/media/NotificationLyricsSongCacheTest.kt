@@ -41,10 +41,10 @@ class NotificationLyricsSongCacheTest {
         )
         val decoded = song.copy(lyricsDocument = LyricsDocument())
 
-        val first = cache.songWithLyrics(decoded, "revision-1") { callbacks += 1 }
+        val first = cache.songWithLyrics(decoded, "revision-1", 1) { callbacks += 1 }
         scope.advanceUntilIdle()
         shadowOf(Looper.getMainLooper()).idle()
-        val second = cache.songWithLyrics(decoded, "revision-1") { callbacks += 1 }
+        val second = cache.songWithLyrics(decoded, "revision-1", 1) { callbacks += 1 }
 
         assertEquals(LyricsDocument(), first.lyricsDocument)
         assertEquals(song.lyricsDocument, second.lyricsDocument)
@@ -69,10 +69,35 @@ class NotificationLyricsSongCacheTest {
         )
         val decoded = stored.copy(lyricsDocument = LyricsDocument())
 
-        cache.songWithLyrics(decoded, "revision-1") {}
+        cache.songWithLyrics(decoded, "revision-1", 1) {}
         scope.advanceUntilIdle()
         stored = stored.copy(lyricsDocument = LyricsDocument())
-        cache.songWithLyrics(decoded, "revision-2") {}
+        cache.songWithLyrics(decoded, "revision-2", 1) {}
+        scope.advanceUntilIdle()
+
+        assertEquals(2, loadCount)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun reloadsLyricsWhenDataVersionChangesForSameRevision() {
+        val dispatcher = StandardTestDispatcher()
+        val scope = TestScope(dispatcher)
+        val song = SongFixtures.song("lyric-song")
+        var loadCount = 0
+        val cache = NotificationLyricsSongCache(
+            scope = scope,
+            handler = Handler(Looper.getMainLooper()),
+            loadSong = {
+                loadCount += 1
+                song
+            },
+        )
+        val decoded = song.copy(lyricsDocument = LyricsDocument())
+
+        cache.songWithLyrics(decoded, "same-revision", 1) {}
+        scope.advanceUntilIdle()
+        cache.songWithLyrics(decoded, "same-revision", 2) {}
         scope.advanceUntilIdle()
 
         assertEquals(2, loadCount)

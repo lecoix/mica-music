@@ -103,7 +103,7 @@ class LibraryRepository internal constructor(
         revision: String? = null,
     ): LyricsDocument {
         val startedMs = SystemClock.elapsedRealtime()
-        val rows = lyricsDao.getBySongId(id, revision)
+        val rows = lyricsDao.getBySongId(id)
         val queryMs = SystemClock.elapsedRealtime() - startedMs
         val bySlot = rows.associateBy { runCatching { LyricsSlot.valueOf(it.slot) }.getOrNull() }
         val slots = LyricsSlots(
@@ -120,21 +120,22 @@ class LibraryRepository internal constructor(
         return document
     }
 
-    suspend fun replaceLyricsBatch(batch: List<ScannedSongLyrics>) {
+    suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) {
         if (batch.isEmpty()) return
+        val songIds = batch.map(ScannedSongLyrics::songId)
+        val encoded = batch.flatMap { payload ->
+            payload.slots.entries().map { (slot, document) ->
+                SongLyricsEntity(
+                    songId = payload.songId,
+                    slot = slot.name,
+                    revision = payload.revision,
+                    lyricsJson = LyricsDocumentCodec.encode(document),
+                )
+            }
+        }
         db.withTransaction {
-            val songIds = batch.map { it.songId }
             lyricsDao.deleteBySongIds(songIds)
-            lyricsDao.insertAll(batch.flatMap { payload ->
-                payload.slots.entries().map { (slot, document) ->
-                    SongLyricsEntity(
-                        songId = payload.songId,
-                        slot = slot.name,
-                        revision = payload.revision,
-                        lyricsJson = LyricsDocumentCodec.encode(document),
-                    )
-                }
-            })
+            if (encoded.isNotEmpty()) lyricsDao.insertAll(encoded)
         }
     }
 
@@ -164,6 +165,42 @@ class LibraryRepository internal constructor(
         sortField: SongSortField? = null,
         sortDirection: SortDirection? = null,
         fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult = syncIncrementalInternal(
+        songs = songs,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        sortField = sortField,
+        sortDirection = sortDirection,
+        fastScrollSectionTargets = fastScrollSectionTargets,
+    )
+
+    suspend fun commitScan(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult = syncIncrementalInternal(
+        songs = songs,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        sortField = sortField,
+        sortDirection = sortDirection,
+        fastScrollSectionTargets = fastScrollSectionTargets,
+    )
+
+    private suspend fun syncIncrementalInternal(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
     ): LibrarySyncResult {
         val existing = songDao.getAllSummariesOrdered().associateBy { it.id }
         val incomingIds = songs.mapTo(HashSet(songs.size), Song::id)
@@ -257,6 +294,7 @@ class LibraryRepository internal constructor(
 
     suspend fun clear() {
         db.withTransaction {
+            lyricsDao.deleteAllPending()
             lyricsDao.deleteAll()
             songDao.deleteAll()
         }

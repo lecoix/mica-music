@@ -17,7 +17,7 @@ internal interface LibraryScanner {
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean = false,
         forceRefreshArtwork: Boolean = false,
-        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
     ): ScanResult
 
     suspend fun scanFolder(
@@ -26,7 +26,7 @@ internal interface LibraryScanner {
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean = false,
         forceRefreshArtwork: Boolean = false,
-        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
     ): ScanResult
 }
 
@@ -39,7 +39,7 @@ internal interface LibraryStore {
         priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
     ): LyricsDocument = LyricsDocument()
 
-    suspend fun replaceLyricsBatch(batch: List<ScannedSongLyrics>) = Unit
+    suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) = Unit
 
     suspend fun save(
         songs: List<Song>,
@@ -60,6 +60,24 @@ internal interface LibraryStore {
         sortDirection: SortDirection? = null,
         fastScrollSectionTargets: Map<String, Int>? = null,
     ): LibrarySyncResult
+
+    suspend fun commitScan(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult = syncIncremental(
+        songs,
+        lastScanAtMs,
+        lastScanSource,
+        totalSizeMb,
+        sortField,
+        sortDirection,
+        fastScrollSectionTargets,
+    )
 
     suspend fun updatePresentation(
         songIds: List<String>,
@@ -82,6 +100,8 @@ internal interface ScanEnvironment {
     fun persistLastScanSource(source: ScanSource)
     fun lyricsParserVersion(): Int = CURRENT_LYRICS_PARSER_VERSION
     fun persistLyricsParserVersion(version: Int) = Unit
+    fun lyricsRetryRequired(): Boolean = false
+    fun persistLyricsRetryRequired(required: Boolean) = Unit
 }
 
 internal class AndroidLibraryScanner(
@@ -92,7 +112,7 @@ internal class AndroidLibraryScanner(
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean,
         forceRefreshArtwork: Boolean,
-        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
     ): ScanResult = MediaStoreScanner.scan(
         context = context,
         options = LibraryScanSettings.scanOptions(context).copy(
@@ -110,7 +130,7 @@ internal class AndroidLibraryScanner(
         onProgress: (Int, Int) -> Unit,
         forceRefreshLyrics: Boolean,
         forceRefreshArtwork: Boolean,
-        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)?,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
     ): ScanResult = FolderScanner.scan(
         context = context,
         treeUri = treeUri,
@@ -137,8 +157,8 @@ internal class RoomLibraryStore(
         priority: List<LyricsSlot>,
     ): LyricsDocument = repository.lyricsById(songId, priority, revision)
 
-    override suspend fun replaceLyricsBatch(batch: List<ScannedSongLyrics>) =
-        repository.replaceLyricsBatch(batch)
+    override suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) =
+        repository.applyLyricsBatch(batch)
 
     override suspend fun save(
         songs: List<Song>,
@@ -176,6 +196,24 @@ internal class RoomLibraryStore(
             sortDirection,
             fastScrollSectionTargets,
         )
+
+    override suspend fun commitScan(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ): LibrarySyncResult = repository.commitScan(
+        songs,
+        lastScanAtMs,
+        lastScanSource,
+        totalSizeMb,
+        sortField,
+        sortDirection,
+        fastScrollSectionTargets,
+    )
 
     override suspend fun updatePresentation(
         songIds: List<String>,
@@ -223,4 +261,9 @@ internal class AndroidScanEnvironment(
 
     override fun persistLyricsParserVersion(version: Int) =
         LibraryScanSettings.setLyricsParserVersion(context, version)
+
+    override fun lyricsRetryRequired(): Boolean = LibraryScanSettings.lyricsRetryRequired(context)
+
+    override fun persistLyricsRetryRequired(required: Boolean) =
+        LibraryScanSettings.setLyricsRetryRequired(context, required)
 }

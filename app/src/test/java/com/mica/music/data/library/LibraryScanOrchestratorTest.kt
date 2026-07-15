@@ -5,7 +5,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.CURRENT_LYRICS_PARSER_VERSION
 import com.mica.music.data.LibraryScanner
 import com.mica.music.data.LibraryStore
+import com.mica.music.data.LyricsSlots
+import com.mica.music.data.LyricsScanBatch
 import com.mica.music.data.PlayStats
+import com.mica.music.data.ScannedSongLyrics
 import com.mica.music.data.ScanEnvironment
 import com.mica.music.data.ScanSource
 import com.mica.music.data.Song
@@ -14,10 +17,12 @@ import com.mica.music.data.SortDirection
 import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibrarySyncResult
 import com.mica.music.data.scanner.ScanResult
+import com.mica.music.data.scanner.ScanProbeStats
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -35,7 +40,7 @@ import org.robolectric.RobolectricTestRunner
 class LibraryScanOrchestratorTest {
 
     @Test
-    fun latestScanWinsWhenOlderResultArrivesLast() = runTest {
+    fun concurrentScansExecuteSequentiallyAndLatestResultWins() = runTest {
         val scanner = ControlledScanner()
         val harness = scanHarness(scanner)
 
@@ -44,14 +49,16 @@ class LibraryScanOrchestratorTest {
         val newScan = async { harness.orchestrator.scanDeviceWide() }
         runCurrent()
 
+        assertEquals(1, scanner.deviceRequests.size)
+        scanner.deviceRequests.single().result.complete(
+            ScanResult(listOf(SongFixtures.song("old")), 10),
+        )
+        oldScan.await()
+        runCurrent()
         scanner.deviceRequests[1].result.complete(
             ScanResult(listOf(SongFixtures.song("new")), 20),
         )
         newScan.await()
-        scanner.deviceRequests[0].result.complete(
-            ScanResult(listOf(SongFixtures.song("old")), 10),
-        )
-        oldScan.await()
 
         assertEquals(listOf("new"), harness.backing.songs.map { it.id })
         assertEquals(20, harness.backing.totalSizeMb)
@@ -81,7 +88,7 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
-    fun lyricsParserUpgradeClearsCachedLyricsBeforeScan() = runTest {
+    fun lyricsParserUpgradeForcesProbeWithoutMutatingCachedLyrics() = runTest {
         val cached = SongFixtures.song("cached")
         val scanner = ControlledScanner()
         val environment = FakeScanEnvironment(parserVersion = 0)
@@ -95,11 +102,75 @@ class LibraryScanOrchestratorTest {
 
         val scan = async { harness.orchestrator.scanDeviceWide() }
         runCurrent()
-        assertTrue(scanner.deviceRequests.single().cachedSongs.single().lyricsDocument.lines.isEmpty())
+        assertEquals(0, harness.backing.lyricsDataVersion)
+        assertTrue(scanner.deviceRequests.single().forceRefreshLyrics)
+        assertEquals(cached.lyricsDocument, scanner.deviceRequests.single().cachedSongs.single().lyricsDocument)
         scanner.deviceRequests.single().result.complete(ScanResult(listOf(cached), 1))
         scan.await()
 
         assertEquals(CURRENT_LYRICS_PARSER_VERSION, environment.parserVersion)
+        assertEquals(CURRENT_LYRICS_PARSER_VERSION, harness.backing.lyricsDataVersion)
+        harness.backing.release()
+    }
+
+    @Test
+    fun lyricsReadFailurePersistsRetryAndBlocksParserVersionAdvanceUntilCleanScan() = runTest {
+        val scanner = ControlledScanner()
+        val environment = FakeScanEnvironment(parserVersion = 0)
+        val harness = scanHarness(scanner, environment = environment)
+        val song = SongFixtures.song("retry")
+
+        val failedScan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[0].onLyricsBatch?.invoke(LyricsScanBatch(emptyList(), 1))
+        assertTrue(environment.retryRequired)
+        scanner.deviceRequests[0].result.complete(
+            ScanResult(
+                songs = listOf(song),
+                totalSizeMb = 1,
+                probeStats = ScanProbeStats(lyricsReadFailed = 1),
+            ),
+        )
+        failedScan.await()
+
+        assertTrue(environment.retryRequired)
+        assertEquals(0, environment.parserVersion)
+
+        val cleanScan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        assertTrue(scanner.deviceRequests[1].forceRefreshLyrics)
+        scanner.deviceRequests[1].result.complete(ScanResult(listOf(song), 1))
+        cleanScan.await()
+
+        assertFalse(environment.retryRequired)
+        assertEquals(CURRENT_LYRICS_PARSER_VERSION, environment.parserVersion)
+        harness.backing.release()
+    }
+
+    @Test
+    fun canceledScanKeepsAlreadyCommittedTrustedLyricsWithoutPublishingCatalog() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val harness = scanHarness(scanner, store)
+        val song = SongFixtures.song("staged")
+
+        val scan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().onLyricsBatch?.invoke(
+            LyricsScanBatch(listOf(
+                ScannedSongLyrics(
+                    song.id,
+                    song.lyricsCacheRevision,
+                    LyricsSlots(embedded = song.lyricsDocument),
+                ),
+            ), 0),
+        )
+        assertEquals(1, store.appliedLyrics.size)
+
+        scan.cancelAndJoin()
+
+        assertEquals(1, store.appliedLyrics.size)
+        assertTrue(store.syncedSongs.isEmpty())
         harness.backing.release()
     }
 
@@ -129,6 +200,7 @@ class LibraryScanOrchestratorTest {
         val cachedSongs: List<Song>,
         val forceRefreshLyrics: Boolean,
         val forceRefreshArtwork: Boolean,
+        val onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
         val result: CompletableDeferred<ScanResult> = CompletableDeferred(),
     )
 
@@ -140,13 +212,14 @@ class LibraryScanOrchestratorTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
-            onLyricsBatch: (suspend (List<com.mica.music.data.ScannedSongLyrics>) -> Unit)?,
+            onLyricsBatch: (suspend (com.mica.music.data.LyricsScanBatch) -> Unit)?,
         ): ScanResult {
             onProgress(0, cachedSongs.size)
             return ScanRequest(
                 cachedSongs = cachedSongs,
                 forceRefreshLyrics = forceRefreshLyrics,
                 forceRefreshArtwork = forceRefreshArtwork,
+                onLyricsBatch = onLyricsBatch,
             ).also(deviceRequests::add).result.await()
         }
 
@@ -156,7 +229,7 @@ class LibraryScanOrchestratorTest {
             onProgress: (Int, Int) -> Unit,
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
-            onLyricsBatch: (suspend (List<com.mica.music.data.ScannedSongLyrics>) -> Unit)?,
+            onLyricsBatch: (suspend (com.mica.music.data.LyricsScanBatch) -> Unit)?,
         ): ScanResult = error("folder scan not expected")
     }
 
@@ -164,6 +237,7 @@ class LibraryScanOrchestratorTest {
         private val cached: CachedLibrary? = null,
     ) : LibraryStore {
         var syncedSongs: List<Song> = emptyList()
+        val appliedLyrics = mutableListOf<ScannedSongLyrics>()
 
         override suspend fun loadCached(): CachedLibrary? = cached
 
@@ -201,10 +275,35 @@ class LibraryScanOrchestratorTest {
         override suspend fun clear() {
             syncedSongs = emptyList()
         }
+
+        override suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) {
+            appliedLyrics += batch
+        }
+
+        override suspend fun commitScan(
+            songs: List<Song>,
+            lastScanAtMs: Long,
+            lastScanSource: ScanSource,
+            totalSizeMb: Int,
+            sortField: SongSortField?,
+            sortDirection: SortDirection?,
+            fastScrollSectionTargets: Map<String, Int>?,
+        ): LibrarySyncResult {
+            return syncIncremental(
+                songs,
+                lastScanAtMs,
+                lastScanSource,
+                totalSizeMb,
+                sortField,
+                sortDirection,
+                fastScrollSectionTargets,
+            )
+        }
     }
 
     private class FakeScanEnvironment(
         var parserVersion: Int = CURRENT_LYRICS_PARSER_VERSION,
+        var retryRequired: Boolean = false,
     ) : ScanEnvironment {
         override fun hasAudioReadPermission(): Boolean = true
         override fun canReadTree(treeUri: Uri): Boolean = true
@@ -215,6 +314,10 @@ class LibraryScanOrchestratorTest {
         override fun lyricsParserVersion(): Int = parserVersion
         override fun persistLyricsParserVersion(version: Int) {
             parserVersion = version
+        }
+        override fun lyricsRetryRequired(): Boolean = retryRequired
+        override fun persistLyricsRetryRequired(required: Boolean) {
+            retryRequired = required
         }
     }
 }

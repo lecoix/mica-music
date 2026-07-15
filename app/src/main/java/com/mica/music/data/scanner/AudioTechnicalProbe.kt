@@ -193,13 +193,26 @@ internal object AudioTechnicalProbe {
 internal fun readHeadCompat(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
     runCatching {
         context.contentResolver.openInputStream(uri)?.use { input ->
-            val buffer = ByteArray(maxBytes)
-            var offset = 0
-            while (offset < maxBytes) {
-                val read = input.read(buffer, offset, maxBytes - offset)
-                if (read < 0) break
-                offset += read
-            }
-            if (offset == 0) null else buffer.copyOf(offset)
+            input.readUpToCompat(maxBytes).takeIf(ByteArray::isNotEmpty)
         }
     }.getOrNull()
+
+/** Equivalent to InputStream.readNBytes(limit), but available on every supported Android API. */
+internal fun java.io.InputStream.readUpToCompat(limit: Int): ByteArray {
+    require(limit >= 0) { "limit must be non-negative" }
+    val buffer = ByteArray(limit)
+    var offset = 0
+    while (offset < limit) {
+        val count = read(buffer, offset, limit - offset)
+        when {
+            count > 0 -> offset += count
+            count < 0 -> break
+            else -> {
+                val next = read()
+                if (next < 0) break
+                buffer[offset++] = next.toByte()
+            }
+        }
+    }
+    return if (offset == limit) buffer else buffer.copyOf(offset)
+}

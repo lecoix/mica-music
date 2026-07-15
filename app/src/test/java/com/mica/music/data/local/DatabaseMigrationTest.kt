@@ -277,6 +277,7 @@ class DatabaseMigrationTest {
         val songColumns = tableColumns(db, "songs")
         val metaColumns = tableColumns(db, "library_meta")
         val lyricsColumns = tableColumns(db, "song_lyrics")
+        val pendingLyricsColumns = tableColumns(db, "song_lyrics_pending")
 
         assertTrue(
             songColumns.containsAll(
@@ -312,6 +313,17 @@ class DatabaseMigrationTest {
             metaColumns,
         )
         assertEquals(setOf("songId", "slot", "revision", "lyricsJson"), lyricsColumns)
+        assertEquals(
+            setOf(
+                "scanId",
+                "songId",
+                "revision",
+                "embeddedJson",
+                "externalLrcJson",
+                "externalTtmlJson",
+            ),
+            pendingLyricsColumns,
+        )
         database.close()
     }
 
@@ -346,6 +358,36 @@ class DatabaseMigrationTest {
             assertEquals("EXTERNAL_TTML", cursor.getString(0))
             assertEquals("7:sig", cursor.getString(1))
         }
+        helper.close()
+    }
+
+    @Test
+    fun migrationNineToTenAddsLyricsStagingTable() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(9) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_9_10.migrate(db)
+
+        assertEquals(
+            setOf(
+                "scanId",
+                "songId",
+                "revision",
+                "embeddedJson",
+                "externalLrcJson",
+                "externalTtmlJson",
+            ),
+            tableColumns(db, "song_lyrics_pending"),
+        )
         helper.close()
     }
 

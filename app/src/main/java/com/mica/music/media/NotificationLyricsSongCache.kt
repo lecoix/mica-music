@@ -16,8 +16,13 @@ internal class NotificationLyricsSongCache(
 ) {
     private val loadingKeys = ConcurrentHashMap.newKeySet<LyricsCacheKey>()
 
-    fun songWithLyrics(decoded: Song, lyricsRevision: String, onLoaded: () -> Unit): Song {
-        val key = LyricsCacheKey(decoded.id, lyricsRevision)
+    fun songWithLyrics(
+        decoded: Song,
+        lyricsRevision: String,
+        lyricsDataVersion: Int,
+        onLoaded: () -> Unit,
+    ): Song {
+        val key = LyricsCacheKey(decoded.id, lyricsRevision, lyricsDataVersion)
         SharedLyricsMemoryCache.get(key)?.let {
             return decoded.copy(lyricsDocument = it, lyricsLoaded = true)
         }

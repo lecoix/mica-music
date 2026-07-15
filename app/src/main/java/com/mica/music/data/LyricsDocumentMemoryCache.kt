@@ -5,6 +5,7 @@ import android.util.LruCache
 internal data class LyricsCacheKey(
     val songId: String,
     val revision: String,
+    val lyricsDataVersion: Int,
 )
 
 internal class LyricsDocumentMemoryCache(

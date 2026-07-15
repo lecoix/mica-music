@@ -18,8 +18,18 @@ internal fun rememberSongWithLyrics(
     nextSong: Song? = null,
     priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
 ): Song {
-    var resolved by remember(song.id, song.lyricsCacheRevision, priority) { mutableStateOf(song) }
-    LaunchedEffect(song.id, song.lyricsCacheRevision, nextSong?.id, nextSong?.lyricsCacheRevision, priority) {
+    val lyricsDataVersion = library.lyricsDataVersion
+    var resolved by remember(song.id, song.lyricsCacheRevision, lyricsDataVersion, priority) {
+        mutableStateOf(song)
+    }
+    LaunchedEffect(
+        song.id,
+        song.lyricsCacheRevision,
+        nextSong?.id,
+        nextSong?.lyricsCacheRevision,
+        lyricsDataVersion,
+        priority,
+    ) {
         resolved = library.songWithLyrics(song, priority)
         library.prefetchLyrics(nextSong, priority)
     }

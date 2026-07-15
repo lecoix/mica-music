@@ -95,3 +95,21 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
         )
     }
 }
+
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS song_lyrics_pending (
+                scanId TEXT NOT NULL,
+                songId TEXT NOT NULL,
+                revision TEXT NOT NULL,
+                embeddedJson TEXT,
+                externalLrcJson TEXT,
+                externalTtmlJson TEXT,
+                PRIMARY KEY(scanId, songId)
+            )
+            """.trimIndent(),
+        )
+    }
+}

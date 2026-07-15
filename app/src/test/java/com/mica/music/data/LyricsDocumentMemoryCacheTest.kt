@@ -23,8 +23,8 @@ class LyricsDocumentMemoryCacheTest {
             ),
         )
         val cache = LyricsDocumentMemoryCache(maxBytes = 1_000)
-        val first = LyricsCacheKey("first", "1")
-        val second = LyricsCacheKey("second", "1")
+        val first = LyricsCacheKey("first", "1", 1)
+        val second = LyricsCacheKey("second", "1", 1)
 
         cache.put(first, document)
         cache.put(second, document)

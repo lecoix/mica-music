@@ -34,6 +34,7 @@ internal class MusicLibraryBacking(
     var scanJob: Job? = null
     var scanGeneration = 0
     var released = false
+    val scanExecutionMutex = Mutex()
     val storeSyncMutex = Mutex()
     private val latestStoreRevision = AtomicLong(0L)
 
@@ -41,6 +42,7 @@ internal class MusicLibraryBacking(
     var songIds by mutableStateOf<List<String>>(emptyList())
     var catalogRevision by mutableLongStateOf(0L)
     var queueMetadataRevision by mutableLongStateOf(0L)
+    var lyricsDataVersion by mutableIntStateOf(scanEnvironment.lyricsParserVersion())
     var sortField by mutableStateOf(SongSortField.TITLE)
     var sortDirection by mutableStateOf(SortDirection.ASC)
     var customSongOrderLocked by mutableStateOf(false)

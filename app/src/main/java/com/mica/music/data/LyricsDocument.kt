@@ -50,6 +50,14 @@ data class LyricsSlots(
     }
 }
 
+internal sealed interface LyricsProbeResult {
+    data object NotProbed : LyricsProbeResult
+
+    data object ReadFailed : LyricsProbeResult
+
+    data class Complete(val slots: LyricsSlots) : LyricsProbeResult
+}
+
 val DEFAULT_LYRICS_SLOT_PRIORITY = listOf(
     LyricsSlot.EXTERNAL_TTML,
     LyricsSlot.EXTERNAL_LRC,
@@ -60,6 +68,11 @@ data class ScannedSongLyrics(
     val songId: String,
     val revision: String,
     val slots: LyricsSlots,
+)
+
+data class LyricsScanBatch(
+    val completed: List<ScannedSongLyrics>,
+    val readFailedCount: Int,
 )
 
 data class LyricLineNode(

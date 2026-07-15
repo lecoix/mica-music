@@ -63,8 +63,8 @@ interface SongDao {
 
 @Dao
 interface SongLyricsDao {
-    @Query("SELECT * FROM song_lyrics WHERE songId = :songId AND (:revision IS NULL OR revision = :revision)")
-    suspend fun getBySongId(songId: String, revision: String? = null): List<SongLyricsEntity>
+    @Query("SELECT * FROM song_lyrics WHERE songId = :songId")
+    suspend fun getBySongId(songId: String): List<SongLyricsEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(entities: List<SongLyricsEntity>)
@@ -77,4 +77,40 @@ interface SongLyricsDao {
 
     @Query("DELETE FROM song_lyrics WHERE songId NOT IN (SELECT id FROM songs)")
     suspend fun deleteOrphans()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPending(entities: List<PendingSongLyricsEntity>)
+
+    @Query("DELETE FROM song_lyrics_pending")
+    suspend fun deleteAllPending()
+
+    @Query("DELETE FROM song_lyrics_pending WHERE scanId = :scanId")
+    suspend fun deletePendingScan(scanId: String)
+
+    @Query(
+        "DELETE FROM song_lyrics WHERE songId IN " +
+            "(SELECT songId FROM song_lyrics_pending WHERE scanId = :scanId)",
+    )
+    suspend fun deleteLyricsReplacedByPending(scanId: String)
+
+    @Query(
+        "INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson) " +
+            "SELECT songId, 'EMBEDDED', revision, embeddedJson FROM song_lyrics_pending " +
+            "WHERE scanId = :scanId AND embeddedJson IS NOT NULL",
+    )
+    suspend fun promotePendingEmbedded(scanId: String)
+
+    @Query(
+        "INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson) " +
+            "SELECT songId, 'EXTERNAL_LRC', revision, externalLrcJson FROM song_lyrics_pending " +
+            "WHERE scanId = :scanId AND externalLrcJson IS NOT NULL",
+    )
+    suspend fun promotePendingExternalLrc(scanId: String)
+
+    @Query(
+        "INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson) " +
+            "SELECT songId, 'EXTERNAL_TTML', revision, externalTtmlJson FROM song_lyrics_pending " +
+            "WHERE scanId = :scanId AND externalTtmlJson IS NOT NULL",
+    )
+    suspend fun promotePendingExternalTtml(scanId: String)
 }

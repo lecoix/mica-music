@@ -7,6 +7,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.preferences.LyricsPreferences
+import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.Song
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsSession
@@ -179,6 +180,7 @@ internal class NotificationLyricsCoordinator(
         return songCache.songWithLyrics(
             decoded,
             "${SongMediaItemCodec.lyricsRevision(item)}:$priorityRevision",
+            LibraryScanSettings.lyricsParserVersion(context.applicationContext),
         ) {
             if (!released) maybeSync()
         }

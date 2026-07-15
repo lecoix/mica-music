@@ -7,6 +7,7 @@ import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import com.mica.music.data.ScannedSongLyrics
+import com.mica.music.data.LyricsScanBatch
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -22,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object FolderScanner {
 
-    private const val PROBE_PARALLELISM = MediaStoreScanner.LYRICS_SCAN_BATCH_SIZE
+    private const val PROBE_PARALLELISM = MediaStoreScanner.PROBE_PARALLELISM
     private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
 
     private val audioExtensions = setOf(
@@ -35,7 +36,7 @@ object FolderScanner {
         options: ScanOptions = ScanOptions(),
         cachedSongs: List<Song> = emptyList(),
         onProgress: ((done: Int, total: Int) -> Unit)? = null,
-        onLyricsBatch: (suspend (List<ScannedSongLyrics>) -> Unit)? = null,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
     ): ScanResult = withContext(Dispatchers.IO) {
         val profiler = ScanProfiler("Folder")
         AudioMetadataProbe.clearArtCache()
@@ -65,6 +66,7 @@ object FolderScanner {
         val reused = AtomicInteger(0)
         val probed = AtomicInteger(0)
         val technicalFailed = AtomicInteger(0)
+        val lyricsReadFailed = AtomicInteger(0)
 
         val songs = mutableListOf<Song>()
         if (!options.deepMetadataProbe) {
@@ -78,7 +80,7 @@ object FolderScanner {
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
                     forceRefreshLyrics = options.forceRefreshLyrics,
                     forceRefreshArtwork = options.forceRefreshArtwork,
-                )?.also { reused.incrementAndGet() }
+                )?.let { song -> ScannedSong(song).also { reused.incrementAndGet() } }
                     ?: profiler.measure("quickSong") {
                         probed.incrementAndGet()
                         AudioMetadataProbe.quickSong(
@@ -92,7 +94,12 @@ object FolderScanner {
                         )
                     }
                 }
-                songs += persistScannedLyricsBatch(batch.filterForDuration(options), onLyricsBatch)
+                songs += persistScannedLyricsBatches(
+                    batch.filterForDuration(options),
+                    lyricsReadFailed,
+                    profiler,
+                    onLyricsBatch,
+                )
                 done += chunk.size
                 onProgress?.invoke(done, drafts.size)
             }
@@ -114,7 +121,7 @@ object FolderScanner {
                                 forceRefreshLyrics = options.forceRefreshLyrics,
                                 forceRefreshArtwork = options.forceRefreshArtwork,
                             )
-                                ?.also { reused.incrementAndGet() }
+                                ?.let { cached -> ScannedSong(cached).also { reused.incrementAndGet() } }
                                 ?: profiler.measure("probeTrack") {
                                     probed.incrementAndGet()
                                     AudioMetadataProbe.probeTrack(
@@ -134,7 +141,12 @@ object FolderScanner {
                     }
                 }.awaitAll()
                 }
-                songs += persistScannedLyricsBatch(batch.filterForDuration(options), onLyricsBatch)
+                songs += persistScannedLyricsBatches(
+                    batch.filterForDuration(options),
+                    lyricsReadFailed,
+                    profiler,
+                    onLyricsBatch,
+                )
             }
         }
 
@@ -148,7 +160,10 @@ object FolderScanner {
             songs = songs,
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
-            probeStats = ScanProbeStats(technicalFailed = technicalFailed.get()),
+            probeStats = ScanProbeStats(
+                technicalFailed = technicalFailed.get(),
+                lyricsReadFailed = lyricsReadFailed.get(),
+            ),
         )
     }
 
@@ -410,7 +425,7 @@ object FolderScanner {
 
 }
 
-private fun List<Song>.filterForDuration(options: ScanOptions): List<Song> =
-    if (options.minDurationMs <= 0) this else filter { song ->
-        song.durationSec == 0 || song.durationSec * 1000L >= options.minDurationMs
+private fun List<ScannedSong>.filterForDuration(options: ScanOptions): List<ScannedSong> =
+    if (options.minDurationMs <= 0) this else filter { scanned ->
+        scanned.song.durationSec == 0 || scanned.song.durationSec * 1000L >= options.minDurationMs
     }
