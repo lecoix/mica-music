@@ -1,6 +1,7 @@
 package com.mica.music.data
 
 import android.util.LruCache
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -114,6 +115,9 @@ internal class LyricsCacheCoordinator(
                 } else {
                     loadPermits.withPermit { loader() }
                 }
+            } catch (error: CancellationException) {
+                abandonLoad(checkNotNull(decision.key), deferred)
+                throw error
             } catch (error: Throwable) {
                 failLoad(checkNotNull(decision.key), deferred, error)
                 throw error
@@ -182,6 +186,15 @@ internal class LyricsCacheCoordinator(
     ) = synchronized(lock) {
         inFlight.remove(key)
         deferred.completeExceptionally(error)
+        pruneGenerations()
+    }
+
+    private fun abandonLoad(
+        key: LyricsCacheKey,
+        deferred: CompletableDeferred<LoadResult>,
+    ) = synchronized(lock) {
+        inFlight.remove(key)
+        deferred.complete(LoadResult.Stale)
         pruneGenerations()
     }
 

@@ -92,6 +92,38 @@ class LyricsDocumentMemoryCacheTest {
     }
 
     @Test
+    fun cancelledLeaderLetsAnActiveFollowerRetryWithItsOwnLoader() = runTest {
+        val coordinator = LyricsCacheCoordinator(maxBytes = 1_000)
+        val leaderStarted = CompletableDeferred<Unit>()
+        val keepLeaderLoading = CompletableDeferred<Unit>()
+        val expected = document("follower")
+        var followerLoadCount = 0
+
+        val leader = async {
+            coordinator.load("song", "revision", 1) {
+                leaderStarted.complete(Unit)
+                keepLeaderLoading.await()
+                document("leader")
+            }
+        }
+        leaderStarted.await()
+        val follower = async {
+            coordinator.load("song", "revision", 1) {
+                followerLoadCount++
+                expected
+            }
+        }
+        testScheduler.runCurrent()
+        assertEquals(0, followerLoadCount)
+
+        leader.cancel()
+        testScheduler.runCurrent()
+
+        assertEquals(expected, follower.await())
+        assertEquals(1, followerLoadCount)
+    }
+
+    @Test
     fun differentKeysRunAtMostTwoLoadersAtOnce() = runTest {
         val coordinator = LyricsCacheCoordinator(maxBytes = 1_000)
         val releaseLoads = CompletableDeferred<Unit>()
