@@ -66,6 +66,12 @@ interface SongLyricsDao {
     @Query("SELECT * FROM song_lyrics WHERE songId = :songId")
     suspend fun getBySongId(songId: String): List<SongLyricsEntity>
 
+    @Query("SELECT slot FROM song_lyrics WHERE songId = :songId")
+    suspend fun getSlots(songId: String): List<String>
+
+    @Query("SELECT lyricsJson FROM song_lyrics WHERE songId = :songId AND slot = :slot LIMIT 1")
+    suspend fun getLyricsJson(songId: String, slot: String): String?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(entities: List<SongLyricsEntity>)
 

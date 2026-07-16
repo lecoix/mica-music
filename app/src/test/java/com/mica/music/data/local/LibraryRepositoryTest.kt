@@ -141,6 +141,31 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun invalidPreferredSlotFallsBackToTheNextAvailableLyricsPayload() = runTest {
+        val song = SongFixtures.song("invalid-preferred-slot")
+        val lrc = song.lyricsDocument.copy(format = LyricsFormat.LRC, origin = LyricsOrigin.EXTERNAL)
+        repository.save(listOf(song.copy(lyricsLoaded = false)), 100, ScanSource.DEVICE, 1)
+        database.songLyricsDao().insertAll(
+            listOf(
+                SongLyricsEntity(
+                    songId = song.id,
+                    slot = LyricsSlot.EXTERNAL_LRC.name,
+                    revision = song.lyricsCacheRevision,
+                    lyricsJson = LyricsDocumentCodec.encode(lrc),
+                ),
+                SongLyricsEntity(
+                    songId = song.id,
+                    slot = LyricsSlot.EXTERNAL_TTML.name,
+                    revision = song.lyricsCacheRevision,
+                    lyricsJson = "not-json",
+                ),
+            ),
+        )
+
+        assertEquals(lrc, repository.lyricsById(song.id))
+    }
+
+    @Test
     fun completedBatchIsVisibleImmediatelyAndRevisionDoesNotHideConservativeLyrics() = runTest {
         val oldSong = SongFixtures.song("staged").copy(dateModifiedMs = 1L, lyricsLoaded = false)
         val oldLyrics = SongFixtures.song("old-lyrics").lyricsDocument.copy(

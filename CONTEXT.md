@@ -13,8 +13,12 @@ _Avoid_: track（除切歌动画 `TrackSkipDirection` 外）、media item
 _Avoid_: caption、subtitle
 
 **LyricsDocument（歌词文档）**：
-渲染器无关的版本化歌词事实来源：格式（`LyricsFormat`）、来源位置（`LyricsOrigin`）、行、原文/译文分段、逐字 token 与行结束时间。parser 只判定格式，reader 只判定来源位置，因此外挂 TTML、内嵌 LRC 等组合可以被准确表达。自数据库 v9 起，v2 对象 JSON 按 `EMBEDDED`、`EXTERNAL_LRC`、`EXTERNAL_TTML` 三槽持久化在 `song_lyrics.lyricsJson`，运行时按用户优先级选择；`songs.lyricsJson` 仅作为 `MIGRATION_8_9` 的旧数据输入保留，不再是运行时事实来源，并应在后续显式 Room schema migration 中删除。`song_lyrics.revision` 为兼容字段，不作为读取可见性条件；读取失败时旧歌词按稳定 `songId` 保持可见。`lyricsDataVersion` 表示数据库已成功提交的 parser 代次，并参与 UI 与通知歌词的内存缓存键；parser 升级只有在完整扫描零歌词读取失败时才推进。v1 `source` 与历史 `[{t,x,c,e}]` 数组仅由 `LyricsDocumentCodec` 兼容读取。
+渲染器无关的版本化歌词事实来源：格式（`LyricsFormat`）、来源位置（`LyricsOrigin`）、行、原文/译文分段、逐字 token 与行结束时间。parser 只判定格式，reader 只判定来源位置，因此外挂 TTML、内嵌 LRC 等组合可以被准确表达。自数据库 v9 起，v2 对象 JSON 按 `EMBEDDED`、`EXTERNAL_LRC`、`EXTERNAL_TTML` 三槽持久化在 `song_lyrics.lyricsJson`，运行时先读取轻量槽位目录，再按用户优先级只读取并解码第一个有效载荷；损坏载荷回退到下一个已存在槽。`songs.lyricsJson` 仅作为 `MIGRATION_8_9` 的旧数据输入保留，不再是运行时事实来源，并应在后续显式 Room schema migration 中删除。`song_lyrics.revision` 为兼容字段，不作为读取可见性条件；读取失败时旧歌词按稳定 `songId` 保持可见。`lyricsDataVersion` 表示数据库已成功提交的 parser 代次，并参与 UI 与通知歌词的内存缓存键；parser 升级只有在完整扫描零歌词读取失败时才推进。v1 `source` 与历史 `[{t,x,c,e}]` 数组仅由 `LyricsDocumentCodec` 兼容读取。
 _Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构；把 `songs.lyricsJson` 重新作为运行时歌词事实来源
+
+**Lyrics cache coordinator（歌词缓存协调器）**：
+进程内共享的有界歌词缓存 owner：成功歌词批次按 `songId` 失效全部优先级缓存，运行时 content generation 防止失效前启动的旧查询重新污染缓存；同 key 请求 single-flight，不同 key 最多并发 2 个真实加载，预取最多占 1 个槽。播放页订阅按歌曲失效事件，通知歌词复用同一缓存。generation 只保留缓存中或加载中的少量歌曲，不随 10,000 首扫描常驻增长。
+_Avoid_: 用 parser 版本代替内容失效版本；为全部曲库歌曲常驻 generation；恢复全局加载 mutex 或允许无界并行歌词解码
 
 **Lyrics timeline（歌词时间轴）**：
 `LyricsTimelineEngine` 基于 `LyricsDocument` 和播放位置输出行、行间空档、首行前与末行后阶段；当前行索引仍由兼容的 `LyricsSync` 计算，并在 `LyricsRenderState` 集中汇合。
@@ -73,7 +77,7 @@ _Avoid_: 在音频链或 EQ UI 内直接读 equalizer_* key
 _Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择
 
 **MusicLibrary（曲库门面）**：
-Compose 可见曲库状态与对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。内部组合 `MusicLibraryBacking` 与子模块；**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。
+Compose 可见曲库状态与对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。`MusicLibraryBacking` 随可见曲库快照维护 `songId → Song` 索引，`songById` 不得线性扫描曲库；大型歌单解析复用此索引。内部组合 backing 与子模块；**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。当前单实例架构允许 `ArtistNames` 持有进程级可变拆分规则；引入多个 `MusicLibrary` 实例前，必须将艺术家拆分规则及其 revision 改为同一实例所有，避免一个实例更新全局规则而其他实例继续使用旧缓存。
 _Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内恢复扫描编排或 catalog 逻辑
 
 **Library scan orchestrator（曲库扫描编排器）**：

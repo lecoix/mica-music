@@ -103,19 +103,30 @@ class LibraryRepository internal constructor(
         revision: String? = null,
     ): LyricsDocument {
         val startedMs = SystemClock.elapsedRealtime()
-        val rows = lyricsDao.getBySongId(id)
-        val queryMs = SystemClock.elapsedRealtime() - startedMs
-        val bySlot = rows.associateBy { runCatching { LyricsSlot.valueOf(it.slot) }.getOrNull() }
-        val slots = LyricsSlots(
-            embedded = bySlot[LyricsSlot.EMBEDDED]?.lyricsJson?.let(LyricsDocumentCodec::decode),
-            externalLrc = bySlot[LyricsSlot.EXTERNAL_LRC]?.lyricsJson?.let(LyricsDocumentCodec::decode),
-            externalTtml = bySlot[LyricsSlot.EXTERNAL_TTML]?.lyricsJson?.let(LyricsDocumentCodec::decode),
-        )
-        val document = slots.selected(priority)
+        var queryMs = 0L
+        var queryStartedMs = SystemClock.elapsedRealtime()
+        val available = lyricsDao.getSlots(id)
+            .mapNotNullTo(mutableSetOf()) { runCatching { LyricsSlot.valueOf(it) }.getOrNull() }
+        queryMs += SystemClock.elapsedRealtime() - queryStartedMs
+        var jsonChars = 0
+        var document = LyricsDocument()
+        for (slot in priority) {
+            if (slot !in available) continue
+            queryStartedMs = SystemClock.elapsedRealtime()
+            val json = lyricsDao.getLyricsJson(id, slot.name)
+            queryMs += SystemClock.elapsedRealtime() - queryStartedMs
+            if (json == null) continue
+            jsonChars += json.length
+            val decoded = LyricsDocumentCodec.decode(json)
+            if (decoded.lines.isNotEmpty()) {
+                document = decoded
+                break
+            }
+        }
         DiagnosticLog.event(
             "LyricsLoad",
             "song=${id.takeLast(12)} queryMs=$queryMs totalMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                "slots=${rows.size} jsonChars=${rows.sumOf { it.lyricsJson.length }} lines=${document.lines.size}",
+                "slots=${available.size} jsonChars=$jsonChars lines=${document.lines.size}",
         )
         return document
     }

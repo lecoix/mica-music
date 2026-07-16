@@ -10,6 +10,10 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
 import com.mica.music.data.LyricsSlot
+import com.mica.music.data.SharedLyricsMemoryCache
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun rememberSongWithLyrics(
@@ -30,8 +34,15 @@ internal fun rememberSongWithLyrics(
         lyricsDataVersion,
         priority,
     ) {
-        resolved = library.songWithLyrics(song, priority)
-        library.prefetchLyrics(nextSong, priority)
+        coroutineScope {
+            launch {
+                SharedLyricsMemoryCache.invalidations.collect { songIds ->
+                    if (song.id in songIds) resolved = library.songWithLyrics(song, priority)
+                }
+            }
+            resolved = library.songWithLyrics(song, priority)
+            library.prefetchLyrics(nextSong, priority)
+        }
     }
     return resolved
 }

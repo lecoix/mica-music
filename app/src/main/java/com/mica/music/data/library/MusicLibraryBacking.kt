@@ -38,7 +38,9 @@ internal class MusicLibraryBacking(
     val storeSyncMutex = Mutex()
     private val latestStoreRevision = AtomicLong(0L)
 
+    private val songsById = HashMap<String, Song>()
     var songs by mutableStateOf<List<Song>>(emptyList())
+        private set
     var songIds by mutableStateOf<List<String>>(emptyList())
     var catalogRevision by mutableLongStateOf(0L)
     var queueMetadataRevision by mutableLongStateOf(0L)
@@ -66,6 +68,21 @@ internal class MusicLibraryBacking(
     val folder = LibraryFolderBinding(this)
     val cacheLoader = LibraryCacheLoader(this)
     val scanOrchestrator = LibraryScanOrchestrator(this)
+
+    fun songById(id: String): Song? = songsById[id]
+
+    fun replaceSongs(value: List<Song>) {
+        songs = value
+        songsById.clear()
+        value.associateByTo(songsById, Song::id)
+    }
+
+    fun replaceSongAt(index: Int, value: Song) {
+        val previousId = songs[index].id
+        songs = songs.toMutableList().also { it[index] = value }
+        if (previousId != value.id) songsById.remove(previousId)
+        songsById[value.id] = value
+    }
 
     fun isActiveGeneration(generation: Int): Boolean =
         !released && generation == scanGeneration

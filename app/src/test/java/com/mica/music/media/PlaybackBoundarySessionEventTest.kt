@@ -38,4 +38,23 @@ class PlaybackBoundarySessionEventTest {
             ),
         )
     }
+
+    @Test
+    fun missingOrNegativePositionsAreIgnored() {
+        assertNull(
+            PlaybackBoundarySessionEvent.decode(
+                PlaybackBoundarySessionEvent.command,
+                Bundle().apply { putLong("old_position_ms", 0L) },
+            ),
+        )
+        assertNull(
+            PlaybackBoundarySessionEvent.decode(
+                PlaybackBoundarySessionEvent.command,
+                Bundle().apply {
+                    putLong("old_position_ms", -1L)
+                    putLong("new_position_ms", 0L)
+                },
+            ),
+        )
+    }
 }

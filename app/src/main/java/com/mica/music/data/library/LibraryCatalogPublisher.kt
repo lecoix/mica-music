@@ -79,7 +79,7 @@ internal class LibraryCatalogPublisher(
         val previous = backing.songs
         if (previous != list) backing.catalogRevision++
         if (!previous.hasSameQueueMetadata(list)) backing.queueMetadataRevision++
-        backing.songs = list
+        backing.replaceSongs(list)
         backing.songIds = list.map { it.id }
         backing.songFastScrollLabels = fastScrollIndex?.labels
         backing.songFastScrollSectionTargets = fastScrollIndex?.sectionTargets
@@ -193,7 +193,7 @@ internal class LibraryCatalogPublisher(
             else -> {
                 val visibleIndex = backing.songs.indexOfFirst { it.id == songId }
                 if (visibleIndex >= 0) {
-                    backing.songs = backing.songs.toMutableList().also { it[visibleIndex] = updatedScanned }
+                    backing.replaceSongAt(visibleIndex, updatedScanned)
                 }
             }
         }

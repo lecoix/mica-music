@@ -29,11 +29,15 @@ internal object PlaybackBoundarySessionEvent {
 
     fun decode(command: SessionCommand, arguments: Bundle): ConfirmedPlaybackBoundary? {
         if (command.customAction != Action) return null
+        if (!arguments.containsKey(OldPositionMs) || !arguments.containsKey(NewPositionMs)) return null
+        val oldPositionMs = arguments.getLong(OldPositionMs)
+        val newPositionMs = arguments.getLong(NewPositionMs)
+        if (oldPositionMs < 0L || newPositionMs < 0L) return null
         return ConfirmedPlaybackBoundary(
             oldSongId = arguments.getString(OldSongId),
             newSongId = arguments.getString(NewSongId),
-            oldPositionMs = arguments.getLong(OldPositionMs),
-            newPositionMs = arguments.getLong(NewPositionMs),
+            oldPositionMs = oldPositionMs,
+            newPositionMs = newPositionMs,
         )
     }
 }

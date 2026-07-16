@@ -23,15 +23,18 @@ internal class NotificationLyricsSongCache(
         onLoaded: () -> Unit,
     ): Song {
         val key = LyricsCacheKey(decoded.id, lyricsRevision, lyricsDataVersion)
-        SharedLyricsMemoryCache.get(key)?.let {
+        SharedLyricsMemoryCache.get(decoded.id, lyricsRevision, lyricsDataVersion)?.let {
             return decoded.copy(lyricsDocument = it, lyricsLoaded = true)
         }
         if (loadingKeys.add(key)) {
             scope.launch {
-                val lyrics = runCatching { loadSong(decoded.id)?.lyricsDocument }
+                val lyrics = runCatching {
+                    SharedLyricsMemoryCache.load(decoded.id, lyricsRevision, lyricsDataVersion) {
+                        loadSong(decoded.id)?.lyricsDocument ?: LyricsDocument()
+                    }
+                }
                     .getOrNull()
                     ?: LyricsDocument()
-                SharedLyricsMemoryCache.put(key, lyrics)
                 loadingKeys.remove(key)
                 handler.post(onLoaded)
             }

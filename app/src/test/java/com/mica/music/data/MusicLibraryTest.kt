@@ -136,6 +136,44 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun successfulLyricsRetryDoesNotReuseCachedLyricsFromTheSameRevision() = runTest {
+        SharedLyricsMemoryCache.clear()
+        val summary = SongFixtures.song("same-revision-retry")
+            .copy(lyricsDocument = LyricsDocument(), lyricsLoaded = false)
+        val oldLyrics = SongFixtures.song("old-retry-lyrics").lyricsDocument
+        val newLyrics = SongFixtures.song("new-retry-lyrics").lyricsDocument
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(listOf(summary), 100, ScanSource.DEVICE, 1),
+        ).also { it.lyricsDocument = oldLyrics }
+        val library = library(scanner, store)
+        library.loadCachedLibrary()
+
+        assertEquals(oldLyrics, library.songWithLyrics(summary).lyricsDocument)
+
+        val scan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().onLyricsBatch?.invoke(
+            LyricsScanBatch(
+                completed = listOf(
+                    ScannedSongLyrics(
+                        summary.id,
+                        summary.lyricsCacheRevision,
+                        LyricsSlots(embedded = newLyrics),
+                    ),
+                ),
+                readFailedCount = 0,
+            ),
+        )
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(summary), totalSizeMb = 1))
+        scan.await()
+
+        assertEquals(newLyrics, library.songWithLyrics(summary).lyricsDocument)
+        assertEquals(2, store.lyricsLoadCount)
+        library.release()
+    }
+
+    @Test
     fun artworkCacheRepairStartsForcedArtworkOnlyScanWhenCachedArtNeedsRepair() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val missingArt = File(context.cacheDir, "album_art/missing-startup.jpg")
@@ -187,6 +225,8 @@ class MusicLibraryTest {
         secondScan.await()
 
         assertEquals(listOf("same-id"), library.songIds)
+        assertEquals("New Artist", library.songById("same-id")?.artist)
+        assertNull(library.songById("missing"))
         assertTrue(library.queueMetadataRevision > firstRevision)
         assertEquals("New Artist", library.artistGroupPresentation(
             ArtistBrowseSortField.TITLE,
@@ -377,6 +417,7 @@ class MusicLibraryTest {
         val cachedSongs: List<Song>,
         val forceRefreshLyrics: Boolean,
         val forceRefreshArtwork: Boolean,
+        val onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
         val result: CompletableDeferred<ScanResult> = CompletableDeferred(),
     )
 
@@ -395,6 +436,7 @@ class MusicLibraryTest {
                 cachedSongs = cachedSongs,
                 forceRefreshLyrics = forceRefreshLyrics,
                 forceRefreshArtwork = forceRefreshArtwork,
+                onLyricsBatch = onLyricsBatch,
             ).also(deviceRequests::add).result.await()
         }
 
@@ -429,6 +471,10 @@ class MusicLibraryTest {
         ): LyricsDocument {
             lyricsLoadCount++
             return lyricsDocument
+        }
+
+        override suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) {
+            batch.lastOrNull()?.let { lyricsDocument = it.slots.selected() }
         }
 
         override suspend fun save(

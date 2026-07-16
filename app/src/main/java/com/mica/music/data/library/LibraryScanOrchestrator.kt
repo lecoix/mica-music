@@ -6,6 +6,7 @@ import com.mica.music.data.AlbumArtRepairAction
 import com.mica.music.data.AlbumArtRepairPlan
 import com.mica.music.data.CURRENT_LYRICS_PARSER_VERSION
 import com.mica.music.data.ScanSource
+import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.scanner.ScanResult
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CancellationException
@@ -200,6 +201,7 @@ internal class LibraryScanOrchestrator(
                         withContext(backing.ioDispatcher) {
                             backing.libraryStore.applyLyricsBatch(batch.completed)
                         }
+                        SharedLyricsMemoryCache.invalidateSongs(batch.completed.map { it.songId })
                     }
                 },
                 forceRefreshLyrics,

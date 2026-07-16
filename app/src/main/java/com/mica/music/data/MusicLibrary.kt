@@ -11,8 +11,6 @@ import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class MusicLibrary internal constructor(
@@ -23,7 +21,6 @@ class MusicLibrary internal constructor(
     mainDispatcher: CoroutineDispatcher,
     ioDispatcher: CoroutineDispatcher,
 ) {
-    private val lyricsLoadMutex = Mutex()
     private val artistSplitRevisionState = mutableLongStateOf(0L)
     private val backing = MusicLibraryBacking(
         context = context,
@@ -134,20 +131,17 @@ class MusicLibrary internal constructor(
 
     fun searchSongs(query: String): List<Song> = LibraryBrowse.search(songs, query)
 
-    fun songById(id: String): Song? = songs.find { it.id == id }
+    fun songById(id: String): Song? = backing.songById(id)
 
     suspend fun songWithLyrics(
         song: Song,
         priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
+        isPrefetch: Boolean = false,
     ): Song {
         if (song.lyricsLoaded) return song
         val priorityRevision = priority.joinToString(separator = ",", transform = LyricsSlot::name)
-        val key = LyricsCacheKey(
-            song.id,
-            "${song.lyricsCacheRevision}:$priorityRevision",
-            backing.lyricsDataVersion,
-        )
-        SharedLyricsMemoryCache.get(key)?.let {
+        val cacheRevision = "${song.lyricsCacheRevision}:$priorityRevision"
+        SharedLyricsMemoryCache.get(song.id, cacheRevision, backing.lyricsDataVersion)?.let {
             DiagnosticLog.event(
                 "LyricsCache",
                 "hit song=${song.id.takeLast(12)} lines=${it.lines.size} " +
@@ -158,21 +152,25 @@ class MusicLibrary internal constructor(
         }
         val startedMs = SystemClock.elapsedRealtime()
         val lyrics = withContext(backing.ioDispatcher) {
-            lyricsLoadMutex.withLock {
-                SharedLyricsMemoryCache.get(key) ?: backing.libraryStore.loadLyrics(
+            SharedLyricsMemoryCache.load(
+                song.id,
+                cacheRevision,
+                backing.lyricsDataVersion,
+                isPrefetch,
+            ) {
+                backing.libraryStore.loadLyrics(
                     song.id,
                     song.lyricsCacheRevision,
                     priority,
-                ).also {
-                    SharedLyricsMemoryCache.put(key, it)
-                    DiagnosticLog.event(
-                        "LyricsCache",
-                        "miss song=${song.id.takeLast(12)} lines=${it.lines.size} " +
-                            "durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                            "sizeBytes=${SharedLyricsMemoryCache.sizeBytes()} " +
-                            "entries=${SharedLyricsMemoryCache.entryCount()}",
-                    )
-                }
+                )
+            }.also {
+                DiagnosticLog.event(
+                    "LyricsCache",
+                    "miss song=${song.id.takeLast(12)} lines=${it.lines.size} " +
+                        "durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                        "sizeBytes=${SharedLyricsMemoryCache.sizeBytes()} " +
+                        "entries=${SharedLyricsMemoryCache.entryCount()}",
+                )
             }
         }
         return song.copy(lyricsDocument = lyrics, lyricsLoaded = true)
@@ -183,7 +181,7 @@ class MusicLibrary internal constructor(
         priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
     ) {
         if (song == null || song.lyricsLoaded) return
-        backing.ioScope.launch { songWithLyrics(song, priority) }
+        backing.ioScope.launch { songWithLyrics(song, priority, isPrefetch = true) }
     }
 
     /** 从曲库移除（不删物理文件）；播放队列由调用方同步。 */
