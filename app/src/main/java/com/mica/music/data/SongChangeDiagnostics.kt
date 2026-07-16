@@ -9,6 +9,7 @@ internal object SongChangeDiagnostics {
         if (old.durationSec != new.durationSec) add("durationSec")
         if (old.metadata != new.metadata) add("metadata")
         if (old.albumArtUri != new.albumArtUri) add("albumArtUri")
+        if (old.videoCoverUri != new.videoCoverUri) add("videoCoverUri")
         if (old.coverColorArgb != new.coverColorArgb) add("coverColorArgb")
         if (old.mediaUri != new.mediaUri) add("mediaUri")
         if (old.playbackUri != new.playbackUri) add("playbackUri")

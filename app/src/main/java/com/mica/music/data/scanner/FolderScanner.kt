@@ -54,7 +54,8 @@ object FolderScanner {
             )
         }
 
-        val drafts = profiler.measure("loadDrafts") { loadDrafts(context, treeUri, root, options, profiler) }
+        val loaded = profiler.measure("loadDrafts") { loadDrafts(context, treeUri, root, options, profiler) }
+        val drafts = loaded.drafts
         if (drafts.isEmpty()) {
             return@withContext ScanResult(
                 songs = emptyList(),
@@ -157,7 +158,7 @@ object FolderScanner {
             probed = probed.get(),
         )
         ScanResult(
-            songs = songs,
+            songs = attachVideoCovers(songs, loaded.videoCovers),
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
             probeStats = ScanProbeStats(
@@ -173,20 +174,22 @@ object FolderScanner {
         root: DocumentFile,
         options: ScanOptions,
         profiler: ScanProfiler,
-    ): List<TrackDraft> {
+    ): LoadedFolderFiles {
         val files = mutableListOf<AudioFileEntry>()
         val lyricFiles = mutableListOf<LyricFileEntry>()
+        val videoCovers = mutableListOf<VideoCoverFile>()
         val loadedByQuery = runCatching {
             profiler.measure("loadDrafts.query") {
                 val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
-                collectLibraryFiles(context, treeUri, rootDocumentId, "", options, files, lyricFiles)
+                collectLibraryFiles(context, treeUri, rootDocumentId, "", options, files, lyricFiles, videoCovers)
             }
         }.isSuccess
         if (!loadedByQuery) {
             files.clear()
             lyricFiles.clear()
+            videoCovers.clear()
             profiler.measure("loadDrafts.fallback") {
-                collectLibraryFilesFallback(root, "", options, files, lyricFiles)
+                collectLibraryFilesFallback(root, "", options, files, lyricFiles, videoCovers)
             }
         }
         val lyricsByAudioKey = lyricFiles.groupBy { lyricsKey(it.folderPath, it.baseName) }
@@ -200,7 +203,6 @@ object FolderScanner {
                 "matched=${matchedLyrics.size} query=$loadedByQuery; " +
                 "sidecarEntries=${lyricFiles.take(20).joinToString(" | ") { "${it.folderPath}/${it.baseName} uri=${it.uri}" }}",
         )
-
         val drafts = mutableListOf<TrackDraft>()
         val scannedAt = System.currentTimeMillis()
         for (entry in files) {
@@ -265,8 +267,13 @@ object FolderScanner {
             )
         }
 
-        return drafts
+        return LoadedFolderFiles(drafts, videoCovers)
     }
+
+    private data class LoadedFolderFiles(
+        val drafts: List<TrackDraft>,
+        val videoCovers: List<VideoCoverFile>,
+    )
 
     private data class AudioFileEntry(
         val uri: Uri,
@@ -294,6 +301,7 @@ object FolderScanner {
         options: ScanOptions,
         audioOut: MutableList<AudioFileEntry>,
         lyricOut: MutableList<LyricFileEntry>,
+        videoOut: MutableList<VideoCoverFile>,
     ) {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
         val projection = arrayOf(
@@ -318,7 +326,9 @@ object FolderScanner {
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                     val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
                     if (!ExcludedScanDirectories.isExcluded(nextPath, options.excludedDirectories)) {
-                        collectLibraryFiles(context, treeUri, childDocumentId, nextPath, options, audioOut, lyricOut)
+                        collectLibraryFiles(
+                            context, treeUri, childDocumentId, nextPath, options, audioOut, lyricOut, videoOut,
+                        )
                     }
                 } else {
                     collectFileEntry(
@@ -330,6 +340,7 @@ object FolderScanner {
                         folderPath = parentPath,
                         audioOut = audioOut,
                         lyricOut = lyricOut,
+                        videoOut = videoOut,
                     )
                 }
             }
@@ -342,6 +353,7 @@ object FolderScanner {
         options: ScanOptions,
         audioOut: MutableList<AudioFileEntry>,
         lyricOut: MutableList<LyricFileEntry>,
+        videoOut: MutableList<VideoCoverFile>,
     ) {
         val children = dir.listFiles() ?: return
         for (child in children) {
@@ -349,7 +361,7 @@ object FolderScanner {
             if (child.isDirectory) {
                 val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
                 if (!ExcludedScanDirectories.isExcluded(nextPath, options.excludedDirectories)) {
-                    collectLibraryFilesFallback(child, nextPath, options, audioOut, lyricOut)
+                    collectLibraryFilesFallback(child, nextPath, options, audioOut, lyricOut, videoOut)
                 }
             } else if (child.isFile) {
                 collectFileEntry(
@@ -361,6 +373,7 @@ object FolderScanner {
                     folderPath = parentPath,
                     audioOut = audioOut,
                     lyricOut = lyricOut,
+                    videoOut = videoOut,
                 )
             }
         }
@@ -375,9 +388,16 @@ object FolderScanner {
         folderPath: String,
         audioOut: MutableList<AudioFileEntry>,
         lyricOut: MutableList<LyricFileEntry>,
+        videoOut: MutableList<VideoCoverFile>,
     ) {
         val ext = name.substringAfterLast('.', "").lowercase()
         when {
+            ext == "mp4" -> {
+                val baseName = name.substringBeforeLast('.')
+                if (baseName.isNotBlank()) {
+                    videoOut += VideoCoverFile(uri.toString(), folderPath, baseName)
+                }
+            }
             mime.startsWith("audio/") || ext in audioExtensions -> {
                 audioOut += AudioFileEntry(
                     uri = uri,

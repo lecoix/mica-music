@@ -85,6 +85,13 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         },
     )
 
+    SettingsToggleRow(
+        title = "视频专辑封面",
+        subtitle = "默认关闭；开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准播放页静音循环播放",
+        checked = uiSettings.videoAlbumCoverEnabled,
+        onCheckedChange = uiSettings::updateVideoAlbumCoverEnabled,
+    )
+
     if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
         SettingsToggleRow(
             title = "点击封面暂停/播放",

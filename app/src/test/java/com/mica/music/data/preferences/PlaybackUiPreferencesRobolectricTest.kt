@@ -20,6 +20,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 34])
 class PlaybackUiPreferencesRobolectricTest {
+    @Test
+    fun videoAlbumCoverDefaultsOffAndPersists() {
+        assertEquals(false, PlaybackUiPreferences.videoAlbumCoverEnabled(context))
+
+        PlaybackUiPreferences.setVideoAlbumCoverEnabled(context, true)
+
+        assertTrue(PlaybackUiPreferences.videoAlbumCoverEnabled(context))
+    }
+
 
     private val context = PreferencesTestFixtures.context()
 

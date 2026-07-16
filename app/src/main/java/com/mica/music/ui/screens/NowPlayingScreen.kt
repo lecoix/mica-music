@@ -565,6 +565,7 @@ fun NowPlayingContent(
                         seekState = seekState,
                         isPlaying = pageModel.isPlaying,
                         coverFlowMode = uiSettings.playerCoverFlowMode,
+                        videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled,
                         particleCoverTuning = uiSettings.particleCoverTuning,
                         lyricsExpanded = classicLyricsExpanded,
                         coverContentAlpha = coverContentAlpha,

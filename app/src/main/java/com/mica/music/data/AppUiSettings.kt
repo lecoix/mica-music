@@ -62,6 +62,9 @@ class AppUiSettings(context: Context) {
     var playerCoverFlowMode by mutableStateOf(PlaybackUiPreferences.playerCoverFlowMode(appContext))
         private set
 
+    var videoAlbumCoverEnabled by mutableStateOf(PlaybackUiPreferences.videoAlbumCoverEnabled(appContext))
+        private set
+
     var customPlayerLowerLayout by mutableStateOf(PlaybackUiPreferences.customPlayerLowerLayout(appContext))
         private set
 
@@ -230,6 +233,11 @@ class AppUiSettings(context: Context) {
     fun updatePlayerCoverFlowMode(mode: PlayerCoverFlowMode) {
         playerCoverFlowMode = mode
         PlaybackUiPreferences.setPlayerCoverFlowMode(appContext, mode)
+    }
+
+    fun updateVideoAlbumCoverEnabled(enabled: Boolean) {
+        videoAlbumCoverEnabled = enabled
+        PlaybackUiPreferences.setVideoAlbumCoverEnabled(appContext, enabled)
     }
 
     fun updateCustomPlayerLowerLayout(config: PlayerLowerLayoutConfig) {

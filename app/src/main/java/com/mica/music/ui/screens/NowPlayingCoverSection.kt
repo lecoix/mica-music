@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -68,6 +69,7 @@ import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHaloFraction
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
+import com.mica.music.ui.screens.player.view.VideoAlbumCoverHost
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
@@ -90,6 +92,7 @@ internal fun NowPlayingCoverSection(
     seekState: PlaybackSeekState,
     isPlaying: Boolean,
     coverFlowMode: PlayerCoverFlowMode,
+    videoAlbumCoverEnabled: Boolean,
     particleCoverTuning: ParticleCoverTuning,
     lyricsExpanded: Boolean,
     coverContentAlpha: Float,
@@ -112,6 +115,7 @@ internal fun NowPlayingCoverSection(
     val motionEnabled = rememberMicaMotionEnabled()
     val density = LocalDensity.current
     val context = LocalContext.current
+    val failedVideoCovers = remember { mutableStateMapOf<String, Boolean>() }
     val screenWidthPx = with(density) { screenWidth.coerceAtLeast(1.dp).toPx() }
     val coverWidthPx = with(density) { cover.width.toPx() }
     val coverHeightPx = with(density) { cover.height.toPx() }
@@ -389,18 +393,34 @@ internal fun NowPlayingCoverSection(
                             },
                             label = "standardCover",
                         ) { animatedSong ->
-                            SongCover(
-                                albumArtUri = animatedSong.albumArtUri,
-                                fallbackColor = coverColor,
-                                contentDescription = animatedSong.album,
-                                modifier = Modifier.matchParentSize(),
-                                letterboxAlpha = cover.letterboxAlpha,
-                                crossfadeMillis = if (motionEnabled) 200 else 0,
-                                onAspectRatioChanged = onCoverAspectRatioChanged,
-                                decodeTarget = coverDecodeTarget.takeIf {
-                                    ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)
-                                },
-                            )
+                            Box(Modifier.fillMaxSize()) {
+                                SongCover(
+                                    albumArtUri = animatedSong.albumArtUri,
+                                    fallbackColor = coverColor,
+                                    contentDescription = animatedSong.album,
+                                    modifier = Modifier.matchParentSize(),
+                                    letterboxAlpha = cover.letterboxAlpha,
+                                    crossfadeMillis = if (motionEnabled) 200 else 0,
+                                    onAspectRatioChanged = onCoverAspectRatioChanged,
+                                    decodeTarget = coverDecodeTarget.takeIf {
+                                        ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)
+                                    },
+                                )
+                                animatedSong.videoCoverUri
+                                    ?.takeIf {
+                                        videoAlbumCoverEnabled &&
+                                            coverFlowMode == PlayerCoverFlowMode.STANDARD &&
+                                            failedVideoCovers[it] != true
+                                    }
+                                    ?.let { videoUri ->
+                                        VideoAlbumCoverHost(
+                                            uri = videoUri,
+                                            isPlaying = isPlaying,
+                                            onPlaybackError = { failedVideoCovers[videoUri] = true },
+                                            modifier = Modifier.matchParentSize(),
+                                        )
+                                    }
+                            }
                         }
                     }
                     if (coverEdgeFade) {

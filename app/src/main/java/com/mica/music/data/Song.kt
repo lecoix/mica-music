@@ -42,6 +42,8 @@ data class Song(
     val lyricsDocument: LyricsDocument = LyricsDocument(),
     /** False when the lyrics payload was intentionally omitted from a lightweight library row. */
     val lyricsLoaded: Boolean = true,
+    /** Optional silent looping MP4 used only by the standard full-player cover. */
+    val videoCoverUri: String? = null,
 ) {
     val effectivePlaybackUri: String get() = playbackUri ?: mediaUri
 

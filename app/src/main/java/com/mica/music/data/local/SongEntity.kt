@@ -68,6 +68,7 @@ data class SongEntity(
     val replayGainTrackPeak: Float? = null,
     val replayGainAlbumDb: Float? = null,
     val replayGainAlbumPeak: Float? = null,
+    val videoCoverUri: String? = null,
 )
 
 /** Room projection used by catalog loading; deliberately excludes the large lyrics payload. */
@@ -105,6 +106,7 @@ data class SongSummaryEntity(
     val replayGainTrackPeak: Float?,
     val replayGainAlbumDb: Float?,
     val replayGainAlbumPeak: Float?,
+    val videoCoverUri: String?,
 )
 
 data class LyricsJsonRow(val lyricsJson: String)
@@ -155,6 +157,7 @@ fun SongEntity.toSong(): Song = Song(
     playCount = playCount,
     replayGain = ReplayGainTags(replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak),
     lyricsDocument = LyricsDocumentCodec.decode(lyricsJson),
+    videoCoverUri = videoCoverUri,
 )
 
 fun SongSummaryEntity.toSong(): Song = Song(
@@ -190,6 +193,7 @@ fun SongSummaryEntity.toSong(): Song = Song(
     playCount = playCount,
     replayGain = ReplayGainTags(replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak),
     lyricsLoaded = false,
+    videoCoverUri = videoCoverUri,
 )
 
 /** 用于增量扫描：元数据或路径变化时判定为「已更新」。 */
@@ -208,6 +212,7 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(trackNumber); append('\u0001')
     append(discNumber); append('\u0001')
     append(albumArtUri); append('\u0001')
+    append(videoCoverUri); append('\u0001')
     append(externalLyricsSignature); append('\u0001')
 }
 
@@ -246,4 +251,5 @@ fun Song.toEntity(queueOrder: Int, preservedLyricsJson: String? = null): SongEnt
     replayGainTrackPeak = replayGain.trackPeak,
     replayGainAlbumDb = replayGain.albumGainDb,
     replayGainAlbumPeak = replayGain.albumPeak,
+    videoCoverUri = videoCoverUri,
 )

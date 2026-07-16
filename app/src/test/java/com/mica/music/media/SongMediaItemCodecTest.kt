@@ -21,6 +21,7 @@ class SongMediaItemCodecTest {
         ).copy(
             discNumber = 2,
             replayGain = ReplayGainTags(-6f, 0.9f, -4f, 0.8f),
+            videoCoverUri = "content://library/Album.mp4",
         )
 
         val decoded = SongMediaItemCodec.decode(SongMediaItemCodec.encode(song))

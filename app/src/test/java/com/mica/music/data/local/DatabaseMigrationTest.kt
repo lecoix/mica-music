@@ -296,6 +296,7 @@ class DatabaseMigrationTest {
                     "replayGainTrackPeak",
                     "replayGainAlbumDb",
                     "replayGainAlbumPeak",
+                    "videoCoverUri",
                 ),
             ),
         )
@@ -388,6 +389,34 @@ class DatabaseMigrationTest {
             ),
             tableColumns(db, "song_lyrics_pending"),
         )
+        helper.close()
+    }
+
+    @Test
+    fun migrationTenToElevenAddsNullableVideoCoverUri() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(10) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_10_11.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").contains("videoCoverUri"))
+        db.query("SELECT videoCoverUri FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
         helper.close()
     }
 

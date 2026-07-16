@@ -24,6 +24,7 @@ object PlaybackUiPreferences {
     private const val KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION = "mini_player_right_swipe_action"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     internal const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
+    private const val KEY_VIDEO_ALBUM_COVER_ENABLED = "video_album_cover_enabled"
     private const val KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE = "custom_standard_cover_tap_play_pause"
     private const val KEY_CUSTOM_PLAYER_LOWER_ORDER = "custom_player_lower_order"
     private const val KEY_CUSTOM_PLAYER_LOWER_HIDDEN = "custom_player_lower_hidden"
@@ -155,6 +156,15 @@ object PlaybackUiPreferences {
     fun setPlayerCoverFlowMode(context: Context, mode: PlayerCoverFlowMode) {
         MicaSettingsStore.prefs(context).edit()
             .putString(KEY_PLAYER_COVER_FLOW_MODE, mode.storageValue)
+            .apply()
+    }
+
+    fun videoAlbumCoverEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_VIDEO_ALBUM_COVER_ENABLED, false)
+
+    fun setVideoAlbumCoverEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_VIDEO_ALBUM_COVER_ENABLED, enabled)
             .apply()
     }
 

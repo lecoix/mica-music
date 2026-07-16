@@ -138,7 +138,7 @@ object MediaStoreScanner {
             probed = probed.get(),
         )
         ScanResult(
-            songs = songs,
+            songs = songs.map { it.copy(videoCoverUri = null) },
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
             probeStats = ScanProbeStats(
