@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
@@ -141,26 +140,44 @@ fun PlayerSheetHost(
     Box(
         if (showFullPlayer) modifier.fillMaxSize() else modifier.fillMaxWidth(),
     ) {
+        if (!expanded || progress < 0.99f) {
+            MiniPlayer(
+                style = uiSettings.miniPlayerStyle,
+                song = song,
+                isPlaying = surfaceState.isPlaying,
+                positionMs = progressState.positionMs,
+                onPlayPause = actions.togglePlay,
+                onPrevious = actions.previous,
+                onNext = actions.next,
+                onExpand = { onExpandedChange(true) },
+                onLongPress = onLocateCurrentSong,
+                miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
+                lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+                lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
+                leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
+                rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter),
+            )
+        }
+
         if (showFullPlayer) {
-            val scrimInteraction = remember { MutableInteractionSource() }
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = progress }
-                    .background(Color.Black.copy(alpha = 0.28f))
-                    .clickable(
-                        indication = null,
-                        interactionSource = scrimInteraction,
-                        onClick = {},
-                    ),
+                    .background(Color.Black.copy(alpha = 0.60f * progress)),
             )
+        }
+
+        if (showFullPlayer) {
             val contentInteraction = remember { MutableInteractionSource() }
             Box(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = progress
-                        translationY = (1f - progress) * 96.dp.toPx()
+                        clip = true
+                        translationY = (1f - progress) * size.height
                     }
                     .clickable(
                         indication = null,
@@ -186,31 +203,6 @@ fun PlayerSheetHost(
                     contentPadding = contentPadding,
                 )
             }
-        }
-
-        if (!expanded || progress < 0.99f) {
-            MiniPlayer(
-                style = uiSettings.miniPlayerStyle,
-                song = song,
-                isPlaying = surfaceState.isPlaying,
-                positionMs = progressState.positionMs,
-                onPlayPause = actions.togglePlay,
-                onPrevious = actions.previous,
-                onNext = actions.next,
-                onExpand = { onExpandedChange(true) },
-                onLongPress = onLocateCurrentSong,
-                miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
-                lyricSplitEnabled = uiSettings.lyricSplitEnabled,
-                lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
-                swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
-                leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
-                rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .graphicsLayer {
-                        alpha = (1f - progress).coerceIn(0f, 1f)
-                    },
-            )
         }
     }
 }
