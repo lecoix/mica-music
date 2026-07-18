@@ -119,3 +119,36 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
         db.execSQL("ALTER TABLE songs ADD COLUMN videoCoverUri TEXT")
     }
 }
+
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN browseArtistConfigKey TEXT NOT NULL DEFAULT ''")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS browse_groups (
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                subtitle TEXT NOT NULL,
+                songCount INTEGER NOT NULL,
+                artist TEXT NOT NULL,
+                year INTEGER NOT NULL,
+                albumArtUri TEXT,
+                coverColorArgb INTEGER NOT NULL,
+                PRIMARY KEY(kind, title)
+            )
+            """.trimIndent(),
+        )
+    }
+}
+
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE browse_groups ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN artistBrowseSortField TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN artistBrowseSortDirection TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN artistBrowseFastScrollSectionsJson TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN albumBrowseSortField TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN albumBrowseSortDirection TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE library_meta ADD COLUMN albumBrowseFastScrollSectionsJson TEXT NOT NULL DEFAULT ''")
+    }
+}

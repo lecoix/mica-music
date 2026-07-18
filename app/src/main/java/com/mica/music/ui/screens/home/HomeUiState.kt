@@ -49,16 +49,37 @@ data class HomeUiState(
     )
 
     companion object {
-        fun initial(context: Context): HomeUiState = HomeUiState(
-            browseSort = HomeBrowseSortState(
-                albumSortField = LibraryBrowseSettings.albumBrowseSortField(context),
-                albumSortDirection = LibraryBrowseSettings.albumBrowseSortDirection(context),
-                albumGridColumns = LibraryBrowseSettings.albumBrowseGridColumns(context),
-                artistSortField = LibraryBrowseSettings.artistBrowseSortField(context),
-                artistSortDirection = LibraryBrowseSettings.artistBrowseSortDirection(context),
-                artistGridColumns = LibraryBrowseSettings.artistBrowseGridColumns(context),
-            ),
-        )
+        fun initial(context: Context): HomeUiState {
+            val (section, playlistId) = restoreHomeLocation(
+                LibraryBrowseSettings.lastHomeSection(context),
+                LibraryBrowseSettings.lastHomePlaylistId(context),
+            )
+            return HomeUiState(
+                section = section,
+                activePlaylistId = playlistId,
+                browseSort = HomeBrowseSortState(
+                    albumSortField = LibraryBrowseSettings.albumBrowseSortField(context),
+                    albumSortDirection = LibraryBrowseSettings.albumBrowseSortDirection(context),
+                    albumGridColumns = LibraryBrowseSettings.albumBrowseGridColumns(context),
+                    artistSortField = LibraryBrowseSettings.artistBrowseSortField(context),
+                    artistSortDirection = LibraryBrowseSettings.artistBrowseSortDirection(context),
+                    artistGridColumns = LibraryBrowseSettings.artistBrowseGridColumns(context),
+                ),
+            )
+        }
+    }
+}
+
+internal fun restoreHomeLocation(sectionValue: String?, playlistId: String?): Pair<HomeSection, String?> {
+    val section = sectionValue
+        ?.let { runCatching { HomeSection.valueOf(it) }.getOrNull() }
+        ?: return HomeSection.Songs to null
+    return when (section) {
+        HomeSection.Songs, HomeSection.Artists, HomeSection.Albums -> section to null
+        HomeSection.Playlist -> playlistId?.takeIf(String::isNotBlank)
+            ?.let { HomeSection.Playlist to it }
+            ?: (HomeSection.Songs to null)
+        else -> HomeSection.Songs to null
     }
 }
 

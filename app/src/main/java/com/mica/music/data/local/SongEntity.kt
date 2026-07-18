@@ -121,6 +121,13 @@ data class LibraryMetaEntity(
     val sortField: String = "",
     val sortDirection: String = "",
     val fastScrollSectionsJson: String = "",
+    val browseArtistConfigKey: String = "",
+    val artistBrowseSortField: String = "",
+    val artistBrowseSortDirection: String = "",
+    val artistBrowseFastScrollSectionsJson: String = "",
+    val albumBrowseSortField: String = "",
+    val albumBrowseSortDirection: String = "",
+    val albumBrowseFastScrollSectionsJson: String = "",
 )
 
 fun SongEntity.toSong(): Song = Song(

@@ -49,6 +49,17 @@ data class ArtistSplitConfig(
     val whitelist: List<String> = emptyList(),
 )
 
+internal fun ArtistSplitConfig.cacheKey(): String = buildString {
+    append("v1;separators:")
+    enabledSeparators.map(ArtistSeparator::storageValue).sorted().forEach { value ->
+        append(value.length).append(':').append(value)
+    }
+    append(";whitelist:")
+    whitelist.map { it.trim().lowercase(Locale.ROOT) }.filter(String::isNotEmpty).sorted().forEach { value ->
+        append(value.length).append(':').append(value)
+    }
+}
+
 /** 原始标签保存在 [Song.artist]；这里只负责按当前设置拆分、匹配与展示。 */
 object ArtistNames {
 

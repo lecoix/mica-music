@@ -14,6 +14,7 @@ import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.ui.components.PlaylistSongListPanel
+import com.mica.music.ui.components.EmptyStatePresets
 import com.mica.music.ui.theme.MicaTheme
 
 @Composable
@@ -39,6 +40,11 @@ internal fun HomePlaylistContent(
                 color = MicaTheme.colors.textTertiary,
             )
         }
+        return
+    }
+
+    if (library.isLoadingCachedLibrary && library.songs.isEmpty()) {
+        EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
         return
     }
 

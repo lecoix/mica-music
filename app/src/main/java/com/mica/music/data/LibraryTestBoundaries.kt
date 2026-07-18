@@ -86,6 +86,18 @@ internal interface LibraryStore {
         fastScrollSectionTargets: Map<String, Int>?,
     ) = Unit
 
+    suspend fun updateBrowseGroups(
+        artistGroups: List<BrowseGroup>,
+        albumGroups: List<BrowseGroup>,
+        artistConfigKey: String,
+        artistSortField: ArtistBrowseSortField,
+        artistSortDirection: SortDirection,
+        artistFastScrollSectionTargets: Map<String, Int>?,
+        albumSortField: AlbumBrowseSortField,
+        albumSortDirection: SortDirection,
+        albumFastScrollSectionTargets: Map<String, Int>?,
+    ) = Unit
+
     suspend fun clear()
 }
 
@@ -225,6 +237,28 @@ internal class RoomLibraryStore(
         sortField,
         sortDirection,
         fastScrollSectionTargets,
+    )
+
+    override suspend fun updateBrowseGroups(
+        artistGroups: List<BrowseGroup>,
+        albumGroups: List<BrowseGroup>,
+        artistConfigKey: String,
+        artistSortField: ArtistBrowseSortField,
+        artistSortDirection: SortDirection,
+        artistFastScrollSectionTargets: Map<String, Int>?,
+        albumSortField: AlbumBrowseSortField,
+        albumSortDirection: SortDirection,
+        albumFastScrollSectionTargets: Map<String, Int>?,
+    ) = repository.updateBrowseGroups(
+        artistGroups,
+        albumGroups,
+        artistConfigKey,
+        artistSortField,
+        artistSortDirection,
+        artistFastScrollSectionTargets,
+        albumSortField,
+        albumSortDirection,
+        albumFastScrollSectionTargets,
     )
 
     override suspend fun clear() = repository.clear()

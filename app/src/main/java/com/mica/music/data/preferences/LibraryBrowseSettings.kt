@@ -23,6 +23,24 @@ object LibraryBrowseSettings {
     private const val KEY_CUSTOM_SONG_ORDER_LOCKED = "custom_song_order_locked"
     private const val KEY_ARTIST_SPLIT_SEPARATORS = "artist_split_separators"
     private const val KEY_ARTIST_SPLIT_WHITELIST = "artist_split_whitelist"
+    private const val KEY_LAST_HOME_SECTION = "last_home_section"
+    private const val KEY_LAST_HOME_PLAYLIST_ID = "last_home_playlist_id"
+
+    fun lastHomeSection(context: Context): String? =
+        MicaSettingsStore.prefs(context).getString(KEY_LAST_HOME_SECTION, null)
+
+    fun lastHomePlaylistId(context: Context): String? =
+        MicaSettingsStore.prefs(context).getString(KEY_LAST_HOME_PLAYLIST_ID, null)
+
+    fun setLastHomeLocation(context: Context, section: String, playlistId: String?) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_LAST_HOME_SECTION, section)
+            .apply {
+                if (playlistId == null) remove(KEY_LAST_HOME_PLAYLIST_ID)
+                else putString(KEY_LAST_HOME_PLAYLIST_ID, playlistId)
+            }
+            .apply()
+    }
 
     fun songSortField(context: Context): SongSortField =
         SongSortField.fromStorage(MicaSettingsStore.prefs(context).getString(KEY_SONG_SORT_FIELD, null))

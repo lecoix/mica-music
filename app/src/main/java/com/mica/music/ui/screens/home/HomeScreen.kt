@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -50,6 +51,7 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
+import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.components.HomeDrawerPanel
 import com.mica.music.ui.components.LibrarySearchPanel
 import com.mica.music.ui.components.MiniPlayer
@@ -107,6 +109,10 @@ fun HomeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val appName = stringResource(R.string.app_name)
     val songListState = rememberLazyListState()
+    val artistListState = rememberLazyListState()
+    val artistGridState = rememberLazyGridState()
+    val albumListState = rememberLazyListState()
+    val albumGridState = rememberLazyGridState()
 
     fun currentNavigationSnapshot() = uiState.navigationSnapshot(
         songMultiSelectActive = songMultiSelectActive,
@@ -318,6 +324,17 @@ fun HomeScreen(
                     activePlaylistId = null,
                 )
             }
+        }
+    }
+
+    LaunchedEffect(uiState.section, uiState.activePlaylistId) {
+        when (uiState.section) {
+            HomeSection.Songs, HomeSection.Artists, HomeSection.Albums ->
+                LibraryBrowseSettings.setLastHomeLocation(context, uiState.section.name, null)
+            HomeSection.Playlist -> uiState.activePlaylistId?.let { playlistId ->
+                LibraryBrowseSettings.setLastHomeLocation(context, uiState.section.name, playlistId)
+            }
+            else -> Unit
         }
     }
 
@@ -708,6 +725,10 @@ fun HomeScreen(
                         artistSortField = uiState.browseSort.artistSortField,
                         artistSortDirection = uiState.browseSort.artistSortDirection,
                         artistGridColumns = uiState.browseSort.artistGridColumns,
+                        artistListState = artistListState,
+                        artistGridState = artistGridState,
+                        albumListState = albumListState,
+                        albumGridState = albumGridState,
                         listBottomPadding = listBottomPadding,
                         motionEnabled = motionEnabled,
                         modifier = Modifier.fillMaxSize(),
@@ -738,6 +759,10 @@ fun HomeScreen(
                         artistSortField = uiState.browseSort.artistSortField,
                         artistSortDirection = uiState.browseSort.artistSortDirection,
                         artistGridColumns = uiState.browseSort.artistGridColumns,
+                        artistListState = artistListState,
+                        artistGridState = artistGridState,
+                        albumListState = albumListState,
+                        albumGridState = albumGridState,
                         listBottomPadding = listBottomPadding,
                         motionEnabled = motionEnabled,
                         modifier = Modifier.fillMaxSize(),

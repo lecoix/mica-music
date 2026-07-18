@@ -69,6 +69,21 @@ class LibraryScaleTest {
         ArtistNames.configure(ArtistSplitConfig())
     }
 
+    @Test(timeout = 5_000)
+    fun persistedBrowseProjectionStaysSmallAndNeverIncludesLyricsAtTenThousandSongs() {
+        ArtistNames.configure(ArtistSplitConfig())
+        val groups = LibraryBrowse.groupByArtist(songs) + LibraryBrowse.groupByAlbum(songs)
+        val rawTextBytes = groups.sumOf { group ->
+            listOf(group.title, group.subtitle, group.artist, group.albumArtUri.orEmpty())
+                .sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
+        }
+        val fixedWidthBytes = groups.size * (Int.SIZE_BYTES * 5L)
+
+        assertEquals(660, groups.size)
+        assertTrue(rawTextBytes + fixedWidthBytes < 1_000_000L)
+        assertTrue(songs.all { it.lyricsDocument.lines.isNotEmpty() })
+    }
+
     @Test(timeout = 8_000)
     fun everySortFieldPreservesAllSongsAndIsDeterministic() {
         SongSortField.entries

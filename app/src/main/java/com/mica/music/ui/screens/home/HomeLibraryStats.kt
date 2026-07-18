@@ -158,7 +158,11 @@ internal fun resolveLibraryStatsBarModel(
         HomeSection.Artists -> when (browseDestination) {
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    "${library.artistGroups().size} 位艺术家".takeIf { browseListInfoVisibility.showArtistCount },
+                    if (browseListInfoVisibility.showArtistCount) {
+                        "${library.artistGroupPresentation(artistSortField, artistSortDirection).groups.size} 位艺术家"
+                    } else {
+                        null
+                    },
                     formatBrowseSortLabel(artistSortField, artistSortDirection)
                         .takeIf { browseListInfoVisibility.showArtistSortOrder },
                     formatGridColumnsLabel(artistGridColumns)
@@ -178,7 +182,11 @@ internal fun resolveLibraryStatsBarModel(
         HomeSection.Albums -> when (browseDestination) {
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    "${library.albumGroups().size} 张专辑".takeIf { browseListInfoVisibility.showAlbumCount },
+                    if (browseListInfoVisibility.showAlbumCount) {
+                        "${library.albumGroupPresentation(albumSortField, albumSortDirection).groups.size} 张专辑"
+                    } else {
+                        null
+                    },
                     formatBrowseSortLabel(albumSortField, albumSortDirection)
                         .takeIf { browseListInfoVisibility.showAlbumSortOrder },
                     formatGridColumnsLabel(albumGridColumns)

@@ -13,6 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class StartupBrowseTarget {
+    NONE,
+    ARTISTS,
+    ALBUMS,
+}
+
 class MusicLibrary internal constructor(
     context: Context,
     libraryScanner: LibraryScanner,
@@ -38,6 +44,13 @@ class MusicLibrary internal constructor(
     private var albumGroupCacheField: AlbumBrowseSortField? = null
     private var albumGroupCacheDirection: SortDirection? = null
     private var albumGroupCache: BrowseGroupPresentation? = null
+    private var persistedArtistGroups: List<BrowseGroup>? = null
+    private var persistedAlbumGroups: List<BrowseGroup>? = null
+    private var persistedBrowseRevision = -1L
+    private var persistedBrowseSplitRevision = -1L
+    private var persistedArtistPresentation: BrowseGroupPresentation? = null
+    private var persistedAlbumPresentation: BrowseGroupPresentation? = null
+    private var persistedBrowsePresentationsMatchCurrentSort = false
 
     constructor(context: Context) : this(
         context = context,
@@ -118,6 +131,9 @@ class MusicLibrary internal constructor(
         artistGroupCache = null
         albumGroupCacheRevision = -1L
         albumGroupCache = null
+        persistedArtistPresentation = null
+        persistedAlbumPresentation = null
+        persistedBrowsePresentationsMatchCurrentSort = false
         if (backing.sortField == SongSortField.ARTIST) {
             backing.catalog.applyCurrentSort()
             backing.catalog.persistPresentationAsync()
@@ -205,6 +221,7 @@ class MusicLibrary internal constructor(
                 artistGroupCacheField == field &&
                 artistGroupCacheDirection == direction
         }?.let { return it }
+        persistedBrowsePresentationsMatchCurrentSort = false
         return LibraryBrowse.artistGroupPresentation(source, field, direction).also {
             artistGroupCacheRevision = sourceRevision
             artistGroupCacheField = field
@@ -224,6 +241,7 @@ class MusicLibrary internal constructor(
                 albumGroupCacheField == field &&
                 albumGroupCacheDirection == direction
         }?.let { return it }
+        persistedBrowsePresentationsMatchCurrentSort = false
         return LibraryBrowse.albumGroupPresentation(source, field, direction).also {
             albumGroupCacheRevision = sourceRevision
             albumGroupCacheField = field
@@ -247,15 +265,39 @@ class MusicLibrary internal constructor(
             artistGroupCacheDirection == artistDirection &&
             albumGroupCacheRevision == sourceRevision &&
             albumGroupCacheField == albumField &&
-            albumGroupCacheDirection == albumDirection
+            albumGroupCacheDirection == albumDirection &&
+            persistedBrowsePresentationsMatchCurrentSort
         ) {
             return
         }
 
         val startedMs = SystemClock.elapsedRealtime()
+        val canReusePersistedGroups = persistedBrowseRevision == sourceRevision &&
+            persistedBrowseSplitRevision == splitRevision &&
+            persistedArtistGroups != null &&
+            persistedAlbumGroups != null
+        val readyArtists = artistGroupCache.takeIf {
+            artistGroupCacheRevision == sourceRevision &&
+                artistGroupCacheField == artistField &&
+                artistGroupCacheDirection == artistDirection
+        }
+        val readyAlbums = albumGroupCache.takeIf {
+            albumGroupCacheRevision == sourceRevision &&
+                albumGroupCacheField == albumField &&
+                albumGroupCacheDirection == albumDirection
+        }
+        val reusablePersistedArtists = persistedArtistPresentation.takeIf { canReusePersistedGroups }
+        val reusablePersistedAlbums = persistedAlbumPresentation.takeIf { canReusePersistedGroups }
         val prewarmed = withContext(backing.ioDispatcher) {
-            LibraryBrowse.artistGroupPresentation(source, artistField, artistDirection) to
-                LibraryBrowse.albumGroupPresentation(source, albumField, albumDirection)
+            val artists = readyArtists ?: reusablePersistedArtists ?: persistedArtistGroups
+                .takeIf { canReusePersistedGroups }?.let {
+                LibraryBrowse.artistGroupPresentationFromGroups(it, artistField, artistDirection)
+            } ?: LibraryBrowse.artistGroupPresentation(source, artistField, artistDirection)
+            val albums = readyAlbums ?: reusablePersistedAlbums ?: persistedAlbumGroups
+                .takeIf { canReusePersistedGroups }?.let {
+                LibraryBrowse.albumGroupPresentationFromGroups(it, albumField, albumDirection)
+            } ?: LibraryBrowse.albumGroupPresentation(source, albumField, albumDirection)
+            artists to albums
         }
         if (sourceRevision != backing.catalogRevision || splitRevision != artistSplitRevision) return
         artistGroupCacheRevision = sourceRevision
@@ -266,6 +308,28 @@ class MusicLibrary internal constructor(
         albumGroupCacheField = albumField
         albumGroupCacheDirection = albumDirection
         albumGroupCache = prewarmed.second
+        persistedArtistGroups = prewarmed.first.groups
+        persistedAlbumGroups = prewarmed.second.groups
+        persistedBrowseRevision = sourceRevision
+        persistedBrowseSplitRevision = splitRevision
+        persistedArtistPresentation = prewarmed.first
+        persistedAlbumPresentation = prewarmed.second
+        if (!canReusePersistedGroups || !persistedBrowsePresentationsMatchCurrentSort) {
+            withContext(backing.ioDispatcher) {
+                backing.libraryStore.updateBrowseGroups(
+                    artistGroups = prewarmed.first.groups,
+                    albumGroups = prewarmed.second.groups,
+                    artistConfigKey = ArtistNames.currentConfig().cacheKey(),
+                    artistSortField = artistField,
+                    artistSortDirection = artistDirection,
+                    artistFastScrollSectionTargets = prewarmed.first.fastScrollIndex?.sectionTargets,
+                    albumSortField = albumField,
+                    albumSortDirection = albumDirection,
+                    albumFastScrollSectionTargets = prewarmed.second.fastScrollIndex?.sectionTargets,
+                )
+            }
+            persistedBrowsePresentationsMatchCurrentSort = true
+        }
         DiagnosticLog.event(
             "LibraryLoad",
             "prewarmBrowseGroups durMs=${SystemClock.elapsedRealtime() - startedMs} " +
@@ -310,7 +374,29 @@ class MusicLibrary internal constructor(
     fun clearLibrary() = backing.folder.clearLibrary()
 
     /** 启动时从 Room 恢复上次扫描结果，避免每次冷启动都要重扫。 */
-    suspend fun loadCachedLibrary() = backing.cacheLoader.loadCachedLibrary()
+    suspend fun loadCachedLibrary(target: StartupBrowseTarget = StartupBrowseTarget.NONE) {
+        val cachedBrowse = backing.cacheLoader.loadCachedLibrary(target) ?: return
+        val revision = backing.catalogRevision
+        persistedArtistGroups = cachedBrowse.artistGroups
+        persistedAlbumGroups = cachedBrowse.albumGroups
+        persistedBrowseRevision = revision
+        persistedBrowseSplitRevision = artistSplitRevision
+        persistedArtistPresentation = cachedBrowse.persistedArtists
+        persistedAlbumPresentation = cachedBrowse.persistedAlbums
+        persistedBrowsePresentationsMatchCurrentSort = cachedBrowse.presentationsMatchCurrentSort
+        (cachedBrowse.artists ?: cachedBrowse.persistedArtists)?.let {
+            artistGroupCacheRevision = revision
+            artistGroupCacheField = cachedBrowse.artistField
+            artistGroupCacheDirection = cachedBrowse.artistDirection
+            artistGroupCache = it
+        }
+        (cachedBrowse.albums ?: cachedBrowse.persistedAlbums)?.let {
+            albumGroupCacheRevision = revision
+            albumGroupCacheField = cachedBrowse.albumField
+            albumGroupCacheDirection = cachedBrowse.albumDirection
+            albumGroupCache = it
+        }
+    }
 
     suspend fun rescan() = backing.scanOrchestrator.rescan()
 

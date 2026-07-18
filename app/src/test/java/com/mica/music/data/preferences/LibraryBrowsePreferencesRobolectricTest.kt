@@ -64,6 +64,19 @@ class LibraryBrowsePreferencesRobolectricTest {
     }
 
     @Test
+    fun lastHomeLocationRoundTripAndClearsPlaylist() {
+        LibraryBrowseSettings.setLastHomeLocation(context, "Playlist", "pl_7")
+
+        assertEquals("Playlist", LibraryBrowseSettings.lastHomeSection(context))
+        assertEquals("pl_7", LibraryBrowseSettings.lastHomePlaylistId(context))
+
+        LibraryBrowseSettings.setLastHomeLocation(context, "Albums", null)
+
+        assertEquals("Albums", LibraryBrowseSettings.lastHomeSection(context))
+        assertEquals(null, LibraryBrowseSettings.lastHomePlaylistId(context))
+    }
+
+    @Test
     fun artistSplitConfigRoundTrip() {
         assertEquals(ArtistSeparator.defaults, LibraryBrowseSettings.artistSplitConfig(context).enabledSeparators)
 

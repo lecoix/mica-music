@@ -9,7 +9,9 @@ import com.mica.music.data.LibraryPlaybackQueueCoordinator
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerController
 import com.mica.music.data.SleepTimerController
+import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.asLibraryPlaybackQueueTarget
+import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.data.toLibraryQueueSyncInput
 import com.mica.music.util.DiagnosticLog
@@ -33,16 +35,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val startupStartedMs = SystemClock.elapsedRealtime()
             DiagnosticLog.event("LibraryStartup", "loadCached start")
-            library.loadCachedLibrary()
+            val startupBrowseTarget = when (LibraryBrowseSettings.lastHomeSection(application)) {
+                "Artists" -> StartupBrowseTarget.ARTISTS
+                "Albums" -> StartupBrowseTarget.ALBUMS
+                else -> StartupBrowseTarget.NONE
+            }
+            library.loadCachedLibrary(startupBrowseTarget)
             val songs = library.songs
             DiagnosticLog.event(
                 "LibraryStartup",
                 "loadCached returned durMs=${SystemClock.elapsedRealtime() - startupStartedMs} " +
                     "songs=${songs.size} hasScanned=${library.hasScanned}",
             )
-            if (songs.isNotEmpty()) {
-                library.prewarmBrowseGroupCache()
-            }
             val pruneStartedMs = SystemClock.elapsedRealtime()
             ScanCacheManager.pruneAlbumArtCache(application, songs)
             DiagnosticLog.event(

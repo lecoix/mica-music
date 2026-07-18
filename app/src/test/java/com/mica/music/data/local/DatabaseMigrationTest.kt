@@ -278,6 +278,7 @@ class DatabaseMigrationTest {
         val metaColumns = tableColumns(db, "library_meta")
         val lyricsColumns = tableColumns(db, "song_lyrics")
         val pendingLyricsColumns = tableColumns(db, "song_lyrics_pending")
+        val browseGroupColumns = tableColumns(db, "browse_groups")
 
         assertTrue(
             songColumns.containsAll(
@@ -310,8 +311,29 @@ class DatabaseMigrationTest {
                 "sortField",
                 "sortDirection",
                 "fastScrollSectionsJson",
+                "browseArtistConfigKey",
+                "artistBrowseSortField",
+                "artistBrowseSortDirection",
+                "artistBrowseFastScrollSectionsJson",
+                "albumBrowseSortField",
+                "albumBrowseSortDirection",
+                "albumBrowseFastScrollSectionsJson",
             ),
             metaColumns,
+        )
+        assertEquals(
+            setOf(
+                "kind",
+                "title",
+                "subtitle",
+                "songCount",
+                "artist",
+                "year",
+                "albumArtUri",
+                "coverColorArgb",
+                "position",
+            ),
+            browseGroupColumns,
         )
         assertEquals(setOf("songId", "slot", "revision", "lyricsJson"), lyricsColumns)
         assertEquals(
@@ -416,6 +438,80 @@ class DatabaseMigrationTest {
         db.query("SELECT videoCoverUri FROM songs WHERE id = 'legacy'").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertTrue(cursor.isNull(0))
+        }
+        helper.close()
+    }
+
+    @Test
+    fun migrationElevenToTwelveAddsBrowseGroupCache() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(11) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE library_meta (id INTEGER NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO library_meta(id) VALUES (1)")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_11_12.migrate(db)
+
+        assertTrue(tableColumns(db, "library_meta").contains("browseArtistConfigKey"))
+        assertTrue(tableColumns(db, "browse_groups").containsAll(setOf("kind", "title", "songCount")))
+        db.query("SELECT browseArtistConfigKey FROM library_meta WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+        helper.close()
+    }
+
+    @Test
+    fun migrationTwelveToThirteenAddsReadyBrowsePresentationMetadata() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(12) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE library_meta (id INTEGER NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO library_meta(id) VALUES (1)")
+                        db.execSQL(
+                            "CREATE TABLE browse_groups (kind TEXT NOT NULL, title TEXT NOT NULL, " +
+                                "PRIMARY KEY(kind, title))",
+                        )
+                        db.execSQL("INSERT INTO browse_groups(kind, title) VALUES ('album', 'Legacy')")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_12_13.migrate(db)
+
+        assertTrue(tableColumns(db, "browse_groups").contains("position"))
+        assertTrue(
+            tableColumns(db, "library_meta").containsAll(
+                setOf(
+                    "artistBrowseSortField",
+                    "artistBrowseSortDirection",
+                    "artistBrowseFastScrollSectionsJson",
+                    "albumBrowseSortField",
+                    "albumBrowseSortDirection",
+                    "albumBrowseFastScrollSectionsJson",
+                ),
+            ),
+        )
+        db.query("SELECT position FROM browse_groups WHERE title = 'Legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
         }
         helper.close()
     }

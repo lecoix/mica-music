@@ -4,6 +4,12 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.ScanSource
+import com.mica.music.data.ArtistNames
+import com.mica.music.data.ArtistSplitConfig
+import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.BrowseGroup
+import com.mica.music.data.cacheKey
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.data.LyricsDocument
@@ -73,6 +79,56 @@ class LibraryRepositoryTest {
         repository.save(SongFixtures.queue(2), 100, ScanSource.DEVICE, 2)
         repository.clear()
         assertNull(repository.loadCached())
+    }
+
+    @Test
+    fun browseGroupsSurviveColdCacheRoundTrip() = runTest {
+        ArtistNames.configure(ArtistSplitConfig())
+        val songs = listOf(
+            SongFixtures.song("first").copy(artist = "Artist A / Artist B", album = "Album A"),
+            SongFixtures.song("second").copy(artist = "Artist A", album = "Album B"),
+        )
+
+        repository.save(songs, 100, ScanSource.DEVICE, 2)
+
+        val cached = repository.loadCached()!!
+        assertEquals(listOf("Artist A", "Artist B"), cached.artistGroups?.map { it.title })
+        assertEquals(listOf("Album A", "Album B"), cached.albumGroups?.map { it.title })
+    }
+
+    @Test
+    fun browsePresentationOrderAndFastScrollIndexSurviveColdCacheRoundTrip() = runTest {
+        repository.save(listOf(SongFixtures.song("cached")), 100, ScanSource.DEVICE, 1)
+        val artists = listOf(
+            BrowseGroup("Artist Z", "2 songs", 2),
+            BrowseGroup("Artist A", "1 song", 1),
+        )
+        val albums = listOf(
+            BrowseGroup("Album Z", "Artist Z", 2),
+            BrowseGroup("Album A", "Artist A", 1),
+        )
+
+        repository.updateBrowseGroups(
+            artistGroups = artists,
+            albumGroups = albums,
+            artistConfigKey = ArtistSplitConfig().cacheKey(),
+            artistSortField = ArtistBrowseSortField.SONG_COUNT,
+            artistSortDirection = SortDirection.DESC,
+            artistFastScrollSectionTargets = null,
+            albumSortField = AlbumBrowseSortField.TITLE,
+            albumSortDirection = SortDirection.DESC,
+            albumFastScrollSectionTargets = mapOf("Z" to 0, "A" to 1),
+        )
+
+        val cached = repository.loadCached()!!
+        assertEquals(artists, cached.artistGroups)
+        assertEquals(albums, cached.albumGroups)
+        assertEquals(ArtistBrowseSortField.SONG_COUNT, cached.artistBrowseSortField)
+        assertEquals(SortDirection.DESC, cached.artistBrowseSortDirection)
+        assertNull(cached.artistBrowseFastScrollSectionTargets)
+        assertEquals(AlbumBrowseSortField.TITLE, cached.albumBrowseSortField)
+        assertEquals(SortDirection.DESC, cached.albumBrowseSortDirection)
+        assertEquals(mapOf("Z" to 0, "A" to 1), cached.albumBrowseFastScrollSectionTargets)
     }
 
     @Test

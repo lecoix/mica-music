@@ -28,6 +28,185 @@ import org.robolectric.RobolectricTestRunner
 class MusicLibraryTest {
 
     @Test
+    fun coldSongRestoreDoesNotPrepareUnrelatedBrowseGroups() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val song = SongFixtures.song("cached").copy(artist = "Song Artist", album = "Song Album")
+        val library = library(
+            ControlledScanner(),
+            FakeLibraryStore(
+                cached = CachedLibrary(
+                    songs = listOf(song),
+                    lastScanAtMs = 100,
+                    lastScanSource = ScanSource.DEVICE,
+                    totalSizeMb = 1,
+                    artistGroups = listOf(BrowseGroup("Persisted Artist", "1 song", 1)),
+                    albumGroups = listOf(BrowseGroup("Persisted Album", "Persisted Artist", 1)),
+                    browseArtistConfigKey = ArtistSplitConfig().cacheKey(),
+                ),
+            ),
+        )
+
+        library.loadCachedLibrary(StartupBrowseTarget.NONE)
+
+        assertEquals(listOf("cached"), library.songs.map { it.id })
+        assertEquals(
+            listOf("Song Artist"),
+            library.artistGroupPresentation(ArtistBrowseSortField.TITLE, SortDirection.ASC).groups.map { it.title },
+        )
+        assertEquals(
+            listOf("Song Album"),
+            library.albumGroupPresentation(AlbumBrowseSortField.TITLE, SortDirection.ASC).groups.map { it.title },
+        )
+        library.release()
+    }
+
+    @Test
+    fun coldAlbumRestorePreparesOnlyTheAlbumBrowseGroups() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val song = SongFixtures.song("cached").copy(artist = "Song Artist", album = "Song Album")
+        val library = library(
+            ControlledScanner(),
+            FakeLibraryStore(
+                cached = CachedLibrary(
+                    songs = listOf(song),
+                    lastScanAtMs = 100,
+                    lastScanSource = ScanSource.DEVICE,
+                    totalSizeMb = 1,
+                    artistGroups = listOf(BrowseGroup("Persisted Artist", "1 song", 1)),
+                    albumGroups = listOf(
+                        BrowseGroup("Persisted Z", "Persisted Artist", 1),
+                        BrowseGroup("Persisted A", "Persisted Artist", 1),
+                    ),
+                    browseArtistConfigKey = ArtistSplitConfig().cacheKey(),
+                    albumBrowseSortField = AlbumBrowseSortField.TITLE,
+                    albumBrowseSortDirection = SortDirection.ASC,
+                    albumBrowseFastScrollSectionTargets = mapOf("Z" to 0, "A" to 1),
+                ),
+            ),
+        )
+
+        library.loadCachedLibrary(StartupBrowseTarget.ALBUMS)
+
+        assertEquals(
+            listOf("Persisted Z", "Persisted A"),
+            library.albumGroupPresentation(AlbumBrowseSortField.TITLE, SortDirection.ASC).groups.map { it.title },
+        )
+        assertEquals(
+            listOf("Song Artist"),
+            library.artistGroupPresentation(ArtistBrowseSortField.TITLE, SortDirection.ASC).groups.map { it.title },
+        )
+        library.release()
+    }
+
+    @Test
+    fun coldCacheHydratesBrowseGroupsWithoutRebuildingThem() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val song = SongFixtures.song("cached").copy(artist = "Song Metadata Artist", album = "Song Metadata Album")
+        val persistedArtist = BrowseGroup("Persisted Artist", "1 首", 1)
+        val persistedAlbum = BrowseGroup("Persisted Album", "Persisted Artist", 1)
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(
+                songs = listOf(song),
+                lastScanAtMs = 100,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+                artistGroups = listOf(persistedArtist),
+                albumGroups = listOf(persistedAlbum),
+                browseArtistConfigKey = ArtistSplitConfig().cacheKey(),
+                artistBrowseSortField = ArtistBrowseSortField.TITLE,
+                artistBrowseSortDirection = SortDirection.ASC,
+                artistBrowseFastScrollSectionTargets = mapOf("P" to 0),
+                albumBrowseSortField = AlbumBrowseSortField.TITLE,
+                albumBrowseSortDirection = SortDirection.ASC,
+                albumBrowseFastScrollSectionTargets = mapOf("P" to 0),
+            ),
+        )
+        val library = library(ControlledScanner(), store)
+
+        library.loadCachedLibrary()
+        library.prewarmBrowseGroupCache()
+
+        assertEquals(
+            listOf("Persisted Artist"),
+            library.artistGroupPresentation(ArtistBrowseSortField.TITLE, SortDirection.ASC).groups.map { it.title },
+        )
+        assertEquals(
+            listOf("Persisted Album"),
+            library.albumGroupPresentation(AlbumBrowseSortField.TITLE, SortDirection.ASC).groups.map { it.title },
+        )
+        assertEquals(0, store.browseGroupUpdateCount)
+        library.release()
+    }
+
+    @Test
+    fun changedBrowseSortRewritesTheReadyPresentationSnapshot() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(
+                songs = listOf(
+                    SongFixtures.song("a").copy(album = "Album A"),
+                    SongFixtures.song("z").copy(album = "Album Z"),
+                ),
+                lastScanAtMs = 100,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+                artistGroups = listOf(BrowseGroup("Artist", "2 songs", 2)),
+                albumGroups = listOf(BrowseGroup("Album A", "Artist", 1), BrowseGroup("Album Z", "Artist", 1)),
+                browseArtistConfigKey = ArtistSplitConfig().cacheKey(),
+                artistBrowseSortField = ArtistBrowseSortField.TITLE,
+                artistBrowseSortDirection = SortDirection.ASC,
+                artistBrowseFastScrollSectionTargets = mapOf("A" to 0),
+                albumBrowseSortField = AlbumBrowseSortField.TITLE,
+                albumBrowseSortDirection = SortDirection.ASC,
+                albumBrowseFastScrollSectionTargets = mapOf("A" to 0, "Z" to 1),
+            ),
+        )
+        val library = library(ControlledScanner(), store)
+        library.loadCachedLibrary()
+        LibraryBrowseSettings.setAlbumBrowseSort(context, AlbumBrowseSortField.TITLE, SortDirection.DESC)
+
+        library.albumGroupPresentation(AlbumBrowseSortField.TITLE, SortDirection.DESC)
+        library.prewarmBrowseGroupCache()
+
+        assertEquals(1, store.browseGroupUpdateCount)
+        assertEquals(SortDirection.DESC, store.updatedAlbumSortDirection)
+        library.release()
+    }
+
+    @Test
+    fun staleArtistRulesRejectPersistedBrowseGroupsAndRebuildOnce() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val song = SongFixtures.song("cached").copy(artist = "Current Artist", album = "Current Album")
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(
+                songs = listOf(song),
+                lastScanAtMs = 100,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+                artistGroups = listOf(BrowseGroup("Stale Artist", "1 首", 1)),
+                albumGroups = listOf(BrowseGroup("Stale Album", "Stale Artist", 1)),
+                browseArtistConfigKey = "stale-rules",
+            ),
+        )
+        val library = library(ControlledScanner(), store)
+
+        library.loadCachedLibrary()
+        library.prewarmBrowseGroupCache()
+
+        assertEquals(
+            listOf("Current Artist"),
+            library.artistGroupPresentation(ArtistBrowseSortField.TITLE, SortDirection.ASC).groups.map { it.title },
+        )
+        assertEquals(1, store.browseGroupUpdateCount)
+        library.release()
+    }
+
+    @Test
     fun successfulScanUsesCacheAndPublishesSyncResult() = runTest {
         val cached = SongFixtures.song("cached")
         val fresh = SongFixtures.song("fresh")
@@ -461,6 +640,8 @@ class MusicLibraryTest {
         var presentationSortDirection: SortDirection? = null
         var lyricsDocument: LyricsDocument = LyricsDocument()
         var lyricsLoadCount: Int = 0
+        var browseGroupUpdateCount: Int = 0
+        var updatedAlbumSortDirection: SortDirection? = null
 
         override suspend fun loadCached(): CachedLibrary? = cached
 
@@ -521,6 +702,21 @@ class MusicLibraryTest {
             presentationSongIds = songIds
             presentationSortField = sortField
             presentationSortDirection = sortDirection
+        }
+
+        override suspend fun updateBrowseGroups(
+            artistGroups: List<BrowseGroup>,
+            albumGroups: List<BrowseGroup>,
+            artistConfigKey: String,
+            artistSortField: ArtistBrowseSortField,
+            artistSortDirection: SortDirection,
+            artistFastScrollSectionTargets: Map<String, Int>?,
+            albumSortField: AlbumBrowseSortField,
+            albumSortDirection: SortDirection,
+            albumFastScrollSectionTargets: Map<String, Int>?,
+        ) {
+            browseGroupUpdateCount++
+            updatedAlbumSortDirection = albumSortDirection
         }
 
         override suspend fun clear() {

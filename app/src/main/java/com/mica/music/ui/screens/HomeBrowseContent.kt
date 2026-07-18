@@ -21,9 +21,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -59,6 +59,7 @@ import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 import com.mica.music.data.SortDirection
 import com.mica.music.ui.components.AlphabetFastScroller
+import com.mica.music.ui.components.EmptyStatePresets
 import com.mica.music.ui.components.BrowseGroupRow
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.SongListPanel
@@ -99,13 +100,20 @@ internal fun HomeBrowseContent(
     artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
+    artistListState: LazyListState,
+    artistGridState: LazyGridState,
+    albumListState: LazyListState,
+    albumGridState: LazyGridState,
     listBottomPadding: Dp = 0.dp,
     motionEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val artistListState = rememberLazyListState()
-    val albumListState = rememberLazyListState()
     val folderListState = rememberLazyListState()
+
+    if (library.isLoadingCachedLibrary && library.songs.isEmpty()) {
+        EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
+        return
+    }
 
     if (!library.hasScanned && library.songs.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -131,6 +139,7 @@ internal fun HomeBrowseContent(
                         ArtistGroupList(
                             library = library,
                             listState = artistListState,
+                            gridState = artistGridState,
                             onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
                             sortField = artistSortField,
                             sortDirection = artistSortDirection,
@@ -177,6 +186,7 @@ internal fun HomeBrowseContent(
                         AlbumGroupList(
                             library = library,
                             listState = albumListState,
+                            gridState = albumGridState,
                             onSelect = { onDestinationChange(BrowseDestination.Album(it)) },
                             sortField = albumSortField,
                             sortDirection = albumSortDirection,
@@ -869,6 +879,7 @@ private fun FolderDepthPage(
 private fun ArtistGroupList(
     library: MusicLibrary,
     listState: LazyListState,
+    gridState: LazyGridState,
     onSelect: (String) -> Unit,
     sortField: ArtistBrowseSortField,
     sortDirection: SortDirection,
@@ -881,6 +892,7 @@ private fun ArtistGroupList(
             library.artistGroupPresentation(sortField, sortDirection)
         }
     }
+    LaunchedEffect(presentation) { library.prewarmBrowseGroupCache() }
     val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无艺术家", modifier)
@@ -897,6 +909,7 @@ private fun ArtistGroupList(
     BrowseGroupList(
         groups = groups,
         listState = listState,
+        gridState = gridState,
         gridColumns = gridColumns,
         onSelect = onSelect,
         gridTitleMaxLines = 1,
@@ -912,6 +925,7 @@ private fun ArtistGroupList(
 private fun AlbumGroupList(
     library: MusicLibrary,
     listState: LazyListState,
+    gridState: LazyGridState,
     onSelect: (String) -> Unit,
     sortField: AlbumBrowseSortField,
     sortDirection: SortDirection,
@@ -924,6 +938,7 @@ private fun AlbumGroupList(
             library.albumGroupPresentation(sortField, sortDirection)
         }
     }
+    LaunchedEffect(presentation) { library.prewarmBrowseGroupCache() }
     val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无专辑", modifier)
@@ -940,6 +955,7 @@ private fun AlbumGroupList(
     BrowseGroupList(
         groups = groups,
         listState = listState,
+        gridState = gridState,
         gridColumns = gridColumns,
         onSelect = onSelect,
         rowSubtitle = ::albumRowSubtitle,
@@ -955,6 +971,7 @@ private fun AlbumGroupList(
 private fun BrowseGroupList(
     groups: List<BrowseGroup>,
     listState: LazyListState,
+    gridState: LazyGridState,
     gridColumns: Int,
     onSelect: (String) -> Unit,
     rowSubtitle: (BrowseGroup) -> String = { it.subtitle },
@@ -967,7 +984,6 @@ private fun BrowseGroupList(
 ) {
     val columns = gridColumns.coerceIn(1, 4)
     if (columns > 1) {
-        val gridState = rememberLazyGridState()
         if (fastScrollLabels == null) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),

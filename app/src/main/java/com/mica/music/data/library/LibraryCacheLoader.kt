@@ -1,22 +1,46 @@
 package com.mica.music.data.library
 
 import android.os.SystemClock
+import com.mica.music.data.AlbumBrowseSortField
+import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.ArtistNames
+import com.mica.music.data.BrowseGroup
+import com.mica.music.data.BrowseGroupPresentation
+import com.mica.music.data.LibraryBrowse
+import com.mica.music.data.SortDirection
+import com.mica.music.data.StartupBrowseTarget
+import com.mica.music.data.cacheKey
+import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.withContext
+
+internal data class CachedBrowsePresentations(
+    val artists: BrowseGroupPresentation?,
+    val albums: BrowseGroupPresentation?,
+    val persistedArtists: BrowseGroupPresentation?,
+    val persistedAlbums: BrowseGroupPresentation?,
+    val presentationsMatchCurrentSort: Boolean,
+    val artistGroups: List<BrowseGroup>?,
+    val albumGroups: List<BrowseGroup>?,
+    val artistField: ArtistBrowseSortField,
+    val artistDirection: SortDirection,
+    val albumField: AlbumBrowseSortField,
+    val albumDirection: SortDirection,
+)
 
 internal class LibraryCacheLoader(
     private val backing: MusicLibraryBacking,
 ) {
     private val catalog get() = backing.catalog
 
-    suspend fun loadCachedLibrary() {
+    suspend fun loadCachedLibrary(target: StartupBrowseTarget): CachedBrowsePresentations? {
         if (backing.released || backing.hasScanned || backing.isScanning) {
             DiagnosticLog.event(
                 "LibraryLoad",
                 "loadCached skipped released=${backing.released} hasScanned=${backing.hasScanned} " +
                     "isScanning=${backing.isScanning}",
             )
-            return
+            return null
         }
         val startedMs = SystemClock.elapsedRealtime()
         DiagnosticLog.event("LibraryLoad", "loadCached begin")
@@ -30,9 +54,9 @@ internal class LibraryCacheLoader(
             )
             if (cached == null) {
                 DiagnosticLog.event("LibraryLoad", "loadCached empty durMs=${SystemClock.elapsedRealtime() - startedMs}")
-                return
+                return null
             }
-            if (backing.released) return
+            if (backing.released) return null
             catalog.reloadSortFromPrefs()
             val sortCanUseStoredOrder = cached.sortField == backing.sortField &&
                 cached.sortDirection == backing.sortDirection &&
@@ -46,6 +70,75 @@ internal class LibraryCacheLoader(
                 useInputOrder = sortCanUseStoredOrder,
                 cachedSectionTargets = cached.fastScrollSectionTargets,
             )
+            val artistField = LibraryBrowseSettings.artistBrowseSortField(backing.context)
+            val artistDirection = LibraryBrowseSettings.artistBrowseSortDirection(backing.context)
+            val albumField = LibraryBrowseSettings.albumBrowseSortField(backing.context)
+            val albumDirection = LibraryBrowseSettings.albumBrowseSortDirection(backing.context)
+            val browseCacheValid =
+                cached.browseArtistConfigKey == ArtistNames.currentConfig().cacheKey() &&
+                cached.artistGroups != null &&
+                cached.albumGroups != null
+            val cachedArtistGroups = cached.artistGroups.takeIf { browseCacheValid }
+            val cachedAlbumGroups = cached.albumGroups.takeIf { browseCacheValid }
+            val artistSnapshotHit = browseCacheValid &&
+                cached.artistBrowseSortField == artistField &&
+                cached.artistBrowseSortDirection == artistDirection &&
+                (artistField != ArtistBrowseSortField.TITLE ||
+                    cached.artistBrowseFastScrollSectionTargets != null)
+            val albumSnapshotNeedsIndex = albumField == AlbumBrowseSortField.TITLE ||
+                albumField == AlbumBrowseSortField.ARTIST
+            val albumSnapshotHit = browseCacheValid &&
+                cached.albumBrowseSortField == albumField &&
+                cached.albumBrowseSortDirection == albumDirection &&
+                (!albumSnapshotNeedsIndex || cached.albumBrowseFastScrollSectionTargets != null)
+            val persistedArtists = cachedArtistGroups.takeIf { artistSnapshotHit }?.let {
+                LibraryBrowse.artistGroupPresentationFromPersistedOrder(
+                    it,
+                    artistField,
+                    cached.artistBrowseFastScrollSectionTargets,
+                )
+            }
+            val persistedAlbums = cachedAlbumGroups.takeIf { albumSnapshotHit }?.let {
+                LibraryBrowse.albumGroupPresentationFromPersistedOrder(
+                    it,
+                    albumField,
+                    cached.albumBrowseFastScrollSectionTargets,
+                )
+            }
+            val prepareBrowse = {
+                val artists = if (target == StartupBrowseTarget.ARTISTS) {
+                    persistedArtists ?: cachedArtistGroups?.let {
+                        LibraryBrowse.artistGroupPresentationFromGroups(it, artistField, artistDirection)
+                    } ?: LibraryBrowse.artistGroupPresentation(cached.songs, artistField, artistDirection)
+                } else {
+                    null
+                }
+                val albums = if (target == StartupBrowseTarget.ALBUMS) {
+                    persistedAlbums ?: cachedAlbumGroups?.let {
+                        LibraryBrowse.albumGroupPresentationFromGroups(it, albumField, albumDirection)
+                    } ?: LibraryBrowse.albumGroupPresentation(cached.songs, albumField, albumDirection)
+                } else {
+                    null
+                }
+                CachedBrowsePresentations(
+                    artists = artists,
+                    albums = albums,
+                    persistedArtists = persistedArtists,
+                    persistedAlbums = persistedAlbums,
+                    presentationsMatchCurrentSort = artistSnapshotHit && albumSnapshotHit,
+                    artistGroups = cachedArtistGroups ?: artists?.groups,
+                    albumGroups = cachedAlbumGroups ?: albums?.groups,
+                    artistField = artistField,
+                    artistDirection = artistDirection,
+                    albumField = albumField,
+                    albumDirection = albumDirection,
+                )
+            }
+            val cachedBrowse = if (target == StartupBrowseTarget.NONE) {
+                prepareBrowse()
+            } else {
+                withContext(backing.ioDispatcher) { prepareBrowse() }
+            }
             catalog.adoptPrepared(prepared)
             backing.totalSizeMb = cached.totalSizeMb
             backing.lastScanAtMs = cached.lastScanAtMs
@@ -61,6 +154,14 @@ internal class LibraryCacheLoader(
                     "songs=${backing.songs.size} sizeMb=${backing.totalSizeMb} source=${backing.lastScanSource} " +
                     "cachedOrder=$sortCanUseStoredOrder",
             )
+            DiagnosticLog.event(
+                "LibraryLoad",
+                "loadCached browseCache=${if (browseCacheValid) "hit" else "miss"} target=$target " +
+                    "artistSnapshot=$artistSnapshotHit albumSnapshot=$albumSnapshotHit " +
+                    "artists=${cachedBrowse?.artists?.groups?.size ?: 0} " +
+                    "albums=${cachedBrowse?.albums?.groups?.size ?: 0}",
+            )
+            return cachedBrowse
         } finally {
             backing.isLoadingCachedLibrary = false
         }

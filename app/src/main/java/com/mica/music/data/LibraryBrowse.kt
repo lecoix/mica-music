@@ -167,24 +167,58 @@ object LibraryBrowse {
         field: ArtistBrowseSortField,
         direction: SortDirection,
     ): BrowseGroupPresentation {
-        val groups = sortArtistGroups(groupByArtist(songs), field, direction)
+        return artistGroupPresentationFromGroups(groupByArtist(songs), field, direction)
+    }
+
+    fun artistGroupPresentationFromGroups(
+        baseGroups: List<BrowseGroup>,
+        field: ArtistBrowseSortField,
+        direction: SortDirection,
+    ): BrowseGroupPresentation {
+        val groups = sortArtistGroups(baseGroups, field, direction)
         return BrowseGroupPresentation(
             groups = groups,
             fastScrollIndex = fastScrollIndexFor(groups, artistFastScrollLabels(groups, field)),
         )
     }
 
+    fun artistGroupPresentationFromPersistedOrder(
+        groups: List<BrowseGroup>,
+        field: ArtistBrowseSortField,
+        sectionTargets: Map<String, Int>?,
+    ): BrowseGroupPresentation = BrowseGroupPresentation(
+        groups = groups,
+        fastScrollIndex = persistedFastScrollIndex(artistFastScrollLabels(groups, field), sectionTargets),
+    )
+
     fun albumGroupPresentation(
         songs: List<Song>,
         field: AlbumBrowseSortField,
         direction: SortDirection,
     ): BrowseGroupPresentation {
-        val groups = sortAlbumGroups(groupByAlbum(songs), field, direction)
+        return albumGroupPresentationFromGroups(groupByAlbum(songs), field, direction)
+    }
+
+    fun albumGroupPresentationFromGroups(
+        baseGroups: List<BrowseGroup>,
+        field: AlbumBrowseSortField,
+        direction: SortDirection,
+    ): BrowseGroupPresentation {
+        val groups = sortAlbumGroups(baseGroups, field, direction)
         return BrowseGroupPresentation(
             groups = groups,
             fastScrollIndex = fastScrollIndexFor(groups, albumFastScrollLabels(groups, field)),
         )
     }
+
+    fun albumGroupPresentationFromPersistedOrder(
+        groups: List<BrowseGroup>,
+        field: AlbumBrowseSortField,
+        sectionTargets: Map<String, Int>?,
+    ): BrowseGroupPresentation = BrowseGroupPresentation(
+        groups = groups,
+        fastScrollIndex = persistedFastScrollIndex(albumFastScrollLabels(groups, field), sectionTargets),
+    )
 
     private fun artistFastScrollLabels(groups: List<BrowseGroup>, field: ArtistBrowseSortField): List<String>? =
         when (field) {
@@ -207,6 +241,13 @@ object LibraryBrowse {
             labels = labels,
             sectionTargets = LibraryFastScrollIndex.sectionTargets(labels),
         )
+    }
+
+    private fun persistedFastScrollIndex(
+        labels: List<String>?,
+        sectionTargets: Map<String, Int>?,
+    ): FastScrollIndex? = labels?.let { values ->
+        sectionTargets?.let { FastScrollIndex(values, it) }
     }
 
     private fun summarizeAlbumArtists(songs: List<Song>): String {
