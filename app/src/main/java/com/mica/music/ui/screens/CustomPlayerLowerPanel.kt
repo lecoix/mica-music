@@ -42,8 +42,10 @@ private data class CustomLyricsVisual(
 )
 
 @Composable
-internal fun CustomPlayerLowerPanel(
+internal fun CustomPlayerPagePanel(
     config: PlayerLowerLayoutConfig,
+    coverBaseHeightDp: Float,
+    coverContent: @Composable (visualScale: Float) -> Unit,
     surfaceState: PlaybackSurfaceState,
     activeSong: Song,
     lyricsRenderState: LyricsRenderState,
@@ -80,102 +82,134 @@ internal fun CustomPlayerLowerPanel(
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
-        val fitScale = customLowerFitScale(maxHeight.value, normalized, visible)
+        val metrics = customPlayerLayoutMetrics(
+            panelHeightDp = maxHeight.value,
+            coverBaseHeightDp = coverBaseHeightDp,
+            config = normalized,
+            visible = visible,
+        )
+        val fitScale = metrics.fitScale
         Column(Modifier.fillMaxSize()) {
             Spacer(Modifier.height(normalized.topPaddingDp.dp * fitScale))
             Column(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(
                     space = normalized.spacingDp.dp * fitScale,
-                    alignment = if (hasLyrics) Alignment.Top else Alignment.CenterVertically,
+                    alignment = if (hasLyrics || PlayerLowerComponent.COVER in visible) {
+                        Alignment.Top
+                    } else {
+                        Alignment.CenterVertically
+                    },
                 ),
             ) {
                 visible.forEach { component ->
                     val scale = normalized.scalePercentOf(component) / 100f * fitScale
-                    when (component) {
-                PlayerLowerComponent.INFO -> DirectionalTrackWipe(
-                    targetState = activeSong,
-                    contentKey = Song::id,
-                    direction = trackSkipDirection,
-                    motionEnabled = trackWipeMotionEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                        },
-                ) { visualSong ->
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        if (playerInfoVisibility.hasAnyEnabledSegment()) {
-                            HiFiBadgeSection(
-                                song = visualSong,
-                                colors = infoColors,
-                                playerInfoVisibility = playerInfoVisibility,
-                                playbackTuning = playbackTuning,
+                    val itemHeightDp = customPlayerBaseHeightDp(
+                        component = component,
+                        lyricsLineCount = normalized.lyricsLineCount,
+                        coverBaseHeightDp = coverBaseHeightDp,
+                    ) * scale
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(itemHeightDp.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        when (component) {
+                            PlayerLowerComponent.COVER -> coverContent(scale)
+
+                            PlayerLowerComponent.INFO -> DirectionalTrackWipe(
+                                targetState = activeSong,
+                                contentKey = Song::id,
+                                direction = trackSkipDirection,
+                                motionEnabled = trackWipeMotionEnabled,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .graphicsLayer {
+                                        scaleX = scale
+                                        scaleY = scale
+                                    },
+                            ) { visualSong ->
+                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    if (playerInfoVisibility.hasAnyEnabledSegment()) {
+                                        HiFiBadgeSection(
+                                            song = visualSong,
+                                            colors = infoColors,
+                                            playerInfoVisibility = playerInfoVisibility,
+                                            playbackTuning = playbackTuning,
+                                        )
+                                    }
+                                }
+                            }
+
+                            PlayerLowerComponent.TITLE -> DirectionalTrackWipe(
+                                targetState = activeSong,
+                                contentKey = Song::id,
+                                direction = trackSkipDirection,
+                                motionEnabled = trackWipeMotionEnabled,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { visualSong ->
+                                SongTitleSection(
+                                    title = SongTitleDisplay.displayTitle(
+                                        visualSong.title,
+                                        stripSongTitleParentheses,
+                                    ),
+                                    artist = visualSong.artist,
+                                    album = visualSong.album,
+                                    isBuffering = surfaceState.isBuffering,
+                                    playbackError = surfaceState.playbackError,
+                                    colors = colors,
+                                    immersiveProgress = 0f,
+                                    contentScale = scale,
+                                )
+                            }
+
+                            PlayerLowerComponent.LYRICS -> DirectionalTrackWipe(
+                                targetState = CustomLyricsVisual(
+                                    activeSong,
+                                    lyricsRenderState,
+                                    surfaceState.isPlaying,
+                                ),
+                                contentKey = { it.song.id },
+                                direction = trackSkipDirection,
+                                motionEnabled = trackWipeMotionEnabled,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .fillMaxWidth(),
+                            ) { visual ->
+                                CustomLyricsBlock(
+                                    renderState = visual.renderState,
+                                    isPlaying = visual.isPlaying,
+                                    colors = lyricsColors,
+                                    bilingualDisplayMode = bilingualDisplayMode,
+                                    contentScale = scale,
+                                    lineSlots = normalized.lyricsLineCount,
+                                    onOpenLyrics = onOpenLyrics,
+                                )
+                            }
+
+                            PlayerLowerComponent.PROGRESS -> PlayerProgressBarSection(
+                                seekState = seekState,
+                                colors = colors,
+                                spectrumEnabled = spectrumEnabled,
+                                spectrumPlaying = surfaceState.isPlaying,
+                                spectrumHeight = 56.dp * scale,
+                                visualScale = scale,
+                                modifier = Modifier.padding(horizontal = HifiSpacing.lg),
+                            )
+
+                            PlayerLowerComponent.CONTROLS -> PlayerPlaybackControlsSection(
+                                surfaceState = surfaceState,
+                                colors = colors,
+                                onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+                                onPrevious = onPrevious,
+                                onTogglePlay = onTogglePlay,
+                                onNext = onNext,
+                                onOpenQueue = onOpenQueue,
+                                visualScale = scale,
+                                modifier = Modifier.padding(horizontal = HifiSpacing.lg),
                             )
                         }
-                    }
-                }
-
-                PlayerLowerComponent.TITLE -> DirectionalTrackWipe(
-                    targetState = activeSong,
-                    contentKey = Song::id,
-                    direction = trackSkipDirection,
-                    motionEnabled = trackWipeMotionEnabled,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { visualSong ->
-                    SongTitleSection(
-                        title = SongTitleDisplay.displayTitle(visualSong.title, stripSongTitleParentheses),
-                        artist = visualSong.artist,
-                        album = visualSong.album,
-                        isBuffering = surfaceState.isBuffering,
-                        playbackError = surfaceState.playbackError,
-                        colors = colors,
-                        immersiveProgress = 0f,
-                        contentScale = scale,
-                    )
-                }
-
-                PlayerLowerComponent.LYRICS -> DirectionalTrackWipe(
-                    targetState = CustomLyricsVisual(activeSong, lyricsRenderState, surfaceState.isPlaying),
-                    contentKey = { it.song.id },
-                    direction = trackSkipDirection,
-                    motionEnabled = trackWipeMotionEnabled,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) { visual ->
-                    CustomLyricsBlock(
-                        renderState = visual.renderState,
-                        isPlaying = visual.isPlaying,
-                        colors = lyricsColors,
-                        bilingualDisplayMode = bilingualDisplayMode,
-                        contentScale = scale,
-                        onOpenLyrics = onOpenLyrics,
-                    )
-                }
-
-                PlayerLowerComponent.PROGRESS -> PlayerProgressBarSection(
-                    seekState = seekState,
-                    colors = colors,
-                    spectrumEnabled = spectrumEnabled,
-                    spectrumPlaying = surfaceState.isPlaying,
-                    spectrumHeight = 56.dp * scale,
-                    visualScale = scale,
-                    modifier = Modifier.padding(horizontal = HifiSpacing.lg),
-                )
-
-                PlayerLowerComponent.CONTROLS -> PlayerPlaybackControlsSection(
-                    surfaceState = surfaceState,
-                    colors = colors,
-                    onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
-                    onPrevious = onPrevious,
-                    onTogglePlay = onTogglePlay,
-                    onNext = onNext,
-                    onOpenQueue = onOpenQueue,
-                    visualScale = scale,
-                    modifier = Modifier.padding(horizontal = HifiSpacing.lg),
-                )
                     }
                 }
             }
@@ -184,27 +218,64 @@ internal fun CustomPlayerLowerPanel(
     }
 }
 
-internal fun customLowerFitScale(
+internal data class CustomPlayerLayoutMetrics(
+    val fitScale: Float,
+    val coverVisualScale: Float,
+    val coverTopDp: Float?,
+)
+
+internal fun customPlayerLayoutMetrics(
     panelHeightDp: Float,
+    coverBaseHeightDp: Float,
     config: PlayerLowerLayoutConfig,
     visible: List<PlayerLowerComponent> = config.order.filter(config::isVisible),
-): Float {
-    if (panelHeightDp <= 0f || visible.isEmpty()) return 1f
+): CustomPlayerLayoutMetrics {
+    if (panelHeightDp <= 0f || visible.isEmpty()) {
+        return CustomPlayerLayoutMetrics(fitScale = 1f, coverVisualScale = 1f, coverTopDp = null)
+    }
+    val normalized = config.normalized()
     val componentsHeight = visible.sumOf { component ->
-        customLowerBaseHeightDp(component).toDouble() * config.scalePercentOf(component) / 100.0
+        customPlayerBaseHeightDp(component, normalized.lyricsLineCount, coverBaseHeightDp).toDouble() *
+            normalized.scalePercentOf(component) / 100.0
     }.toFloat()
-    val gapsHeight = config.spacingDp * (visible.size - 1).coerceAtLeast(0)
-    val desiredHeight = componentsHeight + gapsHeight + config.topPaddingDp + config.bottomPaddingDp
-    return if (desiredHeight <= panelHeightDp) 1f else (panelHeightDp / desiredHeight).coerceIn(0f, 1f)
+    val gapsHeight = normalized.spacingDp * (visible.size - 1).coerceAtLeast(0)
+    val desiredHeight = componentsHeight + gapsHeight + normalized.topPaddingDp + normalized.bottomPaddingDp
+    val fitScale = if (desiredHeight <= panelHeightDp) {
+        1f
+    } else {
+        (panelHeightDp / desiredHeight).coerceIn(0f, 1f)
+    }
+    var topDp = normalized.topPaddingDp * fitScale
+    var coverTopDp: Float? = null
+    visible.forEachIndexed { index, component ->
+        if (component == PlayerLowerComponent.COVER) coverTopDp = topDp
+        topDp += customPlayerBaseHeightDp(component, normalized.lyricsLineCount, coverBaseHeightDp) *
+            normalized.scalePercentOf(component) / 100f * fitScale
+        if (index < visible.lastIndex) topDp += normalized.spacingDp * fitScale
+    }
+    return CustomPlayerLayoutMetrics(
+        fitScale = fitScale,
+        coverVisualScale = normalized.scalePercentOf(PlayerLowerComponent.COVER) / 100f * fitScale,
+        coverTopDp = coverTopDp,
+    )
 }
 
-internal fun customLowerBaseHeightDp(component: PlayerLowerComponent): Float = when (component) {
+internal fun customPlayerBaseHeightDp(
+    component: PlayerLowerComponent,
+    lyricsLineCount: Int = PlayerLowerLayoutConfig.DEFAULT_LYRICS_LINE_COUNT,
+    coverBaseHeightDp: Float = DefaultCustomCoverBaseHeightDp,
+): Float = when (component) {
+    PlayerLowerComponent.COVER -> coverBaseHeightDp.coerceAtLeast(0f)
     PlayerLowerComponent.INFO -> 24f
     PlayerLowerComponent.TITLE -> 72f
-    PlayerLowerComponent.LYRICS -> 112f
+    PlayerLowerComponent.LYRICS -> if (
+        lyricsLineCount == PlayerLowerLayoutConfig.SINGLE_LYRICS_LINE_COUNT
+    ) 48f else 112f
     PlayerLowerComponent.PROGRESS -> 64f
     PlayerLowerComponent.CONTROLS -> 80f
 }
+
+private const val DefaultCustomCoverBaseHeightDp = 360f
 
 @Composable
 private fun CustomLyricsBlock(
@@ -213,13 +284,14 @@ private fun CustomLyricsBlock(
     colors: PlayerContentColors,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     contentScale: Float,
+    lineSlots: Int,
     onOpenLyrics: () -> Unit,
 ) {
     LyricsSection(
         renderState = renderState,
         isPlaying = isPlaying,
         colors = colors,
-        lineSlots = if (contentScale in 0.9f..1.4f) 3 else 1,
+        lineSlots = lineSlots,
         onClick = onOpenLyrics,
         bilingualDisplayMode = bilingualDisplayMode,
         contentScale = contentScale,

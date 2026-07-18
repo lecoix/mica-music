@@ -32,6 +32,7 @@ object PlaybackUiPreferences {
     private const val KEY_CUSTOM_PLAYER_LOWER_SPACING = "custom_player_lower_spacing"
     private const val KEY_CUSTOM_PLAYER_LOWER_TOP_PADDING = "custom_player_lower_top_padding"
     private const val KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING = "custom_player_lower_bottom_padding"
+    private const val KEY_CUSTOM_PLAYER_LOWER_LYRICS_LINES = "custom_player_lower_lyrics_lines"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -179,10 +180,15 @@ object PlaybackUiPreferences {
 
     fun customPlayerLowerLayout(context: Context): PlayerLowerLayoutConfig {
         val prefs = MicaSettingsStore.prefs(context)
-        val order = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_ORDER, null)
+        val storedOrder = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_ORDER, null)
             ?.split(',')
             ?.mapNotNull(PlayerLowerComponent::fromStorage)
             .orEmpty()
+        val order = when {
+            storedOrder.isEmpty() -> PlayerLowerLayoutConfig.Default.order
+            PlayerLowerComponent.COVER !in storedOrder -> listOf(PlayerLowerComponent.COVER) + storedOrder
+            else -> storedOrder
+        }
         val hidden = prefs.getStringSet(KEY_CUSTOM_PLAYER_LOWER_HIDDEN, emptySet())
             .orEmpty()
             .mapNotNull(PlayerLowerComponent::fromStorage)
@@ -213,6 +219,10 @@ object PlaybackUiPreferences {
                 KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING,
                 PlayerLowerLayoutConfig.DEFAULT_BOUNDARY_PADDING_DP,
             ),
+            lyricsLineCount = prefs.getInt(
+                KEY_CUSTOM_PLAYER_LOWER_LYRICS_LINES,
+                PlayerLowerLayoutConfig.DEFAULT_LYRICS_LINE_COUNT,
+            ),
         ).normalized()
     }
 
@@ -236,6 +246,7 @@ object PlaybackUiPreferences {
             .putInt(KEY_CUSTOM_PLAYER_LOWER_SPACING, normalized.spacingDp)
             .putInt(KEY_CUSTOM_PLAYER_LOWER_TOP_PADDING, normalized.topPaddingDp)
             .putInt(KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING, normalized.bottomPaddingDp)
+            .putInt(KEY_CUSTOM_PLAYER_LOWER_LYRICS_LINES, normalized.lyricsLineCount)
             .apply()
     }
 

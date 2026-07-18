@@ -4,6 +4,7 @@ enum class PlayerLowerComponent(
     val storageValue: String,
     val settingsLabel: String,
 ) {
+    COVER("cover", "专辑封面"),
     INFO("info", "信息行"),
     TITLE("title", "歌曲标题"),
     LYRICS("lyrics", "紧凑歌词"),
@@ -24,6 +25,7 @@ data class PlayerLowerLayoutConfig(
     val spacingDp: Int = DEFAULT_SPACING_DP,
     val topPaddingDp: Int = DEFAULT_BOUNDARY_PADDING_DP,
     val bottomPaddingDp: Int = DEFAULT_BOUNDARY_PADDING_DP,
+    val lyricsLineCount: Int = DEFAULT_LYRICS_LINE_COUNT,
 ) {
     fun normalized(): PlayerLowerLayoutConfig {
         val normalizedOrder = order.distinct() + PlayerLowerComponent.entries.filterNot(order::contains)
@@ -36,6 +38,7 @@ data class PlayerLowerLayoutConfig(
             spacingDp = spacingDp.coerceIn(MIN_SPACING_DP, MAX_SPACING_DP),
             topPaddingDp = topPaddingDp.coerceIn(MIN_BOUNDARY_PADDING_DP, MAX_BOUNDARY_PADDING_DP),
             bottomPaddingDp = bottomPaddingDp.coerceIn(MIN_BOUNDARY_PADDING_DP, MAX_BOUNDARY_PADDING_DP),
+            lyricsLineCount = normalizeLyricsLineCount(lyricsLineCount),
         )
     }
 
@@ -76,6 +79,11 @@ data class PlayerLowerLayoutConfig(
         const val MIN_BOUNDARY_PADDING_DP = 0
         const val MAX_BOUNDARY_PADDING_DP = 120
         const val DEFAULT_BOUNDARY_PADDING_DP = 16
+        const val SINGLE_LYRICS_LINE_COUNT = 1
+        const val THREE_LYRICS_LINE_COUNT = 3
+        const val DEFAULT_LYRICS_LINE_COUNT = THREE_LYRICS_LINE_COUNT
+        fun normalizeLyricsLineCount(value: Int): Int =
+            if (value == SINGLE_LYRICS_LINE_COUNT) SINGLE_LYRICS_LINE_COUNT else THREE_LYRICS_LINE_COUNT
         val Default = PlayerLowerLayoutConfig()
     }
 }

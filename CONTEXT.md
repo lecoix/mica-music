@@ -213,7 +213,7 @@ _Avoid_: mini bar、bottom player、now playing bar
 _Avoid_: bottom sheet、footer
 
 **自定义下半屏布局（custom lower layout）**：
-`CUSTOM_STANDARD` 专属的受约束布局：五个区域块（信息行、歌曲标题、紧凑歌词、进度条、播放控制）可排序、按 `50%..200%` 缩放、隐藏并统一调节间距；顶部与底部留白分别可调。该主题可单独开启“点击封面暂停/播放”，默认关闭，不改变长按菜单或滑动切歌。`PlayerLowerLayoutConfig` 经 `PlaybackUiPreferences` 持久化；配置总高度超过下半屏时统一按比例收敛并裁边兜底。它不是任意 XY 画布，不允许组件绕过安全布局自行偏移。
+`CUSTOM_STANDARD` 专属的受约束布局：六个区域块（专辑封面、信息行、歌曲标题、紧凑歌词、进度条、播放控制）可长按拖拽排序、按 `50%..200%` 缩放、隐藏并统一调节间距；顶部与底部留白分别可调。封面虽然加入统一纵向布局，仍保留点击、长按与横向滑动切歌手势。该主题可单独开启“点击封面暂停/播放”，默认关闭。`PlayerLowerLayoutConfig` 经 `PlaybackUiPreferences` 持久化；旧五组件顺序读取时在顶部补入封面；配置总高度超过屏幕安全区域时统一按比例收敛并裁边兜底。它不是任意 XY 画布，不允许组件绕过安全布局自行偏移。
 _Avoid_: layout editor（泛指设置页时）、自由画布、custom theme（未指封面行为时）
 
 **Playback chrome（播放控制区）**：

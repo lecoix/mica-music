@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -43,6 +45,7 @@ import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerCoverFlowMode
+import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
@@ -52,6 +55,7 @@ import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.PlaybackTuningSheet
+import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.SleepTimerSheet
 import com.mica.music.ui.components.SongActionMenuSheet
 import com.mica.music.ui.components.SongMenuAction
@@ -433,19 +437,47 @@ fun NowPlayingContent(
                 coverSwitching = coverMotionActive,
             ) ?: return@BoxWithConstraints
             val previewFrame = pageModel.frameFor(screenHeight * 0.45f)
+            val customLayout = uiSettings.customPlayerLowerLayout.normalized()
+            val customPanelHeight = (
+                fullHeight - contentPadding.calculateTopPadding() - contentPadding.calculateBottomPadding()
+            ).coerceAtLeast(0.dp)
+            val customMetrics = customPlayerLayoutMetrics(
+                panelHeightDp = customPanelHeight.value,
+                coverBaseHeightDp = previewFrame.cover.blockHeight.value,
+                config = customLayout,
+            )
+            val customCoverVisible = uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
+                customLayout.isVisible(PlayerLowerComponent.COVER)
+            val customCoverFrame = if (customCoverVisible && customMetrics.coverTopDp != null) {
+                val scale = customMetrics.coverVisualScale
+                previewFrame.cover.copy(
+                    width = previewFrame.cover.width * scale,
+                    height = previewFrame.cover.height * scale,
+                    startPadding = fullWidth * (1f - scale) / 2f + previewFrame.cover.startPadding * scale,
+                    topPadding = customMetrics.coverTopDp.dp + previewFrame.cover.topPadding * scale,
+                    blockHeight = previewFrame.cover.blockHeight * scale,
+                    zoneStop = ((customMetrics.coverTopDp + previewFrame.cover.blockHeight.value * scale) /
+                        customPanelHeight.value.coerceAtLeast(1f)).coerceIn(
+                        0.12f,
+                        PlayerCoverMaxScreenFraction,
+                    ),
+                )
+            } else {
+                previewFrame.cover
+            }
 
             val motionEnabled = rememberMicaMotionEnabled()
             val backgroundZoneStop = if (fullHeight.value > 0f) {
-                previewFrame.cover.zoneStop * (screenHeight.value / fullHeight.value)
+                customCoverFrame.zoneStop * (screenHeight.value / fullHeight.value)
             } else {
-                previewFrame.cover.zoneStop
+                customCoverFrame.zoneStop
             }
             val coverWipeEnabled =
                 uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD ||
-                    uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
+                    (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD && customCoverVisible)
             val coverWipeTarget = PlayerCoverWipeVisual(
                 song = song,
-                cover = previewFrame.cover,
+                cover = customCoverFrame,
                 coverColor = appearance.coverColor,
                 backgroundMode = lowerBackground,
                 backgroundZoneStop = backgroundZoneStop,
@@ -499,6 +531,54 @@ fun NowPlayingContent(
                 } else {
                     actions.previous()
                 }
+            }
+            LaunchedEffect(customCoverVisible) {
+                if (!customCoverVisible && uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
+                    onCoverBoundsChanged(null)
+                }
+            }
+            val coverSection: @Composable (Modifier) -> Unit = { coverModifier ->
+                NowPlayingCoverSection(
+                    song = pageModel.song,
+                    queue = pageModel.queue,
+                    currentIndex = pageModel.currentIndex,
+                    frame = previewFrame,
+                    coverColor = appearance.coverColor,
+                    contentColors = playerUiColors,
+                    lowerBackground = lowerBackground,
+                    artworkJunction = appearance.artworkJunction,
+                    seekState = seekState,
+                    isPlaying = pageModel.isPlaying,
+                    coverFlowMode = uiSettings.playerCoverFlowMode,
+                    videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled,
+                    particleCoverTuning = uiSettings.particleCoverTuning,
+                    lyricsExpanded = classicLyricsExpanded,
+                    coverContentAlpha = coverContentAlpha,
+                    onCoverBoundsChanged = onCoverBoundsChanged,
+                    onCoverAspectRatioChanged = { coverAspectRatio = it },
+                    onCloseLyrics = { lyricsExpanded = false },
+                    onCoverClick = if (
+                        uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
+                        uiSettings.customStandardCoverTapPlayPause
+                    ) {
+                        actions.togglePlay
+                    } else {
+                        null
+                    },
+                    onPlayQueueIndex = { index ->
+                        TrackSwitchPerformance.armTrigger("queue-select")
+                        actions.playQueueIndex(index)
+                    },
+                    onPrevious = actions.previous,
+                    onNext = actions.next,
+                    onCoverLongPress = { openSongActionMenu(song) },
+                    onCoverMotionActiveChanged = { coverMotionActive = it },
+                    coverFlowNavigation = coverFlowNavigation,
+                    photoStackNavigation = photoStackNavigation,
+                    screenWidth = screenWidth,
+                    stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
+                    modifier = coverModifier,
+                )
             }
 
             NowPlayingBackground(
@@ -582,51 +662,60 @@ fun NowPlayingContent(
                 onMotionActiveChanged = { coverMotionActive = it },
             )
 
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(contentPadding),
-            ) {
-                    NowPlayingCoverSection(
-                        song = pageModel.song,
-                        queue = pageModel.queue,
-                        currentIndex = pageModel.currentIndex,
-                        frame = previewFrame,
-                        coverColor = appearance.coverColor,
-                        contentColors = playerUiColors,
-                        lowerBackground = lowerBackground,
-                        artworkJunction = appearance.artworkJunction,
-                        seekState = seekState,
-                        isPlaying = pageModel.isPlaying,
-                        coverFlowMode = uiSettings.playerCoverFlowMode,
-                        videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled,
-                        particleCoverTuning = uiSettings.particleCoverTuning,
-                        lyricsExpanded = classicLyricsExpanded,
-                        coverContentAlpha = coverContentAlpha,
-                        onCoverBoundsChanged = onCoverBoundsChanged,
-                        onCoverAspectRatioChanged = { coverAspectRatio = it },
-                        onCloseLyrics = { lyricsExpanded = false },
-                        onCoverClick = if (
-                            uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
-                            uiSettings.customStandardCoverTapPlayPause
-                        ) {
-                            actions.togglePlay
-                        } else {
-                            null
-                        },
-                        onPlayQueueIndex = { index ->
-                            TrackSwitchPerformance.armTrigger("queue-select")
-                            actions.playQueueIndex(index)
-                        },
-                        onPrevious = actions.previous,
-                        onNext = actions.next,
-                        onCoverLongPress = { openSongActionMenu(song) },
-                        onCoverMotionActiveChanged = { coverMotionActive = it },
-                        coverFlowNavigation = coverFlowNavigation,
-                        photoStackNavigation = photoStackNavigation,
-                        screenWidth = screenWidth,
-                        stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
-                        modifier = Modifier
+            if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
+                CustomPlayerPagePanel(
+                    config = customLayout,
+                    coverBaseHeightDp = previewFrame.cover.blockHeight.value,
+                    coverContent = { visualScale ->
+                        coverSection(
+                            Modifier
+                                .requiredHeight(previewFrame.cover.blockHeight)
+                                .graphicsLayer {
+                                    scaleX = visualScale
+                                    scaleY = visualScale
+                                }
+                                .playerCoverIncomingWipe(
+                                    state = coverWipeState,
+                                    target = coverWipeTarget,
+                                    pendingDirection = localTrackWipeDirection,
+                                ),
+                        )
+                    },
+                    surfaceState = surfaceState,
+                    activeSong = song,
+                    lyricsRenderState = lyricsRenderState,
+                    autoContentColors = appearance.contentColors,
+                    colors = playerUiColors,
+                    hifiBadgeColors = appearance.hifiBadgeColors,
+                    playerPageTextColorMode = uiSettings.playerPageTextColorMode,
+                    lowerBackground = lowerBackground,
+                    seekState = seekState,
+                    lyricsTextColorMode = uiSettings.lyricsPageTextColorMode,
+                    bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                    stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
+                    playerInfoVisibility = uiSettings.playerInfoVisibility,
+                    playbackTuning = surfaceState.playbackTuning,
+                    spectrumEnabled = previewFrame.spectrumEnabled,
+                    trackSkipDirection = localTrackWipeDirection,
+                    trackWipeMotionEnabled = motionEnabled,
+                    onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
+                    onPrevious = onPlayerPrevious,
+                    onTogglePlay = actions.togglePlay,
+                    onNext = onPlayerNext,
+                    onOpenLyrics = { lyricsExpanded = true },
+                    onOpenQueue = { queueSheetOpen = true },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                )
+            } else {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                ) {
+                    coverSection(
+                        Modifier
                             .playerCoverIncomingWipe(
                                 state = coverWipeState,
                                 target = coverWipeTarget,
@@ -638,7 +727,7 @@ fun NowPlayingContent(
                                 } else {
                                     0f
                                 }
-                            }
+                            },
                     )
                     BoxWithConstraints(
                         modifier = Modifier
@@ -652,8 +741,7 @@ fun NowPlayingContent(
                                 }
                             },
                     ) {
-                        val panelHeight = maxHeight
-                        val actualFrame = pageModel.frameFor(panelHeight)
+                        val actualFrame = pageModel.frameFor(maxHeight)
                         PlayerLowerPanelSection(
                             surfaceState = surfaceState,
                             activeSong = song,
@@ -679,9 +767,6 @@ fun NowPlayingContent(
                             playerInfoVisibility = uiSettings.playerInfoVisibility,
                             playbackTuning = surfaceState.playbackTuning,
                             spectrumEnabled = actualFrame.spectrumEnabled,
-                            customLayout = uiSettings.customPlayerLowerLayout.takeIf {
-                                uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
-                            },
                             trackSkipDirection = localTrackWipeDirection,
                             trackWipeMotionEnabled = motionEnabled,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
@@ -698,6 +783,7 @@ fun NowPlayingContent(
                         )
                     }
                 }
+            }
                 OutgoingCoverArtworkWipe(
                     state = coverWipeState,
                     target = coverWipeTarget,

@@ -128,7 +128,12 @@ class PlaybackUiPreferencesRobolectricTest {
             .move(PlayerLowerComponent.CONTROLS, -2)
             .withVisibility(PlayerLowerComponent.INFO, false)
             .withScalePercent(PlayerLowerComponent.TITLE, 175)
-            .copy(spacingDp = 16, topPaddingDp = 32, bottomPaddingDp = 48)
+            .copy(
+                spacingDp = 16,
+                topPaddingDp = 32,
+                bottomPaddingDp = 48,
+                lyricsLineCount = PlayerLowerLayoutConfig.SINGLE_LYRICS_LINE_COUNT,
+            )
 
         PlaybackUiPreferences.setCustomPlayerLowerLayout(context, config)
 
@@ -145,6 +150,20 @@ class PlaybackUiPreferencesRobolectricTest {
 
         assertEquals(85, config.scalePercentOf(PlayerLowerComponent.INFO))
         assertEquals(115, config.scalePercentOf(PlayerLowerComponent.TITLE))
+    }
+
+    @Test
+    fun legacyCustomPlayerOrderAddsCoverAtTop() {
+        MicaSettingsStore.prefs(context).edit()
+            .putString("custom_player_lower_order", "title,lyrics,progress,controls,info")
+            .apply()
+
+        val config = PlaybackUiPreferences.customPlayerLowerLayout(context)
+
+        assertEquals(PlayerLowerComponent.COVER, config.order.first())
+        assertEquals(PlayerLowerComponent.entries.toSet(), config.order.toSet())
+        assertTrue(config.isVisible(PlayerLowerComponent.COVER))
+        assertEquals(PlayerLowerLayoutConfig.DEFAULT_SCALE_PERCENT, config.scalePercentOf(PlayerLowerComponent.COVER))
     }
 
     @Test

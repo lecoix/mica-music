@@ -4,25 +4,29 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.QueueMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowDownward
-import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material3.HorizontalDivider
@@ -30,31 +34,50 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerLayoutConfig
+import com.mica.music.ui.components.AccentTextChoice
 import com.mica.music.ui.components.PlaybackTuningRuler
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.TextToggle
-import com.mica.music.ui.screens.customLowerBaseHeightDp
-import com.mica.music.ui.screens.customLowerFitScale
+import com.mica.music.ui.screens.customPlayerBaseHeightDp
+import com.mica.music.ui.screens.customPlayerLayoutMetrics
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import java.util.Locale
 import kotlin.math.roundToInt
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
-private const val PreviewPanelHeightDp = 420f
+private val ComponentEditorListHeight = 520.dp
+
+internal fun moveCustomPlayerComponent(
+    items: MutableList<PlayerLowerComponent>,
+    fromIndex: Int,
+    toIndex: Int,
+): Boolean {
+    if (fromIndex !in items.indices || toIndex !in items.indices || fromIndex == toIndex) return false
+    val moved = items.removeAt(fromIndex)
+    items.add(toIndex, moved)
+    return true
+}
 
 @Composable
 internal fun CustomPlayerLayoutEditor(
@@ -92,22 +115,62 @@ internal fun CustomPlayerLayoutEditor(
     )
 
     SettingsSectionTitle("组件顺序、大小与显示")
-    normalized.order.forEachIndexed { index, component ->
-        CustomPlayerComponentEditorRow(
-            component = component,
-            scalePercent = normalized.scalePercentOf(component),
-            visible = normalized.isVisible(component),
-            canMoveUp = index > 0,
-            canMoveDown = index < normalized.order.lastIndex,
-            onMoveUp = { onChange(normalized.move(component, -1)) },
-            onMoveDown = { onChange(normalized.move(component, 1)) },
-            onVisibleChange = { visible ->
-                onChange(normalized.withVisibility(component, visible))
-            },
-            onScaleChange = { percent ->
-                onChange(normalized.withScalePercent(component, percent))
-            },
-        )
+    Text(
+        text = "长按每项右侧的拖动手柄调整顺序",
+        style = MicaTheme.typography.caption,
+        color = MicaTheme.colors.textTertiary,
+        modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
+    )
+    val haptic = LocalHapticFeedback.current
+    val componentItems = remember { mutableStateListOf<PlayerLowerComponent>() }
+    val currentConfig by rememberUpdatedState(normalized)
+    val currentOnChange by rememberUpdatedState(onChange)
+    LaunchedEffect(normalized.order) {
+        if (componentItems.toList() != normalized.order) {
+            componentItems.clear()
+            componentItems.addAll(normalized.order)
+        }
+    }
+    val componentListState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(componentListState) { from, to ->
+        if (moveCustomPlayerComponent(componentItems, from.index, to.index)) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+    LazyColumn(
+        state = componentListState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(ComponentEditorListHeight),
+    ) {
+        items(componentItems, key = PlayerLowerComponent::storageValue) { component ->
+            ReorderableItem(reorderState, key = component.storageValue) { isDragging ->
+            CustomPlayerComponentEditorRow(
+                component = component,
+                scalePercent = normalized.scalePercentOf(component),
+                lyricsLineCount = normalized.lyricsLineCount,
+                visible = normalized.isVisible(component),
+                isDragging = isDragging,
+                dragModifier = Modifier.draggableHandle(
+                    onDragStopped = {
+                        val finalOrder = componentItems.toList()
+                        if (finalOrder != currentConfig.order) {
+                            currentOnChange(currentConfig.copy(order = finalOrder).normalized())
+                        }
+                    },
+                ),
+                onVisibleChange = { visible ->
+                    onChange(normalized.withVisibility(component, visible))
+                },
+                onScaleChange = { percent ->
+                    onChange(normalized.withScalePercent(component, percent))
+                },
+                onLyricsLineCountChange = { lineCount ->
+                    onChange(normalized.copy(lyricsLineCount = lineCount).normalized())
+                },
+            )
+            }
+        }
     }
 
     SettingsActionRow(
@@ -124,75 +187,75 @@ private fun CustomPlayerLayoutPreview(
     onBottomPaddingChange: (Int) -> Unit,
 ) {
     val visible = config.order.filter(config::isVisible)
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = HifiSpacing.lg)
             .height(360.dp)
             .background(MicaTheme.colors.surfaceCard.copy(alpha = 0.55f))
-            .padding(HifiSpacing.md),
+            .padding(HifiSpacing.md)
+            .clipToBounds(),
     ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .size(104.dp)
-                .background(MicaTheme.colors.textTertiary.copy(alpha = 0.22f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("封面", style = MicaTheme.typography.caption, color = MicaTheme.colors.textTertiary)
-        }
-        Spacer(Modifier.height(HifiSpacing.sm))
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
-            val fit = customLowerFitScale(PreviewPanelHeightDp, config, visible)
-            val previewRatio = maxHeight.value / PreviewPanelHeightDp
-            if (visible.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "下半屏组件已全部隐藏",
-                        style = MicaTheme.typography.caption,
-                        color = MicaTheme.colors.textTertiary,
-                    )
-                }
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    Spacer(Modifier.height(config.topPaddingDp.dp * fit * previewRatio))
-                    visible.forEachIndexed { index, component ->
-                        val scale = config.scalePercentOf(component) / 100f * fit
-                        PreviewPlayerComponent(
-                            component = component,
-                            visualScale = scale,
-                            heightDp = customLowerBaseHeightDp(component) * scale * previewRatio,
-                        )
-                        if (index < visible.lastIndex) {
-                            Spacer(Modifier.height(config.spacingDp.dp * fit * previewRatio))
-                        }
-                    }
-                    Spacer(Modifier.height(config.bottomPaddingDp.dp * fit * previewRatio))
-                }
+        val coverBaseHeightDp = maxWidth.value
+        val metrics = customPlayerLayoutMetrics(
+            panelHeightDp = maxHeight.value,
+            coverBaseHeightDp = coverBaseHeightDp,
+            config = config,
+            visible = visible,
+        )
+        val fit = metrics.fitScale
+        if (visible.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "播放页组件已全部隐藏",
+                    style = MicaTheme.typography.caption,
+                    color = MicaTheme.colors.textTertiary,
+                )
             }
-            BoundaryDragHandle(
-                label = "顶部",
-                value = config.topPaddingDp,
-                dragDirection = 1f,
-                previewDpPerValueDp = fit * previewRatio,
-                lineAtTop = true,
-                onValueChange = onTopPaddingChange,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .offset(y = (config.topPaddingDp * fit * previewRatio).dp),
-            )
-            BoundaryDragHandle(
-                label = "底部",
-                value = config.bottomPaddingDp,
-                dragDirection = -1f,
-                previewDpPerValueDp = fit * previewRatio,
-                lineAtTop = false,
-                onValueChange = onBottomPaddingChange,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(y = (-config.bottomPaddingDp * fit * previewRatio).dp),
-            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                Spacer(Modifier.height(config.topPaddingDp.dp * fit))
+                visible.forEachIndexed { index, component ->
+                    val scale = config.scalePercentOf(component) / 100f * fit
+                    PreviewPlayerComponent(
+                        component = component,
+                        visualScale = scale,
+                        heightDp = customPlayerBaseHeightDp(
+                            component,
+                            config.lyricsLineCount,
+                            coverBaseHeightDp,
+                        ) * scale,
+                        lyricsLineCount = config.lyricsLineCount,
+                    )
+                    if (index < visible.lastIndex) {
+                        Spacer(Modifier.height(config.spacingDp.dp * fit))
+                    }
+                }
+                Spacer(Modifier.height(config.bottomPaddingDp.dp * fit))
+            }
         }
+        BoundaryDragHandle(
+            label = "顶部",
+            value = config.topPaddingDp,
+            dragDirection = 1f,
+            previewDpPerValueDp = fit,
+            lineAtTop = true,
+            onValueChange = onTopPaddingChange,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(y = (config.topPaddingDp * fit).dp),
+        )
+        BoundaryDragHandle(
+            label = "底部",
+            value = config.bottomPaddingDp,
+            dragDirection = -1f,
+            previewDpPerValueDp = fit,
+            lineAtTop = false,
+            onValueChange = onBottomPaddingChange,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(y = (-config.bottomPaddingDp * fit).dp),
+        )
     }
 }
 
@@ -264,6 +327,7 @@ private fun PreviewPlayerComponent(
     component: PlayerLowerComponent,
     visualScale: Float,
     heightDp: Float,
+    lyricsLineCount: Int,
 ) {
     Box(
         modifier = Modifier
@@ -276,12 +340,23 @@ private fun PreviewPlayerComponent(
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer {
-                    scaleX = visualScale.coerceAtMost(1.5f)
-                    scaleY = visualScale.coerceAtMost(1.5f)
+                    val contentScale = if (component == PlayerLowerComponent.COVER) 1f else visualScale
+                    scaleX = contentScale.coerceAtMost(1.5f)
+                    scaleY = contentScale.coerceAtMost(1.5f)
                 },
             contentAlignment = Alignment.Center,
         ) {
             when (component) {
+                PlayerLowerComponent.COVER -> Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(1f)
+                        .background(MicaTheme.colors.textTertiary.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("封面", style = MicaTheme.typography.caption, color = MicaTheme.colors.textTertiary)
+                }
+
                 PlayerLowerComponent.INFO -> Text(
                     "FLAC  ·  24bit/96kHz  ·  03:48",
                     style = MicaTheme.typography.monoSm,
@@ -298,9 +373,13 @@ private fun PreviewPlayerComponent(
                 }
 
                 PlayerLowerComponent.LYRICS -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("上一句歌词", style = MicaTheme.typography.caption, color = MicaTheme.colors.textTertiary)
+                    if (lyricsLineCount >= PlayerLowerLayoutConfig.THREE_LYRICS_LINE_COUNT) {
+                        Text("上一句歌词", style = MicaTheme.typography.caption, color = MicaTheme.colors.textTertiary)
+                    }
                     Text("正在播放的歌词", style = MicaTheme.typography.bodyLg, color = MicaTheme.colors.textPrimary)
-                    Text("下一句歌词", style = MicaTheme.typography.caption, color = MicaTheme.colors.textTertiary)
+                    if (lyricsLineCount >= PlayerLowerLayoutConfig.THREE_LYRICS_LINE_COUNT) {
+                        Text("下一句歌词", style = MicaTheme.typography.caption, color = MicaTheme.colors.textTertiary)
+                    }
                 }
 
                 PlayerLowerComponent.PROGRESS -> Column(Modifier.padding(horizontal = HifiSpacing.lg)) {
@@ -343,13 +422,13 @@ private fun PreviewPlayerComponent(
 private fun CustomPlayerComponentEditorRow(
     component: PlayerLowerComponent,
     scalePercent: Int,
+    lyricsLineCount: Int,
     visible: Boolean,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
+    isDragging: Boolean,
+    dragModifier: Modifier,
     onVisibleChange: (Boolean) -> Unit,
     onScaleChange: (Int) -> Unit,
+    onLyricsLineCountChange: (Int) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -363,12 +442,14 @@ private fun CustomPlayerComponentEditorRow(
                 color = if (visible) MicaTheme.colors.textPrimary else MicaTheme.colors.textTertiary,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(HifiSize.touchTarget)) {
-                Icon(Icons.Outlined.ArrowUpward, "上移", tint = MicaTheme.colors.textSecondary)
-            }
-            IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(HifiSize.touchTarget)) {
-                Icon(Icons.Outlined.ArrowDownward, "下移", tint = MicaTheme.colors.textSecondary)
-            }
+            Icon(
+                imageVector = Icons.Outlined.DragHandle,
+                contentDescription = "长按拖动排序",
+                tint = if (isDragging) MicaTheme.colors.accent else MicaTheme.colors.textTertiary,
+                modifier = dragModifier
+                    .size(HifiSize.touchTarget)
+                    .padding(HifiSpacing.md),
+            )
             TextToggle(checked = visible, onCheckedChange = onVisibleChange)
         }
         SettingsRuler(
@@ -383,6 +464,35 @@ private fun CustomPlayerComponentEditorRow(
             compact = true,
             onValueChange = { onScaleChange((it * 100f).roundToInt()) },
         )
+        if (component == PlayerLowerComponent.LYRICS) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = HifiSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "显示行数",
+                    style = MicaTheme.typography.bodyMd,
+                    color = if (visible) MicaTheme.colors.textSecondary else MicaTheme.colors.textTertiary,
+                    modifier = Modifier.weight(1f),
+                )
+                AccentTextChoice(
+                    label = "1 行",
+                    selected = lyricsLineCount == PlayerLowerLayoutConfig.SINGLE_LYRICS_LINE_COUNT,
+                    enabled = visible,
+                    onClick = {
+                        onLyricsLineCountChange(PlayerLowerLayoutConfig.SINGLE_LYRICS_LINE_COUNT)
+                    },
+                )
+                AccentTextChoice(
+                    label = "3 行",
+                    selected = lyricsLineCount == PlayerLowerLayoutConfig.THREE_LYRICS_LINE_COUNT,
+                    enabled = visible,
+                    onClick = {
+                        onLyricsLineCountChange(PlayerLowerLayoutConfig.THREE_LYRICS_LINE_COUNT)
+                    },
+                )
+            }
+        }
     }
 }
 

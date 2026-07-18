@@ -28,7 +28,7 @@
 | 模式 | 实现 | 行为 |
 |------|------|------|
 | **标准**（`STANDARD`） | [`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt) | 横向轻扫 → `onPrevious` / `onNext` |
-| **自定义标准**（`CUSTOM_STANDARD`） | 标准封面 + `CustomPlayerLowerPanel` | 复用标准封面手势；下半屏五区域按 `PlayerLowerLayoutConfig` 排序、缩放、显隐和调间距 |
+| **自定义标准**（`CUSTOM_STANDARD`） | `CustomPlayerPagePanel` 统一六组件布局 | 标准封面手势保持；封面、信息行、标题、歌词、进度和控制按 `PlayerLowerLayoutConfig` 拖拽排序、缩放、显隐和调间距 |
 | **封面流**（平行 / 复古） | [`CoverFlowCarouselView`](../app/src/main/java/com/mica/music/ui/screens/player/view/CoverFlowCarouselView.kt) | 拖动跟手；松手超阈值 → `onPlayQueueIndex` / `onNext` / `onPrevious`；点击侧槽 → `onPlayQueueIndex` |
 | **拍立得**（`PHOTO_STACK`） | [`PhotoStackTransitionView`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackTransitionView.kt) | 轻扫最前卡切歌；前卡底带 seek；转场中禁触。详见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §13 |
 | **粒子封面**（`PARTICLE_COVER`） | [`ParticleCoverPlayerLayer`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt) + [`ParticleCoverHost`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverHost.kt) | 全屏 GLES 层；切歌分解动画；**不**走标准轻扫/封面流。详见 [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0 |
@@ -42,7 +42,7 @@
 - `PlayerPageLayoutEngine.computeFrame()` — 单帧原子布局
 - `PlayerPageFrame` — 封面区 + 下半屏 chrome 的全部几何与 alpha
 
-`CUSTOM_STANDARD` 仅维护稳定播放态，不消费 `lyricsProgress` / `immersiveProgress` 做布局变形。其下半屏顺序、`50%..200%` 大小、显隐、统一间距及顶部/底部留白只来自规范化后的 `PlayerLowerLayoutConfig`；总配置高度超过下半屏时统一收敛到屏内。该主题独有的“点击封面暂停/播放”默认关闭，仅改变普通轻点，不改变长按菜单和滑动切歌。进度组件是唯一普通进度来源，因此该主题不启用封面底边进度。进入歌词云或经典歌词页均复用粒子封面歌词云的横向整页滑动：目标页先挂载，播放页整体向左退出，返回时反向滑回。
+`CUSTOM_STANDARD` 仅维护稳定播放态，不消费 `lyricsProgress` / `immersiveProgress` 做布局变形。其六组件顺序、`50%..200%` 大小、显隐、统一间距及顶部/底部留白只来自规范化后的 `PlayerLowerLayoutConfig`；总配置高度超过屏幕安全区域时统一收敛到屏内。封面作为普通布局项参与排序和缩放，但继续复用标准封面的点击、长按与滑动切歌链路。该主题独有的“点击封面暂停/播放”默认关闭，仅改变普通轻点。进度组件是唯一普通进度来源，因此该主题不启用封面底边进度。进入歌词云或经典歌词页均复用粒子封面歌词云的横向整页滑动：目标页先挂载，播放页整体向左退出，返回时反向滑回。
 
 ### 组件优先级
 
@@ -80,7 +80,7 @@
 | `player/view/ParticleCoverHost.kt` | 粒子封面 GLES 宿主（现网热路径） |
 | `player/view/ThreeParticleCoverHost.kt` | 粒子 WebView 回退（`UseNativeParticleCoverInPlayer = false` 时） |
 | `PlayerLowerPanel.kt` | 下半屏组合：元数据、紧凑/展开歌词、chrome |
-| `CustomPlayerLowerPanel.kt` | `CUSTOM_STANDARD` 的受约束五区域布局 |
+| `CustomPlayerLowerPanel.kt` | `CUSTOM_STANDARD` 的受约束六组件整页布局 |
 | `HorizontalClassicLyricsPage.kt` | 自定义标准主题横滑后的经典歌词目标页 |
 | `PlayerLowerPanelMetadata.kt` | Hi‑Fi 元数据、标题/副标题 |
 | `PlayerLowerPanelChrome.kt` | 进度条、播放控制、频谱条 |
