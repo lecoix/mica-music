@@ -457,6 +457,8 @@ private fun rememberNowPlayingActions(
             setPlaybackSpeed = playerController::setPlaybackSpeed,
             setPlaybackPitchSemitones = playerController::setPlaybackPitchSemitones,
             resetPlaybackTuning = playerController::resetPlaybackTuning,
+            peekTrackSkipDirection = playerController::peekTrackSkipDirection,
+            consumeTrackSkipDirection = playerController::consumeTrackSkipDirection,
         )
     }
 

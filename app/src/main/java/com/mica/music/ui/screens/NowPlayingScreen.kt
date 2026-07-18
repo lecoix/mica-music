@@ -46,6 +46,7 @@ import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
+import com.mica.music.data.TrackSkipDirection
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
@@ -64,6 +65,7 @@ import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.system.StatusBarEffect
 import com.mica.music.ui.theme.NowPlayingBackground
+import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.rememberPlaybackContentColors
 import com.mica.music.ui.theme.rememberLyricsContentColors
 import com.mica.music.ui.theme.rememberPlayerScreenAppearance
@@ -96,6 +98,8 @@ data class NowPlayingActions(
     val setPlaybackSpeed: (Float) -> Unit,
     val setPlaybackPitchSemitones: (Float) -> Unit,
     val resetPlaybackTuning: () -> Unit,
+    val peekTrackSkipDirection: () -> TrackSkipDirection?,
+    val consumeTrackSkipDirection: () -> TrackSkipDirection?,
 )
 
 internal suspend fun pollNowPlayingProgress(
@@ -322,6 +326,14 @@ fun NowPlayingContent(
     )
 
     val lowerBackground = uiSettings.playerLowerBackground
+    val pendingTrackSkipDirection = remember(song.id) { actions.peekTrackSkipDirection() }
+    val localTrackWipeDirection = pendingTrackSkipDirection.takeIf {
+        uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD ||
+            uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
+    }
+    LaunchedEffect(song.id) {
+        actions.consumeTrackSkipDirection()
+    }
     val immersiveLower = uiSettings.playerImmersiveLower &&
         uiSettings.playerCoverFlowMode.supportsImmersiveLower
     val preloadBlurredBackground = lowerBackground.usesBlurredArtwork
@@ -423,6 +435,28 @@ fun NowPlayingContent(
             val previewFrame = pageModel.frameFor(screenHeight * 0.45f)
 
             val motionEnabled = rememberMicaMotionEnabled()
+            val backgroundZoneStop = if (fullHeight.value > 0f) {
+                previewFrame.cover.zoneStop * (screenHeight.value / fullHeight.value)
+            } else {
+                previewFrame.cover.zoneStop
+            }
+            val coverWipeEnabled =
+                uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD ||
+                    uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
+            val coverWipeTarget = PlayerCoverWipeVisual(
+                song = song,
+                cover = previewFrame.cover,
+                coverColor = appearance.coverColor,
+                backgroundMode = lowerBackground,
+                backgroundZoneStop = backgroundZoneStop,
+                coverDisplayMode = LocalCoverDisplayMode.current,
+            )
+            val coverWipeState = rememberPlayerCoverWipeState(
+                target = coverWipeTarget,
+                direction = localTrackWipeDirection,
+                enabled = coverWipeEnabled,
+                motionEnabled = motionEnabled,
+            )
             LaunchedEffect(
                 uiSettings.playerCoverFlowMode,
                 lowerBackground,
@@ -439,12 +473,6 @@ fun NowPlayingContent(
                         queueSize = queueState.queue.size,
                     ),
                 )
-            }
-
-            val backgroundZoneStop = if (fullHeight.value > 0f) {
-                previewFrame.cover.zoneStop * (screenHeight.value / fullHeight.value)
-            } else {
-                previewFrame.cover.zoneStop
             }
 
             val coverFlowStageActive = previewFrame.coverFlowStageActive
@@ -478,6 +506,12 @@ fun NowPlayingContent(
                 albumArtUri = song.albumArtUri,
                 mode = lowerBackground,
                 coverZoneStop = backgroundZoneStop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            OutgoingCoverBackgroundWipe(
+                state = coverWipeState,
+                target = coverWipeTarget,
+                pendingDirection = localTrackWipeDirection,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -592,13 +626,19 @@ fun NowPlayingContent(
                         photoStackNavigation = photoStackNavigation,
                         screenWidth = screenWidth,
                         stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
-                        modifier = Modifier.graphicsLayer {
-                            translationY = if (useVerticalCloudSplit) {
-                                -with(density) { fullHeight.toPx() } * 1.1f * lyricsPageTransition
-                            } else {
-                                0f
+                        modifier = Modifier
+                            .playerCoverIncomingWipe(
+                                state = coverWipeState,
+                                target = coverWipeTarget,
+                                pendingDirection = localTrackWipeDirection,
+                            )
+                            .graphicsLayer {
+                                translationY = if (useVerticalCloudSplit) {
+                                    -with(density) { fullHeight.toPx() } * 1.1f * lyricsPageTransition
+                                } else {
+                                    0f
+                                }
                             }
-                        },
                     )
                     BoxWithConstraints(
                         modifier = Modifier
@@ -642,6 +682,8 @@ fun NowPlayingContent(
                             customLayout = uiSettings.customPlayerLowerLayout.takeIf {
                                 uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
                             },
+                            trackSkipDirection = localTrackWipeDirection,
+                            trackWipeMotionEnabled = motionEnabled,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                             onPrevious = onPlayerPrevious,
                             onTogglePlay = actions.togglePlay,
@@ -656,6 +698,20 @@ fun NowPlayingContent(
                         )
                     }
                 }
+                OutgoingCoverArtworkWipe(
+                    state = coverWipeState,
+                    target = coverWipeTarget,
+                    pendingDirection = localTrackWipeDirection,
+                    contentPadding = contentPadding,
+                    coverContentAlpha = coverContentAlpha,
+                    modifier = Modifier.graphicsLayer {
+                        translationY = if (useVerticalCloudSplit) {
+                            -with(density) { fullHeight.toPx() } * 1.1f * lyricsPageTransition
+                        } else {
+                            0f
+                        }
+                    },
+                )
             }
         }
 

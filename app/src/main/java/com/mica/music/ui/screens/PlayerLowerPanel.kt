@@ -26,10 +26,18 @@ import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
+import com.mica.music.data.TrackSkipDirection
+import com.mica.music.ui.components.DirectionalTrackWipe
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.LowerPanelFrame
 import com.mica.music.ui.theme.rememberLyricsContentColors
 import com.mica.music.ui.theme.PlayerContentColors
+
+private data class LowerTrackVisual(
+    val song: Song,
+    val surfaceState: PlaybackSurfaceState,
+    val lyricsRenderState: LyricsRenderState,
+)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -69,12 +77,13 @@ internal fun PlayerLowerPanelSection(
     onOpenQueue: () -> Unit,
     spectrumEnabled: Boolean,
     customLayout: PlayerLowerLayoutConfig? = null,
+    trackSkipDirection: TrackSkipDirection? = null,
+    trackWipeMotionEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val spacing = lower.spacing
     val lyricsFocus = lower.lyricsLayoutFocus
     val hideInfoAndLyrics = lower.hideInfoAndLyrics
-    val displayTitle = SongTitleDisplay.displayTitle(activeSong.title, stripSongTitleParentheses)
     val hideLyricsPageChrome = lyricsPageOpen && lyricsPageImmersive
     val playLongPress = if (lyricsPageOpen) onToggleLyricsPageImmersive else null
     val lyricsColors = rememberLyricsContentColors(autoContentColors, lyricsTextColorMode)
@@ -103,6 +112,8 @@ internal fun PlayerLowerPanelSection(
             playerInfoVisibility = playerInfoVisibility,
             playbackTuning = playbackTuning,
             spectrumEnabled = spectrumEnabled,
+            trackSkipDirection = trackSkipDirection,
+            trackWipeMotionEnabled = trackWipeMotionEnabled,
             onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
             onPrevious = onPrevious,
             onTogglePlay = onTogglePlay,
@@ -116,19 +127,26 @@ internal fun PlayerLowerPanelSection(
 
     if (hideInfoAndLyrics) {
         Column(modifier.fillMaxSize()) {
-            SongTitleSection(
-                title = displayTitle,
-                artist = activeSong.artist,
-                album = activeSong.album,
-                isBuffering = surfaceState.isBuffering,
-                playbackError = surfaceState.playbackError,
-                colors = colors,
-                immersiveProgress = lower.immersiveProgress,
-                modifier = Modifier.graphicsLayer {
-                    translationY = lower.titleSlideDown.toPx()
-                },
-                onLongPress = if (!immersiveLower) onToggleImmersive else null,
-            )
+            DirectionalTrackWipe(
+                targetState = activeSong,
+                contentKey = Song::id,
+                direction = trackSkipDirection,
+                motionEnabled = trackWipeMotionEnabled,
+            ) { visualSong ->
+                SongTitleSection(
+                    title = SongTitleDisplay.displayTitle(visualSong.title, stripSongTitleParentheses),
+                    artist = visualSong.artist,
+                    album = visualSong.album,
+                    isBuffering = surfaceState.isBuffering,
+                    playbackError = surfaceState.playbackError,
+                    colors = colors,
+                    immersiveProgress = lower.immersiveProgress,
+                    modifier = Modifier.graphicsLayer {
+                        translationY = lower.titleSlideDown.toPx()
+                    },
+                    onLongPress = if (!immersiveLower) onToggleImmersive else null,
+                )
+            }
             Spacer(Modifier.height(lower.photoStackTitleToControlsGap))
             PlayerLowerPanelChrome(
                 surfaceState = surfaceState,
@@ -166,11 +184,19 @@ internal fun PlayerLowerPanelSection(
                     },
                 ),
         ) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = lower.compactContentAlpha },
-            ) {
+            DirectionalTrackWipe(
+                targetState = LowerTrackVisual(activeSong, surfaceState, lyricsRenderState),
+                contentKey = { it.song.id },
+                direction = trackSkipDirection,
+                motionEnabled = trackWipeMotionEnabled,
+                modifier = Modifier.fillMaxSize(),
+            ) { visual ->
+                Box(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = lower.compactContentAlpha },
+                ) {
                 Spacer(Modifier.height(spacing.afterCover))
                 if (lower.showMetadata) {
                     if (!hideInfoAndLyrics && showPlayerInfoRow) {
@@ -181,7 +207,7 @@ internal fun PlayerLowerPanelSection(
                             },
                         ) {
                             HiFiBadgeSection(
-                                song = activeSong,
+                                song = visual.song,
                                 colors = infoBarColors,
                                 playerInfoVisibility = playerInfoVisibility,
                                 playbackTuning = playbackTuning,
@@ -190,11 +216,11 @@ internal fun PlayerLowerPanelSection(
                         Spacer(Modifier.height(spacing.afterInfo))
                     }
                     SongTitleSection(
-                        title = displayTitle,
-                        artist = activeSong.artist,
-                        album = activeSong.album,
-                        isBuffering = surfaceState.isBuffering,
-                        playbackError = surfaceState.playbackError,
+                        title = SongTitleDisplay.displayTitle(visual.song.title, stripSongTitleParentheses),
+                        artist = visual.song.artist,
+                        album = visual.song.album,
+                        isBuffering = visual.surfaceState.isBuffering,
+                        playbackError = visual.surfaceState.playbackError,
                         colors = colors,
                         immersiveProgress = lower.immersiveProgress,
                         modifier = Modifier.graphicsLayer {
@@ -212,8 +238,8 @@ internal fun PlayerLowerPanelSection(
                         contentAlignment = Alignment.Center,
                     ) {
                         LyricsSection(
-                            renderState = lyricsRenderState,
-                            isPlaying = surfaceState.isPlaying,
+                            renderState = visual.lyricsRenderState,
+                            isPlaying = visual.surfaceState.isPlaying,
                             colors = lyricsColors,
                             lineSlots = lower.lyricLineSlots,
                             onClick = onOpenLyrics,
@@ -233,11 +259,11 @@ internal fun PlayerLowerPanelSection(
                         },
                     ),
                 )
-            }
+                }
             if (lyricsFocus > 0.01f && !hideInfoAndLyrics) {
                 ExpandedLyricsPanel(
-                    renderState = lyricsRenderState,
-                    isPlaying = surfaceState.isPlaying,
+                    renderState = visual.lyricsRenderState,
+                    isPlaying = visual.surfaceState.isPlaying,
                     colors = lyricsColors,
                     onLineClick = { timeMs ->
                         if (timeMs >= 0) onSeekToMs(timeMs)
@@ -252,6 +278,8 @@ internal fun PlayerLowerPanelSection(
                         .fillMaxSize()
                         .graphicsLayer { alpha = lower.lyricsChromeFade },
                 )
+            }
+                }
             }
         }
 

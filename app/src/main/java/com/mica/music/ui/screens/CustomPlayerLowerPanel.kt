@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
@@ -27,12 +26,20 @@ import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
+import com.mica.music.data.TrackSkipDirection
+import com.mica.music.ui.components.DirectionalTrackWipe
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.rememberLyricsContentColors
+
+private data class CustomLyricsVisual(
+    val song: Song,
+    val renderState: LyricsRenderState,
+    val isPlaying: Boolean,
+)
 
 @Composable
 internal fun CustomPlayerLowerPanel(
@@ -52,6 +59,8 @@ internal fun CustomPlayerLowerPanel(
     playerInfoVisibility: PlayerInfoVisibility,
     playbackTuning: PlaybackTuning,
     spectrumEnabled: Boolean,
+    trackSkipDirection: TrackSkipDirection?,
+    trackWipeMotionEnabled: Boolean,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -63,7 +72,6 @@ internal fun CustomPlayerLowerPanel(
     val normalized = config.normalized()
     val visible = normalized.order.filter(normalized::isVisible)
     val hasLyrics = PlayerLowerComponent.LYRICS in visible
-    val displayTitle = SongTitleDisplay.displayTitle(activeSong.title, stripSongTitleParentheses)
     val lyricsColors = rememberLyricsContentColors(autoContentColors, lyricsTextColorMode)
     val infoColors = when {
         playerPageTextColorMode != PlaybackContentColorMode.AUTO -> colors
@@ -85,44 +93,67 @@ internal fun CustomPlayerLowerPanel(
                 visible.forEach { component ->
                     val scale = normalized.scalePercentOf(component) / 100f * fitScale
                     when (component) {
-                PlayerLowerComponent.INFO -> Box(
+                PlayerLowerComponent.INFO -> DirectionalTrackWipe(
+                    targetState = activeSong,
+                    contentKey = Song::id,
+                    direction = trackSkipDirection,
+                    motionEnabled = trackWipeMotionEnabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer {
                             scaleX = scale
                             scaleY = scale
                         },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (playerInfoVisibility.hasAnyEnabledSegment()) {
-                        HiFiBadgeSection(
-                            song = activeSong,
-                            colors = infoColors,
-                            playerInfoVisibility = playerInfoVisibility,
-                            playbackTuning = playbackTuning,
-                        )
+                ) { visualSong ->
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        if (playerInfoVisibility.hasAnyEnabledSegment()) {
+                            HiFiBadgeSection(
+                                song = visualSong,
+                                colors = infoColors,
+                                playerInfoVisibility = playerInfoVisibility,
+                                playbackTuning = playbackTuning,
+                            )
+                        }
                     }
                 }
 
-                PlayerLowerComponent.TITLE -> SongTitleSection(
-                    title = displayTitle,
-                    artist = activeSong.artist,
-                    album = activeSong.album,
-                    isBuffering = surfaceState.isBuffering,
-                    playbackError = surfaceState.playbackError,
-                    colors = colors,
-                    immersiveProgress = 0f,
-                    contentScale = scale,
-                )
+                PlayerLowerComponent.TITLE -> DirectionalTrackWipe(
+                    targetState = activeSong,
+                    contentKey = Song::id,
+                    direction = trackSkipDirection,
+                    motionEnabled = trackWipeMotionEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { visualSong ->
+                    SongTitleSection(
+                        title = SongTitleDisplay.displayTitle(visualSong.title, stripSongTitleParentheses),
+                        artist = visualSong.artist,
+                        album = visualSong.album,
+                        isBuffering = surfaceState.isBuffering,
+                        playbackError = surfaceState.playbackError,
+                        colors = colors,
+                        immersiveProgress = 0f,
+                        contentScale = scale,
+                    )
+                }
 
-                PlayerLowerComponent.LYRICS -> CustomLyricsBlock(
-                    renderState = lyricsRenderState,
-                    isPlaying = surfaceState.isPlaying,
-                    colors = lyricsColors,
-                    bilingualDisplayMode = bilingualDisplayMode,
-                    contentScale = scale,
-                    onOpenLyrics = onOpenLyrics,
-                )
+                PlayerLowerComponent.LYRICS -> DirectionalTrackWipe(
+                    targetState = CustomLyricsVisual(activeSong, lyricsRenderState, surfaceState.isPlaying),
+                    contentKey = { it.song.id },
+                    direction = trackSkipDirection,
+                    motionEnabled = trackWipeMotionEnabled,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) { visual ->
+                    CustomLyricsBlock(
+                        renderState = visual.renderState,
+                        isPlaying = visual.isPlaying,
+                        colors = lyricsColors,
+                        bilingualDisplayMode = bilingualDisplayMode,
+                        contentScale = scale,
+                        onOpenLyrics = onOpenLyrics,
+                    )
+                }
 
                 PlayerLowerComponent.PROGRESS -> PlayerProgressBarSection(
                     seekState = seekState,
@@ -176,7 +207,7 @@ internal fun customLowerBaseHeightDp(component: PlayerLowerComponent): Float = w
 }
 
 @Composable
-private fun ColumnScope.CustomLyricsBlock(
+private fun CustomLyricsBlock(
     renderState: LyricsRenderState,
     isPlaying: Boolean,
     colors: PlayerContentColors,
@@ -193,7 +224,7 @@ private fun ColumnScope.CustomLyricsBlock(
         bilingualDisplayMode = bilingualDisplayMode,
         contentScale = contentScale,
         modifier = Modifier
-            .weight(1f)
+            .fillMaxSize()
             .fillMaxWidth(),
     )
 }

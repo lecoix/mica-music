@@ -1,9 +1,5 @@
 package com.mica.music.ui.screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +54,7 @@ import com.mica.music.ui.components.CoverEdgeProgressBar
 import com.mica.music.ui.components.LivePlayerSpectrumStrip
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.SongCover
-import com.mica.music.ui.motion.MicaMotion
+import com.mica.music.ui.components.resolveCoverAspectRatioFromUri
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
@@ -77,6 +74,8 @@ import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.artworkEdgeFadeStops
 import com.mica.music.util.TrackSwitchPerformance
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -171,10 +170,16 @@ internal fun NowPlayingCoverSection(
         if (!coverSlotVisible) onCoverBoundsChanged(null)
     }
 
-    LaunchedEffect(frame.coverFlowStageActive, currentIndex, queue, coverDecodeTarget) {
-        if (!frame.coverFlowStageActive) return@LaunchedEffect
+    val preloadAdjacentCovers = frame.coverFlowStageActive ||
+        coverFlowMode == PlayerCoverFlowMode.STANDARD ||
+        coverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
+    LaunchedEffect(preloadAdjacentCovers, currentIndex, queue, coverDecodeTarget) {
+        if (!preloadAdjacentCovers) return@LaunchedEffect
         for (offset in listOf(-1, 1)) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
+            withContext(Dispatchers.IO) {
+                resolveCoverAspectRatioFromUri(context, uri)
+            }
             MicaImageLoaders.preloadCover(context, uri, coverDecodeTarget)
             if (lowerBackground.usesBlurredArtwork) {
                 MicaImageLoaders.preloadBackground(context, uri)
@@ -385,28 +390,22 @@ internal fun NowPlayingCoverSection(
                             )
                         }
                     } else {
-                        AnimatedContent(
-                            targetState = song,
-                            transitionSpec = {
-                                fadeIn(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)) togetherWith
-                                    fadeOut(MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs))
-                            },
-                            label = "standardCover",
-                        ) { animatedSong ->
+                        key(song.id) {
                             Box(Modifier.fillMaxSize()) {
                                 SongCover(
-                                    albumArtUri = animatedSong.albumArtUri,
+                                    albumArtUri = song.albumArtUri,
                                     fallbackColor = coverColor,
-                                    contentDescription = animatedSong.album,
+                                    contentDescription = song.album,
                                     modifier = Modifier.matchParentSize(),
                                     letterboxAlpha = cover.letterboxAlpha,
                                     crossfadeMillis = if (motionEnabled) 200 else 0,
+                                    allowPreviousImageUnderlay = false,
                                     onAspectRatioChanged = onCoverAspectRatioChanged,
                                     decodeTarget = coverDecodeTarget.takeIf {
                                         ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)
                                     },
                                 )
-                                animatedSong.videoCoverUri
+                                song.videoCoverUri
                                     ?.takeIf {
                                         videoAlbumCoverEnabled &&
                                             coverFlowMode == PlayerCoverFlowMode.STANDARD &&

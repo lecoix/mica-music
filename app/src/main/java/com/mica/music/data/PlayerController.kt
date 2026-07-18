@@ -143,6 +143,8 @@ class PlayerController internal constructor(
     /** 供播放页切歌擦除动画消费；在 [next]/[previous]/自动下一曲 时设置。 */
     private var trackSkipDirection by mutableStateOf<TrackSkipDirection?>(null)
 
+    fun peekTrackSkipDirection(): TrackSkipDirection? = trackSkipDirection
+
     fun consumeTrackSkipDirection(): TrackSkipDirection? {
         val direction = trackSkipDirection
         trackSkipDirection = null
