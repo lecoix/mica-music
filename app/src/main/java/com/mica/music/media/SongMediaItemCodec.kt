@@ -32,6 +32,9 @@ object SongMediaItemCodec {
 
     fun metadataRevision(item: MediaItem): String? = item.mediaMetadata.extras?.getString(METADATA_REVISION)
 
+    internal fun metadataRevisionFromMetadata(metadata: MediaMetadata): String? =
+        metadata.extras?.getString(METADATA_REVISION)
+
     fun lyricsRevision(item: MediaItem): String =
         item.mediaMetadata.extras?.getString(LYRICS_REVISION).orEmpty()
 

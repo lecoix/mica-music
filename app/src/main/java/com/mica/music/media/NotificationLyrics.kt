@@ -13,6 +13,7 @@ import com.mica.music.data.renderStateAt
 
 /** 媒体通知栏歌词：主位歌词、副位「歌名 - 歌手」。 */
 object NotificationLyrics {
+    private const val OVERLAY_TOKEN = "mica.notificationLyrics.overlayToken"
 
     data class DisplayOptions(
         val splitEnabled: Boolean,
@@ -60,13 +61,16 @@ object NotificationLyrics {
         song: Song,
         line: String,
         base: MediaMetadata,
+        overlayToken: String? = null,
     ): MediaMetadata? {
         val displayLine = line.trim().takeIf { it.isNotEmpty() } ?: return null
         return base.buildUpon()
             .setTitle(displayLine)
             .setDisplayTitle(displayLine)
             .setArtist(subtitle(song.title, song.artist))
-            .setExtras(ensureCanonicalTitleExtras(base.extras, song.title))
+            .setExtras(ensureCanonicalTitleExtras(base.extras, song.title).apply {
+                if (overlayToken == null) remove(OVERLAY_TOKEN) else putString(OVERLAY_TOKEN, overlayToken)
+            })
             .build()
     }
 
@@ -75,8 +79,11 @@ object NotificationLyrics {
             .setTitle(song.title)
             .setDisplayTitle(song.title)
             .setArtist(song.artist)
-            .setExtras(ensureCanonicalTitleExtras(base.extras, song.title))
+            .setExtras(ensureCanonicalTitleExtras(base.extras, song.title).apply { remove(OVERLAY_TOKEN) })
             .build()
+
+    internal fun overlayToken(metadata: MediaMetadata): String? =
+        metadata.extras?.getString(OVERLAY_TOKEN)
 
     internal fun ensureCanonicalTitleExtras(extras: Bundle?, songTitle: String): Bundle {
         val bundle = Bundle(extras ?: Bundle.EMPTY)

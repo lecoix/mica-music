@@ -70,7 +70,7 @@ private val FloatingCardHeight = 64.dp
 private val MiniPlayerSwipeCommitDistance = 56.dp
 private const val MiniPlayerTestTag = "MiniPlayer"
 
-private data class MiniPlayerText(
+data class MiniPlayerText(
     val primary: String,
     val secondary: String,
 )
@@ -136,6 +136,7 @@ fun MiniPlayer(
     rightSwipeAction: MiniPlayerSwipeAction = MiniPlayerSwipeAction.PREVIOUS,
     coverAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
+    resolvedText: MiniPlayerText? = null,
     modifier: Modifier = Modifier,
 ) {
     val safeBottom = maxOf(
@@ -155,10 +156,12 @@ fun MiniPlayer(
             onPrevious = onPrevious,
             onNext = onNext,
         )
-    val lyricsSession = remember(song.id, song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
-    val displayText = miniPlayerText(
+    val lyricsSession = remember(song.id, song.lyricsDocument, resolvedText == null) {
+        if (resolvedText == null) LyricsSession(song.lyricsDocument) else null
+    }
+    val displayText = resolvedText ?: miniPlayerText(
         song = song,
-        lyricsSession = lyricsSession,
+        lyricsSession = checkNotNull(lyricsSession),
         isPlaying = isPlaying,
         positionMs = positionMs,
         enabled = miniPlayerLyricsEnabled,
@@ -192,6 +195,21 @@ fun MiniPlayer(
     }
 }
 
+internal fun miniPlayerText(
+    song: Song,
+    isPlaying: Boolean,
+    enabled: Boolean,
+    lyricText: String?,
+): MiniPlayerText {
+    val artist = ArtistNames.normalizeDisplay(song.artist)
+    val fallback = MiniPlayerText(primary = song.title, secondary = artist)
+    if (!enabled || !isPlaying || lyricText == null) return fallback
+    return MiniPlayerText(
+        primary = lyricText,
+        secondary = NotificationLyrics.subtitle(song.title, artist),
+    )
+}
+
 private fun miniPlayerText(
     song: Song,
     lyricsSession: LyricsSession,
@@ -201,15 +219,10 @@ private fun miniPlayerText(
     lyricSplitEnabled: Boolean,
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
 ): MiniPlayerText {
-    val artist = ArtistNames.normalizeDisplay(song.artist)
-    val fallback = MiniPlayerText(
-        primary = song.title,
-        secondary = artist,
-    )
-    if (!enabled || !isPlaying) return fallback
+    if (!enabled || !isPlaying) return miniPlayerText(song, isPlaying, enabled, lyricText = null)
 
     val lyricIndex = NotificationLyrics.lyricIndexForPosition(lyricsSession, positionMs)
-    if (lyricIndex < 0) return fallback
+    if (lyricIndex < 0) return miniPlayerText(song, isPlaying, enabled, lyricText = null)
 
     val lyric = NotificationLyrics.lyricLineText(
         lyrics = lyricsSession.lyrics,
@@ -218,12 +231,8 @@ private fun miniPlayerText(
             splitEnabled = lyricSplitEnabled,
             bilingualMode = lyricsBilingualDisplayMode,
         ),
-    ) ?: return fallback
-
-    return MiniPlayerText(
-        primary = lyric,
-        secondary = NotificationLyrics.subtitle(song.title, artist),
     )
+    return miniPlayerText(song, isPlaying, enabled, lyric)
 }
 
 @Composable

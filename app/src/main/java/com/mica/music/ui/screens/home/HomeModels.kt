@@ -18,10 +18,13 @@ data class HomePlaybackState(
     val isPlaying: Boolean,
     val positionMs: Int = 0,
     val queue: List<Song>,
+    val isBuffering: Boolean = false,
+    val playbackSpeed: Float = 1f,
 )
 
 data class HomePlaybackActions(
     val syncPlaybackState: () -> Unit,
+    val syncPosition: () -> Unit,
     val insertPlayNext: (Song) -> Unit,
     val setQueue: (List<Song>) -> Unit,
     val appendToQueue: (List<Song>) -> Unit,

@@ -51,10 +51,12 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
+import com.mica.music.media.NotificationLyrics
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.components.HomeDrawerPanel
 import com.mica.music.ui.components.LibrarySearchPanel
 import com.mica.music.ui.components.MiniPlayer
+import com.mica.music.ui.components.miniPlayerText
 import com.mica.music.ui.components.rememberSongWithLyrics
 import com.mica.music.ui.components.SongMenuAction
 import com.mica.music.ui.components.homeDrawerWidth
@@ -467,14 +469,54 @@ fun HomeScreen(
     val infoRowLyricsSession = remember(currentSong?.id, currentSong?.lyricsDocument) {
         currentSong?.let { LyricsSession(it.lyricsDocument) }
     }
-    val infoRowLyricText = infoRowLyricText(
-        enabled = uiSettings.infoRowLyricsEnabled,
-        isPlaying = playbackState.isPlaying,
-        lyricsSession = infoRowLyricsSession,
-        positionMs = playbackState.positionMs,
-        lyricSplitEnabled = uiSettings.lyricSplitEnabled,
-        lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
-    )
+    val lineStartTimesMs = remember(infoRowLyricsSession) {
+        infoRowLyricsSession?.lyrics?.map { it.timeMs }?.toIntArray() ?: IntArray(0)
+    }
+    val lyricsVisible = uiSettings.infoRowLyricsEnabled || uiSettings.miniPlayerLyricsEnabled
+    LaunchedEffect(
+        currentSong?.id,
+        infoRowLyricsSession,
+        playbackState.positionMs,
+        playbackState.isPlaying,
+        playbackState.isBuffering,
+        playbackState.playbackSpeed,
+        lyricsVisible,
+    ) {
+        if (lyricsVisible) {
+            awaitNextHomeLyricBoundary(
+                lineStartTimesMs = lineStartTimesMs,
+                positionMs = playbackState.positionMs,
+                playbackSpeed = playbackState.playbackSpeed,
+                isAdvancing = playbackState.isPlaying && !playbackState.isBuffering,
+                syncPosition = playbackActions.syncPosition,
+            )
+        }
+    }
+    val activeLyricIndex = remember(infoRowLyricsSession, playbackState.positionMs) {
+        infoRowLyricsSession?.let {
+            NotificationLyrics.lyricIndexForPosition(it, playbackState.positionMs)
+        } ?: -1
+    }
+    val sharedLyricText = remember(
+        infoRowLyricsSession,
+        activeLyricIndex,
+        uiSettings.lyricSplitEnabled,
+        uiSettings.lyricsBilingualDisplayMode,
+    ) {
+        infoRowLyricsSession?.takeIf { activeLyricIndex >= 0 }?.let { session ->
+            NotificationLyrics.lyricLineText(
+                lyrics = session.lyrics,
+                index = activeLyricIndex,
+                display = NotificationLyrics.DisplayOptions(
+                    splitEnabled = uiSettings.lyricSplitEnabled,
+                    bilingualMode = uiSettings.lyricsBilingualDisplayMode,
+                ),
+            )
+        }
+    }
+    val infoRowLyricText = sharedLyricText.takeIf {
+        uiSettings.infoRowLyricsEnabled && playbackState.isPlaying
+    }
     val listBottomPadding = if (currentSong != null) {
         miniPlayerListClearance(miniPlayerStyle)
     } else {
@@ -816,6 +858,12 @@ fun HomeScreen(
                         rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
                         coverAlpha = miniPlayerCoverAlpha,
                         onCoverBoundsChanged = onMiniPlayerCoverBoundsChanged,
+                        resolvedText = miniPlayerText(
+                            song = song,
+                            isPlaying = playbackState.isPlaying,
+                            enabled = uiSettings.miniPlayerLyricsEnabled,
+                            lyricText = sharedLyricText,
+                        ),
                         modifier = Modifier,
                     )
                 }

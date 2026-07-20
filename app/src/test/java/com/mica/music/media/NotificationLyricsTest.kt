@@ -166,4 +166,21 @@ class NotificationLyricsTest {
         )
         assertEquals(1, index)
     }
+
+    @Test
+    fun overlayTokenIdentifiesSelfWriteAndIsRemovedOnRestore() {
+        val song = SongFixtures.song(id = "overlay", title = "Song")
+        val base = SongMediaItemCodec.encode(song).mediaMetadata
+
+        val overlaid = NotificationLyrics.metadataWithLyric(
+            song = song,
+            line = "current line",
+            base = base,
+            overlayToken = "token-7",
+        )!!
+        val restored = NotificationLyrics.defaultPlaybackMetadata(song, overlaid)
+
+        assertEquals("token-7", NotificationLyrics.overlayToken(overlaid))
+        assertNull(NotificationLyrics.overlayToken(restored))
+    }
 }

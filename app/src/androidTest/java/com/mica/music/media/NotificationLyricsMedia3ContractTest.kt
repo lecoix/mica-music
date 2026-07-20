@@ -67,6 +67,11 @@ class NotificationLyricsMedia3ContractTest {
                         contract.player.currentMediaItem?.mediaMetadata?.title?.toString() == "line-two"
                     }
                 }
+                val lyricSwitchPositionMs = onMain { contract.player.currentPosition }
+                assertTrue(
+                    "non-aligned lyric boundary was published late at ${lyricSwitchPositionMs}ms",
+                    lyricSwitchPositionMs <= 1_425L,
+                )
                 assertEquals(listOf("repeat"), contract.playSessions.toList())
 
                 await("three confirmed repeat-one boundaries", timeoutMs = 8_000L) {
@@ -414,7 +419,7 @@ class NotificationLyricsMedia3ContractTest {
         fileName = "$id.wav",
         lyricsDocument = listOf(
             LyricLine(timeMs = 0, text = "line-one"),
-            LyricLine(timeMs = 500, text = "line-two"),
+            LyricLine(timeMs = 1_375, text = "line-two"),
         ).toLyricsDocumentCompat(),
     )
 

@@ -17,6 +17,11 @@ import com.mica.music.data.LyricsSlot
 
 /** 歌词页、通知歌词与播放页歌词文字相关偏好。 */
 object LyricsPreferences {
+    internal enum class NotificationLyricsChange {
+        ENABLED,
+        DISPLAY,
+        SOURCE,
+    }
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
     private const val KEY_LYRICS_BILINGUAL_DISPLAY_MODE = "lyrics_bilingual_display_mode"
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
@@ -204,6 +209,26 @@ object LyricsPreferences {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_INFO_ROW_LYRICS_ENABLED, enabled)
             .apply()
+    }
+
+    internal fun registerNotificationLyricsChangeListener(
+        context: Context,
+        onChange: (NotificationLyricsChange) -> Unit,
+    ): () -> Unit {
+        val preferences = MicaSettingsStore.prefs(context)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            val change = when (key) {
+                KEY_NOTIFICATION_LYRICS_ENABLED -> NotificationLyricsChange.ENABLED
+                KEY_LYRIC_SPLIT_ENABLED,
+                KEY_LYRICS_BILINGUAL_DISPLAY_MODE,
+                -> NotificationLyricsChange.DISPLAY
+                KEY_LYRICS_SLOT_PRIORITY -> NotificationLyricsChange.SOURCE
+                else -> null
+            }
+            change?.let(onChange)
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        return { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
     private fun readLyricsPageFontSizeSp(context: Context, key: String, defaultValue: Int): Int =

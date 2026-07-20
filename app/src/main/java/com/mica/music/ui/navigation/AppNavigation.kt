@@ -468,6 +468,8 @@ private fun homePlaybackState(playerController: PlayerController): HomePlaybackS
         isPlaying = playerController.playbackSurfaceState.isPlaying,
         positionMs = playerController.playbackProgressState.positionMs,
         queue = playerController.playbackQueueState.queue,
+        isBuffering = playerController.playbackSurfaceState.isBuffering,
+        playbackSpeed = playerController.playbackSurfaceState.playbackTuning.speed,
     )
 
 @Composable
@@ -477,6 +479,7 @@ private fun rememberHomePlaybackActions(
     remember(playerController) {
         HomePlaybackActions(
             syncPlaybackState = playerController::syncPlaybackState,
+            syncPosition = playerController::syncPosition,
             insertPlayNext = playerController::insertPlayNext,
             setQueue = playerController::setQueue,
             appendToQueue = { songs ->
