@@ -69,6 +69,11 @@
         </service>
 
         <provider
+            android:name=".data.scanner.AlbumArtContentProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="false" />
+
+        <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"

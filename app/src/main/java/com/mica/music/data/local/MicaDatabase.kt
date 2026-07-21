@@ -29,6 +29,8 @@ abstract class MicaDatabase : RoomDatabase() {
     abstract fun browseGroupDao(): BrowseGroupDao
 
     companion object {
+        internal const val DATABASE_NAME = "mica_library.db"
+
         @Volatile
         private var instance: MicaDatabase? = null
 
@@ -39,7 +41,7 @@ abstract class MicaDatabase : RoomDatabase() {
                     Room.databaseBuilder(
                         context.applicationContext,
                         MicaDatabase::class.java,
-                        "mica_library.db",
+                        DATABASE_NAME,
                     )
                         .addMigrations(
                             MIGRATION_1_2,

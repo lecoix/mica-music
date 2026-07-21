@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
-import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.PlaybackMimeResolver
@@ -17,6 +16,7 @@ import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsOrigin
 import com.mica.music.data.LyricsSlots
 import com.mica.music.data.LyricsProbeResult
+import com.mica.music.data.local.SongEntity
 import com.mica.music.media.AlacPlayback
 import com.mica.music.util.DiagnosticLog
 import java.io.File
@@ -24,7 +24,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
 import java.util.concurrent.ConcurrentHashMap
-import java.security.MessageDigest
 
 internal data class TrackDraft(
     val mediaStoreId: Long,
@@ -87,6 +86,55 @@ internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInf
 )
 
 object AudioMetadataProbe {
+
+    internal fun readEmbeddedArtworkBytes(context: Context, song: SongEntity): ByteArray? {
+        val appContext = context.applicationContext
+        val uri = Uri.parse(song.mediaUri)
+        val draft = TrackDraft(
+            mediaStoreId = song.id.removePrefix("ms_").toLongOrNull() ?: 0L,
+            title = song.title,
+            artist = song.artist,
+            album = song.album,
+            albumId = 0L,
+            durationSec = song.durationSec,
+            mimeType = song.playbackMimeType,
+            displayName = song.fileName,
+            sizeBytes = song.sizeBytes,
+            bitrateBpsFromStore = song.bitrateKbps.coerceAtLeast(0) * 1000,
+            mediaUri = song.mediaUri,
+            coverColorArgb = song.coverColorArgb,
+            year = song.year,
+            folderPath = song.folderPath,
+            filePath = song.filePath,
+            albumArtist = song.albumArtist,
+            copyright = song.copyright,
+            codecLabel = song.codecLabel,
+            dateAddedMs = song.dateAddedMs,
+            dateModifiedMs = song.dateModifiedMs,
+        )
+        if (draft.isDsdDraft()) {
+            DsdMetadataReader.read(appContext, uri, draft)?.albumArtBytes
+                ?.takeIf { it.size >= 256 }
+                ?.let { return it }
+        }
+        TagLibReader.read(appContext, uri)?.frontCoverBytes
+            ?.takeIf { it.size >= 256 }
+            ?.let { return it }
+        if (draft.isWav()) {
+            readWavTagsViaJAudioTagger(appContext, uri)?.frontCoverBytes
+                ?.takeIf { it.size >= 256 }
+                ?.let { return it }
+        }
+        val retriever = MediaMetadataRetriever()
+        return try {
+            setRetrieverDataSource(retriever, appContext, uri)
+            retriever.embeddedPicture?.takeIf { it.size >= 256 }
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
 
     private const val TAG = "AudioMetadataProbe"
     private const val FLAC_METADATA_TRACE = "ScanFlacMeta"
@@ -269,9 +317,21 @@ object AudioMetadataProbe {
             val wavCoverBytes = wavFallback?.frontCoverBytes?.takeIf { it.isNotEmpty() }
             val albumArtUri = profiler.measureOptional("albumArt") {
                 if (wavCoverBytes != null) {
-                    resolveAlbumArtFromBytes(appCtx, wavCoverBytes, artKey, withMeta.albumId, uri)
+                    resolveAlbumArtFromBytes(
+                        appCtx,
+                        wavCoverBytes,
+                        artKey,
+                        withMeta.albumId,
+                        withMeta.scanSongId(),
+                    )
                 } else {
-                    resolveAlbumArt(appCtx, retriever, artKey, withMeta.albumId, uri)
+                    resolveAlbumArt(
+                        appCtx,
+                        retriever,
+                        artKey,
+                        withMeta.albumId,
+                        withMeta.scanSongId(),
+                    )
                 }
             }
             val lyrics = profiler.measureOptional("lyrics") {
@@ -494,7 +554,13 @@ object AudioMetadataProbe {
         )
         val artKey = artCacheKey(withMeta)
         val albumArtUri = profiler.measureOptional("albumArt") {
-            resolveAlbumArtFromBytes(context, coverBytes, artKey, withMeta.albumId, uri)
+            resolveAlbumArtFromBytes(
+                context,
+                coverBytes,
+                artKey,
+                withMeta.albumId,
+                withMeta.scanSongId(),
+            )
         }
         val lyrics = profiler.measureOptional("lyrics") {
             readScanLyrics(
@@ -852,9 +918,8 @@ object AudioMetadataProbe {
         val lyrics = profiler.measureOptional("lyrics") {
             readScanLyrics(context, enriched, cachedSong, profiler = profiler)
         }
-        val artKey = artCacheKey(enriched)
         val albumArtUri = profiler.measureOptional("albumArt") {
-            saveEmbeddedPictureBytes(context, albumArtBytes, artKey)
+            saveEmbeddedPictureBytes(context, albumArtBytes, enriched.scanSongId())
         }
         val coverArgb = profiler.measureOptional("coverColor") {
             albumArtBytes
@@ -887,9 +952,6 @@ object AudioMetadataProbe {
         }
     }
 
-    private fun trackArtCacheKey(mediaUri: Uri): String =
-        "embed_${mediaUri.toString().hashCode()}"
-
     /**
      * 封面优先级：当前文件内嵌图 → 同专辑已缓存内嵌图 → MediaStore 专辑图。
      * 每首歌都会先读自己的 embeddedPicture，避免误用其它专辑/曲目封面。
@@ -899,10 +961,9 @@ object AudioMetadataProbe {
         retriever: MediaMetadataRetriever,
         artKey: String,
         albumId: Long,
-        mediaUri: Uri,
+        songId: String,
     ): String? {
-        val trackKey = trackArtCacheKey(mediaUri)
-        saveEmbeddedPicture(context, retriever, trackKey)?.let { embedded ->
+        saveEmbeddedPicture(context, retriever, songId)?.let { embedded ->
             albumArtCache[artKey] = embedded
             return embedded
         }
@@ -923,9 +984,9 @@ object AudioMetadataProbe {
         coverBytes: ByteArray?,
         artKey: String,
         albumId: Long,
-        mediaUri: Uri,
+        songId: String,
     ): String? {
-        saveEmbeddedPictureBytes(context, coverBytes, trackArtCacheKey(mediaUri))?.let { embedded ->
+        saveEmbeddedPictureBytes(context, coverBytes, songId)?.let { embedded ->
             albumArtCache[artKey] = embedded
             return embedded
         }
@@ -952,29 +1013,20 @@ object AudioMetadataProbe {
     private fun saveEmbeddedPicture(
         context: Context,
         retriever: MediaMetadataRetriever,
-        cacheKey: String,
+        songId: String,
     ): String? {
         val bytes = retriever.embeddedPicture ?: return null
-        return saveEmbeddedPictureBytes(context, bytes, cacheKey)
+        return saveEmbeddedPictureBytes(context, bytes, songId)
     }
 
     private fun saveEmbeddedPictureBytes(
         context: Context,
         bytes: ByteArray?,
-        cacheKey: String,
+        songId: String,
     ): String? {
         if (bytes == null || bytes.size < 256) return null
-        val cacheFile = AlbumArtCache.fileForKey(context, embeddedArtCacheKey(cacheKey, bytes))
-        if (cacheFile.exists() && cacheFile.length() > 0) {
-            return cacheFile.toUri().toString()
-        }
-        cacheFile.parentFile?.mkdirs()
-        cacheFile.writeBytes(bytes)
-        return cacheFile.toUri().toString()
+        return AlbumArtCache.storeManagedArtwork(context, songId, bytes)
     }
-
-    private fun embeddedArtCacheKey(cacheKey: String, bytes: ByteArray): String =
-        "$cacheKey:${MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }}"
 
     private fun canOpen(context: Context, uri: Uri): Boolean =
         runCatching {

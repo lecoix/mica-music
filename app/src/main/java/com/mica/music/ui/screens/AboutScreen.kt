@@ -19,7 +19,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,6 +31,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.Song
+import com.mica.music.data.local.StorageDiagnostics
 import com.mica.music.data.scanner.AlbumArtCache
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.theme.HifiSize
@@ -34,6 +39,7 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.DiagnosticLog
+import kotlinx.coroutines.launch
 
 @Composable
 fun AboutScreen(
@@ -74,6 +80,11 @@ fun AboutScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             val context = LocalContext.current
+            val coroutineScope = rememberCoroutineScope()
+            var storageReport by remember { mutableStateOf<String?>(null) }
+            var collectingStorage by remember { mutableStateOf(false) }
+            var artworkRecoveryReport by remember { mutableStateOf<String?>(null) }
+            var checkingArtworkRecovery by remember { mutableStateOf(false) }
             val versionName = remember(context) {
                 runCatching {
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -114,18 +125,61 @@ fun AboutScreen(
 
             SettingsSectionTitle("诊断")
             AboutLinkRow(
+                title = if (collectingStorage) "正在分析存储占用…" else "分析存储占用",
+                url = "只读统计数据库、歌词、封面与缓存，不会清理数据",
+                onClick = {
+                    if (!collectingStorage) {
+                        collectingStorage = true
+                        coroutineScope.launch {
+                            storageReport = runCatching {
+                                StorageDiagnostics.collect(context).toReportText()
+                            }.getOrElse { error ->
+                                "Storage diagnostics failed: ${error.javaClass.simpleName}: " +
+                                    error.message.orEmpty()
+                            }
+                            collectingStorage = false
+                        }
+                    }
+                },
+            )
+            storageReport?.let { report -> AboutParagraph(report) }
+
+            AboutLinkRow(
+                title = if (checkingArtworkRecovery) "正在验证封面按需恢复…" else "验证封面按需恢复",
+                url = "淘汰一张缓存封面并立即从原音频恢复，只影响可重建缓存",
+                onClick = {
+                    if (!checkingArtworkRecovery) {
+                        checkingArtworkRecovery = true
+                        coroutineScope.launch {
+                            artworkRecoveryReport = StorageDiagnostics
+                                .verifyAlbumArtOnDemandRecovery(context, songs)
+                            checkingArtworkRecovery = false
+                        }
+                    }
+                },
+            )
+            artworkRecoveryReport?.let { report -> AboutParagraph(report) }
+
+            AboutLinkRow(
                 title = "导出诊断日志",
                 url = "包含闪退、切歌阶段、掉帧和封面绘制耗时",
                 onClick = {
-                    val health = AlbumArtCache.health(context, songs)
-                    DiagnosticLog.event("AlbumArtCache", "about-export ${health.toLogMessage()}")
-                    DiagnosticLog.shareReport(
-                        context = context,
-                        extraReportSection = buildString {
-                            appendLine("Album art cache health:")
-                            appendLine(health.toLogMessage())
-                        },
-                    )
+                    coroutineScope.launch {
+                        val health = AlbumArtCache.health(context, songs)
+                        val storage = StorageDiagnostics.collect(context)
+                        val storageReport = storage.toReportText()
+                        DiagnosticLog.event("AlbumArtCache", "about-export ${health.toLogMessage()}")
+                        DiagnosticLog.event("StorageDiagnostics", storageReport.replace("\n", " | "))
+                        DiagnosticLog.shareReport(
+                            context = context,
+                            extraReportSection = buildString {
+                                appendLine("Album art cache health:")
+                                appendLine(health.toLogMessage())
+                                appendLine()
+                                appendLine(storageReport)
+                            },
+                        )
+                    }
                 },
             )
 

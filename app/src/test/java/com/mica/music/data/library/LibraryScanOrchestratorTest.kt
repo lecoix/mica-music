@@ -50,6 +50,7 @@ class LibraryScanOrchestratorTest {
         runCurrent()
 
         assertEquals(1, scanner.deviceRequests.size)
+        assertFalse(scanner.deviceRequests.single().forceRefreshArtwork)
         scanner.deviceRequests.single().result.complete(
             ScanResult(listOf(SongFixtures.song("old")), 10),
         )
@@ -151,7 +152,8 @@ class LibraryScanOrchestratorTest {
     fun canceledScanKeepsAlreadyCommittedTrustedLyricsWithoutPublishingCatalog() = runTest {
         val scanner = ControlledScanner()
         val store = FakeLibraryStore()
-        val harness = scanHarness(scanner, store)
+        val environment = FakeScanEnvironment()
+        val harness = scanHarness(scanner, store, environment)
         val song = SongFixtures.song("staged")
 
         val scan = async { harness.orchestrator.scanDeviceWide() }
@@ -171,6 +173,27 @@ class LibraryScanOrchestratorTest {
 
         assertEquals(1, store.appliedLyrics.size)
         assertTrue(store.syncedSongs.isEmpty())
+        assertTrue(environment.prunedSongIds.isEmpty())
+        harness.backing.release()
+    }
+
+    @Test
+    fun successfulScanPrunesArtworkOnlyAfterTheNewLibraryIsCommitted() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val environment = FakeScanEnvironment()
+        val harness = scanHarness(scanner, store, environment)
+        val scanned = listOf(SongFixtures.song("one"), SongFixtures.song("two"))
+
+        val scan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        assertTrue(environment.prunedSongIds.isEmpty())
+
+        scanner.deviceRequests.single().result.complete(ScanResult(scanned, 2))
+        scan.await()
+
+        assertEquals(scanned.map(Song::id), store.syncedSongs.map(Song::id))
+        assertEquals(scanned.map(Song::id), environment.prunedSongIds)
         harness.backing.release()
     }
 
@@ -305,11 +328,15 @@ class LibraryScanOrchestratorTest {
         var parserVersion: Int = CURRENT_LYRICS_PARSER_VERSION,
         var retryRequired: Boolean = false,
     ) : ScanEnvironment {
+        var prunedSongIds: List<String> = emptyList()
         override fun hasAudioReadPermission(): Boolean = true
         override fun canReadTree(treeUri: Uri): Boolean = true
         override fun currentTimeMillis(): Long = 1_234L
         override fun playStats(songId: String): PlayStats = PlayStats(0, 0)
         override fun clearTransientCache() = Unit
+        override fun pruneAlbumArtCache(songs: List<Song>) {
+            prunedSongIds = songs.map(Song::id)
+        }
         override fun persistLastScanSource(source: ScanSource) = Unit
         override fun lyricsParserVersion(): Int = parserVersion
         override fun persistLyricsParserVersion(version: Int) {

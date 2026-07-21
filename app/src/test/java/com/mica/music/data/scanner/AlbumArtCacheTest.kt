@@ -4,6 +4,9 @@ import androidx.core.net.toUri
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.testutil.SongFixtures
 import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -15,12 +18,127 @@ import org.robolectric.RobolectricTestRunner
 class AlbumArtCacheTest {
 
     @Test
-    fun fileForKeyUsesNoBackupDirectoryForNewArtwork() {
+    fun identicalEmbeddedArtworkUsesOneContentAddressedFile() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val bytes = "same-cover-${System.nanoTime()}".toByteArray()
+
+        val first = AlbumArtCache.storeEmbeddedPicture(context, bytes)
+        val second = AlbumArtCache.storeEmbeddedPicture(context, bytes.copyOf())
+
+        try {
+            assertEquals(first.absolutePath, second.absolutePath)
+            assertArrayEquals(bytes, first.readBytes())
+        } finally {
+            first.delete()
+        }
+    }
+
+    @Test
+    fun managedArtworkUriKeepsSourceIdentityAndResolvesSharedContentFile() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val bytes = "managed-cover-${System.nanoTime()}".toByteArray()
+
+        val firstUri = AlbumArtCache.storeManagedArtwork(context, "song/one", bytes)
+        val secondUri = AlbumArtCache.storeManagedArtwork(context, "song/two", bytes.copyOf())
+        val first = AlbumArtCache.parseManagedArtworkUri(context, firstUri)
+        val second = AlbumArtCache.parseManagedArtworkUri(context, secondUri)
+
+        try {
+            assertEquals("song/one", first?.songId)
+            assertEquals("song/two", second?.songId)
+            assertEquals(first?.contentKey, second?.contentKey)
+            assertEquals(
+                AlbumArtCache.fileForManagedArtwork(context, firstUri)?.absolutePath,
+                AlbumArtCache.fileForManagedArtwork(context, secondUri)?.absolutePath,
+            )
+        } finally {
+            AlbumArtCache.fileForManagedArtwork(context, firstUri)?.delete()
+        }
+    }
+
+    @Test
+    fun managedArtworkProviderReadsResidentContent() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val bytes = ByteArray(4096) { index -> (index * 13).toByte() }
+        val uri = AlbumArtCache.storeManagedArtwork(context, "provider-song", bytes)
+
+        try {
+            val restored = context.contentResolver.openInputStream(android.net.Uri.parse(uri))
+                ?.use { it.readBytes() }
+            assertArrayEquals(bytes, restored)
+        } finally {
+            AlbumArtCache.fileForManagedArtwork(context, uri)?.delete()
+        }
+    }
+
+    @Test
+    fun intentionallyEvictedManagedArtworkDoesNotForceWholeLibraryRepair() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val contentKey = "content_v1_${"0".repeat(64)}"
+        val uri = AlbumArtCache.buildManagedArtworkUri(context, "ms_42", contentKey)
+        AlbumArtCache.fileForManagedArtwork(context, uri)?.delete()
+        val cached = matchingCachedSong(uri)
+
+        assertSame(cached, matchingDraft().reusableCachedSong(context, mapOf(cached.id to cached)))
+        assertEquals(0, AlbumArtCache.health(context, listOf(cached)).missingCachedArtUris)
+    }
+
+    @Test
+    fun trimToBudgetEvictsOldestContentButProtectsCurrentWrite() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val files = (1..3).map { index ->
+            AlbumArtCache.storeEmbeddedPicture(
+                context,
+                ByteArray(1024) { offset -> (index * 17 + offset).toByte() },
+            ).also { it.setLastModified(index.toLong()) }
+        }
+
+        try {
+            AlbumArtCache.trimToBudget(
+                context = context,
+                maxBytes = 2L * 1024L,
+                protectedFile = files.last(),
+            )
+
+            assertEquals(false, files.first().exists())
+            assertEquals(false, files[1].exists())
+            assertEquals(true, files.last().exists())
+        } finally {
+            files.forEach(File::delete)
+        }
+    }
+
+    @Test
+    fun concurrentIdenticalArtworkWritesPublishOneCompleteFile() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val bytes = ByteArray(256 * 1024) { index -> (index * 31).toByte() }
+        val executor = Executors.newFixedThreadPool(8)
+
+        val files = try {
+            executor.invokeAll(
+                List(24) {
+                    Callable { AlbumArtCache.storeEmbeddedPicture(context, bytes.copyOf()) }
+                },
+            ).map { it.get() }
+        } finally {
+            executor.shutdownNow()
+        }
+
+        try {
+            assertEquals(1, files.map(File::getAbsolutePath).distinct().size)
+            assertArrayEquals(bytes, files.first().readBytes())
+        } finally {
+            files.firstOrNull()?.delete()
+        }
+    }
+
+    @Test
+    fun fileForKeyUsesEvictableCacheDirectoryForNewArtwork() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val file = AlbumArtCache.fileForKey(context, "new-art")
 
         assertEquals(
-            File(context.noBackupFilesDir, ScanCacheManager.DIR_ALBUM_ART).absolutePath,
+            File(context.cacheDir, ScanCacheManager.DIR_ALBUM_ART).absolutePath,
             file.parentFile?.absolutePath,
         )
     }

@@ -4,10 +4,29 @@ import android.content.Context
 import android.net.Uri
 import com.mica.music.data.Song
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
 
 /** 深度扫描写入的 `cache/album_art` 内嵌封面文件。 */
 internal object AlbumArtCache {
+
+    const val MAX_CACHE_BYTES = 200L * 1024L * 1024L
+    private const val TRIM_TARGET_NUMERATOR = 3L
+    private const val TRIM_TARGET_DENOMINATOR = 4L
+    private const val AUTHORITY_SUFFIX = ".artwork"
+    private const val PATH_SONG = "song"
+    private const val CONTENT_PREFIX = "content_v1_"
+    private const val WRITE_LOCK_COUNT = 64
+    private val writeLocks = Array(WRITE_LOCK_COUNT) { Any() }
+    private val trimLock = Any()
+    private var trackedDirectoryPath: String? = null
+    private var trackedFileBytes = mutableMapOf<String, Long>()
+    private var trackedTotalBytes = 0L
+
+    data class ManagedArtwork(
+        val songId: String,
+        val contentKey: String,
+    )
 
     data class Health(
         val songs: Int,
@@ -33,14 +52,163 @@ internal object AlbumArtCache {
         return File(currentAlbumArtDir(context), "$digest.jpg")
     }
 
+    /** Stores exact embedded-art bytes once, shared by every track with the same content. */
+    fun storeEmbeddedPicture(context: Context, bytes: ByteArray): File {
+        require(bytes.isNotEmpty()) { "Embedded artwork must not be empty" }
+        val contentDigest = sha256Hex(bytes)
+        val target = File(currentAlbumArtDir(context), "$CONTENT_PREFIX$contentDigest.jpg")
+        val lockIndex = (target.name.hashCode() and Int.MAX_VALUE) % writeLocks.size
+
+        synchronized(writeLocks[lockIndex]) {
+            if (target.isFile && target.length() == bytes.size.toLong()) {
+                target.setLastModified(System.currentTimeMillis())
+                return target
+            }
+
+            target.parentFile?.mkdirs()
+            val temporary = File(target.parentFile, "${target.name}.part")
+            try {
+                FileOutputStream(temporary).use { output ->
+                    output.write(bytes)
+                    output.fd.sync()
+                }
+                if (target.exists() && !target.delete()) {
+                    error("Unable to replace cached album art: ${target.absolutePath}")
+                }
+                check(temporary.renameTo(target)) {
+                    "Unable to publish cached album art: ${target.absolutePath}"
+                }
+                check(target.isFile && target.length() == bytes.size.toLong()) {
+                    "Cached album art was not published completely: ${target.absolutePath}"
+                }
+                return target
+            } finally {
+                temporary.delete()
+            }
+        }
+    }
+
+    fun storeManagedArtwork(context: Context, songId: String, bytes: ByteArray): String {
+        val file = storeEmbeddedPicture(context, bytes)
+        accountStoredFileAndTrim(context, file)
+        return buildManagedArtworkUri(context, songId, file.nameWithoutExtension)
+    }
+
+    fun buildManagedArtworkUri(context: Context, songId: String, contentKey: String): String =
+        Uri.Builder()
+            .scheme("content")
+            .authority(context.packageName + AUTHORITY_SUFFIX)
+            .appendPath(PATH_SONG)
+            .appendPath(songId)
+            .appendPath(contentKey)
+            .build()
+            .toString()
+
+    fun parseManagedArtworkUri(context: Context, uriString: String?): ManagedArtwork? {
+        if (uriString.isNullOrBlank()) return null
+        val uri = Uri.parse(uriString)
+        if (uri.scheme != "content" || uri.authority != context.packageName + AUTHORITY_SUFFIX) return null
+        val segments = uri.pathSegments
+        if (segments.size != 3 || segments[0] != PATH_SONG) return null
+        val contentKey = segments[2]
+        if (!contentKey.startsWith(CONTENT_PREFIX) ||
+            contentKey.removePrefix(CONTENT_PREFIX).length != 64
+        ) {
+            return null
+        }
+        return ManagedArtwork(songId = segments[1], contentKey = contentKey)
+    }
+
+    fun fileForManagedArtwork(context: Context, uriString: String?): File? =
+        parseManagedArtworkUri(context, uriString)
+            ?.let { managed -> File(currentAlbumArtDir(context), "${managed.contentKey}.jpg") }
+
+    fun trimToBudget(
+        context: Context,
+        maxBytes: Long = MAX_CACHE_BYTES,
+        protectedFile: File? = null,
+    ) {
+        require(maxBytes >= 0L)
+        synchronized(trimLock) {
+            val directory = currentAlbumArtDir(context)
+            val files = residentFiles(directory)
+            val totalBytes = files.sumOf(File::length)
+            if (totalBytes <= maxBytes) return
+            val targetBytes = maxBytes * TRIM_TARGET_NUMERATOR / TRIM_TARGET_DENOMINATOR
+            evictToTarget(files, totalBytes, targetBytes, protectedFile)
+            val remainingFiles = residentFiles(directory)
+            resetTrackedState(directory, remainingFiles, remainingFiles.sumOf(File::length))
+        }
+    }
+
+    private fun accountStoredFileAndTrim(context: Context, storedFile: File) {
+        synchronized(trimLock) {
+            val directory = currentAlbumArtDir(context)
+            ensureTrackedState(directory)
+            val previousBytes = trackedFileBytes.put(storedFile.absolutePath, storedFile.length()) ?: 0L
+            trackedTotalBytes += storedFile.length() - previousBytes
+            if (trackedTotalBytes <= MAX_CACHE_BYTES) return
+            evictToTarget(
+                files = residentFiles(directory),
+                totalBytes = trackedTotalBytes,
+                targetBytes = MAX_CACHE_BYTES * TRIM_TARGET_NUMERATOR / TRIM_TARGET_DENOMINATOR,
+                protectedFile = storedFile,
+            )
+            val remainingFiles = residentFiles(directory)
+            resetTrackedState(directory, remainingFiles, remainingFiles.sumOf(File::length))
+        }
+    }
+
+    private fun ensureTrackedState(directory: File) {
+        if (trackedDirectoryPath == directory.absolutePath) return
+        val files = residentFiles(directory)
+        resetTrackedState(directory, files, files.sumOf(File::length))
+    }
+
+    private fun resetTrackedState(directory: File, files: List<File>, totalBytes: Long) {
+        trackedDirectoryPath = directory.absolutePath
+        trackedFileBytes = files.associate { it.absolutePath to it.length() }.toMutableMap()
+        trackedTotalBytes = totalBytes
+    }
+
+    private fun residentFiles(directory: File): List<File> =
+        directory.listFiles()
+            ?.filter { it.isFile && it.extension == "jpg" }
+            .orEmpty()
+
+    private fun evictToTarget(
+        files: List<File>,
+        totalBytes: Long,
+        targetBytes: Long,
+        protectedFile: File?,
+    ): Long {
+        var remainingBytes = totalBytes
+        files
+            .map { file -> Triple(file, file.lastModified(), file.absolutePath) }
+            .sortedWith(compareBy<Triple<File, Long, String>> { it.second }.thenBy { it.third })
+            .forEach { (file) ->
+                if (remainingBytes <= targetBytes) return remainingBytes
+                if (file.absolutePath == protectedFile?.absolutePath) return@forEach
+                val bytes = file.length()
+                if (file.delete()) remainingBytes -= bytes
+            }
+        return remainingBytes
+    }
+
     fun digestForKey(cacheKey: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(cacheKey.toByteArray())
             .joinToString("") { "%02x".format(it) }
             .take(32)
 
+    private fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+
     fun isCachedArtUri(context: Context, uriString: String?): Boolean {
         if (uriString.isNullOrBlank()) return false
+        if (parseManagedArtworkUri(context, uriString) != null) return true
         val file = albumArtFileFromUri(uriString) ?: return false
         val path = file.absolutePath
         return path.isUnderDir(currentAlbumArtDir(context)) ||
@@ -49,19 +217,21 @@ internal object AlbumArtCache {
 
     fun isLegacyCachedArtUri(context: Context, uriString: String?): Boolean {
         if (uriString.isNullOrBlank()) return false
+        if (parseManagedArtworkUri(context, uriString) != null) return false
         val file = albumArtFileFromUri(uriString) ?: return false
-        return file.absolutePath.isUnderDir(legacyAlbumArtDir(context))
+        return file.absolutePath.isUnderDir(currentAlbumArtDir(context)) ||
+            file.absolutePath.isUnderDir(legacyAlbumArtDir(context))
     }
 
     fun isCurrentCachedArtUri(context: Context, uriString: String?): Boolean {
         if (uriString.isNullOrBlank()) return false
-        val file = albumArtFileFromUri(uriString) ?: return false
-        return file.absolutePath.isUnderDir(currentAlbumArtDir(context))
+        return parseManagedArtworkUri(context, uriString) != null
     }
 
     fun isCachedArtReadable(context: Context, uriString: String?): Boolean {
         val uri = uriString ?: return true
         if (!isCachedArtUri(context, uri)) return true
+        if (parseManagedArtworkUri(context, uri) != null) return true
         val file = albumArtFileFromUri(uri) ?: return false
         return file.isFile && file.length() > 0L
     }
@@ -128,10 +298,10 @@ internal object AlbumArtCache {
     }
 
     private fun currentAlbumArtDir(context: Context): File =
-        File(context.noBackupFilesDir, ScanCacheManager.DIR_ALBUM_ART)
+        File(context.cacheDir, ScanCacheManager.DIR_ALBUM_ART)
 
     private fun legacyAlbumArtDir(context: Context): File =
-        File(context.cacheDir, ScanCacheManager.DIR_ALBUM_ART)
+        File(context.noBackupFilesDir, ScanCacheManager.DIR_ALBUM_ART)
 
     private fun albumArtFileFromUri(uriString: String): File? {
         val uri = Uri.parse(uriString)

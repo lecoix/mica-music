@@ -65,7 +65,7 @@ internal class LibraryScanOrchestrator(
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = forceRefreshLyrics,
-                forceRefreshArtwork = true,
+                forceRefreshArtwork = false,
                 onLyricsBatch = onLyricsBatch,
             )
         }
@@ -86,7 +86,7 @@ internal class LibraryScanOrchestrator(
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = forceRefreshLyrics,
-                forceRefreshArtwork = true,
+                forceRefreshArtwork = false,
                 onLyricsBatch = onLyricsBatch,
             )
         }
@@ -286,6 +286,9 @@ internal class LibraryScanOrchestrator(
                 "generation=$generation visible=${prepared.visible.size}",
         )
         if (backing.isActiveGeneration(generation)) {
+            withContext(backing.ioDispatcher) {
+                backing.scanEnvironment.pruneAlbumArtCache(prepared.visible)
+            }
             catalog.adoptPrepared(prepared)
             catalog.releaseLoadedLyrics()
             backing.lastScanSyncSummary = sync.toSummary()

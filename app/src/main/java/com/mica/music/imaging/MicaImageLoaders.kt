@@ -41,26 +41,26 @@ object MicaImageLoaders {
         cover = ImageLoader.Builder(appContext)
             .memoryCache {
                 MemoryCache.Builder(appContext)
-                    .maxSizePercent(0.18)
+                    .maxSizeBytes(48 * 1024 * 1024)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(appContext.cacheDir.resolve("image_cache_cover"))
-                    .maxSizePercent(0.02)
+                    .maxSizeBytes(100L * 1024L * 1024L)
                     .build()
             }
             .build()
         background = ImageLoader.Builder(appContext)
             .memoryCache {
                 MemoryCache.Builder(appContext)
-                    .maxSizePercent(0.06)
+                    .maxSizeBytes(16 * 1024 * 1024)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(appContext.cacheDir.resolve("image_cache_background"))
-                    .maxSizePercent(0.02)
+                    .maxSizeBytes(32L * 1024L * 1024L)
                     .build()
             }
             .build()
