@@ -42,6 +42,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
@@ -62,6 +63,7 @@ fun PhotoStackShadowPreviewScreen(
     library: MusicLibrary,
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
+    bottomContentClearance: Dp = 0.dp,
 ) {
     val previewSongs = remember(library.songs) {
         library.songs
@@ -133,9 +135,9 @@ fun PhotoStackShadowPreviewScreen(
             SettingsSectionTitle("Preview")
             BoxWithConstraints(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .padding(horizontal = HifiSpacing.lg)
                     .widthIn(max = 420.dp)
+                    .fillMaxWidth()
                     .aspectRatio(0.92f)
                     .align(Alignment.CenterHorizontally)
                     .background(backgroundMode.color),
@@ -288,7 +290,7 @@ fun PhotoStackShadowPreviewScreen(
                 onValueChange = { shadowTuning = shadowTuning.copy(bottomCornerAlpha = it) },
             )
 
-            Spacer(Modifier.height(HifiSpacing.xxl))
+            Spacer(Modifier.height(HifiSpacing.xxl + bottomContentClearance))
         }
     }
 }

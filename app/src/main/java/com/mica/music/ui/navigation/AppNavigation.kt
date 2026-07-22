@@ -221,6 +221,7 @@ fun AppNavigationMain(
                         top = statusTop,
                         bottom = navBarPadding.calculateBottomPadding(),
                     ),
+                    bottomContentClearance = bottomOverlayClearance,
                 )
             }
         }
@@ -267,6 +268,7 @@ fun AppNavigationMain(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
+                bottomContentClearance = bottomOverlayClearance,
             )
         }
         composable(Routes.MetadataDebug) {
@@ -296,6 +298,7 @@ fun AppNavigationMain(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
+                bottomContentClearance = bottomOverlayClearance,
             )
         }
         composable(Routes.Equalizer) {

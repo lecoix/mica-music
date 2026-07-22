@@ -9,11 +9,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -30,6 +34,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSpacing
@@ -46,24 +52,42 @@ fun PlaybackTuningSheet(
     onSpeedChange: (Float) -> Unit,
     onPitchSemitonesChange: (Float) -> Unit,
     onReset: () -> Unit,
+    landscape: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
     val sheetBackground = if (isDark) HifiPalette.MicaFogDarkEnd else HifiPalette.MicaFogStart
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = sheetBackground,
-        scrimColor = Color.Black.copy(alpha = if (isDark) 0.72f else 0.45f),
-    ) {
+    val content: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (landscape) Modifier.fillMaxHeight() else Modifier)
                 .padding(horizontal = HifiSpacing.lg)
-                .padding(bottom = HifiSpacing.xxl),
+                .padding(bottom = if (landscape) HifiSpacing.lg else HifiSpacing.xxl),
             verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
         ) {
+            if (landscape) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "速度 / 音高",
+                        style = MicaTheme.typography.titleMd,
+                        color = MicaTheme.colors.textPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "关闭播放调节",
+                            tint = MicaTheme.colors.textSecondary,
+                        )
+                    }
+                }
+                HorizontalDivider(color = MicaTheme.colors.divider)
+            }
             PlaybackTuningSlider(
                 label = "速度",
                 valueLabel = formatSpeed(tuning.speed),
@@ -93,6 +117,25 @@ fun PlaybackTuningSheet(
                     .clickable(onClick = onReset)
                     .padding(vertical = HifiSpacing.sm),
             )
+        }
+    }
+
+    if (landscape) {
+        PlayerSidePanel(
+            onDismiss = onDismiss,
+            containerColor = sheetBackground,
+            scrimColor = Color.Black.copy(alpha = if (isDark) 0.42f else 0.28f),
+            paneTitle = "速度和音高",
+            content = content,
+        )
+    } else {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = sheetBackground,
+            scrimColor = Color.Black.copy(alpha = if (isDark) 0.72f else 0.45f),
+        ) {
+            content()
         }
     }
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".perf.LandscapeCapacityActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="true"
+            android:theme="@style/Theme.Mica" />
+
+        <provider
+            android:name=".perf.CapacityArtworkProvider"
+            android:authorities="${applicationId}.capacity-artwork"
+            android:exported="false" />
+    </application>
+</manifest>

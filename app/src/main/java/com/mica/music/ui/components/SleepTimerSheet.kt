@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -22,6 +23,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -43,6 +47,8 @@ import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -60,6 +66,7 @@ fun SleepTimerSheet(
     onDismiss: () -> Unit,
     onSelectMinutes: (Int) -> Unit,
     onCancel: () -> Unit,
+    landscape: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
@@ -68,24 +75,42 @@ fun SleepTimerSheet(
     var stepIndex by remember { mutableIntStateOf(defaultStep) }
     val selectedMinutes = SleepTimerController.minutesAtStep(stepIndex)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = sheetBackground,
-        scrimColor = Color.Black.copy(alpha = if (isDark) 0.72f else 0.45f),
-    ) {
+    val content: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (landscape) Modifier.fillMaxHeight() else Modifier)
                 .padding(horizontal = HifiSpacing.lg)
-                .padding(bottom = HifiSpacing.xxl),
+                .padding(bottom = if (landscape) HifiSpacing.lg else HifiSpacing.xxl),
             verticalArrangement = Arrangement.spacedBy(HifiSpacing.md),
         ) {
-            Text(
-                text = "睡眠定时",
-                style = MicaTheme.typography.titleMd,
-                color = MicaTheme.colors.textPrimary,
-            )
+            if (landscape) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "睡眠定时",
+                        style = MicaTheme.typography.titleMd,
+                        color = MicaTheme.colors.textPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "关闭睡眠定时",
+                            tint = MicaTheme.colors.textSecondary,
+                        )
+                    }
+                }
+                HorizontalDivider(color = MicaTheme.colors.divider)
+            } else {
+                Text(
+                    text = "睡眠定时",
+                    style = MicaTheme.typography.titleMd,
+                    color = MicaTheme.colors.textPrimary,
+                )
+            }
             if (isActive && activeRemainingLabel != null) {
                 Text(
                     text = "当前剩余 $activeRemainingLabel",
@@ -125,6 +150,25 @@ fun SleepTimerSheet(
                     },
                 )
             }
+        }
+    }
+
+    if (landscape) {
+        PlayerSidePanel(
+            onDismiss = onDismiss,
+            containerColor = sheetBackground,
+            scrimColor = Color.Black.copy(alpha = if (isDark) 0.42f else 0.28f),
+            paneTitle = "睡眠定时",
+            content = content,
+        )
+    } else {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = sheetBackground,
+            scrimColor = Color.Black.copy(alpha = if (isDark) 0.72f else 0.45f),
+        ) {
+            content()
         }
     }
 }

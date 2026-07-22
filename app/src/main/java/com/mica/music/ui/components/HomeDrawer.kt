@@ -45,11 +45,15 @@ import com.mica.music.ui.theme.micaAppBackground
 
 /** 侧栏占屏宽比例；与主页内容右移量一致。 */
 const val HomeDrawerWidthFraction = 0.5f
+internal val HomeDrawerMaxWidth = 420.dp
+
+internal fun homeDrawerWidthFor(screenWidth: Dp): Dp =
+    (screenWidth * HomeDrawerWidthFraction).coerceAtMost(HomeDrawerMaxWidth)
 
 @Composable
 fun homeDrawerWidth(): Dp {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    return screenWidth * HomeDrawerWidthFraction
+    return homeDrawerWidthFor(screenWidth)
 }
 
 /**

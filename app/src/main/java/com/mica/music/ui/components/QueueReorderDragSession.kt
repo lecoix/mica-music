@@ -5,6 +5,24 @@ internal data class QueueReorderCommit(
     val toIndex: Int,
 )
 
+/**
+ * Presents one dragged item at [toIndex] without allocating a reordered queue.
+ * Every visual-to-source lookup is O(1), regardless of queue size.
+ */
+internal data class QueueMoveProjection(
+    val fromIndex: Int,
+    val toIndex: Int,
+) {
+    fun sourceIndexAt(visualIndex: Int): Int = when {
+        fromIndex == toIndex -> visualIndex
+        fromIndex < toIndex && visualIndex in fromIndex until toIndex -> visualIndex + 1
+        fromIndex < toIndex && visualIndex == toIndex -> fromIndex
+        fromIndex > toIndex && visualIndex == toIndex -> fromIndex
+        fromIndex > toIndex && visualIndex in (toIndex + 1)..fromIndex -> visualIndex - 1
+        else -> visualIndex
+    }
+}
+
 /** Collapses the many index crossings of one drag into one final queue mutation. */
 internal class QueueReorderDragSession {
     private var originalIndex: Int? = null

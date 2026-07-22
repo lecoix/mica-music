@@ -44,6 +44,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.ParticleCoverTuning
@@ -68,6 +69,7 @@ fun ParticleCoverPreviewScreen(
     onSaveTuning: (ParticleCoverTuning) -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
+    bottomContentClearance: Dp = 0.dp,
 ) {
     val previewSongs = remember(library.songs) {
         library.songs
@@ -183,9 +185,9 @@ fun ParticleCoverPreviewScreen(
             Spacer(Modifier.height(HifiSpacing.lg))
             BoxWithConstraints(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .padding(horizontal = HifiSpacing.lg)
                     .widthIn(max = 420.dp)
+                    .fillMaxWidth()
                     .aspectRatio(1f)
                     .align(Alignment.CenterHorizontally),
                 contentAlignment = Alignment.Center,
@@ -461,7 +463,7 @@ fun ParticleCoverPreviewScreen(
                     .fillMaxWidth()
                     .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.md),
             )
-            Spacer(Modifier.height(HifiSpacing.lg))
+            Spacer(Modifier.height(HifiSpacing.lg + bottomContentClearance))
         }
     }
 }

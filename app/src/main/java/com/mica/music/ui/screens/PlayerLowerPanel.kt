@@ -75,6 +75,7 @@ internal fun PlayerLowerPanelSection(
     onOpenLyrics: () -> Unit,
     onOpenQueue: () -> Unit,
     spectrumEnabled: Boolean,
+    showCompactLyrics: Boolean = true,
     trackSkipDirection: TrackSkipDirection? = null,
     trackWipeMotionEnabled: Boolean = true,
     modifier: Modifier = Modifier,
@@ -197,7 +198,7 @@ internal fun PlayerLowerPanelSection(
                     )
                     Spacer(Modifier.height(spacing.afterSubtitle))
                 }
-                if (!immersiveLower && !hideInfoAndLyrics) {
+                if (!immersiveLower && !hideInfoAndLyrics && showCompactLyrics) {
                     Box(
                         Modifier
                             .weight(1f)

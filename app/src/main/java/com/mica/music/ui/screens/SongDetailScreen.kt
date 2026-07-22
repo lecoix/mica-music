@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
@@ -42,6 +43,7 @@ fun SongDetailScreen(
     library: MusicLibrary,
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
+    bottomContentClearance: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val rows = remember(song, library.songs.size, library.lastScanSource) {
@@ -133,7 +135,7 @@ fun SongDetailScreen(
                 }
             }
 
-            Spacer(Modifier.height(HifiSpacing.xl))
+            Spacer(Modifier.height(HifiSpacing.xl + bottomContentClearance))
         }
     }
 }

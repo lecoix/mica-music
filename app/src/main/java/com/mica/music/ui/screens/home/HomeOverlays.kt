@@ -1,6 +1,8 @@
 package com.mica.music.ui.screens.home
 
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
 import com.mica.music.ui.components.AddToPlaylistSheet
@@ -27,6 +29,8 @@ internal fun HomeOverlays(
     onConfirmDeletePlaylist: (String) -> Unit,
     onDismissDeletePlaylist: () -> Unit,
 ) {
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
     overlay.actionMenuSong?.let { song ->
         SongActionMenuSheet(
             song = song,
@@ -41,6 +45,7 @@ internal fun HomeOverlays(
                 onAlbumClick(albumTitle)
                 onDismissActionMenu()
             },
+            landscape = landscape,
         )
     }
 
@@ -52,6 +57,7 @@ internal fun HomeOverlays(
             resolveSong = resolveSong,
             onDismiss = onDismissAddToPlaylist,
             onCreated = onAddToPlaylistCreated,
+            landscape = landscape,
         )
     }
 

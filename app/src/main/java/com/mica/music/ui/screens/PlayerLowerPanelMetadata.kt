@@ -89,6 +89,7 @@ internal fun SongTitleSection(
     playbackError: String?,
     colors: PlayerContentColors,
     immersiveProgress: Float,
+    showAlbum: Boolean = true,
     modifier: Modifier = Modifier,
     contentScale: Float = 1f,
     onLongPress: (() -> Unit)? = null,
@@ -109,7 +110,8 @@ internal fun SongTitleSection(
     val fullSubtitle = when {
         !playbackError.isNullOrBlank() -> playbackError
         isBuffering -> "Buffering..."
-        else -> "${ArtistNames.normalizeDisplay(artist)} - $album"
+        showAlbum && album.isNotBlank() -> "${ArtistNames.normalizeDisplay(artist)} - $album"
+        else -> ArtistNames.normalizeDisplay(artist)
     }
     val isError = !playbackError.isNullOrBlank()
     val subtitleColor = if (isError) MicaTheme.colors.like else colors.secondary

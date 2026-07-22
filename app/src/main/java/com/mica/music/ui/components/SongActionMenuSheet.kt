@@ -2,16 +2,23 @@ package com.mica.music.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PlaylistAdd
@@ -25,6 +32,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -73,11 +82,37 @@ fun SongActionMenuSheet(
     showPlaybackTuning: Boolean = false,
     playbackTuningLabel: String = "速度 / 音高",
     onPlaybackTuningClick: (() -> Unit)? = null,
+    landscape: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
     val sheetBackground = if (isDark) HifiPalette.MicaFogDarkEnd else HifiPalette.MicaFogStart
     val maxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.72f
+
+    if (landscape) {
+        PlayerSidePanel(
+            onDismiss = onDismiss,
+            containerColor = sheetBackground,
+            scrimColor = Color.Black.copy(alpha = if (isDark) 0.42f else 0.28f),
+            paneTitle = "歌曲操作",
+        ) {
+            LandscapeSongActionMenu(
+                song = song,
+                onDismiss = onDismiss,
+                onAction = onAction,
+                onArtistClick = onArtistClick,
+                onAlbumClick = onAlbumClick,
+                fromPlaylistId = fromPlaylistId,
+                showSleepTimer = showSleepTimer,
+                sleepTimerLabel = sleepTimerLabel,
+                onSleepTimerClick = onSleepTimerClick,
+                showPlaybackTuning = showPlaybackTuning,
+                playbackTuningLabel = playbackTuningLabel,
+                onPlaybackTuningClick = onPlaybackTuningClick,
+            )
+        }
+        return
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -239,6 +274,128 @@ private fun SongMenuItem(
     }
 }
 
+private data class LandscapeSongMenuEntry(
+    val icon: ImageVector,
+    val label: String,
+    val tint: Color? = null,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun LandscapeSongActionMenu(
+    song: Song,
+    onDismiss: () -> Unit,
+    onAction: (SongMenuAction) -> Unit,
+    onArtistClick: (String) -> Unit,
+    onAlbumClick: (String) -> Unit,
+    fromPlaylistId: String?,
+    showSleepTimer: Boolean,
+    sleepTimerLabel: String,
+    onSleepTimerClick: (() -> Unit)?,
+    showPlaybackTuning: Boolean,
+    playbackTuningLabel: String,
+    onPlaybackTuningClick: (() -> Unit)?,
+) {
+    val entries = buildList {
+        add(LandscapeSongMenuEntry(Icons.Outlined.PlaylistAdd, "添加到歌单") {
+            onAction(SongMenuAction.AddToPlaylist)
+        })
+        add(LandscapeSongMenuEntry(Icons.Outlined.SkipNext, "下一首播放") {
+            onAction(SongMenuAction.PlayNext)
+        })
+        if (showSleepTimer && onSleepTimerClick != null) {
+            add(LandscapeSongMenuEntry(Icons.Outlined.Bedtime, sleepTimerLabel, onClick = onSleepTimerClick))
+        }
+        if (showPlaybackTuning && onPlaybackTuningClick != null) {
+            add(LandscapeSongMenuEntry(Icons.Outlined.Speed, playbackTuningLabel, onClick = onPlaybackTuningClick))
+        }
+        add(LandscapeSongMenuEntry(Icons.Outlined.Share, "分享") {
+            onAction(SongMenuAction.Share)
+        })
+        add(LandscapeSongMenuEntry(Icons.Outlined.Edit, "使用 Lyrico 编辑音乐标签") {
+            onAction(SongMenuAction.EditTags)
+        })
+        add(LandscapeSongMenuEntry(Icons.Outlined.Info, "歌曲信息") {
+            onAction(SongMenuAction.SongInfo)
+        })
+        if (fromPlaylistId != null) {
+            add(LandscapeSongMenuEntry(Icons.Outlined.PlaylistRemove, "从此歌单中移除") {
+                onAction(SongMenuAction.RemoveFromPlaylist)
+            })
+        }
+        add(LandscapeSongMenuEntry(Icons.Outlined.Delete, "删除音乐", MicaTheme.colors.like) {
+            onAction(SongMenuAction.Delete)
+        })
+    }
+
+    Column(modifier = Modifier.fillMaxHeight()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.weight(1f)) {
+                SongMenuHeader(
+                    song = song,
+                    onArtistClick = onArtistClick,
+                    onAlbumClick = onAlbumClick,
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.padding(end = HifiSpacing.md),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "关闭菜单",
+                    tint = MicaTheme.colors.textSecondary,
+                )
+            }
+        }
+        HorizontalDivider(color = MicaTheme.colors.divider, thickness = HifiSize.dividerHairline)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(HifiSpacing.md),
+            horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        ) {
+            items(entries.size) { index ->
+                LandscapeSongMenuItem(entries[index])
+            }
+        }
+    }
+}
+
+@Composable
+private fun LandscapeSongMenuItem(entry: LandscapeSongMenuEntry) {
+    val tint = entry.tint ?: MicaTheme.colors.textPrimary
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .clickable(onClick = entry.onClick),
+        color = MicaTheme.colors.surfaceGlass,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = HifiSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        ) {
+            Icon(
+                imageVector = entry.icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(HifiSize.iconMd),
+            )
+            Text(
+                text = entry.label,
+                style = MicaTheme.typography.bodyMd,
+                color = tint,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddToPlaylistSheet(
@@ -248,6 +405,7 @@ fun AddToPlaylistSheet(
     resolveSong: (String) -> Song? = { null },
     onDismiss: () -> Unit,
     onCreated: (String) -> Unit,
+    landscape: Boolean = false,
 ) {
     if (songs.isEmpty()) return
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -276,31 +434,59 @@ fun AddToPlaylistSheet(
         onDismiss()
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = sheetBackground,
-        scrimColor = Color.Black.copy(alpha = if (isDark) 0.72f else 0.45f),
-    ) {
+    val content: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (landscape) Modifier.fillMaxHeight() else Modifier)
                 .padding(bottom = HifiSpacing.xl),
         ) {
-            Text(
-                text = "添加到歌单",
-                style = MicaTheme.typography.titleMd,
-                color = MicaTheme.colors.textPrimary,
-                modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
-            )
-            Text(
-                text = subtitle,
-                style = MicaTheme.typography.bodySm,
-                color = MicaTheme.colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = HifiSpacing.lg),
-            )
+            if (landscape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = HifiSpacing.lg, end = HifiSpacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "添加到歌单",
+                            style = MicaTheme.typography.titleMd,
+                            color = MicaTheme.colors.textPrimary,
+                        )
+                        Text(
+                            text = subtitle,
+                            style = MicaTheme.typography.bodySm,
+                            color = MicaTheme.colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "关闭歌单选择",
+                            tint = MicaTheme.colors.textSecondary,
+                        )
+                    }
+                }
+                HorizontalDivider(color = MicaTheme.colors.divider)
+            } else {
+                Text(
+                    text = "添加到歌单",
+                    style = MicaTheme.typography.titleMd,
+                    color = MicaTheme.colors.textPrimary,
+                    modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
+                )
+                Text(
+                    text = subtitle,
+                    style = MicaTheme.typography.bodySm,
+                    color = MicaTheme.colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = HifiSpacing.lg),
+                )
+            }
             SongMenuItem(
                 icon = Icons.Outlined.Add,
                 label = if (showCreate) "取消新建" else "新建歌单",
@@ -335,7 +521,9 @@ fun AddToPlaylistSheet(
                     modifier = Modifier.padding(HifiSpacing.lg),
                 )
             } else {
-                LazyColumn {
+                LazyColumn(
+                    modifier = if (landscape) Modifier.weight(1f) else Modifier,
+                ) {
                     items(playlists, key = { it.id }) { playlist ->
                         PlaylistPickRow(
                             playlist = playlist,
@@ -344,6 +532,25 @@ fun AddToPlaylistSheet(
                     }
                 }
             }
+        }
+    }
+
+    if (landscape) {
+        PlayerSidePanel(
+            onDismiss = onDismiss,
+            containerColor = sheetBackground,
+            scrimColor = Color.Black.copy(alpha = if (isDark) 0.42f else 0.28f),
+            paneTitle = "添加到歌单",
+            content = content,
+        )
+    } else {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = sheetBackground,
+            scrimColor = Color.Black.copy(alpha = if (isDark) 0.72f else 0.45f),
+        ) {
+            content()
         }
     }
 }

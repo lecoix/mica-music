@@ -22,9 +22,9 @@ internal object CoverFlowReflectionBake {
 
     const val ENABLED = true
 
-    private const val CACHE_MAX_ENTRIES = 32
+    internal const val CACHE_MAX_BYTES = 16 * 1024 * 1024
 
-    private val cache = LruCache<String, Bitmap>(CACHE_MAX_ENTRIES)
+    private val cache = BitmapByteLruCache(CACHE_MAX_BYTES)
 
     fun cached(uri: String, dstAspect: Float): Bitmap? = cache.get(cacheKey(uri, dstAspect))
 
@@ -34,6 +34,8 @@ internal object CoverFlowReflectionBake {
     }
 
     fun clear() = cache.evictAll()
+
+    internal fun cacheSizeBytes(): Int = cache.size() * 1024
 
     suspend fun ensureBaked(uri: String, cover: Bitmap, dstAspect: Float): Bitmap? {
         if (!ENABLED || uri.isBlank() || dstAspect <= 0f) return null
@@ -120,4 +122,14 @@ internal object CoverFlowReflectionBake {
             out.set(0, y, srcW, y + cropH)
         }
     }
+}
+
+/** Android's [LruCache] counts abstract units; this cache makes one unit equal one KiB. */
+internal class BitmapByteLruCache(maxBytes: Int) : LruCache<String, Bitmap>(
+    ((maxBytes.coerceAtLeast(1) + 1023L) / 1024L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+) {
+    override fun sizeOf(key: String, value: Bitmap): Int =
+        ((value.allocationByteCount.coerceAtLeast(1) + 1023L) / 1024L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
 }

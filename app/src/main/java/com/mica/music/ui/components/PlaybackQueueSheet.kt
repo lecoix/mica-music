@@ -5,13 +5,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DragHandle
@@ -26,8 +28,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,6 +60,8 @@ fun PlaybackQueueSheet(
     onPlayAt: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
+    landscape: Boolean = false,
+    listState: LazyListState? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
@@ -64,12 +69,21 @@ fun PlaybackQueueSheet(
     val maxSheetHeight = LocalConfiguration.current.screenHeightDp.dp * 0.72f
     val haptic = LocalHapticFeedback.current
 
-    val items = remember { mutableStateListOf<Song>() }
-    val lazyListState = rememberLazyListState()
+    val lazyListState = listState ?: rememberLazyListState(
+        initialFirstVisibleItemIndex = (currentIndex - 2).coerceAtLeast(0),
+    )
+    var observedCurrentIndex by remember { mutableIntStateOf(currentIndex) }
+    var previewFromIndex by remember { mutableIntStateOf(-1) }
+    var previewToIndex by remember { mutableIntStateOf(-1) }
+    val previewProjection = if (previewFromIndex >= 0 && previewToIndex >= 0) {
+        QueueMoveProjection(previewFromIndex, previewToIndex)
+    } else {
+        null
+    }
     val reorderSession = remember { QueueReorderDragSession() }
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        val moved = items.removeAt(from.index)
-        items.add(to.index, moved)
+        if (previewFromIndex < 0) previewFromIndex = from.index
+        previewToIndex = to.index
         reorderSession.recordPreviewMove(from.index, to.index)
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
@@ -77,43 +91,40 @@ fun PlaybackQueueSheet(
         derivedStateOf { reorderState.isAnyItemDragging }
     }
 
-    LaunchedEffect(queue) {
-        if (isReordering || reorderSession.hasPendingPreview()) return@LaunchedEffect
-        if (items.toList() != queue) {
-            items.clear()
-            items.addAll(queue)
-        }
-    }
     LaunchedEffect(isReordering) {
         if (!isReordering) {
-            reorderSession.finish()?.let { commit ->
-                onMove(commit.fromIndex, commit.toIndex)
-            }
+            val commit = reorderSession.finish()
+            commit?.let { onMove(it.fromIndex, it.toIndex) }
+            previewFromIndex = -1
+            previewToIndex = -1
         }
     }
-    LaunchedEffect(currentIndex, items.size) {
-        if (!isReordering && currentIndex in items.indices) {
+    LaunchedEffect(currentIndex, queue.size) {
+        if (
+            observedCurrentIndex != currentIndex &&
+            !isReordering &&
+            currentIndex in queue.indices
+        ) {
             lazyListState.scrollToItem((currentIndex - 2).coerceAtLeast(0))
         }
+        observedCurrentIndex = currentIndex
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = sheetBackground,
-        scrimColor = Color.Black.copy(alpha = if (isDark) 0.72f else 0.45f),
-    ) {
+    val scrimColor = Color.Black.copy(alpha = if (isDark) 0.42f else 0.28f)
+    val sheetContent: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = maxSheetHeight)
+                .then(
+                    if (landscape) Modifier.fillMaxHeight() else Modifier.heightIn(max = maxSheetHeight),
+                )
                 .padding(bottom = HifiSpacing.xxl),
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = HifiSpacing.lg)
-                    .padding(bottom = HifiSpacing.sm),
+                    .height(if (landscape) 72.dp else 64.dp)
+                    .padding(horizontal = HifiSpacing.lg),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -129,13 +140,34 @@ fun PlaybackQueueSheet(
                     )
                 }
                 Text(
-                    text = "${items.size} 首",
+                    text = "${queue.size} 首",
                     style = MicaTheme.typography.bodySm,
                     color = MicaTheme.colors.textSecondary,
                 )
+                if (landscape) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .padding(start = HifiSpacing.sm)
+                            .size(HifiSize.touchTarget),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "关闭播放队列",
+                            tint = MicaTheme.colors.textSecondary,
+                        )
+                    }
+                }
             }
 
-            if (items.isEmpty()) {
+            if (landscape) {
+                HorizontalDivider(
+                    thickness = HifiSize.dividerHairline,
+                    color = MicaTheme.colors.divider,
+                )
+            }
+
+            if (queue.isEmpty()) {
                 Text(
                     text = "队列为空",
                     style = MicaTheme.typography.bodyMd,
@@ -146,29 +178,59 @@ fun PlaybackQueueSheet(
                     textAlign = TextAlign.Center,
                 )
             } else {
-                LazyColumn(state = lazyListState) {
-                    itemsIndexed(items, key = { _, song -> song.id }) { index, song ->
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = if (landscape) Modifier.weight(1f) else Modifier,
+                ) {
+                    items(
+                        count = queue.size,
+                        key = { visualIndex ->
+                            val sourceIndex = previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
+                            queue[sourceIndex].id
+                        },
+                    ) { index ->
+                        val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
+                        val song = queue[sourceIndex]
                         ReorderableItem(reorderState, key = song.id) { isDragging ->
                             QueueSongRow(
                                 index = index,
                                 song = song,
-                                isCurrent = index == currentIndex,
-                                isPlaying = index == currentIndex && isPlaying,
+                                isCurrent = sourceIndex == currentIndex,
+                                isPlaying = sourceIndex == currentIndex && isPlaying,
                                 isDragging = isDragging,
                                 onClick = {
-                                    onPlayAt(index)
+                                    onPlayAt(sourceIndex)
                                     onDismiss()
                                 },
                                 onRemove = {
-                                    items.removeAt(index)
-                                    onRemove(index)
+                                    onRemove(sourceIndex)
                                 },
                                 dragModifier = Modifier.draggableHandle(),
+                                landscape = landscape,
                             )
                         }
                     }
                 }
             }
+        }
+    }
+
+    if (landscape) {
+        PlayerSidePanel(
+            onDismiss = onDismiss,
+            containerColor = sheetBackground,
+            scrimColor = scrimColor,
+            paneTitle = "播放队列",
+            content = sheetContent,
+        )
+    } else {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = sheetBackground,
+            scrimColor = scrimColor,
+        ) {
+            sheetContent()
         }
     }
 }
@@ -183,13 +245,14 @@ private fun QueueSongRow(
     onClick: () -> Unit,
     onRemove: () -> Unit,
     dragModifier: Modifier,
+    landscape: Boolean,
 ) {
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(HifiSize.listRowHeight)
+                .height(if (landscape) 60.dp else HifiSize.listRowHeight)
                 .clickable(onClick = onClick)
                 .padding(start = HifiSpacing.lg),
         ) {
@@ -219,7 +282,7 @@ private fun QueueSongRow(
                 noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                 modifier = Modifier
                     .padding(horizontal = HifiSpacing.sm)
-                    .size(HifiSize.coverXs),
+                    .size(if (landscape) 40.dp else HifiSize.coverXs),
             )
 
             Column(modifier = Modifier.weight(1f)) {

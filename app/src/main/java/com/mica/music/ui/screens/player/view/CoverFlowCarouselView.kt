@@ -80,6 +80,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private var coverWidthPx: Float = 1f
     private var coverHeightPx: Float = 1f
     private var coverDecodeTarget = CoverDecodeTarget.fromPixels(1f, 1f)
+    private var artworkLoadGeneration: Long = 0L
     private var coverStartPaddingPx: Float = 0f
     private var reflectionGapPx: Float = 0f
     private var cameraDistancePx: Float = 48f
@@ -104,6 +105,13 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     private val bitmapByUri = mutableMapOf<String, Bitmap>()
     private val pendingLoads = mutableSetOf<String>()
+
+    /** Perf-only callers use this to verify that the local artwork window stays bounded. */
+    internal fun diagnosticArtworkState(): ArtworkRetentionDiagnostic = ArtworkRetentionDiagnostic(
+        retainedBitmapCount = bitmapByUri.size,
+        pendingLoadCount = pendingLoads.size,
+        queueSize = queue.size,
+    )
 
     var onPlayQueueIndex: ((Int) -> Unit)? = null
     var onPrevious: (() -> Unit)? = null
@@ -160,6 +168,9 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     fun setCoverDecodeTarget(target: CoverDecodeTarget) {
         if (coverDecodeTarget != target) {
             coverDecodeTarget = target
+            artworkLoadGeneration++
+            CoverFlowReflectionBake.clear()
+            pruneBitmapWindow()
             invalidateFor("cover-decode-target")
         }
     }
@@ -759,8 +770,9 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             }
             MicaImageLoaders.evictCoverMemory(uri, coverDecodeTarget)
         }
-        if (!pendingLoads.contains(bitmapKey)) {
-            pendingLoads.add(bitmapKey)
+        val loadGeneration = artworkLoadGeneration
+        val loadToken = "$loadGeneration:$bitmapKey"
+        if (pendingLoads.add(loadToken)) {
             val loadStartedNs = SystemClock.elapsedRealtimeNanos()
             TrackSwitchPerformance.coverAsyncStarted("cover-load")
             TrackSwitchPerformance.mark("cover-load-start", "uri=${uri.takeLast(48)}")
@@ -769,7 +781,15 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 try {
                     val loaded = CoverFlowBitmaps.ensureLoaded(context, uri, loadTarget)
                     loaded?.let { bmp ->
-                        if (coverDecodeTarget == loadTarget) {
+                        if (shouldAcceptArtworkLoad(
+                                requestGeneration = loadGeneration,
+                                activeGeneration = artworkLoadGeneration,
+                                requestTarget = loadTarget,
+                                activeTarget = coverDecodeTarget,
+                                bitmapKey = bitmapKey,
+                                retainedKeys = retainedBitmapKeys(),
+                            )
+                        ) {
                             bitmapByUri[bitmapKey] = bmp
                             if (reflectionEligible) {
                                 scheduleReflectionBake(uri, bmp)
@@ -782,7 +802,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                         )
                     }
                 } finally {
-                    pendingLoads.remove(bitmapKey)
+                    pendingLoads.remove(loadToken)
                     TrackSwitchPerformance.coverAsyncFinished(
                         kind = "cover-load",
                         durationNs = SystemClock.elapsedRealtimeNanos() - loadStartedNs,
@@ -795,6 +815,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     }
 
     private fun preloadWindow() {
+        pruneBitmapWindow()
         val radius = CoverFlowMath.LaneWindowRadius
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
@@ -805,6 +826,23 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                     ?.let { scheduleReflectionBake(uri, it) }
             }
         }
+    }
+
+    private fun retainedBitmapKeys(): Set<String> = retainedArtworkKeys(
+        queue = queue,
+        centerIndex = logicalCenter,
+        visibleOffsets = -CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius,
+        decodeTarget = coverDecodeTarget,
+        extraIndices = listOfNotNull(
+            pendingHostIndex,
+            pendingPlayQueueIndex,
+            awaitingCommittedPlayIndex,
+            lastDispatchedPlayIndex,
+        ),
+    )
+
+    private fun pruneBitmapWindow() {
+        bitmapByUri.keys.retainAll(retainedBitmapKeys())
     }
 
     private fun coverSlotAspect(): Float =

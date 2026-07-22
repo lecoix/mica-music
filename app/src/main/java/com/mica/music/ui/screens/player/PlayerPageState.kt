@@ -71,6 +71,8 @@ internal fun rememberPlayerPageUiModel(
     screenWidth: Dp,
     coverAspectRatio: Float,
     coverSwitching: Boolean,
+    coverFlowMode: PlayerCoverFlowMode = uiSettings.playerCoverFlowMode,
+    immersiveAllowed: Boolean = true,
 ): PlayerPageUiModel? {
     val song = surfaceState.currentSong ?: return null
     val motionEnabled = rememberMicaMotionEnabled()
@@ -78,8 +80,9 @@ internal fun rememberPlayerPageUiModel(
     val typography = MicaTheme.typography
 
     var spectrumDeferred by remember { mutableStateOf(false) }
-    val coverFlowMode = uiSettings.playerCoverFlowMode
-    val immersiveLower = uiSettings.playerImmersiveLower && coverFlowMode.supportsImmersiveLower
+    val immersiveLower = immersiveAllowed &&
+        uiSettings.playerImmersiveLower &&
+        coverFlowMode.supportsImmersiveLower
     val coverFlowModeEnabled = ParticleCoverThemePolicy.coverFlowStageEnabled(coverFlowMode)
     val photoStackMode = coverFlowMode.usesPhotoStack
     val useCoverEdgeProgress = resolveUseCoverEdgeProgress(

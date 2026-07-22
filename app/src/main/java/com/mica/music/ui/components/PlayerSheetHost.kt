@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
@@ -89,12 +90,21 @@ fun PlayerSheetHost(
     val song = rememberSongWithLyrics(library, summarySong, nextSong, uiSettings.lyricsSlotPriority)
     val hydratedSurfaceState = surfaceState.copy(currentSong = song)
     val motionEnabled = rememberMicaMotionEnabled()
+    val configuration = LocalConfiguration.current
+    val viewportKey = configuration.screenWidthDp to configuration.screenHeightDp
     val expansion = remember { Animatable(if (expanded) 1f else 0f) }
     var sheetPhase by remember {
         mutableStateOf(if (expanded) PlayerSheetPhase.Expanded else PlayerSheetPhase.Collapsed)
     }
+    var previousViewportKey by remember { mutableStateOf(viewportKey) }
 
-    LaunchedEffect(expanded, motionEnabled, predictiveBackProgress) {
+    LaunchedEffect(expanded, motionEnabled, predictiveBackProgress, viewportKey) {
+        if (previousViewportKey != viewportKey) {
+            previousViewportKey = viewportKey
+            sheetPhase = if (expanded) PlayerSheetPhase.Expanded else PlayerSheetPhase.Collapsed
+            expansion.snapTo(if (expanded) 1f else 0f)
+            return@LaunchedEffect
+        }
         val backProgress = predictiveBackProgress
         if (backProgress != null) {
             sheetPhase = PlayerSheetPhase.Expanded

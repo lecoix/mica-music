@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -250,6 +251,11 @@ class MainActivity : ComponentActivity() {
                     lp.gravity = Gravity.BOTTOM
                 }
                 overlayCompose.layoutParams = lp
+                mainCompose.importantForAccessibility = if (overlayFullScreen) {
+                    View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                } else {
+                    View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                }
             }
 
             MicaAppRoot(

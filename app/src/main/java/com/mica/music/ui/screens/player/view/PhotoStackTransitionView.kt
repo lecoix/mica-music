@@ -115,6 +115,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
 
     private var frame = PhotoStackTransitionFramePx.Empty
     private var decodeTarget = CoverDecodeTarget.fromPixels(1f, 1f)
+    private var artworkLoadGeneration: Long = 0L
     private var shadowTuning = PhotoStackShadowTuning()
     private var shadowBitmapCache: Bitmap? = null
     private var shadowBitmapCacheKey: String? = null
@@ -162,6 +163,13 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private val bitmapByKey = mutableMapOf<String, Bitmap>()
     private val pendingLoads = mutableSetOf<String>()
 
+    /** Perf-only callers use this to verify that the local artwork window stays bounded. */
+    internal fun diagnosticArtworkState(): ArtworkRetentionDiagnostic = ArtworkRetentionDiagnostic(
+        retainedBitmapCount = bitmapByKey.size,
+        pendingLoadCount = pendingLoads.size,
+        queueSize = queue.size,
+    )
+
     private val gestureDetector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
@@ -197,7 +205,12 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         this.frame = frame
         val artworkSizePx =
             (frame.cardWidthPx - frame.artworkInsetHorizontalPx * 2f).coerceAtLeast(1f)
-        decodeTarget = CoverDecodeTarget.fromPixels(artworkSizePx, artworkSizePx)
+        val nextDecodeTarget = CoverDecodeTarget.fromPixels(artworkSizePx, artworkSizePx)
+        if (decodeTarget != nextDecodeTarget) {
+            decodeTarget = nextDecodeTarget
+            artworkLoadGeneration++
+            pruneBitmapWindow()
+        }
         clearShadowBitmapCache()
         invalidate()
     }
@@ -373,6 +386,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
                 direction = direction,
             ),
         )
+        pruneBitmapWindow()
         if (activeTransitionCards.isEmpty() || !motionEnabled) {
             activeTransitionCards = emptyList()
             transitionProgress = 1f
@@ -1083,17 +1097,29 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
             }
             MicaImageLoaders.evictCoverMemory(uri, decodeTarget)
         }
-        if (pendingLoads.add(key)) {
+        val loadGeneration = artworkLoadGeneration
+        val loadToken = "$loadGeneration:$key"
+        if (pendingLoads.add(loadToken)) {
             val activeTarget = decodeTarget
             scope.launch {
                 try {
                     val loaded = CoverFlowBitmaps.ensureLoaded(context, uri, activeTarget)
-                    if (loaded != null && activeTarget == decodeTarget) {
+                    if (
+                        loaded != null &&
+                        shouldAcceptArtworkLoad(
+                            requestGeneration = loadGeneration,
+                            activeGeneration = artworkLoadGeneration,
+                            requestTarget = activeTarget,
+                            activeTarget = decodeTarget,
+                            bitmapKey = key,
+                            retainedKeys = retainedBitmapKeys(),
+                        )
+                    ) {
                         bitmapByKey[key] = loaded
                         invalidate()
                     }
                 } finally {
-                    pendingLoads.remove(key)
+                    pendingLoads.remove(loadToken)
                 }
             }
         }
@@ -1126,10 +1152,29 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     }
 
     private fun preloadWindow() {
+        pruneBitmapWindow()
         for (offset in -1..3) {
             val song = queue.getOrNull(logicalCenter + offset) ?: continue
             bitmapFor(song)
         }
+    }
+
+    private fun retainedBitmapKeys(): Set<String> = retainedArtworkKeys(
+        queue = queue,
+        centerIndex = logicalCenter,
+        visibleOffsets = -1..3,
+        decodeTarget = decodeTarget,
+        extraIndices = listOfNotNull(
+            pendingHostIndex,
+            pendingPlayQueueIndex,
+            awaitingCommittedPlayIndex,
+            lastDispatchedPlayIndex,
+        ),
+        extraSongs = activeTransitionCards.map { it.song },
+    )
+
+    private fun pruneBitmapWindow() {
+        bitmapByKey.keys.retainAll(retainedBitmapKeys())
     }
 
     private fun applyAlpha(argb: Int, alpha: Float): Int {

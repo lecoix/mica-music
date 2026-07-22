@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -87,6 +88,8 @@ private val FloatingIslandBlurDark = 5.dp
 private const val FloatingIslandGlassAlphaScale = 0.1375f
 /** 与列表单行一致的高度。 */
 private val AudiophileBarHeight = HifiSize.listRowHeight
+private val FloatingIslandCardMaxWidth = 720.dp
+private val AudiophileContentMaxWidth = 840.dp
 
 /** 迷你栏自内容区底边向上的占用高度（不含列表缓冲）。 */
 @Composable
@@ -319,6 +322,7 @@ private fun FloatingIslandMiniPlayer(
     ) {
         Box(
             modifier = Modifier
+                .widthIn(max = FloatingIslandCardMaxWidth)
                 .fillMaxWidth()
                 .padding(horizontal = FloatingIslandScreenEdgeInset)
                 .height(FloatingCardHeight + FloatingIslandShadowVerticalExtra)
@@ -428,47 +432,55 @@ private fun AudiophileMiniPlayer(
                 hasCustomWallpaper = hasCustomWallpaper,
                 height = AudiophileBarHeight,
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .semantics {
-                        contentDescription = "展开播放器：${song.title}"
-                        role = Role.Button
-                    }
-                    .combinedClickable(
-                        onClick = onExpand,
-                        onLongClick = onLongPress,
-                    )
-                    .padding(start = HifiSpacing.lg, end = HifiSpacing.xl),
+                    .fillMaxSize(),
+                contentAlignment = Alignment.Center,
             ) {
-                SharpPlayPauseButton(
-                    isPlaying = isPlaying,
-                    onToggle = onPlayPause,
-                    size = HifiSize.iconLg,
-                    color = colors.textPrimary,
-                )
-                Spacer(Modifier.width(HifiSpacing.md))
-                Column(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .weight(1f)
-                        .padding(end = HifiSpacing.sm),
+                        .widthIn(max = AudiophileContentMaxWidth)
+                        .fillMaxWidth()
+                        .height(AudiophileBarHeight)
+                        .semantics {
+                            contentDescription = "展开播放器：${song.title}"
+                            role = Role.Button
+                        }
+                        .combinedClickable(
+                            onClick = onExpand,
+                            onLongClick = onLongPress,
+                        )
+                        .padding(start = HifiSpacing.lg, end = HifiSpacing.xl),
                 ) {
-                    MiniPlayerMarqueeText(
-                        text = text.primary,
-                        style = MicaTheme.typography.bodyMd,
+                    SharpPlayPauseButton(
+                        isPlaying = isPlaying,
+                        onToggle = onPlayPause,
+                        size = HifiSize.iconLg,
                         color = colors.textPrimary,
                     )
-                    MiniPlayerMarqueeText(
-                        text = text.secondary,
-                        style = MicaTheme.typography.bodySm,
-                        color = colors.textSecondary,
+                    Spacer(Modifier.width(HifiSpacing.md))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = HifiSpacing.sm),
+                    ) {
+                        MiniPlayerMarqueeText(
+                            text = text.primary,
+                            style = MicaTheme.typography.bodyMd,
+                            color = colors.textPrimary,
+                        )
+                        MiniPlayerMarqueeText(
+                            text = text.secondary,
+                            style = MicaTheme.typography.bodySm,
+                            color = colors.textSecondary,
+                        )
+                    }
+                    MiniPlayerSpectrumBars(
+                        isPlaying = isPlaying,
+                        height = 38.dp,
                     )
                 }
-                MiniPlayerSpectrumBars(
-                    isPlaying = isPlaying,
-                    height = 38.dp,
-                )
             }
         }
         if (bottomInset > 0.dp) {
