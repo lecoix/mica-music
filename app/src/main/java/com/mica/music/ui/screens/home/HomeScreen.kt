@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -96,6 +97,8 @@ fun HomeScreen(
     playerOverlayOpen: Boolean = false,
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscapeWindow = configuration.screenWidthDp > configuration.screenHeightDp
     var uiState by rememberSaveable(stateSaver = HomeUiStateSaver) {
         mutableStateOf(HomeUiState.initial(context))
     }
@@ -813,6 +816,7 @@ fun HomeScreen(
             }
 
         }
+        }
 
         var miniPlayerSongSnapshot by remember { mutableStateOf<Song?>(null) }
         LaunchedEffect(currentSong) {
@@ -864,11 +868,14 @@ fun HomeScreen(
                             enabled = uiSettings.miniPlayerLyricsEnabled,
                             lyricText = sharedLyricText,
                         ),
-                        modifier = Modifier,
+                        modifier = if (isLandscapeWindow) {
+                            Modifier
+                        } else {
+                            Modifier.offset(x = contentOffsetX)
+                        },
                     )
                 }
             }
-        }
         }
 
         val snackbarBottomPadding = if (currentSong != null) {

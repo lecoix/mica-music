@@ -21,9 +21,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,6 +43,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -64,6 +68,7 @@ import com.mica.music.ui.components.BrowseGroupRow
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.SongListPanel
 import com.mica.music.ui.components.SongRow
+import com.mica.music.ui.components.songListColumnsFor
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -397,73 +402,116 @@ private fun AlbumDetailPanel(
         }
     }
     val orderedSongs = detail.orderedSongs
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = listBottomPadding),
-    ) {
-        item("albumHeader") {
-            AlbumDetailHeader(
-                albumTitle = albumTitle,
-                songs = orderedSongs,
-                onPlayAll = {
-                    onQueueSongs(orderedSongs)
-                    orderedSongs.firstOrNull()?.let { onSongClick(it.id) }
-                },
-                onAddToPlaylist = { onAddSongsToPlaylist(orderedSongs) },
-                onAddToQueue = { onAppendSongsToQueue(orderedSongs) },
-            )
-        }
-        detail.discSections.forEach { section ->
-            section.discNumber?.let { discNumber ->
-                item("albumDisc:$discNumber") {
-                    Text(
-                        text = "DISC $discNumber",
-                        style = MicaTheme.typography.caption,
-                        color = MicaTheme.colors.textTertiary,
-                        modifier = Modifier.padding(
-                            start = HifiSpacing.lg,
-                            top = HifiSpacing.md,
-                            end = HifiSpacing.lg,
-                            bottom = HifiSpacing.xs,
-                        ),
-                    )
+    val configuration = LocalConfiguration.current
+    val columns = songListColumnsFor(configuration.screenWidthDp, configuration.screenHeightDp)
+    val gridState = rememberLazyGridState()
+    val header: @Composable () -> Unit = {
+        AlbumDetailHeader(
+            albumTitle = albumTitle,
+            songs = orderedSongs,
+            onPlayAll = {
+                onQueueSongs(orderedSongs)
+                orderedSongs.firstOrNull()?.let { onSongClick(it.id) }
+            },
+            onAddToPlaylist = { onAddSongsToPlaylist(orderedSongs) },
+            onAddToQueue = { onAppendSongsToQueue(orderedSongs) },
+        )
+    }
+    val discLabel: @Composable (Int) -> Unit = { discNumber ->
+        Text(
+            text = "DISC $discNumber",
+            style = MicaTheme.typography.caption,
+            color = MicaTheme.colors.textTertiary,
+            modifier = Modifier.padding(
+                start = HifiSpacing.lg,
+                top = HifiSpacing.md,
+                end = HifiSpacing.lg,
+                bottom = HifiSpacing.xs,
+            ),
+        )
+    }
+    val songRow: @Composable (Int, Song) -> Unit = { trackIndex, song ->
+        val isCurrent = currentSongId == song.id
+        SongRow(
+            song = song,
+            trackNumber = song.trackNumber.takeIf { it > 0 }?.toString()?.padStart(2, '0')
+                ?: (trackIndex + 1).toString().padStart(2, '0'),
+            trailingLabel = song.durationLabel,
+            isCurrent = isCurrent,
+            isPlaying = isCurrent && isPlaying,
+            showCover = false,
+            subtitleOverride = ArtistNames.normalizeDisplay(song.artist),
+            onClick = {
+                onQueueSongs(orderedSongs)
+                onSongClick(song.id)
+            },
+            onLongClick = { onSongOpenMenu(song) },
+        )
+    }
+    val copyright: @Composable (String) -> Unit = { label ->
+        Text(
+            text = label,
+            style = MicaTheme.typography.bodySm,
+            color = MicaTheme.colors.textTertiary,
+            modifier = Modifier.padding(
+                start = HifiSpacing.lg,
+                top = HifiSpacing.md,
+                end = HifiSpacing.lg,
+                bottom = HifiSpacing.sm,
+            ),
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+
+    if (columns > 1) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            state = gridState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            item(key = "albumHeader", span = { GridItemSpan(maxLineSpan) }) { header() }
+            detail.discSections.forEach { section ->
+                section.discNumber?.let { discNumber ->
+                    item(
+                        key = "albumDisc:$discNumber",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) { discLabel(discNumber) }
+                }
+                gridItemsIndexed(
+                    items = section.songs,
+                    key = { _, song -> "albumSong:${song.id}" },
+                ) { trackIndex, song ->
+                    songRow(trackIndex, song)
                 }
             }
-            itemsIndexed(section.songs, key = { _, song -> "albumSong:${song.id}" }) { trackIndex, song ->
-                val isCurrent = currentSongId == song.id
-                SongRow(
-                    song = song,
-                    trackNumber = song.trackNumber.takeIf { it > 0 }?.toString()?.padStart(2, '0')
-                        ?: (trackIndex + 1).toString().padStart(2, '0'),
-                    trailingLabel = song.durationLabel,
-                    isCurrent = isCurrent,
-                    isPlaying = isCurrent && isPlaying,
-                    showCover = false,
-                    subtitleOverride = ArtistNames.normalizeDisplay(song.artist),
-                    onClick = {
-                        onQueueSongs(orderedSongs)
-                        onSongClick(song.id)
-                    },
-                    onLongClick = { onSongOpenMenu(song) },
-                )
+            detail.copyright?.let { label ->
+                item(key = "albumCopyright", span = { GridItemSpan(maxLineSpan) }) {
+                    copyright(label)
+                }
             }
         }
-        detail.copyright?.let { label ->
-            item("albumCopyright") {
-                Text(
-                    text = label,
-                    style = MicaTheme.typography.bodySm,
-                    color = MicaTheme.colors.textTertiary,
-                    modifier = Modifier.padding(
-                        start = HifiSpacing.lg,
-                        top = HifiSpacing.md,
-                        end = HifiSpacing.lg,
-                        bottom = HifiSpacing.sm,
-                    ),
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    } else {
+        LazyColumn(
+            state = listState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            item("albumHeader") { header() }
+            detail.discSections.forEach { section ->
+                section.discNumber?.let { discNumber ->
+                    item("albumDisc:$discNumber") { discLabel(discNumber) }
+                }
+                itemsIndexed(
+                    items = section.songs,
+                    key = { _, song -> "albumSong:${song.id}" },
+                ) { trackIndex, song ->
+                    songRow(trackIndex, song)
+                }
+            }
+            detail.copyright?.let { label ->
+                item("albumCopyright") { copyright(label) }
             }
         }
     }
@@ -586,48 +634,81 @@ private fun ArtistDetailPanel(
         }
     }
     val displayedSongs = remember(albumSections) { albumSections.flatMap { it.songs } }
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = listBottomPadding),
-    ) {
-        item("artistHeader") {
-            ArtistDetailHeader(
-                artistName = artistName,
-                songs = songs,
-                albumSections = albumSections,
-                onPlayAll = {
-                    onQueueSongs(songs)
-                    songs.firstOrNull()?.let { onSongClick(it.id) }
-                },
-                onAddToPlaylist = { onAddSongsToPlaylist(displayedSongs) },
-                onAddToQueue = { onAppendSongsToQueue(songs) },
-            )
-        }
-        albumSections.forEach { section ->
-            item("albumHeader:${section.title}") {
-                ArtistAlbumHeader(
-                    section = section,
-                    onAlbumClick = onAlbumClick,
-                )
+    val configuration = LocalConfiguration.current
+    val columns = songListColumnsFor(configuration.screenWidthDp, configuration.screenHeightDp)
+    val gridState = rememberLazyGridState()
+    val header: @Composable () -> Unit = {
+        ArtistDetailHeader(
+            artistName = artistName,
+            songs = songs,
+            albumSections = albumSections,
+            onPlayAll = {
+                onQueueSongs(songs)
+                songs.firstOrNull()?.let { onSongClick(it.id) }
+            },
+            onAddToPlaylist = { onAddSongsToPlaylist(displayedSongs) },
+            onAddToQueue = { onAppendSongsToQueue(songs) },
+        )
+    }
+    val songRow: @Composable (Int, Song) -> Unit = { trackIndex, song ->
+        val isCurrent = currentSongId == song.id
+        SongRow(
+            song = song,
+            trackNumber = song.trackNumber.takeIf { it > 0 }?.toString()?.padStart(2, '0')
+                ?: (trackIndex + 1).toString().padStart(2, '0'),
+            trailingLabel = song.durationLabel,
+            isCurrent = isCurrent,
+            isPlaying = isCurrent && isPlaying,
+            showCover = false,
+            compact = true,
+            onClick = {
+                onQueueSongs(songs)
+                onSongClick(song.id)
+            },
+            onLongClick = { onSongOpenMenu(song) },
+        )
+    }
+
+    if (columns > 1) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            state = gridState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            item(key = "artistHeader", span = { GridItemSpan(maxLineSpan) }) { header() }
+            albumSections.forEach { section ->
+                item(
+                    key = "albumHeader:${section.title}",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
+                    ArtistAlbumHeader(section = section, onAlbumClick = onAlbumClick)
+                }
+                gridItemsIndexed(
+                    items = section.songs,
+                    key = { _, song -> "artistSong:${song.id}" },
+                ) { trackIndex, song ->
+                    songRow(trackIndex, song)
+                }
             }
-            itemsIndexed(section.songs, key = { _, song -> "artistSong:${song.id}" }) { trackIndex, song ->
-                val isCurrent = currentSongId == song.id
-                SongRow(
-                    song = song,
-                    trackNumber = song.trackNumber.takeIf { it > 0 }?.toString()?.padStart(2, '0')
-                        ?: (trackIndex + 1).toString().padStart(2, '0'),
-                    trailingLabel = song.durationLabel,
-                    isCurrent = isCurrent,
-                    isPlaying = isCurrent && isPlaying,
-                    showCover = false,
-                    compact = true,
-                    onClick = {
-                        onQueueSongs(songs)
-                        onSongClick(song.id)
-                    },
-                    onLongClick = { onSongOpenMenu(song) },
-                )
+        }
+    } else {
+        LazyColumn(
+            state = listState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            item("artistHeader") { header() }
+            albumSections.forEach { section ->
+                item("albumHeader:${section.title}") {
+                    ArtistAlbumHeader(section = section, onAlbumClick = onAlbumClick)
+                }
+                itemsIndexed(
+                    items = section.songs,
+                    key = { _, song -> "artistSong:${song.id}" },
+                ) { trackIndex, song ->
+                    songRow(trackIndex, song)
+                }
             }
         }
     }
@@ -983,6 +1064,9 @@ private fun BrowseGroupList(
     modifier: Modifier = Modifier,
 ) {
     val columns = gridColumns.coerceIn(1, 4)
+    val configuration = LocalConfiguration.current
+    val landscapeWindow =
+        songListColumnsFor(configuration.screenWidthDp, configuration.screenHeightDp) > 1
     if (columns > 1) {
         if (fastScrollLabels == null) {
             LazyVerticalGrid(
@@ -1011,6 +1095,7 @@ private fun BrowseGroupList(
                 sectionTargetsOverride = fastScrollSectionTargets,
                 scrollToIndex = { gridState.scrollToItem(it) },
                 descending = fastScrollDescending,
+                fullHeightOverlay = landscapeWindow,
                 modifier = modifier.fillMaxSize(),
             ) {
                 LazyVerticalGrid(
@@ -1062,6 +1147,7 @@ private fun BrowseGroupList(
         sectionTargetsOverride = fastScrollSectionTargets,
         scrollToIndex = { listState.scrollToItem(it) },
         descending = fastScrollDescending,
+        fullHeightOverlay = landscapeWindow,
         modifier = modifier.fillMaxSize(),
     ) {
         LazyColumn(
@@ -1139,28 +1225,58 @@ private fun FolderContentList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = listBottomPadding),
-    ) {
-        items(groups, key = { it.pathSegments.joinToString("/") }) { group ->
-            BrowseGroupRow(
-                title = group.title,
-                subtitle = group.subtitle,
-                onClick = { onSelect(group) },
-            )
+    val configuration = LocalConfiguration.current
+    val columns = songListColumnsFor(configuration.screenWidthDp, configuration.screenHeightDp)
+    val gridState = rememberLazyGridState()
+    val groupRow: @Composable (FolderBrowseGroup) -> Unit = { group ->
+        BrowseGroupRow(
+            title = group.title,
+            subtitle = group.subtitle,
+            onClick = { onSelect(group) },
+        )
+    }
+    val songRow: @Composable (Song) -> Unit = { song ->
+        val isCurrent = currentSongId == song.id
+        SongRow(
+            song = song,
+            isCurrent = isCurrent,
+            isPlaying = isCurrent && isPlaying,
+            onClick = { onSongClick(song.id) },
+            onLongClick = { onSongOpenMenu(song) },
+            infoVisibility = FolderSongInfoVisibility,
+        )
+    }
+
+    if (columns > 1) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            state = gridState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            gridItems(
+                items = groups,
+                key = { it.pathSegments.joinToString("/") },
+                span = { GridItemSpan(maxLineSpan) },
+            ) { group ->
+                groupRow(group)
+            }
+            gridItems(songs, key = { "song:${it.id}" }) { song ->
+                songRow(song)
+            }
         }
-        items(songs, key = { "song:${it.id}" }) { song ->
-            val isCurrent = currentSongId == song.id
-            SongRow(
-                song = song,
-                isCurrent = isCurrent,
-                isPlaying = isCurrent && isPlaying,
-                onClick = { onSongClick(song.id) },
-                onLongClick = { onSongOpenMenu(song) },
-                infoVisibility = FolderSongInfoVisibility,
-            )
+    } else {
+        LazyColumn(
+            state = listState,
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = listBottomPadding),
+        ) {
+            items(groups, key = { it.pathSegments.joinToString("/") }) { group ->
+                groupRow(group)
+            }
+            items(songs, key = { "song:${it.id}" }) { song ->
+                songRow(song)
+            }
         }
     }
 }

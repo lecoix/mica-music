@@ -74,6 +74,61 @@ fun HomeDrawerPanel(
     onCreatePlaylist: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val configuration = LocalConfiguration.current
+    val columns = drawerColumnsFor(
+        widthDp = configuration.screenWidthDp,
+        heightDp = configuration.screenHeightDp,
+    )
+    val libraryItems =
+        listOf(
+            DrawerItem("歌曲", Icons.Outlined.LibraryMusic, selectedSection == HomeSection.Songs) {
+                onSectionSelected(HomeSection.Songs)
+            },
+            DrawerItem("艺术家", Icons.Outlined.Person, selectedSection == HomeSection.Artists) {
+                onSectionSelected(HomeSection.Artists)
+            },
+            DrawerItem("专辑", Icons.Outlined.Album, selectedSection == HomeSection.Albums) {
+                onSectionSelected(HomeSection.Albums)
+            },
+            DrawerItem("文件夹", Icons.Outlined.Folder, selectedSection == HomeSection.Folders) {
+                onSectionSelected(HomeSection.Folders)
+            },
+        )
+    val discoveryItems =
+        listOf(
+            DrawerItem("最近播放", Icons.Outlined.History, selectedSection == HomeSection.Recent) {
+                onSectionSelected(HomeSection.Recent)
+            },
+            DrawerItem(
+                "音乐库分析",
+                Icons.Outlined.Analytics,
+                selectedSection == HomeSection.LibraryAnalysis,
+            ) {
+                onSectionSelected(HomeSection.LibraryAnalysis)
+            },
+        )
+    val playlistItems = playlists.map { playlist ->
+        DrawerItem(
+            label = playlist.name,
+            icon = Icons.Outlined.PlaylistPlay,
+            selected = selectedSection == HomeSection.Playlist && activePlaylistId == playlist.id,
+            onClick = { onPlaylistSelected(playlist.id) },
+        )
+    } + DrawerItem(
+        label = "新建歌单",
+        icon = Icons.Outlined.Add,
+        selected = false,
+        muted = true,
+        onClick = onCreatePlaylist,
+    )
+    val bottomItems = listOf(
+        DrawerItem("均衡器", Icons.Outlined.GraphicEq, false, onClick = onOpenEqualizer),
+        DrawerItem("关于", Icons.Outlined.Info, false, onClick = onOpenAbout),
+        DrawerItem("设置", Icons.Outlined.Settings, selectedSection == HomeSection.Settings) {
+            onSectionSelected(HomeSection.Settings)
+        },
+    )
+
     Box(
         modifier = modifier
             .width(homeDrawerWidth())
@@ -91,90 +146,65 @@ fun HomeDrawerPanel(
                     ),
             ) {
                 DrawerSectionLabel("曲库")
-                DrawerNavItem(
-                    label = "歌曲",
-                    icon = Icons.Outlined.LibraryMusic,
-                    selected = selectedSection == HomeSection.Songs,
-                    onClick = { onSectionSelected(HomeSection.Songs) },
-                )
-                DrawerNavItem(
-                    label = "艺术家",
-                    icon = Icons.Outlined.Person,
-                    selected = selectedSection == HomeSection.Artists,
-                    onClick = { onSectionSelected(HomeSection.Artists) },
-                )
-                DrawerNavItem(
-                    label = "专辑",
-                    icon = Icons.Outlined.Album,
-                    selected = selectedSection == HomeSection.Albums,
-                    onClick = { onSectionSelected(HomeSection.Albums) },
-                )
-                DrawerNavItem(
-                    label = "文件夹",
-                    icon = Icons.Outlined.Folder,
-                    selected = selectedSection == HomeSection.Folders,
-                    onClick = { onSectionSelected(HomeSection.Folders) },
-                )
+                DrawerNavGrid(items = libraryItems, columns = columns)
 
                 Spacer(Modifier.height(HifiSpacing.xl))
 
                 DrawerSectionLabel("发现")
-                DrawerNavItem(
-                    label = "最近播放",
-                    icon = Icons.Outlined.History,
-                    selected = selectedSection == HomeSection.Recent,
-                    onClick = { onSectionSelected(HomeSection.Recent) },
-                )
-                DrawerNavItem(
-                    label = "音乐库分析",
-                    icon = Icons.Outlined.Analytics,
-                    selected = selectedSection == HomeSection.LibraryAnalysis,
-                    onClick = { onSectionSelected(HomeSection.LibraryAnalysis) },
-                )
+                DrawerNavGrid(items = discoveryItems, columns = columns)
 
                 Spacer(Modifier.height(HifiSpacing.xl))
 
                 DrawerSectionLabel("歌单")
-                playlists.forEach { playlist ->
-                    val selected =
-                        selectedSection == HomeSection.Playlist && activePlaylistId == playlist.id
-                    DrawerNavItem(
-                        label = playlist.name,
-                        icon = Icons.Outlined.PlaylistPlay,
-                        selected = selected,
-                        onClick = { onPlaylistSelected(playlist.id) },
-                    )
-                }
-                DrawerNavItem(
-                    label = "新建歌单",
-                    icon = Icons.Outlined.Add,
-                    selected = false,
-                    muted = true,
-                    onClick = onCreatePlaylist,
-                )
+                DrawerNavGrid(items = playlistItems, columns = columns)
             }
 
-            DrawerNavItem(
-                label = "均衡器",
-                icon = Icons.Outlined.GraphicEq,
-                selected = false,
-                onClick = onOpenEqualizer,
-            )
-            DrawerNavItem(
-                label = "关于",
-                icon = Icons.Outlined.Info,
-                selected = false,
-                onClick = onOpenAbout,
-            )
-            DrawerNavItem(
-                label = "设置",
-                icon = Icons.Outlined.Settings,
-                selected = selectedSection == HomeSection.Settings,
-                onClick = { onSectionSelected(HomeSection.Settings) },
+            DrawerNavGrid(
+                items = bottomItems,
+                columns = columns,
                 modifier = Modifier.padding(
                     bottom = HifiSpacing.xl + bottomInset,
                 ),
             )
+        }
+    }
+}
+
+internal fun drawerColumnsFor(widthDp: Int, heightDp: Int): Int =
+    if (widthDp > heightDp) 2 else 1
+
+private data class DrawerItem(
+    val label: String,
+    val icon: ImageVector,
+    val selected: Boolean,
+    val muted: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun DrawerNavGrid(
+    items: List<DrawerItem>,
+    columns: Int,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        items.chunked(columns).forEach { rowItems ->
+            Row(Modifier.fillMaxWidth()) {
+                rowItems.forEach { item ->
+                    DrawerNavItem(
+                        label = item.label,
+                        icon = item.icon,
+                        selected = item.selected,
+                        muted = item.muted,
+                        onClick = item.onClick,
+                        compact = columns > 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(columns - rowItems.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
         }
     }
 }
@@ -202,6 +232,7 @@ private fun DrawerNavItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     muted: Boolean = false,
+    compact: Boolean = false,
 ) {
     val textColor = when {
         selected -> MicaTheme.colors.accent
@@ -223,7 +254,7 @@ private fun DrawerNavItem(
             .fillMaxWidth()
             .height(HifiSize.touchTarget)
             .clickable(onClick = onClick)
-            .padding(horizontal = HifiSpacing.lg),
+            .padding(horizontal = if (compact) HifiSpacing.sm else HifiSpacing.lg),
     ) {
         Box(
             modifier = Modifier
@@ -247,7 +278,7 @@ private fun DrawerNavItem(
             tint = iconTint,
             modifier = Modifier.size(HifiSize.iconMd),
         )
-        Spacer(Modifier.width(HifiSpacing.md))
+        Spacer(Modifier.width(if (compact) HifiSpacing.sm else HifiSpacing.md))
         Text(
             text = label,
             style = textStyle,

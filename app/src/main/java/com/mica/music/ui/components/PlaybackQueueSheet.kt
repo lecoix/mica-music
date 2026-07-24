@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
@@ -48,6 +51,7 @@ import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyGridState
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +76,9 @@ fun PlaybackQueueSheet(
     val lazyListState = listState ?: rememberLazyListState(
         initialFirstVisibleItemIndex = (currentIndex - 2).coerceAtLeast(0),
     )
+    val lazyGridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = (currentIndex - 2).coerceAtLeast(0),
+    )
     var observedCurrentIndex by remember { mutableIntStateOf(currentIndex) }
     var previewFromIndex by remember { mutableIntStateOf(-1) }
     var previewToIndex by remember { mutableIntStateOf(-1) }
@@ -81,14 +88,26 @@ fun PlaybackQueueSheet(
         null
     }
     val reorderSession = remember { QueueReorderDragSession() }
-    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+    val reorderListState = rememberReorderableLazyListState(lazyListState) { from, to ->
         if (previewFromIndex < 0) previewFromIndex = from.index
         previewToIndex = to.index
         reorderSession.recordPreviewMove(from.index, to.index)
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
-    val isReordering by remember {
-        derivedStateOf { reorderState.isAnyItemDragging }
+    val reorderGridState = rememberReorderableLazyGridState(lazyGridState) { from, to ->
+        if (previewFromIndex < 0) previewFromIndex = from.index
+        previewToIndex = to.index
+        reorderSession.recordPreviewMove(from.index, to.index)
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    val isReordering by remember(landscape) {
+        derivedStateOf {
+            if (landscape) {
+                reorderGridState.isAnyItemDragging
+            } else {
+                reorderListState.isAnyItemDragging
+            }
+        }
     }
 
     LaunchedEffect(isReordering) {
@@ -105,7 +124,12 @@ fun PlaybackQueueSheet(
             !isReordering &&
             currentIndex in queue.indices
         ) {
-            lazyListState.scrollToItem((currentIndex - 2).coerceAtLeast(0))
+            val targetIndex = (currentIndex - 2).coerceAtLeast(0)
+            if (landscape) {
+                lazyGridState.scrollToItem(targetIndex)
+            } else {
+                lazyListState.scrollToItem(targetIndex)
+            }
         }
         observedCurrentIndex = currentIndex
     }
@@ -178,20 +202,55 @@ fun PlaybackQueueSheet(
                     textAlign = TextAlign.Center,
                 )
             } else {
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = if (landscape) Modifier.weight(1f) else Modifier,
-                ) {
-                    items(
-                        count = queue.size,
-                        key = { visualIndex ->
-                            val sourceIndex = previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
-                            queue[sourceIndex].id
-                        },
-                    ) { index ->
+                if (landscape) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        state = lazyGridState,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        items(
+                            count = queue.size,
+                            key = { visualIndex: Int ->
+                                val sourceIndex =
+                                    previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
+                                queue[sourceIndex].id
+                            },
+                        ) { index: Int ->
+                            val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
+                            val song = queue[sourceIndex]
+                            ReorderableItem(reorderGridState, key = song.id) { isDragging ->
+                                QueueSongRow(
+                                    index = index,
+                                    song = song,
+                                    isCurrent = sourceIndex == currentIndex,
+                                    isPlaying = sourceIndex == currentIndex && isPlaying,
+                                    isDragging = isDragging,
+                                    onClick = {
+                                        onPlayAt(sourceIndex)
+                                        onDismiss()
+                                    },
+                                    onRemove = { onRemove(sourceIndex) },
+                                    dragModifier = Modifier.draggableHandle(),
+                                    landscape = true,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        state = lazyListState,
+                    ) {
+                        items(
+                            count = queue.size,
+                            key = { visualIndex ->
+                                val sourceIndex =
+                                    previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
+                                queue[sourceIndex].id
+                            },
+                        ) { index ->
                         val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
                         val song = queue[sourceIndex]
-                        ReorderableItem(reorderState, key = song.id) { isDragging ->
+                            ReorderableItem(reorderListState, key = song.id) { isDragging ->
                             QueueSongRow(
                                 index = index,
                                 song = song,
@@ -206,8 +265,9 @@ fun PlaybackQueueSheet(
                                     onRemove(sourceIndex)
                                 },
                                 dragModifier = Modifier.draggableHandle(),
-                                landscape = landscape,
-                            )
+                                    landscape = false,
+                                )
+                            }
                         }
                     }
                 }
@@ -220,6 +280,9 @@ fun PlaybackQueueSheet(
             onDismiss = onDismiss,
             containerColor = sheetBackground,
             scrimColor = scrimColor,
+            widthFraction = 0.82f,
+            minPanelWidth = 520.dp,
+            maxPanelWidth = 900.dp,
             paneTitle = "播放队列",
             content = sheetContent,
         )
@@ -254,7 +317,7 @@ private fun QueueSongRow(
                 .fillMaxWidth()
                 .height(if (landscape) 60.dp else HifiSize.listRowHeight)
                 .clickable(onClick = onClick)
-                .padding(start = HifiSpacing.lg),
+                .padding(start = if (landscape) HifiSpacing.sm else HifiSpacing.lg),
         ) {
             Box(
                 modifier = Modifier.size(28.dp),
@@ -281,8 +344,8 @@ private fun QueueSongRow(
                 contentDescription = null,
                 noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                 modifier = Modifier
-                    .padding(horizontal = HifiSpacing.sm)
-                    .size(if (landscape) 40.dp else HifiSize.coverXs),
+                    .padding(horizontal = if (landscape) HifiSpacing.xs else HifiSpacing.sm)
+                    .size(if (landscape) 36.dp else HifiSize.coverXs),
             )
 
             Column(modifier = Modifier.weight(1f)) {
@@ -304,7 +367,7 @@ private fun QueueSongRow(
 
             IconButton(
                 onClick = onRemove,
-                modifier = Modifier.size(HifiSize.touchTarget),
+                modifier = Modifier.size(if (landscape) 36.dp else HifiSize.touchTarget),
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Close,
@@ -323,8 +386,8 @@ private fun QueueSongRow(
                     MicaTheme.colors.textTertiary
                 },
                 modifier = dragModifier
-                    .padding(end = HifiSpacing.md)
-                    .size(HifiSize.iconLg),
+                    .padding(end = if (landscape) HifiSpacing.sm else HifiSpacing.md)
+                    .size(if (landscape) HifiSize.iconMd else HifiSize.iconLg),
             )
         }
         HorizontalDivider(

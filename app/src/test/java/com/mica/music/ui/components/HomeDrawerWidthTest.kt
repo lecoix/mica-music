@@ -14,4 +14,11 @@ class HomeDrawerWidthTest {
     fun `wide landscape drawer is capped`() {
         assertEquals(HomeDrawerMaxWidth, homeDrawerWidthFor(1_200.dp))
     }
+
+    @Test
+    fun `drawer uses two columns only when window is wider than tall`() {
+        assertEquals(2, drawerColumnsFor(widthDp = 800, heightDp = 400))
+        assertEquals(1, drawerColumnsFor(widthDp = 400, heightDp = 800))
+        assertEquals(1, drawerColumnsFor(widthDp = 600, heightDp = 600))
+    }
 }
