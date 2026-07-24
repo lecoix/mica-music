@@ -197,6 +197,6 @@ internal fun resolveUseCoverEdgeProgress(
 ): Boolean = when {
     mode == PlayerCoverFlowMode.CUSTOM_STANDARD -> false
     mode.usesPhotoStack -> true
-    coverFlowModeEnabled -> coverEdgeProgressSetting
+    ParticleCoverThemePolicy.isParticleCover(mode) || coverFlowModeEnabled -> coverEdgeProgressSetting
     else -> standardCoverEdgeProgress
 }

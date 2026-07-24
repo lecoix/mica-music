@@ -108,13 +108,14 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
     if (uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD) {
         SettingsToggleRow(
             title = "封面底边进度",
-            subtitle = when (uiSettings.playerLowerBackground) {
-                PlayerLowerBackgroundMode.THEME,
-                PlayerLowerBackgroundMode.COVER_GLOW,
-                PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
-                PlayerLowerBackgroundMode.DYNAMIC_ARTWORK,
-                -> "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
-                else -> "标准主题仅「主题色」「封面模糊」下生效；特殊主题仍可在普通与底边布局间切换"
+            subtitle = when {
+                uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.PARTICLE_COVER ->
+                    "开启后隐藏进度条与频谱；关闭后使用普通布局"
+                uiSettings.playerLowerBackground == PlayerLowerBackgroundMode.THEME ||
+                    uiSettings.playerLowerBackground.usesBlurredArtwork ->
+                    "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
+                else ->
+                    "标准主题仅「封面渐变」下不生效；特殊主题仍可在普通与底边布局间切换"
             },
             checked = uiSettings.coverEdgeProgress,
             onCheckedChange = { uiSettings.updateCoverEdgeProgress(it) },

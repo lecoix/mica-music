@@ -15,12 +15,15 @@ internal object ParticleCoverPageLayout {
     fun computeCoverFrame(
         input: PlayerPageLayoutInput,
         lyricsFocus: Float,
+        titleToCoverExtraGap: Dp = 0.dp,
     ): CoverFrame {
-        val particleInfoTopPadding = input.statusBarTop + InfoTopExtraPadding
+        val halfExtraGap = titleToCoverExtraGap / 2
+        val particleInfoTopPadding = input.statusBarTop + InfoTopExtraPadding + halfExtraGap
         val particleCoverTopPadding = particleInfoTopPadding +
             InfoBlockHeight +
             HifiSpacing.lg +
-            CoverDrop
+            CoverDrop +
+            halfExtraGap
         val coverSize = input.screenWidth * CoverScreenFraction
         val useLyricsLayout = lyricsFocus > ImmersiveProgressEpsilon
         val coverWidth = if (useLyricsLayout) {

@@ -14,4 +14,8 @@ internal object ParticleCoverThemePolicy {
 
     fun forcesSquareCrop(mode: PlayerCoverFlowMode): Boolean =
         isParticleCover(mode) || mode.forcesSquareCrop
+
+    /** 粒子封面开启「封面底边进度」时：不画进度条，频谱一并关闭。 */
+    fun hidesProgressAndSpectrumForCoverEdge(particleCoverMode: Boolean, useCoverEdgeProgress: Boolean): Boolean =
+        particleCoverMode && useCoverEdgeProgress
 }

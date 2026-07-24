@@ -1447,7 +1447,7 @@ void main() {
     vec2 randomLyricsTarget = vec2(
         hash11(aSeed * 347.9 + rawHome.y * 71.3) * 2.0 - 1.0,
         hash11(aSeed * 719.1 - rawHome.x * 53.7) * 2.0 - 1.0
-    ) * mix(0.82, 0.90, uLyrics);
+    ) * mix(0.82, uLyricsSpread, uLyrics);
     vec2 randomUv = vec2(
         hash11(aSeed * 937.1 + rawHome.x * 19.7),
         hash11(aSeed * 593.3 + rawHome.y * 23.1)
@@ -1508,8 +1508,9 @@ void main() {
     float globalBreathWave = sin(uTime * 0.1300);
     float localBreathWave = sin(uTime * mix(0.030, 0.060, aDetach) + aSeed * 6.2831853);
     float breath = 0.5 + 0.5 * mix(globalBreathWave, localBreathWave, 0.38);
-    vec2 screenRadial = normalize(xy + randomOffset * 0.10 + vec2(0.001, -0.001));
-    xy += screenRadial * uBreathAmount * globalBreathWave * 0.050 * uLyrics;
+    // 呼吸用整体缩放：基座已超屏（uLyricsSpread），收缩相位仍盖住屏幕，避免向心位移留边。
+    float breathFieldScale = 1.0 + uBreathAmount * globalBreathWave * 0.04;
+    xy *= mix(1.0, breathFieldScale, uLyrics);
     vec2 breathDrift = normalize(randomOffset + vec2(0.001, -0.001)) *
         uBreathAmount * localBreathWave * (0.018 + aDetach * 0.018);
     xy += breathDrift * uLyrics;

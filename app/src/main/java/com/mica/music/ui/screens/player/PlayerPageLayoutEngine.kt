@@ -29,6 +29,11 @@ object PlayerPageLayoutEngine {
         val immersiveProgress = input.immersiveProgress.coerceIn(0f, 1f)
         val lyricsChromeFade = input.lyricsChromeFade.coerceIn(0f, 1f)
         val useCoverEdgePlayback = input.useCoverEdgeProgress
+        val particleHidesProgressChrome =
+            ParticleCoverThemePolicy.hidesProgressAndSpectrumForCoverEdge(
+                particleCoverMode = input.particleCoverMode,
+                useCoverEdgeProgress = useCoverEdgePlayback,
+            )
 
         val chromeProgressAlpha = when {
             !useCoverEdgePlayback -> 1f
@@ -37,6 +42,7 @@ object PlayerPageLayoutEngine {
         }
         val coverEdgeOnPlaySurface =
             useCoverEdgePlayback &&
+                !particleHidesProgressChrome &&
                 chromeProgressAlpha < 1f - ImmersiveProgressEpsilon
 
         val coverFlowStage = resolveCoverFlowStage(input, lyricsFocus)
@@ -47,10 +53,13 @@ object PlayerPageLayoutEngine {
         val photoStackControlsHeight = HifiSize.touchTarget
         val cover = computeCoverFrame(
             input = input,
+            density = density,
+            typography = typography,
             lyricsFocus = lyricsFocus,
             lyricsChromeFade = lyricsChromeFade,
             photoStackTitleBlockHeight = photoStackTitleBlockHeight,
             photoStackControlsHeight = photoStackControlsHeight,
+            particleHidesProgressChrome = particleHidesProgressChrome,
         )
         val particleCover = computeParticleCoverFrame(
             input = input,
@@ -62,14 +71,31 @@ object PlayerPageLayoutEngine {
             cover = cover,
         )
 
+        val particleProgressGap = if (particleHidesProgressChrome) {
+            particleHiddenProgressGap(density, typography)
+        } else {
+            0.dp
+        }
+        val particleProgressQuarter = particleProgressGap / 4
         val lowerPlan = computeLowerLayoutPlan(
             density = density,
             typography = typography,
-            panelHeight = input.panelHeight,
+            // 预留两份给歌词上下；算完后再精确加回，避免 meta 盈余把四等分打散。
+            panelHeight = (input.panelHeight - particleProgressQuarter * 2).coerceAtLeast(0.dp),
             useCoverEdgeProgressSetting = useCoverEdgePlayback,
+            applyCoverEdgeGapCosmetics = useCoverEdgePlayback && !particleHidesProgressChrome,
             lyricsFocus = lyricsFocus,
             showMetadata = !input.particleCoverMode,
         )
+        val lowerSpacing = if (particleProgressQuarter > 0.dp) {
+            val lyricGapBoost = particleProgressQuarter * (1f - lyricsFocus)
+            lowerPlan.spacing.copy(
+                afterCover = lowerPlan.spacing.afterCover + lyricGapBoost,
+                beforePlaybackChrome = lowerPlan.spacing.beforePlaybackChrome + lyricGapBoost,
+            )
+        } else {
+            lowerPlan.spacing
+        }
 
         val photoStackLayout = if (input.photoStackMode) {
             computePhotoStackVerticalLayout(
@@ -96,7 +122,7 @@ object PlayerPageLayoutEngine {
         val controlsBottomPadding = if (input.photoStackMode) {
             photoStackLayout.edgeGap
         } else {
-            lowerPlan.spacing.afterControls * lyricsChromeBottomInsetScale(lyricsFocus)
+            lowerSpacing.afterControls * lyricsChromeBottomInsetScale(lyricsFocus)
         }
 
         val immersiveInTransition =
@@ -104,7 +130,7 @@ object PlayerPageLayoutEngine {
         val titleSlideDown = computeTitleSlideDown(
             immersiveInTransition = immersiveInTransition,
             panelHeight = input.panelHeight,
-            spacing = lowerPlan.spacing,
+            spacing = lowerSpacing,
             chromeHeightAtFullImmersive = lowerPlan.chromeHeightAtFullImmersive,
             density = density,
             typography = typography,
@@ -135,6 +161,7 @@ object PlayerPageLayoutEngine {
                 input.photoStackMode
         val spectrumEnabled =
             liveSpectrumRequested &&
+                !particleHidesProgressChrome &&
                 !input.spectrumDeferred &&
                 !input.coverSwitching &&
                 stablePlaybackScene
@@ -162,7 +189,7 @@ object PlayerPageLayoutEngine {
             particleCover = particleCover,
             photoStack = photoStack,
             lower = LowerPanelFrame(
-                spacing = lowerPlan.spacing,
+                spacing = lowerSpacing,
                 chromeHeight = maxOf(0.dp, chromeHeight - lyricsChromeDrop(lyricsFocus)),
                 controlsBottomPadding = controlsBottomPadding,
                 photoStackTitleBlockHeight = photoStackTitleBlockHeight,
@@ -179,7 +206,7 @@ object PlayerPageLayoutEngine {
                 showChromeProgressInTransition = showChromeProgressInTransition,
                 chromeProgressAlpha = chromeProgressAlpha,
                 spectrumOverlayAlpha = spectrumOverlayAlpha,
-                lyricLineSlots = lowerPlan.spacing.lyricLineSlots,
+                lyricLineSlots = lowerSpacing.lyricLineSlots,
                 hideInfoAndLyrics = input.photoStackMode,
             ),
         )
@@ -217,15 +244,26 @@ object PlayerPageLayoutEngine {
 
     private fun computeCoverFrame(
         input: PlayerPageLayoutInput,
+        density: Density,
+        typography: HifiTypography,
         lyricsFocus: Float,
         lyricsChromeFade: Float,
         photoStackTitleBlockHeight: Dp,
         photoStackControlsHeight: Dp,
+        particleHidesProgressChrome: Boolean,
     ): CoverFrame {
         if (input.particleCoverMode) {
+            // 隐藏进度条后的高度四等分：标题上 / 标题-封面 / 歌词上 / 歌词下。
+            // 这里只注入前两份；后两份由 computeLowerLayoutPlan 的 quarter 承担。
+            val titleToCoverExtraGap = if (particleHidesProgressChrome) {
+                particleHiddenProgressGap(density, typography) / 2
+            } else {
+                0.dp
+            }
             return ParticleCoverPageLayout.computeCoverFrame(
                 input = input,
                 lyricsFocus = lyricsFocus,
+                titleToCoverExtraGap = titleToCoverExtraGap,
             )
         }
         val (expandedCoverWidth, expandedCoverHeight) = when {
@@ -420,6 +458,7 @@ object PlayerPageLayoutEngine {
         typography: HifiTypography,
         panelHeight: Dp,
         useCoverEdgeProgressSetting: Boolean,
+        applyCoverEdgeGapCosmetics: Boolean,
         lyricsFocus: Float,
         showMetadata: Boolean,
     ): LowerLayoutPlan {
@@ -437,8 +476,14 @@ object PlayerPageLayoutEngine {
 
         val idealAfterCover = infoLine / 2
         val idealAfterInfo = if (showMetadata) titleLine else 0.dp
-        val edgeWeight = if (useCoverEdgeProgressSetting) {
+        // 收起进度条与「底边进度」间距美化分开：粒子隐藏进度只收 seek，不套用底边 gap 微调。
+        val seekCollapseWeight = if (useCoverEdgeProgressSetting) {
             1f - lyricsFocus
+        } else {
+            0f
+        }
+        val edgeGapWeight = if (applyCoverEdgeGapCosmetics) {
+            seekCollapseWeight
         } else {
             0f
         }
@@ -446,7 +491,7 @@ object PlayerPageLayoutEngine {
             lerpDp(
                 subtitleLine,
                 subtitleLine + HifiSpacing.sm,
-                edgeWeight,
+                edgeGapWeight,
             )
         } else {
             0.dp
@@ -454,23 +499,26 @@ object PlayerPageLayoutEngine {
         val idealBeforePlaybackChrome = lerpDp(
             iconGap,
             iconGap + HifiSpacing.md,
-            edgeWeight,
+            edgeGapWeight,
         )
-        val idealAfterProgress = lerpDp(iconGap / 2, 0.dp, edgeWeight)
+        val idealAfterProgress = lerpDp(iconGap / 2, 0.dp, edgeGapWeight)
         val idealAfterControls = lerpDp(
             iconGap + controlHalfLine,
             iconGap + controlHalfLine + HifiSpacing.sm,
-            edgeWeight,
+            edgeGapWeight,
         )
 
         val standardSeekBarBlock = 32.dp + timeRowHeight + iconGap / 2
-        val seekBarBlock = lerpDp(standardSeekBarBlock, 0.dp, edgeWeight)
+        val seekBarBlock = lerpDp(standardSeekBarBlock, 0.dp, seekCollapseWeight)
         val chromeIdealHeight = seekBarBlock + HifiSize.touchTarget + idealAfterControls
 
-        val edgeChromeIdealHeight = HifiSize.touchTarget + (iconGap + controlHalfLine + HifiSpacing.sm)
-        val standardChromeIdealHeight = standardSeekBarBlock +
-            HifiSize.touchTarget + (iconGap + controlHalfLine)
-        val blendedChromeIdeal = lerpDp(standardChromeIdealHeight, edgeChromeIdealHeight, edgeWeight)
+        val collapsedChromeIdealHeight = HifiSize.touchTarget + iconGap + controlHalfLine
+        val edgeChromeIdealHeight = collapsedChromeIdealHeight + HifiSpacing.sm
+        val standardChromeIdealHeight = standardSeekBarBlock + collapsedChromeIdealHeight
+        val coverEdgeChromeIdealHeight =
+            if (applyCoverEdgeGapCosmetics) edgeChromeIdealHeight else collapsedChromeIdealHeight
+        val blendedChromeIdeal =
+            lerpDp(standardChromeIdealHeight, coverEdgeChromeIdealHeight, seekCollapseWeight)
 
         val metaIdealGaps = idealAfterCover + idealAfterInfo + idealAfterSubtitle + idealBeforePlaybackChrome
         val metaGapCount = 4
@@ -485,7 +533,7 @@ object PlayerPageLayoutEngine {
         val idealMeta1 = metaShellFixed + metaIdealGaps + lyricCompactLine
 
         val preferredChrome = blendedChromeIdeal
-        val chromeGapFloor = lerpDp(minGap * 2, minGap, edgeWeight)
+        val chromeGapFloor = lerpDp(minGap * 2, minGap, seekCollapseWeight)
         val chromeMinHeight = seekBarBlock + HifiSize.touchTarget + chromeGapFloor
 
         var chromeTarget = preferredChrome
@@ -641,6 +689,15 @@ object PlayerPageLayoutEngine {
         lyricsBlock3: Dp,
         lyricCompactLine: Dp,
     ): Dp = if (lyricSlots >= 3) lyricsBlock3 else lyricCompactLine
+
+    /** 粒子封面隐藏进度条后，把原进度区高度挪到标题与封面之间。 */
+    private fun particleHiddenProgressGap(
+        density: Density,
+        typography: HifiTypography,
+    ): Dp {
+        val timeRowHeight = with(density) { typography.monoMd.lineHeight.toDp() }
+        return 32.dp + timeRowHeight + HifiSize.iconLg / 2
+    }
 
     private fun compressGaps(
         deficit: Dp,

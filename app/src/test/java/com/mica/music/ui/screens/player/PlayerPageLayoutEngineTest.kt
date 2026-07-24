@@ -26,6 +26,28 @@ class PlayerPageLayoutEngineTest {
         )
     }
 
+    @Test
+    fun particleCover_followsCoverEdgeSettingRegardlessOfBackground() {
+        assertEquals(
+            true,
+            resolveUseCoverEdgeProgress(
+                mode = com.mica.music.data.PlayerCoverFlowMode.PARTICLE_COVER,
+                coverFlowModeEnabled = false,
+                coverEdgeProgressSetting = true,
+                standardCoverEdgeProgress = false,
+            ),
+        )
+        assertEquals(
+            false,
+            resolveUseCoverEdgeProgress(
+                mode = com.mica.music.data.PlayerCoverFlowMode.PARTICLE_COVER,
+                coverFlowModeEnabled = false,
+                coverEdgeProgressSetting = false,
+                standardCoverEdgeProgress = true,
+            ),
+        )
+    }
+
     private fun baseInput(
         panelHeight: Dp = 400.dp,
         lyricsProgress: Float = 0f,
@@ -377,6 +399,74 @@ class PlayerPageLayoutEngineTest {
         assertEquals(false, frame.lower.showMetadata)
         assertTrue(frame.cover.topPadding > frame.cover.particleInfoTopPadding)
         assertTrue(frame.lower.spacing.lyricLineSlots >= 3)
+    }
+
+    @Test
+    fun particleCover_hidesProgressAndSpectrumWhenCoverEdgeEnabled() {
+        val withoutEdge = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 400.dp,
+                particleCoverMode = true,
+                useCoverEdgeProgress = false,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val timeRowHeight = with(density) { typography.monoMd.lineHeight.toDp() }
+        val progressGap = 32.dp + timeRowHeight + com.mica.music.ui.theme.HifiSize.iconLg / 2
+        // 封面区已吃掉两份（标题上 + 标题-封面），下半屏实测高度同步变矮。
+        val withEdge = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 400.dp - progressGap / 2,
+                particleCoverMode = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, withEdge.lower.coverEdgeOnPlaySurface)
+        assertEquals(false, withEdge.lower.showStandardProgress)
+        assertEquals(false, withEdge.spectrumEnabled)
+        assertTrue(withEdge.cover.particleInfoTopPadding > withoutEdge.cover.particleInfoTopPadding)
+        assertTrue(withEdge.cover.topPadding > withoutEdge.cover.topPadding)
+        assertTrue(withEdge.cover.blockHeight > withoutEdge.cover.blockHeight)
+        assertTrue(withEdge.lower.spacing.afterCover > withoutEdge.lower.spacing.afterCover)
+        assertTrue(
+            withEdge.lower.spacing.beforePlaybackChrome >
+                withoutEdge.lower.spacing.beforePlaybackChrome,
+        )
+        val expectedQuarter = progressGap / 4
+        val titleLift =
+            withEdge.cover.particleInfoTopPadding - withoutEdge.cover.particleInfoTopPadding
+        val titleToCoverExtra =
+            (withEdge.cover.topPadding - withEdge.cover.particleInfoTopPadding) -
+                (withoutEdge.cover.topPadding - withoutEdge.cover.particleInfoTopPadding)
+        val lyricsTopExtra =
+            withEdge.lower.spacing.afterCover - withoutEdge.lower.spacing.afterCover
+        val lyricsBottomExtra =
+            withEdge.lower.spacing.beforePlaybackChrome -
+                withoutEdge.lower.spacing.beforePlaybackChrome
+        assertEquals(expectedQuarter, titleLift)
+        assertEquals(expectedQuarter, titleToCoverExtra)
+        assertEquals(expectedQuarter, lyricsTopExtra)
+        assertEquals(expectedQuarter, lyricsBottomExtra)
+    }
+
+    @Test
+    fun particleCover_keepsStandardProgressWhenCoverEdgeDisabled() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                particleCoverMode = true,
+                useCoverEdgeProgress = false,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, frame.lower.coverEdgeOnPlaySurface)
+        assertTrue(frame.lower.showStandardProgress)
+        assertTrue(frame.spectrumEnabled)
     }
 
     @Test
