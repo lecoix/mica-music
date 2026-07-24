@@ -188,7 +188,8 @@ internal fun NowPlayingCoverSection(
     }
 
     val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
-        frame.lyricsProgress < 0.5f
+        frame.lyricsProgress < 0.5f &&
+        !particleFrame.enabled
     val effectiveCoverDisplayMode = if (ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)) {
         CoverDisplayMode.CROP_FILL
     } else {
