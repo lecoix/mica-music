@@ -502,6 +502,15 @@ fun NowPlayingContent(
                 ),
                 label = "lyricsPageTransition",
             )
+            // Landscape STANDARD + cloud: player scatters outward, cloud expands from center
+            // (instead of the shared horizontal slide used by portrait / custom classic).
+            val landscapeCloudBurstActive =
+                landscapeMode && lyricsCloudAvailable && !customHorizontalClassicRequested
+            val landscapeCloudBurst =
+                if (landscapeCloudBurstActive) lyricsPageTransition else 0f
+            val landscapeCloudFullyOpen =
+                landscapeMode && lyricsCloudRequested && lyricsPageTransition >= 0.999f
+            val landscapeCloudScatterPx = with(density) { 96.dp.toPx() } * landscapeCloudBurst
 
             val modelLyricsExpanded = classicLyricsExpanded && !landscapeMode
             val pageModel = rememberPlayerPageUiModel(
@@ -709,6 +718,29 @@ fun NowPlayingContent(
                     ),
                     controlsBottomPadding = 0.dp,
                 )
+                val cloudHeaderMod = if (landscapeCloudBurst > 0.001f) {
+                    Modifier.graphicsLayer {
+                        translationY = -landscapeCloudScatterPx
+                        alpha = 1f - landscapeCloudBurst
+                    }
+                } else {
+                    Modifier
+                }
+                val cloudLyricsMod = if (landscapeCloudBurst > 0.001f) {
+                    Modifier.graphicsLayer {
+                        alpha = 1f - landscapeCloudBurst
+                    }
+                } else {
+                    Modifier
+                }
+                val cloudChromeMod = if (landscapeCloudBurst > 0.001f) {
+                    Modifier.graphicsLayer {
+                        translationY = landscapeCloudScatterPx
+                        alpha = 1f - landscapeCloudBurst
+                    }
+                } else {
+                    Modifier
+                }
                 PlayerLowerPanelSection(
                     surfaceState = surfaceState,
                     activeSong = song,
@@ -736,8 +768,10 @@ fun NowPlayingContent(
                     spectrumEnabled = actualFrame.spectrumEnabled,
                     trackSkipDirection = effectiveTrackWipeDirection,
                     trackWipeMotionEnabled = motionEnabled,
-                    titleModifier = titleSharedModifier,
-                    chromeModifier = chromeSharedModifier,
+                    titleModifier = titleSharedModifier.then(cloudHeaderMod),
+                    chromeModifier = chromeSharedModifier.then(cloudChromeMod),
+                    metaModifier = cloudHeaderMod,
+                    compactLyricsModifier = cloudLyricsMod,
                     onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                     onPrevious = onPlayerPrevious,
                     onTogglePlay = actions.togglePlay,
@@ -767,7 +801,16 @@ fun NowPlayingContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(contentPadding)
-                        .padding(top = landscapeTopPadding),
+                        .padding(top = landscapeTopPadding)
+                        .graphicsLayer {
+                            if (landscapeCloudBurstActive) {
+                                val t = landscapeCloudBurst
+                                val scale = 0.88f + 0.12f * t
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = t
+                            }
+                        },
                 )
             }
 
@@ -794,10 +837,9 @@ fun NowPlayingContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        translationX = if (useVerticalCloudSplit) {
-                            0f
-                        } else {
-                            -with(density) { fullWidth.toPx() } * lyricsPageTransition
+                        translationX = when {
+                            useVerticalCloudSplit || landscapeCloudBurstActive -> 0f
+                            else -> -with(density) { fullWidth.toPx() } * lyricsPageTransition
                         }
                     },
             ) {
@@ -815,11 +857,10 @@ fun NowPlayingContent(
                 onMotionActiveChanged = { coverMotionActive = it },
             )
 
-            if (landscapeMode && lyricsCloudRequested) {
-                // The cloud owns the whole landscape surface. Do not retain any cover host behind it.
+            if (landscapeCloudFullyOpen) {
+                // Cloud owns the surface after the burst finishes; drop the player host.
             } else if (
                 landscapePlan != null &&
-                !lyricsCloudRequested &&
                 !customHorizontalClassicRequested
             ) {
                 val coverSize = checkNotNull(landscapeCoverSize)
@@ -1012,7 +1053,13 @@ fun NowPlayingContent(
                                 Box(
                                     modifier = Modifier
                                         .width(coverSize)
-                                        .fillMaxHeight(),
+                                        .fillMaxHeight()
+                                        .graphicsLayer {
+                                            if (landscapeCloudBurst > 0f) {
+                                                translationX = -landscapeCloudScatterPx
+                                                alpha = 1f - landscapeCloudBurst
+                                            }
+                                        },
                                     contentAlignment = Alignment.TopStart,
                                 ) {
                                     coverSection(

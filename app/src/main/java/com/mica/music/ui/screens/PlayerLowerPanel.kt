@@ -1,4 +1,4 @@
-package com.mica.music.ui.screens
+﻿package com.mica.music.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -80,6 +80,8 @@ internal fun PlayerLowerPanelSection(
     trackWipeMotionEnabled: Boolean = true,
     titleModifier: Modifier = Modifier,
     chromeModifier: Modifier = Modifier,
+    metaModifier: Modifier = Modifier,
+    compactLyricsModifier: Modifier = Modifier,
     modifier: Modifier = Modifier,
 ) {
     val spacing = lower.spacing
@@ -172,10 +174,12 @@ internal fun PlayerLowerPanelSection(
                 if (lower.showMetadata) {
                     if (!hideInfoAndLyrics && showPlayerInfoRow) {
                         Box(
-                            Modifier.graphicsLayer {
-                                alpha = lower.metaAlpha * (1f - lower.immersiveProgress)
-                                translationY = -lower.immersiveProgress * 12f
-                            },
+                            Modifier
+                                .graphicsLayer {
+                                    alpha = lower.metaAlpha * (1f - lower.immersiveProgress)
+                                    translationY = -lower.immersiveProgress * 12f
+                                }
+                                .then(metaModifier),
                         ) {
                             HiFiBadgeSection(
                                 song = visual.song,
@@ -205,7 +209,8 @@ internal fun PlayerLowerPanelSection(
                     Box(
                         Modifier
                             .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .then(compactLyricsModifier),
                         contentAlignment = Alignment.Center,
                     ) {
                         LyricsSection(
