@@ -11,6 +11,7 @@ class HomeNavigationTest {
         searchOpen: Boolean = false,
         searchQuery: String = "",
         browseDestination: BrowseDestination = BrowseDestination.Root,
+        browseStack: List<BrowseStackFrame> = emptyList(),
         returnSection: HomeSection = HomeSection.Songs,
         activePlaylistId: String? = null,
         songMultiSelectActive: Boolean = false,
@@ -19,6 +20,7 @@ class HomeNavigationTest {
         searchOpen = searchOpen,
         searchQuery = searchQuery,
         browseDestination = browseDestination,
+        browseStack = browseStack,
         returnSection = returnSection,
         activePlaylistId = activePlaylistId,
         songMultiSelectActive = songMultiSelectActive,
@@ -96,9 +98,19 @@ class HomeNavigationTest {
     }
 
     @Test
-    fun consumeNavigationIntentResetsSearchAndAppliesTarget() {
+    fun consumeNavigationIntentResetsSearchClearsStackAndAppliesTarget() {
         val updated = consumeNavigationIntent(
-            snapshot(searchOpen = true, searchQuery = "x", activePlaylistId = "p1"),
+            snapshot(
+                searchOpen = true,
+                searchQuery = "x",
+                activePlaylistId = "p1",
+                browseStack = listOf(
+                    BrowseStackFrame(
+                        section = HomeSection.Artists,
+                        browseDestination = BrowseDestination.Artist("Old"),
+                    ),
+                ),
+            ),
             HomeNavigationIntent(
                 section = HomeSection.Albums,
                 browseDestination = BrowseDestination.Album("Album A"),
@@ -108,6 +120,7 @@ class HomeNavigationTest {
         assertFalse(updated.searchOpen)
         assertEquals("", updated.searchQuery)
         assertEquals(null, updated.activePlaylistId)
+        assertEquals(emptyList<BrowseStackFrame>(), updated.browseStack)
         assertEquals(HomeSection.Albums, updated.section)
         assertEquals(BrowseDestination.Album("Album A"), updated.browseDestination)
     }
@@ -136,5 +149,93 @@ class HomeNavigationTest {
         )
 
         assertTrue(homePaneDepth(artistBrowse) < homePaneDepth(albumBrowse))
+    }
+
+    @Test
+    fun pushBrowseDestinationKeepsFolderOffStack() {
+        val updated = pushBrowseDestination(
+            snapshot(
+                section = HomeSection.Folders,
+                browseDestination = BrowseDestination.Folder(depth = 0),
+            ),
+            BrowseDestination.Folder(depth = 1, scopePathSegments = listOf("Music")),
+            section = HomeSection.Folders,
+        )
+
+        assertEquals(emptyList<BrowseStackFrame>(), updated.browseStack)
+        assertEquals(
+            BrowseDestination.Folder(depth = 1, scopePathSegments = listOf("Music")),
+            updated.browseDestination,
+        )
+    }
+
+    @Test
+    fun artistToAlbumPushesArtistAndBackRestoresIt() {
+        val artist = snapshot(
+            section = HomeSection.Artists,
+            browseDestination = BrowseDestination.Artist("Ado"),
+        )
+        val album = navigateToAlbum(artist, "Kyogen")
+
+        assertEquals(HomeSection.Albums, album.section)
+        assertEquals(BrowseDestination.Album("Kyogen"), album.browseDestination)
+        assertEquals(
+            listOf(
+                BrowseStackFrame(
+                    section = HomeSection.Artists,
+                    browseDestination = BrowseDestination.Artist("Ado"),
+                ),
+            ),
+            album.browseStack,
+        )
+
+        val back = navigateBack(album).snapshot
+        assertEquals(HomeSection.Artists, back.section)
+        assertEquals(BrowseDestination.Artist("Ado"), back.browseDestination)
+        assertEquals(emptyList<BrowseStackFrame>(), back.browseStack)
+    }
+
+    @Test
+    fun songMenuArtistPushRestoresSearchOnBack() {
+        val fromSearch = snapshot(
+            section = HomeSection.Songs,
+            searchOpen = true,
+            searchQuery = "ado",
+        )
+        val artist = navigateToArtist(fromSearch, "Ado")
+
+        assertEquals(HomeSection.Artists, artist.section)
+        assertFalse(artist.searchOpen)
+        assertEquals("", artist.searchQuery)
+        assertEquals(
+            listOf(
+                BrowseStackFrame(
+                    section = HomeSection.Songs,
+                    searchOpen = true,
+                    searchQuery = "ado",
+                ),
+            ),
+            artist.browseStack,
+        )
+
+        val back = navigateBack(artist)
+        assertTrue(back.snapshot.searchOpen)
+        assertEquals("ado", back.snapshot.searchQuery)
+        assertEquals(HomeSection.Songs, back.snapshot.section)
+        assertFalse(back.hideKeyboard)
+    }
+
+    @Test
+    fun rootToArtistPushesRootThenBackReturnsRoot() {
+        val root = snapshot(section = HomeSection.Artists)
+        val artist = pushBrowseDestination(root, BrowseDestination.Artist("Ado"))
+        assertEquals(
+            listOf(BrowseStackFrame(section = HomeSection.Artists)),
+            artist.browseStack,
+        )
+
+        val back = navigateBack(artist).snapshot
+        assertEquals(BrowseDestination.Root, back.browseDestination)
+        assertEquals(emptyList<BrowseStackFrame>(), back.browseStack)
     }
 }

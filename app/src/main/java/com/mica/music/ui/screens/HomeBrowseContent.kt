@@ -643,11 +643,24 @@ private fun ArtistDetailPanel(
             songs = songs,
             albumSections = albumSections,
             onPlayAll = {
-                onQueueSongs(songs)
-                songs.firstOrNull()?.let { onSongClick(it.id) }
+                onQueueSongs(displayedSongs)
+                displayedSongs.firstOrNull()?.let { onSongClick(it.id) }
             },
             onAddToPlaylist = { onAddSongsToPlaylist(displayedSongs) },
-            onAddToQueue = { onAppendSongsToQueue(songs) },
+            onAddToQueue = { onAppendSongsToQueue(displayedSongs) },
+        )
+    }
+    val discLabel: @Composable (Int) -> Unit = { discNumber ->
+        Text(
+            text = "DISC $discNumber",
+            style = MicaTheme.typography.caption,
+            color = MicaTheme.colors.textTertiary,
+            modifier = Modifier.padding(
+                start = HifiSpacing.lg,
+                top = HifiSpacing.md,
+                end = HifiSpacing.lg,
+                bottom = HifiSpacing.xs,
+            ),
         )
     }
     val songRow: @Composable (Int, Song) -> Unit = { trackIndex, song ->
@@ -662,7 +675,7 @@ private fun ArtistDetailPanel(
             showCover = false,
             compact = true,
             onClick = {
-                onQueueSongs(songs)
+                onQueueSongs(displayedSongs)
                 onSongClick(song.id)
             },
             onLongClick = { onSongOpenMenu(song) },
@@ -684,11 +697,19 @@ private fun ArtistDetailPanel(
                 ) {
                     ArtistAlbumHeader(section = section, onAlbumClick = onAlbumClick)
                 }
-                gridItemsIndexed(
-                    items = section.songs,
-                    key = { _, song -> "artistSong:${song.id}" },
-                ) { trackIndex, song ->
-                    songRow(trackIndex, song)
+                section.discSections.forEach { discSection ->
+                    discSection.discNumber?.let { discNumber ->
+                        item(
+                            key = "artistDisc:${section.title}:$discNumber",
+                            span = { GridItemSpan(maxLineSpan) },
+                        ) { discLabel(discNumber) }
+                    }
+                    gridItemsIndexed(
+                        items = discSection.songs,
+                        key = { _, song -> "artistSong:${song.id}" },
+                    ) { trackIndex, song ->
+                        songRow(trackIndex, song)
+                    }
                 }
             }
         }
@@ -703,11 +724,18 @@ private fun ArtistDetailPanel(
                 item("albumHeader:${section.title}") {
                     ArtistAlbumHeader(section = section, onAlbumClick = onAlbumClick)
                 }
-                itemsIndexed(
-                    items = section.songs,
-                    key = { _, song -> "artistSong:${song.id}" },
-                ) { trackIndex, song ->
-                    songRow(trackIndex, song)
+                section.discSections.forEach { discSection ->
+                    discSection.discNumber?.let { discNumber ->
+                        item("artistDisc:${section.title}:$discNumber") {
+                            discLabel(discNumber)
+                        }
+                    }
+                    itemsIndexed(
+                        items = discSection.songs,
+                        key = { _, song -> "artistSong:${song.id}" },
+                    ) { trackIndex, song ->
+                        songRow(trackIndex, song)
+                    }
                 }
             }
         }
@@ -873,14 +901,9 @@ private fun artistStatsLine(
     songs: List<Song>,
     albumSections: List<LibraryBrowseDetails.ArtistAlbumSection>,
 ): String {
-    val formats = songs.map { it.formatLabel }
-        .filter { it.isNotBlank() }
-        .distinct()
-        .take(4)
-        .joinToString(" / ")
-        .ifBlank { "未知格式" }
     val totalSize = SongDetails.formatFileSize(songs.sumOf { it.sizeBytes.coerceAtLeast(0L) })
-    return "${songs.size} 首歌曲 · ${albumSections.size} 张专辑 · $totalSize · $formats"
+    val totalDuration = totalDurationLabel(songs.sumOf { it.durationSec.coerceAtLeast(0) })
+    return "${songs.size} 首歌曲 · ${albumSections.size} 张专辑 · $totalSize · $totalDuration"
 }
 
 @Composable

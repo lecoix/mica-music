@@ -6,15 +6,27 @@ import org.junit.Test
 
 class HomeUiStateTest {
     @Test
-    fun saverRoundTripPreservesNavigationAndBrowsePrefs() {
+    fun saverRoundTripPreservesNavigationBrowseStackAndBrowsePrefs() {
         val original = HomeUiState(
             section = HomeSection.Albums,
             activePlaylistId = "pl_42",
             searchOpen = true,
             searchQuery = "hello",
-            browseDestination = BrowseDestination.Folder(
-                depth = 2,
-                scopePathSegments = listOf("Music", "Rock", "2024"),
+            browseDestination = BrowseDestination.Album("Kyogen"),
+            browseStack = listOf(
+                BrowseStackFrame(
+                    section = HomeSection.Artists,
+                    browseDestination = BrowseDestination.Artist("Ado"),
+                    searchOpen = false,
+                    searchQuery = "",
+                ),
+                BrowseStackFrame(
+                    section = HomeSection.Folders,
+                    browseDestination = BrowseDestination.Folder(
+                        depth = 2,
+                        scopePathSegments = listOf("Music", "Rock"),
+                    ),
+                ),
             ),
             returnSection = HomeSection.Artists,
             folderVisibleDepth = 2,
@@ -44,6 +56,33 @@ class HomeUiStateTest {
     }
 
     @Test
+    fun saverRestoresLegacyV2WithoutBrowseStack() {
+        val restored = restoreHomeUiState(
+            listOf(
+                "v2",
+                HomeSection.Albums.name,
+                "",
+                "false",
+                "",
+                HomeSection.Songs.name,
+                "0",
+                "",
+                com.mica.music.data.AlbumBrowseSortField.TITLE.storageValue,
+                com.mica.music.data.SortDirection.ASC.storageValue,
+                "2",
+                ArtistBrowseSortField.TITLE.storageValue,
+                com.mica.music.data.SortDirection.ASC.storageValue,
+                "2",
+                "album",
+                "Legacy Album",
+            ),
+        )
+
+        assertEquals(BrowseDestination.Album("Legacy Album"), restored?.browseDestination)
+        assertEquals(emptyList<BrowseStackFrame>(), restored?.browseStack)
+    }
+
+    @Test
     fun saverRestoresLegacyArtistSortState() {
         val restored = restoreHomeUiState(
             listOf(
@@ -68,6 +107,7 @@ class HomeUiStateTest {
         assertEquals(ArtistBrowseSortField.TITLE, restored?.browseSort?.artistSortField)
         assertEquals(com.mica.music.data.SortDirection.DESC, restored?.browseSort?.artistSortDirection)
         assertEquals(3, restored?.browseSort?.artistGridColumns)
+        assertEquals(emptyList<BrowseStackFrame>(), restored?.browseStack)
     }
 
     @Test
@@ -82,6 +122,9 @@ class HomeUiStateTest {
             searchOpen = false,
             searchQuery = "",
             browseDestination = BrowseDestination.Artist("A"),
+            browseStack = listOf(
+                BrowseStackFrame(section = HomeSection.Songs, searchOpen = true, searchQuery = "x"),
+            ),
             returnSection = HomeSection.Albums,
             activePlaylistId = "pl_1",
         )
@@ -92,6 +135,7 @@ class HomeUiStateTest {
         assertEquals(false, updated.searchOpen)
         assertEquals("", updated.searchQuery)
         assertEquals(BrowseDestination.Artist("A"), updated.browseDestination)
+        assertEquals(snapshot.browseStack, updated.browseStack)
         assertEquals(HomeSection.Albums, updated.returnSection)
         assertEquals("pl_1", updated.activePlaylistId)
     }

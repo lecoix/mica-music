@@ -12,11 +12,21 @@ internal sealed interface HomePaneKey {
     ) : HomePaneKey
 }
 
+/** 浏览返回栈帧：离开当前页面前保存的可恢复导航态（不含文件夹 depth 链）。 */
+data class BrowseStackFrame(
+    val section: HomeSection,
+    val browseDestination: BrowseDestination = BrowseDestination.Root,
+    val searchOpen: Boolean = false,
+    val searchQuery: String = "",
+    val activePlaylistId: String? = null,
+)
+
 data class HomeNavigationSnapshot(
     val section: HomeSection,
     val searchOpen: Boolean = false,
     val searchQuery: String = "",
     val browseDestination: BrowseDestination = BrowseDestination.Root,
+    val browseStack: List<BrowseStackFrame> = emptyList(),
     val returnSection: HomeSection = HomeSection.Songs,
     val activePlaylistId: String? = null,
     val songMultiSelectActive: Boolean = false,
@@ -75,6 +85,7 @@ internal fun resolveHomePaneKey(
 fun canNavigateBack(snapshot: HomeNavigationSnapshot): Boolean =
     snapshot.songMultiSelectActive ||
         snapshot.searchOpen ||
+        snapshot.browseStack.isNotEmpty() ||
         snapshot.browseDestination != BrowseDestination.Root ||
         snapshot.section == HomeSection.Recent ||
         snapshot.section == HomeSection.LibraryAnalysis
@@ -111,6 +122,40 @@ fun navigateBrowseBack(destination: BrowseDestination): BrowseDestination = when
     else -> BrowseDestination.Root
 }
 
+fun browseStackFrameFrom(snapshot: HomeNavigationSnapshot): BrowseStackFrame =
+    BrowseStackFrame(
+        section = snapshot.section,
+        browseDestination = snapshot.browseDestination,
+        searchOpen = snapshot.searchOpen,
+        searchQuery = snapshot.searchQuery,
+        activePlaylistId = snapshot.activePlaylistId,
+    )
+
+/**
+ * 压入当前页并进入目标浏览页。文件夹分区不使用浏览栈（仍靠 depth）。
+ * 外部入口请用 [consumeNavigationIntent]（清栈）。
+ */
+fun pushBrowseDestination(
+    snapshot: HomeNavigationSnapshot,
+    destination: BrowseDestination,
+    section: HomeSection = snapshot.section,
+): HomeNavigationSnapshot {
+    if (section == HomeSection.Folders || destination is BrowseDestination.Folder) {
+        return snapshot.copy(section = section, browseDestination = destination)
+    }
+    if (snapshot.section == section && snapshot.browseDestination == destination) {
+        return snapshot
+    }
+    return snapshot.copy(
+        browseStack = snapshot.browseStack + browseStackFrameFrom(snapshot),
+        section = section,
+        browseDestination = destination,
+        searchOpen = false,
+        searchQuery = "",
+        activePlaylistId = null,
+    )
+}
+
 fun navigateBack(snapshot: HomeNavigationSnapshot): HomeNavigationBackResult = when {
     snapshot.songMultiSelectActive -> HomeNavigationBackResult(
         snapshot.copy(songMultiSelectActive = false, selectedSongIds = emptySet()),
@@ -119,6 +164,19 @@ fun navigateBack(snapshot: HomeNavigationSnapshot): HomeNavigationBackResult = w
         snapshot.copy(searchOpen = false, searchQuery = ""),
         hideKeyboard = true,
     )
+    snapshot.browseStack.isNotEmpty() -> {
+        val frame = snapshot.browseStack.last()
+        HomeNavigationBackResult(
+            snapshot.copy(
+                browseStack = snapshot.browseStack.dropLast(1),
+                section = frame.section,
+                browseDestination = frame.browseDestination,
+                searchOpen = frame.searchOpen,
+                searchQuery = frame.searchQuery,
+                activePlaylistId = frame.activePlaylistId,
+            ),
+        )
+    }
     snapshot.browseDestination != BrowseDestination.Root -> HomeNavigationBackResult(
         snapshot.copy(browseDestination = navigateBrowseBack(snapshot.browseDestination)),
     )
@@ -137,6 +195,7 @@ fun consumeNavigationIntent(
         searchOpen = false,
         searchQuery = "",
         activePlaylistId = null,
+        browseStack = emptyList(),
         section = intent.section,
         browseDestination = intent.browseDestination,
     )
@@ -145,9 +204,20 @@ fun navigateToAlbum(
     snapshot: HomeNavigationSnapshot,
     albumTitle: String,
 ): HomeNavigationSnapshot =
-    snapshot.copy(
+    pushBrowseDestination(
+        snapshot = snapshot,
+        destination = BrowseDestination.Album(albumTitle),
         section = HomeSection.Albums,
-        browseDestination = BrowseDestination.Album(albumTitle),
+    )
+
+fun navigateToArtist(
+    snapshot: HomeNavigationSnapshot,
+    artistName: String,
+): HomeNavigationSnapshot =
+    pushBrowseDestination(
+        snapshot = snapshot,
+        destination = BrowseDestination.Artist(artistName),
+        section = HomeSection.Artists,
     )
 
 fun shouldClearSongMultiSelect(section: HomeSection, searchOpen: Boolean): Boolean =

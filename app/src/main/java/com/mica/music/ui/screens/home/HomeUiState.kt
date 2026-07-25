@@ -13,6 +13,7 @@ data class HomeUiState(
     val searchOpen: Boolean = false,
     val searchQuery: String = "",
     val browseDestination: BrowseDestination = BrowseDestination.Root,
+    val browseStack: List<BrowseStackFrame> = emptyList(),
     val returnSection: HomeSection = HomeSection.Songs,
     val folderVisibleDepth: Int = 0,
     val folderVisibleScope: List<String> = emptyList(),
@@ -33,6 +34,7 @@ data class HomeUiState(
         searchOpen = searchOpen,
         searchQuery = searchQuery,
         browseDestination = browseDestination,
+        browseStack = browseStack,
         returnSection = returnSection,
         activePlaylistId = activePlaylistId,
         songMultiSelectActive = songMultiSelectActive,
@@ -44,6 +46,7 @@ data class HomeUiState(
         searchOpen = snapshot.searchOpen,
         searchQuery = snapshot.searchQuery,
         browseDestination = snapshot.browseDestination,
+        browseStack = snapshot.browseStack,
         returnSection = snapshot.returnSection,
         activePlaylistId = snapshot.activePlaylistId,
     )
@@ -83,8 +86,9 @@ internal fun restoreHomeLocation(sectionValue: String?, playlistId: String?): Pa
     }
 }
 
-private const val HomeUiStateSaveVersion = "v2"
-private const val HomeUiStateLegacySaveVersion = "v1"
+private const val HomeUiStateSaveVersion = "v3"
+private const val HomeUiStateLegacySaveVersionV2 = "v2"
+private const val HomeUiStateLegacySaveVersionV1 = "v1"
 private const val FolderScopeDelimiter = "\u0001"
 private const val HomeUiStateFixedFieldCount = 14
 private const val HomeUiStateLegacyFixedFieldCount = 13
@@ -101,8 +105,10 @@ internal val HomeUiStateSaver = Saver<HomeUiState, Any>(
     },
 )
 
-private fun saveHomeUiStateValue(state: HomeUiState): List<String> =
-    listOf(HomeUiStateSaveVersion) + listOf(
+private fun saveHomeUiStateValue(state: HomeUiState): List<String> {
+    val destination = saveBrowseDestinationForHomeState(state.browseDestination)
+    val stack = state.browseStack.flatMap(::saveBrowseStackFrame)
+    return listOf(HomeUiStateSaveVersion) + listOf(
         state.section.name,
         state.activePlaylistId.orEmpty(),
         state.searchOpen.toString(),
@@ -116,18 +122,32 @@ private fun saveHomeUiStateValue(state: HomeUiState): List<String> =
         state.browseSort.artistSortField.storageValue,
         state.browseSort.artistSortDirection.storageValue,
         state.browseSort.artistGridColumns.toString(),
-    ) + saveBrowseDestinationForHomeState(state.browseDestination)
+    ) + listOf(destination.size.toString()) +
+        destination +
+        listOf(state.browseStack.size.toString()) +
+        stack
+}
 
 private fun restoreHomeUiStateValue(saved: List<String>): HomeUiState? {
     val version = saved.firstOrNull()
-    if (version != HomeUiStateSaveVersion && version != HomeUiStateLegacySaveVersion) {
+    if (
+        version != HomeUiStateSaveVersion &&
+        version != HomeUiStateLegacySaveVersionV2 &&
+        version != HomeUiStateLegacySaveVersionV1
+    ) {
         return HomeUiState()
     }
-    val isLegacy = version == HomeUiStateLegacySaveVersion
-    val browseSaved = saved.drop(if (isLegacy) HomeUiStateLegacyFixedFieldCount else HomeUiStateFixedFieldCount)
-    val artistSortFieldIndex = if (isLegacy) null else 11
-    val artistSortDirectionIndex = if (isLegacy) 11 else 12
-    val artistGridColumnsIndex = if (isLegacy) 12 else 13
+    val isLegacyV1 = version == HomeUiStateLegacySaveVersionV1
+    val isV3 = version == HomeUiStateSaveVersion
+    val browseSaved = saved.drop(if (isLegacyV1) HomeUiStateLegacyFixedFieldCount else HomeUiStateFixedFieldCount)
+    val artistSortFieldIndex = if (isLegacyV1) null else 11
+    val artistSortDirectionIndex = if (isLegacyV1) 11 else 12
+    val artistGridColumnsIndex = if (isLegacyV1) 12 else 13
+    val (browseDestination, browseStack) = if (isV3) {
+        restoreBrowseNavigationForV3(browseSaved)
+    } else {
+        restoreBrowseDestinationForHomeState(browseSaved) to emptyList()
+    }
     return HomeUiState(
         section = saved.getOrNull(1)?.let { runCatching { HomeSection.valueOf(it) }.getOrNull() }
             ?: HomeSection.Songs,
@@ -149,8 +169,53 @@ private fun restoreHomeUiStateValue(saved: List<String>): HomeUiState? {
             artistSortDirection = SortDirection.fromStorage(saved.getOrNull(artistSortDirectionIndex)),
             artistGridColumns = saved.getOrNull(artistGridColumnsIndex)?.toIntOrNull()?.coerceIn(1, 4) ?: 2,
         ),
-        browseDestination = restoreBrowseDestinationForHomeState(browseSaved),
+        browseDestination = browseDestination,
+        browseStack = browseStack,
     )
+}
+
+private fun restoreBrowseNavigationForV3(
+    saved: List<String>,
+): Pair<BrowseDestination, List<BrowseStackFrame>> {
+    val destinationSize = saved.firstOrNull()?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+    val destinationSaved = saved.drop(1).take(destinationSize)
+    val afterDestination = saved.drop(1 + destinationSize)
+    val stackSize = afterDestination.firstOrNull()?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+    var rest = afterDestination.drop(1)
+    val frames = ArrayList<BrowseStackFrame>(stackSize)
+    repeat(stackSize) {
+        val (frame, consumed) = restoreBrowseStackFrame(rest) ?: return@repeat
+        frames += frame
+        rest = rest.drop(consumed)
+    }
+    return restoreBrowseDestinationForHomeState(destinationSaved) to frames
+}
+
+private fun saveBrowseStackFrame(frame: BrowseStackFrame): List<String> {
+    val destination = saveBrowseDestinationForHomeState(frame.browseDestination)
+    return listOf(
+        frame.section.name,
+        frame.searchOpen.toString(),
+        frame.searchQuery,
+        frame.activePlaylistId.orEmpty(),
+        destination.size.toString(),
+    ) + destination
+}
+
+private fun restoreBrowseStackFrame(saved: List<String>): Pair<BrowseStackFrame, Int>? {
+    if (saved.size < 5) return null
+    val destinationSize = saved[4].toIntOrNull()?.coerceAtLeast(0) ?: return null
+    val consumed = 5 + destinationSize
+    if (saved.size < consumed) return null
+    val destination = restoreBrowseDestinationForHomeState(saved.drop(5).take(destinationSize))
+    val frame = BrowseStackFrame(
+        section = runCatching { HomeSection.valueOf(saved[0]) }.getOrNull() ?: HomeSection.Songs,
+        searchOpen = saved[1].toBoolean(),
+        searchQuery = saved[2],
+        activePlaylistId = saved[3].takeIf { it.isNotEmpty() },
+        browseDestination = destination,
+    )
+    return frame to consumed
 }
 
 private fun saveBrowseDestinationForHomeState(destination: BrowseDestination): List<String> =

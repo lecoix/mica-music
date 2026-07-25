@@ -18,6 +18,7 @@ object LibraryBrowseDetails {
         val albumArtUri: String?,
         val coverColorArgb: Int,
         val songs: List<Song>,
+        val discSections: List<AlbumDiscSection>,
     )
 
     fun albumDetail(songs: List<Song>): AlbumDetail {
@@ -35,16 +36,15 @@ object LibraryBrowseDetails {
             buckets.getOrPut(song.album.ifBlank { "未知专辑" }) { mutableListOf() }.add(song)
         }
         return buckets.map { (album, albumSongs) ->
-            val artworkSong = albumSongs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: albumSongs.first()
+            val orderedSongs = sortedAlbumSongs(albumSongs)
+            val artworkSong = orderedSongs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: orderedSongs.first()
             ArtistAlbumSection(
                 title = album,
-                year = albumSongs.map { it.year }.filter { it > 0 }.maxOrNull() ?: 0,
+                year = orderedSongs.map { it.year }.filter { it > 0 }.maxOrNull() ?: 0,
                 albumArtUri = artworkSong.albumArtUri,
                 coverColorArgb = artworkSong.coverColorArgb,
-                songs = albumSongs.sortedWith(
-                    compareBy<Song> { if (it.trackNumber > 0) it.trackNumber else Int.MAX_VALUE }
-                        .thenBy { it.title.lowercase() },
-                ),
+                songs = orderedSongs,
+                discSections = albumDiscSections(orderedSongs),
             )
         }.sortedWith(compareByDescending<ArtistAlbumSection> { it.year > 0 }.thenByDescending { it.year })
     }

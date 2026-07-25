@@ -50,6 +50,25 @@ class LibraryBrowseDetailsTest {
         assertEquals(listOf("new-1", "new-2"), sections.first().songs.map { it.id })
     }
 
+    @Test
+    fun artistAlbumSectionsSortSongsByDiscTrackThenTitleAndGroupDiscs() {
+        val sections = LibraryBrowseDetails.artistAlbumSections(
+            listOf(
+                song("unknown", title = "A", disc = 0, track = 1).copy(album = "Box", year = 2020),
+                song("disc2-track1", title = "B", disc = 2, track = 1).copy(album = "Box", year = 2020),
+                song("disc1-track2", title = "C", disc = 1, track = 2).copy(album = "Box", year = 2020),
+                song("disc1-track1", title = "D", disc = 1, track = 1).copy(album = "Box", year = 2020),
+            ),
+        )
+
+        val section = sections.single()
+        assertEquals(
+            listOf("disc1-track1", "disc1-track2", "disc2-track1", "unknown"),
+            section.songs.map { it.id },
+        )
+        assertEquals(listOf(1, 2, null), section.discSections.map { it.discNumber })
+    }
+
     private fun song(
         id: String,
         title: String = id,

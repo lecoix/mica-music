@@ -282,6 +282,7 @@ fun HomeScreen(
                     section = target,
                     activePlaylistId = null,
                     browseDestination = BrowseDestination.Root,
+                    browseStack = emptyList(),
                     returnSection = nextReturnSection,
                 )
             }
@@ -295,6 +296,7 @@ fun HomeScreen(
             section = HomeSection.Playlist,
             activePlaylistId = playlistId,
             browseDestination = BrowseDestination.Root,
+            browseStack = emptyList(),
             searchOpen = false,
         )
     }
@@ -313,6 +315,7 @@ fun HomeScreen(
             searchQuery = "",
             activePlaylistId = null,
             browseDestination = BrowseDestination.Root,
+            browseStack = emptyList(),
             section = HomeSection.Songs,
         )
         scope.launch {
@@ -353,7 +356,11 @@ fun HomeScreen(
     fun openAlbumBrowse(albumTitle: String) {
         applyNavigationSnapshot(navigateToAlbum(currentNavigationSnapshot(), albumTitle))
         drawerOpen = false
-        uiState = uiState.copy(searchOpen = false)
+    }
+
+    fun openArtistBrowse(artistName: String) {
+        applyNavigationSnapshot(navigateToArtist(currentNavigationSnapshot(), artistName))
+        drawerOpen = false
     }
 
     LaunchedEffect(homeNavigationIntent) {
@@ -826,7 +833,9 @@ fun HomeScreen(
                         section = key.section,
                         destination = key.destination,
                         onDestinationChange = { destination ->
-                            uiState = uiState.copy(browseDestination = destination)
+                            applyNavigationSnapshot(
+                                pushBrowseDestination(currentNavigationSnapshot(), destination),
+                            )
                         },
                         library = library,
                         currentSongId = currentSong?.id,
@@ -945,14 +954,7 @@ fun HomeScreen(
                 overlay = homeController.dismissActionMenu(overlay)
             },
             onSongMenuAction = ::onSongMenuAction,
-            onArtistClick = { artistName ->
-                uiState = uiState.copy(
-                    section = HomeSection.Artists,
-                    browseDestination = BrowseDestination.Artist(artistName),
-                    searchOpen = false,
-                )
-                drawerOpen = false
-            },
+            onArtistClick = ::openArtistBrowse,
             onAlbumClick = ::openAlbumBrowse,
             onDismissAddToPlaylist = {
                 overlay = homeController.dismissAddToPlaylist(overlay)
