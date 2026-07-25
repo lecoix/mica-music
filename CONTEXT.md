@@ -77,16 +77,20 @@ _Avoid_: 在音频链或 EQ UI 内直接读 equalizer_* key
 _Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择
 
 **MusicLibrary（曲库门面）**：
-Compose 可见曲库状态与对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。`MusicLibraryBacking` 随可见曲库快照维护 `songId → Song` 索引，`songById` 不得线性扫描曲库；大型歌单解析复用此索引。内部组合 backing 与子模块；**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。当前单实例架构允许 `ArtistNames` 持有进程级可变拆分规则；引入多个 `MusicLibrary` 实例前，必须将艺术家拆分规则及其 revision 改为同一实例所有，避免一个实例更新全局规则而其他实例继续使用旧缓存。
-_Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内恢复扫描编排或 catalog 逻辑
+Compose 可见曲库状态与对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。`MusicLibraryBacking` 随可见曲库快照维护 `songId → Song` 索引，`songById` 不得线性扫描曲库；大型歌单解析复用此索引。内部组合 backing 与子模块；**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。播放统计仅经 `applyPlayStats` 刷新展示，不拥有 `PlayHistoryStore` 写入。当前单实例架构允许 `ArtistNames` 持有进程级可变拆分规则；引入多个 `MusicLibrary` 实例前，必须将艺术家拆分规则及其 revision 改为同一实例所有，避免一个实例更新全局规则而其他实例继续使用旧缓存。
+_Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内恢复扫描编排或 catalog 逻辑；把播放统计持久化绑回 `MusicLibrary.ioScope`
 
 **Library scan orchestrator（曲库扫描编排器）**：
-`data/library/LibraryScanOrchestrator`：扫描生命周期、串行执行互斥、Room incremental sync、封面修复**执行**。歌词探测返回 `NotProbed` / `Complete` / `ReadFailed`：每个有界批次只把 `Complete` 结果用短 Room 事务直接替换到正式 `song_lyrics`，`ReadFailed` 不修改该歌曲任何歌词槽并持久化全局重试标记。批次可以在扫描结束前生效；歌曲摘要、删除、扫描元数据和 Compose 曲库仍仅在完整扫描成功后统一提交和发布。parser 升级或重试标记存在时，所有扫描类型（包括封面修复）都强制重新探测歌词；完整零失败扫描后才清除重试标记并推进 parser 版本。
-_Avoid_: 把 `ReadFailed` 当成空歌词替换正式槽；让歌词批次直接发布 Compose 曲库；把全库歌词留在内存等结束后一次写入；用覆盖整次扫描的长 Room 事务；在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策
+`data/library/LibraryScanOrchestrator`：扫描生命周期、串行执行互斥、Room incremental sync、封面修复**执行**。歌词探测返回 `NotProbed` / `Complete` / `ReadFailed`：每个有界批次只把 `Complete` 结果用短 Room 事务直接替换到正式 `song_lyrics`，`ReadFailed` 不修改该歌曲任何歌词槽并持久化全局重试标记。批次可以在扫描结束前生效；歌曲摘要、删除、扫描元数据和 Compose 曲库仍仅在完整扫描成功后统一提交和发布。parser 升级或重试标记存在时，所有扫描类型（包括封面修复）都强制重新探测歌词；完整零失败扫描后才清除重试标记并推进 parser 版本。扫描失败不改变旧 snapshot，只设置 `lastScanError`。完整替换协议见 `Library snapshot publication` 与 `docs/adr/0002-library-snapshot-publication.md`。
+_Avoid_: 把 `ReadFailed` 当成空歌词替换正式槽；让歌词批次直接发布 Compose 曲库；把全库歌词留在内存等结束后一次写入；用覆盖整次扫描的长 Room 事务；在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策；失败路径把 `hasScanned` 置 true 或改写旧元数据
+
+**Library snapshot publication（完整曲库快照发布）**：
+能替换完整曲库真相的操作只有：cache hydrate、scan commit、clear library，以及 `release` 作废未完成发布。它们共用 `scanGeneration`（语义为 library generation）与 `storeRevision` + `storeSyncMutex`：需要写库时先 Room 成功，再同世代发布内存中的 `songs` 与 `hasScanned` / `lastScanAtMs` / `lastScanSource` / `totalSizeMb`。`applyPlayStats`、`removeSong`、排序 presentation、扫描中歌词 batch 不是完整替换。
+_Avoid_: 先改内存扫描元数据再 `commitScan`；`clear` / `commitScan` 绕过 store mutex 与 revision；cache adopt 前不做 generation 校验
 
 **Library catalog publisher（曲库目录发布器）**：
-`data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / `catalogRevision` / `queueMetadataRevision` / fast scroll 发布、async persist、播放统计写回、`removeSong`。外部只读曲库快照及其结构/元数据版本。
-_Avoid_: 在 orchestrator / UI 直接读写 `scannedSongs`；绕过 catalog 改可见列表或排序
+`data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / `catalogRevision` / `queueMetadataRevision` / fast scroll 发布、async persist、播放统计**展示**写回（`applyPlayStats`）、`removeSong`。外部只读曲库快照及其结构/元数据版本。播放次数权威持久化不在此，见 `PlaybackStatisticsRepository`。
+_Avoid_: 在 orchestrator / UI 直接读写 `scannedSongs`；绕过 catalog 改可见列表或排序；在 catalog 内写 `PlayHistoryStore`
 
 **Library browse details（曲库浏览详情模型）**：
 专辑 / 艺术家详情页的展示模型与排序规则，例如专辑曲目排序、disc 分组、版权行、艺术家专辑分组。`HomeBrowseContent` 负责渲染和用户动作，不直接承载这些领域展示计算。
@@ -119,8 +123,12 @@ App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaCon
 _Avoid_: player view model、media player（指底层引擎时）
 
 **PlaybackStatisticsTracker（播放统计跟踪器）**：
-App 侧运行时统计状态机。用户明确点播/重播仍由 `PlayerController` 的请求加匹配的 seek/transition 证据确认；自然下一首和单曲循环的权威边界来自 Service 所持有的原始 `Player.onPositionDiscontinuity(AUTO_TRANSITION)`，经一次性 `MediaSession` custom command 送到 Controller，避免依赖 `MediaController` 对相同 `PositionInfo` / `MediaItem` 的差分合并。状态机只接受跨 mediaId 的自动边界，或同 mediaId 且位置从后向前回卷的自动边界；Controller 侧 AUTO/REPEAT 回调仅作状态同步，不能自行创建自动播放会话。每个确认边界最多创建一个待发布会话，且只在目标歌曲实际处于 playing 时发布一次；同曲 seek、暂停恢复、连接恢复和通知歌词 `replaceMediaItem` 元数据刷新均不得创建会话。连续收听时长仍按 session 向下取整发布整秒。它不写曲库、不持久化，也不参与出声或队列推进；`MainViewModel` 将发布结果适配到 `MusicLibrary`。
+App 侧运行时统计状态机。用户明确点播/重播仍由 `PlayerController` 的请求加匹配的 seek/transition 证据确认；自然下一首和单曲循环的权威边界来自 Service 所持有的原始 `Player.onPositionDiscontinuity(AUTO_TRANSITION)`，经一次性 `MediaSession` custom command 送到 Controller，避免依赖 `MediaController` 对相同 `PositionInfo` / `MediaItem` 的差分合并。状态机只接受跨 mediaId 的自动边界，或同 mediaId 且位置从后向前回卷的自动边界；Controller 侧 AUTO/REPEAT 回调仅作状态同步，不能自行创建自动播放会话。每个确认边界最多创建一个待发布会话，且只在目标歌曲实际处于 playing 时发布一次；同曲 seek、暂停恢复、连接恢复和通知歌词 `replaceMediaItem` 元数据刷新均不得创建会话。连续收听时长仍按 session 向下取整发布整秒。它不写曲库、不持久化，也不参与出声或队列推进；发布结果由进程级 `PlaybackStatisticsRepository` 消费。
 _Avoid_: 在 `PlayerController` callbacks 中重新实现去重、pending target 或收听 session 结算
+
+**PlaybackStatisticsRepository（播放统计仓库）**：
+`MicaApp` 持有的进程级播放统计持久化 owner。绑定 `PlayerController.onSongPlayStarted` / `onSongListenSecondsAdded`，在自有 IO scope 写入 `PlayHistoryStore`；可选 presentation sink（通常为当前 `MusicLibrary.applyPlayStats`）仅刷新 Compose 曲目展示。Activity/ViewModel 销毁不得取消其写入 scope；sink 缺失或已 `release` 的曲库不得阻塞持久化。冷启动或重新加载曲库时仍经 `withPlayStats()` 从 `PlayHistoryStore` 合并到 `Song`。
+_Avoid_: 把统计持久化绑到 `MainViewModel` / `MusicLibrary.ioScope`；仅靠置空 Controller 回调“修泄漏”而丢掉后台播放统计
 
 **Authoritative playback queue（权威播放队列）**：
 服务侧 `MicaCompositePlayer.playlistItems`（经 `playbackQueueSnapshot()` 暴露）为唯一真相源；`ServicePlaybackEngineCoordinator` 的 `onEnded` / `startAt` / 失败跳曲均读此快照。App 内 `PendingPlaybackNavigation` 在 binder 延迟时携带切歌意图。

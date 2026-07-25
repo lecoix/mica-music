@@ -2,6 +2,7 @@ package com.mica.music
 
 import android.app.Application
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.data.PlaybackStatisticsRepository
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlayerController
 import com.mica.music.data.scanner.ScanCacheManager
@@ -18,6 +19,14 @@ class MicaApp : Application() {
         PlayerController(this)
     }
 
+    /**
+     * Process-lifetime play-count / listen-seconds persistence. Must outlive Activity/ViewModel
+     * so background playback after the UI is dismissed still records stats.
+     */
+    val playbackStatistics: PlaybackStatisticsRepository by lazy(LazyThreadSafetyMode.NONE) {
+        PlaybackStatisticsRepository(this).also { it.bind(playerController) }
+    }
+
     val playlistStore: PlaylistStore by lazy(LazyThreadSafetyMode.NONE) {
         PlaylistStore(this)
     }
@@ -29,5 +38,7 @@ class MicaApp : Application() {
         BluetoothAudioDiagnostics.install(this)
         AudioEnvironmentDiagnostics.install(this)
         MicaImageLoaders.init(this)
+        // Bind stats persistence before any MediaSession playback can publish sessions.
+        playbackStatistics
     }
 }

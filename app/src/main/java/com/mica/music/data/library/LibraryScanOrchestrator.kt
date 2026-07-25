@@ -76,7 +76,6 @@ internal class LibraryScanOrchestrator(
         val treeUri = uriString.toUri()
         if (!backing.scanEnvironment.canReadTree(treeUri)) {
             backing.lastScanError = "无法访问所选文件夹，请重新选择"
-            backing.hasScanned = true
             return
         }
         performScan(ScanSource.FOLDER, requestedForceRefreshLyrics = true) {
@@ -217,12 +216,17 @@ internal class LibraryScanOrchestrator(
             if (lyricsReadFailed) {
                 backing.scanEnvironment.persistLyricsRetryRequired(true)
             }
-            backing.totalSizeMb = result.totalSizeMb
-            backing.hasScanned = true
-            backing.lastScanAtMs = backing.scanEnvironment.currentTimeMillis()
-            backing.lastScanSource = source
-            backing.scanEnvironment.persistLastScanSource(source)
-            if (publishSongs(result.songs, generation) == null) return
+            val scanAtMs = backing.scanEnvironment.currentTimeMillis()
+            if (publishSongs(
+                    raw = result.songs,
+                    generation = generation,
+                    source = source,
+                    scanAtMs = scanAtMs,
+                    totalSizeMb = result.totalSizeMb,
+                ) == null
+            ) {
+                return
+            }
             if (source == ScanSource.FOLDER && backing.isActiveGeneration(generation)) {
                 backing.scanEnvironment.enqueueVideoCoverPosterPrefetch(
                     result.songs.mapNotNull { it.videoCoverUri },
@@ -239,7 +243,7 @@ internal class LibraryScanOrchestrator(
             throw e
         } catch (e: Exception) {
             if (!backing.isActiveGeneration(generation)) return
-            backing.hasScanned = true
+            // Keep the previous complete snapshot; only surface the error.
             backing.lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
             DiagnosticLog.event("LibraryScan", "performScan failed generation=$generation", e)
         } finally {
@@ -258,6 +262,9 @@ internal class LibraryScanOrchestrator(
     private suspend fun publishSongs(
         raw: List<com.mica.music.data.Song>,
         generation: Int,
+        source: ScanSource,
+        scanAtMs: Long,
+        totalSizeMb: Int,
     ): com.mica.music.data.local.LibrarySyncResult? {
         if (!backing.isActiveGeneration(generation)) return null
         val prepared = catalog.prepareLibrarySongs(
@@ -267,7 +274,6 @@ internal class LibraryScanOrchestrator(
             diagnosticTag = "LibraryScan",
             diagnosticReason = "scanPublish",
         )
-        val scanAt = backing.lastScanAtMs ?: return null
         val storeRevision = backing.nextStoreRevision()
         val syncStartedMs = SystemClock.elapsedRealtime()
         val sync = backing.storeSyncMutex.withLock {
@@ -276,9 +282,9 @@ internal class LibraryScanOrchestrator(
             withContext(backing.ioDispatcher) {
                 backing.libraryStore.commitScan(
                     songs = prepared.visible,
-                    lastScanAtMs = scanAt,
-                    lastScanSource = backing.lastScanSource,
-                    totalSizeMb = backing.totalSizeMb,
+                    lastScanAtMs = scanAtMs,
+                    lastScanSource = source,
+                    totalSizeMb = totalSizeMb,
                     sortField = backing.sortField,
                     sortDirection = backing.sortDirection,
                     fastScrollSectionTargets = prepared.fastScrollIndex?.sectionTargets,
@@ -296,6 +302,12 @@ internal class LibraryScanOrchestrator(
             }
             catalog.adoptPrepared(prepared)
             catalog.releaseLoadedLyrics()
+            backing.totalSizeMb = totalSizeMb
+            backing.hasScanned = true
+            backing.lastScanAtMs = scanAtMs
+            backing.lastScanSource = source
+            backing.lastScanError = null
+            backing.scanEnvironment.persistLastScanSource(source)
             backing.lastScanSyncSummary = sync.toSummary()
         }
         return sync

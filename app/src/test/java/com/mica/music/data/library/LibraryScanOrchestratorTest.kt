@@ -14,6 +14,7 @@ import com.mica.music.data.ScanSource
 import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
+import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibrarySyncResult
 import com.mica.music.data.scanner.ScanResult
@@ -199,6 +200,96 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
+    fun scanFailureDoesNotPublishMetadataOrHasScanned() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val harness = scanHarness(scanner, store)
+        val kept = SongFixtures.song("kept")
+
+        val first = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[0].result.complete(ScanResult(listOf(kept), 5))
+        first.await()
+        assertEquals(5, harness.backing.totalSizeMb)
+        assertEquals(1_234L, harness.backing.lastScanAtMs)
+
+        val failed = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[1].result.completeExceptionally(IllegalStateException("boom"))
+        failed.await()
+
+        assertEquals(listOf("kept"), harness.backing.songs.map { it.id })
+        assertEquals(5, harness.backing.totalSizeMb)
+        assertEquals(1_234L, harness.backing.lastScanAtMs)
+        assertTrue(harness.backing.hasScanned)
+        assertEquals("boom", harness.backing.lastScanError)
+        assertEquals(listOf("kept"), store.syncedSongs.map { it.id })
+        harness.backing.release()
+    }
+
+    @Test
+    fun clearLibraryInvalidatesInFlightScanPublication() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val harness = scanHarness(scanner, store)
+
+        val scan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        harness.backing.folder.clearLibrary()
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(
+            ScanResult(listOf(SongFixtures.song("late")), 99),
+        )
+        scan.await()
+        runCurrent()
+
+        assertTrue(harness.backing.songs.isEmpty())
+        assertFalse(harness.backing.hasScanned)
+        assertNull(harness.backing.lastScanAtMs)
+        assertTrue(store.syncedSongs.isEmpty())
+        harness.backing.release()
+    }
+
+    @Test
+    fun staleCacheHydrateIsDiscardedAfterNewerScanPublishes() = runTest {
+        val scanner = ControlledScanner()
+        val deferredCache = CompletableDeferred<CachedLibrary?>()
+        var loadCachedCalls = 0
+        val store = FakeLibraryStore(
+            cachedLoader = {
+                // First call is cache hydrate (blocked); later scan bootstrap returns empty quickly.
+                if (loadCachedCalls++ == 0) deferredCache.await() else null
+            },
+        )
+        val harness = scanHarness(scanner, store)
+
+        val cacheLoad = async { harness.backing.cacheLoader.loadCachedLibrary(StartupBrowseTarget.NONE) }
+        runCurrent()
+
+        val scan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(
+            ScanResult(listOf(SongFixtures.song("fresh")), 3),
+        )
+        scan.await()
+        runCurrent()
+        assertEquals(listOf("fresh"), harness.backing.songs.map { it.id })
+
+        deferredCache.complete(
+            CachedLibrary(
+                songs = listOf(SongFixtures.song("stale")),
+                lastScanAtMs = 10L,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+            ),
+        )
+        assertNull(cacheLoad.await())
+        assertEquals(listOf("fresh"), harness.backing.songs.map { it.id })
+        assertEquals(3, harness.backing.totalSizeMb)
+        harness.backing.release()
+    }
+
+    @Test
     fun folderScanEnqueuesUniqueVideoCoverPosterPrefetchAfterPublish() = runTest {
         val scanner = ControlledScanner()
         val environment = FakeScanEnvironment()
@@ -292,11 +383,13 @@ class LibraryScanOrchestratorTest {
 
     private class FakeLibraryStore(
         private val cached: CachedLibrary? = null,
+        private val cachedLoader: (suspend () -> CachedLibrary?)? = null,
     ) : LibraryStore {
         var syncedSongs: List<Song> = emptyList()
         val appliedLyrics = mutableListOf<ScannedSongLyrics>()
 
-        override suspend fun loadCached(): CachedLibrary? = cached
+        override suspend fun loadCached(): CachedLibrary? =
+            cachedLoader?.invoke() ?: cached
 
         override suspend fun save(
             songs: List<Song>,

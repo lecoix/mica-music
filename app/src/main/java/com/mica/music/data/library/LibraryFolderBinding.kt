@@ -9,6 +9,8 @@ import com.mica.music.data.LibraryFolderStore
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 internal class LibraryFolderBinding(
     private val backing: MusicLibraryBacking,
@@ -66,21 +68,39 @@ internal class LibraryFolderBinding(
             "clearLibrary start songs=${backing.songs.size} hasScanned=${backing.hasScanned} " +
                 "lastScanAtMs=${backing.lastScanAtMs}",
         )
+        backing.scanJob?.cancel()
+        backing.scanJob = null
+        val generation = ++backing.scanGeneration
+        backing.isScanning = false
+        backing.isLoadingCachedLibrary = false
+        backing.scanProgressLabel = null
+        backing.scanJob = backing.scanScope.launch {
+            publishEmptyLibrarySnapshot(generation)
+        }
+    }
+
+    private suspend fun publishEmptyLibrarySnapshot(generation: Int) {
+        if (!backing.isActiveGeneration(generation)) return
+        val storeRevision = backing.nextStoreRevision()
+        val startedMs = SystemClock.elapsedRealtime()
+        backing.storeSyncMutex.withLock {
+            if (!backing.isActiveGeneration(generation)) return
+            if (!backing.isLatestStoreRevision(storeRevision)) return
+            withContext(backing.ioDispatcher) {
+                backing.libraryStore.clear()
+            }
+        }
+        DiagnosticLog.event(
+            "LibraryResume",
+            "clearLibrary storeClear end durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+                "generation=$generation",
+        )
+        if (!backing.isActiveGeneration(generation)) return
         backing.catalog.clearCatalog()
         backing.hasScanned = false
         backing.totalSizeMb = 0
         backing.lastScanAtMs = null
         backing.lastScanError = null
-        backing.scanProgressLabel = null
-        backing.isScanning = false
-        backing.isLoadingCachedLibrary = false
-        backing.ioScope.launch {
-            val startedMs = SystemClock.elapsedRealtime()
-            backing.libraryStore.clear()
-            DiagnosticLog.event(
-                "LibraryResume",
-                "clearLibrary storeClear end durMs=${SystemClock.elapsedRealtime() - startedMs}",
-            )
-        }
+        backing.lastScanSyncSummary = null
     }
 }

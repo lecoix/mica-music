@@ -42,8 +42,10 @@ internal class LibraryCacheLoader(
             )
             return null
         }
+        // Claim a publication generation so a concurrent scan/clear can invalidate this hydrate.
+        val generation = ++backing.scanGeneration
         val startedMs = SystemClock.elapsedRealtime()
-        DiagnosticLog.event("LibraryLoad", "loadCached begin")
+        DiagnosticLog.event("LibraryLoad", "loadCached begin generation=$generation")
         backing.isLoadingCachedLibrary = true
         try {
             val dbStartedMs = SystemClock.elapsedRealtime()
@@ -56,7 +58,13 @@ internal class LibraryCacheLoader(
                 DiagnosticLog.event("LibraryLoad", "loadCached empty durMs=${SystemClock.elapsedRealtime() - startedMs}")
                 return null
             }
-            if (backing.released) return null
+            if (!backing.isActiveGeneration(generation)) {
+                DiagnosticLog.event(
+                    "LibraryLoad",
+                    "loadCached discarded after db generation=$generation current=${backing.scanGeneration}",
+                )
+                return null
+            }
             catalog.reloadSortFromPrefs()
             val sortCanUseStoredOrder = cached.sortField == backing.sortField &&
                 cached.sortDirection == backing.sortDirection &&
@@ -139,6 +147,13 @@ internal class LibraryCacheLoader(
             } else {
                 withContext(backing.ioDispatcher) { prepareBrowse() }
             }
+            if (!backing.isActiveGeneration(generation)) {
+                DiagnosticLog.event(
+                    "LibraryLoad",
+                    "loadCached discarded before adopt generation=$generation current=${backing.scanGeneration}",
+                )
+                return null
+            }
             catalog.adoptPrepared(prepared)
             backing.totalSizeMb = cached.totalSizeMb
             backing.lastScanAtMs = cached.lastScanAtMs
@@ -152,7 +167,7 @@ internal class LibraryCacheLoader(
                 "LibraryLoad",
                 "loadCached end durMs=${SystemClock.elapsedRealtime() - startedMs} " +
                     "songs=${backing.songs.size} sizeMb=${backing.totalSizeMb} source=${backing.lastScanSource} " +
-                    "cachedOrder=$sortCanUseStoredOrder",
+                    "cachedOrder=$sortCanUseStoredOrder generation=$generation",
             )
             DiagnosticLog.event(
                 "LibraryLoad",

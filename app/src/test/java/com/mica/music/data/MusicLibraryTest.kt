@@ -427,10 +427,39 @@ class MusicLibraryTest {
         )
         scan.await()
 
-        assertTrue(library.hasScanned)
+        assertFalse(library.hasScanned)
         assertEquals("broken media provider", library.lastScanError)
         assertFalse(library.isScanning)
         assertTrue(library.songs.isEmpty())
+        library.release()
+    }
+
+    @Test
+    fun scannerFailureKeepsPreviousSuccessfulSnapshot() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val library = library(scanner, store)
+        val kept = SongFixtures.song("kept")
+
+        val first = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[0].result.complete(ScanResult(listOf(kept), totalSizeMb = 7))
+        first.await()
+        assertEquals(listOf("kept"), library.songs.map { it.id })
+        assertEquals(7, library.totalSizeMb)
+        assertTrue(library.hasScanned)
+
+        val failed = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[1].result.completeExceptionally(
+            IllegalStateException("broken media provider"),
+        )
+        failed.await()
+
+        assertEquals(listOf("kept"), library.songs.map { it.id })
+        assertEquals(7, library.totalSizeMb)
+        assertTrue(library.hasScanned)
+        assertEquals("broken media provider", library.lastScanError)
         library.release()
     }
 

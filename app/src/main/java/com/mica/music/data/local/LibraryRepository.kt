@@ -398,6 +398,7 @@ class LibraryRepository internal constructor(
             lyricsDao.deleteAll()
             songDao.deleteAll()
             browseGroupDao.deleteAll()
+            metaDao.deleteAll()
         }
     }
 

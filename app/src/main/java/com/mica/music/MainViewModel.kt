@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LibraryPlaybackQueueCoordinator
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
 import com.mica.music.data.SleepTimerController
 import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.asLibraryPlaybackQueueTarget
@@ -25,12 +24,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playlistStore = (application as MicaApp).playlistStore
     val uiSettings = AppUiSettings(application)
     val sleepTimer = SleepTimerController(viewModelScope, playerController)
+    private val playbackStatistics = (application as MicaApp).playbackStatistics
     private val libraryPlaybackQueueSync = LibraryPlaybackQueueCoordinator()
 
     init {
-        playerController.onSongPlayStarted = { songId -> library.onSongPlayed(songId) }
-        playerController.onSongListenSecondsAdded = { songId, seconds ->
-            library.onSongListened(songId, seconds)
+        playbackStatistics.attachPresentationSink(this) { songId, stats ->
+            library.applyPlayStats(songId, stats)
         }
         viewModelScope.launch {
             val startupStartedMs = SystemClock.elapsedRealtime()
@@ -68,6 +67,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        playbackStatistics.detachPresentationSink(this)
         sleepTimer.cancel()
         library.release()
         super.onCleared()

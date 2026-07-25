@@ -140,10 +140,11 @@ class MusicLibrary internal constructor(
         }
     }
 
-    fun onSongPlayed(songId: String) = backing.playStats.onSongPlayed(songId)
-
-    fun onSongListened(songId: String, seconds: Long) =
-        backing.playStats.onSongListened(songId, seconds)
+    /** Refreshes in-memory song presentation after process-lifetime stats persistence. */
+    fun applyPlayStats(songId: String, stats: PlayStats) {
+        if (backing.released) return
+        backing.catalog.applyPlayStats(songId, stats)
+    }
 
     fun searchSongs(query: String): List<Song> = LibraryBrowse.search(songs, query)
 

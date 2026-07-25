@@ -32,6 +32,11 @@ internal class MusicLibraryBacking(
     val ioScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     val scanScope = CoroutineScope(SupervisorJob() + mainDispatcher)
     var scanJob: Job? = null
+    /**
+     * Library-wide publication generation (historically named scanGeneration).
+     * Bumped when starting cache hydrate, scan, clear, or release so stale
+     * complete-snapshot publishers discard their results.
+     */
     var scanGeneration = 0
     var released = false
     val scanExecutionMutex = Mutex()
@@ -64,7 +69,6 @@ internal class MusicLibraryBacking(
     var songFastScrollSectionTargets by mutableStateOf<Map<String, Int>?>(null)
 
     val catalog = LibraryCatalogPublisher(this)
-    val playStats = LibraryPlayStatsUpdater(this)
     val folder = LibraryFolderBinding(this)
     val cacheLoader = LibraryCacheLoader(this)
     val scanOrchestrator = LibraryScanOrchestrator(this)

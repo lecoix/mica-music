@@ -13,4 +13,7 @@ interface LibraryMetaDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(meta: LibraryMetaEntity)
+
+    @Query("DELETE FROM library_meta")
+    suspend fun deleteAll()
 }
