@@ -3,6 +3,7 @@ package com.mica.music.data
 import android.content.Context
 import android.net.Uri
 import com.mica.music.data.preferences.LibraryScanSettings
+import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.local.LibrarySyncResult
@@ -10,6 +11,7 @@ import com.mica.music.data.scanner.FolderScanner
 import com.mica.music.data.scanner.MediaStoreScanner
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.data.scanner.ScanResult
+import com.mica.music.data.scanner.VideoCoverPosterPrefetcher
 
 internal interface LibraryScanner {
     suspend fun scanDevice(
@@ -110,6 +112,8 @@ internal interface ScanEnvironment {
     fun playStats(songId: String): PlayStats
     fun clearTransientCache()
     fun pruneAlbumArtCache(songs: List<Song>) = Unit
+    /** Folder-scan only: background first-frame posters for matched video cover URIs. */
+    fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) = Unit
     fun persistLastScanSource(source: ScanSource)
     fun lyricsParserVersion(): Int = CURRENT_LYRICS_PARSER_VERSION
     fun persistLyricsParserVersion(version: Int) = Unit
@@ -291,6 +295,11 @@ internal class AndroidScanEnvironment(
 
     override fun pruneAlbumArtCache(songs: List<Song>) =
         ScanCacheManager.pruneAlbumArtCache(context, songs)
+
+    override fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) {
+        if (!PlaybackUiPreferences.videoAlbumCoverEnabled(context)) return
+        VideoCoverPosterPrefetcher.enqueue(context, videoCoverUris)
+    }
 
     override fun persistLastScanSource(source: ScanSource) =
         LibraryScanSettings.setLastScanSource(context, source)

@@ -546,9 +546,12 @@ fun NowPlayingContent(
             } else {
                 customCoverFrame.zoneStop
             }
+            // Cover artwork wipes inside CoverSection via DirectionalTrackWipe so video hosts
+            // stay mounted on the outgoing layer. Overlay artwork wipe would double-animate.
             val coverWipeEnabled =
                 effectiveCoverFlowMode == PlayerCoverFlowMode.STANDARD ||
                     (effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD && customCoverVisible)
+            val coverArtworkUsesInternalWipe = coverWipeEnabled
             val coverWipeTarget = PlayerCoverWipeVisual(
                 song = song,
                 cover = customCoverFrame,
@@ -611,6 +614,16 @@ fun NowPlayingContent(
                     onCoverBoundsChanged(null)
                 }
             }
+            val externalCoverIncomingWipe: Modifier =
+                if (coverArtworkUsesInternalWipe) {
+                    Modifier
+                } else {
+                    Modifier.playerCoverIncomingWipe(
+                        state = coverWipeState,
+                        target = coverWipeTarget,
+                        pendingDirection = effectiveTrackWipeDirection,
+                    )
+                }
             val coverSection: @Composable (Modifier) -> Unit = { coverModifier ->
                 NowPlayingCoverSection(
                     song = pageModel.song,
@@ -627,6 +640,7 @@ fun NowPlayingContent(
                     videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled &&
                         (!landscapeMode || uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) &&
                         !lyricsExpanded,
+                    trackSkipDirection = effectiveTrackWipeDirection,
                     particleCoverTuning = uiSettings.particleCoverTuning,
                     lyricsExpanded = classicLyricsExpanded,
                     coverContentAlpha = coverContentAlpha,
@@ -909,11 +923,7 @@ fun NowPlayingContent(
                             Modifier
                                 .width(coverSize)
                                 .requiredHeight(previewFrame.cover.blockHeight)
-                                .playerCoverIncomingWipe(
-                                    state = coverWipeState,
-                                    target = coverWipeTarget,
-                                    pendingDirection = effectiveTrackWipeDirection,
-                                ),
+                                .then(externalCoverIncomingWipe),
                         )
                     }
                     BoxWithConstraints(
@@ -936,11 +946,7 @@ fun NowPlayingContent(
                                     scaleX = visualScale
                                     scaleY = visualScale
                                 }
-                                .playerCoverIncomingWipe(
-                                    state = coverWipeState,
-                                    target = coverWipeTarget,
-                                    pendingDirection = effectiveTrackWipeDirection,
-                                ),
+                                .then(externalCoverIncomingWipe),
                         )
                     },
                     surfaceState = surfaceState,
@@ -978,11 +984,7 @@ fun NowPlayingContent(
                 ) {
                     coverSection(
                         Modifier
-                            .playerCoverIncomingWipe(
-                                state = coverWipeState,
-                                target = coverWipeTarget,
-                                pendingDirection = effectiveTrackWipeDirection,
-                            )
+                            .then(externalCoverIncomingWipe)
                             .graphicsLayer {
                                 translationY = if (useVerticalCloudSplit) {
                                     -with(density) { fullHeight.toPx() } * 1.1f * lyricsPageTransition
@@ -1046,7 +1048,7 @@ fun NowPlayingContent(
                     }
                 }
             }
-                if (!landscapeMode) {
+                if (!landscapeMode && !coverArtworkUsesInternalWipe) {
                     OutgoingCoverArtworkWipe(
                         state = coverWipeState,
                         target = coverWipeTarget,

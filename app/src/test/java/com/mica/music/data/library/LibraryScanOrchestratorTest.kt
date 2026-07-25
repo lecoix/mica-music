@@ -194,6 +194,31 @@ class LibraryScanOrchestratorTest {
 
         assertEquals(scanned.map(Song::id), store.syncedSongs.map(Song::id))
         assertEquals(scanned.map(Song::id), environment.prunedSongIds)
+        assertTrue(environment.prefetchedVideoCoverUris.isEmpty())
+        harness.backing.release()
+    }
+
+    @Test
+    fun folderScanEnqueuesUniqueVideoCoverPosterPrefetchAfterPublish() = runTest {
+        val scanner = ControlledScanner()
+        val environment = FakeScanEnvironment()
+        val harness = scanHarness(scanner, environment = environment)
+        harness.backing.libraryFolderUri = "content://tree/music"
+        val scanned = listOf(
+            SongFixtures.song("a").copy(videoCoverUri = "content://video/Album.mp4"),
+            SongFixtures.song("b").copy(videoCoverUri = "content://video/Album.mp4"),
+            SongFixtures.song("c").copy(videoCoverUri = null),
+        )
+
+        val scan = async { harness.orchestrator.scanLibraryFolder() }
+        runCurrent()
+        scanner.folderRequests.single().result.complete(ScanResult(scanned, 3))
+        scan.await()
+
+        assertEquals(
+            listOf("content://video/Album.mp4", "content://video/Album.mp4"),
+            environment.prefetchedVideoCoverUris,
+        )
         harness.backing.release()
     }
 
@@ -229,6 +254,7 @@ class LibraryScanOrchestratorTest {
 
     private class ControlledScanner : LibraryScanner {
         val deviceRequests = mutableListOf<ScanRequest>()
+        val folderRequests = mutableListOf<ScanRequest>()
 
         override suspend fun scanDevice(
             cachedSongs: List<Song>,
@@ -253,7 +279,15 @@ class LibraryScanOrchestratorTest {
             forceRefreshLyrics: Boolean,
             forceRefreshArtwork: Boolean,
             onLyricsBatch: (suspend (com.mica.music.data.LyricsScanBatch) -> Unit)?,
-        ): ScanResult = error("folder scan not expected")
+        ): ScanResult {
+            onProgress(0, cachedSongs.size)
+            return ScanRequest(
+                cachedSongs = cachedSongs,
+                forceRefreshLyrics = forceRefreshLyrics,
+                forceRefreshArtwork = forceRefreshArtwork,
+                onLyricsBatch = onLyricsBatch,
+            ).also(folderRequests::add).result.await()
+        }
     }
 
     private class FakeLibraryStore(
@@ -329,6 +363,7 @@ class LibraryScanOrchestratorTest {
         var retryRequired: Boolean = false,
     ) : ScanEnvironment {
         var prunedSongIds: List<String> = emptyList()
+        var prefetchedVideoCoverUris: List<String> = emptyList()
         override fun hasAudioReadPermission(): Boolean = true
         override fun canReadTree(treeUri: Uri): Boolean = true
         override fun currentTimeMillis(): Long = 1_234L
@@ -336,6 +371,9 @@ class LibraryScanOrchestratorTest {
         override fun clearTransientCache() = Unit
         override fun pruneAlbumArtCache(songs: List<Song>) {
             prunedSongIds = songs.map(Song::id)
+        }
+        override fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) {
+            prefetchedVideoCoverUris = videoCoverUris.toList()
         }
         override fun persistLastScanSource(source: ScanSource) = Unit
         override fun lyricsParserVersion(): Int = parserVersion

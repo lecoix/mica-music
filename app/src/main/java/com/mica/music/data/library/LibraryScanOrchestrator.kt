@@ -223,6 +223,11 @@ internal class LibraryScanOrchestrator(
             backing.lastScanSource = source
             backing.scanEnvironment.persistLastScanSource(source)
             if (publishSongs(result.songs, generation) == null) return
+            if (source == ScanSource.FOLDER && backing.isActiveGeneration(generation)) {
+                backing.scanEnvironment.enqueueVideoCoverPosterPrefetch(
+                    result.songs.mapNotNull { it.videoCoverUri },
+                )
+            }
             if (!lyricsReadFailed && backing.isActiveGeneration(generation)) {
                 if (lyricsParserUpgrade) {
                     backing.scanEnvironment.persistLyricsParserVersion(CURRENT_LYRICS_PARSER_VERSION)

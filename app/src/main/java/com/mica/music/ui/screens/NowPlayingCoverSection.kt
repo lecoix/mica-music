@@ -21,6 +21,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -48,15 +54,19 @@ import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
+import com.mica.music.data.TrackSkipDirection
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.CoverEdgeProgressBar
+import com.mica.music.ui.components.trackWipeLayer
 import com.mica.music.ui.components.LivePlayerSpectrumStrip
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.resolveCoverAspectRatioFromUri
+import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.CoverFlowMath
+import com.mica.music.ui.screens.player.pinnedVideoCover
 import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
 import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.UseNativeParticleCoverInPlayer
@@ -92,6 +102,7 @@ internal fun NowPlayingCoverSection(
     isPlaying: Boolean,
     coverFlowMode: PlayerCoverFlowMode,
     videoAlbumCoverEnabled: Boolean,
+    trackSkipDirection: TrackSkipDirection?,
     particleCoverTuning: ParticleCoverTuning,
     lyricsExpanded: Boolean,
     coverContentAlpha: Float,
@@ -391,12 +402,70 @@ internal fun NowPlayingCoverSection(
                             )
                         }
                     } else {
-                        key(song.id) {
-                            Box(Modifier.fillMaxSize()) {
+                        var coverVisibleSong by remember { mutableStateOf(song) }
+                        var coverOutgoingSong by remember { mutableStateOf<Song?>(null) }
+                        var coverWipeDirection by remember { mutableStateOf<TrackSkipDirection?>(null) }
+                        val coverWipeProgress = remember { Animatable(1f) }
+                        SideEffect {
+                            if (coverVisibleSong.id == song.id && coverVisibleSong != song) {
+                                coverVisibleSong = song
+                            }
+                        }
+                        LaunchedEffect(song.id) {
+                            if (coverVisibleSong.id == song.id) {
+                                coverVisibleSong = song
+                                return@LaunchedEffect
+                            }
+                            coverOutgoingSong = coverVisibleSong
+                            coverVisibleSong = song
+                            coverWipeDirection = trackSkipDirection
+                            coverWipeProgress.snapTo(0f)
+                            if (motionEnabled) {
+                                coverWipeProgress.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = tween(
+                                        durationMillis = MicaMotion.DurationMediumMs,
+                                        easing = MicaMotion.Easing,
+                                    ),
+                                )
+                            } else {
+                                coverWipeProgress.snapTo(1f)
+                            }
+                            coverOutgoingSong = null
+                            coverWipeDirection = null
+                        }
+                        val coverOutgoing = coverOutgoingSong
+                        fun videoUriOf(track: Song): String? =
+                            track.videoCoverUri?.takeIf {
+                                videoAlbumCoverEnabled &&
+                                    coverFlowMode == PlayerCoverFlowMode.STANDARD &&
+                                    failedVideoCovers[it] != true
+                            }
+                        val pinnedVideo = pinnedVideoCover(
+                            wiping = coverOutgoing != null,
+                            outgoingVideoUri = coverOutgoing?.let(::videoUriOf),
+                            visibleVideoUri = videoUriOf(coverVisibleSong),
+                        )
+                        Box(Modifier.fillMaxSize()) {
+                            Box(
+                                Modifier
+                                    .matchParentSize()
+                                    .then(
+                                        if (coverOutgoing != null) {
+                                            Modifier.trackWipeLayer(
+                                                progress = { coverWipeProgress.value },
+                                                direction = coverWipeDirection,
+                                                incoming = true,
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                            ) {
                                 SongCover(
-                                    albumArtUri = song.albumArtUri,
+                                    albumArtUri = coverVisibleSong.albumArtUri,
                                     fallbackColor = coverColor,
-                                    contentDescription = song.album,
+                                    contentDescription = coverVisibleSong.album,
                                     modifier = Modifier.matchParentSize(),
                                     letterboxAlpha = cover.letterboxAlpha,
                                     crossfadeMillis = if (motionEnabled) 200 else 0,
@@ -406,20 +475,69 @@ internal fun NowPlayingCoverSection(
                                         ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)
                                     },
                                 )
-                                song.videoCoverUri
-                                    ?.takeIf {
-                                        videoAlbumCoverEnabled &&
-                                            coverFlowMode == PlayerCoverFlowMode.STANDARD &&
-                                            failedVideoCovers[it] != true
-                                    }
-                                    ?.let { videoUri ->
-                                        VideoAlbumCoverHost(
-                                            uri = videoUri,
-                                            isPlaying = isPlaying,
-                                            onPlaybackError = { failedVideoCovers[videoUri] = true },
-                                            modifier = Modifier.matchParentSize(),
+                            }
+                            if (coverOutgoing != null) {
+                                Box(
+                                    Modifier
+                                        .matchParentSize()
+                                        .trackWipeLayer(
+                                            progress = { coverWipeProgress.value },
+                                            direction = coverWipeDirection,
+                                            incoming = false,
+                                        ),
+                                ) {
+                                    SongCover(
+                                        albumArtUri = coverOutgoing.albumArtUri,
+                                        fallbackColor = coverColor,
+                                        contentDescription = null,
+                                        modifier = Modifier.matchParentSize(),
+                                        letterboxAlpha = cover.letterboxAlpha,
+                                        crossfadeMillis = 0,
+                                        publishHoldoverOnSuccess = false,
+                                        allowPreviousImageUnderlay = false,
+                                    )
+                                }
+                            }
+                            // One call-site + key(uri): video→normal must NOT move the host between
+                            // separate incoming/outgoing branches (that remounted AndroidView and flashed).
+                            val videoSlots = buildList {
+                                pinnedVideo.incomingUri?.let { add(it to false) }
+                                pinnedVideo.outgoingUri
+                                    ?.takeIf { it != pinnedVideo.incomingUri }
+                                    ?.let { add(it to true) }
+                            }
+                            videoSlots.forEach { (videoUri, asOutgoing) ->
+                                key(videoUri) {
+                                    val holdFullScreenWhileWipe =
+                                        coverOutgoing != null &&
+                                            !asOutgoing &&
+                                            pinnedVideo.outgoingUri == null &&
+                                            videoUriOf(coverOutgoing) == videoUri
+                                    val wipeModifier = when {
+                                        asOutgoing -> Modifier.trackWipeLayer(
+                                            progress = { coverWipeProgress.value },
+                                            direction = coverWipeDirection,
+                                            incoming = false,
                                         )
+                                        coverOutgoing != null && !holdFullScreenWhileWipe ->
+                                            Modifier.trackWipeLayer(
+                                                progress = { coverWipeProgress.value },
+                                                direction = coverWipeDirection,
+                                                incoming = true,
+                                            )
+                                        else -> Modifier
                                     }
+                                    VideoAlbumCoverHost(
+                                        uri = videoUri,
+                                        isPlaying = isPlaying &&
+                                            !asOutgoing &&
+                                            videoUriOf(coverVisibleSong) == videoUri,
+                                        onPlaybackError = { failedVideoCovers[videoUri] = true },
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .then(wipeModifier),
+                                    )
+                                }
                             }
                         }
                     }

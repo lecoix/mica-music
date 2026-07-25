@@ -55,6 +55,9 @@ internal fun trackWipeHorizontalBounds(
  * Incoming and outgoing content are always measured at their complete size. Animation only moves
  * a draw-time clip boundary, so artwork and text never recenter, resize, or reflow during the wipe.
  * Playback controls and the rest of the page stay single-instance.
+ *
+ * The current/visible content stays in a stable slot so AndroidView hosts are not destroyed when a
+ * wipe starts or ends (only the clip modifier changes).
  */
 @Composable
 internal fun <T : Any> DirectionalTrackWipe(
@@ -104,18 +107,22 @@ internal fun <T : Any> DirectionalTrackWipe(
 
     val outgoing = outgoingState
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        if (outgoing == null) {
+        Box(
+            Modifier.then(
+                if (outgoing != null) {
+                    Modifier.trackWipeLayer(
+                        progress = { progress.value },
+                        direction = activeDirection,
+                        incoming = true,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
+        ) {
             content(visibleState)
-        } else {
-            Box(
-                Modifier.trackWipeLayer(
-                    progress = { progress.value },
-                    direction = activeDirection,
-                    incoming = true,
-                ),
-            ) {
-                content(visibleState)
-            }
+        }
+        if (outgoing != null) {
             Box(
                 Modifier.trackWipeLayer(
                     progress = { progress.value },
