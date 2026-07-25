@@ -7,11 +7,10 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.SystemClock
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.legacy.MediaMetadataCompat
-import androidx.media3.session.legacy.MediaSessionCompat
-import androidx.media3.session.legacy.PlaybackStateCompat
 import com.mica.music.data.Song
 
 internal interface CarBluetoothLyricsSink {
@@ -50,7 +49,6 @@ internal data class CarBluetoothLyricsPayload(
  * one active legacy session, current lyric in TITLE, and deliberately no queue/browse tree.
  * The production Media3 session remains responsible for notification rendering and app clients.
  */
-@UnstableApi
 internal class CarBluetoothLyricsSession(
     context: Context,
     private val player: Player,

@@ -9,6 +9,7 @@ navigationCompose = "2.8.2"
 coil = "2.7.0"
 media3 = "1.9.0"
 media3Ffmpeg = "1.9.0+1"
+androidxMedia = "1.7.1"
 coroutines = "1.8.1"
 documentfile = "1.0.1"
 annotation = "1.8.2"
@@ -49,6 +50,7 @@ androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplaye
 androidx-media3-decoder = { group = "androidx.media3", name = "media3-decoder", version.ref = "media3" }
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
+androidx-media = { group = "androidx.media", name = "media", version.ref = "androidxMedia" }
 androidx-media3-exoplayer-ffmpeg = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version.ref = "media3Ffmpeg" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
