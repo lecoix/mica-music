@@ -184,6 +184,26 @@ object MicaMotion {
             transform.using(SizeTransform(clip = false))
         }
     }
+
+    /**
+     * 横屏经典 LIST：播放页 ↔ 歌词页。
+     * 共享元素（封面/标题/控件）由 SharedTransition 变位；独占内容交叉淡入淡出。
+     */
+    fun landscapeClassicLyricsTransition(
+        enabled: Boolean,
+    ): AnimatedContentTransitionScope<Boolean>.() -> ContentTransform = {
+        if (!enabled) {
+            fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+        } else {
+            val enter = tween<Float>(
+                durationMillis = DurationLongMs,
+                delayMillis = DurationShortMs / 2,
+                easing = Easing,
+            )
+            val exit = tween<Float>(durationMillis = DurationShortMs, easing = Easing)
+            (fadeIn(enter) togetherWith fadeOut(exit)).using(SizeTransform(clip = false))
+        }
+    }
 }
 
 @Composable

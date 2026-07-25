@@ -42,6 +42,7 @@ internal fun PlayerLowerPanelChrome(
     onNext: () -> Unit,
     onOpenEqualizer: () -> Unit,
     onOpenQueue: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val motionEnabled = rememberMicaMotionEnabled()
     val chromeVisibility by animateFloatAsState(
@@ -83,7 +84,9 @@ internal fun PlayerLowerPanelChrome(
             .graphicsLayer {
                 alpha = (1f - lower.immersiveProgress) * chromeProgress
                 translationY = chromeSlidePx
-            },
+            }
+            // sharedBounds / sharedElement must follow size specs
+            .then(modifier),
     ) {
         if (lower.showStandardProgress) {
             Column(

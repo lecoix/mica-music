@@ -1,6 +1,9 @@
 package com.mica.music.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -184,6 +187,7 @@ fun NowPlayingScreen(
 }
 
 @Composable
+@OptIn(ExperimentalSharedTransitionApi::class)
 fun NowPlayingContent(
     library: MusicLibrary,
     playlistStore: PlaylistStore,
@@ -689,8 +693,8 @@ fun NowPlayingContent(
             val lyricsRenderState = remember(lyricsSession, progressState.positionMs) {
                 lyricsSession.snapshotAt(progressState.positionMs)
             }
-            val landscapeLowerSection: @Composable (Modifier, Dp) -> Unit =
-                { lowerModifier, panelHeight ->
+            val landscapeLowerSection: @Composable (Modifier, Dp, Modifier, Modifier) -> Unit =
+                { lowerModifier, panelHeight, titleSharedModifier, chromeSharedModifier ->
                 val actualFrame = pageModel.frameFor(panelHeight)
                 val landscapeLower = actualFrame.lower.copy(
                     chromeHeight = landscapeChromeHeight(
@@ -726,6 +730,8 @@ fun NowPlayingContent(
                     spectrumEnabled = actualFrame.spectrumEnabled,
                     trackSkipDirection = effectiveTrackWipeDirection,
                     trackWipeMotionEnabled = motionEnabled,
+                    titleModifier = titleSharedModifier,
+                    chromeModifier = chromeSharedModifier,
                     onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                     onPrevious = onPlayerPrevious,
                     onTogglePlay = actions.togglePlay,
@@ -805,7 +811,12 @@ fun NowPlayingContent(
 
             if (landscapeMode && lyricsCloudRequested) {
                 // The cloud owns the whole landscape surface. Do not retain any cover host behind it.
-            } else if (landscapePlan != null && classicLyricsExpanded) {
+            } else if (
+                landscapePlan != null &&
+                !lyricsCloudRequested &&
+                !customHorizontalClassicRequested
+            ) {
+                val coverSize = checkNotNull(landscapeCoverSize)
                 val classicCoverSize = minOf(
                     landscapePlan.coverLaneWidthDp,
                     screenHeight.value * 0.50f,
@@ -814,124 +825,183 @@ fun NowPlayingContent(
                     appearance.contentColors,
                     uiSettings.lyricsPageTextColorMode,
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(contentPadding)
-                        .padding(
-                            start = landscapePlan.horizontalPaddingDp.dp,
-                            top = landscapeTopPadding,
-                            end = landscapePlan.horizontalPaddingDp.dp,
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(landscapePlan.columnGapDp.dp),
-                ) {
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .width(landscapePlan.coverLaneWidthDp.dp)
-                            .fillMaxHeight(),
-                    ) {
-                        val classicFrame = pageModel.frameFor(maxHeight)
-                        val classicLower = classicFrame.lower.copy(
-                            chromeHeight = landscapeChromeHeight(
-                                portraitChromeHeight = classicFrame.lower.chromeHeight,
-                                portraitControlsBottomPadding = classicFrame.lower.controlsBottomPadding,
-                            ),
-                            controlsBottomPadding = 0.dp,
-                        )
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            SongCover(
-                                albumArtUri = song.albumArtUri,
-                                fallbackColor = appearance.coverColor,
-                                contentDescription = song.album,
-                                decodeTarget = CoverDecodeTarget.forSpecialTheme(
-                                    with(density) { classicCoverSize.toPx() },
+                val landscapeSharedBoundsTransform =
+                    rememberLandscapeClassicBoundsTransform(motionEnabled)
+                SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+                    AnimatedContent(
+                        targetState = classicLyricsExpanded,
+                        transitionSpec = MicaMotion.landscapeClassicLyricsTransition(motionEnabled),
+                        label = "landscapeClassicLyrics",
+                        modifier = Modifier.fillMaxSize(),
+                    ) { expanded ->
+                        val animatedVisibilityScope = this@AnimatedContent
+                        val coverSharedModifier = with(this@SharedTransitionLayout) {
+                            Modifier.sharedBounds(
+                                sharedContentState = rememberSharedContentState(
+                                    LandscapeClassicSharedKeys.Cover,
                                 ),
-                                onAspectRatioChanged = { coverAspectRatio = it },
-                                modifier = Modifier
-                                    .size(classicCoverSize)
-                                    .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) },
-                            )
-                            SongTitleSection(
-                                title = SongTitleDisplay.displayTitle(
-                                    song.title,
-                                    uiSettings.stripSongTitleParentheses,
-                                ),
-                                artist = song.artist,
-                                album = song.album,
-                                isBuffering = surfaceState.isBuffering,
-                                playbackError = surfaceState.playbackError,
-                                colors = playerUiColors,
-                                immersiveProgress = 0f,
-                                showAlbum = false,
-                            )
-                            PlayerLowerPanelChrome(
-                                surfaceState = surfaceState,
-                                colors = playerUiColors,
-                                seekState = seekState,
-                                lower = classicLower,
-                                spectrumEnabled = false,
-                                onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
-                                onPrevious = onPlayerPrevious,
-                                onTogglePlay = actions.togglePlay,
-                                onNext = onPlayerNext,
-                                onOpenEqualizer = onOpenEqualizer,
-                                onOpenQueue = { queueSheetOpen = true },
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                boundsTransform = landscapeSharedBoundsTransform,
                             )
                         }
-                    }
-                    ExpandedLyricsPanel(
-                        renderState = lyricsRenderState,
-                        isPlaying = surfaceState.isPlaying,
-                        colors = lyricsColors,
-                        onLineClick = actions.seekToMs,
-                        lyricsAlignment = uiSettings.lyricsPageAlignment,
-                        lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
-                        lyricsTranslationFontSizeSp = uiSettings.lyricsPageTranslationFontSizeSp,
-                        lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
-                        lyricsWordAnimationPreset = uiSettings.lyricsWordAnimationPreset,
-                        bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                    )
-                }
-            } else if (landscapePlan != null && !lyricsExpanded) {
-                val coverSize = checkNotNull(landscapeCoverSize)
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(contentPadding)
-                        .padding(
-                            start = landscapeEdgePadding,
-                            top = landscapeEdgePadding,
-                            end = landscapeEdgePadding,
-                            bottom = landscapeEdgePadding,
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(landscapePlan.columnGapDp.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(coverSize)
-                            .fillMaxHeight(),
-                        contentAlignment = Alignment.TopStart,
-                    ) {
-                        coverSection(
-                            Modifier
-                                .width(coverSize)
-                                .requiredHeight(previewFrame.cover.blockHeight)
-                                .then(externalCoverIncomingWipe),
-                        )
-                    }
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                    ) {
-                        landscapeLowerSection(Modifier.fillMaxSize(), maxHeight)
+                        val titleSharedModifier = with(this@SharedTransitionLayout) {
+                            Modifier.sharedBounds(
+                                sharedContentState = rememberSharedContentState(
+                                    LandscapeClassicSharedKeys.Title,
+                                ),
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                boundsTransform = landscapeSharedBoundsTransform,
+                            )
+                        }
+                        val chromeSharedModifier = with(this@SharedTransitionLayout) {
+                            Modifier.sharedBounds(
+                                sharedContentState = rememberSharedContentState(
+                                    LandscapeClassicSharedKeys.Chrome,
+                                ),
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                boundsTransform = landscapeSharedBoundsTransform,
+                            )
+                        }
+                        if (expanded) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(contentPadding)
+                                    .padding(
+                                        start = landscapePlan.horizontalPaddingDp.dp,
+                                        top = landscapeTopPadding,
+                                        end = landscapePlan.horizontalPaddingDp.dp,
+                                    ),
+                                horizontalArrangement = Arrangement.spacedBy(
+                                    landscapePlan.columnGapDp.dp,
+                                ),
+                            ) {
+                                BoxWithConstraints(
+                                    modifier = Modifier
+                                        .width(landscapePlan.coverLaneWidthDp.dp)
+                                        .fillMaxHeight(),
+                                ) {
+                                    val classicFrame = pageModel.frameFor(maxHeight)
+                                    val classicLower = classicFrame.lower.copy(
+                                        chromeHeight = landscapeChromeHeight(
+                                            portraitChromeHeight = classicFrame.lower.chromeHeight,
+                                            portraitControlsBottomPadding =
+                                                classicFrame.lower.controlsBottomPadding,
+                                        ),
+                                        controlsBottomPadding = 0.dp,
+                                    )
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.SpaceEvenly,
+                                    ) {
+                                        SongCover(
+                                            albumArtUri = song.albumArtUri,
+                                            fallbackColor = appearance.coverColor,
+                                            contentDescription = song.album,
+                                            decodeTarget = CoverDecodeTarget.forSpecialTheme(
+                                                with(density) { classicCoverSize.toPx() },
+                                            ),
+                                            onAspectRatioChanged = { coverAspectRatio = it },
+                                            modifier = Modifier
+                                                .size(classicCoverSize)
+                                                .then(coverSharedModifier)
+                                                .onGloballyPositioned {
+                                                    onCoverBoundsChanged(it.boundsInRoot())
+                                                },
+                                        )
+                                        SongTitleSection(
+                                            title = SongTitleDisplay.displayTitle(
+                                                song.title,
+                                                uiSettings.stripSongTitleParentheses,
+                                            ),
+                                            artist = song.artist,
+                                            album = song.album,
+                                            isBuffering = surfaceState.isBuffering,
+                                            playbackError = surfaceState.playbackError,
+                                            colors = playerUiColors,
+                                            immersiveProgress = 0f,
+                                            showAlbum = false,
+                                            modifier = titleSharedModifier,
+                                        )
+                                        PlayerLowerPanelChrome(
+                                            surfaceState = surfaceState,
+                                            colors = playerUiColors,
+                                            seekState = seekState,
+                                            lower = classicLower,
+                                            spectrumEnabled = false,
+                                            onCyclePlaybackQueueMode =
+                                                actions.cyclePlaybackQueueMode,
+                                            onPrevious = onPlayerPrevious,
+                                            onTogglePlay = actions.togglePlay,
+                                            onNext = onPlayerNext,
+                                            onOpenEqualizer = onOpenEqualizer,
+                                            onOpenQueue = { queueSheetOpen = true },
+                                            modifier = chromeSharedModifier,
+                                        )
+                                    }
+                                }
+                                ExpandedLyricsPanel(
+                                    renderState = lyricsRenderState,
+                                    isPlaying = surfaceState.isPlaying,
+                                    colors = lyricsColors,
+                                    onLineClick = actions.seekToMs,
+                                    lyricsAlignment = uiSettings.lyricsPageAlignment,
+                                    lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
+                                    lyricsTranslationFontSizeSp =
+                                        uiSettings.lyricsPageTranslationFontSizeSp,
+                                    lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
+                                    lyricsWordAnimationPreset =
+                                        uiSettings.lyricsWordAnimationPreset,
+                                    bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(),
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(contentPadding)
+                                    .padding(
+                                        start = landscapeEdgePadding,
+                                        top = landscapeEdgePadding,
+                                        end = landscapeEdgePadding,
+                                        bottom = landscapeEdgePadding,
+                                    ),
+                                horizontalArrangement = Arrangement.spacedBy(
+                                    landscapePlan.columnGapDp.dp,
+                                ),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(coverSize)
+                                        .fillMaxHeight(),
+                                    contentAlignment = Alignment.TopStart,
+                                ) {
+                                    coverSection(
+                                        Modifier
+                                            .width(coverSize)
+                                            .requiredHeight(previewFrame.cover.blockHeight)
+                                            .then(coverSharedModifier)
+                                            .then(externalCoverIncomingWipe),
+                                    )
+                                }
+                                BoxWithConstraints(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(),
+                                ) {
+                                    landscapeLowerSection(
+                                        Modifier.fillMaxSize(),
+                                        maxHeight,
+                                        titleSharedModifier,
+                                        chromeSharedModifier,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             } else if (effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
