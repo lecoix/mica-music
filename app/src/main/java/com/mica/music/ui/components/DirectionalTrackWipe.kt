@@ -3,6 +3,7 @@ package com.mica.music.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -58,12 +59,124 @@ internal fun trackWipeHorizontalBounds(
  *
  * The current/visible content stays in a stable slot so AndroidView hosts are not destroyed when a
  * wipe starts or ends (only the clip modifier changes).
+ *
+ * [direction] null swaps instantly by default (titles). Pass [fadeWhenNoDirection] for cover-style
+ * dual-layer alpha fade without a directional clip.
  */
 @Composable
 internal fun <T : Any> DirectionalTrackWipe(
     targetState: T,
     contentKey: (T) -> Any?,
     direction: TrackSkipDirection?,
+    motionEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    fadeWhenNoDirection: Boolean = false,
+    content: @Composable (T) -> Unit,
+) {
+    when {
+        direction == null && fadeWhenNoDirection -> DirectionalTrackWipeFaded(
+            targetState = targetState,
+            contentKey = contentKey,
+            motionEnabled = motionEnabled,
+            modifier = modifier,
+            content = content,
+        )
+        direction == null -> Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            content(targetState)
+        }
+        else -> DirectionalTrackWipeClipped(
+            targetState = targetState,
+            contentKey = contentKey,
+            direction = direction,
+            motionEnabled = motionEnabled,
+            modifier = modifier,
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun <T : Any> DirectionalTrackWipeFaded(
+    targetState: T,
+    contentKey: (T) -> Any?,
+    motionEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable (T) -> Unit,
+) {
+    var visibleState by remember { mutableStateOf(targetState) }
+    var outgoingState by remember { mutableStateOf<T?>(null) }
+    val progress = remember { Animatable(1f) }
+    val targetKey = contentKey(targetState)
+
+    SideEffect {
+        if (contentKey(visibleState) == targetKey && visibleState != targetState) {
+            visibleState = targetState
+        }
+    }
+
+    LaunchedEffect(targetKey) {
+        if (contentKey(visibleState) == targetKey) {
+            visibleState = targetState
+            return@LaunchedEffect
+        }
+
+        outgoingState = visibleState
+        visibleState = targetState
+        progress.snapTo(0f)
+        if (motionEnabled) {
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = MicaMotion.DurationMediumMs,
+                    easing = MicaMotion.Easing,
+                ),
+            )
+        } else {
+            progress.snapTo(1f)
+        }
+        outgoingState = null
+    }
+
+    val outgoing = outgoingState
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (outgoing != null) {
+                        Modifier.trackWipeLayer(
+                            progress = { progress.value },
+                            direction = null,
+                            incoming = true,
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            content(visibleState)
+        }
+        if (outgoing != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .trackWipeLayer(
+                        progress = { progress.value },
+                        direction = null,
+                        incoming = false,
+                    ),
+            ) {
+                content(outgoing)
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T : Any> DirectionalTrackWipeClipped(
+    targetState: T,
+    contentKey: (T) -> Any?,
+    direction: TrackSkipDirection,
     motionEnabled: Boolean,
     modifier: Modifier = Modifier,
     content: @Composable (T) -> Unit,

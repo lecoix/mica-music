@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.lerp as lerpTextUnit
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +67,11 @@ fun lyricUniformTextStyle(highlight: TextStyle, normal: TextStyle): TextStyle =
         fontSize = lerpTextUnit(normal.fontSize, highlight.fontSize, 0.5f),
         lineHeight = lerpTextUnit(normal.lineHeight, highlight.lineHeight, 0.5f),
         fontWeight = FontWeight.Normal,
+        // Default lineHeight trim shaves ascent/descent and reads as per-line top/bottom clip.
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Proportional,
+            trim = LineHeightStyle.Trim.None,
+        ),
     )
 
 @Composable
@@ -476,6 +482,7 @@ private fun KaraokeLyricLineText(
                     var remainingFillPx = (0 until lineCount).sumOf { lineIndex ->
                         (textLayout.getLineRight(lineIndex) - textLayout.getLineLeft(lineIndex)).toDouble()
                     }.toFloat() * fraction
+                    val verticalBleedPx = style.fontSize.toPx() * 0.15f
                     for (lineIndex in 0 until lineCount) {
                         val left = textLayout.getLineLeft(lineIndex)
                         val right = textLayout.getLineRight(lineIndex)
@@ -484,20 +491,22 @@ private fun KaraokeLyricLineText(
                         val fillRight = (left + remainingFillPx.coerceAtMost(lineWidth)).coerceIn(left, right)
                         val featherPx = style.fontSize.toPx() * wordFadeWidthEm.coerceAtLeast(0f)
                         val featherRight = (fillRight + featherPx).coerceAtMost(right)
+                        val lineTop = textLayout.getLineTop(lineIndex) - verticalBleedPx
+                        val lineBottom = textLayout.getLineBottom(lineIndex) + verticalBleedPx
                         clipRect(
                             left = left,
-                            top = textLayout.getLineTop(lineIndex),
+                            top = lineTop,
                             right = featherRight,
-                            bottom = textLayout.getLineBottom(lineIndex),
+                            bottom = lineBottom,
                         ) {
                             if (featherPx <= 0f || fillRight >= right) {
                                 this@drawWithContent.drawContent()
                             } else {
                                 val bounds = Rect(
                                     left,
-                                    textLayout.getLineTop(lineIndex),
+                                    lineTop,
                                     featherRight,
-                                    textLayout.getLineBottom(lineIndex),
+                                    lineBottom,
                                 )
                                 drawContext.canvas.saveLayer(bounds, androidx.compose.ui.graphics.Paint())
                                 this@drawWithContent.drawContent()

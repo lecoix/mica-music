@@ -75,6 +75,7 @@ import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.PlaybackTuningSheet
 import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.SleepTimerSheet
+import com.mica.music.ui.components.DirectionalTrackWipe
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.components.SongActionMenuSheet
 import com.mica.music.ui.components.SongMenuAction
@@ -440,13 +441,14 @@ fun NowPlayingContent(
             } else {
                 uiSettings.playerCoverFlowMode
             }
-            val effectiveTrackWipeDirection = if (
+            // Landscape STANDARD: keep the pre–full-page-wipe feel (fade), not directional clip.
+            val effectiveTrackWipeDirection = when {
+                landscapeMode -> null
                 effectiveCoverFlowMode == PlayerCoverFlowMode.STANDARD ||
-                effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
-            ) {
-                pendingTrackSkipDirection
-            } else {
-                portraitTrackWipeDirection
+                    effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD -> {
+                    pendingTrackSkipDirection
+                }
+                else -> portraitTrackWipeDirection
             }
             val effectiveImmersiveLower = !landscapeMode && immersiveLower
             val landscapeTopPadding = if (landscapeMode) {
@@ -552,6 +554,8 @@ fun NowPlayingContent(
             }
             // Cover artwork wipes inside CoverSection via DirectionalTrackWipe so video hosts
             // stay mounted on the outgoing layer. Overlay artwork wipe would double-animate.
+            // Keep internal wipe on in landscape (null direction → fade). Turning this off would
+            // attach playerCoverIncomingWipe and flash alpha=0 for a frame before LaunchedEffect.
             val coverWipeEnabled =
                 effectiveCoverFlowMode == PlayerCoverFlowMode.STANDARD ||
                     (effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD && customCoverVisible)
@@ -682,12 +686,14 @@ fun NowPlayingContent(
                 coverZoneStop = backgroundZoneStop,
                 modifier = Modifier.fillMaxSize(),
             )
-            OutgoingCoverBackgroundWipe(
-                state = coverWipeState,
-                target = coverWipeTarget,
-                pendingDirection = effectiveTrackWipeDirection,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (!landscapeMode) {
+                OutgoingCoverBackgroundWipe(
+                    state = coverWipeState,
+                    target = coverWipeTarget,
+                    pendingDirection = effectiveTrackWipeDirection,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
             val lyricsSession = remember(song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
             val lyricsRenderState = remember(lyricsSession, progressState.positionMs) {
@@ -895,35 +901,54 @@ fun NowPlayingContent(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.SpaceEvenly,
                                     ) {
-                                        SongCover(
-                                            albumArtUri = song.albumArtUri,
-                                            fallbackColor = appearance.coverColor,
-                                            contentDescription = song.album,
-                                            decodeTarget = CoverDecodeTarget.forSpecialTheme(
-                                                with(density) { classicCoverSize.toPx() },
-                                            ),
-                                            onAspectRatioChanged = { coverAspectRatio = it },
+                                        // Match landscape player: cover fades, title hard-cuts.
+                                        DirectionalTrackWipe(
+                                            targetState = song,
+                                            contentKey = Song::id,
+                                            direction = null,
+                                            motionEnabled = motionEnabled,
+                                            fadeWhenNoDirection = true,
                                             modifier = Modifier
                                                 .size(classicCoverSize)
                                                 .then(coverSharedModifier)
                                                 .onGloballyPositioned {
                                                     onCoverBoundsChanged(it.boundsInRoot())
                                                 },
-                                        )
-                                        SongTitleSection(
-                                            title = SongTitleDisplay.displayTitle(
-                                                song.title,
-                                                uiSettings.stripSongTitleParentheses,
-                                            ),
-                                            artist = song.artist,
-                                            album = song.album,
-                                            isBuffering = surfaceState.isBuffering,
-                                            playbackError = surfaceState.playbackError,
-                                            colors = playerUiColors,
-                                            immersiveProgress = 0f,
-                                            showAlbum = false,
+                                        ) { coverSong ->
+                                            SongCover(
+                                                albumArtUri = coverSong.albumArtUri,
+                                                fallbackColor = appearance.coverColor,
+                                                contentDescription = coverSong.album,
+                                                decodeTarget = CoverDecodeTarget.forSpecialTheme(
+                                                    with(density) { classicCoverSize.toPx() },
+                                                ),
+                                                onAspectRatioChanged = { coverAspectRatio = it },
+                                                crossfadeMillis = if (motionEnabled) 200 else 0,
+                                                allowPreviousImageUnderlay = false,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
+                                        DirectionalTrackWipe(
+                                            targetState = song,
+                                            contentKey = Song::id,
+                                            direction = null,
+                                            motionEnabled = motionEnabled,
                                             modifier = titleSharedModifier,
-                                        )
+                                        ) { titleSong ->
+                                            SongTitleSection(
+                                                title = SongTitleDisplay.displayTitle(
+                                                    titleSong.title,
+                                                    uiSettings.stripSongTitleParentheses,
+                                                ),
+                                                artist = titleSong.artist,
+                                                album = titleSong.album,
+                                                isBuffering = surfaceState.isBuffering,
+                                                playbackError = surfaceState.playbackError,
+                                                colors = playerUiColors,
+                                                immersiveProgress = 0f,
+                                                showAlbum = false,
+                                            )
+                                        }
                                         PlayerLowerPanelChrome(
                                             surfaceState = surfaceState,
                                             colors = playerUiColors,
@@ -941,23 +966,33 @@ fun NowPlayingContent(
                                         )
                                     }
                                 }
-                                ExpandedLyricsPanel(
-                                    renderState = lyricsRenderState,
-                                    isPlaying = surfaceState.isPlaying,
-                                    colors = lyricsColors,
-                                    onLineClick = actions.seekToMs,
-                                    lyricsAlignment = uiSettings.lyricsPageAlignment,
-                                    lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
-                                    lyricsTranslationFontSizeSp =
-                                        uiSettings.lyricsPageTranslationFontSizeSp,
-                                    lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
-                                    lyricsWordAnimationPreset =
-                                        uiSettings.lyricsWordAnimationPreset,
-                                    bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                                // Remount on track change so LazyListState does not keep the
+                                // previous song's scroll offset (avoids a downward jump to anchor).
+                                Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxHeight(),
-                                )
+                                ) {
+                                    key(song.id) {
+                                        ExpandedLyricsPanel(
+                                            renderState = lyricsRenderState,
+                                            isPlaying = surfaceState.isPlaying,
+                                            colors = lyricsColors,
+                                            onLineClick = actions.seekToMs,
+                                            lyricsAlignment = uiSettings.lyricsPageAlignment,
+                                            lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
+                                            lyricsTranslationFontSizeSp =
+                                                uiSettings.lyricsPageTranslationFontSizeSp,
+                                            lyricsLineSpacingDp =
+                                                uiSettings.lyricsPageLineSpacingDp,
+                                            lyricsWordAnimationPreset =
+                                                uiSettings.lyricsWordAnimationPreset,
+                                            bilingualDisplayMode =
+                                                uiSettings.lyricsBilingualDisplayMode,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                }
                             }
                         } else {
                             Row(

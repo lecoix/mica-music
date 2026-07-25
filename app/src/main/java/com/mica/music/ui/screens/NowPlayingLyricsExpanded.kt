@@ -144,6 +144,22 @@ internal fun ExpandedLyricsPanel(
     } ?: 800
     val moveSpring = classicLyricsMoveSpring(lineIntervalMs)
     var previousInterludeKey by remember(lyrics) { mutableStateOf(interludeKey) }
+    // Snap (not spring) when lyrics document changes / first layout; spring only for line follow.
+    // Also hide until snapped so "start at top → animate down to anchor" is not visible.
+    val lyricsContentKey = remember(lyrics) {
+        listOf(
+            lyrics.size,
+            lyrics.firstOrNull()?.timeMs,
+            lyrics.firstOrNull()?.text,
+            lyrics.lastOrNull()?.timeMs,
+            lyrics.lastOrNull()?.text,
+        )
+    }
+    var revealedLyricsKey by remember { mutableStateOf<List<Any?>?>(null) }
+    val lyricsRevealed = !timed || revealedLyricsKey == lyricsContentKey
+    // After a track/lyrics snap, one more layout pass often re-triggers the spring follow with
+    // staggerOffsets; those translationY lags get clipped by the item bounds (top/bottom shaved).
+    var suppressFollowAnimation by remember { mutableStateOf(false) }
 
     LaunchedEffect(interludeKey, motionEnabled, lyricsLineSpacingDp) {
         val interludeAppeared = previousInterludeKey == null && interludeKey != null
@@ -164,13 +180,16 @@ internal fun ExpandedLyricsPanel(
         currentIndex,
         currentDisplayItemIndex,
         timed,
-        lyrics,
+        lyricsContentKey,
         currentLineAnchorYPx,
         viewportHeightPx,
         lineHeightPx,
         translationLineHeightPx,
     ) {
-        if (!timed || currentIndex < 0 || currentDisplayItemIndex < 0) return@LaunchedEffect
+        if (!timed || currentIndex < 0 || currentDisplayItemIndex < 0) {
+            revealedLyricsKey = lyricsContentKey
+            return@LaunchedEffect
+        }
         if (viewportHeightPx <= 0) return@LaunchedEffect
         staggerOffsets.clear()
         val currentRows = lyrics.getOrNull(currentIndex)?.text
@@ -195,56 +214,67 @@ internal fun ExpandedLyricsPanel(
             currentLineAnchorYPx = currentLineAnchorYPx,
         )
         val indexedScrollOffset = expandedLyricsIndexedScrollOffset(leadingPaddingPx, offset)
-        if (motionEnabled) {
-            val visibleTarget = listState.layoutInfo.visibleItemsInfo
-                .firstOrNull { it.index == currentDisplayItemIndex }
-            if (visibleTarget != null) {
-                val desiredTopPx = -offset.toFloat()
-                val scrollDistance = visibleTarget.offset - desiredTopPx
-                val scrollAnimation = TargetBasedAnimation(
-                    animationSpec = classicLyricsScrollSpring(lineIntervalMs),
-                    typeConverter = Float.VectorConverter,
-                    initialValue = 0f,
-                    targetValue = scrollDistance,
-                )
-                var previousScroll = 0f
-                var maxDelayNanos = 0L
-                val startNanos = withFrameNanos { it }
-                try {
-                    while (true) {
-                        val playTimeNanos = (withFrameNanos { it } - startNanos).coerceAtLeast(0L)
-                        val actualPlayTimeNanos = playTimeNanos.coerceAtMost(scrollAnimation.durationNanos)
-                        val actualScroll = scrollAnimation.getValueFromNanos(actualPlayTimeNanos)
-                        listState.scrollBy(actualScroll - previousScroll)
-                        previousScroll = actualScroll
+        val needsSnap = revealedLyricsKey != lyricsContentKey
+        val visibleTarget = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.index == currentDisplayItemIndex }
+        val desiredTopPx = -offset.toFloat()
+        val scrollDistance = visibleTarget?.let { it.offset - desiredTopPx }
+        val useFollowAnimation = motionEnabled &&
+            !needsSnap &&
+            !suppressFollowAnimation &&
+            visibleTarget != null &&
+            scrollDistance != null &&
+            kotlin.math.abs(scrollDistance) > 1f
 
-                        listState.layoutInfo.visibleItemsInfo.forEach { itemInfo ->
-                            val delayNanos = classicLyricsStaggerDelayMs(
-                                kotlin.math.abs(itemInfo.index - currentDisplayItemIndex),
-                            ) * 1_000_000L
-                            maxDelayNanos = maxOf(maxDelayNanos, delayNanos)
-                            val delayedPlayTimeNanos = (playTimeNanos - delayNanos)
-                                .coerceIn(0L, scrollAnimation.durationNanos)
-                            val delayedScroll = scrollAnimation.getValueFromNanos(delayedPlayTimeNanos)
-                            staggerOffsets[itemInfo.index] = classicLyricsLagOffset(
-                                actualScrollPx = actualScroll,
-                                delayedScrollPx = delayedScroll,
-                            )
-                        }
-                        if (playTimeNanos >= scrollAnimation.durationNanos + maxDelayNanos) break
+        if (useFollowAnimation) {
+            val scrollAnimation = TargetBasedAnimation(
+                animationSpec = classicLyricsScrollSpring(lineIntervalMs),
+                typeConverter = Float.VectorConverter,
+                initialValue = 0f,
+                targetValue = scrollDistance,
+            )
+            var previousScroll = 0f
+            var maxDelayNanos = 0L
+            val startNanos = withFrameNanos { it }
+            try {
+                while (true) {
+                    val playTimeNanos = (withFrameNanos { it } - startNanos).coerceAtLeast(0L)
+                    val actualPlayTimeNanos = playTimeNanos.coerceAtMost(scrollAnimation.durationNanos)
+                    val actualScroll = scrollAnimation.getValueFromNanos(actualPlayTimeNanos)
+                    listState.scrollBy(actualScroll - previousScroll)
+                    previousScroll = actualScroll
+
+                    listState.layoutInfo.visibleItemsInfo.forEach { itemInfo ->
+                        val delayNanos = classicLyricsStaggerDelayMs(
+                            kotlin.math.abs(itemInfo.index - currentDisplayItemIndex),
+                        ) * 1_000_000L
+                        maxDelayNanos = maxOf(maxDelayNanos, delayNanos)
+                        val delayedPlayTimeNanos = (playTimeNanos - delayNanos)
+                            .coerceIn(0L, scrollAnimation.durationNanos)
+                        val delayedScroll = scrollAnimation.getValueFromNanos(delayedPlayTimeNanos)
+                        staggerOffsets[itemInfo.index] = classicLyricsLagOffset(
+                            actualScrollPx = actualScroll,
+                            delayedScrollPx = delayedScroll,
+                        )
                     }
-                } finally {
-                    staggerOffsets.clear()
+                    if (playTimeNanos >= scrollAnimation.durationNanos + maxDelayNanos) break
                 }
-            } else {
-                listState.scrollToItem(currentDisplayItemIndex, scrollOffset = indexedScrollOffset)
+            } finally {
+                staggerOffsets.clear()
             }
         } else {
             listState.scrollToItem(currentDisplayItemIndex, scrollOffset = indexedScrollOffset)
         }
+        revealedLyricsKey = lyricsContentKey
+        // Consume one settle pass after snap; real line-to-line follows stay animated.
+        suppressFollowAnimation = needsSnap
     }
 
-    LyricsAreaEdgeFade(modifier = modifier) {
+    LyricsAreaEdgeFade(
+        modifier = modifier.graphicsLayer {
+            alpha = if (lyricsRevealed) 1f else 0f
+        },
+    ) {
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -331,9 +361,12 @@ internal fun ExpandedLyricsPanel(
                                 .animateItem(
                                     fadeInSpec = tween(CLASSIC_LYRICS_FADE_MS),
                                     fadeOutSpec = tween(CLASSIC_LYRICS_FADE_MS),
-                                    placementSpec = moveSpring,
+                                    // Avoid enter placement motion under alpha=0 / first reveal;
+                                    // it reads as a clipped scroll on track change.
+                                    placementSpec = if (lyricsRevealed) moveSpring else null,
                                 )
                                 .graphicsLayer {
+                                    clip = false
                                     scaleX = lineScale * pressScale.value
                                     scaleY = lineScale * pressScale.value
                                     translationY = staggerOffsetY
@@ -357,7 +390,7 @@ internal fun ExpandedLyricsPanel(
                             .animateItem(
                                 fadeInSpec = tween(CLASSIC_LYRICS_FADE_MS),
                                 fadeOutSpec = tween(CLASSIC_LYRICS_FADE_MS),
-                                placementSpec = moveSpring,
+                                placementSpec = if (lyricsRevealed) moveSpring else null,
                             ),
                     ) {
                         InterludeDots(
