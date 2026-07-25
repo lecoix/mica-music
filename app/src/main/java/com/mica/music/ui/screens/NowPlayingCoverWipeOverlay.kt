@@ -49,6 +49,8 @@ internal class PlayerCoverWipeState internal constructor(initial: PlayerCoverWip
     var direction by mutableStateOf<TrackSkipDirection?>(null)
         internal set
     val progress = Animatable(1f)
+    /** Plain field so same-frame readers see the flag before LaunchedEffect runs. */
+    internal var wipeEnabled: Boolean = true
 }
 
 internal fun playerCoverWipeRenderProgress(
@@ -56,18 +58,24 @@ internal fun playerCoverWipeRenderProgress(
     targetSongId: String,
     outgoingPresent: Boolean,
     animationProgress: Float,
-): Float = if (!outgoingPresent && visibleSongId != targetSongId) {
-    // The target composition arrives before LaunchedEffect can install the outgoing visual and
-    // snap the Animatable to zero. Treat that committed-but-not-started frame as progress zero so
-    // the new artwork can never flash through before the wipe begins.
-    0f
-} else {
-    animationProgress
+    wipeEnabled: Boolean = true,
+): Float = when {
+    !wipeEnabled -> 1f
+    !outgoingPresent && visibleSongId != targetSongId -> {
+        // The target composition arrives before LaunchedEffect can install the outgoing visual and
+        // snap the Animatable to zero. Treat that committed-but-not-started frame as progress zero so
+        // the new artwork can never flash through before the wipe begins.
+        0f
+    }
+    else -> animationProgress
 }
 
 private fun PlayerCoverWipeState.renderOutgoing(
     target: PlayerCoverWipeVisual,
-): PlayerCoverWipeVisual? = outgoing ?: visible.takeIf { it.song.id != target.song.id }
+): PlayerCoverWipeVisual? {
+    if (!wipeEnabled) return null
+    return outgoing ?: visible.takeIf { it.song.id != target.song.id }
+}
 
 private fun PlayerCoverWipeState.renderProgress(
     target: PlayerCoverWipeVisual,
@@ -76,6 +84,7 @@ private fun PlayerCoverWipeState.renderProgress(
     targetSongId = target.song.id,
     outgoingPresent = outgoing != null,
     animationProgress = progress.value,
+    wipeEnabled = wipeEnabled,
 )
 
 internal fun Modifier.playerCoverIncomingWipe(
@@ -96,6 +105,8 @@ internal fun rememberPlayerCoverWipeState(
     motionEnabled: Boolean,
 ): PlayerCoverWipeState {
     val state = remember { PlayerCoverWipeState(target) }
+    // Set before children compose so disabled themes never race an outgoing SongCover frame.
+    state.wipeEnabled = enabled
 
     SideEffect {
         if (state.visible.song.id == target.song.id && state.visible != target) {

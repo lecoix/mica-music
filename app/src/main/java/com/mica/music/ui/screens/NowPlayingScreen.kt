@@ -1200,22 +1200,8 @@ fun NowPlayingContent(
                     }
                 }
             }
-                if (!landscapeMode && !coverArtworkUsesInternalWipe) {
-                    OutgoingCoverArtworkWipe(
-                        state = coverWipeState,
-                        target = coverWipeTarget,
-                        pendingDirection = effectiveTrackWipeDirection,
-                        contentPadding = contentPadding,
-                        coverContentAlpha = coverContentAlpha,
-                        modifier = Modifier.graphicsLayer {
-                            translationY = if (useVerticalCloudSplit) {
-                                -with(density) { fullHeight.toPx() } * 1.1f * lyricsPageTransition
-                            } else {
-                                0f
-                            }
-                        },
-                    )
-                }
+            // No external OutgoingCoverArtworkWipe: disabled wipe themes raced a solid SongCover
+            // frame on track change (particle classic lyrics). STANDARD/CUSTOM wipe in CoverSection.
             }
         }
 

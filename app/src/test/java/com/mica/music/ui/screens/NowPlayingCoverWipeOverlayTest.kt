@@ -29,4 +29,18 @@ class NowPlayingCoverWipeOverlayTest {
             ),
         )
     }
+
+    @Test
+    fun disabledWipeIgnoresTargetChangeRace() {
+        assertEquals(
+            1f,
+            playerCoverWipeRenderProgress(
+                visibleSongId = "old",
+                targetSongId = "new",
+                outgoingPresent = false,
+                animationProgress = 1f,
+                wipeEnabled = false,
+            ),
+        )
+    }
 }
