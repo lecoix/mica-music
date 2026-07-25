@@ -21,9 +21,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSession
 import com.mica.music.media.NotificationLyrics
+import com.mica.music.ui.components.NarrowBarSoftKaraokeLyric
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -118,11 +120,17 @@ internal fun infoRowLyricText(
 internal fun LibraryStatsRow(
     model: LibraryStatsBarModel,
     lyricText: String? = null,
+    karaokeLine: LyricLine? = null,
+    nextLyricLineTimeMs: Int? = null,
+    positionMs: Int = 0,
+    isPlaying: Boolean = false,
     onSortClick: () -> Unit,
     onRescan: () -> Unit,
     onDeletePlaylist: () -> Unit,
 ) {
     val lineText = model.segments.joinToString(" · ")
+    val showKaraoke = karaokeLine != null && karaokeLine.cues.isNotEmpty()
+    val showLyric = lyricText != null || showKaraoke
 
     val statsRowMinHeight = HifiSize.iconMd + HifiSpacing.xs * 2
 
@@ -131,16 +139,29 @@ internal fun LibraryStatsRow(
             modifier = Modifier.heightIn(min = statsRowMinHeight),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = lyricText ?: lineText,
-                style = if (lyricText == null) MicaTheme.typography.monoSm else MicaTheme.typography.monoMd,
-                color = MicaTheme.colors.textTertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .basicMarquee(),
-            )
+            if (showKaraoke) {
+                NarrowBarSoftKaraokeLyric(
+                    line = karaokeLine,
+                    positionMs = positionMs,
+                    isPlaying = isPlaying,
+                    nextLineTimeMs = nextLyricLineTimeMs,
+                    filledColor = MicaTheme.colors.textSecondary,
+                    unfilledColor = MicaTheme.colors.textTertiary,
+                    textStyle = MicaTheme.typography.monoMd,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Text(
+                    text = lyricText ?: lineText,
+                    style = if (!showLyric) MicaTheme.typography.monoSm else MicaTheme.typography.monoMd,
+                    color = MicaTheme.colors.textTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .basicMarquee(),
+                )
+            }
             if (model.showSortAction) {
                 Icon(
                     imageVector = Icons.Outlined.Sort,

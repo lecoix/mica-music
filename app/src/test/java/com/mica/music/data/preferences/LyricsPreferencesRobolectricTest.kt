@@ -120,6 +120,15 @@ class LyricsPreferencesRobolectricTest {
     }
 
     @Test
+    fun infoRowWordLyricsDefaultsOffAndRoundTrips() {
+        assertFalse(LyricsPreferences.infoRowWordLyricsEnabled(context))
+
+        LyricsPreferences.setInfoRowWordLyricsEnabled(context, true)
+
+        assertTrue(LyricsPreferences.infoRowWordLyricsEnabled(context))
+    }
+
+    @Test
     fun carBluetoothLyricsDefaultsOffAndRoundTrips() {
         assertFalse(LyricsPreferences.carBluetoothLyricsEnabled(context))
 

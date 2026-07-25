@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mica.music.R
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MusicLibrary
@@ -500,6 +501,14 @@ fun HomeScreen(
             NotificationLyrics.lyricIndexForPosition(it, playbackState.positionMs)
         } ?: -1
     }
+    val activeLyricLine = infoRowLyricsSession
+        ?.takeIf { activeLyricIndex >= 0 }
+        ?.lyrics
+        ?.getOrNull(activeLyricIndex)
+    val nextLyricLineTimeMs = infoRowLyricsSession
+        ?.lyrics
+        ?.getOrNull(activeLyricIndex + 1)
+        ?.timeMs
     val sharedLyricText = remember(
         infoRowLyricsSession,
         activeLyricIndex,
@@ -517,8 +526,39 @@ fun HomeScreen(
             )
         }
     }
-    val infoRowLyricText = sharedLyricText.takeIf {
-        uiSettings.infoRowLyricsEnabled && playbackState.isPlaying
+    val originalLyricText = remember(
+        infoRowLyricsSession,
+        activeLyricIndex,
+        uiSettings.lyricSplitEnabled,
+    ) {
+        infoRowLyricsSession?.takeIf { activeLyricIndex >= 0 }?.let { session ->
+            NotificationLyrics.lyricLineText(
+                lyrics = session.lyrics,
+                index = activeLyricIndex,
+                display = NotificationLyrics.DisplayOptions(
+                    splitEnabled = uiSettings.lyricSplitEnabled,
+                    bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
+                ),
+            )
+        }
+    }
+    val infoRowWordActive = uiSettings.infoRowLyricsEnabled &&
+        uiSettings.infoRowWordLyricsEnabled &&
+        playbackState.isPlaying
+    val infoRowLyricText = when {
+        !uiSettings.infoRowLyricsEnabled || !playbackState.isPlaying -> null
+        infoRowWordActive -> originalLyricText
+        else -> sharedLyricText
+    }
+    val infoRowKaraokeLine = activeLyricLine?.takeIf {
+        infoRowWordActive && it.cues.isNotEmpty()
+    }
+    val miniPlayerWordActive = uiSettings.miniPlayerLyricsEnabled &&
+        uiSettings.miniPlayerWordLyricsEnabled &&
+        playbackState.isPlaying
+    val miniPlayerLyricText = if (miniPlayerWordActive) originalLyricText else sharedLyricText
+    val miniPlayerKaraokeLine = activeLyricLine?.takeIf {
+        miniPlayerWordActive && it.cues.isNotEmpty()
     }
     val listBottomPadding = if (currentSong != null) {
         miniPlayerListClearance(miniPlayerStyle)
@@ -635,6 +675,10 @@ fun HomeScreen(
                             LibraryStatsRow(
                                 model = model,
                                 lyricText = infoRowLyricText,
+                                karaokeLine = infoRowKaraokeLine,
+                                nextLyricLineTimeMs = nextLyricLineTimeMs,
+                                positionMs = playbackState.positionMs,
+                                isPlaying = playbackState.isPlaying,
                                 onSortClick = { sortSheetOpen = true },
                                 onRescan = libraryAccess.onRequestRescan,
                                 onDeletePlaylist = {
@@ -855,6 +899,7 @@ fun HomeScreen(
                         onExpand = onMiniPlayerExpand,
                         onLongPress = ::locateCurrentSongInLibrary,
                         miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
+                        miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
                         lyricSplitEnabled = uiSettings.lyricSplitEnabled,
                         lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                         swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
@@ -866,8 +911,10 @@ fun HomeScreen(
                             song = song,
                             isPlaying = playbackState.isPlaying,
                             enabled = uiSettings.miniPlayerLyricsEnabled,
-                            lyricText = sharedLyricText,
+                            lyricText = miniPlayerLyricText,
                         ),
+                        karaokeLine = miniPlayerKaraokeLine,
+                        nextLyricLineTimeMs = nextLyricLineTimeMs,
                         modifier = if (isLandscapeWindow) {
                             Modifier
                         } else {

@@ -162,6 +162,7 @@ fun PlayerSheetHost(
                 onExpand = { onExpandedChange(true) },
                 onLongPress = onLocateCurrentSong,
                 miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
+                miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
                 lyricSplitEnabled = uiSettings.lyricSplitEnabled,
                 lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                 swipeEnabled = uiSettings.miniPlayerSwipeEnabled,

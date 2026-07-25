@@ -102,6 +102,15 @@ class PlaybackUiPreferencesRobolectricTest {
     }
 
     @Test
+    fun miniPlayerWordLyricsDefaultsOffAndRoundTrips() {
+        assertEquals(false, PlaybackUiPreferences.miniPlayerWordLyricsEnabled(context))
+
+        PlaybackUiPreferences.setMiniPlayerWordLyricsEnabled(context, true)
+
+        assertTrue(PlaybackUiPreferences.miniPlayerWordLyricsEnabled(context))
+    }
+
+    @Test
     fun miniPlayerSwipeSettingsRoundTrip() {
         assertEquals(false, PlaybackUiPreferences.miniPlayerSwipeEnabled(context))
         assertEquals(MiniPlayerSwipeAction.NEXT, PlaybackUiPreferences.miniPlayerLeftSwipeAction(context))

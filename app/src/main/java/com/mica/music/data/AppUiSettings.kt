@@ -50,6 +50,9 @@ class AppUiSettings(context: Context) {
     var miniPlayerLyricsEnabled by mutableStateOf(PlaybackUiPreferences.miniPlayerLyricsEnabled(appContext))
         private set
 
+    var miniPlayerWordLyricsEnabled by mutableStateOf(PlaybackUiPreferences.miniPlayerWordLyricsEnabled(appContext))
+        private set
+
     var miniPlayerSwipeEnabled by mutableStateOf(PlaybackUiPreferences.miniPlayerSwipeEnabled(appContext))
         private set
 
@@ -153,6 +156,9 @@ class AppUiSettings(context: Context) {
     var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
         private set
 
+    var infoRowWordLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowWordLyricsEnabled(appContext))
+        private set
+
     var lyricsSlotPriority by mutableStateOf(LyricsPreferences.lyricsSlotPriority(appContext))
         private set
 
@@ -219,6 +225,11 @@ class AppUiSettings(context: Context) {
     fun updateMiniPlayerLyricsEnabled(enabled: Boolean) {
         miniPlayerLyricsEnabled = enabled
         PlaybackUiPreferences.setMiniPlayerLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateMiniPlayerWordLyricsEnabled(enabled: Boolean) {
+        miniPlayerWordLyricsEnabled = enabled
+        PlaybackUiPreferences.setMiniPlayerWordLyricsEnabled(appContext, enabled)
     }
 
     fun updateMiniPlayerSwipeEnabled(enabled: Boolean) {
@@ -389,6 +400,11 @@ class AppUiSettings(context: Context) {
     fun updateInfoRowLyricsEnabled(enabled: Boolean) {
         infoRowLyricsEnabled = enabled
         LyricsPreferences.setInfoRowLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateInfoRowWordLyricsEnabled(enabled: Boolean) {
+        infoRowWordLyricsEnabled = enabled
+        LyricsPreferences.setInfoRowWordLyricsEnabled(appContext, enabled)
     }
 
     fun updateLyricsSlotPriority(priority: List<LyricsSlot>) {

@@ -38,6 +38,7 @@ object LyricsPreferences {
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
     private const val KEY_CAR_BLUETOOTH_LYRICS_ENABLED = "car_bluetooth_lyrics_enabled"
     private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
+    private const val KEY_INFO_ROW_WORD_LYRICS_ENABLED = "info_row_word_lyrics_enabled"
     private const val KEY_LYRICS_SLOT_PRIORITY = "lyrics_slot_priority"
 
     fun lyricsSlotPriority(context: Context): List<LyricsSlot> {
@@ -219,6 +220,15 @@ object LyricsPreferences {
     fun setInfoRowLyricsEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_INFO_ROW_LYRICS_ENABLED, enabled)
+            .apply()
+    }
+
+    fun infoRowWordLyricsEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_INFO_ROW_WORD_LYRICS_ENABLED, false)
+
+    fun setInfoRowWordLyricsEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_INFO_ROW_WORD_LYRICS_ENABLED, enabled)
             .apply()
     }
 

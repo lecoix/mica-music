@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.R
 import com.mica.music.data.ArtistNames
+import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.MiniPlayerSwipeAction
@@ -132,6 +133,7 @@ fun MiniPlayer(
     onExpand: () -> Unit,
     onLongPress: () -> Unit = {},
     miniPlayerLyricsEnabled: Boolean = true,
+    miniPlayerWordLyricsEnabled: Boolean = false,
     lyricSplitEnabled: Boolean = true,
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     swipeEnabled: Boolean = false,
@@ -140,6 +142,8 @@ fun MiniPlayer(
     coverAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
     resolvedText: MiniPlayerText? = null,
+    karaokeLine: LyricLine? = null,
+    nextLyricLineTimeMs: Int? = null,
     modifier: Modifier = Modifier,
 ) {
     val safeBottom = maxOf(
@@ -162,6 +166,11 @@ fun MiniPlayer(
     val lyricsSession = remember(song.id, song.lyricsDocument, resolvedText == null) {
         if (resolvedText == null) LyricsSession(song.lyricsDocument) else null
     }
+    val effectiveBilingualMode = if (miniPlayerWordLyricsEnabled) {
+        LyricsBilingualDisplayMode.ORIGINAL
+    } else {
+        lyricsBilingualDisplayMode
+    }
     val displayText = resolvedText ?: miniPlayerText(
         song = song,
         lyricsSession = checkNotNull(lyricsSession),
@@ -169,13 +178,32 @@ fun MiniPlayer(
         positionMs = positionMs,
         enabled = miniPlayerLyricsEnabled,
         lyricSplitEnabled = lyricSplitEnabled,
-        lyricsBilingualDisplayMode = lyricsBilingualDisplayMode,
+        lyricsBilingualDisplayMode = effectiveBilingualMode,
     )
+    val resolvedKaraoke = when {
+        !miniPlayerLyricsEnabled || !miniPlayerWordLyricsEnabled || !isPlaying -> null
+        karaokeLine != null -> karaokeLine.takeIf { it.cues.isNotEmpty() }
+        lyricsSession != null -> {
+            val index = NotificationLyrics.lyricIndexForPosition(lyricsSession, positionMs)
+            lyricsSession.lyrics.getOrNull(index)?.takeIf { it.cues.isNotEmpty() }
+        }
+        else -> null
+    }
+    val resolvedNextLineTimeMs = nextLyricLineTimeMs
+        ?: resolvedKaraoke?.let { line ->
+            lyricsSession?.lyrics
+                ?.indexOfFirst { it.timeMs == line.timeMs && it.text == line.text }
+                ?.takeIf { it >= 0 }
+                ?.let { index -> lyricsSession.lyrics.getOrNull(index + 1)?.timeMs }
+        }
     when (style) {
         MiniPlayerStyle.FLOATING_ISLAND -> FloatingIslandMiniPlayer(
             song = song,
             isPlaying = isPlaying,
+            positionMs = positionMs,
             text = displayText,
+            karaokeLine = resolvedKaraoke,
+            nextLyricLineTimeMs = resolvedNextLineTimeMs,
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
@@ -187,7 +215,10 @@ fun MiniPlayer(
         MiniPlayerStyle.AUDIOPHILE -> AudiophileMiniPlayer(
             song = song,
             isPlaying = isPlaying,
+            positionMs = positionMs,
             text = displayText,
+            karaokeLine = resolvedKaraoke,
+            nextLyricLineTimeMs = resolvedNextLineTimeMs,
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
@@ -294,12 +325,41 @@ private fun MiniPlayerMarqueeText(
     )
 }
 
+@Composable
+private fun MiniPlayerPrimaryText(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    unfilledColor: Color,
+    isPlaying: Boolean,
+    positionMs: Int,
+    karaokeLine: LyricLine?,
+    nextLyricLineTimeMs: Int?,
+) {
+    if (karaokeLine != null) {
+        NarrowBarSoftKaraokeLyric(
+            line = karaokeLine,
+            positionMs = positionMs,
+            isPlaying = isPlaying,
+            nextLineTimeMs = nextLyricLineTimeMs,
+            filledColor = color,
+            unfilledColor = unfilledColor,
+            textStyle = style,
+        )
+    } else {
+        MiniPlayerMarqueeText(text = text, style = style, color = color)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FloatingIslandMiniPlayer(
     song: Song,
     isPlaying: Boolean,
+    positionMs: Int,
     text: MiniPlayerText,
+    karaokeLine: LyricLine?,
+    nextLyricLineTimeMs: Int?,
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
@@ -372,10 +432,15 @@ private fun FloatingIslandMiniPlayer(
                 )
                 Spacer(Modifier.width(HifiSpacing.md))
                 Column(Modifier.weight(1f)) {
-                    MiniPlayerMarqueeText(
+                    MiniPlayerPrimaryText(
                         text = text.primary,
                         style = MicaTheme.typography.bodyLg,
                         color = colors.textPrimary,
+                        unfilledColor = colors.textTertiary,
+                        isPlaying = isPlaying,
+                        positionMs = positionMs,
+                        karaokeLine = karaokeLine,
+                        nextLyricLineTimeMs = nextLyricLineTimeMs,
                     )
                     MiniPlayerMarqueeText(
                         text = text.secondary,
@@ -400,7 +465,10 @@ private fun FloatingIslandMiniPlayer(
 private fun AudiophileMiniPlayer(
     song: Song,
     isPlaying: Boolean,
+    positionMs: Int,
     text: MiniPlayerText,
+    karaokeLine: LyricLine?,
+    nextLyricLineTimeMs: Int?,
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
@@ -465,10 +533,15 @@ private fun AudiophileMiniPlayer(
                             .weight(1f)
                             .padding(end = HifiSpacing.sm),
                     ) {
-                        MiniPlayerMarqueeText(
+                        MiniPlayerPrimaryText(
                             text = text.primary,
                             style = MicaTheme.typography.bodyMd,
                             color = colors.textPrimary,
+                            unfilledColor = colors.textTertiary,
+                            isPlaying = isPlaying,
+                            positionMs = positionMs,
+                            karaokeLine = karaokeLine,
+                            nextLyricLineTimeMs = nextLyricLineTimeMs,
                         )
                         MiniPlayerMarqueeText(
                             text = text.secondary,

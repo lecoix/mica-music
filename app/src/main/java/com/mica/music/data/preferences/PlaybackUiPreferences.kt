@@ -20,6 +20,7 @@ object PlaybackUiPreferences {
     private const val KEY_PLAYER_LOWER_BACKGROUND = "player_lower_background"
     internal const val KEY_MINI_PLAYER_STYLE = "mini_player_style"
     private const val KEY_MINI_PLAYER_LYRICS_ENABLED = "mini_player_lyrics_enabled"
+    private const val KEY_MINI_PLAYER_WORD_LYRICS_ENABLED = "mini_player_word_lyrics_enabled"
     private const val KEY_MINI_PLAYER_SWIPE_ENABLED = "mini_player_swipe_enabled"
     private const val KEY_MINI_PLAYER_LEFT_SWIPE_ACTION = "mini_player_left_swipe_action"
     private const val KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION = "mini_player_right_swipe_action"
@@ -106,6 +107,15 @@ object PlaybackUiPreferences {
     fun setMiniPlayerLyricsEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_MINI_PLAYER_LYRICS_ENABLED, enabled)
+            .apply()
+    }
+
+    fun miniPlayerWordLyricsEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_MINI_PLAYER_WORD_LYRICS_ENABLED, false)
+
+    fun setMiniPlayerWordLyricsEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_MINI_PLAYER_WORD_LYRICS_ENABLED, enabled)
             .apply()
     }
 
