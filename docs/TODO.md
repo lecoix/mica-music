@@ -215,7 +215,11 @@
   - **治本**：View + Canvas 七轨（`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)`）——无 Compose 槽位重建、Coil 缓存位图直绘、`railOffset` 单轨末帧连续。
   - **仍保留的通用优化**：模糊背景 `.size(384)` 降采样；`SongCover` `stableMemoryCacheKey`；`[MicaImageLoaders](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt)` 预载。
   - **验收**：平行 / 复古 × 各播放页背景下连续切歌与拖动；无闪帧、无松手跳变。
-
+- [ ] **歌单功能正式化**
+  - **加入曲库栏**：获得单独列表页
+  - **正式功能**：编辑名称、导入导出、封面修改
+- [ ] **歌曲年份信息**
+  - **月日信息**
 ---
 
 
