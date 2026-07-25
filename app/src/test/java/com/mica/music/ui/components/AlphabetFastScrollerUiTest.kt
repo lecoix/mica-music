@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.boundsInWindow
@@ -56,5 +57,24 @@ class AlphabetFastScrollerUiTest {
         composeRule.waitForIdle()
 
         assertEquals(labels.lastIndex, targetIndex)
+    }
+
+    @Test
+    fun landscapePopupTouchStripIsRemovedWhenGesturesDisabled() {
+        val labels = ('A'..'Z').map(Char::toString) + "#"
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAlphabetFastScrollGesturesEnabled provides false) {
+                MicaTheme(darkTheme = true) {
+                    AlphabetFastScroller(
+                        labels = labels,
+                        scrollToIndex = {},
+                        fullHeightOverlay = true,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {}
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag(AlphabetFastScrollerTouchStripTag).assertDoesNotExist()
     }
 }

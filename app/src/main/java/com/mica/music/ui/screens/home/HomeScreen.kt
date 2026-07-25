@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +58,7 @@ import com.mica.music.media.NotificationLyrics
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.components.HomeDrawerPanel
 import com.mica.music.ui.components.LibrarySearchPanel
+import com.mica.music.ui.components.LocalAlphabetFastScrollGesturesEnabled
 import com.mica.music.ui.components.MiniPlayer
 import com.mica.music.ui.components.miniPlayerText
 import com.mica.music.ui.components.rememberSongWithLyrics
@@ -591,6 +593,9 @@ fun HomeScreen(
     } else {
         0.dp
     }
+    CompositionLocalProvider(
+        LocalAlphabetFastScrollGesturesEnabled provides !playerOverlayOpen,
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -979,5 +984,6 @@ fun HomeScreen(
                 overlay = homeController.clearPendingDeletePlaylist(overlay)
             },
         )
+    }
     }
 }

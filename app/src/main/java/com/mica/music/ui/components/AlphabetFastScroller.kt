@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,12 @@ private const val LandscapeAlphabetMaxHeightFraction = 0.8f
 private const val LandscapeAlphabetShrinkSafety = 0.96f
 internal const val AlphabetFastScrollerTouchStripTag = "alphabetFastScrollerTouchStrip"
 
+/**
+ * Landscape index uses a window [Popup] that can sit above [PlayerSheetHost].
+ * Home disables this while the player overlay is open.
+ */
+internal val LocalAlphabetFastScrollGesturesEnabled = compositionLocalOf { true }
+
 @Composable
 fun AlphabetFastScroller(
     labels: List<String>,
@@ -82,12 +90,16 @@ fun AlphabetFastScroller(
         }
     }
     val sectionLabels = remember(descending) { alphabetFastScrollLabels(descending) }
+    val gesturesEnabled = LocalAlphabetFastScrollGesturesEnabled.current
     val density = LocalDensity.current
     val rootView = LocalView.current.rootView
     val baseIndexHeightPx = with(density) { AlphabetFastScrollHeight.toPx() }
     var viewport by remember { mutableStateOf<AlphabetIndexViewport?>(null) }
     val indexLayout = alphabetIndexLayout(viewport, baseIndexHeightPx)
     var activeSection by remember { mutableStateOf<String?>(null) }
+    SideEffect {
+        if (!gesturesEnabled) activeSection = null
+    }
 
     Box(
         modifier = modifier.onGloballyPositioned { coordinates ->
@@ -102,81 +114,83 @@ fun AlphabetFastScroller(
     ) {
         content()
 
-        activeSection?.let { section ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 56.dp)
-                    .offset(y = (-12).dp)
-                    .size(72.dp)
-                    .background(
-                        color = MicaTheme.colors.surfaceCard.copy(alpha = 0.92f),
-                        shape = RectangleShape,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = section,
-                    style = MicaTheme.typography.display.copy(fontWeight = FontWeight.Bold),
-                    color = MicaTheme.colors.accent,
-                )
-            }
-        }
-
-        if (fullHeightOverlay) {
-            val windowHeightPx = viewport?.windowHeight ?: baseIndexHeightPx
-            val landscapeIndexLayout = landscapeAlphabetIndexLayout(
-                windowHeight = windowHeightPx,
-                baseHeight = baseIndexHeightPx,
-            )
-            val baseIndexLineHeightPx = with(density) {
-                MicaTheme.typography.monoSm.lineHeight.toPx()
-            }
-            val landscapeTextScale = landscapeAlphabetTextScale(
-                indexHeight = landscapeIndexLayout.height,
-                labelCount = sectionLabels.size,
-                baseLineHeight = baseIndexLineHeightPx,
-            )
-            Popup(
-                alignment = Alignment.TopEnd,
-                offset = IntOffset(
-                    x = 0,
-                    y = -(viewport?.containerTopInWindow?.roundToInt() ?: 0),
-                ),
-                properties = PopupProperties(
-                    focusable = false,
-                    clippingEnabled = false,
-                ),
-            ) {
+        if (gesturesEnabled) {
+            activeSection?.let { section ->
                 Box(
                     modifier = Modifier
-                        .requiredHeight(with(density) { windowHeightPx.toDp() }),
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 56.dp)
+                        .offset(y = (-12).dp)
+                        .size(72.dp)
+                        .background(
+                            color = MicaTheme.colors.surfaceCard.copy(alpha = 0.92f),
+                            shape = RectangleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    AlphabetIndexTouchStrip(
-                        sectionTargets = sectionTargets,
-                        sectionLabels = sectionLabels,
-                        indexLayout = landscapeIndexLayout,
-                        indexLayoutInWindow = true,
-                        indexTextScale = landscapeTextScale,
-                        activeSection = activeSection,
-                        onActiveSectionChange = { activeSection = it },
-                        scrollToIndex = scrollToIndex,
-                        modifier = Modifier.fillMaxHeight(),
+                    Text(
+                        text = section,
+                        style = MicaTheme.typography.display.copy(fontWeight = FontWeight.Bold),
+                        color = MicaTheme.colors.accent,
                     )
                 }
             }
-        } else {
-            AlphabetIndexTouchStrip(
-                sectionTargets = sectionTargets,
-                sectionLabels = sectionLabels,
-                indexLayout = indexLayout,
-                activeSection = activeSection,
-                onActiveSectionChange = { activeSection = it },
-                scrollToIndex = scrollToIndex,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .fillMaxHeight(),
-            )
+
+            if (fullHeightOverlay) {
+                val windowHeightPx = viewport?.windowHeight ?: baseIndexHeightPx
+                val landscapeIndexLayout = landscapeAlphabetIndexLayout(
+                    windowHeight = windowHeightPx,
+                    baseHeight = baseIndexHeightPx,
+                )
+                val baseIndexLineHeightPx = with(density) {
+                    MicaTheme.typography.monoSm.lineHeight.toPx()
+                }
+                val landscapeTextScale = landscapeAlphabetTextScale(
+                    indexHeight = landscapeIndexLayout.height,
+                    labelCount = sectionLabels.size,
+                    baseLineHeight = baseIndexLineHeightPx,
+                )
+                Popup(
+                    alignment = Alignment.TopEnd,
+                    offset = IntOffset(
+                        x = 0,
+                        y = -(viewport?.containerTopInWindow?.roundToInt() ?: 0),
+                    ),
+                    properties = PopupProperties(
+                        focusable = false,
+                        clippingEnabled = false,
+                    ),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .requiredHeight(with(density) { windowHeightPx.toDp() }),
+                    ) {
+                        AlphabetIndexTouchStrip(
+                            sectionTargets = sectionTargets,
+                            sectionLabels = sectionLabels,
+                            indexLayout = landscapeIndexLayout,
+                            indexLayoutInWindow = true,
+                            indexTextScale = landscapeTextScale,
+                            activeSection = activeSection,
+                            onActiveSectionChange = { activeSection = it },
+                            scrollToIndex = scrollToIndex,
+                            modifier = Modifier.fillMaxHeight(),
+                        )
+                    }
+                }
+            } else {
+                AlphabetIndexTouchStrip(
+                    sectionTargets = sectionTargets,
+                    sectionLabels = sectionLabels,
+                    indexLayout = indexLayout,
+                    activeSection = activeSection,
+                    onActiveSectionChange = { activeSection = it },
+                    scrollToIndex = scrollToIndex,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight(),
+                )
+            }
         }
     }
 }
