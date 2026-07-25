@@ -6,6 +6,10 @@ import java.nio.charset.Charset
 
 import java.nio.charset.StandardCharsets
 
+import java.nio.ByteBuffer
+
+import java.nio.charset.CodingErrorAction
+
 
 
 /**
@@ -80,7 +84,11 @@ internal object LyricsEncoding {
 
         if (bytes.isEmpty()) return ""
 
-        decodeWithId3Encoding(bytes, id3Encoding)?.let { return it }
+        val declared = decodeWithId3Encoding(bytes, id3Encoding)
+
+        if (id3Encoding != 0) return declared.orEmpty()
+
+        if (declared != null && !shouldTryLegacyChineseEncoding(declared)) return declared
 
 
 
@@ -88,11 +96,17 @@ internal object LyricsEncoding {
 
         if (id3Encoding == 0) {
 
-            decodeWithCharset(bytes, gb18030)?.let { return it }
+            decodeWithCharset(bytes, gb18030)
+                ?.takeIf(::containsCjk)
+                ?.let { return it }
 
-            decodeWithCharset(bytes, gbk)?.let { return it }
+            decodeWithCharset(bytes, gbk)
+                ?.takeIf(::containsCjk)
+                ?.let { return it }
 
         }
+
+        declared?.let { return it }
 
 
 
@@ -118,11 +132,25 @@ internal object LyricsEncoding {
 
 
 
+    fun decodeMp4DataBytes(bytes: ByteArray, typeCode: Int): String = when (typeCode) {
+
+        1 -> decodeStrict(bytes, StandardCharsets.UTF_8)
+
+        2 -> decodeStrict(bytes, utf16Be)
+
+        else -> ""
+
+    }
+
+    fun decodeUtf8Bytes(bytes: ByteArray): String = decodeStrict(bytes, StandardCharsets.UTF_8)
+
+
+
     private fun charsetForId3Encoding(encoding: Int): Charset? = when (encoding) {
 
         0 -> StandardCharsets.ISO_8859_1
 
-        1 -> StandardCharsets.UTF_16LE
+        1 -> StandardCharsets.UTF_16
 
         2 -> utf16Be
 
@@ -153,6 +181,14 @@ internal object LyricsEncoding {
         return raw.takeIf { isAcceptableId3LyricsText(it, encoding = 0) }
 
     }
+
+    private fun shouldTryLegacyChineseEncoding(text: String): Boolean {
+        val extended = text.count { it.code in 0x0080..0x00FF }
+        return extended >= 4 && extended * 4 >= text.length
+    }
+
+    private fun containsCjk(text: String): Boolean =
+        text.count { it.code in 0x3040..0x9FFF || it.code in 0xAC00..0xD7AF } >= 2
 
 
 
@@ -198,6 +234,14 @@ internal object LyricsEncoding {
 
 
 
+        if (isValidUtf8(slice)) {
+
+            return stripBomOnly(String(slice, StandardCharsets.UTF_8))
+
+        }
+
+
+
         var bestText = ""
 
         var bestScore = Int.MIN_VALUE
@@ -227,6 +271,24 @@ internal object LyricsEncoding {
         return bestText
 
     }
+
+
+
+    private fun decodeStrict(bytes: ByteArray, charset: Charset): String = runCatching {
+
+        charset.newDecoder()
+
+            .onMalformedInput(CodingErrorAction.REPORT)
+
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+
+            .decode(ByteBuffer.wrap(bytes))
+
+            .toString()
+
+            .let(::stripBomOnly)
+
+    }.getOrDefault("")
 
 
 
@@ -387,105 +449,13 @@ internal object LyricsEncoding {
 
 
 
-    private fun isValidUtf8(bytes: ByteArray): Boolean {
-
-        var i = 0
-
-        while (i < bytes.size) {
-
-            val b = bytes[i].toInt() and 0xFF
-
-            when {
-
-                b <= 0x7F -> i++
-
-                b in 0xC2..0xDF -> {
-
-                    if (i + 1 >= bytes.size || !isUtf8Continuation(bytes[i + 1])) return false
-
-                    i += 2
-
-                }
-
-                b == 0xE0 -> {
-
-                    if (i + 2 >= bytes.size) return false
-
-                    val b1 = bytes[i + 1].toInt() and 0xFF
-
-                    if (b1 !in 0xA0..0xBF || !isUtf8Continuation(bytes[i + 2])) return false
-
-                    i += 3
-
-                }
-
-                b in 0xE1..0xEC || b == 0xEE || b in 0xF0..0xF3 -> {
-
-                    if (i + 2 >= bytes.size ||
-
-                        !isUtf8Continuation(bytes[i + 1]) ||
-
-                        !isUtf8Continuation(bytes[i + 2])
-
-                    ) {
-
-                        return false
-
-                    }
-
-                    i += 3
-
-                }
-
-                b == 0xED -> {
-
-                    if (i + 2 >= bytes.size) return false
-
-                    val b1 = bytes[i + 1].toInt() and 0xFF
-
-                    if (b1 !in 0x80..0x9F || !isUtf8Continuation(bytes[i + 2])) return false
-
-                    i += 3
-
-                }
-
-                b == 0xEF -> {
-
-                    if (i + 2 >= bytes.size) return false
-
-                    val b1 = bytes[i + 1].toInt() and 0xFF
-
-                    if (b1 !in 0x80..0xBF || !isUtf8Continuation(bytes[i + 2])) return false
-
-                    i += 3
-
-                }
-
-                b == 0xF4 -> {
-
-                    if (i + 2 >= bytes.size) return false
-
-                    val b1 = bytes[i + 1].toInt() and 0xFF
-
-                    if (b1 !in 0x80..0x8F || !isUtf8Continuation(bytes[i + 2])) return false
-
-                    i += 3
-
-                }
-
-                else -> return false
-
-            }
-
-        }
-
-        return true
-
-    }
-
-
-
-    private fun isUtf8Continuation(b: Byte): Boolean = (b.toInt() and 0xC0) == 0x80
+    private fun isValidUtf8(bytes: ByteArray): Boolean = runCatching {
+        StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+        true
+    }.getOrDefault(false)
 
 
 
@@ -578,5 +548,3 @@ internal object LyricsEncoding {
     }
 
 }
-
-

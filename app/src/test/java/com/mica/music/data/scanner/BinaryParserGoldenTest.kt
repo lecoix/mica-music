@@ -56,11 +56,17 @@ class BinaryParserGoldenTest {
     }
 
     @Test
-    fun mp4IlstLyricsReadsUtf8DataAtom() {
-        val lyrics = "[00:01.00]Golden line"
-        val dataPayload = ByteArray(8) + lyrics.toByteArray(Charsets.UTF_8)
+    fun mp4IlstLyricsPreservesValidMultilingualUtf8() {
+        val lyrics = listOf(
+            "[by:夏树遥]",
+            "[00:00.00]作词 : 香音",
+            "[00:00.20]作曲 : 香音",
+            "[00:00.40]\u2009\u00A0\u00A0",
+            "[00:24.41]欠けた月見上げ零した 重苦しい吐息\u2009仰望残月，叹息沉重",
+        ).joinToString("\n")
+        val dataPayload = int32Be(1) + ByteArray(4) + lyrics.toByteArray(Charsets.UTF_8)
         val item = box(byteArrayOf(0xA9.toByte(), 'l'.code.toByte(), 'y'.code.toByte(), 'r'.code.toByte()), box("data", dataPayload))
-        val bytes = box("ilst", item)
+        val bytes = box("ilst", box("hdlr", ByteArray(0)) + item)
 
         assertEquals(lyrics, Mp4LyricsReader.read(bytes))
         assertTrue(Mp4LyricsReader.listIlstItems(bytes).any { it.key == "\\xa9lyr" })

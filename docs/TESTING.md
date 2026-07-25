@@ -38,6 +38,18 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 ## 测试分层
 
+### Embedded lyrics contracts
+
+Run the focused embedded-lyrics suite before changing scanner metadata readers:
+
+```powershell
+.\gradlew :app:testDebugUnitTest --tests "com.mica.music.data.scanner.LyricsEncodingContractTest" --tests "com.mica.music.data.scanner.EmbeddedLyricsResolverTest" --tests "com.mica.music.data.scanner.EmbeddedLyricsContainerContractTest" --tests "com.mica.music.data.scanner.EmbeddedSyltLyricsTest" --tests "com.mica.music.data.scanner.BinaryParserGoldenTest" --tests "com.mica.music.data.scanner.BinaryParserFuzzTest" --no-configuration-cache
+```
+
+Container ownership: MP3/AAC/WAV/AIFF use ID3; FLAC uses Vorbis Comment (with an ID3 compatibility path); APE uses APEv2 (with an ID3 compatibility path); M4A/MP4/ALAC use MP4 atoms; OGG/Opus/WMA are TagLib-only; DSF supplies its already-read ID3 document; DFF/DSDIFF remain best-effort and must not crash. `EmbeddedLyricsNativeContractTest` is the device contract for real TagLib plus DSF metadata pointers.
+
+Capacity boundary: scan-time text candidates are capped at 1,000,000 characters each, TagLib success bypasses retriever/binary fallbacks, and the scanner does not retain raw embedded bytes after each song. The 10,000-song resolver test proves that a successful TagLib path invokes zero binary fallbacks. This is a code-level memory bound, not a measured 8 GB device peak; keep device profiling as release acceptance.
+
 涉及框架回调、Service/IPC、系统组件或外部文件提供者时，先阅读 [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md)。内部状态机的高覆盖率不能证明生产事件会无损到达。
 
 **开发规则：所有 Player 写操作都必须审计观察者副作用。** 包括仅修改元数据的 `replaceMediaItem`；必须检查 timeline、transition、discontinuity、状态回调及其对统计、队列镜像、持久化、通知和 UI 的影响。依赖真实 Media3 派发行为时补真实组件契约测试。
@@ -257,6 +269,7 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 **播放页 UI（`PlaybackUiPreferences` + `AppUiSettings`）**
 
 - 切换迷你栏样式、封面行为（标准/粒子/拍立得等）、播放页背景 → UI 即时刷新；杀进程再开仍生效。
+- 「折叠歌词行数」自动/三行/一行（标准、粒子封面、平行封面带、复古立体封面）→ 播放页紧凑歌词行数符合选择；自定义标准仍走布局编辑。
 - 开关频谱 / 发烧友迷你栏 / 拍立得封面 → 播放时频谱 tap 是否按预期启停（无旧封面闪频谱）。
 - 修改播放页信息行、歌曲列表信息行可见性 → 对应位置显示/隐藏正确。
 - 「播放时保持屏幕常亮」→ 播放中屏幕不熄、暂停后恢复系统策略。

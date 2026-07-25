@@ -13,11 +13,13 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.Song
+import com.mica.music.data.usesCompactLyricsLinePreference
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.system.homeStatusBarTopPadding
@@ -176,6 +178,11 @@ internal fun rememberPlayerPageUiModel(
         spectrumSettingEnabled = uiSettings.spectrumEnabled,
         spectrumDeferred = spectrumDeferred,
         coverSwitching = coverSwitching,
+        compactLyricsLineMode = if (coverFlowMode.usesCompactLyricsLinePreference()) {
+            uiSettings.compactLyricsLineMode
+        } else {
+            CompactLyricsLineMode.AUTO
+        },
     )
 
     return PlayerPageUiModel(

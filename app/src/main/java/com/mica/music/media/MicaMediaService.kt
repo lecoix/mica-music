@@ -34,6 +34,7 @@ class MicaMediaService : MediaSessionService() {
     private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
+    private var carBluetoothLyricsSession: CarBluetoothLyricsSession? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -98,10 +99,17 @@ class MicaMediaService : MediaSessionService() {
             coordinator.start()
         }
 
+        carBluetoothLyricsSession = CarBluetoothLyricsSession(
+            context = this,
+            player = stack.compositePlayer,
+            sessionActivity = createSessionActivityPendingIntent(),
+        )
+
         notificationLyricsCoordinator = NotificationLyricsCoordinator(
             context = this,
             player = stack.compositePlayer,
             handler = mainHandler,
+            carBluetoothLyrics = carBluetoothLyricsSession,
         ).also { it.start() }
 
         attachEqualizerSessionListener(stack.exoPlayer)
@@ -145,6 +153,8 @@ class MicaMediaService : MediaSessionService() {
         playbackStateCoordinator = null
         notificationLyricsCoordinator?.release()
         notificationLyricsCoordinator = null
+        carBluetoothLyricsSession?.release()
+        carBluetoothLyricsSession = null
         playbackEngineCoordinator?.release()
         playbackEngineCoordinator = null
         mediaSession?.release()

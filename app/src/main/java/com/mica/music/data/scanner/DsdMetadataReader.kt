@@ -27,6 +27,7 @@ internal object DsdMetadataReader {
         val durationSec: Int,
         val tags: Tags = Tags(),
         val albumArtBytes: ByteArray? = null,
+        val embeddedLyricsDocument: com.mica.music.data.LyricsDocument? = null,
     )
 
     private data class Id3Data(
@@ -37,6 +38,7 @@ internal object DsdMetadataReader {
         val rawTrackNumber: String = "",
         val rawDiscNumber: String = "",
         val frameSummary: String = "",
+        val lyricsDocument: com.mica.music.data.LyricsDocument? = null,
     )
 
     fun read(context: Context, uri: Uri, draft: TrackDraft): Result? =
@@ -99,6 +101,7 @@ internal object DsdMetadataReader {
             durationSec = durationSec,
             tags = id3.tags,
             albumArtBytes = id3.albumArtBytes,
+            embeddedLyricsDocument = id3.lyricsDocument,
         )
     }
 
@@ -198,6 +201,7 @@ internal object DsdMetadataReader {
             rawTrackNumber = rawTrackNumber,
             rawDiscNumber = rawDiscNumber,
             frameSummary = id3FrameSummary(frames),
+            lyricsDocument = EmbeddedLyricsReader.readId3Document(bytes),
         )
     }
 

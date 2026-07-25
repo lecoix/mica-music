@@ -57,6 +57,10 @@ internal object Mp4AtomTextReader {
         val textStart = payloadStart + 8
         val textLen = payloadLen - 8
         if (textLen <= 0 || textStart + textLen > bytes.size) return null
-        return LyricsEncoding.decodeBytes(bytes.copyOfRange(textStart, textStart + textLen))
+        val typeCode = Id3Binary.readUInt32Be(bytes, payloadStart).toInt()
+        return LyricsEncoding.decodeMp4DataBytes(
+            bytes.copyOfRange(textStart, textStart + textLen),
+            typeCode,
+        )
     }
 }

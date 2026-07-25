@@ -4,6 +4,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
+import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.PlayerPanelLyricScale
 import com.mica.music.ui.components.measurePlayerCoverFitOriginal
@@ -86,6 +87,7 @@ object PlayerPageLayoutEngine {
             applyCoverEdgeGapCosmetics = useCoverEdgePlayback && !particleHidesProgressChrome,
             lyricsFocus = lyricsFocus,
             showMetadata = !input.particleCoverMode,
+            compactLyricsLineMode = input.compactLyricsLineMode,
         )
         val lowerSpacing = if (particleProgressQuarter > 0.dp) {
             val lyricGapBoost = particleProgressQuarter * (1f - lyricsFocus)
@@ -461,6 +463,7 @@ object PlayerPageLayoutEngine {
         applyCoverEdgeGapCosmetics: Boolean,
         lyricsFocus: Float,
         showMetadata: Boolean,
+        compactLyricsLineMode: CompactLyricsLineMode,
     ): LowerLayoutPlan {
         val infoLine = with(density) { typography.monoMd.lineHeight.toDp() }
         val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
@@ -551,6 +554,7 @@ object PlayerPageLayoutEngine {
             idealAfterInfo = idealAfterInfo,
             idealAfterSubtitle = idealAfterSubtitle,
             idealBeforePlaybackChrome = idealBeforePlaybackChrome,
+            compactLyricsLineMode = compactLyricsLineMode,
         ).let { (gaps, slots) ->
             metaGaps = gaps
             lyricSlots = slots
@@ -573,6 +577,7 @@ object PlayerPageLayoutEngine {
                 idealAfterInfo = idealAfterInfo,
                 idealAfterSubtitle = idealAfterSubtitle,
                 idealBeforePlaybackChrome = idealBeforePlaybackChrome,
+                compactLyricsLineMode = compactLyricsLineMode,
             ).let { (gaps, slots) ->
                 metaGaps = gaps
                 lyricSlots = slots
@@ -627,22 +632,48 @@ object PlayerPageLayoutEngine {
         idealAfterInfo: Dp,
         idealAfterSubtitle: Dp,
         idealBeforePlaybackChrome: Dp,
+        compactLyricsLineMode: CompactLyricsLineMode,
     ): Pair<MetaGaps, Int> {
-        if (metaAvailableHeight >= idealMeta3) {
-            val bonus = (metaAvailableHeight - idealMeta3) / 2 / metaGapCount
+        val preferThree = when (compactLyricsLineMode) {
+            CompactLyricsLineMode.AUTO -> metaAvailableHeight >= idealMeta3
+            CompactLyricsLineMode.THREE -> true
+            CompactLyricsLineMode.ONE -> false
+        }
+        if (preferThree) {
+            if (metaAvailableHeight >= idealMeta3) {
+                val bonus = (metaAvailableHeight - idealMeta3) / 2 / metaGapCount
+                return MetaGaps(
+                    afterCover = idealAfterCover + bonus,
+                    afterInfo = idealAfterInfo + bonus,
+                    afterSubtitle = idealAfterSubtitle + bonus,
+                    beforePlaybackChrome = idealBeforePlaybackChrome + bonus,
+                ) to 3
+            }
+            val compressed = compressGaps(
+                deficit = idealMeta3 - metaAvailableHeight,
+                idealGaps = metaIdealGaps,
+                gapCount = metaGapCount,
+                minGap = minGap,
+                ideals = listOf(idealAfterCover, idealAfterInfo, idealAfterSubtitle, idealBeforePlaybackChrome),
+            )
+            return MetaGaps(
+                afterCover = compressed[0],
+                afterInfo = compressed[1],
+                afterSubtitle = compressed[2],
+                beforePlaybackChrome = compressed[3],
+            ) to 3
+        }
+        if (metaAvailableHeight >= idealMeta1) {
+            val bonus = if (compactLyricsLineMode == CompactLyricsLineMode.ONE) {
+                (metaAvailableHeight - idealMeta1) / 2 / metaGapCount
+            } else {
+                0.dp
+            }
             return MetaGaps(
                 afterCover = idealAfterCover + bonus,
                 afterInfo = idealAfterInfo + bonus,
                 afterSubtitle = idealAfterSubtitle + bonus,
                 beforePlaybackChrome = idealBeforePlaybackChrome + bonus,
-            ) to 3
-        }
-        if (metaAvailableHeight >= idealMeta1) {
-            return MetaGaps(
-                afterCover = idealAfterCover,
-                afterInfo = idealAfterInfo,
-                afterSubtitle = idealAfterSubtitle,
-                beforePlaybackChrome = idealBeforePlaybackChrome,
             ) to 1
         }
         val compressed = compressGaps(

@@ -53,7 +53,7 @@ _Avoid_: 把主题、播放页、歌词页、EQ 等非扫描偏好塞进此门�
 _Avoid_: 在 Home 或 catalog 内直接读 `SharedPreferences`
 
 **Playback UI preferences（播放页 UI 偏好）**：
-`PlaybackUiPreferences`：播放页背景、迷你栏、封面行为、粒子参数、频谱资格相关开关、列表/播放页信息可见性、常亮与沉浸等。`AppUiSettings` 的 playback 字段与媒体侧 `SpectrumAnalyzerStateOwner` 经此读取。
+`PlaybackUiPreferences`：播放页背景、迷你栏、封面行为、粒子参数、频谱资格相关开关、折叠歌词行数、列表/播放页信息可见性、常亮与沉浸等。`AppUiSettings` 的 playback 字段与媒体侧 `SpectrumAnalyzerStateOwner` 经此读取。
 _Avoid_: 在 Service 或 Composable 内散落读取 mini player / spectrum key
 
 **Wallpaper viewport state（壁纸视口状态）**：
@@ -240,7 +240,7 @@ _Avoid_: lyrics mode（指布尔 `lyricsExpanded` 时）、歌词页（指动画
 _Avoid_: expanded lyrics（指组件名时可用「展开歌词」）
 
 **Compact lyrics（紧凑歌词）**：
-普通播放页下半屏中的少量歌词行（通常三行），点击可进入歌词页。
+普通播放页下半屏中的少量歌词行（通常三行），点击可进入歌词页。标准 / 粒子封面 / 平行封面带 / 复古立体封面可通过 `CompactLyricsLineMode`（`PlaybackUiPreferences`，默认自动）固定为一行、三行，或沿用布局引擎按高度自适应；自定义标准仍用布局编辑里的行数。
 _Avoid_: inline lyrics、mini lyrics
 
 **Expanded lyrics（展开歌词）**：

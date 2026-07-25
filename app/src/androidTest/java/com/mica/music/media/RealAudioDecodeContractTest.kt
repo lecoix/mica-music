@@ -4,16 +4,26 @@ package com.mica.music.media
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.mica.music.data.LyricLine
+import com.mica.music.data.Song
+import com.mica.music.data.TrackMetadata
+import com.mica.music.data.preferences.LyricsPreferences
+import com.mica.music.data.toLyricsDocumentCompat
+import com.mica.music.data.toMediaItem
 import com.mica.music.media.dsf.DsfFormat
 import com.mica.music.testutil.ContractTestSupport.await
 import com.mica.music.testutil.ContractTestSupport.onMain
@@ -32,6 +42,108 @@ import org.junit.runner.RunWith
 @UnstableApi
 @RunWith(AndroidJUnit4::class)
 class RealAudioDecodeContractTest {
+    @Test
+    fun singlePlayFromIdleSurvivesNotificationLyricMetadataReplacementWithoutReprepare() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = copyAsset(
+            sourceContext = InstrumentationRegistry.getInstrumentation().context,
+            outputDirectory = context.cacheDir,
+            assetPath = "media/contract-silence-flac-96k-24bit.flac",
+        )
+        val song = Song(
+            id = "notification-first-play-hires-flac",
+            title = "Contract notification first play",
+            artist = "Mica",
+            album = "Tests",
+            durationSec = 2,
+            metadata = TrackMetadata(
+                containerName = "FLAC",
+                sampleRateHz = 96_000,
+                bitsPerSample = 24,
+                bitrateKbps = 4_608,
+                channelCount = 2,
+                playbackMimeType = MimeTypes.AUDIO_FLAC,
+            ),
+            albumArtUri = null,
+            coverColorArgb = 0,
+            mediaUri = Uri.fromFile(file).toString(),
+            fileName = file.name,
+            lyricsDocument = listOf(
+                LyricLine(timeMs = 0, text = "notification-line-one"),
+                LyricLine(timeMs = 500, text = "notification-line-two"),
+            ).toLyricsDocumentCompat(),
+        )
+        val previousLyricsSetting = LyricsPreferences.notificationLyricsEnabled(context)
+        val observation = DecodeObservation()
+        val stack = onMain { ExoPlaybackStackFactory.build(context) }
+        val engineCoordinator = onMain {
+            ServicePlaybackEngineCoordinator(stack.compositePlayer, context).also { it.start() }
+        }
+        var lyricsCoordinator: NotificationLyricsCoordinator? = null
+
+        try {
+            LyricsPreferences.setNotificationLyricsEnabled(context, true)
+            onMain {
+                stack.exoPlayer.volume = 0f
+                stack.exoPlayer.addAnalyticsListener(observation)
+                stack.exoPlayer.setMediaItem(song.toMediaItem())
+            }
+            assertEquals(Player.STATE_IDLE, onMain { stack.exoPlayer.playbackState })
+            assertEquals(0, observation.decoderInitializations.get())
+
+            repeat(FIRST_PLAY_STRESS_ITERATIONS) { iteration ->
+                val decoderInitializationsBeforePlay = observation.decoderInitializations.get()
+                val positionAdvancingBeforePlay = observation.positionAdvancing.get()
+                lyricsCoordinator = onMain {
+                    NotificationLyricsCoordinator(
+                        context = context,
+                        player = stack.compositePlayer,
+                        handler = Handler(Looper.getMainLooper()),
+                        songLoader = { song },
+                    ).also { it.start() }
+                }
+                onMain { stack.compositePlayer.play() }
+
+                await("single play command iteration $iteration", timeoutMs = 10_000L) {
+                    onMain {
+                        stack.exoPlayer.playerError != null ||
+                            observation.positionAdvancing.get() > positionAdvancingBeforePlay &&
+                            stack.exoPlayer.currentMediaItem?.mediaMetadata?.title?.toString()
+                                ?.startsWith("notification-line-") == true
+                    }
+                }
+                SystemClock.sleep(250L)
+
+                val playbackError = onMain { stack.exoPlayer.playerError }
+                assertNull("Playback error on iteration $iteration: $playbackError", playbackError)
+                assertTrue(onMain { stack.exoPlayer.isPlaying || stack.exoPlayer.currentPosition > 0L })
+                assertEquals(
+                    "Notification metadata must not reinitialize the decoder on iteration $iteration",
+                    decoderInitializationsBeforePlay + 1,
+                    observation.decoderInitializations.get(),
+                )
+
+                lyricsCoordinator?.let { onMain { it.release() } }
+                lyricsCoordinator = null
+                if (iteration < FIRST_PLAY_STRESS_ITERATIONS - 1) {
+                    onMain {
+                        stack.exoPlayer.stop()
+                        stack.exoPlayer.setMediaItem(song.toMediaItem())
+                    }
+                    assertEquals(Player.STATE_IDLE, onMain { stack.exoPlayer.playbackState })
+                }
+            }
+        } finally {
+            lyricsCoordinator?.let { onMain { it.release() } }
+            LyricsPreferences.setNotificationLyricsEnabled(context, previousLyricsSetting)
+            onMain {
+                engineCoordinator.release()
+                stack.exoPlayer.release()
+            }
+            file.delete()
+        }
+    }
+
     @Test
     fun generatedAlacUsesFfmpegAndReachesAudioSink() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -165,6 +277,7 @@ class RealAudioDecodeContractTest {
 
     @Suppress("DEPRECATION")
     private class DecodeObservation : AnalyticsListener {
+        val decoderInitializations = AtomicInteger()
         val decoderName = AtomicReference<String>()
         val inputMime = AtomicReference<String>()
         val positionAdvancing = AtomicInteger()
@@ -175,6 +288,7 @@ class RealAudioDecodeContractTest {
             decoderName: String,
             initializationDurationMs: Long,
         ) {
+            decoderInitializations.incrementAndGet()
             this.decoderName.set(decoderName)
         }
 
@@ -203,5 +317,6 @@ class RealAudioDecodeContractTest {
 
     private companion object {
         const val DSD_SILENCE: Byte = 0x69
+        const val FIRST_PLAY_STRESS_ITERATIONS = 10
     }
 }

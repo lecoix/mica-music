@@ -120,6 +120,15 @@ class LyricsPreferencesRobolectricTest {
     }
 
     @Test
+    fun carBluetoothLyricsDefaultsOffAndRoundTrips() {
+        assertFalse(LyricsPreferences.carBluetoothLyricsEnabled(context))
+
+        LyricsPreferences.setCarBluetoothLyricsEnabled(context, true)
+
+        assertTrue(LyricsPreferences.carBluetoothLyricsEnabled(context))
+    }
+
+    @Test
     fun lyricsSlotPriorityDefaultsRoundTripsAndRejectsDuplicates() {
         assertEquals(DEFAULT_LYRICS_SLOT_PRIORITY, LyricsPreferences.lyricsSlotPriority(context))
         val embeddedFirst = listOf(

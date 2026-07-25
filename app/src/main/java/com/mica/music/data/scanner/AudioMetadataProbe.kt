@@ -70,6 +70,7 @@ internal data class TagInfo(
     val trackNumber: Int = 0,
     val discNumber: Int = 0,
     val frontCoverBytes: ByteArray? = null,
+    val lyricsCandidates: List<EmbeddedLyricsTextCandidate> = emptyList(),
 )
 
 internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInfo(
@@ -83,6 +84,7 @@ internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInf
     trackNumber = primary.trackNumber.takeIf { it > 0 } ?: fallback.trackNumber,
     discNumber = primary.discNumber.takeIf { it > 0 } ?: fallback.discNumber,
     frontCoverBytes = primary.frontCoverBytes ?: fallback.frontCoverBytes,
+    lyricsCandidates = primary.lyricsCandidates + fallback.lyricsCandidates,
 )
 
 object AudioMetadataProbe {
@@ -340,6 +342,7 @@ object AudioMetadataProbe {
                     withMeta.copy(mimeType = metadata.playbackMimeType.ifBlank { withMeta.mimeType }),
                     cachedSong,
                     retriever,
+                    taglibLyricsCandidates = wavFallback?.lyricsCandidates.orEmpty(),
                     profiler = profiler,
                 )
             }
@@ -568,7 +571,7 @@ object AudioMetadataProbe {
                 withMeta.copy(mimeType = playbackMime.ifBlank { withMeta.mimeType }),
                 cachedSong,
                 retriever = retriever,
-                taglibLyricsCandidates = tagLib.lyricsCandidates,
+                taglibLyricsCandidates = tagLib.lyricsCandidates + wavFallback?.lyricsCandidates.orEmpty(),
                 profiler = profiler,
             )
         }
@@ -597,7 +600,8 @@ object AudioMetadataProbe {
         draft: TrackDraft,
         cachedSong: Song?,
         retriever: MediaMetadataRetriever? = null,
-        taglibLyricsCandidates: List<String> = emptyList(),
+        taglibLyricsCandidates: List<EmbeddedLyricsTextCandidate> = emptyList(),
+        preparsedEmbeddedCandidates: List<LyricsDocument> = emptyList(),
         profiler: ScanProfiler? = null,
     ): LyricsProbeResult {
         val externalLrc = profiler.measureOptional("lyrics.externalLrc") {
@@ -609,42 +613,35 @@ object AudioMetadataProbe {
         if (externalLrc is ProbeResult.Failed || externalTtml is ProbeResult.Failed) {
             return LyricsProbeResult.ReadFailed
         }
-        val embeddedCandidates = mutableListOf<LyricsDocument>()
-        val taglibCandidatesRead = profiler.measureOptional("lyrics.tagCandidates") {
-            val parsedCandidates = mutableListOf<LyricsDocument>()
-            for (candidate in taglibLyricsCandidates) {
-                val normalized = MetadataTextFix.normalize(candidate)
-                if (normalized.isBlank()) continue
-                val parsed = parseLyricsTextForScan(normalized)
-                    ?: return@measureOptional null
-                if (parsed.lines.isNotEmpty()) parsedCandidates += parsed
-            }
-            parsedCandidates
-        }
-        if (taglibCandidatesRead == null) return LyricsProbeResult.ReadFailed
-        embeddedCandidates += taglibCandidatesRead
-        profiler.measureOptional("lyrics.retriever") {
-            retriever?.let { readRetrieverLyrics(it) }
-        }
-            ?.takeIf { it.lines.isNotEmpty() }
-            ?.let(embeddedCandidates::add)
-        val embeddedBinary = profiler.measureOptional("lyrics.embeddedBinary") {
-            EmbeddedLyricsReader.probeFastEmbeddedDocument(
-                context = context,
-                uri = Uri.parse(draft.mediaUri),
-                mimeType = draft.mimeType,
-                displayName = draft.displayName,
-                profiler = profiler,
+        val embedded = profiler.measureOptional("lyrics.embeddedResolve") {
+            EmbeddedLyricsResolver.resolve(
+                preparsedCandidates = preparsedEmbeddedCandidates,
+                tagLibCandidates = taglibLyricsCandidates,
+                parse = ::parseLyricsTextForScan,
+                retrieverFallback = {
+                    profiler.measureOptional("lyrics.retriever") {
+                        retriever?.let { readRetrieverLyrics(it) }
+                    }
+                },
+                binaryFallback = {
+                    profiler.measureOptional("lyrics.embeddedBinary") {
+                        EmbeddedLyricsReader.probeFastEmbeddedDocument(
+                            context = context,
+                            uri = Uri.parse(draft.mediaUri),
+                            mimeType = draft.mimeType,
+                            displayName = draft.displayName,
+                            profiler = profiler,
+                        )
+                    }
+                },
             )
         }
-        when (embeddedBinary) {
+        val embeddedDocument = when (embedded) {
             is ProbeResult.Failed -> return LyricsProbeResult.ReadFailed
-            is ProbeResult.Ok -> embeddedBinary.value
-                ?.takeIf { it.lines.isNotEmpty() }
-                ?.let(embeddedCandidates::add)
+            is ProbeResult.Ok -> embedded.value?.takeIf { it.lines.isNotEmpty() }
         }
         return LyricsProbeResult.Complete(LyricsSlots(
-            embedded = LyricsSanitizer.pickBestDocument(embeddedCandidates),
+            embedded = embeddedDocument,
             externalLrc = (externalLrc as ProbeResult.Ok).value,
             externalTtml = (externalTtml as ProbeResult.Ok).value,
         ))
@@ -916,7 +913,13 @@ object AudioMetadataProbe {
             mimeType = metadata.playbackMimeType,
         )
         val lyrics = profiler.measureOptional("lyrics") {
-            readScanLyrics(context, enriched, cachedSong, profiler = profiler)
+            readScanLyrics(
+                context,
+                enriched,
+                cachedSong,
+                preparsedEmbeddedCandidates = listOfNotNull(embeddedLyricsDocument),
+                profiler = profiler,
+            )
         }
         val albumArtUri = profiler.measureOptional("albumArt") {
             saveEmbeddedPictureBytes(context, albumArtBytes, enriched.scanSongId())
@@ -1126,6 +1129,7 @@ object AudioMetadataProbe {
             val album = tag.getFirst(FieldKey.ALBUM)?.trim().orEmpty()
             val albumArtist = tag.getFirst(FieldKey.ALBUM_ARTIST)?.trim().orEmpty()
             val copyright = tag.getFirst(FieldKey.COPYRIGHT)?.trim().orEmpty()
+            val lyrics = tag.getFirst(FieldKey.LYRICS)?.trim().orEmpty()
             val frontCoverBytes = tag.firstArtwork?.binaryData?.takeIf { it.isNotEmpty() }
             val year = Regex("""\d{4}""")
                 .find(tag.getFirst(FieldKey.YEAR).orEmpty())
@@ -1148,6 +1152,9 @@ object AudioMetadataProbe {
                 trackNumber = trackNumber,
                 discNumber = discNumber,
                 frontCoverBytes = frontCoverBytes,
+                lyricsCandidates = lyrics.takeIf { it.isNotBlank() }
+                    ?.let { listOf(EmbeddedLyricsTextCandidate("LYRICS", it)) }
+                    .orEmpty(),
             )
         } catch (error: Exception) {
             Log.w(TAG, "JAudioTagger failed to read WAV metadata: $uri", error)

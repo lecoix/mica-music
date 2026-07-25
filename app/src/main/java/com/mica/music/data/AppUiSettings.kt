@@ -38,6 +38,9 @@ class AppUiSettings(context: Context) {
     var playerImmersiveLower by mutableStateOf(PlaybackUiPreferences.playerImmersiveLower(appContext))
         private set
 
+    var compactLyricsLineMode by mutableStateOf(PlaybackUiPreferences.compactLyricsLineMode(appContext))
+        private set
+
     var stripSongTitleParentheses by mutableStateOf(PlaybackUiPreferences.stripSongTitleParentheses(appContext))
         private set
 
@@ -144,6 +147,9 @@ class AppUiSettings(context: Context) {
     var notificationLyricsEnabled by mutableStateOf(LyricsPreferences.notificationLyricsEnabled(appContext))
         private set
 
+    var carBluetoothLyricsEnabled by mutableStateOf(LyricsPreferences.carBluetoothLyricsEnabled(appContext))
+        private set
+
     var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
         private set
 
@@ -193,6 +199,11 @@ class AppUiSettings(context: Context) {
     fun updatePlayerImmersiveLower(enabled: Boolean) {
         playerImmersiveLower = enabled
         PlaybackUiPreferences.setPlayerImmersiveLower(appContext, enabled)
+    }
+
+    fun updateCompactLyricsLineMode(mode: CompactLyricsLineMode) {
+        compactLyricsLineMode = mode
+        PlaybackUiPreferences.setCompactLyricsLineMode(appContext, mode)
     }
 
     fun updateStripSongTitleParentheses(enabled: Boolean) {
@@ -368,6 +379,11 @@ class AppUiSettings(context: Context) {
     fun updateNotificationLyricsEnabled(enabled: Boolean) {
         notificationLyricsEnabled = enabled
         LyricsPreferences.setNotificationLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateCarBluetoothLyricsEnabled(enabled: Boolean) {
+        carBluetoothLyricsEnabled = enabled
+        LyricsPreferences.setCarBluetoothLyricsEnabled(appContext, enabled)
     }
 
     fun updateInfoRowLyricsEnabled(enabled: Boolean) {

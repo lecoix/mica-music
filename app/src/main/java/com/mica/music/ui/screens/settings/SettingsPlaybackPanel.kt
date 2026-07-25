@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlayerCoverFlowMode
@@ -17,6 +18,7 @@ import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.preferences.ReplayGainPreferences
+import com.mica.music.data.usesCompactLyricsLinePreference
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
@@ -139,6 +141,18 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
                 if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
                     uiSettings.updatePlayerImmersiveLower(it)
                 }
+            },
+        )
+    }
+
+    if (uiSettings.playerCoverFlowMode.usesCompactLyricsLinePreference()) {
+        SettingsChoiceRow(
+            title = "折叠歌词行数",
+            subtitle = "自动：按可用高度在一行与三行间切换；三行显示上一句/当前/下一句；一行仅当前句",
+            choices = CompactLyricsLineModeChoices,
+            selectedValue = uiSettings.compactLyricsLineMode.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateCompactLyricsLineMode(CompactLyricsLineMode.entries[ordinal])
             },
         )
     }

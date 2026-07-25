@@ -108,6 +108,7 @@ internal object EmbeddedLyricsReader {
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         val mime = mimeType.orEmpty().lowercase()
         val format = embeddedFormatKey(ext, mime)
+        if (format == "other") return ProbeResult.Ok(null)
         return try {
             val bytes = profiler.measureOptional("lyrics.embedded.read.$format") {
                 AudioProbeBytes.readFastForLyricsOrThrow(context, uri, mime, displayName)
@@ -144,28 +145,55 @@ internal object EmbeddedLyricsReader {
         profiler: ScanProfiler? = null,
     ): LyricsDocument? {
         val candidates = mutableListOf<LyricsDocument>()
-        profiler.measureOptional("lyrics.embedded.parser.id3") { parseId3(bytes) }
-            ?.let { candidates += it }
-        profiler.measureOptional("lyrics.embedded.parser.flac") { parseFlac(bytes) }
-            ?.let { candidates += it }
-        profiler.measureOptional("lyrics.embedded.parser.ape") { parseApe(bytes) }
-            ?.let { candidates += it }
-        if (mime.contains("mp4") || mime.contains("alac") || ext in setOf("m4a", "m4b", "mp4", "aac", "alac")) {
-            profiler.measureOptional("lyrics.embedded.parser.mp4") {
-                val raw = Mp4LyricsReader.read(bytes, profiler)
-                profiler.measureOptional("lyrics.embedded.mp4.parseText") {
-                    raw?.let { parseLyricsText(it) }
+        for (parser in binaryParsersFor(ext, mime)) {
+            when (parser) {
+                BinaryLyricsParser.ID3 -> profiler.measureOptional("lyrics.embedded.parser.id3") {
+                    readId3Document(bytes)
+                }
+                BinaryLyricsParser.FLAC -> profiler.measureOptional("lyrics.embedded.parser.flac") {
+                    parseFlac(bytes)
+                }
+                BinaryLyricsParser.APE -> profiler.measureOptional("lyrics.embedded.parser.ape") {
+                    parseApe(bytes)
+                }
+                BinaryLyricsParser.MP4 -> profiler.measureOptional("lyrics.embedded.parser.mp4") {
+                    val raw = Mp4LyricsReader.read(bytes, profiler)
+                    profiler.measureOptional("lyrics.embedded.mp4.parseText") {
+                        raw?.let { parseLyricsText(it) }
+                    }
                 }
             }?.let { candidates += it }
         }
         return LyricsSanitizer.pickBestDocument(candidates)
     }
 
+    internal enum class BinaryLyricsParser { ID3, FLAC, APE, MP4 }
+
+    internal fun binaryParsersFor(ext: String, mime: String): Set<BinaryLyricsParser> {
+        val normalizedExt = ext.lowercase()
+        val normalizedMime = mime.lowercase()
+        return when {
+            normalizedExt in setOf("m4a", "m4b", "m4p", "mp4", "alac") ||
+                normalizedMime.contains("mp4") || normalizedMime.contains("alac") -> setOf(BinaryLyricsParser.MP4)
+            normalizedExt == "flac" || normalizedMime.contains("flac") ->
+                setOf(BinaryLyricsParser.ID3, BinaryLyricsParser.FLAC)
+            normalizedExt == "ape" || normalizedMime.contains("ape") ->
+                setOf(BinaryLyricsParser.ID3, BinaryLyricsParser.APE)
+            normalizedExt in setOf("mp3", "aac", "wav", "wave", "aiff", "aif") ||
+                normalizedMime.contains("mpeg") || normalizedMime.contains("aac") ||
+                normalizedMime.contains("wav") || normalizedMime.contains("aiff") -> setOf(BinaryLyricsParser.ID3)
+            else -> emptySet()
+        }
+    }
+
     private fun embeddedFormatKey(ext: String, mime: String): String = when {
-        ext in setOf("m4a", "m4b", "mp4", "aac", "alac") ||
+        ext in setOf("m4a", "m4b", "m4p", "mp4", "alac") ||
             mime.contains("mp4") || mime.contains("alac") -> "mp4"
         ext == "flac" || mime.contains("flac") -> "flac"
         ext == "mp3" || mime.contains("mpeg") || mime.contains("mp3") -> "mp3"
+        ext == "aac" || mime.contains("aac") -> "aac"
+        ext in setOf("wav", "wave") || mime.contains("wav") -> "wav"
+        ext in setOf("aiff", "aif") || mime.contains("aiff") -> "aiff"
         ext == "ape" || mime.contains("ape") -> "ape"
         else -> "other"
     }
@@ -182,7 +210,7 @@ internal object EmbeddedLyricsReader {
         ext: String = "wav",
     ): LyricsDocument? = readFromBinary(bytes, mime, ext)
 
-    private fun parseId3(bytes: ByteArray): LyricsDocument? {
+    internal fun readId3Document(bytes: ByteArray): LyricsDocument? {
         var searchFrom = 0
         var best: LyricsDocument? = null
         var bestScore = 0
@@ -473,7 +501,7 @@ internal object EmbeddedLyricsReader {
             val len = readUInt32Le(bytes, pos).toInt()
             pos += 4
             if (pos + len > end) return best
-            val entry = LyricsEncoding.decodeBytes(bytes.copyOfRange(pos, pos + len))
+            val entry = LyricsEncoding.decodeUtf8Bytes(bytes.copyOfRange(pos, pos + len))
             pos += len
             val eq = entry.indexOf('=')
             if (eq <= 0) continue
@@ -494,33 +522,44 @@ internal object EmbeddedLyricsReader {
 
     private fun parseApe(bytes: ByteArray): LyricsDocument? {
         val marker = "APETAGEX".toByteArray()
-        var search = bytes.size - marker.size
-        while (search >= 0) {
-            val idx = indexOf(bytes, marker, search.coerceAtLeast(0))
-            if (idx < 0) break
-            parseApeAt(bytes, idx)?.let { return it }
-            search = idx - 1
+        var search = 0
+        while (search <= bytes.size - marker.size) {
+            val idx = indexOf(bytes, marker, search)
+            if (idx < 0) return null
+            parseApeFooterAt(bytes, idx)?.let { return it }
+            parseApeItems(bytes, idx + 32, bytes.size, readUInt32Le(bytes, idx + 16))?.let { return it }
+            search = idx + marker.size
         }
         return null
     }
 
-    private fun parseApeAt(bytes: ByteArray, start: Int): LyricsDocument? {
-        if (start + 32 > bytes.size) return null
-        val tagSize = readUInt32Le(bytes, start + 12).toInt()
-        val itemCount = readUInt32Le(bytes, start + 16).toInt()
-        var pos = start + 32
-        val end = (start + tagSize).coerceAtMost(bytes.size)
+    private fun parseApeFooterAt(bytes: ByteArray, footerStart: Int): LyricsDocument? {
+        if (footerStart + 32 > bytes.size) return null
+        val tagSize = readUInt32Le(bytes, footerStart + 12)
+        if (tagSize < 32L || tagSize > footerStart.toLong() + 32L) return null
+        val itemsStart = footerStart - (tagSize - 32L).toInt()
+        return parseApeItems(bytes, itemsStart, footerStart, readUInt32Le(bytes, footerStart + 16))
+    }
+
+    private fun parseApeItems(bytes: ByteArray, start: Int, end: Int, itemCountLong: Long): LyricsDocument? {
+        if (start < 0 || start > end || end > bytes.size || itemCountLong > 100_000L) return null
+        val itemCount = itemCountLong.toInt()
+        var pos = start
         repeat(itemCount) {
             if (pos + 8 > end) return null
-            val valueLen = readUInt32Le(bytes, pos + 4).toInt()
+            val valueLenLong = readUInt32Le(bytes, pos)
+            if (valueLenLong > Int.MAX_VALUE) return null
+            val valueLen = valueLenLong.toInt()
+            val flags = readUInt32Le(bytes, pos + 4).toInt()
             pos += 8
             val keyEnd = indexOfByte(bytes, 0.toByte(), pos)
             if (keyEnd < 0 || keyEnd >= end) return null
             val key = String(bytes, pos, keyEnd - pos, Charsets.UTF_8).uppercase()
             pos = keyEnd + 1
-            if (pos + valueLen > end) return null
-            if (key.contains("LYRIC")) {
-                val value = LyricsEncoding.decodeBytes(bytes.copyOfRange(pos, pos + valueLen))
+            if (valueLen > end - pos) return null
+            val isTextItem = ((flags ushr 1) and 0x3) == 0
+            if (isTextItem && key.contains("LYRIC")) {
+                val value = LyricsEncoding.decodeUtf8Bytes(bytes.copyOfRange(pos, pos + valueLen))
                 parseLyricsText(value)?.let { return it }
             }
             pos += valueLen

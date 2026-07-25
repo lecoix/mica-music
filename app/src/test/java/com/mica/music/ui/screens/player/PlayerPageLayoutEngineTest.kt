@@ -3,8 +3,12 @@ package com.mica.music.ui.screens.player
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.data.CompactLyricsLineMode
+import com.mica.music.data.PlayerCoverFlowMode
+import com.mica.music.data.usesCompactLyricsLinePreference
 import com.mica.music.ui.theme.HifiTypography
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -59,6 +63,7 @@ class PlayerPageLayoutEngineTest {
         coverFlowModeEnabled: Boolean = false,
         coverSwitching: Boolean = false,
         spectrumSettingEnabled: Boolean = true,
+        compactLyricsLineMode: CompactLyricsLineMode = CompactLyricsLineMode.AUTO,
     ) = PlayerPageLayoutInput(
         panelHeight = panelHeight,
         screenHeight = 800.dp,
@@ -79,6 +84,7 @@ class PlayerPageLayoutEngineTest {
         spectrumSettingEnabled = spectrumSettingEnabled,
         spectrumDeferred = false,
         coverSwitching = coverSwitching,
+        compactLyricsLineMode = compactLyricsLineMode,
     )
 
     @Test
@@ -582,5 +588,62 @@ class PlayerPageLayoutEngineTest {
 
         assertTrue(frame.spectrumEnabled)
         assertEquals(false, normal.spectrumEnabled)
+    }
+
+    @Test
+    fun compactLyricsLineModeForcesOneEvenWhenHeightAllowsThree() {
+        val auto = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 400.dp,
+                particleCoverMode = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val forcedOne = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 400.dp,
+                particleCoverMode = true,
+                compactLyricsLineMode = CompactLyricsLineMode.ONE,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(auto.lower.lyricLineSlots >= 3)
+        assertEquals(1, forcedOne.lower.lyricLineSlots)
+        assertEquals(1, forcedOne.lower.spacing.lyricLineSlots)
+    }
+
+    @Test
+    fun compactLyricsLineModeForcesThreeEvenWhenHeightPrefersOne() {
+        val shortPanel = 220.dp
+        val auto = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(panelHeight = shortPanel),
+            density = density,
+            typography = typography,
+        )
+        val forcedThree = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = shortPanel,
+                compactLyricsLineMode = CompactLyricsLineMode.THREE,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(1, auto.lower.lyricLineSlots)
+        assertEquals(3, forcedThree.lower.lyricLineSlots)
+        assertEquals(3, forcedThree.lower.spacing.lyricLineSlots)
+    }
+
+    @Test
+    fun compactLyricsLinePreferenceAppliesOnlyToFourThemes() {
+        assertTrue(PlayerCoverFlowMode.STANDARD.usesCompactLyricsLinePreference())
+        assertTrue(PlayerCoverFlowMode.PARTICLE_COVER.usesCompactLyricsLinePreference())
+        assertTrue(PlayerCoverFlowMode.PAUSE_FOLD.usesCompactLyricsLinePreference())
+        assertTrue(PlayerCoverFlowMode.RETRO_3D.usesCompactLyricsLinePreference())
+        assertFalse(PlayerCoverFlowMode.CUSTOM_STANDARD.usesCompactLyricsLinePreference())
+        assertFalse(PlayerCoverFlowMode.PHOTO_STACK.usesCompactLyricsLinePreference())
     }
 }

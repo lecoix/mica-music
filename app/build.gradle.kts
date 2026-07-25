@@ -94,6 +94,7 @@ android {
         }
         create("perf") {
             initWith(getByName("release"))
+            versionNameSuffix = "-car-bt-test"
             isDebuggable = qaSideBySide
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")

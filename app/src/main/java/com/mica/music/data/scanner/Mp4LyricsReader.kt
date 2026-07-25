@@ -116,7 +116,6 @@ internal object Mp4LyricsReader {
             val itemSize = Id3Binary.readUInt32Be(bytes, pos).toInt()
             if (itemSize < 8) break
             val itemEnd = (pos + itemSize).coerceAtMost(ilstEnd)
-            if (itemEnd <= pos + 8) break
             when {
                 bytesMatch(bytes, pos + 4, cLyType) -> {
                     readItemDataText(bytes, pos + 8, itemEnd)?.let { return it }
@@ -139,7 +138,6 @@ internal object Mp4LyricsReader {
             val itemSize = Id3Binary.readUInt32Be(bytes, pos).toInt()
             if (itemSize < 8) break
             val itemEnd = (pos + itemSize).coerceAtMost(ilstEnd)
-            if (itemEnd <= pos + 8) break
             val type = itemTypeName(bytes, pos + 4)
             if (bytesMatch(bytes, pos + 4, freeformType)) {
                 readFreeformDebug(bytes, pos + 8, itemEnd)?.let { out += it }
@@ -243,7 +241,10 @@ internal object Mp4LyricsReader {
     private fun readDataAtomText(bytes: ByteArray, atomStart: Int, atomEnd: Int): String? {
         val textStart = atomStart + 16
         if (textStart >= atomEnd || atomEnd > bytes.size) return null
-        return LyricsEncoding.decodeBytes(bytes.copyOfRange(textStart, atomEnd)).trim()
+        return LyricsEncoding.decodeMp4DataBytes(
+            bytes.copyOfRange(textStart, atomEnd),
+            readDataTypeCode(bytes, atomStart),
+        ).trim()
     }
 
     private fun readDataTypeCode(bytes: ByteArray, atomStart: Int): Int {

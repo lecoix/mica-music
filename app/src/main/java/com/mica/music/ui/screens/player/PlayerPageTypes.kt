@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.player
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.data.CompactLyricsLineMode
 
 /** 播放页主场景（互斥优先级：Lyrics > Immersive > Normal）。 */
 enum class PlayerPageScene {
@@ -115,6 +116,7 @@ data class PlayerPageLayoutInput(
     val spectrumSettingEnabled: Boolean,
     val spectrumDeferred: Boolean,
     val coverSwitching: Boolean,
+    val compactLyricsLineMode: CompactLyricsLineMode = CompactLyricsLineMode.AUTO,
 )
 
 internal const val ImmersiveProgressEpsilon = 0.001f

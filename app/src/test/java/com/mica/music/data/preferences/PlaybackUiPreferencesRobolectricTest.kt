@@ -1,6 +1,7 @@
 package com.mica.music.data.preferences
 
 import com.mica.music.data.BrowseListInfoVisibility
+import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
@@ -60,6 +61,17 @@ class PlaybackUiPreferencesRobolectricTest {
         PlaybackUiPreferences.setKeepScreenOnWhenPlaying(context, true)
 
         assertTrue(PlaybackUiPreferences.keepScreenOnWhenPlaying(context))
+    }
+
+    @Test
+    fun compactLyricsLineModeDefaultsAutoAndRoundTrips() {
+        assertEquals(CompactLyricsLineMode.AUTO, PlaybackUiPreferences.compactLyricsLineMode(context))
+
+        PlaybackUiPreferences.setCompactLyricsLineMode(context, CompactLyricsLineMode.ONE)
+        assertEquals(CompactLyricsLineMode.ONE, PlaybackUiPreferences.compactLyricsLineMode(context))
+
+        PlaybackUiPreferences.setCompactLyricsLineMode(context, CompactLyricsLineMode.THREE)
+        assertEquals(CompactLyricsLineMode.THREE, PlaybackUiPreferences.compactLyricsLineMode(context))
     }
 
     @Test

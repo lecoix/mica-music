@@ -2,6 +2,7 @@ package com.mica.music.data.preferences
 
 import android.content.Context
 import com.mica.music.data.BrowseListInfoVisibility
+import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
@@ -42,6 +43,7 @@ object PlaybackUiPreferences {
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_KEEP_SCREEN_ON_WHEN_PLAYING = "keep_screen_on_when_playing"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
+    private const val KEY_COMPACT_LYRICS_LINE_MODE = "compact_lyrics_line_mode"
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
     internal const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
     private const val KEY_SONG_LIST_INFO_SHOW_COUNT = "song_list_info_show_count"
@@ -308,6 +310,17 @@ object PlaybackUiPreferences {
     fun setPlayerImmersiveLower(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_PLAYER_IMMERSIVE_LOWER, enabled)
+            .apply()
+    }
+
+    fun compactLyricsLineMode(context: Context): CompactLyricsLineMode =
+        CompactLyricsLineMode.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_COMPACT_LYRICS_LINE_MODE, null),
+        )
+
+    fun setCompactLyricsLineMode(context: Context, mode: CompactLyricsLineMode) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_COMPACT_LYRICS_LINE_MODE, mode.storageValue)
             .apply()
     }
 

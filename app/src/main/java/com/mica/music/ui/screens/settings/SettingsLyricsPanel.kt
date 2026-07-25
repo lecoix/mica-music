@@ -196,4 +196,11 @@ internal fun LyricsSettingsPanel(
         checked = uiSettings.notificationLyricsEnabled,
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )
+
+    SettingsToggleRow(
+        title = "车载蓝牙歌词（实验）",
+        subtitle = "使用独立的无队列媒体会话向蓝牙设备发送歌词；可能影响部分车机的媒体控制",
+        checked = uiSettings.carBluetoothLyricsEnabled,
+        onCheckedChange = { uiSettings.updateCarBluetoothLyricsEnabled(it) },
+    )
 }

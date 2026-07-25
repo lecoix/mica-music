@@ -333,6 +333,7 @@ class LyricsParsingTest {
         assertTrue(LyricsEncoding.decodeBytes(text.toByteArray(StandardCharsets.UTF_16)).contains("Mica"))
         assertTrue(LyricsEncoding.decodeBytes(text.toByteArray(charset("GBK"))).contains("Mica"))
     }
+
 }
 
 private class AndroidLikeDocumentBuilderFactory : DocumentBuilderFactory() {

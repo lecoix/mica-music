@@ -28,6 +28,9 @@ class BinaryParserFuzzTest {
                 Mp4LyricsReader.listIlstItems(bytes)
                 Mp4AtomTextReader.read(bytes, listOf("data".toByteArray()))
                 EncoderSettingsReader.fromBytes(bytes)
+                listOf("mp3", "flac", "ape", "m4a", "ogg").forEach { ext ->
+                    EmbeddedLyricsReader.readDocumentFromBinaryForTest(bytes, ext = ext)
+                }
                 LyricsEncoding.decodeBytes(bytes)
             } catch (error: Throwable) {
                 throw AssertionError(

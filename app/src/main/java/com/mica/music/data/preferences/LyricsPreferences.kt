@@ -19,6 +19,7 @@ import com.mica.music.data.LyricsSlot
 object LyricsPreferences {
     internal enum class NotificationLyricsChange {
         ENABLED,
+        CAR_BLUETOOTH_ENABLED,
         DISPLAY,
         SOURCE,
     }
@@ -35,6 +36,7 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_LINE_SPACING = "lyrics_page_line_spacing"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
+    private const val KEY_CAR_BLUETOOTH_LYRICS_ENABLED = "car_bluetooth_lyrics_enabled"
     private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
     private const val KEY_LYRICS_SLOT_PRIORITY = "lyrics_slot_priority"
 
@@ -202,6 +204,15 @@ object LyricsPreferences {
             .apply()
     }
 
+    fun carBluetoothLyricsEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_CAR_BLUETOOTH_LYRICS_ENABLED, false)
+
+    fun setCarBluetoothLyricsEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_CAR_BLUETOOTH_LYRICS_ENABLED, enabled)
+            .apply()
+    }
+
     fun infoRowLyricsEnabled(context: Context): Boolean =
         MicaSettingsStore.prefs(context).getBoolean(KEY_INFO_ROW_LYRICS_ENABLED, false)
 
@@ -219,6 +230,7 @@ object LyricsPreferences {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             val change = when (key) {
                 KEY_NOTIFICATION_LYRICS_ENABLED -> NotificationLyricsChange.ENABLED
+                KEY_CAR_BLUETOOTH_LYRICS_ENABLED -> NotificationLyricsChange.CAR_BLUETOOTH_ENABLED
                 KEY_LYRIC_SPLIT_ENABLED,
                 KEY_LYRICS_BILINGUAL_DISPLAY_MODE,
                 -> NotificationLyricsChange.DISPLAY

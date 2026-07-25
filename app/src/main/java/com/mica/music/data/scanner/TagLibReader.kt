@@ -28,7 +28,7 @@ internal object TagLibReader {
         val trackNumber: Int,
         /** 0 表示未知 */
         val discNumber: Int,
-        val lyricsCandidates: List<String>,
+        val lyricsCandidates: List<EmbeddedLyricsTextCandidate>,
         val frontCoverBytes: ByteArray?,
         val replayGain: ReplayGainTags,
     )
@@ -73,14 +73,20 @@ internal object TagLibReader {
         return ""
     }
 
-    private fun lyricsCandidates(tags: Map<String, Array<String>>): List<String> =
+    private fun lyricsCandidates(tags: Map<String, Array<String>>): List<EmbeddedLyricsTextCandidate> =
         tags.entries
             .filter { (key, _) ->
-                key == "LYRICS" || key.startsWith("LYRICS:") ||
-                    key == "UNSYNCEDLYRICS" || key == "UNSYNCED LYRICS"
+                val normalized = key.uppercase()
+                normalized == "LYRICS" || normalized.startsWith("LYRICS:") ||
+                    normalized.startsWith("SYNCEDLYRICS") || normalized == "SYNCED LYRICS" ||
+                    normalized == "TTML" || normalized.startsWith("TTML:") ||
+                    normalized.startsWith("UNSYNCEDLYRICS") || normalized == "UNSYNCED LYRICS"
             }
-            .flatMap { it.value.asList() }
-            .filter { it.isNotBlank() }
+            .flatMap { (key, values) ->
+                values.mapNotNull { value ->
+                    value.takeIf { it.isNotBlank() }?.let { EmbeddedLyricsTextCandidate(key, it) }
+                }
+            }
 
     private val yearRegex = Regex("""\d{4}""")
 

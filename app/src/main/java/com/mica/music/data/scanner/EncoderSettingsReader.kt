@@ -269,10 +269,11 @@ internal object AudioProbeBytes {
             ext == "mp3" || mime.contains("mpeg") -> readId3Tag(context, uri)
             ext == "flac" || mime.contains("flac") -> readFlacMetadata(context, uri)
             ext == "ape" -> readTail(context, uri, 2 * 1024 * 1024)
-            ext in setOf("m4a", "m4b", "mp4", "aac", "alac") || mime.contains("mp4") -> {
+            ext in setOf("m4a", "m4b", "m4p", "mp4", "alac") || mime.contains("mp4") -> {
                 readMp4Moov(context, uri)
                     ?: readHeadAndTail(context, uri, headBytes = 2 * 1024 * 1024, tailBytes = 4 * 1024 * 1024)
             }
+            ext == "aac" || mime.contains("aac") -> readId3Tag(context, uri)
             else -> readId3Tag(context, uri)
                 ?: readHeadAndTail(context, uri, headBytes = 512 * 1024, tailBytes = 512 * 1024)
         }

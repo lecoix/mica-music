@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.settings
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppFontSource
 import com.mica.music.data.AppThemeMode
+import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
@@ -63,6 +64,10 @@ internal val CoverDisplayChoices = CoverDisplayMode.entries.map {
 }
 
 internal val PlayerCoverFlowChoices = PlayerCoverFlowMode.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+internal val CompactLyricsLineModeChoices = CompactLyricsLineMode.entries.map {
     it.ordinal to it.settingsLabel
 }
 

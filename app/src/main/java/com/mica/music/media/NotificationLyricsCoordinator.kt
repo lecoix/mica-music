@@ -32,6 +32,7 @@ internal class NotificationLyricsCoordinator(
     private val context: Context,
     private val player: Player,
     handler: Handler,
+    private val carBluetoothLyrics: CarBluetoothLyricsSink? = null,
     private val songLoader: suspend (LyricsLoadSpec) -> Song? = { spec ->
         LibraryRepository(context.applicationContext).songById(spec.songId, spec.priority)
     },
@@ -116,7 +117,12 @@ internal class NotificationLyricsCoordinator(
                         lastSignature = null
                     }
                     LyricsPreferences.NotificationLyricsChange.SOURCE -> resetPendingLoad()
-                    LyricsPreferences.NotificationLyricsChange.ENABLED -> Unit
+                    LyricsPreferences.NotificationLyricsChange.ENABLED,
+                    LyricsPreferences.NotificationLyricsChange.CAR_BLUETOOTH_ENABLED,
+                    -> {
+                        lastPublishedIndex = null
+                        lastSignature = null
+                    }
                 }
                 reconcile()
             }
@@ -157,16 +163,22 @@ internal class NotificationLyricsCoordinator(
         }
         playerHandler.removeCallbacks(wakeUp)
         val nowRealtimeMs = SystemClock.elapsedRealtime()
+        val notificationEnabled = LyricsPreferences.notificationLyricsEnabled(appContext)
+        val carBluetoothEnabled = LyricsPreferences.carBluetoothLyricsEnabled(appContext)
+        carBluetoothLyrics?.setEnabled(carBluetoothEnabled)
         val item = player.currentMediaItem
         val decoded = item?.let(SongMediaItemCodec::decode)
         if (item == null || decoded == null) {
+            carBluetoothLyrics?.clear()
             resetForSong(null)
             return
         }
         if (trackedSongId != decoded.id) resetForSong(decoded.id)
 
-        if (!LyricsPreferences.notificationLyricsEnabled(appContext)) {
+        if (!notificationEnabled) {
             restoreDefaultMetadataIfNeeded(decoded, item)
+        }
+        if (!notificationEnabled && !carBluetoothEnabled) {
             return
         }
 
@@ -194,11 +206,21 @@ internal class NotificationLyricsCoordinator(
                 lastPublishedRealtimeMs = lastPublishedRealtimeMs,
             )
             plan.publishIndex?.let { index ->
-                publish(decoded, item, activeSpec ?: spec, session, index, nowRealtimeMs)
+                publish(
+                    song = decoded,
+                    item = item,
+                    spec = activeSpec ?: spec,
+                    session = session,
+                    index = index,
+                    nowRealtimeMs = nowRealtimeMs,
+                    notificationEnabled = notificationEnabled,
+                    carBluetoothEnabled = carBluetoothEnabled,
+                )
             }
             plannedWakeInMs = plan.wakeInMs
         } else {
-            restoreDefaultMetadataIfNeeded(decoded, item)
+            if (notificationEnabled) restoreDefaultMetadataIfNeeded(decoded, item)
+            if (carBluetoothEnabled) carBluetoothLyrics?.publishDefault(decoded)
         }
 
         val retryWakeInMs = retryAtRealtimeMs
@@ -300,6 +322,8 @@ internal class NotificationLyricsCoordinator(
         session: LyricsSession,
         index: Int,
         nowRealtimeMs: Long,
+        notificationEnabled: Boolean,
+        carBluetoothEnabled: Boolean,
     ) {
         val display = NotificationLyrics.displayOptions(appContext)
         val displayLine = NotificationLyrics.lyricLineText(session.lyrics, index, display)
@@ -318,6 +342,13 @@ internal class NotificationLyricsCoordinator(
         val signature = NotificationLyrics.signature(song.id, index, "$inputRevision|$displayLine")
         if (signature == lastSignature) {
             lastPublishedIndex = index
+            return
+        }
+        if (carBluetoothEnabled) carBluetoothLyrics?.publishLyric(song, displayLine)
+        if (!notificationEnabled) {
+            lastPublishedIndex = index
+            lastPublishedRealtimeMs = nowRealtimeMs
+            lastSignature = signature
             return
         }
         val currentMetadata = item.mediaMetadata

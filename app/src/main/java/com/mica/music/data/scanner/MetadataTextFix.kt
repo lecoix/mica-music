@@ -19,6 +19,24 @@ internal object MetadataTextFix {
         return LyricsEncoding.stripBomAndControls(result)
     }
 
+    /** Repairs TagLib text that a legacy native decoder already interpreted as GBK. */
+    fun normalizeTrustedLyrics(text: String): String {
+        val normalized = normalize(text)
+        if (normalized.isBlank()) return normalized
+        for (charsetName in listOf("GB18030", "GBK")) {
+            val repaired = runCatching {
+                LyricsEncoding.decodeUtf8Bytes(normalized.toByteArray(Charset.forName(charsetName)))
+            }.getOrNull()
+            if (!repaired.isNullOrBlank() && repaired != normalized &&
+                repaired.length < normalized.length &&
+                repaired.any { it.code in 0x3040..0x9FFF || it.code in 0xAC00..0xD7AF }
+            ) {
+                return repaired
+            }
+        }
+        return normalized
+    }
+
     /** Normalizes visible text while retaining whitespace that separates timed lyric cues. */
     fun normalizeFragment(text: String): String {
         if (text.isEmpty() || text.all { it.isWhitespace() }) return text
