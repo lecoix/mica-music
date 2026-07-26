@@ -14,7 +14,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,8 +46,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mica.music.R
@@ -76,6 +82,9 @@ import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private val HomeDrawerSwipeVelocityThreshold = 400.dp
+private const val HomeDrawerSwipePositionThreshold = 0.5f
 
 @Composable
 fun HomeScreen(
@@ -392,6 +401,7 @@ fun HomeScreen(
 
     val canNavigateBack = canNavigateBack(currentNavigationSnapshot())
     val showFolderMenuButton = showFolderMenuButton(uiState.section, uiState.searchOpen)
+    val showBackButton = canNavigateBack && !showFolderMenuButton
 
     LaunchedEffect(
         drawerOpen,
@@ -577,17 +587,28 @@ fun HomeScreen(
 
     val motionEnabled = rememberMicaMotionEnabled()
     val drawerWidth = homeDrawerWidth()
-    val drawerPushTween = MicaMotion.tweenDp(motionEnabled, MicaMotion.DurationMediumMs)
-    val contentOffsetX by animateDpAsState(
-        targetValue = if (drawerOpen) drawerWidth else 0.dp,
-        animationSpec = drawerPushTween,
-        label = "homeContentPush",
-    )
-    val drawerOffsetX by animateDpAsState(
-        targetValue = if (drawerOpen) 0.dp else -drawerWidth,
-        animationSpec = drawerPushTween,
-        label = "homeDrawerSlide",
-    )
+    val drawerProgress = remember { Animatable(if (drawerOpen) 1f else 0f) }
+    val drawerDragProgress = remember { mutableFloatStateOf(drawerProgress.value) }
+    var drawerDragging by remember { mutableStateOf(false) }
+    val drawerPushTween = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationMediumMs)
+    LaunchedEffect(drawerOpen, drawerDragging, motionEnabled) {
+        if (!drawerDragging) {
+            drawerProgress.animateTo(
+                targetValue = if (drawerOpen) 1f else 0f,
+                animationSpec = drawerPushTween,
+            )
+        }
+    }
+    val visibleDrawerProgress = if (drawerDragging) {
+        drawerDragProgress.floatValue
+    } else {
+        drawerProgress.value
+    }
+    val contentOffsetX = drawerWidth * visibleDrawerProgress
+    val drawerOffsetX = -drawerWidth * (1f - visibleDrawerProgress)
+    val drawerVelocityThresholdPx = with(LocalDensity.current) {
+        HomeDrawerSwipeVelocityThreshold.toPx()
+    }
     val drawerBottomInset = if (currentSong != null) {
         miniPlayerOverlayHeight(miniPlayerStyle)
     } else {
@@ -628,6 +649,26 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .offset(x = contentOffsetX)
+                .homeDrawerSwipe(
+                    enabled = !showBackButton && !playerOverlayOpen,
+                    drawerWidth = drawerWidth,
+                    onProgressChange = { drawerDragProgress.floatValue = it },
+                    onDragStarted = {
+                        drawerProgress.stop()
+                        drawerDragProgress.floatValue = drawerProgress.value
+                        drawerDragging = true
+                        drawerProgress.value
+                    },
+                    onDragStopped = { progress, velocity ->
+                        drawerProgress.snapTo(progress)
+                        drawerOpen = homeDrawerTargetOpen(
+                            progress = progress,
+                            velocityPxPerSecond = velocity,
+                            velocityThresholdPxPerSecond = drawerVelocityThresholdPx,
+                        )
+                        drawerDragging = false
+                    },
+                )
                 .padding(top = statusBarTop),
         ) {
         Column(
@@ -635,7 +676,7 @@ fun HomeScreen(
         ) {
             HomeTopBar(
                 title = topBarTitle,
-                showBack = canNavigateBack && !showFolderMenuButton,
+                showBack = showBackButton,
                 searchOpen = uiState.searchOpen,
                 searchQuery = uiState.searchQuery,
                 onSearchQueryChange = { query ->
@@ -986,4 +1027,47 @@ fun HomeScreen(
         )
     }
     }
+}
+
+@Composable
+internal fun Modifier.homeDrawerSwipe(
+    enabled: Boolean,
+    drawerWidth: Dp,
+    onProgressChange: (Float) -> Unit,
+    onDragStarted: suspend () -> Float,
+    onDragStopped: suspend (progress: Float, velocityPxPerSecond: Float) -> Unit,
+): Modifier {
+    val drawerWidthPx = with(LocalDensity.current) { drawerWidth.toPx() }.coerceAtLeast(1f)
+    val currentDrawerWidthPx by rememberUpdatedState(drawerWidthPx)
+    val currentOnProgressChange by rememberUpdatedState(onProgressChange)
+    val currentOnDragStarted by rememberUpdatedState(onDragStarted)
+    val currentOnDragStopped by rememberUpdatedState(onDragStopped)
+    val gestureProgress = remember { mutableFloatStateOf(0f) }
+    val draggableState = rememberDraggableState { deltaPx ->
+        val updated =
+            (gestureProgress.floatValue + deltaPx / currentDrawerWidthPx).coerceIn(0f, 1f)
+        gestureProgress.floatValue = updated
+        currentOnProgressChange(updated)
+    }
+    return draggable(
+        state = draggableState,
+        orientation = Orientation.Horizontal,
+        enabled = enabled,
+        onDragStarted = {
+            gestureProgress.floatValue = currentOnDragStarted()
+        },
+        onDragStopped = { velocity ->
+            currentOnDragStopped(gestureProgress.floatValue, velocity)
+        },
+    )
+}
+
+internal fun homeDrawerTargetOpen(
+    progress: Float,
+    velocityPxPerSecond: Float,
+    velocityThresholdPxPerSecond: Float,
+): Boolean = when {
+    velocityPxPerSecond >= velocityThresholdPxPerSecond -> true
+    velocityPxPerSecond <= -velocityThresholdPxPerSecond -> false
+    else -> progress >= HomeDrawerSwipePositionThreshold
 }
