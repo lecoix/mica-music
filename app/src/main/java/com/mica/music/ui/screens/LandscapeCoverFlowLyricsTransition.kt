@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
@@ -22,9 +23,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.zIndex
 
+/** How landscape cover-flow artwork leaves the player for a lyrics destination. */
+internal enum class LandscapeCoverFlowCoverExit {
+    /** Classic LIST: fold sides and settle into the left cover lane. */
+    LyricsLane,
+    /** PAUSE_FOLD + cloud: fold sides; center shrinks/fades in place. */
+    CloudFold,
+    /** RETRO_3D + cloud: fold sides; center lifts away with stronger depth motion. */
+    CloudScatter,
+}
+
 /**
- * Persistent landscape cover-flow artwork layer. [progress] 0 = player stage, 1 = lyrics-list
- * left lane; [foldProgress] is derived as `1 - progress` for side-cover collapse.
+ * Persistent landscape cover-flow artwork layer. [progress] 0 = player stage, 1 = exit complete;
+ * [foldProgress] is derived as `1 - progress` for side-cover collapse.
  */
 @Composable
 internal fun LandscapeCoverFlowCoverLayer(
@@ -38,6 +49,7 @@ internal fun LandscapeCoverFlowCoverLayer(
     topPadding: Dp,
     coverContent: @Composable (modifier: Modifier, foldProgress: Float) -> Unit,
     modifier: Modifier = Modifier,
+    exit: LandscapeCoverFlowCoverExit = LandscapeCoverFlowCoverExit.LyricsLane,
 ) {
     val t = progress.coerceIn(0f, 1f)
     val foldProgress = 1f - t
@@ -67,22 +79,75 @@ internal fun LandscapeCoverFlowCoverLayer(
         val lyricsCoverTranslationY =
             lyricsCoverTop + lyricsCoverSize / 2 - safeCoverHeight / 2
 
-        val coverScale = playerCoverScale + (lyricsCoverScale - playerCoverScale) * t
-        val coverTranslationX = (lyricsCenterX - playerCenterX) * t
-        val coverTranslationY = lerp(playerCoverTranslationY, lyricsCoverTranslationY, t)
+        val pose = landscapeCoverFlowCoverPose(
+            progress = t,
+            exit = exit,
+            playerCoverScale = playerCoverScale,
+            playerCoverTranslationY = playerCoverTranslationY,
+            lyricsCoverScale = lyricsCoverScale,
+            lyricsCoverTranslationY = lyricsCoverTranslationY,
+            coverTranslationXTarget = lyricsCenterX - playerCenterX,
+        )
 
         coverContent(
             Modifier
                 .fillMaxWidth()
                 .graphicsLayer {
-                    scaleX = coverScale
-                    scaleY = coverScale
-                    translationX = coverTranslationX.toPx()
-                    translationY = coverTranslationY.toPx()
+                    scaleX = pose.scale
+                    scaleY = pose.scale
+                    translationX = pose.translationX.toPx()
+                    translationY = pose.translationY.toPx()
+                    alpha = pose.alpha
+                    rotationX = pose.rotationX
+                    transformOrigin = TransformOrigin(0.5f, 0.45f)
                     clip = false
                 }
                 .zIndex(1f),
             foldProgress,
+        )
+    }
+}
+
+internal data class LandscapeCoverFlowCoverPose(
+    val scale: Float,
+    val translationX: Dp,
+    val translationY: Dp,
+    val alpha: Float,
+    val rotationX: Float,
+)
+
+internal fun landscapeCoverFlowCoverPose(
+    progress: Float,
+    exit: LandscapeCoverFlowCoverExit,
+    playerCoverScale: Float,
+    playerCoverTranslationY: Dp,
+    lyricsCoverScale: Float,
+    lyricsCoverTranslationY: Dp,
+    coverTranslationXTarget: Dp,
+): LandscapeCoverFlowCoverPose {
+    val t = progress.coerceIn(0f, 1f)
+    return when (exit) {
+        LandscapeCoverFlowCoverExit.LyricsLane -> LandscapeCoverFlowCoverPose(
+            scale = playerCoverScale + (lyricsCoverScale - playerCoverScale) * t,
+            translationX = coverTranslationXTarget * t,
+            translationY = lerp(playerCoverTranslationY, lyricsCoverTranslationY, t),
+            alpha = 1f,
+            rotationX = 0f,
+        )
+        LandscapeCoverFlowCoverExit.CloudFold -> LandscapeCoverFlowCoverPose(
+            scale = playerCoverScale * (1f - 0.32f * t),
+            translationX = 0.dp,
+            translationY = playerCoverTranslationY - 36.dp * t,
+            alpha = 1f - t,
+            rotationX = 0f,
+        )
+        LandscapeCoverFlowCoverExit.CloudScatter -> LandscapeCoverFlowCoverPose(
+            scale = playerCoverScale * (1f - 0.48f * t),
+            translationX = 0.dp,
+            translationY = playerCoverTranslationY - 96.dp * t,
+            alpha = 1f - t,
+            // Keep planar shrink/lift only — rotationX reads as warped cover art.
+            rotationX = 0f,
         )
     }
 }

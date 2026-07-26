@@ -108,6 +108,36 @@ class LandscapePlayerPolicyTest {
     }
 
     @Test
+    fun coverFlowThemesUseDedicatedLandscapeCloudExit() {
+        listOf(
+            PlayerCoverFlowMode.PAUSE_FOLD,
+            PlayerCoverFlowMode.RETRO_3D,
+        ).forEach { mode ->
+            assertTrue(
+                landscapeCoverFlowCloudExitActive(
+                    landscapeMode = true,
+                    mode = mode,
+                    lyricsCloudAvailable = true,
+                ),
+            )
+            assertFalse(
+                landscapeCoverFlowCloudExitActive(
+                    landscapeMode = true,
+                    mode = mode,
+                    lyricsCloudAvailable = false,
+                ),
+            )
+        }
+        assertFalse(
+            landscapeCoverFlowCloudExitActive(
+                landscapeMode = true,
+                mode = PlayerCoverFlowMode.STANDARD,
+                lyricsCloudAvailable = true,
+            ),
+        )
+    }
+
+    @Test
     fun unfinishedThemesUseStaticStandardFallback() {
         listOf(
             PlayerCoverFlowMode.CUSTOM_STANDARD,

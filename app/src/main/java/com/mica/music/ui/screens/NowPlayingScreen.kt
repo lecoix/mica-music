@@ -87,6 +87,7 @@ import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
+import com.mica.music.ui.screens.player.landscapeCoverFlowCloudExitActive
 import com.mica.music.ui.screens.player.landscapeCoverFlowStageActive
 import com.mica.music.ui.screens.player.landscapeCoverModeForPage
 import com.mica.music.ui.screens.player.landscapeChromeHeight
@@ -506,12 +507,36 @@ fun NowPlayingContent(
             val customHorizontalClassicRequested = lyricsExpanded && horizontalClassicMounted
             val classicLyricsExpanded =
                 lyricsExpanded && !lyricsCloudAvailable && !customHorizontalClassicRequested
+            val useVerticalCloudSplit = lyricsCloudUsesVerticalSplit(effectiveCoverFlowMode)
+            val lyricsPageTransition by animateFloatAsState(
+                targetValue = if (lyricsCloudRequested || customHorizontalClassicRequested) 1f else 0f,
+                animationSpec = tween(
+                    durationMillis = if (motionEnabled) MicaMotion.DurationLongMs else 0,
+                    easing = MicaMotion.Easing,
+                ),
+                label = "lyricsPageTransition",
+            )
+            // Landscape cover-flow + cloud: theme-specific cover exit (fold / scatter).
+            val coverFlowCloudExitActive = landscapeCoverFlowCloudExitActive(
+                landscapeMode = landscapeMode,
+                mode = effectiveCoverFlowMode,
+                lyricsCloudAvailable = lyricsCloudAvailable && !customHorizontalClassicRequested,
+            )
+            val coverFlowCloudExitProgress =
+                if (coverFlowCloudExitActive) lyricsPageTransition else 0f
+            val coverFlowCloudExitVisible =
+                coverFlowCloudExitActive &&
+                    (lyricsCloudRequested || coverFlowCloudExitProgress > 0.001f)
+            val coverFlowCloudExitStyle = when (effectiveCoverFlowMode) {
+                PlayerCoverFlowMode.RETRO_3D -> LandscapeCoverFlowCoverExit.CloudScatter
+                else -> LandscapeCoverFlowCoverExit.CloudFold
+            }
             val landscapeCoverFlowLyricsTransitionActive =
                 landscapeCoverFlowStageActive(
                     landscapeMode = landscapeMode,
                     mode = effectiveCoverFlowMode,
                     lyricsCloudRequested = lyricsCloudRequested,
-                )
+                ) && !coverFlowCloudExitVisible
             val landscapeCoverFlowLyricsProgress by animateFloatAsState(
                 targetValue = if (
                     landscapeCoverFlowLyricsTransitionActive && classicLyricsExpanded
@@ -523,24 +548,20 @@ fun NowPlayingContent(
                 animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationLongMs),
                 label = "landscapeCoverFlowLyricsProgress",
             )
-            val useVerticalCloudSplit = lyricsCloudUsesVerticalSplit(effectiveCoverFlowMode)
-            val lyricsPageTransition by animateFloatAsState(
-                targetValue = if (lyricsCloudRequested || customHorizontalClassicRequested) 1f else 0f,
-                animationSpec = tween(
-                    durationMillis = if (motionEnabled) MicaMotion.DurationLongMs else 0,
-                    easing = MicaMotion.Easing,
-                ),
-                label = "lyricsPageTransition",
-            )
-            // Landscape STANDARD + cloud: player scatters outward, cloud expands from center
-            // (instead of the shared horizontal slide used by portrait / custom classic).
+            // Landscape STANDARD + cloud: player scatters outward, cloud expands from center.
             val landscapeCloudBurstActive =
-                landscapeMode && lyricsCloudAvailable && !customHorizontalClassicRequested
+                landscapeMode &&
+                    lyricsCloudAvailable &&
+                    !customHorizontalClassicRequested &&
+                    !coverFlowCloudExitActive
             val landscapeCloudBurst =
                 if (landscapeCloudBurstActive) lyricsPageTransition else 0f
+            val landscapeCloudExitProgress =
+                maxOf(landscapeCloudBurst, coverFlowCloudExitProgress)
             val landscapeCloudFullyOpen =
                 landscapeMode && lyricsCloudRequested && lyricsPageTransition >= 0.999f
-            val landscapeCloudScatterPx = with(density) { 96.dp.toPx() } * landscapeCloudBurst
+            val landscapeCloudScatterPx =
+                with(density) { 96.dp.toPx() } * landscapeCloudExitProgress
 
             val modelLyricsExpanded = classicLyricsExpanded && !landscapeMode
             val pageModel = rememberPlayerPageUiModel(
@@ -760,25 +781,25 @@ fun NowPlayingContent(
                     ),
                     controlsBottomPadding = 0.dp,
                 )
-                val cloudHeaderMod = if (landscapeCloudBurst > 0.001f) {
+                val cloudHeaderMod = if (landscapeCloudExitProgress > 0.001f) {
                     Modifier.graphicsLayer {
                         translationY = -landscapeCloudScatterPx
-                        alpha = 1f - landscapeCloudBurst
+                        alpha = 1f - landscapeCloudExitProgress
                     }
                 } else {
                     Modifier
                 }
-                val cloudLyricsMod = if (landscapeCloudBurst > 0.001f) {
+                val cloudLyricsMod = if (landscapeCloudExitProgress > 0.001f) {
                     Modifier.graphicsLayer {
-                        alpha = 1f - landscapeCloudBurst
+                        alpha = 1f - landscapeCloudExitProgress
                     }
                 } else {
                     Modifier
                 }
-                val cloudChromeMod = if (landscapeCloudBurst > 0.001f) {
+                val cloudChromeMod = if (landscapeCloudExitProgress > 0.001f) {
                     Modifier.graphicsLayer {
                         translationY = landscapeCloudScatterPx
-                        alpha = 1f - landscapeCloudBurst
+                        alpha = 1f - landscapeCloudExitProgress
                     }
                 } else {
                     Modifier
@@ -845,8 +866,8 @@ fun NowPlayingContent(
                         .padding(contentPadding)
                         .padding(top = landscapeTopPadding)
                         .graphicsLayer {
-                            if (landscapeCloudBurstActive) {
-                                val t = landscapeCloudBurst
+                            if (landscapeCloudBurstActive || coverFlowCloudExitActive) {
+                                val t = landscapeCloudExitProgress
                                 val scale = 0.88f + 0.12f * t
                                 scaleX = scale
                                 scaleY = scale
@@ -880,7 +901,9 @@ fun NowPlayingContent(
                     .fillMaxSize()
                     .graphicsLayer {
                         translationX = when {
-                            useVerticalCloudSplit || landscapeCloudBurstActive -> 0f
+                            useVerticalCloudSplit ||
+                                landscapeCloudBurstActive ||
+                                coverFlowCloudExitActive -> 0f
                             else -> -with(density) { fullWidth.toPx() } * lyricsPageTransition
                         }
                     },
@@ -1137,6 +1160,107 @@ fun NowPlayingContent(
                             }
                         }
                     }
+                } else if (coverFlowCloudExitVisible) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LandscapeCoverFlowCoverLayer(
+                            progress = coverFlowCloudExitProgress,
+                            exit = coverFlowCloudExitStyle,
+                            edgePadding = landscapeEdgePadding,
+                            coverHeight = previewFrame.cover.height,
+                            contentPadding = contentPadding,
+                            lyricsCoverSize = classicCoverSize,
+                            coverLaneWidth = landscapePlan.coverLaneWidthDp.dp,
+                            horizontalPadding = landscapePlan.horizontalPaddingDp.dp,
+                            topPadding = landscapeTopPadding,
+                            coverContent = { landscapeCoverModifier, foldProgress ->
+                                coverSection(
+                                    landscapeCoverModifier
+                                        .requiredHeight(previewFrame.cover.blockHeight)
+                                        .then(externalCoverIncomingWipe),
+                                    ((screenWidth - previewFrame.cover.width) / 2)
+                                        .coerceAtLeast(0.dp),
+                                    foldProgress,
+                                )
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        val barScatter = if (coverFlowCloudExitProgress > 0.001f) {
+                            Modifier.graphicsLayer {
+                                alpha = 1f - coverFlowCloudExitProgress
+                                translationY = landscapeCloudScatterPx * 0.45f
+                            }
+                        } else {
+                            Modifier
+                        }
+                        LandscapeCoverFlowPlayerBar(
+                            edgePadding = landscapeEdgePadding,
+                            contentPadding = contentPadding,
+                            showStandardProgress =
+                                !previewFrame.lower.coverEdgeOnPlaySurface,
+                            titleContent = { titleModifier ->
+                                DirectionalTrackWipe(
+                                    targetState = song,
+                                    contentKey = Song::id,
+                                    direction = null,
+                                    motionEnabled = motionEnabled,
+                                    modifier = titleModifier.then(barScatter),
+                                ) { titleSong ->
+                                    SongTitleSection(
+                                        title = SongTitleDisplay.displayTitle(
+                                            titleSong.title,
+                                            uiSettings.stripSongTitleParentheses,
+                                        ),
+                                        artist = titleSong.artist,
+                                        album = titleSong.album,
+                                        isBuffering = surfaceState.isBuffering,
+                                        playbackError = surfaceState.playbackError,
+                                        colors = playerUiColors,
+                                        immersiveProgress = 0f,
+                                        showAlbum = false,
+                                        contentScale = 0.84f,
+                                        onClick = { lyricsExpanded = true },
+                                        onLongPress = { openSongActionMenu(song) },
+                                    )
+                                }
+                            },
+                            lyricsContent = { lyricsModifier ->
+                                LandscapeSingleLineLyrics(
+                                    renderState = lyricsRenderState,
+                                    isPlaying = surfaceState.isPlaying,
+                                    colors = lyricsColors,
+                                    onClick = { lyricsExpanded = true },
+                                    bilingualDisplayMode =
+                                        uiSettings.lyricsBilingualDisplayMode,
+                                    modifier = lyricsModifier.then(barScatter),
+                                )
+                            },
+                            progressContent = { progressModifier ->
+                                PlayerProgressBarSection(
+                                    seekState = seekState,
+                                    colors = playerUiColors,
+                                    spectrumEnabled = false,
+                                    spectrumPlaying = surfaceState.isPlaying,
+                                    modifier = progressModifier.then(barScatter),
+                                    visualScale = 0.74f,
+                                )
+                            },
+                            controlsContent = { controlsModifier ->
+                                PlayerPlaybackControlsSection(
+                                    surfaceState = surfaceState,
+                                    colors = playerUiColors,
+                                    onCyclePlaybackQueueMode =
+                                        actions.cyclePlaybackQueueMode,
+                                    onPrevious = onPlayerPrevious,
+                                    onTogglePlay = actions.togglePlay,
+                                    onNext = onPlayerNext,
+                                    onOpenQueue = { queueSheetOpen = true },
+                                    modifier = controlsModifier.then(barScatter),
+                                    visualScale = 0.88f,
+                                )
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 } else {
                 val landscapeSharedBoundsTransform =
                     rememberLandscapeClassicBoundsTransform(motionEnabled)
@@ -1321,9 +1445,9 @@ fun NowPlayingContent(
                                         .width(coverSize)
                                         .fillMaxHeight()
                                         .graphicsLayer {
-                                            if (landscapeCloudBurst > 0f) {
+                                            if (landscapeCloudExitProgress > 0f) {
                                                 translationX = -landscapeCloudScatterPx
-                                                alpha = 1f - landscapeCloudBurst
+                                                alpha = 1f - landscapeCloudExitProgress
                                             }
                                         },
                                     contentAlignment = Alignment.TopStart,

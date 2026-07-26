@@ -95,6 +95,16 @@ internal fun landscapeCoverFlowStageActive(
         (mode == PlayerCoverFlowMode.PAUSE_FOLD || mode == PlayerCoverFlowMode.RETRO_3D) &&
         !lyricsCloudRequested
 
+/** Landscape cover-flow themes use a dedicated cloud exit instead of STANDARD burst. */
+internal fun landscapeCoverFlowCloudExitActive(
+    landscapeMode: Boolean,
+    mode: PlayerCoverFlowMode,
+    lyricsCloudAvailable: Boolean,
+): Boolean =
+    landscapeMode &&
+        lyricsCloudAvailable &&
+        (mode == PlayerCoverFlowMode.PAUSE_FOLD || mode == PlayerCoverFlowMode.RETRO_3D)
+
 /**
  * Moving the controls to the landscape bottom edge removes their portrait bottom padding.
  * Remove the same amount from the chrome container or it becomes progress-to-controls whitespace.
