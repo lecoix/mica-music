@@ -86,6 +86,15 @@ internal fun landscapeCoverModeForPage(
     else -> PlayerCoverFlowMode.STANDARD
 }
 
+internal fun landscapeCoverFlowStageActive(
+    landscapeMode: Boolean,
+    mode: PlayerCoverFlowMode,
+    lyricsCloudRequested: Boolean,
+): Boolean =
+    landscapeMode &&
+        (mode == PlayerCoverFlowMode.PAUSE_FOLD || mode == PlayerCoverFlowMode.RETRO_3D) &&
+        !lyricsCloudRequested
+
 /**
  * Moving the controls to the landscape bottom edge removes their portrait bottom padding.
  * Remove the same amount from the chrome container or it becomes progress-to-controls whitespace.

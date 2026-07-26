@@ -87,6 +87,7 @@ import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
+import com.mica.music.ui.screens.player.landscapeCoverFlowStageActive
 import com.mica.music.ui.screens.player.landscapeCoverModeForPage
 import com.mica.music.ui.screens.player.landscapeChromeHeight
 import com.mica.music.ui.screens.player.landscapePlayerLayoutPlan
@@ -506,12 +507,11 @@ fun NowPlayingContent(
             val classicLyricsExpanded =
                 lyricsExpanded && !lyricsCloudAvailable && !customHorizontalClassicRequested
             val landscapeCoverFlowLyricsTransitionActive =
-                landscapeMode &&
-                    (
-                        effectiveCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
-                            effectiveCoverFlowMode == PlayerCoverFlowMode.RETRO_3D
-                        ) &&
-                    !lyricsCloudAvailable
+                landscapeCoverFlowStageActive(
+                    landscapeMode = landscapeMode,
+                    mode = effectiveCoverFlowMode,
+                    lyricsCloudRequested = lyricsCloudRequested,
+                )
             val landscapeCoverFlowLyricsProgress by animateFloatAsState(
                 targetValue = if (
                     landscapeCoverFlowLyricsTransitionActive && classicLyricsExpanded

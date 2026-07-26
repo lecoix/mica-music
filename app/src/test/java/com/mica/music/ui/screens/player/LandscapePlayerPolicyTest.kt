@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.player
 import com.mica.music.data.PlayerCoverFlowMode
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -75,6 +76,34 @@ class LandscapePlayerPolicyTest {
         ).forEach { mode ->
             assertEquals(mode, landscapeCoverModeForPage(mode, lyricsExpanded = false))
             assertEquals(mode, landscapeCoverModeForPage(mode, lyricsExpanded = true))
+        }
+    }
+
+    @Test
+    fun availableLyricsCloudDoesNotReplaceCoverFlowStageUntilRequested() {
+        val lyricsCloudAvailable = true
+        fun lyricsCloudRequested(lyricsExpanded: Boolean): Boolean =
+            lyricsExpanded && lyricsCloudAvailable
+
+        listOf(
+            PlayerCoverFlowMode.PAUSE_FOLD,
+            PlayerCoverFlowMode.RETRO_3D,
+        ).forEach { mode ->
+            assertTrue(
+                landscapeCoverFlowStageActive(
+                    landscapeMode = true,
+                    mode = mode,
+                    lyricsCloudRequested = lyricsCloudRequested(lyricsExpanded = false),
+                ),
+            )
+
+            assertFalse(
+                landscapeCoverFlowStageActive(
+                    landscapeMode = true,
+                    mode = mode,
+                    lyricsCloudRequested = lyricsCloudRequested(lyricsExpanded = true),
+                ),
+            )
         }
     }
 
