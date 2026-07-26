@@ -68,6 +68,17 @@ class LandscapePlayerPolicyTest {
     }
 
     @Test
+    fun supportedCoverFlowThemesKeepTheirModesWhenLandscapeLyricsExpand() {
+        listOf(
+            PlayerCoverFlowMode.PAUSE_FOLD,
+            PlayerCoverFlowMode.RETRO_3D,
+        ).forEach { mode ->
+            assertEquals(mode, landscapeCoverModeForPage(mode, lyricsExpanded = false))
+            assertEquals(mode, landscapeCoverModeForPage(mode, lyricsExpanded = true))
+        }
+    }
+
+    @Test
     fun unfinishedThemesUseStaticStandardFallback() {
         listOf(
             PlayerCoverFlowMode.CUSTOM_STANDARD,
@@ -75,6 +86,10 @@ class LandscapePlayerPolicyTest {
             PlayerCoverFlowMode.PHOTO_STACK,
         ).forEach { mode ->
             assertEquals(PlayerCoverFlowMode.STANDARD, landscapeFallbackCoverMode(mode))
+            assertEquals(
+                PlayerCoverFlowMode.STANDARD,
+                landscapeCoverModeForPage(mode, lyricsExpanded = true),
+            )
         }
     }
 

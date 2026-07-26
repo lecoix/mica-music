@@ -60,4 +60,23 @@ class CoverDecodeTargetTest {
         assertEquals(1088, target.widthPx)
         assertEquals(1088, target.heightPx)
     }
+
+    @Test
+    fun `pinFullViewport keeps portrait target while lyrics slot is shrunken`() {
+        val unpinned = CoverDecodeTarget.forCoverFlow(
+            viewportWidthPx = 1080f,
+            slotWidthPx = 160f,
+            slotHeightPx = 160f,
+        )
+        val pinned = CoverDecodeTarget.forCoverFlow(
+            viewportWidthPx = 1080f,
+            slotWidthPx = 160f,
+            slotHeightPx = 160f,
+            pinFullViewport = true,
+        )
+
+        assertEquals(192, unpinned.widthPx)
+        assertEquals(1088, pinned.widthPx)
+        assertEquals(1088, pinned.heightPx)
+    }
 }

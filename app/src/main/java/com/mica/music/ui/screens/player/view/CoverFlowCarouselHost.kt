@@ -23,6 +23,8 @@ internal fun CoverFlowCarouselHost(
     coverWidthPx: Float,
     coverHeightPx: Float,
     coverDecodeTarget: CoverDecodeTarget,
+    /** Width used only for lane-window / rails threshold; may stay at rest size while the slot animates. */
+    laneMetricsCoverWidthPx: Float = coverWidthPx,
     coverStartPaddingPx: Float,
     reflectionGapPx: Float,
     cameraDistancePx: Float,
@@ -44,7 +46,7 @@ internal fun CoverFlowCarouselHost(
     val laneWindowRadius = CoverFlowMath.laneWindowRadius(
         mode = coverFlowMode,
         viewportWidthPx = screenWidthPx,
-        coverWidthPx = coverWidthPx,
+        coverWidthPx = laneMetricsCoverWidthPx,
     )
 
     LaunchedEffect(currentIndex, queue.size, stageActive, coverDecodeTarget, laneWindowRadius) {

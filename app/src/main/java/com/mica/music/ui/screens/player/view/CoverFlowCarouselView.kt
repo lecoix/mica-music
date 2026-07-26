@@ -526,6 +526,13 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         val song = queue.getOrNull(logicalCenter + laneIndex) ?: return null
         val slotAlpha = CoverFlowRails.alpha(railOffset, foldProgress, coverFlowMode)
         if (slotAlpha < 0.01f) return null
+        val bitmap = bitmapFor(
+            uri = song.albumArtUri,
+            reflectionEligible = CoverFlowMath.shouldRenderReflection(laneIndex, laneWindowRadius),
+        )
+        // Side lanes with no artwork would paint coverColorArgb placeholders; those flash
+        // outside the center when decode targets change during the lyrics fold transition.
+        if (bitmap == null && abs(railOffset) >= 0.05f) return null
         return LaneDrawState(
             laneIndex = laneIndex,
             railOffset = railOffset,
@@ -541,10 +548,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
                 coverFlowMode,
                 expandedRetro = usesExpandedRetroRails(),
             ),
-            bitmap = bitmapFor(
-                uri = song.albumArtUri,
-                reflectionEligible = CoverFlowMath.shouldRenderReflection(laneIndex, laneWindowRadius),
-            ),
+            bitmap = bitmap,
             slotAlphaByte = (slotAlpha * 255).toInt().coerceIn(0, 255),
             drawScale = CoverFlowRails.drawScale(
                 railOffset,
@@ -578,10 +582,14 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         if (bitmap != null) {
             centerCropSrc(bitmap, slotW, slotH, bitmapSrcRect)
             canvas.drawBitmap(bitmap, bitmapSrcRect, coverRect, paint)
-        } else {
+        } else if (abs(state.railOffset) < 0.05f) {
+            // Center-only placeholder while the first decode is in flight.
             paint.color = state.song.coverColorArgb
             canvas.drawRect(coverRect, paint)
             paint.color = fallbackColorArgb
+        } else {
+            canvas.restore()
+            return
         }
         if (
             reflectionEnabled() &&

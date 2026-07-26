@@ -66,6 +66,7 @@ import com.mica.music.ui.components.resolveCoverAspectRatioFromUri
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.CoverFlowMath
+import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
 import com.mica.music.ui.screens.player.pinnedVideoCover
 import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
 import com.mica.music.ui.screens.player.PlayerPageFrame
@@ -140,11 +141,15 @@ internal fun NowPlayingCoverSection(
     val nativeParticleCoverActive = particleFrame.enabled && UseNativeParticleCoverInPlayer
     val particleNormalLayerVisible = particleFrame.normalLayerVisible
     val coverSlotVisible = !particleFrame.lyricsBackgroundVisible || nativeParticleCoverActive
+    // Lyrics focus lerps the slot toward the mini cover. Pin decode size so portrait
+    // cover-flow does not cross into the landscape slot-sized path mid-fold.
+    val pinCoverFlowDecodeToViewport = frame.lyricsProgress > ImmersiveProgressEpsilon
     val coverDecodeTarget = remember(
         screenWidthPx,
         coverWidthPx,
         coverHeightPx,
         coverFlowMode,
+        pinCoverFlowDecodeToViewport,
     ) {
         if (
             coverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
@@ -154,6 +159,7 @@ internal fun NowPlayingCoverSection(
                 viewportWidthPx = screenWidthPx,
                 slotWidthPx = coverWidthPx,
                 slotHeightPx = coverHeightPx,
+                pinFullViewport = pinCoverFlowDecodeToViewport,
             )
         } else {
             CoverDecodeTarget.forSpecialTheme(screenWidthPx)
@@ -266,6 +272,11 @@ internal fun NowPlayingCoverSection(
                     coverWidthPx = coverWidthPx,
                     coverHeightPx = coverHeightPx,
                     coverDecodeTarget = coverDecodeTarget,
+                    laneMetricsCoverWidthPx = if (pinCoverFlowDecodeToViewport) {
+                        screenWidthPx
+                    } else {
+                        coverWidthPx
+                    },
                     coverStartPaddingPx = coverStartPaddingPx,
                     reflectionGapPx = reflectionGapPx,
                     cameraDistancePx = cameraDistancePx,

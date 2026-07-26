@@ -1,6 +1,8 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricCue
+import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.renderStateAt
@@ -99,6 +101,59 @@ class LyricsCloudLayoutTest {
         assertEquals(0.2f, current, 0.0001f)
         assertTrue(current > nearby)
         assertTrue(nearby > distant)
+    }
+
+    @Test
+    fun measureOrderPrefersCurrentThenNearby() {
+        assertEquals(listOf(3, 2, 4, 1, 5, 0, 6), lyricsCloudMeasureOrder(7, currentIndex = 3))
+        assertEquals(listOf(0, 1, 2), lyricsCloudMeasureOrder(3, currentIndex = 0))
+        assertEquals(emptyList<Int>(), lyricsCloudMeasureOrder(0, currentIndex = 0))
+    }
+
+    @Test
+    fun approximateLayoutSizesMatchPxOverUnitSpace() {
+        val rows = listOf(
+            listOf(LyricDisplayRows.DisplayRow("你好", 0, 2, 0)),
+            listOf(LyricDisplayRows.DisplayRow("世界啊", 0, 3, 0)),
+        )
+        val fontSizes = listOf(18, 22)
+        val density = androidx.compose.ui.unit.Density(density = 2.75f)
+        val unit = 400f
+        val sizes = approximateLyricsCloudLayoutSizes(rows, fontSizes, unit, density)
+        // requiredWidth uses node.width * unit ≈ charCount * fontPx
+        val font0 = with(density) { 18.sp.toPx() }
+        val expectedWidth0 = (2 * font0 * 0.95f + 4f) / unit
+        assertEquals(expectedWidth0, sizes[0].width, 0.0001f)
+        val nodesFirst = buildLyricsCloudLayout(sizes, seed = 42)
+        val nodesSecond = buildLyricsCloudLayout(sizes, seed = 42)
+        assertEquals(nodesFirst, nodesSecond)
+    }
+
+    @Test
+    fun bilingualApproximateHeightUsesSmallerTranslationFont() {
+        val rows = listOf(
+            listOf(
+                LyricDisplayRows.DisplayRow("你好", 0, 2, 0),
+                LyricDisplayRows.DisplayRow("hello", 0, 5, 1),
+            ),
+        )
+        val density = androidx.compose.ui.unit.Density(density = 2f)
+        val unit = 400f
+        val sizes = approximateLyricsCloudLayoutSizes(rows, fontSizes = listOf(20), unit, density)
+        val mainPx = with(density) { 20.sp.toPx() }
+        val translationPx = with(density) { 17.sp.toPx() }
+        val expectedHeight = (mainPx * 1.45f + translationPx * 1.45f) / unit
+        assertEquals(expectedHeight, sizes[0].height, 0.0001f)
+    }
+
+    @Test
+    fun sizesFromMeasuredRowsDivideByUnit() {
+        val rowsPx = listOf(
+            listOf(LyricsCloudMeasuredRow(width = 200, height = 40)),
+        )
+        val sizes = lyricsCloudSizesFromMeasuredRows(rowsPx, unit = 400f)
+        assertEquals(0.5f, sizes[0].width, 0.0001f)
+        assertEquals(0.1f, sizes[0].height, 0.0001f)
     }
 
     @Test

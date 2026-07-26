@@ -20,8 +20,10 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,8 +40,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricDisplayRows
@@ -64,6 +66,8 @@ internal data class LyricsCloudNode(val x: Float, val y: Float, val width: Float
 internal data class LyricsCloudInterlude(val previousIndex: Int, val nextIndex: Int, val progress: Float)
 
 private const val MIN_CLOUD_INTERLUDE_DURATION_MS = 7_000
+/** Fallback packing unit before the cloud viewport is measured (matches prior scale). */
+private const val CLOUD_PACKING_UNIT_FALLBACK = 400f
 
 @Composable
 internal fun LyricsCloudPanel(
@@ -80,16 +84,13 @@ internal fun LyricsCloudPanel(
     val density = LocalDensity.current
     val motionEnabled = rememberMicaMotionEnabled()
     val splitEnabled = LocalLyricSplitEnabled.current
-    val textMeasurer = rememberTextMeasurer()
     val uniformStyle = rememberLyricUniformStyle()
     val lyrics = renderState.lyrics
-    val seed = remember(renderState.document) {
-        renderState.document.lines.fold(17) { value, line -> value * 31 + line.id.hashCode() }
+    val currentIndex = remember(renderState.activeLineIndex, lyrics.size) {
+        renderState.activeLineIndex.coerceIn(0, (lyrics.size - 1).coerceAtLeast(0))
     }
-    val fontSizes = remember(seed, lyrics.size) {
-        val random = Random(seed xor 0x51A7)
-        List(lyrics.size) { 16 + random.nextInt(15) }
-    }
+    val seed = remember(renderState.document) { lyricsCloudDocumentSeed(renderState.document) }
+    val fontSizes = remember(seed, lyrics.size) { lyricsCloudFontSizes(seed, lyrics.size) }
     val lineStyles = remember(fontSizes, uniformStyle) {
         fontSizes.map { uniformStyle.withCloudFontSize(it) }
     }
@@ -105,36 +106,36 @@ internal fun LyricsCloudPanel(
             )
         }
     }
-    val unit = min(widthPx, heightPx).coerceAtLeast(1) * 0.34f
-    val sizes = remember(displayRows, lineStyles, translationStyles, unit) {
-        displayRows.mapIndexed { index, rows ->
-            val measured = rows.map { row ->
-                val style = if (row.splitIndex > 0) translationStyles[index] else lineStyles[index]
-                val whole = textMeasurer.measure(
-                    text = row.text,
-                    style = style,
-                    softWrap = false,
-                ).size
-                val characterWidth = row.text.sumOf { character ->
-                    textMeasurer.measure(
-                        text = character.toString(),
-                        style = style.copy(fontWeight = FontWeight.Normal),
-                        softWrap = false,
-                    ).size.width
-                }
-                LyricsCloudMeasuredRow(
-                    width = maxOf(whole.width, characterWidth) + 4,
-                    height = whole.height,
-                )
-            }
-            LyricsCloudSize(
-                width = (measured.maxOfOrNull { it.width } ?: 1) / unit,
-                height = measured.sumOf { it.height }.coerceAtLeast(1) / unit,
-            )
+    val warmKey = LyricsCloudWarmKey(
+        documentSeed = seed,
+        bilingualMode = bilingualDisplayMode,
+        splitEnabled = splitEnabled,
+        density = density.density,
+        lineCount = lyrics.size,
+    )
+    val warmEntry by LyricsCloudLayoutWarmCache.entry.collectAsState()
+    val preciseRowsPx = warmEntry?.takeIf { it.key == warmKey }?.rowsPx
+    // Lock packing/draw unit once the viewport is known so node x/y stay stable.
+    var lockedUnit by remember(seed) { mutableFloatStateOf(0f) }
+    LaunchedEffect(widthPx, heightPx, seed) {
+        if (widthPx > 0 && heightPx > 0 && lockedUnit <= 0f) {
+            lockedUnit = min(widthPx, heightPx) * 0.34f
+        }
+    }
+    val unit = when {
+        lockedUnit > 0f -> lockedUnit
+        widthPx > 0 && heightPx > 0 -> min(widthPx, heightPx) * 0.34f
+        else -> CLOUD_PACKING_UNIT_FALLBACK
+    }
+    // Prefer prewarmed TextMeasurer metrics (old packing). Approx only until warm completes.
+    val sizes = remember(preciseRowsPx, displayRows, fontSizes, density, unit) {
+        if (preciseRowsPx != null) {
+            lyricsCloudSizesFromMeasuredRows(preciseRowsPx, unit)
+        } else {
+            approximateLyricsCloudLayoutSizes(displayRows, fontSizes, unit, density)
         }
     }
     val nodes = remember(sizes, seed) { buildLyricsCloudLayout(sizes, seed) }
-    val currentIndex = renderState.activeLineIndex.coerceIn(0, nodes.lastIndex.coerceAtLeast(0))
     val reveal = remember(seed) { Animatable(0f) }
     LaunchedEffect(seed, motionEnabled, isVisible) {
         if (!motionEnabled) {
@@ -338,6 +339,45 @@ private fun CloudInterludeGlow(
     )
 }
 
+internal fun lyricsCloudMeasureOrder(size: Int, currentIndex: Int): List<Int> {
+    if (size <= 0) return emptyList()
+    val current = currentIndex.coerceIn(0, size - 1)
+    return (0 until size).sortedBy { abs(it - current) }
+}
+
+/**
+ * Cloud packing sizes in layout-units (approxPx / unit), matching the old TextMeasurer
+ * coordinate space so `node.width * unit` ≈ on-screen width. No TextMeasurer.
+ * Translation rows use the smaller cloud translation font (main - 3).
+ */
+internal fun approximateLyricsCloudLayoutSizes(
+    displayRows: List<List<LyricDisplayRows.DisplayRow>>,
+    fontSizes: List<Int>,
+    unit: Float,
+    density: Density,
+): List<LyricsCloudSize> {
+    val safeUnit = unit.coerceAtLeast(1f)
+    return displayRows.mapIndexed { index, rows ->
+        val mainFont = fontSizes.getOrElse(index) { 16 }
+        var widthPx = 0f
+        var heightPx = 0f
+        for (row in rows) {
+            val fontSp = if (row.splitIndex > 0) {
+                (mainFont - 3).coerceAtLeast(14)
+            } else {
+                mainFont
+            }
+            val fontPx = with(density) { fontSp.sp.toPx() }
+            widthPx = maxOf(widthPx, row.text.length.coerceAtLeast(1) * fontPx * 0.95f)
+            heightPx += fontPx * 1.45f
+        }
+        LyricsCloudSize(
+            width = (widthPx + 4f) / safeUnit,
+            height = heightPx.coerceAtLeast(1f) / safeUnit,
+        )
+    }
+}
+
 internal fun buildLyricsCloudLayout(
     sizes: List<LyricsCloudSize>,
     seed: Int,
@@ -387,13 +427,7 @@ internal fun LyricsCloudNode.overlaps(other: LyricsCloudNode, gap: Float): Boole
     abs(x - other.x) * 2f < width + other.width + gap * 2f &&
         abs(y - other.y) * 2f < height + other.height + gap * 2f
 
-private fun TextStyle.withCloudFontSize(fontSizeSp: Int): TextStyle = copy(
-    fontSize = fontSizeSp.sp,
-    lineHeight = (fontSizeSp * 1.45f).sp,
-)
-
 internal data class CloudCharacterState(val activeIndex: Int, val progress: Float)
-private data class LyricsCloudMeasuredRow(val width: Int, val height: Int)
 
 internal fun lyricsCloudRevealProgress(
     globalProgress: Float,

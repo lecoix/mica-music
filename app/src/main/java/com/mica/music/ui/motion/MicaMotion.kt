@@ -204,6 +204,7 @@ object MicaMotion {
             (fadeIn(enter) togetherWith fadeOut(exit)).using(SizeTransform(clip = false))
         }
     }
+
 }
 
 @Composable
