@@ -68,10 +68,10 @@ internal fun landscapePlayerLayoutPlan(
 /** Special landscape renderers opt in here as they become production-ready. */
 internal fun landscapeFallbackCoverMode(mode: PlayerCoverFlowMode): PlayerCoverFlowMode = when (mode) {
     PlayerCoverFlowMode.STANDARD -> PlayerCoverFlowMode.STANDARD
+    PlayerCoverFlowMode.PAUSE_FOLD -> PlayerCoverFlowMode.PAUSE_FOLD
+    PlayerCoverFlowMode.RETRO_3D -> PlayerCoverFlowMode.RETRO_3D
     PlayerCoverFlowMode.CUSTOM_STANDARD,
     PlayerCoverFlowMode.PARTICLE_COVER,
-    PlayerCoverFlowMode.PAUSE_FOLD,
-    PlayerCoverFlowMode.RETRO_3D,
     PlayerCoverFlowMode.PHOTO_STACK,
     -> PlayerCoverFlowMode.STANDARD
 }

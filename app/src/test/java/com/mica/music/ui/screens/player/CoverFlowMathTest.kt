@@ -17,6 +17,38 @@ class CoverFlowMathTest {
     }
 
     @Test
+    fun landscapeRetro_usesThirteenLanes() {
+        val radius = CoverFlowMath.laneWindowRadius(
+            mode = PlayerCoverFlowMode.RETRO_3D,
+            viewportWidthPx = 2400f,
+            coverWidthPx = 1000f,
+        )
+        assertEquals(6, radius)
+        assertTrue(CoverFlowMath.shouldRenderReflection(-6, radius))
+        assertTrue(CoverFlowMath.shouldRenderReflection(6, radius))
+    }
+
+    @Test
+    fun portraitRetro_andLandscapePauseFold_keepSevenLanes() {
+        assertEquals(
+            3,
+            CoverFlowMath.laneWindowRadius(
+                mode = PlayerCoverFlowMode.RETRO_3D,
+                viewportWidthPx = 1080f,
+                coverWidthPx = 900f,
+            ),
+        )
+        assertEquals(
+            3,
+            CoverFlowMath.laneWindowRadius(
+                mode = PlayerCoverFlowMode.PAUSE_FOLD,
+                viewportWidthPx = 2400f,
+                coverWidthPx = 1000f,
+            ),
+        )
+    }
+
+    @Test
     fun reflectionAlphaMultiplier_disappearsAtHalfFoldProgress() {
         assertEquals(1f, CoverFlowMath.reflectionAlphaMultiplier(1f), 0.0001f)
         assertEquals(1f, CoverFlowMath.reflectionAlphaMultiplier(0.51f), 0.0001f)

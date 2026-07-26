@@ -96,6 +96,9 @@ internal object CoverFlowReflectionBake {
             alpha = (CoverFlowMath.ReflectionAlpha * 255f).toInt().coerceIn(0, 255)
         }
         canvas.drawRect(0f, 0f, outW.toFloat(), outH.toFloat(), gradientPaint)
+        if (source !== cover) {
+            source.recycle()
+        }
         return out
     }
 

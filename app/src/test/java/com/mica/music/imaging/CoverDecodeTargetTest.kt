@@ -36,4 +36,28 @@ class CoverDecodeTargetTest {
             player.memoryCacheKey("content://album/42"),
         )
     }
+
+    @Test
+    fun `landscape cover flow decodes to visible slot instead of full viewport`() {
+        val target = CoverDecodeTarget.forCoverFlow(
+            viewportWidthPx = 2624f,
+            slotWidthPx = 720f,
+            slotHeightPx = 720f,
+        )
+
+        assertEquals(768, target.widthPx)
+        assertEquals(768, target.heightPx)
+    }
+
+    @Test
+    fun `portrait cover flow keeps full viewport target for immersive expansion`() {
+        val target = CoverDecodeTarget.forCoverFlow(
+            viewportWidthPx = 1080f,
+            slotWidthPx = 900f,
+            slotHeightPx = 900f,
+        )
+
+        assertEquals(1088, target.widthPx)
+        assertEquals(1088, target.heightPx)
+    }
 }

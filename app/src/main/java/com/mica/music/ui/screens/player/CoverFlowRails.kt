@@ -16,6 +16,18 @@ internal object CoverFlowRails {
     const val RetroFirstStep = 1.10f
     /** 复古：|railOffset|=2 时的累计间距系数（相对封面宽）。 */
     const val RetroOuterStep = 1.20f
+    /** 横屏 13 槽：中心相邻封面的间距。 */
+    const val LandscapeRetroFirstStep = 1.10f
+    /** 横屏 13 槽：向屏幕两侧持续拉开的轨道间距。 */
+    const val LandscapeRetroOuterStep = 0.196f
+    /** 横屏复古：12 张侧封面统一放大，中心封面保持不变。 */
+    const val LandscapeRetroSideScaleMultiplier = 1.10f
+    /** 横屏复古：±1 封面的转角。 */
+    const val LandscapeRetroFirstRotationY = 73f
+    /** 横屏复古：从 ±2 开始，每向外一槽减少的转角。 */
+    const val LandscapeRetroOuterRotationStep = 1f
+    /** 横屏复古：最外侧封面的最小转角。 */
+    const val LandscapeRetroMinimumRotationY = 68f
     const val NearSideScale = 0.85f
     const val OuterSideScale = 0.90f
 
@@ -26,6 +38,7 @@ internal object CoverFlowRails {
         railOffset: Float,
         coverWidthPx: Float,
         mode: PlayerCoverFlowMode,
+        expandedRetro: Boolean = false,
     ): Float {
         val w = coverWidthPx.coerceAtLeast(1f)
         if (mode == PlayerCoverFlowMode.PAUSE_FOLD) {
@@ -38,6 +51,15 @@ internal object CoverFlowRails {
             railOffset < 0f -> -1f
             railOffset > 0f -> 1f
             else -> 0f
+        }
+        if (expandedRetro) {
+            val d = abs(railOffset)
+            val fraction = if (d <= 1f) {
+                LandscapeRetroFirstStep * d
+            } else {
+                LandscapeRetroFirstStep + LandscapeRetroOuterStep * (d - 1f)
+            }
+            return sign * w * fraction
         }
         val d = abs(railOffset).coerceIn(0f, 3f)
         val fraction = when {
@@ -55,16 +77,34 @@ internal object CoverFlowRails {
         railOffset: Float,
         mode: PlayerCoverFlowMode,
         foldProgress: Float,
+        expandedRetro: Boolean = false,
     ): Float {
         val distance = abs(railOffset)
         val centerScale = CoverFlowMath.centerScale(mode, foldProgress)
         val base = CoverFlowMath.slotScale(distance, centerScale, mode)
         if (mode != PlayerCoverFlowMode.RETRO_3D) return base
-        return base * retroExtraScale(distance)
+        val landscapeMultiplier = if (expandedRetro) {
+            1f + (LandscapeRetroSideScaleMultiplier - 1f) * distance.coerceIn(0f, 1f)
+        } else {
+            1f
+        }
+        return base * retroExtraScale(distance) * landscapeMultiplier
     }
 
-    fun rotationY(railOffset: Float, mode: PlayerCoverFlowMode): Float =
-        CoverFlowMath.slotRotationY(railOffset, mode)
+    fun rotationY(
+        railOffset: Float,
+        mode: PlayerCoverFlowMode,
+        expandedRetro: Boolean = false,
+    ): Float {
+        val base = CoverFlowMath.slotRotationY(railOffset, mode)
+        if (!expandedRetro || mode != PlayerCoverFlowMode.RETRO_3D) return base
+        val outerDistance = (abs(railOffset) - 1f).coerceAtLeast(0f)
+        val targetAngle =
+            (LandscapeRetroFirstRotationY - LandscapeRetroOuterRotationStep * outerDistance)
+                .coerceAtLeast(LandscapeRetroMinimumRotationY)
+        val angleMultiplier = targetAngle / 75f
+        return base * angleMultiplier
+    }
 
     /** 外缘枢轴与中心枢轴随 |railOffset| 平滑过渡，避免切轨时跳变。 */
     fun pivotX(railOffset: Float, slotWidthPx: Float, mode: PlayerCoverFlowMode): Float {

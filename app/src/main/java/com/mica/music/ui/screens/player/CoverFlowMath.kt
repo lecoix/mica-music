@@ -16,14 +16,37 @@ internal object CoverFlowMath {
     /** Lane 池窗口半径；与 maxViewDistance 对齐，保证 ±3 槽可渲染 */
     const val LaneWindowRadius = 3
 
+    /** 横屏复古立体封面流使用 13 槽；竖屏继续沿用 7 槽。 */
+    const val LandscapeRetroLaneWindowRadius = 6
+
+    /** 屏幕宽度达到约两个封面宽时，切换到横屏复古宽轨道。 */
+    private const val LandscapeRetroViewportRatio = 1.8f
+
     /** 完整七轨都预烘焙倒影，避免轨位提交时倒影跳现。 */
     const val ReflectionLaneRadius = LaneWindowRadius
 
     /** 相对中心的可见距离上限（含最外 lane） */
     const val MaxViewDistance = 3f
 
-    fun shouldRenderReflection(laneIndex: Int): Boolean =
-        laneIndex in -ReflectionLaneRadius..ReflectionLaneRadius
+    fun laneWindowRadius(
+        mode: PlayerCoverFlowMode,
+        viewportWidthPx: Float,
+        coverWidthPx: Float,
+    ): Int =
+        if (
+            mode == PlayerCoverFlowMode.RETRO_3D &&
+            viewportWidthPx >= coverWidthPx.coerceAtLeast(1f) * LandscapeRetroViewportRatio
+        ) {
+            LandscapeRetroLaneWindowRadius
+        } else {
+            LaneWindowRadius
+        }
+
+    fun shouldRenderReflection(
+        laneIndex: Int,
+        laneWindowRadius: Int = ReflectionLaneRadius,
+    ): Boolean =
+        laneIndex in -laneWindowRadius..laneWindowRadius
 
     fun reflectionAlphaMultiplier(foldProgress: Float): Float =
         if (foldProgress > 0.5f) 1f else 0f

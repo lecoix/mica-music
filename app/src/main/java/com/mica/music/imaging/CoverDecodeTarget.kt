@@ -17,6 +17,7 @@ class CoverDecodeTarget private constructor(
 
     companion object {
         private const val SizeBucketPx = 64
+        private const val LandscapeCoverFlowViewportRatio = 1.8f
 
         fun fromPixels(widthPx: Float, heightPx: Float): CoverDecodeTarget =
             CoverDecodeTarget(
@@ -30,6 +31,24 @@ class CoverDecodeTarget private constructor(
          */
         fun forSpecialTheme(screenWidthPx: Float): CoverDecodeTarget =
             fromPixels(screenWidthPx, screenWidthPx)
+
+        /**
+         * Landscape cover-flow slots occupy only part of the viewport. Decoding every lane at
+         * full viewport width multiplies native bitmap memory without adding visible detail.
+         */
+        fun forCoverFlow(
+            viewportWidthPx: Float,
+            slotWidthPx: Float,
+            slotHeightPx: Float,
+        ): CoverDecodeTarget =
+            if (
+                viewportWidthPx >=
+                slotWidthPx.coerceAtLeast(1f) * LandscapeCoverFlowViewportRatio
+            ) {
+                fromPixels(slotWidthPx, slotHeightPx)
+            } else {
+                forSpecialTheme(viewportWidthPx)
+            }
 
         private fun bucket(value: Float): Int {
             val safe = value.takeIf { it.isFinite() && it > 0f } ?: SizeBucketPx.toFloat()

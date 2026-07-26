@@ -69,12 +69,14 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private val reflectionSrcRect = Rect()
     private val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val laneStates = ArrayList<LaneDrawState>(CoverFlowMath.LaneWindowRadius * 2 + 1)
+    private val laneStates =
+        ArrayList<LaneDrawState>(CoverFlowMath.LandscapeRetroLaneWindowRadius * 2 + 1)
 
     private var queue: List<Song> = emptyList()
     private var logicalCenter: Int = 0
     private var stripFraction: Float = 0f
     private var coverFlowMode: PlayerCoverFlowMode = PlayerCoverFlowMode.PAUSE_FOLD
+    private var laneWindowRadius: Int = CoverFlowMath.LaneWindowRadius
     private var foldProgress: Float = 1f
     private var screenWidthPx: Float = 1f
     private var coverWidthPx: Float = 1f
@@ -147,6 +149,18 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         if (screenWidthPx != px) {
             screenWidthPx = px.coerceAtLeast(1f)
             invalidateFor("screen-size")
+        }
+    }
+
+    fun setLaneWindowRadius(radius: Int) {
+        val bounded = radius.coerceIn(
+            CoverFlowMath.LaneWindowRadius,
+            CoverFlowMath.LandscapeRetroLaneWindowRadius,
+        )
+        if (laneWindowRadius != bounded) {
+            laneWindowRadius = bounded
+            preloadWindow()
+            invalidateFor("lane-window")
         }
     }
 
@@ -469,7 +483,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             val cy = contentCenterY(slotH)
             val stateBuildStartedNs = SystemClock.elapsedRealtimeNanos()
             laneStates.clear()
-            for (laneIndex in -CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius) {
+            for (laneIndex in -laneWindowRadius..laneWindowRadius) {
                 buildLaneState(laneIndex, slotW)?.let(laneStates::add)
             }
             laneStates.sortBy { it.zIndex }
@@ -508,7 +522,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         slotW: Float,
     ): LaneDrawState? {
         val railOffset = CoverFlowRails.railOffset(laneIndex, stripFraction)
-        if (abs(railOffset) > CoverFlowMath.MaxViewDistance) return null
+        if (abs(railOffset) > laneWindowRadius.toFloat()) return null
         val song = queue.getOrNull(logicalCenter + laneIndex) ?: return null
         val slotAlpha = CoverFlowRails.alpha(railOffset, foldProgress, coverFlowMode)
         if (slotAlpha < 0.01f) return null
@@ -516,14 +530,28 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             laneIndex = laneIndex,
             railOffset = railOffset,
             song = song,
-            tx = CoverFlowRails.translationPx(railOffset, layoutWidthPx(), coverFlowMode),
-            rotationY = CoverFlowRails.rotationY(railOffset, coverFlowMode),
+            tx = CoverFlowRails.translationPx(
+                railOffset,
+                layoutWidthPx(),
+                coverFlowMode,
+                expandedRetro = usesExpandedRetroRails(),
+            ),
+            rotationY = CoverFlowRails.rotationY(
+                railOffset,
+                coverFlowMode,
+                expandedRetro = usesExpandedRetroRails(),
+            ),
             bitmap = bitmapFor(
                 uri = song.albumArtUri,
-                reflectionEligible = CoverFlowMath.shouldRenderReflection(laneIndex),
+                reflectionEligible = CoverFlowMath.shouldRenderReflection(laneIndex, laneWindowRadius),
             ),
             slotAlphaByte = (slotAlpha * 255).toInt().coerceIn(0, 255),
-            drawScale = CoverFlowRails.drawScale(railOffset, coverFlowMode, foldProgress),
+            drawScale = CoverFlowRails.drawScale(
+                railOffset,
+                coverFlowMode,
+                foldProgress,
+                expandedRetro = usesExpandedRetroRails(),
+            ),
             scalePivotX = CoverFlowRails.pivotX(railOffset, slotW, coverFlowMode),
             zIndex = CoverFlowRails.zIndex(railOffset, coverFlowMode),
         )
@@ -555,7 +583,10 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             canvas.drawRect(coverRect, paint)
             paint.color = fallbackColorArgb
         }
-        if (reflectionEnabled() && CoverFlowMath.shouldRenderReflection(state.laneIndex)) {
+        if (
+            reflectionEnabled() &&
+            CoverFlowMath.shouldRenderReflection(state.laneIndex, laneWindowRadius)
+        ) {
             drawReflection(
                 canvas = canvas,
                 albumArtUri = state.song.albumArtUri,
@@ -721,9 +752,17 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     private fun laneStepFraction(): Float = when (coverFlowMode) {
         PlayerCoverFlowMode.PAUSE_FOLD -> CoverFlowRails.PauseFoldStep
-        PlayerCoverFlowMode.RETRO_3D -> CoverFlowRails.RetroFirstStep
+        PlayerCoverFlowMode.RETRO_3D -> if (usesExpandedRetroRails()) {
+            CoverFlowRails.LandscapeRetroFirstStep
+        } else {
+            CoverFlowRails.RetroFirstStep
+        }
         else -> CoverFlowMath.LaneStepFraction
     }
+
+    private fun usesExpandedRetroRails(): Boolean =
+        coverFlowMode == PlayerCoverFlowMode.RETRO_3D &&
+            laneWindowRadius > CoverFlowMath.LaneWindowRadius
 
     /** 有倒影时封面顶对齐，下方留给倒影区。 */
     private fun contentCenterY(slotH: Float): Float =
@@ -816,10 +855,10 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     private fun preloadWindow() {
         pruneBitmapWindow()
-        val radius = CoverFlowMath.LaneWindowRadius
+        val radius = laneWindowRadius
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
-            val reflectionEligible = CoverFlowMath.shouldRenderReflection(offset)
+            val reflectionEligible = CoverFlowMath.shouldRenderReflection(offset, laneWindowRadius)
             bitmapFor(uri, reflectionEligible)
             if (reflectionEligible) {
                 bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
@@ -831,7 +870,7 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private fun retainedBitmapKeys(): Set<String> = retainedArtworkKeys(
         queue = queue,
         centerIndex = logicalCenter,
-        visibleOffsets = -CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius,
+        visibleOffsets = -laneWindowRadius..laneWindowRadius,
         decodeTarget = coverDecodeTarget,
         extraIndices = listOfNotNull(
             pendingHostIndex,
@@ -875,11 +914,11 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
 
     private fun scheduleReflectionRebakeForWindow() {
         if (!CoverFlowReflectionBake.ENABLED || !reflectionEnabled()) return
-        val radius = CoverFlowMath.LaneWindowRadius
+        val radius = laneWindowRadius
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
             CoverFlowReflectionBake.evict(uri)
-            if (CoverFlowMath.shouldRenderReflection(offset)) {
+            if (CoverFlowMath.shouldRenderReflection(offset, laneWindowRadius)) {
                 bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
                     ?.let { scheduleReflectionBake(uri, it) }
             }
@@ -989,9 +1028,14 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         val cx = coverCenterX()
         var best: Int? = null
         var bestDist = Float.MAX_VALUE
-        for (lane in -CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius) {
+        for (lane in -laneWindowRadius..laneWindowRadius) {
             val railOffset = CoverFlowRails.railOffset(lane, stripFraction)
-            val tx = CoverFlowRails.translationPx(railOffset, layoutWidthPx(), coverFlowMode)
+            val tx = CoverFlowRails.translationPx(
+                railOffset,
+                layoutWidthPx(),
+                coverFlowMode,
+                expandedRetro = usesExpandedRetroRails(),
+            )
             val centerX = cx + tx
             val halfW = coverWidthPx.coerceAtLeast(1f) * 0.45f
             if (x in (centerX - halfW)..(centerX + halfW)) {

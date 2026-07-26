@@ -74,6 +74,8 @@ import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.PlaybackTuningSheet
 import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
+import com.mica.music.ui.components.PlayerPlaybackControlsSection
+import com.mica.music.ui.components.PlayerProgressBarSection
 import com.mica.music.ui.components.SleepTimerSheet
 import com.mica.music.ui.components.DirectionalTrackWipe
 import com.mica.music.ui.components.SongCover
@@ -437,7 +439,11 @@ fun NowPlayingContent(
             val landscapePlan = landscapePlayerLayoutPlan(fullWidth.value, screenHeight.value)
             val landscapeMode = landscapePlan != null
             val effectiveCoverFlowMode = if (landscapeMode) {
-                landscapeFallbackCoverMode(uiSettings.playerCoverFlowMode)
+                if (lyricsExpanded) {
+                    PlayerCoverFlowMode.STANDARD
+                } else {
+                    landscapeFallbackCoverMode(uiSettings.playerCoverFlowMode)
+                }
             } else {
                 uiSettings.playerCoverFlowMode
             }
@@ -641,7 +647,8 @@ fun NowPlayingContent(
                         pendingDirection = effectiveTrackWipeDirection,
                     )
                 }
-            val coverSection: @Composable (Modifier) -> Unit = { coverModifier ->
+            val coverSection: @Composable (Modifier, Dp?) -> Unit =
+                { coverModifier, coverStartPaddingOverride ->
                 NowPlayingCoverSection(
                     song = pageModel.song,
                     queue = pageModel.queue,
@@ -684,6 +691,7 @@ fun NowPlayingContent(
                     photoStackNavigation = photoStackNavigation,
                     screenWidth = screenWidth,
                     stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
+                    coverStartPaddingOverride = coverStartPaddingOverride,
                     modifier = coverModifier,
                 )
             }
@@ -859,6 +867,96 @@ fun NowPlayingContent(
 
             if (landscapeCloudFullyOpen) {
                 // Cloud owns the surface after the burst finishes; drop the player host.
+            } else if (
+                landscapePlan != null &&
+                (
+                    effectiveCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
+                        effectiveCoverFlowMode == PlayerCoverFlowMode.RETRO_3D
+                    ) &&
+                !classicLyricsExpanded &&
+                !lyricsCloudRequested
+            ) {
+                val parallelLyricsColors = rememberLyricsContentColors(
+                    appearance.contentColors,
+                    uiSettings.lyricsPageTextColorMode,
+                )
+                LandscapeCoverFlowPrototype(
+                    colors = playerUiColors,
+                    edgePadding = landscapeEdgePadding,
+                    coverHeight = previewFrame.cover.height,
+                    coverContent = { landscapeCoverModifier ->
+                        coverSection(
+                            landscapeCoverModifier
+                                .requiredHeight(previewFrame.cover.blockHeight)
+                                .then(externalCoverIncomingWipe),
+                            ((screenWidth - previewFrame.cover.width) / 2)
+                                .coerceAtLeast(0.dp),
+                        )
+                    },
+                    titleContent = { titleModifier ->
+                        DirectionalTrackWipe(
+                            targetState = song,
+                            contentKey = Song::id,
+                            direction = null,
+                            motionEnabled = motionEnabled,
+                            modifier = titleModifier,
+                        ) { titleSong ->
+                            SongTitleSection(
+                                title = SongTitleDisplay.displayTitle(
+                                    titleSong.title,
+                                    uiSettings.stripSongTitleParentheses,
+                                ),
+                                artist = titleSong.artist,
+                                album = titleSong.album,
+                                isBuffering = surfaceState.isBuffering,
+                                playbackError = surfaceState.playbackError,
+                                colors = playerUiColors,
+                                immersiveProgress = 0f,
+                                showAlbum = false,
+                                contentScale = 0.84f,
+                                onClick = { lyricsExpanded = true },
+                                onLongPress = { openSongActionMenu(song) },
+                            )
+                        }
+                    },
+                    lyricsContent = { lyricsModifier ->
+                        LandscapeSingleLineLyrics(
+                            renderState = lyricsRenderState,
+                            isPlaying = surfaceState.isPlaying,
+                            colors = parallelLyricsColors,
+                            onClick = { lyricsExpanded = true },
+                            bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                            modifier = lyricsModifier,
+                        )
+                    },
+                    showStandardProgress = !previewFrame.lower.coverEdgeOnPlaySurface,
+                    progressContent = { progressModifier ->
+                        PlayerProgressBarSection(
+                            seekState = seekState,
+                            colors = playerUiColors,
+                            spectrumEnabled = false,
+                            spectrumPlaying = surfaceState.isPlaying,
+                            modifier = progressModifier,
+                            visualScale = 0.74f,
+                        )
+                    },
+                    controlsContent = { controlsModifier ->
+                        PlayerPlaybackControlsSection(
+                            surfaceState = surfaceState,
+                            colors = playerUiColors,
+                            onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
+                            onPrevious = onPlayerPrevious,
+                            onTogglePlay = actions.togglePlay,
+                            onNext = onPlayerNext,
+                            onOpenQueue = { queueSheetOpen = true },
+                            modifier = controlsModifier,
+                            visualScale = 0.88f,
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                )
             } else if (
                 landscapePlan != null &&
                 !customHorizontalClassicRequested
@@ -1068,6 +1166,7 @@ fun NowPlayingContent(
                                             .requiredHeight(previewFrame.cover.blockHeight)
                                             .then(coverSharedModifier)
                                             .then(externalCoverIncomingWipe),
+                                        null,
                                     )
                                 }
                                 BoxWithConstraints(
@@ -1099,6 +1198,7 @@ fun NowPlayingContent(
                                     scaleY = visualScale
                                 }
                                 .then(externalCoverIncomingWipe),
+                            null,
                         )
                     },
                     surfaceState = surfaceState,
@@ -1144,6 +1244,7 @@ fun NowPlayingContent(
                                     0f
                                 }
                             },
+                        null,
                     )
                     BoxWithConstraints(
                         modifier = Modifier

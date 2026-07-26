@@ -119,9 +119,14 @@ internal fun NowPlayingCoverSection(
     photoStackNavigation: PhotoStackCarouselNavigationBridge,
     screenWidth: Dp,
     stripSongTitleParentheses: Boolean,
+    coverStartPaddingOverride: Dp? = null,
     modifier: Modifier = Modifier,
 ) {
-    val cover = frame.cover
+    val cover = if (coverStartPaddingOverride != null) {
+        frame.cover.copy(startPadding = coverStartPaddingOverride)
+    } else {
+        frame.cover
+    }
     val motionEnabled = rememberMicaMotionEnabled()
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -135,13 +140,24 @@ internal fun NowPlayingCoverSection(
     val nativeParticleCoverActive = particleFrame.enabled && UseNativeParticleCoverInPlayer
     val particleNormalLayerVisible = particleFrame.normalLayerVisible
     val coverSlotVisible = !particleFrame.lyricsBackgroundVisible || nativeParticleCoverActive
-    val coverDecodeTarget = remember(screenWidthPx, coverWidthPx, coverFlowMode) {
-        val targetPx = if (particleFrame.enabled) {
-            screenWidthPx
+    val coverDecodeTarget = remember(
+        screenWidthPx,
+        coverWidthPx,
+        coverHeightPx,
+        coverFlowMode,
+    ) {
+        if (
+            coverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
+            coverFlowMode == PlayerCoverFlowMode.RETRO_3D
+        ) {
+            CoverDecodeTarget.forCoverFlow(
+                viewportWidthPx = screenWidthPx,
+                slotWidthPx = coverWidthPx,
+                slotHeightPx = coverHeightPx,
+            )
         } else {
-            screenWidthPx
+            CoverDecodeTarget.forSpecialTheme(screenWidthPx)
         }
-        CoverDecodeTarget.forSpecialTheme(targetPx)
     }
     val reflectionGapPx = with(density) { HifiSpacing.sm.toPx() }
     val reflectionExtraDp =

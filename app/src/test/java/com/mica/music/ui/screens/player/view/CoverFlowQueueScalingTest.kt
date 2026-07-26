@@ -18,6 +18,9 @@ class CoverFlowQueueScalingTest {
         val radius = CoverFlowMath.LaneWindowRadius
         assertEquals(3, radius)
         assertEquals(7, radius * 2 + 1)
+        val landscapeRadius = CoverFlowMath.LandscapeRetroLaneWindowRadius
+        assertEquals(6, landscapeRadius)
+        assertEquals(13, landscapeRadius * 2 + 1)
     }
 
     @Test

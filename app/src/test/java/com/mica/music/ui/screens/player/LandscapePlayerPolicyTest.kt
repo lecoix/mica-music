@@ -58,12 +58,24 @@ class LandscapePlayerPolicyTest {
     }
 
     @Test
+    fun supportedCoverFlowThemesKeepTheirModesInLandscape() {
+        listOf(
+            PlayerCoverFlowMode.PAUSE_FOLD,
+            PlayerCoverFlowMode.RETRO_3D,
+        ).forEach { mode ->
+            assertEquals(mode, landscapeFallbackCoverMode(mode))
+        }
+    }
+
+    @Test
     fun unfinishedThemesUseStaticStandardFallback() {
-        PlayerCoverFlowMode.entries
-            .filterNot { it == PlayerCoverFlowMode.STANDARD }
-            .forEach { mode ->
-                assertEquals(PlayerCoverFlowMode.STANDARD, landscapeFallbackCoverMode(mode))
-            }
+        listOf(
+            PlayerCoverFlowMode.CUSTOM_STANDARD,
+            PlayerCoverFlowMode.PARTICLE_COVER,
+            PlayerCoverFlowMode.PHOTO_STACK,
+        ).forEach { mode ->
+            assertEquals(PlayerCoverFlowMode.STANDARD, landscapeFallbackCoverMode(mode))
+        }
     }
 
     @Test

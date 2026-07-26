@@ -41,10 +41,15 @@ internal fun CoverFlowCarouselHost(
 ) {
     val context = LocalContext.current
     val coverArgb = coverColor.toArgb()
+    val laneWindowRadius = CoverFlowMath.laneWindowRadius(
+        mode = coverFlowMode,
+        viewportWidthPx = screenWidthPx,
+        coverWidthPx = coverWidthPx,
+    )
 
-    LaunchedEffect(currentIndex, queue.size, stageActive, coverDecodeTarget) {
+    LaunchedEffect(currentIndex, queue.size, stageActive, coverDecodeTarget, laneWindowRadius) {
         if (!stageActive) return@LaunchedEffect
-        for (offset in -CoverFlowMath.LaneWindowRadius..CoverFlowMath.LaneWindowRadius) {
+        for (offset in -laneWindowRadius..laneWindowRadius) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
             val cacheHit = CoverFlowBitmaps.memoryBitmap(uri, coverDecodeTarget) != null
             val startedNs = SystemClock.elapsedRealtimeNanos()
@@ -69,6 +74,7 @@ internal fun CoverFlowCarouselHost(
                 setGesturesEnabled(gesturesEnabled)
                 setFallbackColor(coverArgb)
                 setScreenWidthPx(screenWidthPx)
+                setLaneWindowRadius(laneWindowRadius)
                 setCoverDecodeTarget(coverDecodeTarget)
                 setCoverSizePx(coverWidthPx, coverHeightPx)
                 setCoverStartPaddingPx(coverStartPaddingPx)
@@ -89,6 +95,7 @@ internal fun CoverFlowCarouselHost(
             view.setGesturesEnabled(gesturesEnabled)
             view.setFallbackColor(coverArgb)
             view.setScreenWidthPx(screenWidthPx)
+            view.setLaneWindowRadius(laneWindowRadius)
             view.setCoverDecodeTarget(coverDecodeTarget)
             view.setCoverSizePx(coverWidthPx, coverHeightPx)
             view.setCoverStartPaddingPx(coverStartPaddingPx)
