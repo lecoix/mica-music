@@ -21,6 +21,7 @@ enum class LyricsPageTheme(
 ) {
     LIST("list", "经典列表"),
     CLOUD("cloud", "歌词云"),
+    LETTER("letter", "信笺"),
     ;
 
     companion object {

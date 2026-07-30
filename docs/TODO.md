@@ -157,6 +157,10 @@
 - [x] **主题色**：设置 → 外观「强调色」（紫韵 / 鎏金 / 青釉 / 珊瑚 / 动态取色）与「云母背景」（晨曦 / 暮色 / 午夜 / 极光 / 雾霭）；晨曦浅色独立暖雾→天光蓝、深色海军→琥珀；`MicaTheme` + `micaAppBackground()` 全应用生效
 - [x] **浅色/深色切换动画**（见「全局 · 界面动效」）
 - [x] **流光溢彩**播放页样式：`PlayerLowerBackgroundMode.DYNAMIC_ARTWORK`（见上「五种播放页背景」）
+- [ ] **信笺歌词物理平行光带（可能还有救，低优先级）**
+  - 独立 Three.js 原型已经能用 `DirectionalLight` 与两块真实遮挡平面形成边界平行的光带；不要再退回手绘灰影或艺术阴影蒙版。
+  - 当前从正式主题撤下：固定烘焙图无法同时适配 19.5:9、20:9 等长屏裁剪、圆角安全区、歌词列位置与朱印构图，光带还会抢过文字成为视觉主体。
+  - 若以后重启，先在真实手机比例下解决“光带随可见纸面重排”的构图规则，再比较多套静态比例资源与轻量运行时着色方案；没有真机矩阵与耗电/GPU 测量前，不把完整 Three.js 运行时带进播放器。
 - [ ] **动态烟云打磨**
 - [ ] **粒子封面 WebView 退役**：播放页已切 GLES；删除 `ThreeParticleCoverHost` / `assets/particle_cover`、完成 parity 与性能验收见 `[PARTICLE_COVER_OPENGL_MIGRATION.md](PARTICLE_COVER_OPENGL_MIGRATION.md)`
 - [ ] 播放页 **歌词切换动效**（平滑过渡 / 滚动居中）

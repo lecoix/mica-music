@@ -51,7 +51,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsChoiceRow(
         title = "歌词页主题",
-        subtitle = "歌词云会隐藏标题、进度条和播放按钮，让整页用于显示歌词",
+        subtitle = "歌词云与信笺会隐藏标题、进度条和播放按钮，让整页用于显示歌词",
         choices = LyricsPageThemeChoices,
         selectedValue = uiSettings.lyricsPageTheme.ordinal,
         onSelect = { ordinal ->

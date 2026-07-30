@@ -478,18 +478,27 @@ fun NowPlayingContent(
                 uiSettings.playerPageTextColorMode,
             )
             val darkTheme = uiSettings.isDarkTheme()
+            val hasTimedPageLyrics = remember(song.lyricsDocument) {
+                song.lyricsDocument.lines.any { it.startMs > 0 }
+            }
+            val letterLyricsAvailable =
+                uiSettings.lyricsPageTheme == LyricsPageTheme.LETTER &&
+                    !landscapeMode &&
+                    hasTimedPageLyrics
+            val letterLyricsRequested = lyricsExpanded && letterLyricsAvailable
             StatusBarEffect(
-                hideStatusBar = uiSettings.hideStatusBar,
-                darkStatusBarIcons = playerStatusBarUsesDarkIcons(
-                    coverColor = Color(song.coverColorArgb),
-                    lowerBackground = lowerBackground,
-                    darkTheme = darkTheme,
-                ),
+                hideStatusBar = uiSettings.hideStatusBar || letterLyricsRequested,
+                darkStatusBarIcons = letterLyricsRequested ||
+                    playerStatusBarUsesDarkIcons(
+                        coverColor = Color(song.coverColorArgb),
+                        lowerBackground = lowerBackground,
+                        darkTheme = darkTheme,
+                    ),
             )
 
             val motionEnabled = rememberMicaMotionEnabled()
             val lyricsCloudAvailable = uiSettings.lyricsPageTheme == LyricsPageTheme.CLOUD &&
-                song.lyricsDocument.lines.any { it.startMs > 0 }
+                hasTimedPageLyrics
             val cloudPrewarmLyrics = remember(song.lyricsDocument) {
                 LyricsSession(song.lyricsDocument).lyrics
             }
@@ -506,10 +515,21 @@ fun NowPlayingContent(
             )
             val customHorizontalClassicRequested = lyricsExpanded && horizontalClassicMounted
             val classicLyricsExpanded =
-                lyricsExpanded && !lyricsCloudAvailable && !customHorizontalClassicRequested
+                lyricsExpanded &&
+                    !lyricsCloudAvailable &&
+                    !letterLyricsAvailable &&
+                    !customHorizontalClassicRequested
             val useVerticalCloudSplit = lyricsCloudUsesVerticalSplit(effectiveCoverFlowMode)
             val lyricsPageTransition by animateFloatAsState(
-                targetValue = if (lyricsCloudRequested || customHorizontalClassicRequested) 1f else 0f,
+                targetValue = if (
+                    lyricsCloudRequested ||
+                    letterLyricsRequested ||
+                    customHorizontalClassicRequested
+                ) {
+                    1f
+                } else {
+                    0f
+                },
                 animationSpec = tween(
                     durationMillis = if (motionEnabled) MicaMotion.DurationLongMs else 0,
                     easing = MicaMotion.Easing,
@@ -901,6 +921,7 @@ fun NowPlayingContent(
                     .fillMaxSize()
                     .graphicsLayer {
                         translationX = when {
+                            letterLyricsAvailable -> 0f
                             useVerticalCloudSplit ||
                                 landscapeCloudBurstActive ||
                                 coverFlowCloudExitActive -> 0f
@@ -1596,6 +1617,21 @@ fun NowPlayingContent(
                         )
                     }
                 }
+            }
+            if (
+                letterLyricsAvailable &&
+                (letterLyricsRequested || lyricsPageTransition > 0f)
+            ) {
+                LetterLyricsPrototype(
+                    renderState = lyricsRenderState,
+                    isPlaying = surfaceState.isPlaying,
+                    bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            alpha = lyricsPageTransition
+                        },
+                )
             }
             // No external OutgoingCoverArtworkWipe: disabled wipe themes raced a solid SongCover
             // frame on track change (particle classic lyrics). STANDARD/CUSTOM wipe in CoverSection.
