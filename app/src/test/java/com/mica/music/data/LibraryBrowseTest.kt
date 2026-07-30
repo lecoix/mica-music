@@ -13,12 +13,14 @@ class LibraryBrowseTest {
                 album = "Kind of Blue",
                 artist = "Miles Davis",
                 year = 1960,
+                releaseDate = "1960-05-01",
                 albumArtUri = null,
             ),
             SongFixtures.song(id = "early", queueOrder = 1).copy(
                 album = "Kind of Blue",
                 artist = "Miles Davis",
                 year = 1959,
+                releaseDate = "1959-08-17",
                 albumArtUri = "file:///kind-of-blue.jpg",
                 coverColorArgb = 0xFF010203.toInt(),
             ),
@@ -29,9 +31,33 @@ class LibraryBrowseTest {
         assertEquals("Kind of Blue", album.title)
         assertEquals("Miles Davis", album.artist)
         assertEquals(1959, album.year)
+        assertEquals("1959-08-17", album.releaseDate)
         assertEquals("file:///kind-of-blue.jpg", album.albumArtUri)
         assertEquals(0xFF010203.toInt(), album.coverColorArgb)
         assertEquals(2, album.songCount)
+    }
+
+    @Test
+    fun albumDateSortKeepsFullDatesBeforeYearOnlyAndUnknownLast() {
+        val groups = LibraryBrowse.groupByAlbum(
+            listOf(
+                SongFixtures.song("year").copy(album = "Year", year = 2024, releaseDate = ""),
+                SongFixtures.song("late").copy(album = "Late", year = 2024, releaseDate = "2024-08-16"),
+                SongFixtures.song("early").copy(album = "Early", year = 2024, releaseDate = "2024-01-05"),
+                SongFixtures.song("unknown").copy(album = "Unknown", year = 0, releaseDate = ""),
+            ),
+        )
+
+        assertEquals(
+            listOf("Early", "Late", "Year", "Unknown"),
+            LibraryBrowse.sortAlbumGroups(groups, AlbumBrowseSortField.YEAR, SortDirection.ASC)
+                .map { it.title },
+        )
+        assertEquals(
+            listOf("Late", "Early", "Year", "Unknown"),
+            LibraryBrowse.sortAlbumGroups(groups, AlbumBrowseSortField.YEAR, SortDirection.DESC)
+                .map { it.title },
+        )
     }
 
     @Test

@@ -152,3 +152,11 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
         db.execSQL("ALTER TABLE library_meta ADD COLUMN albumBrowseFastScrollSectionsJson TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN releaseDate TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE songs ADD COLUMN metadataScanVersion INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE browse_groups ADD COLUMN releaseDate TEXT NOT NULL DEFAULT ''")
+    }
+}

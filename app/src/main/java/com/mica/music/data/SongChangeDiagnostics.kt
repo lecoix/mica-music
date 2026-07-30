@@ -16,6 +16,7 @@ internal object SongChangeDiagnostics {
         if (old.fileName != new.fileName) add("fileName")
         if (old.sizeBytes != new.sizeBytes) add("sizeBytes")
         if (old.year != new.year) add("year")
+        if (old.releaseDate != new.releaseDate) add("releaseDate")
         if (old.folderPath != new.folderPath) add("folderPath")
         if (old.filePath != new.filePath) add("filePath")
         if (old.copyright != new.copyright) add("copyright")

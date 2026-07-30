@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.kyant.taglib.AudioPropertiesReadStyle
 import com.kyant.taglib.TagLib
+import com.mica.music.data.ReleaseDates
 import com.mica.music.data.ReplayGainTags
 
 /**
@@ -20,6 +21,7 @@ internal object TagLibReader {
         val albumArtist: String,
         val copyright: String,
         val year: Int,
+        val releaseDate: String,
         val durationSec: Int,
         val sampleRateHz: Int,
         val bitrateKbps: Int,
@@ -40,6 +42,10 @@ internal object TagLibReader {
             val props = TagLib.getAudioProperties(pfd.dup().detachFd(), AudioPropertiesReadStyle.Average)
             if (props == null || props.sampleRate <= 0) return@use null
             val tags = metadata.propertyMap
+            val rawDates = tags.valuesFor("DATE", "YEAR", "ORIGINALDATE", "ICRD")
+            val releaseDate = rawDates.firstNotNullOfOrNull { raw ->
+                ReleaseDates.canonicalFullDate(raw).takeIf { it.isNotEmpty() }
+            }.orEmpty()
             val frontCover = metadata.pictures.firstOrNull { it.pictureType == "Front Cover" }
                 ?: metadata.pictures.firstOrNull()
             Result(
@@ -48,7 +54,10 @@ internal object TagLibReader {
                 album = tags.firstValue("ALBUM", "IPRD"),
                 albumArtist = tags.firstValue("ALBUMARTIST", "ALBUM ARTIST"),
                 copyright = tags.firstValue("COPYRIGHT", "ICOP"),
-                year = parseYear(tags.firstValue("DATE", "YEAR", "ORIGINALDATE", "ICRD")),
+                year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
+                    ?: rawDates.firstNotNullOfOrNull { parseYear(it).takeIf { year -> year > 0 } }
+                    ?: 0,
+                releaseDate = releaseDate,
                 durationSec = props.length / 1000,
                 sampleRateHz = props.sampleRate,
                 bitrateKbps = props.bitrate,
@@ -72,6 +81,9 @@ internal object TagLibReader {
         }
         return ""
     }
+
+    private fun Map<String, Array<String>>.valuesFor(vararg keys: String): List<String> =
+        keys.flatMap { key -> this[key].orEmpty().map(String::trim).filter(String::isNotBlank) }
 
     private fun lyricsCandidates(tags: Map<String, Array<String>>): List<EmbeddedLyricsTextCandidate> =
         tags.entries

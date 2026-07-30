@@ -7,6 +7,27 @@ import org.junit.Test
 class SongSorterTest {
 
     @Test
+    fun dateSortHandlesFullDatesYearOnlyAndUnknownInBothDirections() {
+        val songs = listOf(
+            SongFixtures.song(id = "year-2024").copy(year = 2024, releaseDate = ""),
+            SongFixtures.song(id = "late-2024").copy(year = 2024, releaseDate = "2024-08-16"),
+            SongFixtures.song(id = "early-2024").copy(year = 2024, releaseDate = "2024-01-05"),
+            SongFixtures.song(id = "year-2023").copy(year = 2023, releaseDate = ""),
+            SongFixtures.song(id = "date-2023").copy(year = 2023, releaseDate = "2023-12-20"),
+            SongFixtures.song(id = "unknown").copy(year = 0, releaseDate = ""),
+        )
+
+        assertEquals(
+            listOf("date-2023", "year-2023", "early-2024", "late-2024", "year-2024", "unknown"),
+            SongSorter.sort(songs, SongSortField.YEAR, SortDirection.ASC).map { it.id },
+        )
+        assertEquals(
+            listOf("late-2024", "early-2024", "year-2024", "date-2023", "year-2023", "unknown"),
+            SongSorter.sort(songs, SongSortField.YEAR, SortDirection.DESC).map { it.id },
+        )
+    }
+
+    @Test
     fun titleSortMixesChineseByPinyinInitial() {
         val songs = listOf(
             SongFixtures.song(id = "adu", title = "阿杜"),

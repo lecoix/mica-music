@@ -14,6 +14,7 @@ data class BrowseGroupEntity(
     val songCount: Int,
     val artist: String,
     val year: Int,
+    val releaseDate: String,
     val albumArtUri: String?,
     val coverColorArgb: Int,
     val position: Int,
@@ -25,6 +26,7 @@ internal fun BrowseGroupEntity.toBrowseGroup(): BrowseGroup = BrowseGroup(
     songCount = songCount,
     artist = artist,
     year = year,
+    releaseDate = releaseDate,
     albumArtUri = albumArtUri,
     coverColorArgb = coverColorArgb,
 )
@@ -36,6 +38,7 @@ internal fun BrowseGroup.toEntity(kind: String, position: Int): BrowseGroupEntit
     songCount = songCount,
     artist = artist,
     year = year,
+    releaseDate = releaseDate,
     albumArtUri = albumArtUri,
     coverColorArgb = coverColorArgb,
     position = position,

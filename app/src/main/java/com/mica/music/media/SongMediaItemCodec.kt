@@ -25,6 +25,7 @@ object SongMediaItemCodec {
             playCount = 0,
             totalListenSeconds = 0L,
             lastPlayedAtMs = 0L,
+            metadataScanVersion = 0,
             lyricsDocument = LyricsDocument(),
             lyricsLoaded = false,
         ).toString() + lyricsRevision,
@@ -90,6 +91,7 @@ object SongMediaItemCodec {
             putString("${PREFIX}fileName", song.fileName)
             putLong("${PREFIX}sizeBytes", song.sizeBytes)
             putInt("${PREFIX}year", song.year)
+            putString("${PREFIX}releaseDate", song.releaseDate)
             putInt("${PREFIX}trackNumber", song.trackNumber)
             putInt("${PREFIX}discNumber", song.discNumber)
             putString("${PREFIX}folderPath", song.folderPath)
@@ -156,6 +158,7 @@ object SongMediaItemCodec {
             fileName = extras.getString("${PREFIX}fileName").orEmpty(),
             sizeBytes = extras.getLong("${PREFIX}sizeBytes", 0L),
             year = extras.getInt("${PREFIX}year", 0),
+            releaseDate = extras.getString("${PREFIX}releaseDate").orEmpty(),
             trackNumber = extras.getInt("${PREFIX}trackNumber", 0).coerceAtLeast(0),
             discNumber = extras.getInt("${PREFIX}discNumber", 0).coerceAtLeast(0),
             folderPath = extras.getString("${PREFIX}folderPath").orEmpty(),

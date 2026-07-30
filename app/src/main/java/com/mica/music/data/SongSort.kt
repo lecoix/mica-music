@@ -9,7 +9,7 @@ enum class SongSortField(val storageValue: String, val label: String) {
     ALBUM("album", "专辑"),
     ARTIST("artist", "艺术家"),
     SIZE("size", "大小"),
-    YEAR("year", "年份"),
+    YEAR("year", "日期"),
     FOLDER("folder", "文件夹"),
     PLAY_COUNT("play_count", "播放次数"),
     LAST_PLAYED("last_played", "最近播放"),
@@ -53,9 +53,13 @@ object SongSorter {
         direction: SortDirection,
     ): List<Song> {
         if (field == SongSortField.CUSTOM || songs.size <= 1) return songs
-        val comparator = comparatorFor(field)
+        val comparator = if (field == SongSortField.YEAR) {
+            releaseDateComparator(direction)
+        } else {
+            comparatorFor(field)
+        }
         val sorted = songs.sortedWith(comparator)
-        return if (direction == SortDirection.DESC) sorted.reversed() else sorted
+        return if (direction == SortDirection.DESC && field != SongSortField.YEAR) sorted.reversed() else sorted
     }
 
     fun customOrder(songs: List<Song>, orderedIds: List<String>): List<Song> {
@@ -86,4 +90,17 @@ object SongSorter {
         SongSortField.DATE_ADDED -> compareBy<Song>({ it.dateAddedMs }).then(text { it.title })
         SongSortField.CUSTOM -> compareBy<Song> { it.id }
     }
+
+    private fun releaseDateComparator(direction: SortDirection): Comparator<Song> =
+        Comparator { left, right ->
+            ReleaseDates.compare(
+                leftYear = left.year,
+                leftFullDate = left.releaseDate,
+                rightYear = right.year,
+                rightFullDate = right.releaseDate,
+                direction = direction,
+            ).takeIf { it != 0 }
+                ?: text { it.album }.compare(left, right).takeIf { it != 0 }
+                ?: text { it.title }.compare(left, right)
+        }
 }

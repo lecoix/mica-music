@@ -18,7 +18,10 @@ class SongEntityTest {
 
     @Test
     fun songRoundTripPreservesPersistedFieldsAndLyrics() {
-        val song = SongFixtures.song(id = "round-trip", queueOrder = 4).copy(discNumber = 2)
+        val song = SongFixtures.song(id = "round-trip", queueOrder = 4).copy(
+            discNumber = 2,
+            releaseDate = "2024-02-29",
+        )
         val entity = song.toEntity(queueOrder = 7)
         val restored = entity.toSong()
 

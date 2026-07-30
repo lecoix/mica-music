@@ -3,6 +3,7 @@ package com.mica.music.data.scanner
 import android.content.Context
 import android.net.Uri
 import com.mica.music.data.TrackMetadata
+import com.mica.music.data.ReleaseDates
 import com.mica.music.util.DiagnosticLog
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -18,6 +19,7 @@ internal object DsdMetadataReader {
         val albumArtist: String = "",
         val copyright: String = "",
         val year: Int = 0,
+        val releaseDate: String = "",
         val trackNumber: Int = 0,
         val discNumber: Int = 0,
     )
@@ -184,6 +186,7 @@ internal object DsdMetadataReader {
         val rawDiscNumber = text("TPOS")
         val year = text("TDRC").takeIf { it.isNotBlank() }
             ?: text("TYER")
+        val releaseDate = ReleaseDates.canonicalFullDate(year)
         return Id3Data(
             tags = Tags(
                 title = text("TIT2"),
@@ -191,7 +194,10 @@ internal object DsdMetadataReader {
                 album = text("TALB"),
                 albumArtist = text("TPE2"),
                 copyright = text("TCOP"),
-                year = year.take(4).toIntOrNull() ?: 0,
+                year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
+                    ?: year.take(4).toIntOrNull()
+                    ?: 0,
+                releaseDate = releaseDate,
                 trackNumber = MetadataTextFix.parseTrackNumber(rawTrackNumber),
                 discNumber = MetadataTextFix.parseDiscNumber(rawDiscNumber),
             ),

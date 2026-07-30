@@ -18,7 +18,7 @@ object SongDetails {
         SongDetailRow("专辑艺术家", song.albumArtist.ifBlank { "—" }),
         SongDetailRow("碟号", trackNumberLabel(song.discNumber)),
         SongDetailRow("音轨号", trackNumberLabel(song.trackNumber)),
-        SongDetailRow("年份", yearLabel(song.year)),
+        SongDetailRow("日期", releaseDateLabel(song.year, song.releaseDate)),
         SongDetailRow("媒体来源", mediaSourceLabel(song, library)),
         SongDetailRow("播放次数", song.playCount.toString()),
         SongDetailRow("累计播放时长", formatListenMinutes(song.totalListenSeconds)),
@@ -91,8 +91,8 @@ object SongDetails {
     fun trackNumberLabel(trackNumber: Int): String =
         trackNumber.takeIf { it > 0 }?.toString() ?: "—"
 
-    fun yearLabel(year: Int): String =
-        year.takeIf { it > 0 }?.toString() ?: "—"
+    fun releaseDateLabel(year: Int, releaseDate: String): String =
+        ReleaseDates.displayLabel(year, releaseDate).ifBlank { "—" }
 
     fun displayPath(song: Song): String {
         if (song.filePath.isNotBlank()) return song.filePath

@@ -79,6 +79,7 @@ object MetadataProbe {
         out += entry("应用内", "filePath", song.filePath)
         out += entry("应用内", "mediaUri", song.mediaUri)
         out += entry("应用内", "year", song.year.toString())
+        out += entry("应用内", "releaseDate", song.releaseDate)
         out += entry("应用内", "discNumber", song.discNumber.toString())
         out += entry("应用内", "trackNumber", song.trackNumber.toString())
         out += entry("应用内", "durationSec", song.durationSec.toString())

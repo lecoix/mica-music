@@ -20,6 +20,10 @@ data class Song(
     val sizeBytes: Long = 0L,
     /** 0 表示未知 */
     val year: Int = 0,
+    /** Strict, real yyyy-MM-dd tag value; blank when only [year] or no release date is known. */
+    val releaseDate: String = "",
+    /** Scanner metadata contract used to invalidate legacy cached rows after fields are added. */
+    val metadataScanVersion: Int = 1,
     /** 专辑内音轨号；0 表示未知 */
     val trackNumber: Int = 0,
     /** 专辑内碟号；小于等于 0 表示未知/未刷新 */

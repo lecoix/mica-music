@@ -75,6 +75,26 @@ class ScanProfilerTest {
     }
 
     @Test
+    fun legacyMetadataVersionPreventsDeepMetadataCacheReuse() {
+        val draft = draft()
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(
+            albumArtUri = null,
+            mediaUri = draft.mediaUri,
+            sizeBytes = draft.sizeBytes,
+            dateModifiedMs = draft.dateModifiedMs,
+            metadataScanVersion = 0,
+        )
+
+        assertNull(
+            draft.reusableCachedSong(
+                context = ApplicationProvider.getApplicationContext(),
+                cachedById = mapOf(cached.id to cached),
+                requireDeepMetadata = true,
+            ),
+        )
+    }
+
+    @Test
     fun forceRefreshLyricsClearsCachedLyricsForProbe() {
         val draft = draft()
         val cached = SongFixtures.song(id = draft.scanSongId()).copy(

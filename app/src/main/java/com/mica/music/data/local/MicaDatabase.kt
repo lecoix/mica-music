@@ -15,7 +15,7 @@ import com.mica.music.util.DiagnosticLog
         LibraryMetaEntity::class,
         BrowseGroupEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -56,6 +56,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_10_11,
                             MIGRATION_11_12,
                             MIGRATION_12_13,
+                            MIGRATION_13_14,
                         )
                         .build()
                         .also {

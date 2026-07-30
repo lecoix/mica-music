@@ -290,6 +290,8 @@ class DatabaseMigrationTest {
                     "copyright",
                     "codecLabel",
                     "discNumber",
+                    "releaseDate",
+                    "metadataScanVersion",
                     "externalLyricsSignature",
                     "lyricsJson",
                     "queueOrder",
@@ -329,6 +331,7 @@ class DatabaseMigrationTest {
                 "songCount",
                 "artist",
                 "year",
+                "releaseDate",
                 "albumArtUri",
                 "coverColorArgb",
                 "position",
@@ -512,6 +515,41 @@ class DatabaseMigrationTest {
         db.query("SELECT position FROM browse_groups WHERE title = 'Legacy'").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals(0, cursor.getInt(0))
+        }
+        helper.close()
+    }
+
+    @Test
+    fun migrationThirteenToFourteenAddsReleaseDatesAndForcesLegacyMetadataRefresh() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(13) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                        db.execSQL(
+                            "CREATE TABLE browse_groups (kind TEXT NOT NULL, title TEXT NOT NULL, " +
+                                "PRIMARY KEY(kind, title))",
+                        )
+                        db.execSQL("INSERT INTO browse_groups(kind, title) VALUES ('album', 'Legacy')")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_13_14.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").containsAll(setOf("releaseDate", "metadataScanVersion")))
+        assertTrue(tableColumns(db, "browse_groups").contains("releaseDate"))
+        db.query("SELECT releaseDate, metadataScanVersion FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+            assertEquals(0, cursor.getInt(1))
         }
         helper.close()
     }

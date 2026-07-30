@@ -33,6 +33,13 @@ class LibraryScaleTest {
             totalListenSeconds = (index % 12).toLong() * 60L,
             lastPlayedAtMs = index.toLong() * 1_000,
             year = 1990 + index % 35,
+            releaseDate = if (index % 3 == 0) {
+                "${1990 + index % 35}-${(index % 12 + 1).toString().padStart(2, '0')}-${
+                    (index % 28 + 1).toString().padStart(2, '0')
+                }"
+            } else {
+                ""
+            },
         )
     }
 
@@ -74,7 +81,7 @@ class LibraryScaleTest {
         ArtistNames.configure(ArtistSplitConfig())
         val groups = LibraryBrowse.groupByArtist(songs) + LibraryBrowse.groupByAlbum(songs)
         val rawTextBytes = groups.sumOf { group ->
-            listOf(group.title, group.subtitle, group.artist, group.albumArtUri.orEmpty())
+            listOf(group.title, group.subtitle, group.artist, group.releaseDate, group.albumArtUri.orEmpty())
                 .sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
         }
         val fixedWidthBytes = groups.size * (Int.SIZE_BYTES * 5L)
@@ -94,7 +101,9 @@ class LibraryScaleTest {
 
                 assertEquals("field=$field", 10_000, ascending.size)
                 assertEquals("field=$field", songs.map { it.id }.toSet(), ascending.map { it.id }.toSet())
-                assertEquals("field=$field", ascending.map { it.id }.reversed(), descending.map { it.id })
+                if (field != SongSortField.YEAR) {
+                    assertEquals("field=$field", ascending.map { it.id }.reversed(), descending.map { it.id })
+                }
                 assertEquals(
                     "field=$field",
                     ascending.map { it.id },

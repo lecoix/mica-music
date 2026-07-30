@@ -55,7 +55,9 @@ class SongMediaItemCodecTest {
                 song.copy(playCount = 99, totalListenSeconds = 1234, lastPlayedAtMs = 5678),
             ),
         )
+        assertEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(metadataScanVersion = 0)))
         assertNotEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(title = "updated")))
+        assertNotEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(releaseDate = "2024-02-29")))
         assertNotEquals(
             revision,
             SongMediaItemCodec.metadataRevision(song.copy(lyricsDocument = com.mica.music.data.LyricsDocument())),

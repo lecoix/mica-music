@@ -40,13 +40,14 @@ class LibraryBrowseDetailsTest {
         val sections = LibraryBrowseDetails.artistAlbumSections(
             listOf(
                 song("unknown").copy(album = "", year = 0, trackNumber = 1),
-                song("new-2").copy(album = "New", year = 2024, trackNumber = 2),
+                song("new-2").copy(album = "New", year = 2024, releaseDate = "2024-08-16", trackNumber = 2),
                 song("old").copy(album = "Old", year = 1990, trackNumber = 1),
-                song("new-1").copy(album = "New", year = 2024, trackNumber = 1),
+                song("new-1").copy(album = "New", year = 2024, releaseDate = "2024-01-05", trackNumber = 1),
             ),
         )
 
         assertEquals(listOf("New", "Old", "未知专辑"), sections.map { it.title })
+        assertEquals("2024-01-05", sections.first().releaseDate)
         assertEquals(listOf("new-1", "new-2"), sections.first().songs.map { it.id })
     }
 

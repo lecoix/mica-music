@@ -15,6 +15,7 @@ object LibraryBrowseDetails {
     data class ArtistAlbumSection(
         val title: String,
         val year: Int,
+        val releaseDate: String,
         val albumArtUri: String?,
         val coverColorArgb: Int,
         val songs: List<Song>,
@@ -38,15 +39,27 @@ object LibraryBrowseDetails {
         return buckets.map { (album, albumSongs) ->
             val orderedSongs = sortedAlbumSongs(albumSongs)
             val artworkSong = orderedSongs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: orderedSongs.first()
+            val releaseDate = ReleaseDates.earliestFullDate(orderedSongs)
             ArtistAlbumSection(
                 title = album,
-                year = orderedSongs.map { it.year }.filter { it > 0 }.maxOrNull() ?: 0,
+                year = ReleaseDates.aggregateYear(orderedSongs, releaseDate),
+                releaseDate = releaseDate,
                 albumArtUri = artworkSong.albumArtUri,
                 coverColorArgb = artworkSong.coverColorArgb,
                 songs = orderedSongs,
                 discSections = albumDiscSections(orderedSongs),
             )
-        }.sortedWith(compareByDescending<ArtistAlbumSection> { it.year > 0 }.thenByDescending { it.year })
+        }.sortedWith(
+            Comparator { left, right ->
+                ReleaseDates.compare(
+                    left.year,
+                    left.releaseDate,
+                    right.year,
+                    right.releaseDate,
+                    SortDirection.DESC,
+                ).takeIf { it != 0 } ?: left.title.compareTo(right.title)
+            },
+        )
     }
 
     private fun sortedAlbumSongs(songs: List<Song>): List<Song> =

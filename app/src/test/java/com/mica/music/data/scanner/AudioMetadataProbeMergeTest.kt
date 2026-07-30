@@ -25,6 +25,7 @@ class AudioMetadataProbeMergeTest {
             copyright = "WAV copyright",
             durationSec = 121,
             year = 2024,
+            releaseDate = "2024-02-29",
             trackNumber = 9,
             discNumber = 3,
         )
@@ -38,6 +39,7 @@ class AudioMetadataProbeMergeTest {
         assertEquals("WAV copyright", merged.copyright)
         assertEquals(120, merged.durationSec)
         assertEquals(2024, merged.year)
+        assertEquals("2024-02-29", merged.releaseDate)
         assertEquals(7, merged.trackNumber)
         assertEquals(2, merged.discNumber)
     }

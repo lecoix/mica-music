@@ -45,6 +45,8 @@ data class SongEntity(
     val fileName: String,
     val sizeBytes: Long,
     val year: Int,
+    val releaseDate: String,
+    val metadataScanVersion: Int,
     val trackNumber: Int = 0,
     val discNumber: Int = 0,
     val folderPath: String,
@@ -91,6 +93,8 @@ data class SongSummaryEntity(
     val fileName: String,
     val sizeBytes: Long,
     val year: Int,
+    val releaseDate: String,
+    val metadataScanVersion: Int,
     val trackNumber: Int,
     val discNumber: Int,
     val folderPath: String,
@@ -152,6 +156,8 @@ fun SongEntity.toSong(): Song = Song(
     fileName = fileName,
     sizeBytes = sizeBytes,
     year = year,
+    releaseDate = releaseDate,
+    metadataScanVersion = metadataScanVersion,
     trackNumber = trackNumber,
     discNumber = discNumber,
     folderPath = folderPath,
@@ -188,6 +194,8 @@ fun SongSummaryEntity.toSong(): Song = Song(
     fileName = fileName,
     sizeBytes = sizeBytes,
     year = year,
+    releaseDate = releaseDate,
+    metadataScanVersion = metadataScanVersion,
     trackNumber = trackNumber,
     discNumber = discNumber,
     folderPath = folderPath,
@@ -216,6 +224,8 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(sampleRateHz); append('\u0001')
     append(bitsPerSample); append('\u0001')
     append(bitrateKbps); append('\u0001')
+    append(releaseDate); append('\u0001')
+    append(metadataScanVersion); append('\u0001')
     append(trackNumber); append('\u0001')
     append(discNumber); append('\u0001')
     append(albumArtUri); append('\u0001')
@@ -242,6 +252,8 @@ fun Song.toEntity(queueOrder: Int, preservedLyricsJson: String? = null): SongEnt
     fileName = fileName,
     sizeBytes = sizeBytes,
     year = year,
+    releaseDate = releaseDate,
+    metadataScanVersion = metadataScanVersion,
     trackNumber = trackNumber,
     discNumber = discNumber,
     folderPath = folderPath,

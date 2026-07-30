@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.PlaybackMimeResolver
+import com.mica.music.data.ReleaseDates
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.LyricsDocument
@@ -39,6 +40,7 @@ internal data class TrackDraft(
     val mediaUri: String,
     val coverColorArgb: Int,
     val year: Int = 0,
+    val releaseDate: String = "",
     val folderPath: String = "",
     val filePath: String = "",
     val albumArtist: String = "",
@@ -67,25 +69,32 @@ internal data class TagInfo(
     val copyright: String,
     val durationSec: Int,
     val year: Int,
+    val releaseDate: String = "",
     val trackNumber: Int = 0,
     val discNumber: Int = 0,
     val frontCoverBytes: ByteArray? = null,
     val lyricsCandidates: List<EmbeddedLyricsTextCandidate> = emptyList(),
 )
 
-internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo = TagInfo(
-    title = primary.title.ifBlank { fallback.title },
-    artist = primary.artist.ifBlank { fallback.artist },
-    album = primary.album.ifBlank { fallback.album },
-    albumArtist = primary.albumArtist.ifBlank { fallback.albumArtist },
-    copyright = primary.copyright.ifBlank { fallback.copyright },
-    durationSec = primary.durationSec.takeIf { it > 0 } ?: fallback.durationSec,
-    year = primary.year.takeIf { it > 0 } ?: fallback.year,
-    trackNumber = primary.trackNumber.takeIf { it > 0 } ?: fallback.trackNumber,
-    discNumber = primary.discNumber.takeIf { it > 0 } ?: fallback.discNumber,
-    frontCoverBytes = primary.frontCoverBytes ?: fallback.frontCoverBytes,
-    lyricsCandidates = primary.lyricsCandidates + fallback.lyricsCandidates,
-)
+internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo {
+    val releaseDate = primary.releaseDate.ifBlank { fallback.releaseDate }
+    return TagInfo(
+        title = primary.title.ifBlank { fallback.title },
+        artist = primary.artist.ifBlank { fallback.artist },
+        album = primary.album.ifBlank { fallback.album },
+        albumArtist = primary.albumArtist.ifBlank { fallback.albumArtist },
+        copyright = primary.copyright.ifBlank { fallback.copyright },
+        durationSec = primary.durationSec.takeIf { it > 0 } ?: fallback.durationSec,
+        year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
+            ?: primary.year.takeIf { it > 0 }
+            ?: fallback.year,
+        releaseDate = releaseDate,
+        trackNumber = primary.trackNumber.takeIf { it > 0 } ?: fallback.trackNumber,
+        discNumber = primary.discNumber.takeIf { it > 0 } ?: fallback.discNumber,
+        frontCoverBytes = primary.frontCoverBytes ?: fallback.frontCoverBytes,
+        lyricsCandidates = primary.lyricsCandidates + fallback.lyricsCandidates,
+    )
+}
 
 object AudioMetadataProbe {
 
@@ -106,6 +115,7 @@ object AudioMetadataProbe {
             mediaUri = song.mediaUri,
             coverColorArgb = song.coverColorArgb,
             year = song.year,
+            releaseDate = song.releaseDate,
             folderPath = song.folderPath,
             filePath = song.filePath,
             albumArtist = song.albumArtist,
@@ -140,6 +150,7 @@ object AudioMetadataProbe {
 
     private const val TAG = "AudioMetadataProbe"
     private const val FLAC_METADATA_TRACE = "ScanFlacMeta"
+    internal const val CURRENT_METADATA_SCAN_VERSION = 1
 
     private val albumArtCache = ConcurrentHashMap<String, String?>()
     private val mp4CopyrightMarkers = listOf(
@@ -205,6 +216,7 @@ object AudioMetadataProbe {
                 albumArtUri = albumArtUri,
                 lyricsDocument = lyrics.selectedOrCached(cachedSong),
                 copyrightOverride = copyright,
+                metadataScanVersion = 0,
             ),
             lyrics = lyrics,
         )
@@ -297,6 +309,7 @@ object AudioMetadataProbe {
                 album = tags.album,
                 durationSec = tags.durationSec,
                 year = tags.year,
+                releaseDate = tags.releaseDate,
             )
             val metadata = profiler.measureOptional("retriever.metadata") {
                 readMetadata(retriever, enriched, trackProbe, tags.durationSec)
@@ -434,6 +447,7 @@ object AudioMetadataProbe {
             copyright = tagLib.copyright,
             durationSec = tagLib.durationSec,
             year = tagLib.year,
+            releaseDate = tagLib.releaseDate,
             trackNumber = tagLib.trackNumber,
             discNumber = tagLib.discNumber,
             frontCoverBytes = tagLib.frontCoverBytes,
@@ -483,6 +497,7 @@ object AudioMetadataProbe {
             else -> 0
         }
         val year = tags.year.takeIf { it > 0 } ?: draft.year
+        val releaseDate = tags.releaseDate.ifBlank { draft.releaseDate }
 
         val detectedContainer = trackProbe?.containerName
             ?: TrackMetadata.containerFromMime(draft.mimeType, draft.displayName)
@@ -551,6 +566,7 @@ object AudioMetadataProbe {
             album = album,
             durationSec = durationSec,
             year = year,
+            releaseDate = releaseDate,
             albumArtist = albumArtist,
             copyright = copyright,
             codecLabel = trackProbe?.trackMime ?: playbackMime,
@@ -753,8 +769,14 @@ object AudioMetadataProbe {
             draft.durationSec > 0 -> draft.durationSec
             else -> 0
         }
-        val year = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)
-            ?.toIntOrNull()?.coerceAtLeast(0) ?: draft.year
+        val releaseDate = ReleaseDates.canonicalFullDate(
+            extractMetadataString(retriever, "date"),
+        )
+        val year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
+            ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)
+                ?.toIntOrNull()
+                ?.coerceAtLeast(0)
+            ?: draft.year
         val copyright = MetadataTextFix.normalize(
             extractMetadataString(retriever, "copyright")
                 ?.takeIf { it.isNotBlank() }
@@ -773,6 +795,7 @@ object AudioMetadataProbe {
             copyright = copyright,
             durationSec = durationSec,
             year = year,
+            releaseDate = releaseDate,
             trackNumber = trackNumber,
             discNumber = discNumber,
         )
@@ -909,6 +932,7 @@ object AudioMetadataProbe {
             copyright = tags.copyright,
             durationSec = durationSec.takeIf { it > 0 } ?: draft.durationSec,
             year = tags.year.takeIf { it > 0 } ?: draft.year,
+            releaseDate = tags.releaseDate.ifBlank { draft.releaseDate },
             codecLabel = DsdSupport.rateLabel(metadata.sampleRateHz) ?: "DSD",
             mimeType = metadata.playbackMimeType,
         )
@@ -1071,6 +1095,7 @@ object AudioMetadataProbe {
         copyrightOverride: String = "",
         trackNumber: Int = 0,
         discNumber: Int = 0,
+        metadataScanVersion: Int = CURRENT_METADATA_SCAN_VERSION,
     ): Song {
         val id = if (mediaStoreId > 0) "ms_$mediaStoreId" else "doc_${mediaUri.hashCode()}"
         return Song(
@@ -1088,6 +1113,8 @@ object AudioMetadataProbe {
             fileName = displayName ?: title,
             sizeBytes = sizeBytes,
             year = year,
+            releaseDate = releaseDate,
+            metadataScanVersion = metadataScanVersion,
             trackNumber = trackNumber,
             discNumber = discNumber,
             folderPath = folderPath,
@@ -1131,8 +1158,11 @@ object AudioMetadataProbe {
             val copyright = tag.getFirst(FieldKey.COPYRIGHT)?.trim().orEmpty()
             val lyrics = tag.getFirst(FieldKey.LYRICS)?.trim().orEmpty()
             val frontCoverBytes = tag.firstArtwork?.binaryData?.takeIf { it.isNotEmpty() }
-            val year = Regex("""\d{4}""")
-                .find(tag.getFirst(FieldKey.YEAR).orEmpty())
+            val rawDate = tag.getFirst(FieldKey.YEAR).orEmpty()
+            val releaseDate = ReleaseDates.canonicalFullDate(rawDate)
+            val year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
+                ?: Regex("""\d{4}""")
+                .find(rawDate)
                 ?.value
                 ?.toIntOrNull()
                 ?: 0
@@ -1149,6 +1179,7 @@ object AudioMetadataProbe {
                 copyright = copyright,
                 durationSec = audioFile.audioHeader?.trackLength?.coerceAtLeast(0) ?: 0,
                 year = year,
+                releaseDate = releaseDate,
                 trackNumber = trackNumber,
                 discNumber = discNumber,
                 frontCoverBytes = frontCoverBytes,

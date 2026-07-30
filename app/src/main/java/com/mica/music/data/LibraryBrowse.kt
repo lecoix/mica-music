@@ -11,6 +11,7 @@ data class BrowseGroup(
     val songCount: Int,
     val artist: String = subtitle,
     val year: Int = 0,
+    val releaseDate: String = "",
     val albumArtUri: String? = null,
     val coverColorArgb: Int = BrowseFallbackColorArgb,
 )
@@ -22,7 +23,7 @@ data class BrowseGroupPresentation(
 
 enum class AlbumBrowseSortField(val storageValue: String, val label: String) {
     TITLE("title", "标题"),
-    YEAR("year", "年份"),
+    YEAR("year", "日期"),
     SONG_COUNT("song_count", "歌曲数量"),
     ARTIST("artist", "艺术家"),
     ;
@@ -78,12 +79,14 @@ object LibraryBrowse {
         }
         return buckets.map { (artist, list) ->
             val artworkSong = artworkSong(list)
+            val releaseDate = ReleaseDates.earliestFullDate(list)
             BrowseGroup(
                 title = artist,
                 subtitle = "${list.size} 首",
                 songCount = list.size,
                 artist = artist,
-                year = albumYear(list),
+                year = ReleaseDates.aggregateYear(list, releaseDate),
+                releaseDate = releaseDate,
                 albumArtUri = artworkSong?.albumArtUri,
                 coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
             )
@@ -95,12 +98,14 @@ object LibraryBrowse {
             .map { (album, list) ->
                 val artistSummary = summarizeAlbumArtists(list)
                 val artworkSong = artworkSong(list)
+                val releaseDate = ReleaseDates.earliestFullDate(list)
                 BrowseGroup(
                     title = album,
                     subtitle = artistSummary,
                     songCount = list.size,
                     artist = artistSummary,
-                    year = albumYear(list),
+                    year = ReleaseDates.aggregateYear(list, releaseDate),
+                    releaseDate = releaseDate,
                     albumArtUri = artworkSong?.albumArtUri,
                     coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
                 )
@@ -340,21 +345,15 @@ object LibraryBrowse {
     private fun artworkSong(songs: List<Song>): Song? =
         songs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: songs.firstOrNull()
 
-    private fun albumYear(songs: List<Song>): Int =
-        songs.mapNotNull { it.year.takeIf { year -> year > 0 } }.minOrNull() ?: 0
-
     private fun albumYearComparator(direction: SortDirection): Comparator<BrowseGroup> =
         Comparator { a, b ->
-            val aUnknown = a.year <= 0
-            val bUnknown = b.year <= 0
-            when {
-                aUnknown && bUnknown -> compareText(a.title, b.title)
-                aUnknown -> 1
-                bUnknown -> -1
-                direction == SortDirection.DESC && a.year != b.year -> b.year.compareTo(a.year)
-                a.year != b.year -> a.year.compareTo(b.year)
-                else -> compareText(a.title, b.title)
-            }
+            ReleaseDates.compare(
+                leftYear = a.year,
+                leftFullDate = a.releaseDate,
+                rightYear = b.year,
+                rightFullDate = b.releaseDate,
+                direction = direction,
+            ).takeIf { it != 0 } ?: compareText(a.title, b.title)
         }
 
     private fun compareText(a: String, b: String): Int {

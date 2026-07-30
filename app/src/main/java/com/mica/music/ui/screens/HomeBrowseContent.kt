@@ -57,6 +57,7 @@ import com.mica.music.data.BrowseGroupPresentation
 import com.mica.music.data.FolderBrowseGroup
 import com.mica.music.data.LibraryBrowseDetails
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.ReleaseDates
 import com.mica.music.data.Song
 import com.mica.music.data.SongDetails
 import com.mica.music.data.SongListInfoVisibility
@@ -590,7 +591,10 @@ private fun AlbumDetailHeader(
 
 private fun albumStatsLine(songs: List<Song>): String =
     listOfNotNull(
-        songs.map { it.year }.filter { it > 0 }.maxOrNull()?.toString(),
+        ReleaseDates.earliestFullDate(songs).let { releaseDate ->
+            ReleaseDates.displayLabel(ReleaseDates.aggregateYear(songs, releaseDate), releaseDate)
+                .takeIf { it.isNotBlank() }
+        },
         "${songs.size} 首",
         totalDurationLabel(songs.sumOf { it.durationSec.coerceAtLeast(0) }),
     ).joinToString(" · ")
@@ -885,7 +889,9 @@ private fun ArtistAlbumHeader(
             )
             Text(
                 text = buildList {
-                    if (section.year > 0) add(section.year.toString())
+                    ReleaseDates.displayLabel(section.year, section.releaseDate)
+                        .takeIf { it.isNotBlank() }
+                        ?.let(::add)
                     add("${section.songs.size} 首")
                 }.joinToString(" · "),
                 style = MicaTheme.typography.bodySm,
@@ -1194,7 +1200,7 @@ private fun BrowseGroupList(
 private fun albumRowSubtitle(group: BrowseGroup): String =
     listOfNotNull(
         group.artist.takeIf { it.isNotBlank() },
-        group.year.takeIf { it > 0 }?.toString(),
+        ReleaseDates.displayLabel(group.year, group.releaseDate).takeIf { it.isNotBlank() },
         "${group.songCount} 首",
     ).joinToString(" · ")
 
