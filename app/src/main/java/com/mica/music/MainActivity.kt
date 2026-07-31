@@ -1,6 +1,7 @@
 package com.mica.music
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +36,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.mica.music.ui.components.UserMessageHost
 import com.mica.music.ui.navigation.AppNavigationMain
@@ -43,10 +45,15 @@ import com.mica.music.ui.navigation.AppNavigationCoordinator
 import com.mica.music.ui.system.StatusBarController
 import com.mica.music.ui.theme.AnimatedMicaAppBackground
 import com.mica.music.media.MicaSpectrumAnalyzer
+import com.mica.music.util.DiagnosticLog
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
 import eightbitlab.com.blurview.BlurTarget
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun MainAppSurface(
@@ -86,6 +93,7 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
     private lateinit var navigationCoordinator: AppNavigationCoordinator
+    private var externalAudioOpenJob: Job? = null
 
     private companion object {
         const val KEY_PLAYER_EXPANDED = "player_expanded"
@@ -274,6 +282,47 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+        handleExternalAudioIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleExternalAudioIntent(intent)
+    }
+
+    private fun handleExternalAudioIntent(intent: Intent?) {
+        val request = parseExternalAudioOpenRequest(intent) ?: return
+        externalAudioOpenJob?.cancel()
+        externalAudioOpenJob = lifecycleScope.launch {
+            val song = withContext(Dispatchers.IO) {
+                ExternalAudioSongResolver.resolve(
+                    context = this@MainActivity,
+                    request = request,
+                    librarySongs = viewModel.library.songs,
+                )
+            }
+            if (song == null) {
+                DiagnosticLog.event(
+                    "ExternalOpen",
+                    "unreadable uri=${request.uri} mime=${request.mimeType.orEmpty()}",
+                )
+                android.widget.Toast.makeText(
+                    this@MainActivity,
+                    "无法读取所选音乐文件",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+                return@launch
+            }
+            DiagnosticLog.event(
+                "ExternalOpen",
+                "play song=${song.id} uri=${request.uri} mime=${song.metadata.playbackMimeType} " +
+                    "art=${!song.albumArtUri.isNullOrBlank()} " +
+                    "lyricsOrigin=${song.lyricsDocument.origin} lyricsLines=${song.lyricsDocument.lines.size}",
+            )
+            viewModel.playerController.playSingleSong(song)
+            navigationCoordinator.playerExpanded = true
         }
     }
 

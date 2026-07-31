@@ -38,6 +38,31 @@ import org.robolectric.Shadows.shadowOf
 @RunWith(RobolectricTestRunner::class)
 class PlayerControllerBoundaryTest {
 
+    @Test
+    fun playSingleSongWaitsForColdControllerConnectionThenStartsPlayback() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val song = SongFixtures.song("external")
+        every { mediaController.addListener(any()) } returns Unit
+        every { mediaController.currentMediaItem } returns null
+        every { mediaController.mediaItemCount } returns 0
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 0L
+
+        controller.playSingleSong(song)
+
+        assertEquals(listOf(song.id), controller.playbackQueueState.queue.map { it.id })
+        assertEquals(1, connector.requests.size)
+        verify(exactly = 0) { mediaController.play() }
+
+        connector.requests.single().onConnected(mediaController)
+
+        verify(exactly = 1) { mediaController.play() }
+        assertEquals(song.id, controller.playbackSurfaceState.currentSong?.id)
+        controller.release()
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun rapidEquivalentPlaylistChangesAreDebouncedAndRebuiltOnce() = runTest {

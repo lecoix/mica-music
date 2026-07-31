@@ -446,6 +446,7 @@ class PlayerController internal constructor(
     /** Prevents callbacks from the previously playing item from undoing an optimistic selection. */
     private val pendingMediaSelection = PendingMediaSelection()
     private var pendingQueue: List<Song>? = null
+    private var pendingSingleSongId: String? = null
     private var pendingPlaybackTuning: PlaybackTuning? = null
     private var effectivePlaybackTuning = PlaybackTuning()
     private var pendingEffectivePlaybackTuning: PlaybackTuning? = null
@@ -732,6 +733,10 @@ class PlayerController internal constructor(
             applyQueue(c, it, preservePlayback = true)
             pendingQueue = null
         }
+        pendingSingleSongId?.let { songId ->
+            pendingSingleSongId = null
+            playSongById(songId)
+        }
         syncPlaybackQueueModeFromPlayer(c)
         syncIndexFromPlayer(c)
         val pendingRequestedTuning = pendingPlaybackTuning
@@ -933,6 +938,9 @@ class PlayerController internal constructor(
 
     fun setQueue(newQueue: List<Song>) {
         if (newQueue.isEmpty() && songQueue.isEmpty()) return
+        pendingSingleSongId?.let { pendingId ->
+            if (newQueue.none { it.id == pendingId }) pendingSingleSongId = null
+        }
 
         val startedMs = SystemClock.elapsedRealtime()
         val previousQueueSize = songQueue.size
@@ -1221,6 +1229,22 @@ class PlayerController internal constructor(
     fun playSongById(songId: String) {
         val index = songQueue.indexOfFirst { it.id == songId }
         if (index >= 0) playSong(index)
+    }
+
+    /**
+     * Replaces the active queue with one externally opened song and starts it once the
+     * MediaController is available. This preserves the user's explicit play request across a
+     * cold service connection without adding the song to the library.
+     */
+    fun playSingleSong(song: Song) {
+        setQueue(listOf(song))
+        pendingSingleSongId = song.id
+        if (controller == null) {
+            connectIfNeeded()
+            return
+        }
+        pendingSingleSongId = null
+        playSongById(song.id)
     }
 
     /**
