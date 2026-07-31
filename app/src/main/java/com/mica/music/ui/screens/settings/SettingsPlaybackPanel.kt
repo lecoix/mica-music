@@ -1,17 +1,24 @@
 package com.mica.music.ui.screens.settings
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.mica.music.data.AppHiResBadgeImporter
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
@@ -19,16 +26,36 @@ import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.data.usesCompactLyricsLinePreference
+import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.components.SettingsTextFieldRow
 import com.mica.music.ui.theme.HifiSpacing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
+    val badgeImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                AppHiResBadgeImporter.importBadge(context, uri)
+            }
+            result.path?.let { path ->
+                uiSettings.updateHiResBadgeCustomImagePath(path)
+                uiSettings.updateHiResBadgeStyle(HiResBadgeStyle.CUSTOM_IMAGE)
+            }
+            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     SettingsSectionTitle("音量标准化")
     SettingsChoiceRow(
@@ -209,4 +236,44 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         placeholder = "输入自定义文本",
         enabled = playerInfo.showCustomText,
     )
+
+    Spacer(Modifier.height(HifiSpacing.lg))
+    SettingsSectionTitle("Hi-Res 标志")
+
+    SettingsChoiceRow(
+        title = "标志样式",
+        subtitle = "Hi-Res 曲目在信息行右侧显示的标志",
+        choices = HiResBadgeStyleChoices,
+        selectedValue = uiSettings.hiResBadgeStyle.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateHiResBadgeStyle(HiResBadgeStyle.entries[ordinal])
+        },
+    )
+
+    if (uiSettings.hiResBadgeStyle == HiResBadgeStyle.CUSTOM_IMAGE) {
+        SettingsActionRow(
+            title = "选择图片",
+            subtitle = if (uiSettings.hiResBadgeCustomImagePath == null) {
+                "最高 24dp 视觉高度；上下各最多溢出 4dp，信息行布局不变"
+            } else {
+                "已设置自定义图片"
+            },
+            onClick = {
+                badgeImagePicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            },
+        )
+        SettingsActionRow(
+            title = "清除自定义图片",
+            subtitle = "恢复为默认圆点 + Hi-Res 文字",
+            enabled = uiSettings.hiResBadgeCustomImagePath != null,
+            onClick = {
+                AppHiResBadgeImporter.clearBadge(context)
+                uiSettings.updateHiResBadgeCustomImagePath(null)
+                uiSettings.updateHiResBadgeStyle(HiResBadgeStyle.DEFAULT)
+                Toast.makeText(context, "已恢复默认 Hi-Res 标志", Toast.LENGTH_SHORT).show()
+            },
+        )
+    }
 }

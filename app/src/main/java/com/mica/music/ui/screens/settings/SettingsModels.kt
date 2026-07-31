@@ -14,6 +14,7 @@ import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MiniPlayerSwipeAction
+import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlayerCoverFlowMode
@@ -44,6 +45,10 @@ internal val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries
     .map { it.ordinal to it.settingsLabel }
 
 internal val MiniPlayerStyleChoices = MiniPlayerStyle.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+internal val HiResBadgeStyleChoices = HiResBadgeStyle.entries.map {
     it.ordinal to it.settingsLabel
 }
 

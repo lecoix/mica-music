@@ -5,6 +5,7 @@ import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
+import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerLayoutConfig
@@ -141,6 +142,15 @@ class PlaybackUiPreferencesRobolectricTest {
         PlaybackUiPreferences.setPlayerInfoVisibility(context, visibility)
 
         assertEquals(visibility, PlaybackUiPreferences.playerInfoVisibility(context))
+    }
+
+    @Test
+    fun hiResBadgePreferencesRoundTrip() {
+        PlaybackUiPreferences.setHiResBadgeStyle(context, HiResBadgeStyle.CUSTOM_IMAGE)
+        PlaybackUiPreferences.setHiResBadgeCustomImagePath(context, "/tmp/hi_res_badge.png")
+
+        assertEquals(HiResBadgeStyle.CUSTOM_IMAGE, PlaybackUiPreferences.hiResBadgeStyle(context))
+        assertEquals("/tmp/hi_res_badge.png", PlaybackUiPreferences.hiResBadgeCustomImagePath(context))
     }
 
     @Test

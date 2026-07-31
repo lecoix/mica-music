@@ -833,6 +833,7 @@ fun HomeScreen(
                     )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
                         library = library,
+                        hiResBadgeAppearance = uiSettings.hiResBadgeAppearance,
                         listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
                     )

@@ -177,6 +177,18 @@ class AppUiSettings(context: Context) {
     var playerInfoVisibility by mutableStateOf(PlaybackUiPreferences.playerInfoVisibility(appContext))
         private set
 
+    var hiResBadgeStyle by mutableStateOf(PlaybackUiPreferences.hiResBadgeStyle(appContext))
+        private set
+
+    var hiResBadgeCustomImagePath by mutableStateOf(PlaybackUiPreferences.hiResBadgeCustomImagePath(appContext))
+        private set
+
+    val hiResBadgeAppearance: HiResBadgeAppearance
+        get() = HiResBadgeAppearance(
+            style = hiResBadgeStyle,
+            customImagePath = hiResBadgeCustomImagePath,
+        )
+
     fun updateThemeMode(mode: AppThemeMode) {
         themeMode = mode
         AppearancePreferences.setThemeMode(appContext, mode)
@@ -436,6 +448,16 @@ class AppUiSettings(context: Context) {
     fun updatePlayerInfoVisibility(visibility: PlayerInfoVisibility) {
         playerInfoVisibility = visibility
         PlaybackUiPreferences.setPlayerInfoVisibility(appContext, visibility)
+    }
+
+    fun updateHiResBadgeStyle(style: HiResBadgeStyle) {
+        hiResBadgeStyle = style
+        PlaybackUiPreferences.setHiResBadgeStyle(appContext, style)
+    }
+
+    fun updateHiResBadgeCustomImagePath(path: String?) {
+        hiResBadgeCustomImagePath = path
+        PlaybackUiPreferences.setHiResBadgeCustomImagePath(appContext, path)
     }
 
     fun togglePlayerImmersiveLower() {

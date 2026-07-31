@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.data.HiResBadgeAppearance
 import com.mica.music.data.LabeledCount
 import com.mica.music.data.LibraryAnalysis
 import com.mica.music.data.LibraryAnalyzer
@@ -85,6 +86,7 @@ private val QualityTierColorsDark = mapOf(
 @Composable
 fun LibraryAnalysisContent(
     library: MusicLibrary,
+    hiResBadgeAppearance: HiResBadgeAppearance,
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
@@ -122,7 +124,7 @@ fun LibraryAnalysisContent(
             ),
         verticalArrangement = Arrangement.spacedBy(HifiSpacing.xxl),
     ) {
-        AnalysisOverviewPanel(analysis)
+        AnalysisOverviewPanel(analysis, hiResBadgeAppearance)
 
         AnalysisBreakdownBlock(
             tag = "FORMAT",
@@ -147,7 +149,10 @@ fun LibraryAnalysisContent(
 }
 
 @Composable
-private fun AnalysisOverviewPanel(analysis: LibraryAnalysis) {
+private fun AnalysisOverviewPanel(
+    analysis: LibraryAnalysis,
+    hiResBadgeAppearance: HiResBadgeAppearance,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(OverviewCellHeight)) {
             OverviewMetricCell(
@@ -169,6 +174,7 @@ private fun AnalysisOverviewPanel(analysis: LibraryAnalysis) {
             OverviewHiResCell(
                 count = analysis.hiResCount,
                 percent = analysis.hiResPercent,
+                hiResBadgeAppearance = hiResBadgeAppearance,
                 modifier = Modifier.weight(1f),
             )
             AnalysisHairlineVertical()
@@ -239,6 +245,7 @@ private fun OverviewMetricCell(
 private fun OverviewHiResCell(
     count: Int,
     percent: Int,
+    hiResBadgeAppearance: HiResBadgeAppearance,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -261,7 +268,7 @@ private fun OverviewHiResCell(
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(HifiSpacing.xxs)) {
-            HiResIndicator()
+            HiResIndicator(appearance = hiResBadgeAppearance)
             Text(
                 text = "$percent%",
                 style = MicaTheme.typography.monoSm,

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +27,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.HiResBadgeAppearance
+import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.Song
 import com.mica.music.data.buildPlayerInfoSegments
 import com.mica.music.data.formatPlayerInfoCurrentTime
@@ -37,6 +40,7 @@ import com.mica.music.ui.components.textLineHeightDp
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
+import com.mica.music.ui.theme.rememberPlayerInfoRowHeight
 
 @Composable
 internal fun HiFiBadgeSection(
@@ -44,6 +48,7 @@ internal fun HiFiBadgeSection(
     colors: PlayerContentColors,
     playerInfoVisibility: PlayerInfoVisibility,
     playbackTuning: PlaybackTuning,
+    hiResBadgeAppearance: HiResBadgeAppearance,
     modifier: Modifier = Modifier,
 ) {
     val locale = LocalContext.current.resources.configuration.locales[0]
@@ -62,10 +67,22 @@ internal fun HiFiBadgeSection(
         playbackTuning = playbackTuning,
     )
     if (segments.isEmpty()) return
+    val infoRowHeight = rememberPlayerInfoRowHeight()
+    val usesOverflowBadge = song.isHiRes &&
+        hiResBadgeAppearance.style == HiResBadgeStyle.CUSTOM_IMAGE &&
+        hiResBadgeAppearance.customImagePath != null
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
+            .height(infoRowHeight)
+            .then(
+                if (usesOverflowBadge) {
+                    Modifier.graphicsLayer { clip = false }
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = HifiSpacing.lg),
     ) {
         HiFiInfoRow(
@@ -74,7 +91,10 @@ internal fun HiFiBadgeSection(
             textColor = colors.tertiary,
         )
         if (song.isHiRes) {
-            HiResIndicator()
+            HiResIndicator(
+                appearance = hiResBadgeAppearance,
+                rowHeight = infoRowHeight,
+            )
         }
     }
 }

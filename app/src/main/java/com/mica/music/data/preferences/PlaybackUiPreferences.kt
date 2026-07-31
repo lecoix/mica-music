@@ -4,6 +4,7 @@ import android.content.Context
 import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
@@ -79,6 +80,8 @@ object PlaybackUiPreferences {
     private const val KEY_PLAYER_INFO_SHOW_CURRENT_TIME = "player_info_show_current_time"
     private const val KEY_PLAYER_INFO_SHOW_CUSTOM = "player_info_show_custom"
     private const val KEY_PLAYER_INFO_CUSTOM_TEXT = "player_info_custom_text"
+    private const val KEY_HI_RES_BADGE_STYLE = "hi_res_badge_style"
+    private const val KEY_HI_RES_BADGE_CUSTOM_IMAGE_PATH = "hi_res_badge_custom_image_path"
     private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
 
     fun playerLowerBackground(context: Context): PlayerLowerBackgroundMode =
@@ -465,6 +468,28 @@ object PlaybackUiPreferences {
             .putBoolean(KEY_PLAYER_INFO_SHOW_CURRENT_TIME, visibility.showCurrentTime)
             .putBoolean(KEY_PLAYER_INFO_SHOW_CUSTOM, visibility.showCustomText)
             .putString(KEY_PLAYER_INFO_CUSTOM_TEXT, visibility.customText)
+            .apply()
+    }
+
+    fun hiResBadgeStyle(context: Context): HiResBadgeStyle =
+        HiResBadgeStyle.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_HI_RES_BADGE_STYLE, null),
+        )
+
+    fun setHiResBadgeStyle(context: Context, style: HiResBadgeStyle) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_HI_RES_BADGE_STYLE, style.storageValue)
+            .apply()
+    }
+
+    fun hiResBadgeCustomImagePath(context: Context): String? =
+        MicaSettingsStore.prefs(context)
+            .getString(KEY_HI_RES_BADGE_CUSTOM_IMAGE_PATH, null)
+            ?.takeIf { it.isNotBlank() }
+
+    fun setHiResBadgeCustomImagePath(context: Context, path: String?) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_HI_RES_BADGE_CUSTOM_IMAGE_PATH, path)
             .apply()
     }
 }

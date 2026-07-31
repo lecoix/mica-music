@@ -22,6 +22,7 @@ import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.HiResBadgeAppearance
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
@@ -63,6 +64,7 @@ internal fun PlayerLowerPanelSection(
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
     stripSongTitleParentheses: Boolean,
     playerInfoVisibility: PlayerInfoVisibility,
+    hiResBadgeAppearance: HiResBadgeAppearance,
     playbackTuning: PlaybackTuning,
     onCyclePlaybackQueueMode: () -> Unit,
     onPrevious: () -> Unit,
@@ -186,6 +188,7 @@ internal fun PlayerLowerPanelSection(
                                 colors = infoBarColors,
                                 playerInfoVisibility = playerInfoVisibility,
                                 playbackTuning = playbackTuning,
+                                hiResBadgeAppearance = hiResBadgeAppearance,
                             )
                         }
                         Spacer(Modifier.height(spacing.afterInfo))

@@ -39,5 +39,9 @@ object HifiSize {
     val dividerHairline = 1.dp
     val accentBarWidth = 2.dp
     val hiResDot = 6.dp
+    /** Hi-Res 标志视觉高度；布局仍占 [playerInfoRowHeight]，超出部分在溢出范围内绘制。 */
+    val hiResBadgeDisplayHeight = 24.dp
+    /** 标志相对信息行上下各允许溢出的最大距离。 */
+    val hiResBadgeMaxOverflowPerSide = 4.dp
     val activeDot = 6.dp
 }

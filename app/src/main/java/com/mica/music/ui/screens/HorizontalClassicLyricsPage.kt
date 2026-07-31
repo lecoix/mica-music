@@ -61,6 +61,7 @@ internal fun HorizontalClassicLyricsPage(
             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
             playerInfoVisibility = uiSettings.playerInfoVisibility,
+            hiResBadgeAppearance = uiSettings.hiResBadgeAppearance,
             playbackTuning = surfaceState.playbackTuning,
             spectrumEnabled = false,
             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,

@@ -11,6 +11,7 @@ import com.mica.music.ui.components.measurePlayerCoverFitOriginal
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.HifiTypography
+import com.mica.music.ui.theme.playerInfoRowHeight
 
 /**
  * 纯布局计算：给定动画进度与尺寸，原子产出 [PlayerPageFrame]。
@@ -435,7 +436,7 @@ object PlayerPageLayoutEngine {
         immersiveProgress: Float,
     ): Dp {
         if (!immersiveInTransition) return 0.dp
-        val infoLine = with(density) { typography.monoMd.lineHeight.toDp() }
+        val infoLine = playerInfoRowHeight(density, typography)
         val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
         val subtitleLine = with(density) { typography.bodyMd.lineHeight.toDp() }
         val titleBlockHeight = titleLine + HifiSpacing.sm + subtitleLine * 2
@@ -465,7 +466,7 @@ object PlayerPageLayoutEngine {
         showMetadata: Boolean,
         compactLyricsLineMode: CompactLyricsLineMode,
     ): LowerLayoutPlan {
-        val infoLine = with(density) { typography.monoMd.lineHeight.toDp() }
+        val infoLine = playerInfoRowHeight(density, typography)
         val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
         val subtitleLine = with(density) { typography.bodyMd.lineHeight.toDp() }
         val lyricLine = with(density) {

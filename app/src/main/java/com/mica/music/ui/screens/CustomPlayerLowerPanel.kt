@@ -21,6 +21,7 @@ import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.HiResBadgeAppearance
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerLayoutConfig
@@ -31,6 +32,7 @@ import com.mica.music.ui.components.DirectionalTrackWipe
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
+import com.mica.music.ui.theme.CustomPlayerInfoRowHeightDp
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.rememberLyricsContentColors
@@ -59,6 +61,7 @@ internal fun CustomPlayerPagePanel(
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     stripSongTitleParentheses: Boolean,
     playerInfoVisibility: PlayerInfoVisibility,
+    hiResBadgeAppearance: HiResBadgeAppearance,
     playbackTuning: PlaybackTuning,
     spectrumEnabled: Boolean,
     trackSkipDirection: TrackSkipDirection?,
@@ -137,6 +140,7 @@ internal fun CustomPlayerPagePanel(
                                             colors = infoColors,
                                             playerInfoVisibility = playerInfoVisibility,
                                             playbackTuning = playbackTuning,
+                                            hiResBadgeAppearance = hiResBadgeAppearance,
                                         )
                                     }
                                 }
@@ -266,7 +270,7 @@ internal fun customPlayerBaseHeightDp(
     coverBaseHeightDp: Float = DefaultCustomCoverBaseHeightDp,
 ): Float = when (component) {
     PlayerLowerComponent.COVER -> coverBaseHeightDp.coerceAtLeast(0f)
-    PlayerLowerComponent.INFO -> 24f
+    PlayerLowerComponent.INFO -> CustomPlayerInfoRowHeightDp
     PlayerLowerComponent.TITLE -> 72f
     PlayerLowerComponent.LYRICS -> if (
         lyricsLineCount == PlayerLowerLayoutConfig.SINGLE_LYRICS_LINE_COUNT
