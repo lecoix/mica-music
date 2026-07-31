@@ -70,14 +70,14 @@ internal fun playerCoverWipeRenderProgress(
     else -> animationProgress
 }
 
-private fun PlayerCoverWipeState.renderOutgoing(
+internal fun PlayerCoverWipeState.renderOutgoing(
     target: PlayerCoverWipeVisual,
 ): PlayerCoverWipeVisual? {
     if (!wipeEnabled) return null
     return outgoing ?: visible.takeIf { it.song.id != target.song.id }
 }
 
-private fun PlayerCoverWipeState.renderProgress(
+internal fun PlayerCoverWipeState.renderProgress(
     target: PlayerCoverWipeVisual,
 ): Float = playerCoverWipeRenderProgress(
     visibleSongId = visible.song.id,

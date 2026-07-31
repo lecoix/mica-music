@@ -34,10 +34,13 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -83,7 +86,8 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
-import com.mica.music.ui.theme.artworkEdgeFadeStops
+import com.mica.music.ui.theme.artworkCoverScrimStops
+import com.mica.music.ui.theme.artworkGradientScrimColors
 import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -121,6 +125,9 @@ internal fun NowPlayingCoverSection(
     screenWidth: Dp,
     stripSongTitleParentheses: Boolean,
     coverStartPaddingOverride: Dp? = null,
+    /** When set, cover wipe shares progress with [OutgoingCoverBackgroundWipe]. */
+    sharedCoverWipeState: PlayerCoverWipeState? = null,
+    sharedCoverWipeTarget: PlayerCoverWipeVisual? = null,
     modifier: Modifier = Modifier,
 ) {
     val cover = if (coverStartPaddingOverride != null) {
@@ -220,9 +227,20 @@ internal fun NowPlayingCoverSection(
         }
     }
 
-    val coverEdgeFade = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
+    val coverArtworkScrim = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
         frame.lyricsProgress < 0.5f &&
-        !particleFrame.enabled
+        !particleFrame.enabled &&
+        !coverFlowMode.usesPhotoStack
+    val isDark = MicaTheme.colors.isDark
+    val coverScrimExtend = ArtworkCoverScrimExtendDp.dp
+    val coverScrimCoverHeightPx = with(density) { cover.height.toPx() }
+    val coverScrimExtendPx = with(density) { coverScrimExtend.toPx() }
+    val coverScrimHeightPx = coverScrimCoverHeightPx + coverScrimExtendPx
+    val coverScrimBottomFraction = if (coverScrimHeightPx > 0f) {
+        coverScrimCoverHeightPx / coverScrimHeightPx
+    } else {
+        1f
+    }
     val effectiveCoverDisplayMode = if (ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)) {
         CoverDisplayMode.CROP_FILL
     } else {
@@ -234,12 +252,14 @@ internal fun NowPlayingCoverSection(
             modifier
                 .height(cover.blockHeight)
                 .fillMaxWidth()
+                .graphicsLayer {
+                    // Scrim / reflection may paint past the layout box.
+                    clip = !coverArtworkScrim && !coverFlowReflection
+                }
                 .then(
                     if (coverFlowReflection) {
                         // 倒影在布局高度外绘制，不占下半区纵向空间
-                        Modifier
-                            .zIndex(1f)
-                            .graphicsLayer { clip = false }
+                        Modifier.zIndex(1f)
                     } else {
                         Modifier
                     },
@@ -378,12 +398,21 @@ internal fun NowPlayingCoverSection(
                 }
             }
             if (!frame.coverFlowStageActive && coverSlotVisible && !frame.photoStack.normalLayerVisible) {
+            val wipeLayerHeight = if (coverArtworkScrim) {
+                cover.height + coverScrimExtend
+            } else {
+                coverBoxHeight
+            }
             Box(
                 modifier = Modifier
                     .padding(start = cover.startPadding, top = cover.topPadding)
                     .size(cover.width, coverBoxHeight)
                     .graphicsLayer {
-                        clip = !coverFlowReflection && !particleNormalLayerVisible && !useNativeParticleCover
+                        // Allow wipe layers (+ scrim extend) to paint past the layout slot.
+                        clip = !coverArtworkScrim &&
+                            !coverFlowReflection &&
+                            !particleNormalLayerVisible &&
+                            !useNativeParticleCover
                     }
                     .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
                     .pointerInput(frame.gesturesEnabled, frame.coverFlowStageActive) {
@@ -404,14 +433,17 @@ internal fun NowPlayingCoverSection(
                         .matchParentSize()
                         .graphicsLayer {
                             alpha = coverContentAlpha
-                            clip = !coverFlowReflection && !particleNormalLayerVisible && !useNativeParticleCover
+                            clip = !coverArtworkScrim &&
+                                !coverFlowReflection &&
+                                !particleNormalLayerVisible &&
+                                !useNativeParticleCover
                             if (standardMode && !frame.coverFlowStageActive) {
                                 translationX = gestureState.standardSwipeOffsetFraction *
                                     size.width * 0.35f
                             }
                         }
                         .zIndex(1f),
-                    contentAlignment = Alignment.Center,
+                    contentAlignment = Alignment.TopStart,
                 ) {
                     if (particleFrame.enabled) {
                         if (!useNativeParticleCover && particleNormalLayerVisible) {
@@ -429,26 +461,33 @@ internal fun NowPlayingCoverSection(
                             )
                         }
                     } else {
-                        var coverVisibleSong by remember { mutableStateOf(song) }
-                        var coverOutgoingSong by remember { mutableStateOf<Song?>(null) }
-                        var coverWipeDirection by remember { mutableStateOf<TrackSkipDirection?>(null) }
-                        val coverWipeProgress = remember { Animatable(1f) }
+                        val sharedWipe = sharedCoverWipeState
+                        val sharedTarget = sharedCoverWipeTarget
+                        val useSharedWipe = sharedWipe != null &&
+                            sharedTarget != null &&
+                            sharedWipe.wipeEnabled
+                        var localVisibleSong by remember { mutableStateOf(song) }
+                        var localOutgoingSong by remember { mutableStateOf<Song?>(null) }
+                        var localWipeDirection by remember { mutableStateOf<TrackSkipDirection?>(null) }
+                        val localWipeProgress = remember { Animatable(1f) }
                         SideEffect {
-                            if (coverVisibleSong.id == song.id && coverVisibleSong != song) {
-                                coverVisibleSong = song
+                            if (useSharedWipe) return@SideEffect
+                            if (localVisibleSong.id == song.id && localVisibleSong != song) {
+                                localVisibleSong = song
                             }
                         }
-                        LaunchedEffect(song.id) {
-                            if (coverVisibleSong.id == song.id) {
-                                coverVisibleSong = song
+                        LaunchedEffect(song.id, useSharedWipe) {
+                            if (useSharedWipe) return@LaunchedEffect
+                            if (localVisibleSong.id == song.id) {
+                                localVisibleSong = song
                                 return@LaunchedEffect
                             }
-                            coverOutgoingSong = coverVisibleSong
-                            coverVisibleSong = song
-                            coverWipeDirection = trackSkipDirection
-                            coverWipeProgress.snapTo(0f)
+                            localOutgoingSong = localVisibleSong
+                            localVisibleSong = song
+                            localWipeDirection = trackSkipDirection
+                            localWipeProgress.snapTo(0f)
                             if (motionEnabled) {
-                                coverWipeProgress.animateTo(
+                                localWipeProgress.animateTo(
                                     targetValue = 1f,
                                     animationSpec = tween(
                                         durationMillis = MicaMotion.DurationMediumMs,
@@ -456,12 +495,31 @@ internal fun NowPlayingCoverSection(
                                     ),
                                 )
                             } else {
-                                coverWipeProgress.snapTo(1f)
+                                localWipeProgress.snapTo(1f)
                             }
-                            coverOutgoingSong = null
-                            coverWipeDirection = null
+                            localOutgoingSong = null
+                            localWipeDirection = null
                         }
-                        val coverOutgoing = coverOutgoingSong
+                        val coverVisibleSong = if (useSharedWipe) {
+                            sharedWipe!!.visible.song
+                        } else {
+                            localVisibleSong
+                        }
+                        val coverOutgoing = if (useSharedWipe) {
+                            sharedWipe!!.renderOutgoing(sharedTarget!!)?.song
+                        } else {
+                            localOutgoingSong
+                        }
+                        val coverWipeDirection = if (useSharedWipe) {
+                            sharedWipe!!.direction ?: trackSkipDirection
+                        } else {
+                            localWipeDirection
+                        }
+                        val coverWipeProgress: () -> Float = if (useSharedWipe) {
+                            { sharedWipe!!.renderProgress(sharedTarget!!) }
+                        } else {
+                            { localWipeProgress.value }
+                        }
                         fun videoUriOf(track: Song): String? =
                             track.videoCoverUri?.takeIf {
                                 videoAlbumCoverEnabled &&
@@ -473,14 +531,17 @@ internal fun NowPlayingCoverSection(
                             outgoingVideoUri = coverOutgoing?.let(::videoUriOf),
                             visibleVideoUri = videoUriOf(coverVisibleSong),
                         )
-                        Box(Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier.size(cover.width, wipeLayerHeight),
+                            contentAlignment = Alignment.TopStart,
+                        ) {
                             Box(
                                 Modifier
                                     .matchParentSize()
                                     .then(
                                         if (coverOutgoing != null) {
                                             Modifier.trackWipeLayer(
-                                                progress = { coverWipeProgress.value },
+                                                progress = coverWipeProgress,
                                                 direction = coverWipeDirection,
                                                 incoming = true,
                                             )
@@ -489,18 +550,22 @@ internal fun NowPlayingCoverSection(
                                         },
                                     ),
                             ) {
-                                SongCover(
-                                    albumArtUri = coverVisibleSong.albumArtUri,
-                                    fallbackColor = coverColor,
-                                    contentDescription = coverVisibleSong.album,
-                                    modifier = Modifier.matchParentSize(),
+                                CoverArtworkWipeLayer(
+                                    track = coverVisibleSong,
+                                    coverWidth = cover.width,
+                                    coverHeight = cover.height,
                                     letterboxAlpha = cover.letterboxAlpha,
-                                    crossfadeMillis = if (motionEnabled) 200 else 0,
-                                    allowPreviousImageUnderlay = false,
+                                    motionEnabled = motionEnabled,
+                                    coverDecodeTarget = coverDecodeTarget,
+                                    forcesSquareCrop = ParticleCoverThemePolicy.forcesSquareCrop(
+                                        coverFlowMode,
+                                    ),
+                                    artworkScrim = coverArtworkScrim,
+                                    scrimHeightPx = coverScrimHeightPx,
+                                    scrimBottomFraction = coverScrimBottomFraction,
+                                    isDark = isDark,
+                                    contentDescription = coverVisibleSong.album,
                                     onAspectRatioChanged = onCoverAspectRatioChanged,
-                                    decodeTarget = coverDecodeTarget.takeIf {
-                                        ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)
-                                    },
                                 )
                             }
                             if (coverOutgoing != null) {
@@ -508,20 +573,28 @@ internal fun NowPlayingCoverSection(
                                     Modifier
                                         .matchParentSize()
                                         .trackWipeLayer(
-                                            progress = { coverWipeProgress.value },
+                                            progress = coverWipeProgress,
                                             direction = coverWipeDirection,
                                             incoming = false,
                                         ),
                                 ) {
-                                    SongCover(
-                                        albumArtUri = coverOutgoing.albumArtUri,
-                                        fallbackColor = coverColor,
-                                        contentDescription = null,
-                                        modifier = Modifier.matchParentSize(),
+                                    CoverArtworkWipeLayer(
+                                        track = coverOutgoing,
+                                        coverWidth = cover.width,
+                                        coverHeight = cover.height,
                                         letterboxAlpha = cover.letterboxAlpha,
-                                        crossfadeMillis = 0,
+                                        motionEnabled = false,
+                                        coverDecodeTarget = coverDecodeTarget,
+                                        forcesSquareCrop = ParticleCoverThemePolicy.forcesSquareCrop(
+                                            coverFlowMode,
+                                        ),
+                                        artworkScrim = coverArtworkScrim,
+                                        scrimHeightPx = coverScrimHeightPx,
+                                        scrimBottomFraction = coverScrimBottomFraction,
+                                        isDark = isDark,
+                                        contentDescription = null,
+                                        onAspectRatioChanged = {},
                                         publishHoldoverOnSuccess = false,
-                                        allowPreviousImageUnderlay = false,
                                     )
                                 }
                             }
@@ -542,13 +615,13 @@ internal fun NowPlayingCoverSection(
                                             videoUriOf(coverOutgoing) == videoUri
                                     val wipeModifier = when {
                                         asOutgoing -> Modifier.trackWipeLayer(
-                                            progress = { coverWipeProgress.value },
+                                            progress = coverWipeProgress,
                                             direction = coverWipeDirection,
                                             incoming = false,
                                         )
                                         coverOutgoing != null && !holdFullScreenWhileWipe ->
                                             Modifier.trackWipeLayer(
-                                                progress = { coverWipeProgress.value },
+                                                progress = coverWipeProgress,
                                                 direction = coverWipeDirection,
                                                 incoming = true,
                                             )
@@ -561,20 +634,11 @@ internal fun NowPlayingCoverSection(
                                             videoUriOf(coverVisibleSong) == videoUri,
                                         onPlaybackError = { failedVideoCovers[videoUri] = true },
                                         modifier = Modifier
-                                            .matchParentSize()
+                                            .size(cover.width, cover.height)
                                             .then(wipeModifier),
                                     )
                                 }
                             }
-                        }
-                    }
-                    if (coverEdgeFade) {
-                        artworkEdgeFadeStops(artworkJunction)?.let { stops ->
-                            Box(
-                                Modifier
-                                    .matchParentSize()
-                                    .background(Brush.verticalGradient(colorStops = stops)),
-                            )
                         }
                     }
                     if (frame.lower.coverEdgeOnPlaySurface) {
@@ -585,7 +649,7 @@ internal fun NowPlayingCoverSection(
                             isPlaying = isPlaying,
                             contentColors = contentColors,
                             alpha = coverEdgeProgressAlpha,
-                            modifier = Modifier.matchParentSize(),
+                            modifier = Modifier.size(cover.width, cover.height),
                         )
                     }
                 }
@@ -646,6 +710,74 @@ private fun CoverEdgePlaybackOverlay(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .graphicsLayer { this.alpha = overlayAlpha },
+        )
+    }
+}
+
+/** How far the artwork scrim continues past the cover bottom into the lower panel. */
+private const val ArtworkCoverScrimExtendDp = 48
+
+@Composable
+private fun CoverArtworkWipeLayer(
+    track: Song,
+    coverWidth: Dp,
+    coverHeight: Dp,
+    letterboxAlpha: Float,
+    motionEnabled: Boolean,
+    coverDecodeTarget: CoverDecodeTarget,
+    forcesSquareCrop: Boolean,
+    artworkScrim: Boolean,
+    scrimHeightPx: Float,
+    scrimBottomFraction: Float,
+    isDark: Boolean,
+    contentDescription: String?,
+    onAspectRatioChanged: (Float) -> Unit,
+    publishHoldoverOnSuccess: Boolean = true,
+) {
+    val (junction, hold) = remember(track.coverColorArgb, isDark) {
+        artworkGradientScrimColors(Color(track.coverColorArgb), isDark)
+    }
+    Box(
+        Modifier
+            .size(coverWidth, coverHeight + if (artworkScrim) ArtworkCoverScrimExtendDp.dp else 0.dp)
+            .then(
+                if (artworkScrim) {
+                    val stops = artworkCoverScrimStops(
+                        junction = junction,
+                        hold = hold,
+                        coverBottomFraction = scrimBottomFraction,
+                    )
+                    Modifier.drawWithCache {
+                        val brush = Brush.verticalGradient(
+                            colorStops = stops,
+                            startY = 0f,
+                            endY = scrimHeightPx,
+                        )
+                        onDrawWithContent {
+                            drawContent()
+                            drawRect(
+                                brush = brush,
+                                topLeft = Offset.Zero,
+                                size = Size(size.width, scrimHeightPx),
+                            )
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        SongCover(
+            albumArtUri = track.albumArtUri,
+            fallbackColor = Color(track.coverColorArgb),
+            contentDescription = contentDescription,
+            modifier = Modifier.size(coverWidth, coverHeight),
+            letterboxAlpha = letterboxAlpha,
+            crossfadeMillis = if (motionEnabled) 200 else 0,
+            publishHoldoverOnSuccess = publishHoldoverOnSuccess,
+            allowPreviousImageUnderlay = false,
+            onAspectRatioChanged = onAspectRatioChanged,
+            decodeTarget = coverDecodeTarget.takeIf { forcesSquareCrop },
         )
     }
 }

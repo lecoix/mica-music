@@ -20,6 +20,10 @@ fun NowPlayingBackground(
     mode: PlayerLowerBackgroundMode,
     /** 封面底边占屏高比例；仅 [PlayerLowerBackgroundMode.ARTWORK_GRADIENT] 使用。 */
     coverZoneStop: Float? = null,
+    /**
+     * 拍立得等主题：封面渐变只铺纯色 hold，不要径向/竖向渐变层。
+     */
+    artworkGradientSolidOnly: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val mica = rememberMicaSurfaceColors()
@@ -35,6 +39,7 @@ fun NowPlayingBackground(
                 accent = coverAccent,
                 isDark = isDark,
                 coverZoneStop = coverZoneStop,
+                solidOnly = artworkGradientSolidOnly,
                 modifier = modifier,
             )
         }
@@ -157,17 +162,28 @@ private fun ThemeOnlyBackground(
 
 /**
  * 封面渐变：从封面底边径向扩散专辑取色，下半屏保持取色 **不收束到云母终点色**。
+ * [solidOnly] 为 true 时仅铺 hold 纯色（拍立得回忆）。
  */
 @Composable
 internal fun ArtworkGradientBackground(
     accent: Color,
     isDark: Boolean,
     coverZoneStop: Float?,
+    solidOnly: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val junction = PlayerBackgroundBlend.artworkJunction(accent, accent, isDark)
     val peak = PlayerBackgroundBlend.artworkPeak(accent, accent, isDark)
     val hold = PlayerBackgroundBlend.artworkHold(accent, accent, isDark)
+
+    if (solidOnly) {
+        Box(
+            modifier
+                .fillMaxSize()
+                .background(hold),
+        )
+        return
+    }
 
     BoxWithConstraints(
         modifier
@@ -197,36 +213,47 @@ internal fun ArtworkGradientBackground(
                     ),
                 ),
         )
-
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to hold.copy(alpha = 0.35f),
-                            (edge - 0.02f).coerceAtLeast(0f) to hold.copy(alpha = 0.55f),
-                            edge to junction,
-                            (edge + 0.035f) to PlayerBackgroundBlend.blend(junction, peak, 0.22f),
-                            (edge + 0.08f) to PlayerBackgroundBlend.blend(junction, peak, 0.48f),
-                            (edge + 0.14f) to PlayerBackgroundBlend.blend(junction, peak, 0.72f),
-                            (edge + 0.20f) to peak,
-                            (edge + 0.30f) to hold,
-                            1f to hold,
-                        ),
-                    ),
-                ),
-        )
+        // Vertical cover→panel blend is drawn as a scrim ON the cover
+        // ([artworkCoverScrimStops]), not behind it — avoids a hairline at the artwork edge.
     }
 }
 
-internal fun artworkEdgeFadeStops(
+/** Junction + hold for artwork-gradient scrim / solid fill from a cover sample color. */
+internal fun artworkGradientScrimColors(
+    coverColor: Color,
+    isDark: Boolean,
+): Pair<Color, Color> {
+    val accent = PlayerBackgroundBlend.accentuateCover(
+        PlayerBackgroundBlend.comfortColor(coverColor, isDark),
+        isDark,
+    )
+    return PlayerBackgroundBlend.artworkJunction(accent, accent, isDark) to
+        PlayerBackgroundBlend.artworkHold(accent, accent, isDark)
+}
+
+/**
+ * Full-bleed scrim over the cover: transparent at top, opaque [hold] by the cover bottom.
+ *
+ * Pacing mirrors the former on-cover edge fade (clear through ~upper 38%, then ease across
+ * the lower half). Stops are mapped into the cover portion of the scrim via
+ * [coverBottomFraction]; the extend below stays opaque [hold].
+ */
+internal fun artworkCoverScrimStops(
     junction: Color,
-): Array<Pair<Float, Color>> = arrayOf(
-    0f to Color.Transparent,
-    0.38f to Color.Transparent,
-    0.58f to junction.copy(alpha = 0.42f),
-    0.76f to junction.copy(alpha = 0.72f),
-    0.90f to junction.copy(alpha = 0.9f),
-    1f to junction,
-)
+    hold: Color,
+    coverBottomFraction: Float,
+): Array<Pair<Float, Color>> {
+    val bottom = coverBottomFraction.coerceIn(0.20f, 0.98f)
+    fun atCover(t: Float): Float = (t.coerceIn(0f, 1f) * bottom).coerceIn(0f, 1f)
+    // Fully opaque a hair before the geometric cover bottom (subpixel / scale safety).
+    val opaqueAt = (bottom - 0.008f).coerceAtLeast(atCover(0.98f))
+    return arrayOf(
+        0f to Color.Transparent,
+        atCover(0.38f) to Color.Transparent,
+        atCover(0.58f) to junction.copy(alpha = 0.42f),
+        atCover(0.76f) to junction.copy(alpha = 0.72f),
+        atCover(0.90f) to hold.copy(alpha = 0.90f),
+        opaqueAt to hold,
+        1f to hold,
+    )
+}

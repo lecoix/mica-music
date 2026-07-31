@@ -767,6 +767,8 @@ fun NowPlayingContent(
                     screenWidth = screenWidth,
                     stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                     coverStartPaddingOverride = coverStartPaddingOverride,
+                    sharedCoverWipeState = if (coverArtworkUsesInternalWipe) coverWipeState else null,
+                    sharedCoverWipeTarget = if (coverArtworkUsesInternalWipe) coverWipeTarget else null,
                     modifier = coverModifier,
                 )
             }
@@ -776,6 +778,7 @@ fun NowPlayingContent(
                 albumArtUri = song.albumArtUri,
                 mode = lowerBackground,
                 coverZoneStop = backgroundZoneStop,
+                artworkGradientSolidOnly = effectiveCoverFlowMode.usesPhotoStack,
                 modifier = Modifier.fillMaxSize(),
             )
             if (!landscapeMode) {
