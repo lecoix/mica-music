@@ -52,6 +52,17 @@ data class FolderBrowseGroup(
     val pathSegments: List<String>,
 )
 
+enum class FolderBrowseMode(val storageValue: String, val label: String) {
+    HIERARCHY("hierarchy", "层级浏览"),
+    MUSIC_FOLDERS("music_folders", "扁平浏览"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): FolderBrowseMode =
+            entries.firstOrNull { it.storageValue == value } ?: HIERARCHY
+    }
+}
+
 object LibraryBrowse {
 
     private val collator: Collator = Collator.getInstance(Locale.CHINA).apply {
@@ -316,6 +327,31 @@ object LibraryBrowse {
         )
     }
 
+    /**
+     * Returns only exact directories that directly contain at least one song.
+     *
+     * Parent directories that merely contain music in descendants are intentionally omitted.
+     * Counts are direct-song counts and no song or lyrics payload is retained by the result.
+     */
+    fun musicFolderGroups(songs: List<Song>): List<FolderBrowseGroup> {
+        val directSongCounts = linkedMapOf<String, Int>()
+        songs.forEach { song ->
+            val folderPath = song.folderBrowseSegments().joinToString("/")
+            if (folderPath.isNotEmpty()) {
+                directSongCounts[folderPath] = directSongCounts.getOrDefault(folderPath, 0) + 1
+            }
+        }
+        return directSongCounts.map { (folderPath, songCount) ->
+            val pathSegments = folderPath.folderSegments()
+            FolderBrowseGroup(
+                title = pathSegments.lastOrNull().orEmpty(),
+                subtitle = "$songCount 首",
+                songCount = songCount,
+                pathSegments = pathSegments,
+            )
+        }.sortedWith(folderGroupComparator())
+    }
+
     fun maxFolderDepth(songs: List<Song>): Int {
         return songs.maxOfOrNull { it.folderBrowseSegments().size } ?: 0
     }
@@ -360,6 +396,10 @@ object LibraryBrowse {
         val keyCompare = AlphabeticalText.sortKey(a).compareTo(AlphabeticalText.sortKey(b))
         return if (keyCompare != 0) keyCompare else collator.compare(a, b)
     }
+
+    private fun folderGroupComparator(): Comparator<FolderBrowseGroup> =
+        AlphabeticalText.comparator<FolderBrowseGroup>({ it.title }, collator)
+            .then(AlphabeticalText.comparator({ it.pathSegments.dropLast(1).joinToString("/") }, collator))
 
     private fun String.folderSegments(): List<String> =
         split('/', '\\')

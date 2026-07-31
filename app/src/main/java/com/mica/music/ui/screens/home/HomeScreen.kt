@@ -233,7 +233,13 @@ fun HomeScreen(
     val browseSort = uiState.browseSort
 
     fun updateBrowseSort(updated: HomeBrowseSortState) {
-        uiState = uiState.copy(browseSort = updated)
+        val modeChanged = updated.folderBrowseMode != uiState.browseSort.folderBrowseMode
+        uiState = uiState.copy(
+            browseSort = updated,
+            browseDestination = if (modeChanged) BrowseDestination.Root else uiState.browseDestination,
+            folderVisibleDepth = if (modeChanged) 0 else uiState.folderVisibleDepth,
+            folderVisibleScope = if (modeChanged) emptyList() else uiState.folderVisibleScope,
+        )
     }
 
     LaunchedEffect(library.lastScanSyncSummary) {
@@ -448,6 +454,7 @@ fun HomeScreen(
         playlistName = activePlaylist?.name,
         searchOpen = uiState.searchOpen,
         browseDestination = visibleBrowseDestination,
+        folderBrowseMode = uiState.browseSort.folderBrowseMode,
     )
 
     val statsBarModel = if (!uiState.searchOpen) {
@@ -465,6 +472,7 @@ fun HomeScreen(
             artistSortField = uiState.browseSort.artistSortField,
             artistSortDirection = uiState.browseSort.artistSortDirection,
             artistGridColumns = uiState.browseSort.artistGridColumns,
+            folderBrowseMode = uiState.browseSort.folderBrowseMode,
             songListInfoVisibility = uiSettings.songListInfoVisibility,
             browseListInfoVisibility = uiSettings.browseListInfoVisibility,
         )
@@ -481,6 +489,12 @@ fun HomeScreen(
         uiState.section == HomeSection.Albums && visibleBrowseDestination == BrowseDestination.Root
     val isArtistRootSort =
         uiState.section == HomeSection.Artists && visibleBrowseDestination == BrowseDestination.Root
+    val isFolderRootDisplay =
+        uiState.section == HomeSection.Folders &&
+            visibleBrowseDestination.let { destination ->
+                destination == BrowseDestination.Root ||
+                    (destination is BrowseDestination.Folder && destination.scopePathSegments.isEmpty())
+            }
 
     val miniPlayerStyle = uiSettings.miniPlayerStyle
     val currentSongSummary = playbackState.currentSong
@@ -733,6 +747,7 @@ fun HomeScreen(
                                 positionMs = playbackState.positionMs,
                                 isPlaying = playbackState.isPlaying,
                                 onSortClick = { sortSheetOpen = true },
+                                onFolderModeClick = { sortSheetOpen = true },
                                 onRescan = libraryAccess.onRequestRescan,
                                 onDeletePlaylist = {
                                     uiState.activePlaylistId?.let { playlistId ->
@@ -753,6 +768,7 @@ fun HomeScreen(
                 isAlbumRootSort = isAlbumRootSort,
                 isArtistRootSort = isArtistRootSort,
                 isPlaylistSort = isPlaylistSort,
+                isFolderRootDisplay = isFolderRootDisplay,
                 browseSort = browseSort,
                 onBrowseSortChange = ::updateBrowseSort,
                 library = library,
@@ -867,6 +883,7 @@ fun HomeScreen(
                         artistSortField = uiState.browseSort.artistSortField,
                         artistSortDirection = uiState.browseSort.artistSortDirection,
                         artistGridColumns = uiState.browseSort.artistGridColumns,
+                        folderBrowseMode = uiState.browseSort.folderBrowseMode,
                         artistListState = artistListState,
                         artistGridState = artistGridState,
                         albumListState = albumListState,

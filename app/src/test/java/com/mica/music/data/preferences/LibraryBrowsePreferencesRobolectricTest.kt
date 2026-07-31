@@ -4,6 +4,7 @@ import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.ArtistSeparator
 import com.mica.music.data.ArtistSplitConfig
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.data.SortDirection
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -31,11 +32,13 @@ class LibraryBrowsePreferencesRobolectricTest {
         assertEquals(ArtistBrowseSortField.TITLE, LibraryBrowseSettings.artistBrowseSortField(context))
         assertEquals(SortDirection.ASC, LibraryBrowseSettings.artistBrowseSortDirection(context))
         assertEquals(1, LibraryBrowseSettings.artistBrowseGridColumns(context))
+        assertEquals(FolderBrowseMode.HIERARCHY, LibraryBrowseSettings.folderBrowseMode(context))
 
         LibraryBrowseSettings.setAlbumBrowseSort(context, AlbumBrowseSortField.ARTIST, SortDirection.DESC)
         LibraryBrowseSettings.setAlbumBrowseGridColumns(context, 3)
         LibraryBrowseSettings.setArtistBrowseSort(context, ArtistBrowseSortField.SONG_COUNT, SortDirection.DESC)
         LibraryBrowseSettings.setArtistBrowseGridColumns(context, 4)
+        LibraryBrowseSettings.setFolderBrowseMode(context, FolderBrowseMode.MUSIC_FOLDERS)
 
         assertEquals(AlbumBrowseSortField.ARTIST, LibraryBrowseSettings.albumBrowseSortField(context))
         assertEquals(SortDirection.DESC, LibraryBrowseSettings.albumBrowseSortDirection(context))
@@ -43,6 +46,7 @@ class LibraryBrowsePreferencesRobolectricTest {
         assertEquals(ArtistBrowseSortField.SONG_COUNT, LibraryBrowseSettings.artistBrowseSortField(context))
         assertEquals(SortDirection.DESC, LibraryBrowseSettings.artistBrowseSortDirection(context))
         assertEquals(4, LibraryBrowseSettings.artistBrowseGridColumns(context))
+        assertEquals(FolderBrowseMode.MUSIC_FOLDERS, LibraryBrowseSettings.folderBrowseMode(context))
 
         LibraryBrowseSettings.setAlbumBrowseGridColumns(context, 99)
         LibraryBrowseSettings.setArtistBrowseGridColumns(context, 0)

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.ui.theme.MicaTheme
 import kotlinx.coroutines.delay
 
@@ -46,12 +47,17 @@ internal fun resolveTopBarTitle(
     playlistName: String?,
     searchOpen: Boolean,
     browseDestination: BrowseDestination,
+    folderBrowseMode: FolderBrowseMode = FolderBrowseMode.HIERARCHY,
 ): String = when {
     searchOpen -> "搜索"
     browseDestination is BrowseDestination.Album -> "专辑"
     browseDestination is BrowseDestination.Folder -> when {
         browseDestination.scopePathSegments.isNotEmpty() ->
-            browseDestination.scopePathSegments.joinToString(" / ")
+            if (folderBrowseMode == FolderBrowseMode.MUSIC_FOLDERS) {
+                browseDestination.scopePathSegments.last()
+            } else {
+                browseDestination.scopePathSegments.joinToString(" / ")
+            }
         browseDestination.depth > 0 -> "第 ${browseDestination.depth + 1} 层文件夹"
         else -> "文件夹"
     }

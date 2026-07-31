@@ -10,7 +10,9 @@ import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.ui.components.BrowseGroupDisplaySheet
+import com.mica.music.ui.components.FolderBrowseModeSheet
 import com.mica.music.ui.components.SongSortSheet
 
 data class HomeBrowseSortState(
@@ -20,6 +22,7 @@ data class HomeBrowseSortState(
     val artistSortField: ArtistBrowseSortField,
     val artistSortDirection: SortDirection,
     val artistGridColumns: Int,
+    val folderBrowseMode: FolderBrowseMode = FolderBrowseMode.HIERARCHY,
 )
 
 @Composable
@@ -30,6 +33,7 @@ internal fun HomeSortSheets(
     isAlbumRootSort: Boolean,
     isArtistRootSort: Boolean,
     isPlaylistSort: Boolean,
+    isFolderRootDisplay: Boolean,
     browseSort: HomeBrowseSortState,
     onBrowseSortChange: (HomeBrowseSortState) -> Unit,
     library: MusicLibrary,
@@ -44,6 +48,16 @@ internal fun HomeSortSheets(
     if (!visible) return
 
     when {
+        isFolderRootDisplay -> {
+            FolderBrowseModeSheet(
+                currentMode = browseSort.folderBrowseMode,
+                onModeSelected = { mode ->
+                    onBrowseSortChange(browseSort.copy(folderBrowseMode = mode))
+                    LibraryBrowseSettings.setFolderBrowseMode(context, mode)
+                },
+                onDismiss = onDismiss,
+            )
+        }
         isAlbumRootSort -> {
             val albumSortFields = AlbumBrowseSortField.entries
             BrowseGroupDisplaySheet(

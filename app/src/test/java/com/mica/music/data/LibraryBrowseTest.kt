@@ -215,6 +215,49 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun musicFolderGroupsIncludeOnlyDirectoriesWithDirectSongs() {
+        val songs = listOf(
+            song("rock-direct", "Music/Rock"),
+            song("queen-1", "Music/Rock/Queen"),
+            song("queen-2", "Music/Rock/Queen"),
+            song("live", "Downloads/Rock"),
+            song("missing-path", "", filePath = "missing-path.flac"),
+        )
+
+        val groups = LibraryBrowse.musicFolderGroups(songs)
+
+        assertEquals(
+            listOf(
+                "Music/Rock/Queen:2",
+                "Downloads/Rock:1",
+                "Music/Rock:1",
+            ),
+            groups.map { "${it.pathSegments.joinToString("/")}:${it.songCount}" },
+        )
+        assertEquals(
+            listOf("Downloads", "Music"),
+            groups.filter { it.title == "Rock" }.map { it.pathSegments.dropLast(1).joinToString("/") },
+        )
+        assertEquals(false, groups.any { it.pathSegments == listOf("Music") })
+    }
+
+    @Test
+    fun musicFolderGroupsRecoverExactDirectoryFromLegacyFilePath() {
+        val songs = listOf(
+            song(
+                id = "queen",
+                folderPath = "Music",
+                filePath = "/storage/emulated/0/Music/Rock/Queen/queen.flac",
+            ),
+        )
+
+        val group = LibraryBrowse.musicFolderGroups(songs).single()
+
+        assertEquals(listOf("Music", "Rock", "Queen"), group.pathSegments)
+        assertEquals("1 首", group.subtitle)
+    }
+
+    @Test
     fun songsForFolderIncludesDescendants() {
         val songs = listOf(
             song("rock-direct", "Music/Rock"),

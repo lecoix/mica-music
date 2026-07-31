@@ -125,6 +125,7 @@ internal fun LibraryStatsRow(
     positionMs: Int = 0,
     isPlaying: Boolean = false,
     onSortClick: () -> Unit,
+    onFolderModeClick: () -> Unit,
     onRescan: () -> Unit,
     onDeletePlaylist: () -> Unit,
 ) {
@@ -169,6 +170,17 @@ internal fun LibraryStatsRow(
                     tint = MicaTheme.colors.textTertiary,
                     modifier = Modifier
                         .clickable(onClick = onSortClick)
+                        .padding(HifiSpacing.xs)
+                        .size(HifiSize.iconMd),
+                )
+            }
+            if (model.showFolderModeAction) {
+                Icon(
+                    imageVector = Icons.Outlined.Sort,
+                    contentDescription = "文件夹显示模式",
+                    tint = MicaTheme.colors.textTertiary,
+                    modifier = Modifier
+                        .clickable(onClick = onFolderModeClick)
                         .padding(HifiSpacing.xs)
                         .size(HifiSize.iconMd),
                 )

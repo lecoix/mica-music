@@ -85,6 +85,21 @@ class HomeNavigationTest {
     }
 
     @Test
+    fun navigateBackFromMusicFolderDetailReturnsToBrowseRoot() {
+        val result = navigateBack(
+            snapshot(
+                section = HomeSection.Folders,
+                browseDestination = BrowseDestination.Folder(
+                    depth = 0,
+                    scopePathSegments = listOf("Music", "Rock", "Queen"),
+                ),
+            ),
+        )
+
+        assertEquals(BrowseDestination.Root, result.snapshot.browseDestination)
+    }
+
+    @Test
     fun navigateBackFromRecentRestoresReturnSection() {
         val result = navigateBack(
             snapshot(

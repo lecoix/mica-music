@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.BrowseListInfoVisibility
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
@@ -18,6 +19,7 @@ internal data class LibraryStatsBarModel(
     val scanProgressLabel: String? = null,
     val scanError: String? = null,
     val showSortAction: Boolean = false,
+    val showFolderModeAction: Boolean = false,
     val showRescanAction: Boolean = false,
     val showDeletePlaylistAction: Boolean = false,
 )
@@ -37,6 +39,7 @@ internal fun rememberLibraryStatsBarModel(
     artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
+    folderBrowseMode: FolderBrowseMode = FolderBrowseMode.HIERARCHY,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     browseListInfoVisibility: BrowseListInfoVisibility = BrowseListInfoVisibility(),
 ): LibraryStatsBarModel? {
@@ -54,6 +57,7 @@ internal fun rememberLibraryStatsBarModel(
         artistSortField,
         artistSortDirection,
         artistGridColumns,
+        folderBrowseMode,
         songListInfoVisibility,
         browseListInfoVisibility,
         songs,
@@ -78,6 +82,7 @@ internal fun rememberLibraryStatsBarModel(
             artistSortField,
             artistSortDirection,
             artistGridColumns,
+            folderBrowseMode,
             songListInfoVisibility,
             browseListInfoVisibility,
         )
@@ -101,6 +106,7 @@ internal fun resolveLibraryStatsBarModel(
     artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
+    folderBrowseMode: FolderBrowseMode = FolderBrowseMode.HIERARCHY,
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     browseListInfoVisibility: BrowseListInfoVisibility = BrowseListInfoVisibility(),
 ): LibraryStatsBarModel? {
@@ -206,24 +212,45 @@ internal fun resolveLibraryStatsBarModel(
         HomeSection.Folders -> when (browseDestination) {
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    "${library.folderGroupsAtDepth(0).size} 个文件夹",
+                    folderRootCountLabel(library, folderBrowseMode),
+                    folderBrowseMode.label,
                 ) + scanSegments,
                 isScanning = library.isScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
+                showFolderModeAction = true,
                 showRescanAction = true,
             )
             is BrowseDestination.Folder -> {
                 val scope = browseDestination.scopePathSegments
+                if (scope.isEmpty()) {
+                    return LibraryStatsBarModel(
+                        segments = listOf(
+                            folderRootCountLabel(library, folderBrowseMode),
+                            folderBrowseMode.label,
+                        ) + scanSegments,
+                        isScanning = library.isScanning,
+                        scanProgressLabel = library.scanProgressLabel,
+                        scanError = library.lastScanError,
+                        showFolderModeAction = true,
+                        showRescanAction = true,
+                    )
+                }
+                if (folderBrowseMode == FolderBrowseMode.MUSIC_FOLDERS) {
+                    return LibraryStatsBarModel(
+                        segments = listOf(scope.joinToString(" / ")),
+                        showRescanAction = true,
+                    )
+                }
                 val groups = library.folderGroupsAtDepth(browseDestination.depth, scope)
-                val songs = if (scope.isNotEmpty()) library.songsForFolder(scope) else emptyList()
+                val songs = library.songsForFolder(scope)
                 if (groups.isEmpty() && songs.isNotEmpty()) {
                     subsetStats(songs, library)
                 } else {
                     LibraryStatsBarModel(
                         segments = listOfNotNull(
                             "${groups.size} 个文件夹",
-                            if (scope.isNotEmpty()) "${songs.size} 首歌曲" else null,
+                            "${songs.size} 首歌曲",
                         ),
                         showRescanAction = true,
                     )
@@ -234,6 +261,12 @@ internal fun resolveLibraryStatsBarModel(
         else -> null
     }
 }
+
+private fun folderRootCountLabel(library: MusicLibrary, mode: FolderBrowseMode): String =
+    when (mode) {
+        FolderBrowseMode.HIERARCHY -> "${library.folderGroupsAtDepth(0).size} 个文件夹"
+        FolderBrowseMode.MUSIC_FOLDERS -> "${library.musicFolderGroups().size} 个文件夹"
+    }
 
 private fun buildSongListSegments(
     library: MusicLibrary,

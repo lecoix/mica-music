@@ -3,6 +3,7 @@ package com.mica.music.data.preferences
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
@@ -34,6 +35,7 @@ class PreferencesFallbackRobolectricTest {
             .putString("album_browse_sort_direction", "not-a-direction")
             .putString("artist_browse_sort_field", "not-an-artist-sort")
             .putString("artist_browse_sort_direction", "not-a-direction")
+            .putString("folder_browse_mode", "not-a-folder-mode")
             .putString("equalizer_band_levels", "100,bad,-200")
             .putInt("equalizer_global_gain", 1_200)
             .commit()
@@ -44,6 +46,7 @@ class PreferencesFallbackRobolectricTest {
         assertEquals(SortDirection.ASC, LibraryBrowseSettings.albumBrowseSortDirection(context))
         assertEquals(ArtistBrowseSortField.TITLE, LibraryBrowseSettings.artistBrowseSortField(context))
         assertEquals(SortDirection.ASC, LibraryBrowseSettings.artistBrowseSortDirection(context))
+        assertEquals(FolderBrowseMode.HIERARCHY, LibraryBrowseSettings.folderBrowseMode(context))
         assertEquals(listOf<Short>(100, -200), EqualizerPreferences.equalizerBandLevels(context))
         assertEquals(1_200, EqualizerPreferences.equalizerGlobalGainMillibels(context).toInt())
         assertEquals(ParticleCoverTuning(), PlaybackUiPreferences.particleCoverTuning(context))

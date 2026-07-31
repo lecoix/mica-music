@@ -55,6 +55,7 @@ import com.mica.music.data.ArtistNames
 import com.mica.music.data.BrowseGroup
 import com.mica.music.data.BrowseGroupPresentation
 import com.mica.music.data.FolderBrowseGroup
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.data.LibraryBrowseDetails
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.ReleaseDates
@@ -106,6 +107,7 @@ internal fun HomeBrowseContent(
     artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
+    folderBrowseMode: FolderBrowseMode = FolderBrowseMode.HIERARCHY,
     artistListState: LazyListState,
     artistGridState: LazyGridState,
     albumListState: LazyListState,
@@ -246,88 +248,200 @@ internal fun HomeBrowseContent(
             )
         }
         HomeSection.Folders -> {
-            val folderDestination = destination as? BrowseDestination.Folder
-                ?: BrowseDestination.Folder(depth = 0)
-            val maxFolderDepth = library.maxFolderDepth()
-            val pageCount = when {
-                maxFolderDepth <= 0 -> 1
-                folderDestination.scopePathSegments.isEmpty() -> maxFolderDepth
-                else -> maxOf(maxFolderDepth, folderDestination.scopePathSegments.size + 1)
-            }
-            val currentPage = folderDestination.depth.coerceIn(0, pageCount - 1)
-            val pagerState = rememberPagerState(initialPage = currentPage) { pageCount }
-            val programmaticScroll = remember { mutableStateOf(false) }
-
-            LaunchedEffect(currentPage, pageCount) {
-                if (pagerState.currentPage != currentPage) {
-                    programmaticScroll.value = true
-                    try {
-                        pagerState.animateScrollToPage(currentPage)
-                    } finally {
-                        programmaticScroll.value = false
-                    }
-                }
-            }
-
-            LaunchedEffect(pagerState, folderDestination.scopePathSegments) {
-                snapshotFlow {
-                    Triple(
-                        pagerState.currentPage,
-                        pagerState.isScrollInProgress,
-                        programmaticScroll.value,
-                    )
-                }.collect { (page, scrolling, isProgrammatic) ->
-                    if (!scrolling && !isProgrammatic && page != folderDestination.depth) {
-                        onDestinationChange(
-                            BrowseDestination.Folder(
-                                depth = page,
-                                scopePathSegments = folderDestination.scopePathSegments.scopeForFolderDepth(page),
-                            ),
-                        )
-                    }
-                }
-            }
-
-            LaunchedEffect(pagerState, folderDestination.scopePathSegments) {
-                snapshotFlow { pagerState.currentPage }
-                    .collect { page ->
-                        onFolderPageChange(
-                            page,
-                            folderDestination.scopePathSegments.scopeForFolderDepth(page),
-                        )
-                    }
-            }
-
-            HorizontalPager(
-                state = pagerState,
-                modifier = modifier.fillMaxSize(),
-            ) { page ->
-                val scopePathSegments = folderDestination.scopePathSegments.scopeForFolderDepth(page)
-                FolderDepthPage(
-                    depth = page,
-                    scopePathSegments = scopePathSegments,
+            when (folderBrowseMode) {
+                FolderBrowseMode.MUSIC_FOLDERS -> MusicFoldersBrowse(
+                    destination = destination,
                     library = library,
                     currentSongId = currentSongId,
                     isPlaying = isPlaying,
+                    folderListState = folderListState,
+                    onFolderPageChange = onFolderPageChange,
+                    onDestinationChange = onDestinationChange,
                     onQueueSongs = onQueueSongs,
-                    rootListState = folderListState,
-                    onFolderSelect = { group ->
-                        onFolderPageChange(group.pathSegments.size, group.pathSegments)
-                        onDestinationChange(
-                            BrowseDestination.Folder(
-                                depth = group.pathSegments.size,
-                                scopePathSegments = group.pathSegments,
-                            ),
-                        )
-                    },
                     onSongClick = onSongClick,
                     onSongOpenMenu = onSongOpenMenu,
                     listBottomPadding = listBottomPadding,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = modifier,
+                )
+                FolderBrowseMode.HIERARCHY -> HierarchyFoldersBrowse(
+                    destination = destination,
+                    library = library,
+                    currentSongId = currentSongId,
+                    isPlaying = isPlaying,
+                    folderListState = folderListState,
+                    onFolderPageChange = onFolderPageChange,
+                    onDestinationChange = onDestinationChange,
+                    onQueueSongs = onQueueSongs,
+                    onSongClick = onSongClick,
+                    onSongOpenMenu = onSongOpenMenu,
+                    listBottomPadding = listBottomPadding,
+                    modifier = modifier,
                 )
             }
         }
         else -> Unit
+    }
+}
+
+@Composable
+private fun MusicFoldersBrowse(
+    destination: BrowseDestination,
+    library: MusicLibrary,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    folderListState: LazyListState,
+    onFolderPageChange: (depth: Int, scopePathSegments: List<String>) -> Unit,
+    onDestinationChange: (BrowseDestination) -> Unit,
+    onQueueSongs: (List<Song>) -> Unit,
+    onSongClick: (String) -> Unit,
+    onSongOpenMenu: (Song) -> Unit,
+    listBottomPadding: Dp,
+    modifier: Modifier,
+) {
+    val scopePathSegments = (destination as? BrowseDestination.Folder)?.scopePathSegments.orEmpty()
+    if (scopePathSegments.isEmpty()) {
+        val groups = library.musicFolderGroups()
+        if (groups.isEmpty()) {
+            EmptyBrowseHint("暂无音乐文件夹", modifier)
+            return
+        }
+        FolderContentList(
+            groups = groups,
+            songs = emptyList(),
+            currentSongId = currentSongId,
+            isPlaying = isPlaying,
+            listState = folderListState,
+            onSelect = { group ->
+                // depth=0 + non-empty scope: one system-back returns to Root (see navigateBrowseBack).
+                onFolderPageChange(0, group.pathSegments)
+                onDestinationChange(
+                    BrowseDestination.Folder(
+                        depth = 0,
+                        scopePathSegments = group.pathSegments,
+                    ),
+                )
+            },
+            onSongClick = onSongClick,
+            onSongOpenMenu = onSongOpenMenu,
+            listBottomPadding = listBottomPadding,
+            fastScrollLabels = groups.map { it.title },
+            modifier = modifier,
+        )
+        return
+    }
+
+    val songs = library.songsInFolder(scopePathSegments)
+    SongListPanel(
+        songs = songs,
+        library = library,
+        currentSongId = currentSongId,
+        isPlaying = isPlaying,
+        onSongClick = { songId ->
+            onQueueSongs(songs)
+            onSongClick(songId)
+        },
+        onSongOpenMenu = onSongOpenMenu,
+        emptyMessage = "该文件夹下暂无歌曲",
+        infoVisibility = FolderSongInfoVisibility,
+        listBottomPadding = listBottomPadding,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun HierarchyFoldersBrowse(
+    destination: BrowseDestination,
+    library: MusicLibrary,
+    currentSongId: String?,
+    isPlaying: Boolean,
+    folderListState: LazyListState,
+    onFolderPageChange: (depth: Int, scopePathSegments: List<String>) -> Unit,
+    onDestinationChange: (BrowseDestination) -> Unit,
+    onQueueSongs: (List<Song>) -> Unit,
+    onSongClick: (String) -> Unit,
+    onSongOpenMenu: (Song) -> Unit,
+    listBottomPadding: Dp,
+    modifier: Modifier,
+) {
+    val folderDestination = destination as? BrowseDestination.Folder
+        ?: BrowseDestination.Folder(depth = 0)
+    val maxFolderDepth = library.maxFolderDepth()
+    val pageCount = when {
+        maxFolderDepth <= 0 -> 1
+        folderDestination.scopePathSegments.isEmpty() -> maxFolderDepth
+        else -> maxOf(maxFolderDepth, folderDestination.scopePathSegments.size + 1)
+    }
+    val currentPage = folderDestination.depth.coerceIn(0, pageCount - 1)
+    val pagerState = rememberPagerState(initialPage = currentPage) { pageCount }
+    val programmaticScroll = remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentPage, pageCount) {
+        if (pagerState.currentPage != currentPage) {
+            programmaticScroll.value = true
+            try {
+                pagerState.animateScrollToPage(currentPage)
+            } finally {
+                programmaticScroll.value = false
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState, folderDestination.scopePathSegments) {
+        snapshotFlow {
+            Triple(
+                pagerState.currentPage,
+                pagerState.isScrollInProgress,
+                programmaticScroll.value,
+            )
+        }.collect { (page, scrolling, isProgrammatic) ->
+            if (!scrolling && !isProgrammatic && page != folderDestination.depth) {
+                onDestinationChange(
+                    BrowseDestination.Folder(
+                        depth = page,
+                        scopePathSegments = folderDestination.scopePathSegments.scopeForFolderDepth(page),
+                    ),
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState, folderDestination.scopePathSegments) {
+        snapshotFlow { pagerState.currentPage }
+            .collect { page ->
+                onFolderPageChange(
+                    page,
+                    folderDestination.scopePathSegments.scopeForFolderDepth(page),
+                )
+            }
+    }
+
+    HorizontalPager(
+        state = pagerState,
+        modifier = modifier.fillMaxSize(),
+    ) { page ->
+        val scopePathSegments = folderDestination.scopePathSegments.scopeForFolderDepth(page)
+        FolderDepthPage(
+            depth = page,
+            scopePathSegments = scopePathSegments,
+            library = library,
+            currentSongId = currentSongId,
+            isPlaying = isPlaying,
+            onQueueSongs = onQueueSongs,
+            rootListState = folderListState,
+            onFolderSelect = { group ->
+                onFolderPageChange(group.pathSegments.size, group.pathSegments)
+                onDestinationChange(
+                    BrowseDestination.Folder(
+                        depth = group.pathSegments.size,
+                        scopePathSegments = group.pathSegments,
+                    ),
+                )
+            },
+            onSongClick = onSongClick,
+            onSongOpenMenu = onSongOpenMenu,
+            listBottomPadding = listBottomPadding,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
@@ -1252,10 +1366,12 @@ private fun FolderContentList(
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp = 0.dp,
+    fastScrollLabels: List<String>? = null,
     modifier: Modifier = Modifier,
 ) {
     val configuration = LocalConfiguration.current
     val columns = songListColumnsFor(configuration.screenWidthDp, configuration.screenHeightDp)
+    val landscapeWindow = columns > 1
     val gridState = rememberLazyGridState()
     val groupRow: @Composable (FolderBrowseGroup) -> Unit = { group ->
         BrowseGroupRow(
@@ -1277,24 +1393,51 @@ private fun FolderContentList(
     }
 
     if (columns > 1) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(columns),
-            state = gridState,
-            modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = listBottomPadding),
-        ) {
-            gridItems(
-                items = groups,
-                key = { it.pathSegments.joinToString("/") },
-                span = { GridItemSpan(maxLineSpan) },
-            ) { group ->
-                groupRow(group)
+        if (fastScrollLabels == null) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                state = gridState,
+                modifier = modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = listBottomPadding),
+            ) {
+                gridItems(
+                    items = groups,
+                    key = { it.pathSegments.joinToString("/") },
+                    span = { GridItemSpan(maxLineSpan) },
+                ) { group ->
+                    groupRow(group)
+                }
+                gridItems(songs, key = { "song:${it.id}" }) { song ->
+                    songRow(song)
+                }
             }
-            gridItems(songs, key = { "song:${it.id}" }) { song ->
-                songRow(song)
+        } else {
+            AlphabetFastScroller(
+                labels = fastScrollLabels,
+                scrollToIndex = { gridState.scrollToItem(it) },
+                fullHeightOverlay = landscapeWindow,
+                modifier = modifier.fillMaxSize(),
+            ) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = listBottomPadding),
+                ) {
+                    gridItems(
+                        items = groups,
+                        key = { it.pathSegments.joinToString("/") },
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) { group ->
+                        groupRow(group)
+                    }
+                    gridItems(songs, key = { "song:${it.id}" }) { song ->
+                        songRow(song)
+                    }
+                }
             }
         }
-    } else {
+    } else if (fastScrollLabels == null) {
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxSize(),
@@ -1305,6 +1448,26 @@ private fun FolderContentList(
             }
             items(songs, key = { "song:${it.id}" }) { song ->
                 songRow(song)
+            }
+        }
+    } else {
+        AlphabetFastScroller(
+            labels = fastScrollLabels,
+            scrollToIndex = { listState.scrollToItem(it) },
+            fullHeightOverlay = landscapeWindow,
+            modifier = modifier.fillMaxSize(),
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = listBottomPadding),
+            ) {
+                items(groups, key = { it.pathSegments.joinToString("/") }) { group ->
+                    groupRow(group)
+                }
+                items(songs, key = { "song:${it.id}" }) { song ->
+                    songRow(song)
+                }
             }
         }
     }

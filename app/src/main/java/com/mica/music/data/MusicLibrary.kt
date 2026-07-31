@@ -51,6 +51,8 @@ class MusicLibrary internal constructor(
     private var persistedArtistPresentation: BrowseGroupPresentation? = null
     private var persistedAlbumPresentation: BrowseGroupPresentation? = null
     private var persistedBrowsePresentationsMatchCurrentSort = false
+    private var musicFolderGroupCacheRevision = -1L
+    private var musicFolderGroupCache: List<FolderBrowseGroup>? = null
 
     constructor(context: Context) : this(
         context = context,
@@ -344,6 +346,17 @@ class MusicLibrary internal constructor(
 
     fun folderGroupsAtDepth(depth: Int, scopePathSegments: List<String> = emptyList()): List<FolderBrowseGroup> =
         LibraryBrowse.folderGroupsAtDepth(songs, depth, scopePathSegments)
+
+    fun musicFolderGroups(): List<FolderBrowseGroup> {
+        val sourceRevision = backing.catalogRevision
+        musicFolderGroupCache
+            ?.takeIf { musicFolderGroupCacheRevision == sourceRevision }
+            ?.let { return it }
+        return LibraryBrowse.musicFolderGroups(songs).also {
+            musicFolderGroupCacheRevision = sourceRevision
+            musicFolderGroupCache = it
+        }
+    }
 
     fun maxFolderDepth(): Int = LibraryBrowse.maxFolderDepth(songs)
 

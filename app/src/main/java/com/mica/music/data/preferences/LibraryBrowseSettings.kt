@@ -5,6 +5,7 @@ import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.ArtistSeparator
 import com.mica.music.data.ArtistSplitConfig
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import org.json.JSONArray
@@ -19,6 +20,7 @@ object LibraryBrowseSettings {
     private const val KEY_ARTIST_BROWSE_SORT_FIELD = "artist_browse_sort_field"
     private const val KEY_ARTIST_BROWSE_SORT_DIRECTION = "artist_browse_sort_direction"
     private const val KEY_ARTIST_BROWSE_GRID_COLUMNS = "artist_browse_grid_columns"
+    private const val KEY_FOLDER_BROWSE_MODE = "folder_browse_mode"
     private const val KEY_CUSTOM_SONG_ORDER = "custom_song_order"
     private const val KEY_CUSTOM_SONG_ORDER_LOCKED = "custom_song_order_locked"
     private const val KEY_ARTIST_SPLIT_SEPARATORS = "artist_split_separators"
@@ -132,6 +134,17 @@ object LibraryBrowseSettings {
     fun setArtistBrowseGridColumns(context: Context, columns: Int) {
         MicaSettingsStore.prefs(context).edit()
             .putInt(KEY_ARTIST_BROWSE_GRID_COLUMNS, columns.coerceIn(1, 4))
+            .apply()
+    }
+
+    fun folderBrowseMode(context: Context): FolderBrowseMode =
+        FolderBrowseMode.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_FOLDER_BROWSE_MODE, null),
+        )
+
+    fun setFolderBrowseMode(context: Context, mode: FolderBrowseMode) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_FOLDER_BROWSE_MODE, mode.storageValue)
             .apply()
     }
 

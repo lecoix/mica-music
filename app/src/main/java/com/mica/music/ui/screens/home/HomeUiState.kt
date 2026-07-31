@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.saveable.Saver
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.FolderBrowseMode
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.SortDirection
 
@@ -24,6 +25,7 @@ data class HomeUiState(
         artistSortField = ArtistBrowseSortField.TITLE,
         artistSortDirection = SortDirection.ASC,
         artistGridColumns = 2,
+        folderBrowseMode = FolderBrowseMode.HIERARCHY,
     ),
 ) {
     fun navigationSnapshot(
@@ -67,6 +69,7 @@ data class HomeUiState(
                     artistSortField = LibraryBrowseSettings.artistBrowseSortField(context),
                     artistSortDirection = LibraryBrowseSettings.artistBrowseSortDirection(context),
                     artistGridColumns = LibraryBrowseSettings.artistBrowseGridColumns(context),
+                    folderBrowseMode = LibraryBrowseSettings.folderBrowseMode(context),
                 ),
             )
         }
@@ -86,11 +89,13 @@ internal fun restoreHomeLocation(sectionValue: String?, playlistId: String?): Pa
     }
 }
 
-private const val HomeUiStateSaveVersion = "v3"
+private const val HomeUiStateSaveVersion = "v4"
+private const val HomeUiStateLegacySaveVersionV3 = "v3"
 private const val HomeUiStateLegacySaveVersionV2 = "v2"
 private const val HomeUiStateLegacySaveVersionV1 = "v1"
 private const val FolderScopeDelimiter = "\u0001"
-private const val HomeUiStateFixedFieldCount = 14
+private const val HomeUiStateFixedFieldCount = 15
+private const val HomeUiStateLegacyFixedFieldCountV2V3 = 14
 private const val HomeUiStateLegacyFixedFieldCount = 13
 
 internal fun saveHomeUiState(state: HomeUiState): List<String> = saveHomeUiStateValue(state)
@@ -122,6 +127,7 @@ private fun saveHomeUiStateValue(state: HomeUiState): List<String> {
         state.browseSort.artistSortField.storageValue,
         state.browseSort.artistSortDirection.storageValue,
         state.browseSort.artistGridColumns.toString(),
+        state.browseSort.folderBrowseMode.storageValue,
     ) + listOf(destination.size.toString()) +
         destination +
         listOf(state.browseStack.size.toString()) +
@@ -132,18 +138,25 @@ private fun restoreHomeUiStateValue(saved: List<String>): HomeUiState? {
     val version = saved.firstOrNull()
     if (
         version != HomeUiStateSaveVersion &&
+        version != HomeUiStateLegacySaveVersionV3 &&
         version != HomeUiStateLegacySaveVersionV2 &&
         version != HomeUiStateLegacySaveVersionV1
     ) {
         return HomeUiState()
     }
     val isLegacyV1 = version == HomeUiStateLegacySaveVersionV1
-    val isV3 = version == HomeUiStateSaveVersion
-    val browseSaved = saved.drop(if (isLegacyV1) HomeUiStateLegacyFixedFieldCount else HomeUiStateFixedFieldCount)
+    val isV3OrNewer = version == HomeUiStateSaveVersion || version == HomeUiStateLegacySaveVersionV3
+    val browseSaved = saved.drop(
+        when {
+            isLegacyV1 -> HomeUiStateLegacyFixedFieldCount
+            version == HomeUiStateSaveVersion -> HomeUiStateFixedFieldCount
+            else -> HomeUiStateLegacyFixedFieldCountV2V3
+        },
+    )
     val artistSortFieldIndex = if (isLegacyV1) null else 11
     val artistSortDirectionIndex = if (isLegacyV1) 11 else 12
     val artistGridColumnsIndex = if (isLegacyV1) 12 else 13
-    val (browseDestination, browseStack) = if (isV3) {
+    val (browseDestination, browseStack) = if (isV3OrNewer) {
         restoreBrowseNavigationForV3(browseSaved)
     } else {
         restoreBrowseDestinationForHomeState(browseSaved) to emptyList()
@@ -168,6 +181,11 @@ private fun restoreHomeUiStateValue(saved: List<String>): HomeUiState? {
             artistSortField = ArtistBrowseSortField.fromStorage(artistSortFieldIndex?.let { saved.getOrNull(it) }),
             artistSortDirection = SortDirection.fromStorage(saved.getOrNull(artistSortDirectionIndex)),
             artistGridColumns = saved.getOrNull(artistGridColumnsIndex)?.toIntOrNull()?.coerceIn(1, 4) ?: 2,
+            folderBrowseMode = if (version == HomeUiStateSaveVersion) {
+                FolderBrowseMode.fromStorage(saved.getOrNull(14))
+            } else {
+                FolderBrowseMode.HIERARCHY
+            },
         ),
         browseDestination = browseDestination,
         browseStack = browseStack,

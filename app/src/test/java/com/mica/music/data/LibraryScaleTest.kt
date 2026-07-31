@@ -77,6 +77,28 @@ class LibraryScaleTest {
     }
 
     @Test(timeout = 5_000)
+    fun exactMusicFolderGroupingStaysBoundedAtTenThousandSongs() {
+        val oneFolderPerSong = songs.mapIndexed { index, song ->
+            song.copy(
+                folderPath = "Music/Collection ${index / 100}/Album $index",
+                filePath = "Music/Collection ${index / 100}/Album $index/${song.fileName}",
+            )
+        }
+
+        val groups = LibraryBrowse.musicFolderGroups(oneFolderPerSong)
+        val retainedTextBytes = groups.sumOf { group ->
+            group.title.toByteArray().size.toLong() +
+                group.subtitle.toByteArray().size +
+                group.pathSegments.sumOf { it.toByteArray().size }
+        }
+
+        assertEquals(10_000, groups.size)
+        assertEquals(10_000, groups.sumOf { it.songCount })
+        assertTrue(retainedTextBytes < 2_000_000L)
+        assertTrue(groups.all { it.pathSegments.size == 3 })
+    }
+
+    @Test(timeout = 5_000)
     fun persistedBrowseProjectionStaysSmallAndNeverIncludesLyricsAtTenThousandSongs() {
         ArtistNames.configure(ArtistSplitConfig())
         val groups = LibraryBrowse.groupByArtist(songs) + LibraryBrowse.groupByAlbum(songs)

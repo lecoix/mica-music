@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.home
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.FolderBrowseMode
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,5 +54,60 @@ class HomeLibraryStatsRobolectricTest {
 
         assertEquals(listOf("艺术家自定义"), artist?.segments)
         assertEquals(listOf("专辑自定义"), album?.segments)
+    }
+
+    @Test
+    fun folderRootShowsPersistedDisplayModeActionAndMatchingCountLabel() {
+        val library = MusicLibrary(ApplicationProvider.getApplicationContext())
+
+        val hierarchy = resolveLibraryStatsBarModel(
+            section = HomeSection.Folders,
+            browseDestination = BrowseDestination.Folder(depth = 0),
+            library = library,
+            activePlaylistId = null,
+            playlistSongCount = 0,
+            playlistSortField = null,
+            playlistSortDirection = null,
+            folderBrowseMode = FolderBrowseMode.HIERARCHY,
+        )
+        val flat = resolveLibraryStatsBarModel(
+            section = HomeSection.Folders,
+            browseDestination = BrowseDestination.Folder(depth = 0),
+            library = library,
+            activePlaylistId = null,
+            playlistSongCount = 0,
+            playlistSortField = null,
+            playlistSortDirection = null,
+            folderBrowseMode = FolderBrowseMode.MUSIC_FOLDERS,
+        )
+
+        assertEquals(listOf("0 个文件夹", "层级浏览"), hierarchy?.segments)
+        assertEquals(true, hierarchy?.showFolderModeAction)
+        assertEquals(listOf("0 个文件夹", "扁平浏览"), flat?.segments)
+        assertEquals(true, flat?.showFolderModeAction)
+    }
+
+    @Test
+    fun musicFolderDetailUsesDirectSongStatsNotHierarchyGroups() {
+        val library = MusicLibrary(ApplicationProvider.getApplicationContext())
+
+        val detail = resolveLibraryStatsBarModel(
+            section = HomeSection.Folders,
+            browseDestination = BrowseDestination.Folder(
+                depth = 0,
+                scopePathSegments = listOf("Music", "Rock"),
+            ),
+            library = library,
+            activePlaylistId = null,
+            playlistSongCount = 0,
+            playlistSortField = null,
+            playlistSortDirection = null,
+            folderBrowseMode = FolderBrowseMode.MUSIC_FOLDERS,
+        )
+
+        assertEquals(listOf("Music / Rock"), detail?.segments)
+        assertEquals(false, detail?.showFolderModeAction)
+        assertEquals(false, detail?.showSortAction)
+        assertEquals(true, detail?.showRescanAction)
     }
 }

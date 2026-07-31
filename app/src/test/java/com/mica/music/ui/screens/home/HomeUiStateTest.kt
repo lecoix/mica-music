@@ -1,6 +1,7 @@
 package com.mica.music.ui.screens.home
 
 import com.mica.music.data.ArtistBrowseSortField
+import com.mica.music.data.FolderBrowseMode
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -38,6 +39,7 @@ class HomeUiStateTest {
                 artistSortField = ArtistBrowseSortField.SONG_COUNT,
                 artistSortDirection = com.mica.music.data.SortDirection.DESC,
                 artistGridColumns = 4,
+                folderBrowseMode = FolderBrowseMode.MUSIC_FOLDERS,
             ),
         )
 
@@ -80,6 +82,38 @@ class HomeUiStateTest {
 
         assertEquals(BrowseDestination.Album("Legacy Album"), restored?.browseDestination)
         assertEquals(emptyList<BrowseStackFrame>(), restored?.browseStack)
+        assertEquals(FolderBrowseMode.HIERARCHY, restored?.browseSort?.folderBrowseMode)
+    }
+
+    @Test
+    fun saverRestoresLegacyV3WithHierarchyFolderMode() {
+        val restored = restoreHomeUiState(
+            listOf(
+                "v3",
+                HomeSection.Folders.name,
+                "",
+                "false",
+                "",
+                HomeSection.Songs.name,
+                "0",
+                "",
+                com.mica.music.data.AlbumBrowseSortField.TITLE.storageValue,
+                com.mica.music.data.SortDirection.ASC.storageValue,
+                "2",
+                ArtistBrowseSortField.TITLE.storageValue,
+                com.mica.music.data.SortDirection.ASC.storageValue,
+                "2",
+                "2",
+                "folder",
+                "0",
+                "",
+                "0",
+            ),
+        )
+
+        assertEquals(HomeSection.Folders, restored?.section)
+        assertEquals(BrowseDestination.Folder(depth = 0), restored?.browseDestination)
+        assertEquals(FolderBrowseMode.HIERARCHY, restored?.browseSort?.folderBrowseMode)
     }
 
     @Test
