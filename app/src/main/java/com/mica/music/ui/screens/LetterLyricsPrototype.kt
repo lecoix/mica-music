@@ -160,7 +160,7 @@ internal fun LetterLyricsPrototype(
                 translationFontPx = with(density) { 11.5.sp.toPx() },
                 mainCharacterStepPx = with(density) { 30.dp.toPx() },
                 translationCharacterStepPx = with(density) { 18.dp.toPx() },
-                columnPitchPx = with(density) { 35.dp.toPx() },
+                columnPitchPx = with(density) { 30.dp.toPx() },
                 pageCapacityColumnPitchPx = with(density) { 35.dp.toPx() },
             )
         }
