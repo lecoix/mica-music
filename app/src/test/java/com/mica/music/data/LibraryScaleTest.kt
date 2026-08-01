@@ -54,7 +54,7 @@ class LibraryScaleTest {
         assertEquals(259, artists.size)
         assertEquals(401, albums.size)
         assertEquals(583, LibraryBrowse.songsForArtist(songs, "未知艺术家").size)
-        assertEquals(323, LibraryBrowse.songsForAlbum(songs, "未知专辑").size)
+        assertEquals(323, LibraryBrowse.songsForAlbum(songs, AlbumBrowseKey("未知专辑", "Album Artist")).size)
         assertTrue(artists.zipWithNext().all { (a, b) ->
             a.title.lowercase(Locale.CHINA) <= b.title.lowercase(Locale.CHINA)
         })

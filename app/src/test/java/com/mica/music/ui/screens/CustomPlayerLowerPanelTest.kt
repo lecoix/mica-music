@@ -2,6 +2,7 @@ package com.mica.music.ui.screens
 
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerLayoutConfig
+import com.mica.music.ui.theme.CustomPlayerInfoRowHeightDp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,7 +76,7 @@ class CustomPlayerLowerPanelTest {
         )
 
         assertEquals(1f, metrics.fitScale, 0.0001f)
-        assertEquals(42f, metrics.coverTopDp ?: -1f, 0.0001f)
+        assertEquals(10f + CustomPlayerInfoRowHeightDp + 8f, metrics.coverTopDp ?: -1f, 0.0001f)
         assertEquals(1f, metrics.coverVisualScale, 0.0001f)
     }
 

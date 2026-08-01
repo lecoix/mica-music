@@ -80,6 +80,13 @@ class PlaylistStore(context: Context) {
 
     fun playlistById(id: String): UserPlaylist? = playlists.find { it.id == id }
 
+    internal fun reloadFromStorage() {
+        val loaded = loadPlaylists()
+        if (loaded == playlists) return
+        playlists = loaded
+        revision++
+    }
+
     fun deletePlaylist(id: String): Boolean {
         val before = playlists.size
         playlists = playlists.filterNot { it.id == id }
@@ -215,5 +222,27 @@ class PlaylistStore(context: Context) {
     companion object {
         private const val PREFS_NAME = "mica_playlists"
         private const val KEY_PLAYLISTS_JSON = "playlists_json"
+
+        internal fun migrateSongIds(context: Context, mapping: Map<String, String>) {
+            if (mapping.isEmpty()) return
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_PLAYLISTS_JSON, null) ?: return
+            val rewritten = runCatching {
+                val array = JSONArray(raw)
+                var changed = false
+                for (i in 0 until array.length()) {
+                    val songs = array.getJSONObject(i).getJSONArray("songs")
+                    for (j in 0 until songs.length()) {
+                        val newId = mapping[songs.getString(j)] ?: continue
+                        songs.put(j, newId)
+                        changed = true
+                    }
+                }
+                changed to array.toString()
+            }.getOrNull() ?: return
+            if (rewritten.first) {
+                prefs.edit().putString(KEY_PLAYLISTS_JSON, rewritten.second).commit()
+            }
+        }
     }
 }

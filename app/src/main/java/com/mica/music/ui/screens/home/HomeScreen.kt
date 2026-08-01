@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mica.music.R
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.MiniPlayerStyle
@@ -370,8 +371,8 @@ fun HomeScreen(
         }
     }
 
-    fun openAlbumBrowse(albumTitle: String) {
-        applyNavigationSnapshot(navigateToAlbum(currentNavigationSnapshot(), albumTitle))
+    fun openAlbumBrowse(albumKey: AlbumBrowseKey) {
+        applyNavigationSnapshot(navigateToAlbum(currentNavigationSnapshot(), albumKey))
         drawerOpen = false
     }
 

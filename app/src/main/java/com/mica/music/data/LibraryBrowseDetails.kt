@@ -13,6 +13,7 @@ object LibraryBrowseDetails {
     )
 
     data class ArtistAlbumSection(
+        val key: AlbumBrowseKey,
         val title: String,
         val year: Int,
         val releaseDate: String,
@@ -32,16 +33,17 @@ object LibraryBrowseDetails {
     }
 
     fun artistAlbumSections(songs: List<Song>): List<ArtistAlbumSection> {
-        val buckets = linkedMapOf<String, MutableList<Song>>()
+        val buckets = linkedMapOf<AlbumBrowseKey, MutableList<Song>>()
         songs.forEach { song ->
-            buckets.getOrPut(song.album.ifBlank { "未知专辑" }) { mutableListOf() }.add(song)
+            buckets.getOrPut(AlbumBrowseKey.fromSong(song)) { mutableListOf() }.add(song)
         }
-        return buckets.map { (album, albumSongs) ->
+        return buckets.map { (albumKey, albumSongs) ->
             val orderedSongs = sortedAlbumSongs(albumSongs)
             val artworkSong = orderedSongs.firstOrNull { !it.albumArtUri.isNullOrBlank() } ?: orderedSongs.first()
             val releaseDate = ReleaseDates.earliestFullDate(orderedSongs)
             ArtistAlbumSection(
-                title = album,
+                key = albumKey,
+                title = albumKey.title,
                 year = ReleaseDates.aggregateYear(orderedSongs, releaseDate),
                 releaseDate = releaseDate,
                 albumArtUri = artworkSong.albumArtUri,

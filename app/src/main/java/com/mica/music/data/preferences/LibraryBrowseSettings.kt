@@ -79,6 +79,13 @@ object LibraryBrowseSettings {
     fun customSongOrderLocked(context: Context): Boolean =
         MicaSettingsStore.prefs(context).getBoolean(KEY_CUSTOM_SONG_ORDER_LOCKED, false)
 
+    internal fun migrateSongIds(context: Context, mapping: Map<String, String>) {
+        if (mapping.isEmpty()) return
+        val ids = customSongOrderIds(context)
+        if (ids.isEmpty()) return
+        setCustomSongOrderIds(context, ids.map { mapping[it] ?: it }.distinct())
+    }
+
     fun setCustomSongOrderLocked(context: Context, locked: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_CUSTOM_SONG_ORDER_LOCKED, locked)

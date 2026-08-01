@@ -45,6 +45,12 @@ object PlaybackSessionStore {
 
     fun clear(context: Context) = save(context, null)
 
+    internal fun migrateSongIds(context: Context, mapping: Map<String, String>) {
+        val current = load(context) ?: return
+        val newId = mapping[current.songId] ?: return
+        prefs(context).edit().putString(KEY_SONG_ID, newId).commit()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 }

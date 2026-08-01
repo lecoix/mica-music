@@ -362,8 +362,8 @@ class MusicLibrary internal constructor(
 
     fun songsForArtist(artist: String): List<Song> = LibraryBrowse.songsForArtist(songs, artist)
 
-    fun songsForAlbum(album: String): List<Song> =
-        LibraryBrowse.songsForAlbum(songs, album)
+    fun songsForAlbum(albumKey: AlbumBrowseKey): List<Song> =
+        LibraryBrowse.songsForAlbum(songs, albumKey)
 
     fun songsForFolder(pathSegments: List<String>): List<Song> =
         LibraryBrowse.songsForFolder(songs, pathSegments)

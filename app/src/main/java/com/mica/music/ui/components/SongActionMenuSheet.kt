@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
@@ -74,7 +75,7 @@ fun SongActionMenuSheet(
     onDismiss: () -> Unit,
     onAction: (SongMenuAction) -> Unit,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (AlbumBrowseKey) -> Unit,
     fromPlaylistId: String? = null,
     showSleepTimer: Boolean = false,
     sleepTimerLabel: String = "睡眠定时",
@@ -82,6 +83,7 @@ fun SongActionMenuSheet(
     showPlaybackTuning: Boolean = false,
     playbackTuningLabel: String = "速度 / 音高",
     onPlaybackTuningClick: (() -> Unit)? = null,
+    showLibraryActions: Boolean = true,
     landscape: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -109,6 +111,7 @@ fun SongActionMenuSheet(
                 showPlaybackTuning = showPlaybackTuning,
                 playbackTuningLabel = playbackTuningLabel,
                 onPlaybackTuningClick = onPlaybackTuningClick,
+                showLibraryActions = showLibraryActions,
             )
         }
         return
@@ -132,6 +135,7 @@ fun SongActionMenuSheet(
                 onAlbumClick = onAlbumClick,
             )
             HorizontalDivider(color = MicaTheme.colors.divider, thickness = HifiSize.dividerHairline)
+            if (showLibraryActions) {
             SongMenuItem(
                 icon = Icons.Outlined.PlaylistAdd,
                 label = "添加到歌单",
@@ -184,6 +188,7 @@ fun SongActionMenuSheet(
                 tint = MicaTheme.colors.like,
                 onClick = { onAction(SongMenuAction.Delete) },
             )
+            }
         }
     }
 }
@@ -192,7 +197,7 @@ fun SongActionMenuSheet(
 private fun SongMenuHeader(
     song: Song,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (AlbumBrowseKey) -> Unit,
 ) {
     val artistDisplay = ArtistNames.normalizeDisplay(song.artist)
     val albumDisplay = song.album.ifBlank { "未知专辑" }
@@ -239,7 +244,7 @@ private fun SongMenuHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .padding(top = HifiSpacing.xxs)
-                    .clickable { onAlbumClick(albumDisplay) },
+                    .clickable { onAlbumClick(AlbumBrowseKey.fromSong(song)) },
             )
         }
     }
@@ -287,7 +292,7 @@ private fun LandscapeSongActionMenu(
     onDismiss: () -> Unit,
     onAction: (SongMenuAction) -> Unit,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (AlbumBrowseKey) -> Unit,
     fromPlaylistId: String?,
     showSleepTimer: Boolean,
     sleepTimerLabel: String,
@@ -295,8 +300,21 @@ private fun LandscapeSongActionMenu(
     showPlaybackTuning: Boolean,
     playbackTuningLabel: String,
     onPlaybackTuningClick: (() -> Unit)?,
+    showLibraryActions: Boolean,
 ) {
     val entries = buildList {
+        if (!showLibraryActions) {
+            add(LandscapeSongMenuEntry(Icons.Outlined.Share, "分享") {
+                onAction(SongMenuAction.Share)
+            })
+            if (showSleepTimer && onSleepTimerClick != null) {
+                add(LandscapeSongMenuEntry(Icons.Outlined.Bedtime, sleepTimerLabel, onClick = onSleepTimerClick))
+            }
+            if (showPlaybackTuning && onPlaybackTuningClick != null) {
+                add(LandscapeSongMenuEntry(Icons.Outlined.Speed, playbackTuningLabel, onClick = onPlaybackTuningClick))
+            }
+        }
+        if (showLibraryActions) {
         add(LandscapeSongMenuEntry(Icons.Outlined.PlaylistAdd, "添加到歌单") {
             onAction(SongMenuAction.AddToPlaylist)
         })
@@ -326,6 +344,7 @@ private fun LandscapeSongActionMenu(
         add(LandscapeSongMenuEntry(Icons.Outlined.Delete, "删除音乐", MicaTheme.colors.like) {
             onAction(SongMenuAction.Delete)
         })
+        }
     }
 
     Column(modifier = Modifier.fillMaxHeight()) {

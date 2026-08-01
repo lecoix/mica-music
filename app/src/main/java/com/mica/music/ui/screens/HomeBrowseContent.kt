@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.ArtistNames
@@ -100,7 +101,7 @@ internal fun HomeBrowseContent(
     onAddSongsToPlaylist: (List<Song>) -> Unit = {},
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
-    onAlbumClick: (String) -> Unit = {},
+    onAlbumClick: (AlbumBrowseKey) -> Unit = {},
     albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
     albumSortDirection: SortDirection = SortDirection.ASC,
     albumGridColumns: Int = 1,
@@ -204,12 +205,12 @@ internal fun HomeBrowseContent(
                         )
                     }
                     is BrowseDestination.Album -> {
-                        val songListState = rememberBrowseDetailSongListState("album:${dest.title}")
-                        val songs = timedBrowseDetail("album filter", "album=${dest.title}", library.songs.size) {
-                            library.songsForAlbum(dest.title)
+                        val songListState = rememberBrowseDetailSongListState("album:${dest.key.storageKey}")
+                        val songs = timedBrowseDetail("album filter", "album=${dest.key.storageKey}", library.songs.size) {
+                            library.songsForAlbum(dest.key)
                         }
                         AlbumDetailPanel(
-                            albumTitle = dest.title,
+                            albumTitle = dest.key.title,
                             songs = songs,
                             currentSongId = currentSongId,
                             isPlaying = isPlaying,
@@ -735,7 +736,7 @@ private fun ArtistDetailPanel(
     onAddSongsToPlaylist: (List<Song>) -> Unit,
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (AlbumBrowseKey) -> Unit,
     emptyMessage: String,
     listState: LazyListState,
     listBottomPadding: Dp = 0.dp,
@@ -810,7 +811,7 @@ private fun ArtistDetailPanel(
             item(key = "artistHeader", span = { GridItemSpan(maxLineSpan) }) { header() }
             albumSections.forEach { section ->
                 item(
-                    key = "albumHeader:${section.title}",
+                    key = "albumHeader:${section.key.storageKey}",
                     span = { GridItemSpan(maxLineSpan) },
                 ) {
                     ArtistAlbumHeader(section = section, onAlbumClick = onAlbumClick)
@@ -818,7 +819,7 @@ private fun ArtistDetailPanel(
                 section.discSections.forEach { discSection ->
                     discSection.discNumber?.let { discNumber ->
                         item(
-                            key = "artistDisc:${section.title}:$discNumber",
+                    key = "artistDisc:${section.key.storageKey}:$discNumber",
                             span = { GridItemSpan(maxLineSpan) },
                         ) { discLabel(discNumber) }
                     }
@@ -839,12 +840,12 @@ private fun ArtistDetailPanel(
         ) {
             item("artistHeader") { header() }
             albumSections.forEach { section ->
-                item("albumHeader:${section.title}") {
+                item("albumHeader:${section.key.storageKey}") {
                     ArtistAlbumHeader(section = section, onAlbumClick = onAlbumClick)
                 }
                 section.discSections.forEach { discSection ->
                     discSection.discNumber?.let { discNumber ->
-                        item("artistDisc:${section.title}:$discNumber") {
+                        item("artistDisc:${section.key.storageKey}:$discNumber") {
                             discLabel(discNumber)
                         }
                     }
@@ -970,7 +971,7 @@ private fun ArtistActionDivider() {
 @Composable
 private fun ArtistAlbumHeader(
     section: LibraryBrowseDetails.ArtistAlbumSection,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (AlbumBrowseKey) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -999,7 +1000,7 @@ private fun ArtistAlbumHeader(
                 color = MicaTheme.colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { onAlbumClick(section.title) },
+                modifier = Modifier.clickable { onAlbumClick(section.key) },
             )
             Text(
                 text = buildList {
@@ -1135,7 +1136,7 @@ private fun ArtistGroupList(
         listState = listState,
         gridState = gridState,
         gridColumns = gridColumns,
-        onSelect = onSelect,
+        onSelect = { group -> onSelect(group.title) },
         gridTitleMaxLines = 1,
         fastScrollLabels = fastScrollLabels,
         fastScrollSectionTargets = fastScrollSectionTargets,
@@ -1150,7 +1151,7 @@ private fun AlbumGroupList(
     library: MusicLibrary,
     listState: LazyListState,
     gridState: LazyGridState,
-    onSelect: (String) -> Unit,
+    onSelect: (AlbumBrowseKey) -> Unit,
     sortField: AlbumBrowseSortField,
     sortDirection: SortDirection,
     gridColumns: Int,
@@ -1181,7 +1182,12 @@ private fun AlbumGroupList(
         listState = listState,
         gridState = gridState,
         gridColumns = gridColumns,
-        onSelect = onSelect,
+        onSelect = { group ->
+            onSelect(
+                AlbumBrowseKey.fromStorageKey(group.key)
+                    ?: AlbumBrowseKey(group.title, group.artist),
+            )
+        },
         rowSubtitle = ::albumRowSubtitle,
         fastScrollLabels = fastScrollLabels,
         fastScrollSectionTargets = fastScrollSectionTargets,
@@ -1197,7 +1203,7 @@ private fun BrowseGroupList(
     listState: LazyListState,
     gridState: LazyGridState,
     gridColumns: Int,
-    onSelect: (String) -> Unit,
+    onSelect: (BrowseGroup) -> Unit,
     rowSubtitle: (BrowseGroup) -> String = { it.subtitle },
     fastScrollLabels: List<String>? = groups.map { it.title },
     fastScrollSectionTargets: Map<String, Int>? = null,
@@ -1224,11 +1230,11 @@ private fun BrowseGroupList(
                 horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
             ) {
-                gridItems(groups, key = { it.title }) { group ->
+                gridItems(groups, key = { it.key }) { group ->
                     BrowseGroupGridTile(
                         group = group,
                         titleMaxLines = gridTitleMaxLines,
-                        onClick = { onSelect(group.title) },
+                        onClick = { onSelect(group) },
                     )
                 }
             }
@@ -1253,11 +1259,11 @@ private fun BrowseGroupList(
                     horizontalArrangement = Arrangement.spacedBy(HifiSpacing.md),
                     verticalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
                 ) {
-                    gridItems(groups, key = { it.title }) { group ->
+                    gridItems(groups, key = { it.key }) { group ->
                         BrowseGroupGridTile(
                             group = group,
                             titleMaxLines = gridTitleMaxLines,
-                            onClick = { onSelect(group.title) },
+                            onClick = { onSelect(group) },
                         )
                     }
                 }
@@ -1272,13 +1278,13 @@ private fun BrowseGroupList(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = listBottomPadding),
         ) {
-            items(groups, key = { it.title }) { group ->
+            items(groups, key = { it.key }) { group ->
                 BrowseGroupRow(
                     title = group.title,
                     subtitle = rowSubtitle(group),
                     albumArtUri = group.albumArtUri,
                     fallbackColor = Color(group.coverColorArgb),
-                    onClick = { onSelect(group.title) },
+                    onClick = { onSelect(group) },
                 )
             }
         }
@@ -1298,13 +1304,13 @@ private fun BrowseGroupList(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = listBottomPadding),
         ) {
-            items(groups, key = { it.title }) { group ->
+            items(groups, key = { it.key }) { group ->
                 BrowseGroupRow(
                     title = group.title,
                     subtitle = rowSubtitle(group),
                     albumArtUri = group.albumArtUri,
                     fallbackColor = Color(group.coverColorArgb),
-                    onClick = { onSelect(group.title) },
+                    onClick = { onSelect(group) },
                 )
             }
         }

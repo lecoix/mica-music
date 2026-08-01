@@ -6,9 +6,10 @@ import com.mica.music.data.BrowseGroup
 internal const val BROWSE_GROUP_KIND_ARTIST = "artist"
 internal const val BROWSE_GROUP_KIND_ALBUM = "album"
 
-@Entity(tableName = "browse_groups", primaryKeys = ["kind", "title"])
+@Entity(tableName = "browse_groups", primaryKeys = ["kind", "groupKey"])
 data class BrowseGroupEntity(
     val kind: String,
+    val groupKey: String,
     val title: String,
     val subtitle: String,
     val songCount: Int,
@@ -29,10 +30,12 @@ internal fun BrowseGroupEntity.toBrowseGroup(): BrowseGroup = BrowseGroup(
     releaseDate = releaseDate,
     albumArtUri = albumArtUri,
     coverColorArgb = coverColorArgb,
+    key = groupKey,
 )
 
 internal fun BrowseGroup.toEntity(kind: String, position: Int): BrowseGroupEntity = BrowseGroupEntity(
     kind = kind,
+    groupKey = key,
     title = title,
     subtitle = subtitle,
     songCount = songCount,

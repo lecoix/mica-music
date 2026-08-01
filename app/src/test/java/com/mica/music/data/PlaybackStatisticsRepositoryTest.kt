@@ -109,6 +109,24 @@ class PlaybackStatisticsRepositoryTest {
         assertEquals(1, PlayHistoryStore.getStats(context, "song-d").count)
     }
 
+    @Test
+    fun transientSongsDoNotPersistPlaybackStatistics() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = PlaybackStatisticsRepository(
+            context = context,
+            ioDispatcher = dispatcher,
+            mainDispatcher = dispatcher,
+            isPersistentSong = { false },
+        )
+
+        repo.recordPlay("external")
+        repo.recordListenSeconds("external", 30L)
+        advanceUntilIdle()
+
+        assertEquals(0, PlayHistoryStore.getStats(context, "external").count)
+        assertEquals(0L, PlayHistoryStore.getStats(context, "external").totalListenSeconds)
+    }
+
     private fun clearPrefs() {
         context.getSharedPreferences("mica_play_counts", Context.MODE_PRIVATE)
             .edit()

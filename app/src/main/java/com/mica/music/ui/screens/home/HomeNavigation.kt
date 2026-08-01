@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens.home
 
+import com.mica.music.data.AlbumBrowseKey
 internal sealed interface HomePaneKey {
     data object Search : HomePaneKey
     data object Songs : HomePaneKey
@@ -202,13 +203,18 @@ fun consumeNavigationIntent(
 
 fun navigateToAlbum(
     snapshot: HomeNavigationSnapshot,
-    albumTitle: String,
+    albumKey: AlbumBrowseKey,
 ): HomeNavigationSnapshot =
     pushBrowseDestination(
         snapshot = snapshot,
-        destination = BrowseDestination.Album(albumTitle),
+        destination = BrowseDestination.Album(albumKey),
         section = HomeSection.Albums,
     )
+
+fun navigateToAlbum(
+    snapshot: HomeNavigationSnapshot,
+    albumTitle: String,
+): HomeNavigationSnapshot = navigateToAlbum(snapshot, AlbumBrowseKey.legacyTitleOnly(albumTitle))
 
 fun navigateToArtist(
     snapshot: HomeNavigationSnapshot,

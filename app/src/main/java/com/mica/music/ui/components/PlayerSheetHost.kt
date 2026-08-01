@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
@@ -74,7 +75,7 @@ fun PlayerSheetHost(
     onOpenEqualizer: () -> Unit,
     onOpenSongDetail: (String) -> Unit = {},
     onBrowseArtist: (String) -> Unit = {},
-    onBrowseAlbum: (String) -> Unit = {},
+    onBrowseAlbum: (AlbumBrowseKey) -> Unit = {},
     onLocateCurrentSong: () -> Unit = {},
     onOverlayFullScreenChange: (Boolean) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),

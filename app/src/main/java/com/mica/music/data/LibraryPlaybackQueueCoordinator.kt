@@ -100,12 +100,14 @@ internal class LibraryPlaybackQueueCoordinator(
     }
 }
 
-internal fun MusicLibrary.toLibraryQueueSyncInput(): LibraryQueueSyncInput =
+internal fun MusicLibrary.toLibraryQueueSyncInput(
+    resolver: (String) -> Song? = ::songById,
+): LibraryQueueSyncInput =
     LibraryQueueSyncInput(
         songs = songs,
         songIds = songIds,
         hasScanned = hasScanned,
-        songById = ::songById,
+        songById = resolver,
     )
 
 internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQueueCoordinator.Target =

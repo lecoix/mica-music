@@ -38,6 +38,43 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun albumGroupsKeepSameTitleSeparateByAlbumArtist() {
+        val groups = LibraryBrowse.groupByAlbum(
+            listOf(
+                SongFixtures.song("artist-a").copy(
+                    album = "Greatest Hits",
+                    albumArtist = "Artist A",
+                    artist = "Artist A",
+                ),
+                SongFixtures.song("artist-b").copy(
+                    album = "Greatest Hits",
+                    albumArtist = "Artist B",
+                    artist = "Artist B",
+                ),
+            ),
+        )
+
+        assertEquals(2, groups.size)
+        assertEquals(
+            setOf("Artist A", "Artist B"),
+            groups.map { it.artist }.toSet(),
+        )
+        assertEquals(groups.map { it.key }.toSet().size, groups.size)
+    }
+
+    @Test
+    fun albumBrowseKeyRoundTripsAndFiltersByTitleAndArtist() {
+        val key = AlbumBrowseKey("A: B", "Artist / Guest")
+        val songs = listOf(
+            SongFixtures.song("match").copy(album = "A: B", albumArtist = "Artist / Guest"),
+            SongFixtures.song("other").copy(album = "A: B", albumArtist = "Other Artist"),
+        )
+
+        assertEquals(key, AlbumBrowseKey.fromStorageKey(key.storageKey))
+        assertEquals(listOf("match"), LibraryBrowse.songsForAlbum(songs, key).map { it.id })
+    }
+
+    @Test
     fun albumDateSortKeepsFullDatesBeforeYearOnlyAndUnknownLast() {
         val groups = LibraryBrowse.groupByAlbum(
             listOf(

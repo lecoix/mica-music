@@ -72,6 +72,33 @@ object PlayHistoryStore {
 
     private fun listenSecondsKey(songId: String) = "$LISTEN_SECONDS_PREFIX$songId"
 
+    internal fun migrateSongIds(context: Context, mapping: Map<String, String>) {
+        if (mapping.isEmpty()) return
+        val preferences = prefs(context)
+        val editor = preferences.edit()
+        mapping.forEach { (oldId, newId) ->
+            val oldStats = getStats(context, oldId)
+            val newStats = getStats(context, newId)
+            if (oldStats.count > 0 || oldStats.lastPlayedAtMs > 0L || oldStats.totalListenSeconds > 0L) {
+                editor.putInt(newId, maxOf(oldStats.count, newStats.count))
+                editor.putLong(lastPlayedKey(newId), maxOf(oldStats.lastPlayedAtMs, newStats.lastPlayedAtMs))
+                editor.putLong(
+                    listenSecondsKey(newId),
+                    maxOf(oldStats.totalListenSeconds, newStats.totalListenSeconds),
+                )
+            }
+            editor.remove(oldId)
+                .remove(lastPlayedKey(oldId))
+                .remove(listenSecondsKey(oldId))
+        }
+        val recent = recentSongIds(context)
+            .map { mapping[it] ?: it }
+            .distinct()
+            .take(RECENT_MAX)
+        editor.putString(KEY_RECENT_IDS, recent.joinToString(","))
+        editor.commit()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 }

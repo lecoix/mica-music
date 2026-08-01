@@ -411,13 +411,13 @@ fun PlayerSheetOverlay(
                 browseDestination = BrowseDestination.Artist(artistName),
             )
         },
-        onBrowseAlbum = { albumTitle ->
-            logBackFlow("nav-action browse-album from=player album=$albumTitle")
+        onBrowseAlbum = { albumKey ->
+            logBackFlow("nav-action browse-album from=player album=${albumKey.storageKey}")
             coordinator.playerExpanded = false
             coordinator.popBackStackHome()
             coordinator.homeNavigationIntent = HomeNavigationIntent(
                 section = HomeSection.Albums,
-                browseDestination = BrowseDestination.Album(albumTitle),
+                browseDestination = BrowseDestination.Album(albumKey),
             )
         },
         onLocateCurrentSong = {

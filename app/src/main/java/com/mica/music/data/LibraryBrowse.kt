@@ -14,7 +14,59 @@ data class BrowseGroup(
     val releaseDate: String = "",
     val albumArtUri: String? = null,
     val coverColorArgb: Int = BrowseFallbackColorArgb,
+    val key: String = title,
 )
+
+/** Stable identity for an album browse group; title remains display-only. */
+data class AlbumBrowseKey(
+    val title: String,
+    val albumArtist: String,
+    val legacyTitleOnly: Boolean = false,
+) {
+    val storageKey: String
+        get() = encodePart(title) + encodePart(albumArtist)
+
+    fun matches(song: Song): Boolean =
+        song.album.trim().ifBlank { UNKNOWN_ALBUM } == title &&
+            (legacyTitleOnly || fromSong(song).albumArtist == albumArtist)
+
+    companion object {
+        fun fromSong(song: Song): AlbumBrowseKey = AlbumBrowseKey(
+            title = song.album.trim().ifBlank { UNKNOWN_ALBUM },
+            albumArtist = song.albumArtist.trim().ifBlank { song.artist.trim() },
+        )
+
+        fun fromStorageKey(key: String): AlbumBrowseKey? {
+            val first = decodePart(key, 0) ?: return null
+            val second = decodePart(key, first.nextIndex) ?: return null
+            if (second.nextIndex != key.length) return null
+            return AlbumBrowseKey(first.value, second.value)
+        }
+
+        fun legacyTitleOnly(title: String): AlbumBrowseKey = AlbumBrowseKey(
+            title = title,
+            albumArtist = "",
+            legacyTitleOnly = true,
+        )
+
+        private fun encodePart(value: String): String = "${value.length}:$value"
+
+        private fun decodePart(value: String, start: Int): DecodedPart? {
+            val separator = value.indexOf(':', startIndex = start)
+            if (separator <= start) return null
+            val length = value.substring(start, separator).toIntOrNull() ?: return null
+            if (length < 0) return null
+            val partStart = separator + 1
+            val partEnd = partStart + length
+            if (partEnd > value.length) return null
+            return DecodedPart(value.substring(partStart, partEnd), partEnd)
+        }
+
+        private data class DecodedPart(val value: String, val nextIndex: Int)
+    }
+}
+
+private const val UNKNOWN_ALBUM = "未知专辑"
 
 data class BrowseGroupPresentation(
     val groups: List<BrowseGroup>,
@@ -105,13 +157,13 @@ object LibraryBrowse {
     }
 
     fun groupByAlbum(songs: List<Song>): List<BrowseGroup> =
-        songs.groupBy { it.album.ifBlank { "未知专辑" } }
-            .map { (album, list) ->
+        songs.groupBy(AlbumBrowseKey::fromSong)
+            .map { (albumKey, list) ->
                 val artistSummary = summarizeAlbumArtists(list)
                 val artworkSong = artworkSong(list)
                 val releaseDate = ReleaseDates.earliestFullDate(list)
                 BrowseGroup(
-                    title = album,
+                    title = albumKey.title,
                     subtitle = artistSummary,
                     songCount = list.size,
                     artist = artistSummary,
@@ -119,6 +171,7 @@ object LibraryBrowse {
                     releaseDate = releaseDate,
                     albumArtUri = artworkSong?.albumArtUri,
                     coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
+                    key = albumKey.storageKey,
                 )
             }
             .sortedWith(AlphabeticalText.comparator({ it.title }, collator))
@@ -286,8 +339,8 @@ object LibraryBrowse {
     fun songsForArtist(songs: List<Song>, artist: String): List<Song> =
         songs.filter { ArtistNames.contains(it.artist, artist) }
 
-    fun songsForAlbum(songs: List<Song>, album: String): List<Song> =
-        songs.filter { (it.album.ifBlank { "未知专辑" }) == album }
+    fun songsForAlbum(songs: List<Song>, albumKey: AlbumBrowseKey): List<Song> =
+        songs.filter { albumKey.matches(it) }
 
     fun folderGroups(songs: List<Song>, parentPathSegments: List<String>): List<FolderBrowseGroup> {
         val parent = parentPathSegments.normalizedFolderSegments()

@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.MusicLibrary
@@ -164,7 +165,7 @@ fun NowPlayingScreen(
     onOpenEqualizer: () -> Unit,
     onOpenSongDetail: (String) -> Unit = {},
     onBrowseArtist: (String) -> Unit = {},
-    onBrowseAlbum: (String) -> Unit = {},
+    onBrowseAlbum: (AlbumBrowseKey) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
@@ -206,7 +207,7 @@ fun NowPlayingContent(
     onOpenEqualizer: () -> Unit,
     onOpenSongDetail: (String) -> Unit = {},
     onBrowseArtist: (String) -> Unit = {},
-    onBrowseAlbum: (String) -> Unit = {},
+    onBrowseAlbum: (AlbumBrowseKey) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
@@ -316,6 +317,10 @@ fun NowPlayingContent(
     }
 
     fun handleSongMenuAction(action: SongMenuAction, target: Song) {
+        if (target.isTransient && action != SongMenuAction.Share) {
+            actionMenuSong = null
+            return
+        }
         when (action) {
             SongMenuAction.AddToPlaylist -> {
                 actionMenuSong = null
@@ -1698,6 +1703,7 @@ fun NowPlayingContent(
                     actionMenuSong = null
                     playbackTuningSheetOpen = true
                 },
+                showLibraryActions = !menuSong.isTransient,
                 landscape = isLandscapeWindow,
             )
         }

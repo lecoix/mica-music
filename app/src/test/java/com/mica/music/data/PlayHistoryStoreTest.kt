@@ -43,4 +43,17 @@ class PlayHistoryStoreTest {
         assertEquals(190L, second.totalListenSeconds)
         assertEquals(first.lastPlayedAtMs, second.lastPlayedAtMs)
     }
+
+    @Test
+    fun migrateSongIdsPreservesStatsAndRecentOrder() {
+        PlayHistoryStore.recordPlay(context, "legacy")
+        PlayHistoryStore.recordListenSeconds(context, "legacy", 42)
+
+        PlayHistoryStore.migrateSongIds(context, mapOf("legacy" to "doc_sha256_new"))
+
+        assertEquals(1, PlayHistoryStore.getStats(context, "doc_sha256_new").count)
+        assertEquals(42L, PlayHistoryStore.getStats(context, "doc_sha256_new").totalListenSeconds)
+        assertEquals(listOf("doc_sha256_new"), PlayHistoryStore.recentSongIds(context))
+        assertEquals(0, PlayHistoryStore.getStats(context, "legacy").count)
+    }
 }

@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
 import com.mica.music.data.PlaylistStore
+import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.Song
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
@@ -19,7 +20,7 @@ internal fun HomeOverlays(
     onDismissActionMenu: () -> Unit,
     onSongMenuAction: (SongMenuAction, Song) -> Unit,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (AlbumBrowseKey) -> Unit,
     onDismissAddToPlaylist: () -> Unit,
     onAddToPlaylistCreated: (String) -> Unit,
     onDismissCreatePlaylist: () -> Unit,
@@ -41,8 +42,8 @@ internal fun HomeOverlays(
                 onArtistClick(artistName)
                 onDismissActionMenu()
             },
-            onAlbumClick = { albumTitle ->
-                onAlbumClick(albumTitle)
+            onAlbumClick = { albumKey ->
+                onAlbumClick(albumKey)
                 onDismissActionMenu()
             },
             landscape = landscape,

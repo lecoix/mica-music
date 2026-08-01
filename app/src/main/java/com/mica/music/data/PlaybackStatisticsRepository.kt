@@ -21,6 +21,7 @@ class PlaybackStatisticsRepository(
     context: Context,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    private val isPersistentSong: (String) -> Boolean = { true },
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
@@ -47,6 +48,7 @@ class PlaybackStatisticsRepository(
     }
 
     fun recordPlay(songId: String) {
+        if (!isPersistentSong(songId)) return
         scope.launch {
             val stats = PlayHistoryStore.recordPlay(appContext, songId)
             notifyPresentation(songId, stats)
@@ -54,7 +56,7 @@ class PlaybackStatisticsRepository(
     }
 
     fun recordListenSeconds(songId: String, seconds: Long) {
-        if (seconds <= 0L) return
+        if (seconds <= 0L || !isPersistentSong(songId)) return
         scope.launch {
             val stats = PlayHistoryStore.recordListenSeconds(appContext, songId, seconds)
             notifyPresentation(songId, stats)
