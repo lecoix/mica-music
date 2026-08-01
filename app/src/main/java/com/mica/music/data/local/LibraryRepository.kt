@@ -45,8 +45,9 @@ data class CachedLibrary(
 
 class LibraryRepository internal constructor(
     private val db: MicaDatabase,
+    private val migrationContext: Context? = null,
 ) {
-    constructor(context: Context) : this(MicaDatabase.get(context))
+    constructor(context: Context) : this(MicaDatabase.get(context), context.applicationContext)
 
     private val songDao = db.songDao()
     private val lyricsDao = db.songLyricsDao()
@@ -54,6 +55,7 @@ class LibraryRepository internal constructor(
     private val browseGroupDao = db.browseGroupDao()
 
     suspend fun loadCached(): CachedLibrary? {
+        ensureSongIdentityMigration()
         val startedMs = SystemClock.elapsedRealtime()
         DiagnosticLog.event("LibraryDb", "loadCached begin")
         val metaStartedMs = SystemClock.elapsedRealtime()
@@ -132,11 +134,22 @@ class LibraryRepository internal constructor(
     suspend fun songById(
         id: String,
         priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
-    ): Song? = songDao.getById(id)?.toSong()?.let { song ->
-        song.copy(
-            lyricsDocument = lyricsById(id, priority, song.lyricsCacheRevision),
-            lyricsLoaded = true,
-        )
+    ): Song? {
+        ensureSongIdentityMigration()
+        return songDao.getById(id)?.toSong()?.let { song ->
+            song.copy(
+                lyricsDocument = lyricsById(id, priority, song.lyricsCacheRevision),
+                lyricsLoaded = true,
+            )
+        }
+    }
+
+    /** Lightweight identity lookup for MediaSession item resolution; never loads lyrics. */
+    suspend fun songSummariesByIds(ids: List<String>): Map<String, Song> {
+        if (ids.isEmpty()) return emptyMap()
+        ensureSongIdentityMigration()
+        return songDao.getSummariesByIds(ids)
+            .associate { summary -> summary.id to summary.toSong() }
     }
 
     suspend fun lyricsById(
@@ -144,6 +157,7 @@ class LibraryRepository internal constructor(
         priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
         revision: String? = null,
     ): LyricsDocument {
+        ensureSongIdentityMigration()
         val startedMs = SystemClock.elapsedRealtime()
         var queryMs = 0L
         var queryStartedMs = SystemClock.elapsedRealtime()
@@ -171,6 +185,12 @@ class LibraryRepository internal constructor(
                 "slots=${available.size} jsonChars=$jsonChars lines=${document.lines.size}",
         )
         return document
+    }
+
+    private suspend fun ensureSongIdentityMigration() {
+        migrationContext?.let { context ->
+            SongIdentityMigration.migrate(context, db)
+        }
     }
 
     suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) {

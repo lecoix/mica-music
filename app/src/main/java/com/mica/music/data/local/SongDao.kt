@@ -17,6 +17,10 @@ interface SongDao {
     @Query("SELECT * FROM songs ORDER BY queueOrder ASC")
     suspend fun getAllSummariesOrdered(): List<SongSummaryEntity>
 
+    @RewriteQueriesToDropUnusedColumns
+    @Query("SELECT * FROM songs WHERE id IN (:ids)")
+    suspend fun getSummariesByIds(ids: List<String>): List<SongSummaryEntity>
+
     @Query("SELECT * FROM songs WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): SongEntity?
 

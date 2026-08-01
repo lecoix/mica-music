@@ -7,6 +7,7 @@ import androidx.media3.common.MediaMetadata
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.PlaybackMimeResolver
 import com.mica.music.data.Song
+import com.mica.music.data.SongSource
 import com.mica.music.data.TrackMetadata
 import java.security.MessageDigest
 
@@ -14,6 +15,7 @@ object SongMediaItemCodec {
     private const val PREFIX = "mica.song."
     private const val METADATA_REVISION = "${PREFIX}metadataRevision"
     private const val LYRICS_REVISION = "${PREFIX}lyricsRevision"
+    private const val SOURCE = "${PREFIX}source"
 
     internal fun canonicalTitleExtraKey(): String = "${PREFIX}title"
 
@@ -85,6 +87,7 @@ object SongMediaItemCodec {
             putString("${PREFIX}mime", song.metadata.playbackMimeType)
             putString("${PREFIX}albumArtUri", song.albumArtUri)
             putString("${PREFIX}videoCoverUri", song.videoCoverUri)
+            putString(SOURCE, song.source.name)
             putInt("${PREFIX}coverColorArgb", song.coverColorArgb)
             putString("${PREFIX}mediaUri", song.mediaUri)
             putString("${PREFIX}playbackUri", song.playbackUri)
@@ -129,6 +132,9 @@ object SongMediaItemCodec {
     private const val HEX = "0123456789abcdef"
 
     fun decode(item: MediaItem): Song? {
+        if (ExternalMediaItemCodec.isExternal(item)) {
+            return ExternalMediaItemCodec.decode(item)
+        }
         val metadata = item.mediaMetadata ?: return null
         val extras = metadata.extras ?: return null
         val mediaUri = extras.getString("${PREFIX}mediaUri").orEmpty()
@@ -185,6 +191,9 @@ object SongMediaItemCodec {
                 },
             ),
             lyricsLoaded = false,
+            source = extras.getString(SOURCE)?.let { encoded ->
+                runCatching { SongSource.valueOf(encoded) }.getOrNull()
+            } ?: SongSource.LIBRARY,
         )
     }
 }

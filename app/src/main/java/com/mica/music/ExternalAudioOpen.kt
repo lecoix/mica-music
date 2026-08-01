@@ -6,9 +6,12 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.mica.music.data.Song
+import com.mica.music.data.SongSource
+import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.scanner.AudioMetadataProbe
 import com.mica.music.data.scanner.CoverColorExtractor
 import com.mica.music.data.scanner.TrackDraft
+import java.security.MessageDigest
 
 internal data class ExternalAudioOpenRequest(
     val uri: Uri,
@@ -38,12 +41,27 @@ internal fun mergeExternalAudioProbeResult(existing: Song?, probed: Song): Song 
     )
 }
 
+internal fun transientExternalSongId(uri: Uri): String =
+    "${TransientPlaybackCatalog.TRANSIENT_ID_PREFIX}${sha256(uri.toString())}"
+
+private fun sha256(value: String): String {
+    val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+    return buildString(bytes.size * 2) {
+        bytes.forEach { byte ->
+            val unsigned = byte.toInt() and 0xff
+            append("0123456789abcdef"[unsigned ushr 4])
+            append("0123456789abcdef"[unsigned and 0x0f])
+        }
+    }
+}
+
 internal object ExternalAudioSongResolver {
 
     fun resolve(
         context: Context,
         request: ExternalAudioOpenRequest,
         librarySongs: List<Song>,
+        transientCatalog: TransientPlaybackCatalog? = null,
     ): Song? {
         val uriText = request.uri.toString()
         val existing = librarySongs.firstOrNull { it.mediaUri == uriText }
@@ -52,7 +70,7 @@ internal object ExternalAudioSongResolver {
         val readable = runCatching {
             resolver.openAssetFileDescriptor(request.uri, "r")?.use { true } ?: false
         }.getOrDefault(false)
-        if (!readable) return existing
+        if (!readable) return null
 
         val openable = queryOpenableMetadata(context, request.uri)
         val displayName = openable.displayName
@@ -92,8 +110,17 @@ internal object ExternalAudioSongResolver {
                 draft = draft,
                 cachedSong = existing,
             ).song
-        }.getOrNull() ?: return existing
-        return mergeExternalAudioProbeResult(existing = existing, probed = probed)
+        }.getOrNull()
+        val baseSong = probed ?: existing ?: return null
+        val transientSong = mergeExternalAudioProbeResult(existing = existing, probed = baseSong)
+            .copy(
+                id = transientExternalSongId(request.uri),
+                source = SongSource.TRANSIENT_EXTERNAL,
+                playCount = 0,
+                totalListenSeconds = 0L,
+                lastPlayedAtMs = 0L,
+            )
+        return transientCatalog?.replace(transientSong) ?: transientSong
     }
 
     private fun queryOpenableMetadata(context: Context, uri: Uri): OpenableMetadata {

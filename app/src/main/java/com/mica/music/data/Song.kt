@@ -2,6 +2,11 @@ package com.mica.music.data
 
 import androidx.compose.ui.graphics.Color
 
+enum class SongSource {
+    LIBRARY,
+    TRANSIENT_EXTERNAL,
+}
+
 data class Song(
     val id: String,
     val title: String,
@@ -48,7 +53,11 @@ data class Song(
     val lyricsLoaded: Boolean = true,
     /** Optional silent looping MP4 used only by the standard full-player cover. */
     val videoCoverUri: String? = null,
+    /** Whether this song belongs to the persisted library or the current process session only. */
+    val source: SongSource = SongSource.LIBRARY,
 ) {
+    val isTransient: Boolean get() = source == SongSource.TRANSIENT_EXTERNAL
+
     val effectivePlaybackUri: String get() = playbackUri ?: mediaUri
 
     val coverColor: Color get() = Color(coverColorArgb)

@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -326,6 +327,7 @@ class DatabaseMigrationTest {
         assertEquals(
             setOf(
                 "kind",
+                "groupKey",
                 "title",
                 "subtitle",
                 "songCount",
@@ -550,6 +552,65 @@ class DatabaseMigrationTest {
             assertTrue(cursor.moveToFirst())
             assertEquals("", cursor.getString(0))
             assertEquals(0, cursor.getInt(1))
+        }
+        helper.close()
+    }
+
+    @Test
+    fun migrationFourteenToFifteenRekeysBrowseGroupsAndDropsLegacyAlbumCache() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(14) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            "CREATE TABLE library_meta (" +
+                                "id INTEGER NOT NULL PRIMARY KEY, " +
+                                "albumBrowseSortField TEXT NOT NULL, " +
+                                "albumBrowseSortDirection TEXT NOT NULL, " +
+                                "albumBrowseFastScrollSectionsJson TEXT NOT NULL)",
+                        )
+                        db.execSQL("INSERT INTO library_meta VALUES (1, 'title', 'ASC', '[\\\"A\\\"]')")
+                        db.execSQL(
+                            "CREATE TABLE browse_groups (" +
+                                "kind TEXT NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL, " +
+                                "songCount INTEGER NOT NULL, artist TEXT NOT NULL, year INTEGER NOT NULL, " +
+                                "releaseDate TEXT NOT NULL, albumArtUri TEXT, coverColorArgb INTEGER NOT NULL, " +
+                                "position INTEGER NOT NULL, PRIMARY KEY(kind, title))",
+                        )
+                        db.execSQL(
+                            "INSERT INTO browse_groups VALUES " +
+                                "('artist', 'Artist A', '1 song', 1, 'Artist A', 2020, '', NULL, 0, 0), " +
+                                "('album', 'Greatest Hits', 'Artist A', 1, 'Artist A', 2020, '', NULL, 0, 0)",
+                        )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_14_15.migrate(db)
+
+        assertTrue(tableColumns(db, "browse_groups").contains("groupKey"))
+        db.query("SELECT kind, groupKey FROM browse_groups ORDER BY kind").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("artist", cursor.getString(0))
+            assertEquals("Artist A", cursor.getString(1))
+            // The album cache is intentionally retained only through the next full rebuild.
+            // No legacy title-only album row should survive this migration.
+            assertFalse(cursor.moveToNext())
+        }
+        db.query(
+            "SELECT albumBrowseSortField, albumBrowseSortDirection, " +
+                "albumBrowseFastScrollSectionsJson FROM library_meta WHERE id = 1",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+            assertEquals("", cursor.getString(1))
+            assertEquals("", cursor.getString(2))
         }
         helper.close()
     }

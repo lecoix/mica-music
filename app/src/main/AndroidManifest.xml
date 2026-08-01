@@ -71,7 +71,8 @@
         <provider
             android:name=".data.scanner.AlbumArtContentProvider"
             android:authorities="${applicationId}.artwork"
-            android:exported="false" />
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

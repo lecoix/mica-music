@@ -301,6 +301,7 @@ class MainActivity : ComponentActivity() {
                     context = this@MainActivity,
                     request = request,
                     librarySongs = viewModel.library.songs,
+                    transientCatalog = (application as MicaApp).transientPlaybackCatalog,
                 )
             }
             if (song == null) {
@@ -321,6 +322,7 @@ class MainActivity : ComponentActivity() {
                     "art=${!song.albumArtUri.isNullOrBlank()} " +
                     "lyricsOrigin=${song.lyricsDocument.origin} lyricsLines=${song.lyricsDocument.lines.size}",
             )
+            viewModel.playerController.songResolver = viewModel::resolveSong
             viewModel.playerController.playSingleSong(song)
             navigationCoordinator.playerExpanded = true
         }

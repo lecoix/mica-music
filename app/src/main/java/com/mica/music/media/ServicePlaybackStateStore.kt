@@ -252,6 +252,21 @@ class ServicePlaybackStateStore(context: Context) {
         if (sync) editor.commit() else editor.apply()
     }
 
+    internal fun migrateSongIds(mapping: Map<String, String>) {
+        if (mapping.isEmpty()) return
+        val snapshot = load() ?: return
+        val queue = snapshot.queueSongIds.map { mapping[it] ?: it }
+        val current = mapping[snapshot.currentSongId] ?: snapshot.currentSongId
+        if (queue == snapshot.queueSongIds && current == snapshot.currentSongId) return
+        save(
+            snapshot.copy(
+                queueSongIds = queue,
+                currentSongId = current,
+            ),
+            sync = true,
+        )
+    }
+
     private companion object {
         const val PREFS_NAME = "mica_service_playback_state"
         const val KEY_SNAPSHOT = "snapshot"

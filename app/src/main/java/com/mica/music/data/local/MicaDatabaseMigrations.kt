@@ -160,3 +160,50 @@ val MIGRATION_13_14 = object : Migration(13, 14) {
         db.execSQL("ALTER TABLE browse_groups ADD COLUMN releaseDate TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE browse_groups_new (
+                kind TEXT NOT NULL,
+                groupKey TEXT NOT NULL,
+                title TEXT NOT NULL,
+                subtitle TEXT NOT NULL,
+                songCount INTEGER NOT NULL,
+                artist TEXT NOT NULL,
+                year INTEGER NOT NULL,
+                releaseDate TEXT NOT NULL,
+                albumArtUri TEXT,
+                coverColorArgb INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY(kind, groupKey)
+            )
+            """.trimIndent(),
+        )
+        // Artist groups remain valid because their identity is already their title. Album groups
+        // are derived from the old title-only schema and must be rebuilt with albumArtist.
+        db.execSQL(
+            """
+            INSERT INTO browse_groups_new(
+                kind, groupKey, title, subtitle, songCount, artist, year, releaseDate,
+                albumArtUri, coverColorArgb, position
+            )
+            SELECT kind, title, title, subtitle, songCount, artist, year, releaseDate,
+                albumArtUri, coverColorArgb, position
+            FROM browse_groups
+            WHERE kind = 'artist'
+            """.trimIndent(),
+        )
+        db.execSQL("DROP TABLE browse_groups")
+        db.execSQL("ALTER TABLE browse_groups_new RENAME TO browse_groups")
+        db.execSQL(
+            """
+            UPDATE library_meta
+            SET albumBrowseSortField = '',
+                albumBrowseSortDirection = '',
+                albumBrowseFastScrollSectionsJson = ''
+            """.trimIndent(),
+        )
+    }
+}

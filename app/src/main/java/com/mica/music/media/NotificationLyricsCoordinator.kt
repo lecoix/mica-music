@@ -33,8 +33,10 @@ internal class NotificationLyricsCoordinator(
     private val player: Player,
     handler: Handler,
     private val carBluetoothLyrics: CarBluetoothLyricsSink? = null,
+    private val transientSongResolver: ((String) -> Song?)? = null,
     private val songLoader: suspend (LyricsLoadSpec) -> Song? = { spec ->
-        LibraryRepository(context.applicationContext).songById(spec.songId, spec.priority)
+        transientSongResolver?.invoke(spec.songId)
+            ?: LibraryRepository(context.applicationContext).songById(spec.songId, spec.priority)
     },
 ) {
     private val appContext = context.applicationContext

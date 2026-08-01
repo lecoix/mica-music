@@ -8,6 +8,7 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LibraryPlaybackQueueCoordinator
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.SleepTimerController
+import com.mica.music.data.Song
 import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.asLibraryPlaybackQueueTarget
 import com.mica.music.data.preferences.LibraryBrowseSettings
@@ -22,6 +23,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val library = MusicLibrary(application)
     val playerController = (application as MicaApp).playerController
     val playlistStore = (application as MicaApp).playlistStore
+    private val transientPlaybackCatalog = (application as MicaApp).transientPlaybackCatalog
     val uiSettings = AppUiSettings(application)
     val sleepTimer = SleepTimerController(viewModelScope, playerController, application)
     private val playbackStatistics = (application as MicaApp).playbackStatistics
@@ -40,6 +42,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 else -> StartupBrowseTarget.NONE
             }
             library.loadCachedLibrary(startupBrowseTarget)
+            // The identity migration runs inside the library DB load. Refresh the eagerly
+            // constructed preference-backed playlist store after that migration completes.
+            playlistStore.reloadFromStorage()
             val songs = library.songs
             DiagnosticLog.event(
                 "LibraryStartup",
@@ -61,10 +66,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun syncPlaybackQueueWithLibrarySongs(reason: String = "libraryIds") {
         libraryPlaybackQueueSync.sync(
             reason = reason,
-            library = library.toLibraryQueueSyncInput(),
+            library = library.toLibraryQueueSyncInput(::resolveSong),
             player = playerController.asLibraryPlaybackQueueTarget(),
         )
     }
+
+    fun resolveSong(id: String): Song? =
+        transientPlaybackCatalog.songById(id) ?: library.songById(id)
 
     override fun onCleared() {
         playbackStatistics.detachPresentationSink(this)

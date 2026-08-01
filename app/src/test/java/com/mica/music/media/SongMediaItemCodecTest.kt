@@ -1,6 +1,7 @@
 package com.mica.music.media
 
 import com.mica.music.data.ReplayGainTags
+import com.mica.music.data.SongSource
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -42,6 +43,13 @@ class SongMediaItemCodecTest {
 
         assertNull(item.localConfiguration)
         assertEquals(song.id, SongMediaItemCodec.decode(item)?.id)
+    }
+
+    @Test
+    fun roundTripPreservesTransientSourceBoundary() {
+        val song = SongFixtures.song(id = "external").copy(source = SongSource.TRANSIENT_EXTERNAL)
+
+        assertEquals(song.source, SongMediaItemCodec.decode(SongMediaItemCodec.encode(song))?.source)
     }
 
     @Test

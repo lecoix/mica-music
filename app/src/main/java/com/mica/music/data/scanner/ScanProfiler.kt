@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
+import com.mica.music.data.SongIdentity
 import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -90,7 +91,7 @@ internal class ScanProfiler(private val source: String) {
 }
 
 internal fun TrackDraft.scanSongId(): String =
-    if (mediaStoreId > 0) "ms_$mediaStoreId" else "doc_${mediaUri.hashCode()}"
+    if (mediaStoreId > 0) "ms_$mediaStoreId" else SongIdentity.documentId(mediaUri)
 
 internal fun TrackDraft.reusableCachedSong(
     context: Context,

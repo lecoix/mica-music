@@ -12,6 +12,7 @@ import com.mica.music.data.DsdSupport
 import com.mica.music.data.PlaybackMimeResolver
 import com.mica.music.data.ReleaseDates
 import com.mica.music.data.Song
+import com.mica.music.data.SongIdentity
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsOrigin
@@ -974,7 +975,7 @@ object AudioMetadataProbe {
             if (album.isNotEmpty() && album != "未知专辑") {
                 "tags_${album.lowercase()}_${artist.lowercase()}"
             } else {
-                "track_${draft.mediaUri.hashCode()}"
+                "track_${SongIdentity.documentId(draft.mediaUri)}"
             }
         }
     }
@@ -1097,7 +1098,7 @@ object AudioMetadataProbe {
         discNumber: Int = 0,
         metadataScanVersion: Int = CURRENT_METADATA_SCAN_VERSION,
     ): Song {
-        val id = if (mediaStoreId > 0) "ms_$mediaStoreId" else "doc_${mediaUri.hashCode()}"
+        val id = if (mediaStoreId > 0) "ms_$mediaStoreId" else SongIdentity.documentId(mediaUri)
         return Song(
             id = id,
             title = title,
