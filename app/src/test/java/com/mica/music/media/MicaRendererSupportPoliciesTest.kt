@@ -23,9 +23,10 @@ class MicaRendererSupportPoliciesTest {
     }
 
     @Test
-    fun pcmOnly_acceptsFlacAndAlac() {
+    fun pcmOnly_acceptsFlacAlacAndApe() {
         assertTrue(MicaRendererSupportPolicies.pcmOnlyAccepts(MimeTypes.AUDIO_FLAC))
         assertTrue(MicaRendererSupportPolicies.pcmOnlyAccepts(MimeTypes.AUDIO_ALAC))
+        assertTrue(MicaRendererSupportPolicies.pcmOnlyAccepts("audio/ape"))
     }
 
     @Test
@@ -44,6 +45,7 @@ class MicaRendererSupportPoliciesTest {
             "audio/dsd",
             MimeTypes.AUDIO_FLAC,
             MimeTypes.AUDIO_ALAC,
+            "audio/ape",
             MimeTypes.AUDIO_RAW,
             MimeTypes.AUDIO_MPEG,
             "audio/mp4a-latm",

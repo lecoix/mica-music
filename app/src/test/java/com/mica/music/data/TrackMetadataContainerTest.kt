@@ -13,4 +13,10 @@ class TrackMetadataContainerTest {
     fun flacExtensionOverridesRawTrackMime() {
         assertEquals("FLAC", TrackMetadata.containerFromMime("audio/raw", "track.flac"))
     }
+
+    @Test
+    fun apeExtensionOverridesGenericTrackMime() {
+        assertEquals("APE", TrackMetadata.containerFromMime("audio/mpeg", "track.ape"))
+        assertEquals("APE", TrackMetadata.containerFromMime("application/octet-stream", "track.mac"))
+    }
 }

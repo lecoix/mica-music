@@ -54,6 +54,22 @@ class PlaybackArchitectureTest {
     }
 
     @Test
+    fun apeIsSupportedViaFfmpegForFileAndContentUris() {
+        val fileApe = SongFixtures.song(container = "APE", mime = "audio/x-ape")
+            .copy(fileName = "track.ape", mediaUri = "file:///music/track.ape")
+        val contentApe = fileApe.copy(
+            fileName = "track.mac",
+            mediaUri = "content://documents/tree/music",
+        )
+
+        listOf(fileApe, contentApe).forEach { song ->
+            val route = PlaybackRouter.decide(song)
+            assertTrue(route is PlaybackRouteDecision.Supported)
+            assertEquals("ape-ffmpeg", (route as PlaybackRouteDecision.Supported).reason)
+        }
+    }
+
+    @Test
     fun requestIdsIncreaseAndRevisionTracksSourceChanges() {
         val sequencer = PlaybackRequestSequencer()
         val original = SongFixtures.song(id = "song").copy(dateModifiedMs = 1)

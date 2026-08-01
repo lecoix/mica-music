@@ -19,12 +19,9 @@ object MicaSpectrumAnalyzer {
     private const val BandCount = 96
     private const val WindowSize = 2048
     private const val AnalysisFps = 60
-    // Upper bound on how much decoded PCM the analyzer will hold before dropping. The queue
-    // self-equilibrates to the sink's AudioTrack buffer depth (fed as a burst at start, then
-    // consumed at real time), so the tap's visual lead cancels out to ~0 as long as this cap is
-    // >= that depth. The float PcmSink buffer reaches ~0.96s (2x-speed headroom), so 1.2s keeps
-    // it from clipping; int/DSD sinks (~0.48s) equilibrate well below this and are unaffected.
-    private const val MaxQueuedAudioSeconds = 1.2f
+    // The base queue covers normal decoder buffers. SpectrumQueueCapacityPolicy adds bounded
+    // headroom when a format delivers unusually large consecutive buffers (such as APE).
+    private const val BaseMaxQueuedAudioSeconds = 2f
     private const val SilenceDecay = 0.88f
     private const val ProbeTag = "MicaSpectrumProbe"
     private val ProbeEnabled: Boolean
@@ -45,8 +42,12 @@ object MicaSpectrumAnalyzer {
     @Volatile
     private var analysisActive = false
 
+    @Volatile
+    private var playbackAdvancing = false
+
     private val ring = FloatArray(WindowSize)
     private val pcmQueue = SpectrumPcmQueue()
+    private val queueCapacityPolicy = SpectrumQueueCapacityPolicy()
     private val windowed = FloatArray(WindowSize)
     private val window = FloatArray(WindowSize) { index ->
         0.5f - 0.5f * cos((2.0 * PI * index) / (WindowSize - 1)).toFloat()
@@ -110,11 +111,27 @@ object MicaSpectrumAnalyzer {
      */
     fun isAnalysisActive(): Boolean = enabled && analysisActive
 
+    internal fun isPlaybackAdvancing(): Boolean = playbackAdvancing
+
+    internal fun maxQueuedPcmSampleCount(sampleRateHz: Int): Int =
+        (sampleRateHz * BaseMaxQueuedAudioSeconds).toInt()
+
     fun setAnalysisActive(value: Boolean) {
         if (analysisActive == value) return
         analysisActive = value
         if (!value) clearAnalysisState()
         DiagnosticLog.event("Spectrum", "analysis-active=$value enabled=$enabled")
+    }
+
+    fun setPlaybackAdvancing(value: Boolean) {
+        if (playbackAdvancing == value) return
+        playbackAdvancing = value
+        DiagnosticLog.event("Spectrum", "playback-advancing=$value")
+    }
+
+    fun resetBufferedPcm(reason: String) {
+        clearAnalysisState()
+        DiagnosticLog.event("Spectrum", "buffer-reset reason=$reason")
     }
 
     internal fun queuedPcmSampleCount(): Int = synchronized(lock) { pcmQueue.size }
@@ -142,12 +159,15 @@ object MicaSpectrumAnalyzer {
             val appendStart = if (ProbeEnabled) System.nanoTime() else 0L
             if (queuedSampleRateHz != sampleRateHz) {
                 pcmQueue.clear()
+                queueCapacityPolicy.reset()
                 ring.fill(0f)
                 ringWriteIndex = 0
                 ringSampleCount = 0
                 hopRemainder = 0.0
                 queuedSampleRateHz = sampleRateHz
             }
+            val incomingSamples = pcmFrameCount(length, encoding, channelCount.coerceAtLeast(1))
+            val maxQueuedSamples = queueCapacityPolicy.capacitySamples(sampleRateHz, incomingSamples)
             if (ProbeEnabled) {
                 if (probeWindowStartMs == 0L) probeWindowStartMs = nowMs
                 probeProcessCalls++
@@ -159,7 +179,7 @@ object MicaSpectrumAnalyzer {
                 length = length,
                 encoding = encoding,
                 channelCount = channelCount.coerceAtLeast(1),
-                maxQueuedSamples = (sampleRateHz * MaxQueuedAudioSeconds).toInt(),
+                maxQueuedSamples = maxQueuedSamples,
             )
             if (ProbeEnabled) {
                 probeAppendNanos += System.nanoTime() - appendStart
@@ -169,7 +189,7 @@ object MicaSpectrumAnalyzer {
     }
 
     private fun analyzeTick() {
-        if (!isAnalysisActive()) return
+        if (!isAnalysisActive() || !playbackAdvancing) return
         val nowMs = System.currentTimeMillis()
         var snapshot: RingSnapshot? = null
         var sampleRateHz = 0
@@ -203,6 +223,8 @@ object MicaSpectrumAnalyzer {
         }
         runAnalysis(snapshot ?: return, sampleRateHz, nowMs)
     }
+
+    internal fun analyzeTickForTest() = analyzeTick()
 
     private fun recordProbeTick(nowMs: Long) {
         if (!ProbeEnabled) return
@@ -242,6 +264,7 @@ object MicaSpectrumAnalyzer {
             ringWriteIndex = 0
             ringSampleCount = 0
             queuedSampleRateHz = 0
+            queueCapacityPolicy.reset()
             hopRemainder = 0.0
             resetProbe()
             _levels.value = List(BandCount) { 0f }
@@ -371,18 +394,10 @@ object MicaSpectrumAnalyzer {
         channelCount: Int,
         maxQueuedSamples: Int,
     ): Int {
-        val bytesPerSample = when (encoding) {
-            AudioFormat.ENCODING_PCM_8BIT -> 1
-            AudioFormat.ENCODING_PCM_16BIT -> 2
-            AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
-            AudioFormat.ENCODING_PCM_32BIT -> 4
-            AudioFormat.ENCODING_PCM_FLOAT -> 4
-            else -> 2
-        }
-        val frameBytes = bytesPerSample * channelCount
-        if (frameBytes <= 0) return 0
-        val frameCount = length / frameBytes
+        val bytesPerSample = bytesPerSample(encoding)
+        val frameCount = pcmFrameCount(length, encoding, channelCount)
         if (frameCount <= 0) return 0
+        val frameBytes = bytesPerSample * channelCount
         for (frame in 0 until frameCount) {
             var sum = 0f
             for (ch in 0 until channelCount) {
@@ -395,6 +410,19 @@ object MicaSpectrumAnalyzer {
             pcmQueue.offer(sum / channelCount, maxQueuedSamples)
         }
         return frameCount
+    }
+
+    private fun pcmFrameCount(length: Int, encoding: Int, channelCount: Int): Int {
+        val frameBytes = bytesPerSample(encoding) * channelCount.coerceAtLeast(1)
+        return if (frameBytes > 0) length / frameBytes else 0
+    }
+
+    private fun bytesPerSample(encoding: Int): Int = when (encoding) {
+        AudioFormat.ENCODING_PCM_8BIT -> 1
+        AudioFormat.ENCODING_PCM_16BIT -> 2
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+        AudioFormat.ENCODING_PCM_32BIT, AudioFormat.ENCODING_PCM_FLOAT -> 4
+        else -> 2
     }
 
     private fun appendRingSample(sample: Float) {

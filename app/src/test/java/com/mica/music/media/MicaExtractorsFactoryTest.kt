@@ -2,6 +2,7 @@ package com.mica.music.media
 
 import android.net.Uri
 import androidx.media3.extractor.Extractor
+import com.mica.music.media.ape.ApeExtractor
 import com.mica.music.media.dsf.DsfExtractor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -13,7 +14,7 @@ import org.robolectric.RobolectricTestRunner
 class MicaExtractorsFactoryTest {
 
     @Test
-    fun alwaysRegistersDsfExtractorFirst() {
+    fun alwaysRegistersDsfThenApeExtractors() {
         val factory = MicaExtractorsFactory.create()
         assertDsfFirst(factory.createExtractors())
         assertDsfFirst(
@@ -31,7 +32,8 @@ class MicaExtractorsFactoryTest {
     }
 
     private fun assertDsfFirst(extractors: Array<Extractor>) {
-        assertTrue(extractors.isNotEmpty())
+        assertTrue(extractors.size >= 2)
         assertEquals(DsfExtractor::class.java, extractors[0].javaClass)
+        assertEquals(ApeExtractor::class.java, extractors[1].javaClass)
     }
 }

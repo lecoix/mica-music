@@ -15,13 +15,16 @@ import com.mica.music.data.DsdSupport
  */
 @UnstableApi
 internal object MicaRendererSupportPolicies {
+    private const val AUDIO_APE = "audio/ape"
 
     fun dsdOnlyAccepts(mime: String?, codecs: String?): Boolean =
         (mime != null && DsdSupport.isDsdMime(mime)) ||
             (codecs != null && DsdSupport.isDsdMime(codecs))
 
     fun pcmOnlyAccepts(mime: String?): Boolean =
-        mime == MimeTypes.AUDIO_FLAC || mime == MimeTypes.AUDIO_ALAC
+        mime == MimeTypes.AUDIO_FLAC ||
+            mime == MimeTypes.AUDIO_ALAC ||
+            mime == AUDIO_APE
 
     val dsdOnly = FfmpegFormatPolicy { format ->
         dsdOnlyAccepts(format.sampleMimeType, format.codecs)

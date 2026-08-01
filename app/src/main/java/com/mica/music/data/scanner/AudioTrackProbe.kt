@@ -51,6 +51,7 @@ internal object AudioTrackProbe {
         when (displayName?.substringAfterLast('.', "")?.lowercase()) {
             "wav", "wave" -> return "WAV"
             "flac" -> return "FLAC"
+            "ape", "mac" -> return "APE"
         }
         return when {
             trackMime.contains("alac", ignoreCase = true) -> "ALAC"
@@ -87,6 +88,7 @@ internal object AudioTrackProbe {
             "wav" -> MimeTypes.AUDIO_WAV
             "ogg", "oga" -> MimeTypes.AUDIO_OGG
             "opus" -> MimeTypes.AUDIO_OPUS
+            "ape", "mac" -> "audio/x-ape"
             "dsf", "dff", "dsdiff" -> DsdSupport.mimeForExtension(ext)
             else -> when {
                 DsdSupport.isDsdMime(trackMime) || DsdSupport.isDsdMime(storeMime) ->

@@ -15,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.core.content.FileProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -24,8 +25,10 @@ import com.mica.music.data.TrackMetadata
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.toLyricsDocumentCompat
 import com.mica.music.data.toMediaItem
+import com.mica.music.media.ape.ApeFormat
 import com.mica.music.media.dsf.DsfFormat
 import com.mica.music.testutil.ContractTestSupport.await
+import com.mica.music.testutil.ContractTestSupport.createSilentWav
 import com.mica.music.testutil.ContractTestSupport.onMain
 import java.io.File
 import java.io.FileOutputStream
@@ -36,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -230,6 +234,162 @@ class RealAudioDecodeContractTest {
         }
     }
 
+    @Test
+    fun externalApeMvpUsesFfmpegReachesAudioSinkAndSeeks() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val hasFixture = runCatching {
+            instrumentation.context.assets.open(APE_MVP_ASSET).close()
+        }.isSuccess
+        assumeTrue(
+            "Run scripts/run-ape-mvp-contract.ps1 to stage the temporary APE fixture",
+            hasFixture,
+        )
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val fixtureDirectory = File(context.filesDir, "diagnostics").apply { mkdirs() }
+        val file = copyAsset(
+            sourceContext = instrumentation.context,
+            outputDirectory = fixtureDirectory,
+            assetPath = APE_MVP_ASSET,
+        )
+        try {
+            val contentUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+            listOf(
+                "file" to Uri.fromFile(file),
+                "content" to contentUri,
+            ).forEach { (sourceKind, uri) ->
+                assertApePlaybackContract(context, sourceKind, uri)
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun assertApePlaybackContract(context: Context, sourceKind: String, uri: Uri) {
+        val observation = DecodeObservation()
+        val stack = onMain { ExoPlaybackStackFactory.build(context) }
+        val engineCoordinator = onMain {
+            ServicePlaybackEngineCoordinator(stack.compositePlayer, context).also { it.start() }
+        }
+        val fallbackFile = createSilentWav(
+            directory = context.cacheDir,
+            id = "ape-fallback-$sourceKind",
+            durationSeconds = 2,
+        )
+        val apeSong = Song(
+            id = "ape-playback-mvp-$sourceKind",
+            title = "APE playback contract",
+            artist = "Mica",
+            album = "Tests",
+            durationSec = 258,
+            metadata = TrackMetadata(
+                containerName = "APE",
+                sampleRateHz = 44_100,
+                bitsPerSample = 16,
+                bitrateKbps = 0,
+                channelCount = 2,
+                playbackMimeType = ApeFormat.CONTAINER_MIME,
+            ),
+            albumArtUri = null,
+            coverColorArgb = 0,
+            mediaUri = uri.toString(),
+            fileName = "contract-ape-mvp.ape",
+        )
+        val fallbackSong = Song(
+            id = "ape-playback-fallback-$sourceKind",
+            title = "APE playback fallback sentinel",
+            artist = "Mica",
+            album = "Tests",
+            durationSec = 2,
+            metadata = TrackMetadata(
+                containerName = "WAV",
+                sampleRateHz = 8_000,
+                bitsPerSample = 16,
+                bitrateKbps = 128,
+                channelCount = 1,
+                playbackMimeType = MimeTypes.AUDIO_WAV,
+            ),
+            albumArtUri = null,
+            coverColorArgb = 0,
+            mediaUri = Uri.fromFile(fallbackFile).toString(),
+            fileName = fallbackFile.name,
+        )
+        try {
+            onMain {
+                stack.exoPlayer.volume = 0f
+                stack.exoPlayer.addAnalyticsListener(observation)
+                stack.exoPlayer.setMediaItems(
+                    listOf(apeSong.toMediaItem(), fallbackSong.toMediaItem()),
+                )
+                stack.exoPlayer.playWhenReady = true
+                engineCoordinator.onSelectMediaItem(0, 0L)
+            }
+
+            await("APE $sourceKind decoder and AudioTrack delivery", timeoutMs = 15_000L) {
+                observation.error.get() != null ||
+                    observation.decoderName.get() != null && observation.positionAdvancing.get() > 0
+            }
+            assertNull(
+                "APE $sourceKind playback error: ${observation.error.get()}",
+                observation.error.get(),
+            )
+            assertTrue(
+                "Expected FFmpeg decoder for $sourceKind, got ${observation.decoderName.get()}",
+                observation.decoderName.get().orEmpty().contains("ffmpeg", ignoreCase = true),
+            )
+            assertEquals(ApeFormat.MIME, observation.inputMime.get())
+            assertTrue(
+                "Expected a multi-frame APE duration for $sourceKind, " +
+                    "got ${onMain { stack.exoPlayer.duration }}ms",
+                onMain { stack.exoPlayer.duration >= 10_000L },
+            )
+
+            val durationMs = onMain { stack.exoPlayer.duration }
+            listOf(
+                8_000L,
+                30_000L,
+                120_000L,
+                durationMs / 2,
+                240_000L,
+                durationMs - 1_000L,
+            )
+                .distinct()
+                .filter { it in 0 until durationMs }
+                .forEach { seekPositionMs ->
+                    onMain {
+                        stack.exoPlayer.seekTo(seekPositionMs)
+                        stack.exoPlayer.play()
+                    }
+                    await(
+                        "APE $sourceKind playback after ${seekPositionMs}ms seek",
+                        timeoutMs = 10_000L,
+                    ) {
+                        observation.error.get() != null ||
+                            onMain { stack.exoPlayer.currentPosition >= seekPositionMs + 250L }
+                    }
+                    assertNull(
+                        "APE $sourceKind ${seekPositionMs}ms seek playback error: " +
+                            observation.error.get(),
+                        observation.error.get(),
+                    )
+                    assertEquals(
+                        "APE $sourceKind ${seekPositionMs}ms seek auto-skipped to another item",
+                        apeSong.id,
+                        onMain { stack.exoPlayer.currentMediaItem?.mediaId },
+                    )
+                }
+        } finally {
+            onMain {
+                engineCoordinator.release()
+                stack.exoPlayer.release()
+            }
+            fallbackFile.delete()
+        }
+    }
+
     private fun createDsf(directory: File): File {
         val blockSize = 4_096
         val channelCount = 2
@@ -318,5 +478,6 @@ class RealAudioDecodeContractTest {
     private companion object {
         const val DSD_SILENCE: Byte = 0x69
         const val FIRST_PLAY_STRESS_ITERATIONS = 10
+        const val APE_MVP_ASSET = "media/contract-ape-mvp.ape"
     }
 }

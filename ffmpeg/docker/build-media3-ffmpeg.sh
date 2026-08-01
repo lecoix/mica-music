@@ -15,7 +15,7 @@ FFMPEG_BRANCH="release/6.0"
 NDK_VERSION="r26d"
 API=26
 TARGET_ABI="arm64-v8a"
-ENABLED_DECODERS=(flac alac pcm_mulaw pcm_alaw mp3 aac ac3 eac3 dca mlp truehd dsd_lsbf dsd_lsbf_planar)
+ENABLED_DECODERS=(flac alac ape pcm_mulaw pcm_alaw mp3 aac ac3 eac3 dca mlp truehd dsd_lsbf dsd_lsbf_planar)
 
 VENDORED_JNI="$ROOT/third_party/media3-ffmpeg-decoder/src/main/jni"
 # All compile work stays under /tmp — avoid symlinks on Windows bind mounts.
@@ -68,10 +68,10 @@ echo ">> Build FFmpeg static libs (${TARGET_ABI}, decoders: ${ENABLED_DECODERS[*
 bash "$ROOT/third_party/media3-ffmpeg-decoder/scripts/build_ffmpeg_arm64.sh" \
   "$WORK_MOD" "$ANDROID_NDK" "$HOST_PLATFORM" "$API" "${ENABLED_DECODERS[@]}"
 
-echo ">> Verify DSF DSD decoders in FFmpeg config..."
+echo ">> Verify APE and DSF DSD decoders in FFmpeg config..."
 CONFIG_MAK="$BUILD_DIR/ffmpeg/ffbuild/config.mak"
 if [ -f "$CONFIG_MAK" ]; then
-  for decoder in DSD_LSBF DSD_LSBF_PLANAR; do
+  for decoder in APE DSD_LSBF DSD_LSBF_PLANAR; do
     grep -q "CONFIG_${decoder}_DECODER=yes" "$CONFIG_MAK" || {
       echo "ERROR: ${decoder} decoder missing from FFmpeg build" >&2
       exit 1

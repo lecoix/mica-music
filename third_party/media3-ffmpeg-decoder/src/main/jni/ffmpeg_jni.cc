@@ -72,7 +72,8 @@ const AVCodec* getCodecByName(JNIEnv* env, jstring codecName);
 
 AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
                              jbyteArray extraData, jboolean outputFloat,
-                             jint rawSampleRate, jint rawChannelCount);
+                             jint rawSampleRate, jint rawChannelCount,
+                             jint rawBitsPerSample);
 
 struct GrowOutputBufferCallback {
   uint8_t* operator()(int requiredSize) const;
@@ -129,7 +130,8 @@ LIBRARY_FUNC(jboolean, ffmpegHasDecoder, jstring codecName) {
 
 AUDIO_DECODER_FUNC(jlong, ffmpegInitialize, jstring codecName,
                    jbyteArray extraData, jboolean outputFloat,
-                   jint rawSampleRate, jint rawChannelCount) {
+                   jint rawSampleRate, jint rawChannelCount,
+                   jint rawBitsPerSample) {
   lastInitializationError.clear();
   const AVCodec* codec = getCodecByName(env, codecName);
   if (!codec) {
@@ -142,7 +144,7 @@ AUDIO_DECODER_FUNC(jlong, ffmpegInitialize, jstring codecName,
        codec->name, rawSampleRate, rawChannelCount, outputFloat,
        extraData ? env->GetArrayLength(extraData) : 0);
   return (jlong)createContext(env, codec, extraData, outputFloat, rawSampleRate,
-                            rawChannelCount);
+                            rawChannelCount, rawBitsPerSample);
 }
 
 AUDIO_DECODER_FUNC(jstring, ffmpegGetLastInitializationError) {
@@ -232,7 +234,8 @@ AUDIO_DECODER_FUNC(jlong, ffmpegReset, jlong jContext, jbyteArray extraData) {
     }
     return (jlong)createContext(env, codec, extraData, outputFloat,
                                 /* rawSampleRate= */ -1,
-                                /* rawChannelCount= */ -1);
+                                /* rawChannelCount= */ -1,
+                                /* rawBitsPerSample= */ -1);
   }
 
   avcodec_flush_buffers(context);
@@ -257,7 +260,8 @@ const AVCodec* getCodecByName(JNIEnv* env, jstring codecName) {
 
 AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
                               jbyteArray extraData, jboolean outputFloat,
-                              jint rawSampleRate, jint rawChannelCount) {
+                              jint rawSampleRate, jint rawChannelCount,
+                              jint rawBitsPerSample) {
   AVCodecContext* context = avcodec_alloc_context3(codec);
   if (!context) {
     LOGE("Failed to allocate context.");
@@ -287,6 +291,11 @@ AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
       context->codec_id == AV_CODEC_ID_DSD_MSBF_PLANAR) {
     context->sample_rate = rawSampleRate;
     av_channel_layout_default(&context->ch_layout, rawChannelCount);
+  }
+  if (context->codec_id == AV_CODEC_ID_APE) {
+    context->sample_rate = rawSampleRate;
+    av_channel_layout_default(&context->ch_layout, rawChannelCount);
+    context->bits_per_coded_sample = rawBitsPerSample;
   }
   context->err_recognition = AV_EF_IGNORE_ERR;
   int result = avcodec_open2(context, codec, NULL);
@@ -378,6 +387,7 @@ int decodePacket(AVCodecContext* context, AVPacket* packet,
         av_frame_free(&frame);
         return AUDIO_DECODER_ERROR_OTHER;
       }
+      outputBuffer += outSize;
     }
     result = swr_convert(resampleContext, &outputBuffer, bufferOutSize,
                          (const uint8_t**)frame->data, frame->nb_samples);

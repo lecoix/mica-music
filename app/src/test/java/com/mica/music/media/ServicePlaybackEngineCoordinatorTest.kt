@@ -11,7 +11,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,6 +21,25 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class ServicePlaybackEngineCoordinatorTest {
+
+    @Test
+    fun playbackStateControlsSpectrumClockWithoutAnActiveRequest() {
+        val player = MicaCompositePlayer(mockExoWithQueue(emptyList(), currentIndex = 0))
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+
+        try {
+            coordinator.onIsPlayingChanged(true)
+            assertTrue(MicaSpectrumAnalyzer.isPlaybackAdvancing())
+
+            coordinator.onIsPlayingChanged(false)
+            assertFalse(MicaSpectrumAnalyzer.isPlaybackAdvancing())
+        } finally {
+            MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
+        }
+    }
 
     @Test
     fun automaticPositionDiscontinuityPublishesExactPlaybackBoundary() {
@@ -70,6 +91,40 @@ class ServicePlaybackEngineCoordinatorTest {
         )
 
         assertEquals(emptyList<ConfirmedPlaybackBoundary>(), boundaries)
+    }
+
+    @Test
+    fun positionDiscontinuityClearsBufferedSpectrumPcm() {
+        val item = SongMediaItemCodec.encode(SongFixtures.song("song"))
+        val player = MicaCompositePlayer(mockExoWithQueue(listOf(item), currentIndex = 0))
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+
+        try {
+            MicaSpectrumAnalyzer.setEnabled(true)
+            MicaSpectrumAnalyzer.setAnalysisActive(true)
+            MicaSpectrumAnalyzer.processPcmBuffer(
+                buffer = ByteArray(4_096 * 2 * 2),
+                offset = 0,
+                length = 4_096 * 2 * 2,
+                encoding = android.media.AudioFormat.ENCODING_PCM_16BIT,
+                sampleRateHz = 44_100,
+                channelCount = 2,
+            )
+            assertTrue(MicaSpectrumAnalyzer.queuedPcmSampleCount() > 0)
+
+            coordinator.onPositionDiscontinuity(
+                positionInfo(item, mediaItemIndex = 0, positionMs = 10_000L),
+                positionInfo(item, mediaItemIndex = 0, positionMs = 30_000L),
+                Player.DISCONTINUITY_REASON_SEEK,
+            )
+
+            assertEquals(0, MicaSpectrumAnalyzer.queuedPcmSampleCount())
+        } finally {
+            MicaSpectrumAnalyzer.setEnabled(false)
+        }
     }
 
     @Test

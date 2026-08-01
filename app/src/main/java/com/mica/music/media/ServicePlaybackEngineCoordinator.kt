@@ -19,11 +19,13 @@ internal class ServicePlaybackEngineCoordinator(
     fun start() {
         player.playbackCoordinator = this
         player.addListener(this)
+        MicaSpectrumAnalyzer.setPlaybackAdvancing(player.isPlaying)
     }
 
     fun release() {
         player.removeListener(this)
         player.playbackCoordinator = null
+        MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
         onPlaybackFailure = null
         onPlaybackBoundary = null
     }
@@ -135,6 +137,7 @@ internal class ServicePlaybackEngineCoordinator(
         newPosition: Player.PositionInfo,
         reason: Int,
     ) {
+        MicaSpectrumAnalyzer.resetBufferedPcm("position-discontinuity=$reason")
         if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) return
         onPlaybackBoundary?.invoke(
             ConfirmedPlaybackBoundary(
@@ -147,6 +150,7 @@ internal class ServicePlaybackEngineCoordinator(
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
+        MicaSpectrumAnalyzer.setPlaybackAdvancing(isPlaying)
         val request = requestState.activeRequest ?: return
         if (isPlaying) {
             requestState.markPlaybackProgress(request.id, player.currentPosition)

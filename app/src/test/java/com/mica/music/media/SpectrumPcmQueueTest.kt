@@ -28,4 +28,19 @@ class SpectrumPcmQueueTest {
 
         assertEquals(listOf(4f, 5f, 6f, 7f), consumed)
     }
+
+    @Test
+    fun dynamicCapacityRetainsTwoConsecutiveApeWarmupFrames() {
+        val queue = SpectrumPcmQueue(initialCapacity = 8_192)
+        val policy = SpectrumQueueCapacityPolicy()
+        val sampleRate = 44_100
+        val frameSamples = 73_728
+
+        repeat(2) {
+            val capacity = policy.capacitySamples(sampleRate, frameSamples)
+            repeat(frameSamples) { queue.offer(0f, maxSamples = capacity) }
+        }
+
+        assertEquals(frameSamples * 2, queue.size)
+    }
 }

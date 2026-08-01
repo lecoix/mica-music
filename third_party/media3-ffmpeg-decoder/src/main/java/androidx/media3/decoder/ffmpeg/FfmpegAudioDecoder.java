@@ -38,7 +38,6 @@ import java.util.List;
 
   private static final int AUDIO_DECODER_ERROR_INVALID_DATA = -1;
   private static final int AUDIO_DECODER_ERROR_OTHER = -2;
-
   // FLAC parsing constants
   private static final byte[] flacStreamMarker = {'f', 'L', 'a', 'C'};
   private static final int FLAC_METADATA_TYPE_STREAM_INFO = 0;
@@ -73,7 +72,13 @@ import java.util.List;
     outputBufferSize =
         outputFloat ? INITIAL_OUTPUT_BUFFER_SIZE_32BIT : INITIAL_OUTPUT_BUFFER_SIZE_16BIT;
     nativeContext =
-        ffmpegInitialize(codecName, extraData, outputFloat, format.sampleRate, format.channelCount);
+        ffmpegInitialize(
+            codecName,
+            extraData,
+            outputFloat,
+            format.sampleRate,
+            format.channelCount,
+            rawBitsPerSample(format.pcmEncoding));
     if (nativeContext == 0) {
       String nativeError = ffmpegGetLastInitializationError();
       throw new FfmpegDecoderException(
@@ -214,6 +219,10 @@ import java.util.List;
         return getVorbisExtraData(initializationData);
       case MimeTypes.AUDIO_FLAC:
         return getFlacExtraData(initializationData);
+      case "audio/ape":
+      case "audio/x-ape":
+      case "application/ape":
+        return initializationData.isEmpty() ? null : initializationData.get(0);
       default:
         // Other codecs do not require extra data.
         return null;
@@ -316,7 +325,24 @@ import java.util.List;
       @Nullable byte[] extraData,
       boolean outputFloat,
       int rawSampleRate,
-      int rawChannelCount);
+      int rawChannelCount,
+      int rawBitsPerSample);
+
+  private static int rawBitsPerSample(int pcmEncoding) {
+    switch (pcmEncoding) {
+      case C.ENCODING_PCM_8BIT:
+        return 8;
+      case C.ENCODING_PCM_16BIT:
+        return 16;
+      case C.ENCODING_PCM_24BIT:
+        return 24;
+      case C.ENCODING_PCM_32BIT:
+      case C.ENCODING_PCM_FLOAT:
+        return 32;
+      default:
+        return -1;
+    }
+  }
 
   private native String ffmpegGetLastInitializationError();
 

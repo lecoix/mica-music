@@ -73,6 +73,7 @@ data class TrackMetadata(
             when (displayName?.substringAfterLast('.', "")?.lowercase()) {
                 "wav", "wave" -> return "WAV"
                 "flac" -> return "FLAC"
+                "ape", "mac" -> return "APE"
             }
             val m = mimeType.lowercase()
             return when {
@@ -83,6 +84,7 @@ data class TrackMetadata(
                 "dsd" in m || "dsf" in m -> "DSD"
                 "ogg" in m || "opus" in m -> "OGG"
                 "alac" in m -> "ALAC"
+                "ape" in m -> "APE"
                 else -> mimeType.substringAfterLast('/').uppercase().ifBlank { "AUDIO" }
             }
         }

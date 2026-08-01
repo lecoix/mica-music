@@ -145,6 +145,10 @@ public final class FfmpegLibrary {
         return "flac";
       case MimeTypes.AUDIO_ALAC:
         return "alac";
+      case "audio/ape":
+      case "audio/x-ape":
+      case "application/ape":
+        return "ape";
       case "audio/dsd":
         // Sony DSF stores one block per channel, matching FFmpeg's planar decoder.
         return "dsd_lsbf_planar";

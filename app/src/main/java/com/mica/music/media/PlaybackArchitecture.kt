@@ -61,6 +61,8 @@ object PlaybackRouter {
             }
         } else if (AlacPlayback.isAlac(song)) {
             PlaybackRouteDecision.Supported("alac-ffmpeg")
+        } else if (isApeFile(song)) {
+            PlaybackRouteDecision.Supported("ape-ffmpeg")
         } else {
             PlaybackRouteDecision.Supported("platform-format")
         }
@@ -75,6 +77,13 @@ object PlaybackRouter {
 
     private fun isDsfFile(song: Song): Boolean =
         song.fileName.substringAfterLast('.', "").equals("dsf", ignoreCase = true)
+
+    private fun isApeFile(song: Song): Boolean {
+        val extension = song.fileName.substringAfterLast('.', "").lowercase()
+        return extension in setOf("ape", "mac") ||
+            song.metadata.containerName.equals("APE", ignoreCase = true) ||
+            song.metadata.playbackMimeType.contains("ape", ignoreCase = true)
+    }
 }
 
 object PlaybackFailureClassifier {

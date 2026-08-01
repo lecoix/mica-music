@@ -9,6 +9,7 @@ import androidx.media3.common.MimeTypes
  * ExoPlayer 可能无法识别容器并直接报错（表现为自动「跳过」）。
  */
 object PlaybackMimeResolver {
+    private const val APE_CONTAINER_MIME = "audio/x-ape"
 
     fun resolve(
         storeMime: String,
@@ -19,6 +20,7 @@ object PlaybackMimeResolver {
     ): String {
         val extMime = mimeFromFileName(displayName) ?: mimeFromFileName(mediaUri)
         if (extMime == MimeTypes.APPLICATION_MP4) return MimeTypes.APPLICATION_MP4
+        if (extMime == APE_CONTAINER_MIME) return APE_CONTAINER_MIME
 
         val store = storeMime.lowercase()
         if (store.contains("m4a") || store.contains("mp4") || store.contains("aac")) {
@@ -53,6 +55,7 @@ object PlaybackMimeResolver {
             "opus" -> MimeTypes.AUDIO_OPUS
             "wma" -> "audio/x-ms-wma"
             "alac" -> "audio/alac"
+            "ape", "mac" -> APE_CONTAINER_MIME
             "dsf" -> "audio/x-dsf"
             "dff", "dsdiff" -> "audio/x-dsdiff"
             else -> null
@@ -67,6 +70,7 @@ object PlaybackMimeResolver {
             ext in setOf("m4a", "m4b", "m4p", "mp4", "aac") -> MimeTypes.APPLICATION_MP4
             DsdSupport.isDsdExtension(ext) -> mimeFromFileName(displayName) ?: "audio/dsd"
             DsdSupport.isDsdMime(m) -> m
+            ext in setOf("ape", "mac") -> APE_CONTAINER_MIME
             m.contains("m4a") || m == "audio/mp4" || m.contains("mp4a") || m.contains("alac") ->
                 MimeTypes.APPLICATION_MP4
             else -> mime

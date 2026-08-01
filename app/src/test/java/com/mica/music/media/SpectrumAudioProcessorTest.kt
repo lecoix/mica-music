@@ -16,6 +16,7 @@ class SpectrumAudioProcessorTest {
     @After
     fun tearDown() {
         MicaSpectrumAnalyzer.onEnabledChanged = null
+        MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
         MicaSpectrumAnalyzer.setAnalysisActive(true)
         MicaSpectrumAnalyzer.setEnabled(false)
     }
@@ -94,5 +95,63 @@ class SpectrumAudioProcessorTest {
         val outBytes = ByteArray(output.remaining())
         output.get(outBytes)
         assertArrayEquals(input, outBytes)
+    }
+
+    @Test
+    fun queueCapacityRetainsCompleteLargeApePcmFrame() {
+        val sampleRate = 44_100
+        val apeFrameSamples = 73_728
+
+        assertTrue(
+            "APE's 1.67 second decoder frame must not be truncated to the old 1.2 second queue",
+            MicaSpectrumAnalyzer.maxQueuedPcmSampleCount(sampleRate) >= apeFrameSamples,
+        )
+    }
+
+    @Test
+    fun queueCapacityAdaptsToTwoLargeApeFramesWithoutChangingNormalFormats() {
+        val policy = SpectrumQueueCapacityPolicy()
+        val sampleRate = 44_100
+
+        assertEquals(88_200, policy.capacitySamples(sampleRate, inputBlockSamples = 4_096))
+        assertEquals(147_456, policy.capacitySamples(sampleRate, inputBlockSamples = 73_728))
+    }
+
+    @Test
+    fun dynamicQueueCapacityIsBoundedAndResetsWithAnalysisState() {
+        val policy = SpectrumQueueCapacityPolicy()
+        val sampleRate = 44_100
+
+        assertEquals(176_400, policy.capacitySamples(sampleRate, inputBlockSamples = 200_000))
+
+        policy.reset()
+
+        assertEquals(88_200, policy.capacitySamples(sampleRate, inputBlockSamples = 4_096))
+        assertEquals(192_000, policy.capacitySamples(96_000, inputBlockSamples = 4_096))
+    }
+
+    @Test
+    fun pausedPlaybackRetainsPrebufferUntilPlaybackAdvances() {
+        MicaSpectrumAnalyzer.setEnabled(true)
+        MicaSpectrumAnalyzer.setAnalysisActive(true)
+        MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
+        MicaSpectrumAnalyzer.processPcmBuffer(
+            buffer = ByteArray(4_096 * 2 * 2),
+            offset = 0,
+            length = 4_096 * 2 * 2,
+            encoding = android.media.AudioFormat.ENCODING_PCM_16BIT,
+            sampleRateHz = 44_100,
+            channelCount = 2,
+        )
+        val prebufferedSamples = MicaSpectrumAnalyzer.queuedPcmSampleCount()
+
+        repeat(5) { MicaSpectrumAnalyzer.analyzeTickForTest() }
+
+        assertEquals(prebufferedSamples, MicaSpectrumAnalyzer.queuedPcmSampleCount())
+
+        MicaSpectrumAnalyzer.setPlaybackAdvancing(true)
+        MicaSpectrumAnalyzer.analyzeTickForTest()
+
+        assertTrue(MicaSpectrumAnalyzer.queuedPcmSampleCount() < prebufferedSamples)
     }
 }
