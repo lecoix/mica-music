@@ -40,6 +40,7 @@
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
+| [`ADDING_AUDIO_FORMAT_SUPPORT.md`](ADDING_AUDIO_FORMAT_SUPPORT.md) | 新增音频格式的端到端接入、基准对比与排障指南；含 APE 大帧、频谱时钟和 JNI 扩容案例 |
 | [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md) | Exo PCM **改造计划**（**§0 摘要、§18 Gate/验收**；P1 过渡态；P2–P6） |
 | [`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md) | Exo PCM 链路**讨论记录**（背景与机制分析；结论已并入 REFACTOR） |
 | [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) | 当前音频实施范围：实际 ReplayGain 系数的事实来源、兼容契约与测试计划 |
@@ -114,3 +115,4 @@
 | 2026-07-13 | 接受 ADR-0001：远期 USB Host 真独占；新增 ReplayGain 实际应用状态计划并将其设为当前音频实施范围 |
 | 2026-07-07 | 新增 **Audio quality consent**：`.cursor/rules/audio-quality-consent.mdc`、`CONTEXT.md` |
 | 2026-07-14 | 新增 `EXTERNAL_EVENT_CONTRACT_TESTING.md`：记录播放计数漏测原因，并提炼跨模块外部事件契约测试规则 |
+| 2026-08-01 | 新增 `ADDING_AUDIO_FORMAT_SUPPORT.md`：沉淀 APE 接入中的帧边界、seek、频谱时钟和 JNI 缓冲区扩容经验 |
