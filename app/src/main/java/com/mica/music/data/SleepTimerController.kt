@@ -1,9 +1,11 @@
 package com.mica.music.data
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.mica.music.data.preferences.SleepTimerPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -24,7 +26,10 @@ data class SleepTimerState(
 class SleepTimerController(
     private val scope: CoroutineScope,
     private val playerController: PlayerController,
+    context: Context,
 ) {
+    private val appContext = context.applicationContext
+
     var state by mutableStateOf<SleepTimerState?>(null)
         private set
 
@@ -40,6 +45,9 @@ class SleepTimerController(
     val isActive: Boolean
         get() = state != null
 
+    val lastDurationMinutes: Int
+        get() = SleepTimerPreferences.lastDurationMinutes(appContext)
+
     val remainingMs: Long
         get() {
             val end = state?.endTimeMillis ?: return 0L
@@ -48,8 +56,10 @@ class SleepTimerController(
 
     fun start(durationMinutes: Int) {
         cancelInternal(restoreVolume = false)
+        val duration = durationMinutes.coerceAtLeast(1)
+        SleepTimerPreferences.setLastDurationMinutes(appContext, duration)
         val now = System.currentTimeMillis()
-        val durationMs = durationMinutes.coerceAtLeast(1) * 60_000L
+        val durationMs = duration * 60_000L
         val end = now + durationMs
         state = SleepTimerState(
             endTimeMillis = end,

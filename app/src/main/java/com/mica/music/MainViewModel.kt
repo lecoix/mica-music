@@ -23,7 +23,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerController = (application as MicaApp).playerController
     val playlistStore = (application as MicaApp).playlistStore
     val uiSettings = AppUiSettings(application)
-    val sleepTimer = SleepTimerController(viewModelScope, playerController)
+    val sleepTimer = SleepTimerController(viewModelScope, playerController, application)
     private val playbackStatistics = (application as MicaApp).playbackStatistics
     private val libraryPlaybackQueueSync = LibraryPlaybackQueueCoordinator()
 

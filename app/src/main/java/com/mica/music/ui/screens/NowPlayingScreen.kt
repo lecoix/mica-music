@@ -1706,6 +1706,7 @@ fun NowPlayingContent(
             SleepTimerSheet(
                 isActive = sleepTimerActive,
                 activeRemainingLabel = sleepTimerRemainingLabel,
+                initialMinutes = sleepTimer.lastDurationMinutes,
                 onDismiss = { sleepTimerSheetOpen = false },
                 onSelectMinutes = { minutes ->
                     sleepTimer.start(minutes)

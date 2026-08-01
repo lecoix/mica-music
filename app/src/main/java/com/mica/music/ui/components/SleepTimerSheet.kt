@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -53,6 +56,7 @@ import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import com.mica.music.data.SleepTimerController
+import com.mica.music.data.preferences.SleepTimerPreferences
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -63,6 +67,7 @@ import kotlin.math.abs
 fun SleepTimerSheet(
     isActive: Boolean,
     activeRemainingLabel: String?,
+    initialMinutes: Int = SleepTimerPreferences.DEFAULT_DURATION_MINUTES,
     onDismiss: () -> Unit,
     onSelectMinutes: (Int) -> Unit,
     onCancel: () -> Unit,
@@ -71,7 +76,12 @@ fun SleepTimerSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
     val sheetBackground = if (isDark) HifiPalette.MicaFogDarkEnd else HifiPalette.MicaFogStart
-    val defaultStep = SleepTimerController.PRESET_MINUTES.indexOf(30).coerceAtLeast(0)
+    val defaultStep = SleepTimerController.PRESET_MINUTES
+        .indexOf(initialMinutes)
+        .takeIf { it >= 0 }
+        ?: SleepTimerController.PRESET_MINUTES.indexOf(
+            SleepTimerPreferences.DEFAULT_DURATION_MINUTES,
+        )
     var stepIndex by remember { mutableIntStateOf(defaultStep) }
     val selectedMinutes = SleepTimerController.minutesAtStep(stepIndex)
 
@@ -225,15 +235,25 @@ private fun SleepTimerMinuteWheel(
     ) {
         Box(
             modifier = Modifier
-                .width(SleepTimerWheelWidth)
-                .height(wheelHeight),
+                .width(SleepTimerWheelTouchWidth)
+                .height(wheelHeight)
+                .scrollable(
+                    state = listState,
+                    orientation = Orientation.Vertical,
+                    reverseDirection = true,
+                    flingBehavior = flingBehavior,
+                ),
         ) {
             LazyColumn(
                 state = listState,
                 flingBehavior = flingBehavior,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 contentPadding = PaddingValues(vertical = itemHeight * sidePadding),
-                modifier = Modifier.fillMaxWidth(),
+                userScrollEnabled = false,
+                modifier = Modifier
+                    .width(SleepTimerWheelWidth)
+                    .fillMaxHeight()
+                    .align(Alignment.Center),
             ) {
                 itemsIndexed(presets) { index, minutes ->
                     SleepTimerWheelItem(
@@ -248,7 +268,7 @@ private fun SleepTimerMinuteWheel(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .fillMaxWidth()
+                    .width(SleepTimerWheelWidth)
                     .height(itemHeight * 1.15f)
                     .background(
                         Brush.verticalGradient(
@@ -260,7 +280,7 @@ private fun SleepTimerMinuteWheel(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
+                    .width(SleepTimerWheelWidth)
                     .height(itemHeight * 1.15f)
                     .background(
                         Brush.verticalGradient(
@@ -275,7 +295,9 @@ private fun SleepTimerMinuteWheel(
             text = "分钟",
             style = MicaTheme.typography.bodyLg,
             color = MicaTheme.colors.textSecondary,
-            modifier = Modifier.padding(start = HifiSpacing.xs),
+            modifier = Modifier
+                .offset(x = -SleepTimerWheelTouchSideExpansion)
+                .padding(start = HifiSpacing.xs),
         )
     }
 }
@@ -382,8 +404,10 @@ private fun LazyListState.resolveCenterItemIndex(): Int {
 
 private const val SleepTimerWheelMagnification = 4f / 3f
 private const val SleepTimerWheelVisibleCount = 3
-private val SleepTimerWheelItemHeight = 44.dp * SleepTimerWheelMagnification
+private val SleepTimerWheelItemHeight = 31.dp * SleepTimerWheelMagnification
 private val SleepTimerWheelWidth = 88.dp
+private val SleepTimerWheelTouchSideExpansion = 44.dp
+private val SleepTimerWheelTouchWidth = SleepTimerWheelWidth + SleepTimerWheelTouchSideExpansion * 2
 
 @Composable
 private fun SleepTimerActionBar(
