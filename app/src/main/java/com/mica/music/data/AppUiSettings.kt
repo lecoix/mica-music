@@ -130,6 +130,24 @@ class AppUiSettings(context: Context) {
     var lyricsPageTheme by mutableStateOf(LyricsPreferences.lyricsPageTheme(appContext))
         private set
 
+    var letterSealCustomImagePath by mutableStateOf(
+        LyricsPreferences.letterSealCustomImagePath(appContext),
+    )
+        private set
+
+    var letterSealSizeDp by mutableIntStateOf(LyricsPreferences.letterSealSizeDp(appContext))
+        private set
+
+    var letterSealOpacityPercent by mutableIntStateOf(
+        LyricsPreferences.letterSealOpacityPercent(appContext),
+    )
+        private set
+
+    var letterSealRotationDegrees by mutableIntStateOf(
+        LyricsPreferences.letterSealRotationDegrees(appContext),
+    )
+        private set
+
     var lyricsWordAnimationPreset by mutableStateOf(LyricsPreferences.lyricsWordAnimationPreset(appContext))
         private set
 
@@ -363,6 +381,32 @@ class AppUiSettings(context: Context) {
     fun updateLyricsPageTheme(theme: LyricsPageTheme) {
         lyricsPageTheme = theme
         LyricsPreferences.setLyricsPageTheme(appContext, theme)
+    }
+
+    fun updateLetterSealCustomImagePath(path: String?) {
+        letterSealCustomImagePath = path
+        LyricsPreferences.setLetterSealCustomImagePath(appContext, path)
+    }
+
+    fun updateLetterSealSizeDp(sizeDp: Int) {
+        letterSealSizeDp = sizeDp.coerceIn(MIN_LETTER_SEAL_SIZE_DP, MAX_LETTER_SEAL_SIZE_DP)
+        LyricsPreferences.setLetterSealSizeDp(appContext, letterSealSizeDp)
+    }
+
+    fun updateLetterSealOpacityPercent(opacityPercent: Int) {
+        letterSealOpacityPercent = opacityPercent.coerceIn(
+            MIN_LETTER_SEAL_OPACITY_PERCENT,
+            MAX_LETTER_SEAL_OPACITY_PERCENT,
+        )
+        LyricsPreferences.setLetterSealOpacityPercent(appContext, letterSealOpacityPercent)
+    }
+
+    fun updateLetterSealRotationDegrees(rotationDegrees: Int) {
+        letterSealRotationDegrees = rotationDegrees.coerceIn(
+            MIN_LETTER_SEAL_ROTATION_DEGREES,
+            MAX_LETTER_SEAL_ROTATION_DEGREES,
+        )
+        LyricsPreferences.setLetterSealRotationDegrees(appContext, letterSealRotationDegrees)
     }
 
     fun updateLyricsWordAnimationPreset(preset: LyricsWordAnimationPreset) {

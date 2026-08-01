@@ -4,6 +4,9 @@ import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
+import com.mica.music.data.DEFAULT_LETTER_SEAL_OPACITY_PERCENT
+import com.mica.music.data.DEFAULT_LETTER_SEAL_ROTATION_DEGREES
+import com.mica.music.data.DEFAULT_LETTER_SEAL_SIZE_DP
 import com.mica.music.data.LyricsSlot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,6 +54,30 @@ class LyricsPreferencesRobolectricTest {
         LyricsPreferences.setLyricsPageTheme(context, LyricsPageTheme.CLOUD)
 
         assertEquals(LyricsPageTheme.CLOUD, LyricsPreferences.lyricsPageTheme(context))
+    }
+
+    @Test
+    fun letterSealSettingsDefaultRoundTripAndClamp() {
+        assertEquals(null, LyricsPreferences.letterSealCustomImagePath(context))
+        assertEquals(DEFAULT_LETTER_SEAL_SIZE_DP, LyricsPreferences.letterSealSizeDp(context))
+        assertEquals(
+            DEFAULT_LETTER_SEAL_OPACITY_PERCENT,
+            LyricsPreferences.letterSealOpacityPercent(context),
+        )
+        assertEquals(
+            DEFAULT_LETTER_SEAL_ROTATION_DEGREES,
+            LyricsPreferences.letterSealRotationDegrees(context),
+        )
+
+        LyricsPreferences.setLetterSealCustomImagePath(context, "/tmp/seal.png")
+        LyricsPreferences.setLetterSealSizeDp(context, 999)
+        LyricsPreferences.setLetterSealOpacityPercent(context, -1)
+        LyricsPreferences.setLetterSealRotationDegrees(context, 999)
+
+        assertEquals("/tmp/seal.png", LyricsPreferences.letterSealCustomImagePath(context))
+        assertEquals(56, LyricsPreferences.letterSealSizeDp(context))
+        assertEquals(40, LyricsPreferences.letterSealOpacityPercent(context))
+        assertEquals(5, LyricsPreferences.letterSealRotationDegrees(context))
     }
 
     @Test

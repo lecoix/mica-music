@@ -2,6 +2,7 @@ package com.mica.music.ui.screens.settings
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -12,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppFontImporter
 import com.mica.music.data.AppFontSelection
 import com.mica.music.data.AppFontSource
+import com.mica.music.data.AppLetterSealImporter
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
@@ -46,6 +48,18 @@ internal fun LyricsSettingsPanel(
             Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
         }
     }
+    val sealImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                AppLetterSealImporter.importSeal(context, uri)
+            }
+            result.path?.let(uiSettings::updateLetterSealCustomImagePath)
+            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     SettingsSectionTitle("主题")
 
@@ -58,6 +72,57 @@ internal fun LyricsSettingsPanel(
             uiSettings.updateLyricsPageTheme(LyricsPageTheme.entries[ordinal])
         },
     )
+
+    if (uiSettings.lyricsPageTheme == LyricsPageTheme.LETTER) {
+        Spacer(Modifier.height(HifiSpacing.lg))
+        SettingsSectionTitle("信笺朱印")
+
+        SettingsActionRow(
+            title = "朱印图片",
+            subtitle = if (uiSettings.letterSealCustomImagePath == null) {
+                "当前：默认印章；建议使用透明 PNG / WebP"
+            } else {
+                "当前：自定义图片；新导入会覆盖旧图片"
+            },
+            onClick = {
+                sealImagePicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            },
+        )
+
+        SettingsActionRow(
+            title = "恢复默认印章",
+            subtitle = "恢复应用内置朱印，不改变大小、浓度和旋转",
+            enabled = uiSettings.letterSealCustomImagePath != null,
+            onClick = {
+                AppLetterSealImporter.clearSeal(context)
+                uiSettings.updateLetterSealCustomImagePath(null)
+                Toast.makeText(context, "已恢复默认信笺朱印", Toast.LENGTH_SHORT).show()
+            },
+        )
+
+        SettingsDropdownRow(
+            title = "朱印大小",
+            choices = LetterSealSizeChoices,
+            selectedValue = uiSettings.letterSealSizeDp,
+            onSelect = uiSettings::updateLetterSealSizeDp,
+        )
+
+        SettingsDropdownRow(
+            title = "朱印浓度",
+            choices = LetterSealOpacityChoices,
+            selectedValue = uiSettings.letterSealOpacityPercent,
+            onSelect = uiSettings::updateLetterSealOpacityPercent,
+        )
+
+        SettingsDropdownRow(
+            title = "朱印旋转",
+            choices = LetterSealRotationChoices,
+            selectedValue = uiSettings.letterSealRotationDegrees,
+            onSelect = uiSettings::updateLetterSealRotationDegrees,
+        )
+    }
 
     Spacer(Modifier.height(HifiSpacing.lg))
 

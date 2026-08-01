@@ -6,9 +6,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -37,10 +39,14 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -52,6 +58,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -59,6 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.mica.music.R
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextRole
@@ -68,6 +76,8 @@ import com.mica.music.data.LyricsTimelinePhase
 import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import coil.compose.AsyncImage
+import java.io.File
 import java.text.BreakIterator
 import java.util.Locale
 import kotlin.math.floor
@@ -84,6 +94,10 @@ internal fun LetterLyricsPrototype(
     renderState: LyricsRenderState,
     isPlaying: Boolean,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
+    customSealImagePath: String?,
+    sealSizeDp: Int,
+    sealOpacityPercent: Int,
+    sealRotationDegrees: Int,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -136,29 +150,51 @@ internal fun LetterLyricsPrototype(
     ) {
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
         val heightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
-        val metrics = remember(widthPx, heightPx, density.density) {
+        val metrics = remember(widthPx, heightPx, density.density, density.fontScale) {
             LetterPageMetrics(
                 widthPx = widthPx,
                 heightPx = heightPx,
                 horizontalPaddingPx = with(density) { 30.dp.toPx() },
                 verticalPaddingPx = with(density) { 82.dp.toPx() },
-                mainFontPx = with(density) { 20.sp.toPx() },
+                mainFontPx = with(density) { 19.5.sp.toPx() },
                 translationFontPx = with(density) { 11.5.sp.toPx() },
                 mainCharacterStepPx = with(density) { 30.dp.toPx() },
                 translationCharacterStepPx = with(density) { 18.dp.toPx() },
-                columnPitchPx = with(density) { 38.dp.toPx() },
-                pageCapacityColumnPitchPx = with(density) { 52.dp.toPx() },
+                columnPitchPx = with(density) { 35.dp.toPx() },
+                pageCapacityColumnPitchPx = with(density) { 35.dp.toPx() },
             )
         }
         val pages = remember(
             renderState.document,
             bilingualDisplayMode,
             metrics,
+            textMeasurer,
+            lyricStyle,
         ) {
+            val mainLetterStyle = lyricStyle.copy(
+                fontSize = with(density) { metrics.mainFontPx.toSp() },
+                fontWeight = FontWeight.Normal,
+            )
+            val translationLetterStyle = lyricStyle.copy(
+                fontSize = with(density) { metrics.translationFontPx.toSp() },
+                fontWeight = FontWeight.Normal,
+            )
             buildLetterPages(
                 lines = renderState.document.lines,
                 bilingualDisplayMode = bilingualDisplayMode,
                 metrics = metrics,
+                measureLatinTextWidthPx = { text, isTranslation ->
+                    textMeasurer.measure(
+                        text = text,
+                        style = if (isTranslation) {
+                            translationLetterStyle
+                        } else {
+                            mainLetterStyle
+                        },
+                        maxLines = 1,
+                        softWrap = false,
+                    ).size.width.toFloat()
+                },
             )
         }
         val activeLineIndex = letterActiveLineIndex(renderState)
@@ -180,60 +216,98 @@ internal fun LetterLyricsPrototype(
             )
         }
         val visiblePageCount = (currentPageIndex + 1).coerceIn(1, pages.size.coerceAtLeast(1))
-
-        if (overviewVisible) {
-            LetterPagesOverview(
-                pages = pages.take(visiblePageCount),
-                metrics = metrics,
-                activeLineIndex = activeLineIndex,
-                framePositionMs = framePositionMs,
-                textMeasurer = textMeasurer,
-                lyricStyle = lyricStyle,
-                onClose = { overviewVisible = false },
-                modifier = Modifier.fillMaxSize(),
+        val sealAppearance = remember(
+            customSealImagePath,
+            sealSizeDp,
+            sealOpacityPercent,
+            sealRotationDegrees,
+        ) {
+            LetterSealAppearance(
+                customImagePath = customSealImagePath,
+                sizeDp = sealSizeDp,
+                opacityPercent = sealOpacityPercent,
+                rotationDegrees = sealRotationDegrees,
             )
-        } else {
-            AnimatedContent(
-                targetState = currentPageIndex,
-                transitionSpec = {
-                    val forward = targetState >= initialState
-                    val enterOffset: (Int) -> Int = { width ->
-                        if (forward) -width / 12 else width / 8
-                    }
-                    val exitOffset: (Int) -> Int = { width ->
-                        if (forward) width / 5 else -width / 6
-                    }
+        }
+
+        AnimatedContent(
+            targetState = overviewVisible,
+            transitionSpec = {
+                if (targetState) {
                     (
-                        fadeIn(tween(if (motionEnabled) 420 else 0, easing = MicaMotion.Easing)) +
-                            slideInHorizontally(
+                        fadeIn(
+                            tween(
+                                durationMillis = if (motionEnabled) 260 else 0,
+                                delayMillis = if (motionEnabled) 70 else 0,
+                                easing = MicaMotion.Easing,
+                            ),
+                        ) +
+                            scaleIn(
                                 animationSpec = tween(
-                                    if (motionEnabled) 460 else 0,
+                                    durationMillis = if (motionEnabled) 320 else 0,
                                     easing = MicaMotion.Easing,
                                 ),
-                                initialOffsetX = enterOffset,
+                                initialScale = if (motionEnabled) 0.92f else 1f,
                             )
                         ) togetherWith (
-                        fadeOut(tween(if (motionEnabled) 360 else 0, easing = MicaMotion.Easing)) +
-                            slideOutHorizontally(
+                        fadeOut(tween(if (motionEnabled) 180 else 0)) +
+                            scaleOut(
                                 animationSpec = tween(
-                                    if (motionEnabled) 420 else 0,
+                                    durationMillis = if (motionEnabled) 320 else 0,
                                     easing = MicaMotion.Easing,
                                 ),
-                                targetOffsetX = exitOffset,
+                                targetScale = if (motionEnabled) 0.72f else 1f,
                             )
                         )
-                },
-                label = "letterPaperChange",
-                modifier = Modifier.fillMaxSize(),
-            ) { pageIndex ->
-                val page = pages.getOrNull(pageIndex) ?: LetterPage.EMPTY
-                LetterPaperCanvas(
-                    page = page,
+                } else {
+                    (
+                        fadeIn(tween(if (motionEnabled) 220 else 0)) +
+                            scaleIn(
+                                animationSpec = tween(
+                                    durationMillis = if (motionEnabled) 320 else 0,
+                                    easing = MicaMotion.Easing,
+                                ),
+                                initialScale = if (motionEnabled) 0.72f else 1f,
+                            )
+                        ) togetherWith (
+                        fadeOut(tween(if (motionEnabled) 180 else 0)) +
+                            scaleOut(
+                                animationSpec = tween(
+                                    durationMillis = if (motionEnabled) 260 else 0,
+                                    easing = MicaMotion.Easing,
+                                ),
+                                targetScale = if (motionEnabled) 0.92f else 1f,
+                            )
+                        )
+                }
+            },
+            label = "letterOverviewChange",
+            modifier = Modifier.fillMaxSize(),
+        ) { showingOverview ->
+            if (showingOverview) {
+                LetterPagesOverview(
+                    pages = pages.take(visiblePageCount),
                     metrics = metrics,
                     activeLineIndex = activeLineIndex,
                     framePositionMs = framePositionMs,
                     textMeasurer = textMeasurer,
                     lyricStyle = lyricStyle,
+                    inkMotionEnabled = motionEnabled && isPlaying,
+                    sealAppearance = sealAppearance,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                LetterCurrentPageStage(
+                    pages = pages,
+                    currentPageIndex = currentPageIndex,
+                    metrics = metrics,
+                    activeLineIndex = activeLineIndex,
+                    framePositionMs = framePositionMs,
+                    textMeasurer = textMeasurer,
+                    lyricStyle = lyricStyle,
+                    inkMotionEnabled = motionEnabled && isPlaying,
+                    motionEnabled = motionEnabled,
+                    sealAppearance = sealAppearance,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -261,6 +335,91 @@ internal fun LetterLyricsPrototype(
 }
 
 @Composable
+private fun LetterCurrentPageStage(
+    pages: List<LetterPage>,
+    currentPageIndex: Int,
+    metrics: LetterPageMetrics,
+    activeLineIndex: Int,
+    framePositionMs: Int,
+    textMeasurer: TextMeasurer,
+    lyricStyle: TextStyle,
+    inkMotionEnabled: Boolean,
+    motionEnabled: Boolean,
+    sealAppearance: LetterSealAppearance,
+    modifier: Modifier = Modifier,
+) {
+    var displayedPageIndex by remember(pages) { mutableIntStateOf(currentPageIndex) }
+    var outgoingPageIndex by remember(pages) { mutableStateOf<Int?>(null) }
+    var exitDirection by remember(pages) { mutableIntStateOf(1) }
+    val exitOffsetPx = remember(pages) { Animatable(0f) }
+
+    LaunchedEffect(currentPageIndex, motionEnabled, pages) {
+        if (currentPageIndex == displayedPageIndex) return@LaunchedEffect
+
+        val previousPageIndex = displayedPageIndex
+        displayedPageIndex = currentPageIndex
+        if (!motionEnabled) {
+            outgoingPageIndex = null
+            exitOffsetPx.snapTo(0f)
+            return@LaunchedEffect
+        }
+
+        exitDirection = if (currentPageIndex > previousPageIndex) 1 else -1
+        outgoingPageIndex = previousPageIndex
+        exitOffsetPx.snapTo(0f)
+        exitOffsetPx.animateTo(
+            targetValue = metrics.widthPx * exitDirection,
+            animationSpec = tween(
+                durationMillis = 520,
+                easing = MicaMotion.Easing,
+            ),
+        )
+        outgoingPageIndex = null
+    }
+
+    Box(modifier = modifier) {
+        LetterPaperCanvas(
+            page = pages.getOrNull(displayedPageIndex) ?: LetterPage.EMPTY,
+            metrics = metrics,
+            activeLineIndex = activeLineIndex,
+            framePositionMs = framePositionMs,
+            textMeasurer = textMeasurer,
+            lyricStyle = lyricStyle,
+            inkMotionEnabled = inkMotionEnabled,
+            sealAppearance = sealAppearance,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        outgoingPageIndex?.let { pageIndex ->
+            LetterPaperCanvas(
+                page = pages.getOrNull(pageIndex) ?: LetterPage.EMPTY,
+                metrics = metrics,
+                activeLineIndex = activeLineIndex,
+                framePositionMs = framePositionMs,
+                textMeasurer = textMeasurer,
+                lyricStyle = lyricStyle,
+                inkMotionEnabled = false,
+                sealAppearance = sealAppearance,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val progress = (
+                            kotlin.math.abs(exitOffsetPx.value) /
+                                metrics.widthPx.coerceAtLeast(1f)
+                            ).coerceIn(0f, 1f)
+                        val lift = 4f * progress * (1f - progress)
+                        translationX = exitOffsetPx.value
+                        translationY = -6.dp.toPx() * lift
+                        rotationZ = exitDirection * 0.9f * progress
+                        shadowElevation = 14.dp.toPx() * lift
+                        shape = RectangleShape
+                    },
+            )
+        }
+    }
+}
+
+@Composable
 private fun LetterPagesOverview(
     pages: List<LetterPage>,
     metrics: LetterPageMetrics,
@@ -268,9 +427,15 @@ private fun LetterPagesOverview(
     framePositionMs: Int,
     textMeasurer: TextMeasurer,
     lyricStyle: TextStyle,
-    onClose: () -> Unit,
+    inkMotionEnabled: Boolean,
+    sealAppearance: LetterSealAppearance,
     modifier: Modifier = Modifier,
 ) {
+    var inspectedPageIndex by remember(pages.size) { mutableStateOf<Int?>(null) }
+    BackHandler(enabled = inspectedPageIndex != null) {
+        inspectedPageIndex = null
+    }
+
     Box(modifier = modifier) {
         Canvas(Modifier.fillMaxSize()) {
             drawRect(LETTER_OVERVIEW_BACKDROP)
@@ -288,23 +453,33 @@ private fun LetterPagesOverview(
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy((-26).dp),
+            verticalArrangement = Arrangement.spacedBy((-72).dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             itemsIndexed(pages, key = { index, _ -> index }) { index, page ->
+                val isCurrentPage = index == pages.lastIndex
                 Box(
                     modifier = Modifier
                         .padding(
                             top = if (index == 0) 72.dp else 0.dp,
                             bottom = if (index == pages.lastIndex) 72.dp else 0.dp,
                         )
-                        .fillMaxWidth(0.72f)
+                        .zIndex(index.toFloat())
+                        .fillMaxWidth(if (isCurrentPage) 0.74f else 0.7f)
                         .aspectRatio(metrics.widthPx / metrics.heightPx)
                         .graphicsLayer {
-                            shadowElevation = 10.dp.toPx()
+                            rotationZ = LETTER_OVERVIEW_ROTATIONS[
+                                index % LETTER_OVERVIEW_ROTATIONS.size
+                            ]
+                            translationX = when (index % 3) {
+                                0 -> -5.dp.toPx()
+                                1 -> 4.dp.toPx()
+                                else -> 1.dp.toPx()
+                            }
+                            shadowElevation = (if (isCurrentPage) 16.dp else 8.dp).toPx()
                             shape = RectangleShape
                         }
-                        .clickable(onClick = onClose),
+                        .clickable { inspectedPageIndex = index },
                 ) {
                     LetterPaperCanvas(
                         page = page,
@@ -313,7 +488,67 @@ private fun LetterPagesOverview(
                         framePositionMs = framePositionMs,
                         textMeasurer = textMeasurer,
                         lyricStyle = lyricStyle,
+                        inkMotionEnabled = inkMotionEnabled,
+                        sealAppearance = sealAppearance,
                         modifier = Modifier.fillMaxSize(),
+                    )
+                    Text(
+                        text = "第 ${index + 1} 笺",
+                        color = LETTER_INK.copy(alpha = if (isCurrentPage) 0.5f else 0.34f),
+                        style = lyricStyle.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Normal,
+                            letterSpacing = 0.5.sp,
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 18.dp, bottom = 16.dp),
+                    )
+                }
+            }
+        }
+
+        inspectedPageIndex?.let { pageIndex ->
+            val page = pages.getOrNull(pageIndex) ?: return@let
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(LETTER_INK.copy(alpha = 0.24f))
+                    .clickable { inspectedPageIndex = null },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.88f)
+                        .aspectRatio(metrics.widthPx / metrics.heightPx)
+                        .graphicsLayer {
+                            shadowElevation = 22.dp.toPx()
+                            shape = RectangleShape
+                        }
+                        .clickable { inspectedPageIndex = null },
+                ) {
+                    LetterPaperCanvas(
+                        page = page,
+                        metrics = metrics,
+                        activeLineIndex = activeLineIndex,
+                        framePositionMs = framePositionMs,
+                        textMeasurer = textMeasurer,
+                        lyricStyle = lyricStyle,
+                        inkMotionEnabled = inkMotionEnabled && pageIndex == pages.lastIndex,
+                        sealAppearance = sealAppearance,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Text(
+                        text = "第 ${pageIndex + 1} 笺",
+                        color = LETTER_INK.copy(alpha = 0.5f),
+                        style = lyricStyle.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal,
+                            letterSpacing = 0.6.sp,
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 22.dp, bottom = 18.dp),
                     )
                 }
             }
@@ -329,15 +564,45 @@ private fun LetterPaperCanvas(
     framePositionMs: Int,
     textMeasurer: TextMeasurer,
     lyricStyle: TextStyle,
+    inkMotionEnabled: Boolean,
+    sealAppearance: LetterSealAppearance,
     modifier: Modifier = Modifier,
 ) {
+    val customSealFile = remember(sealAppearance.customImagePath) {
+        sealAppearance.customImagePath?.let(::File)?.takeIf { it.isFile }
+    }
     Box(modifier = modifier.background(LETTER_PAPER_BASE)) {
         Image(
-            painter = painterResource(R.drawable.letter_paper_fine_warm_seal_v1),
+            painter = painterResource(R.drawable.letter_paper_fine_warm_v2),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = 0.5f },
         )
+        val sealModifier = Modifier
+            .align(Alignment.BottomStart)
+            .padding(start = 44.dp, bottom = 82.dp)
+            .size(sealAppearance.sizeDp.dp)
+            .graphicsLayer {
+                alpha = (sealAppearance.opacityPercent / 100f).coerceIn(0f, 1f)
+                rotationZ = sealAppearance.rotationDegrees.toFloat()
+            }
+        if (customSealFile != null) {
+            AsyncImage(
+                model = customSealFile,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = sealModifier,
+            )
+        } else {
+            Image(
+                painter = painterResource(R.drawable.letter_seal_default_v2),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = sealModifier,
+            )
+        }
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasScale = (size.width / metrics.widthPx)
                 .coerceAtMost(size.height / metrics.heightPx)
@@ -359,6 +624,7 @@ private fun LetterPaperCanvas(
                         textMeasurer = textMeasurer,
                         lyricStyle = lyricStyle,
                         framePositionMs = framePositionMs,
+                        inkMotionEnabled = inkMotionEnabled,
                     )
                 }
             }
@@ -373,6 +639,7 @@ private fun DrawScope.drawLetterColumn(
     textMeasurer: TextMeasurer,
     lyricStyle: TextStyle,
     framePositionMs: Int,
+    inkMotionEnabled: Boolean,
 ) {
     val x = metrics.widthPx - metrics.horizontalPaddingPx -
         (column.rightOffsetUnits + column.widthUnits / 2f) * metrics.columnPitchPx
@@ -394,31 +661,73 @@ private fun DrawScope.drawLetterColumn(
         .coerceAtMost(column.graphemes.size)
 
     if (column.rotateLatinPhrase) {
-        val visible = column.graphemes.take(visibleCount).joinToString("")
-        if (visible.isEmpty()) return
-        val layout = textMeasurer.measure(
-            text = visible,
-            style = style.copy(color = LETTER_INK.copy(alpha = inkAlpha)),
+        val visibleGraphemes = column.graphemes.take(visibleCount)
+        if (visibleGraphemes.isEmpty()) return
+        val progressByGlyph = visibleGraphemes.indices.map { index ->
+            letterInkSettleProgress(
+                framePositionMs = framePositionMs,
+                glyphRevealMs = letterGlyphRevealMs(column = column, glyphIndex = index),
+                motionEnabled = inkMotionEnabled,
+            )
+        }
+        val firstMaskedIndex = progressByGlyph.indexOfFirst { it < 0.999f }
+            .takeIf { it >= 0 } ?: visibleGraphemes.size
+        val stableText = visibleGraphemes.take(firstMaskedIndex).joinToString("")
+        val visibleLayout = textMeasurer.measure(
+            text = visibleGraphemes.joinToString(""),
+            style = style.copy(color = LETTER_INK),
+            maxLines = 1,
+            softWrap = false,
+        )
+        val stableLayout = textMeasurer.measure(
+            text = stableText,
+            style = style.copy(color = LETTER_INK),
             maxLines = 1,
             softWrap = false,
         )
         rotate(degrees = 90f, pivot = Offset(x, metrics.verticalPaddingPx)) {
-            drawText(
-                textLayoutResult = layout,
-                topLeft = Offset(x - layout.size.height / 2f, metrics.verticalPaddingPx),
+            val topLeft = letterRotatedLatinTopLeft(
+                columnCenterX = x,
+                verticalTopPx = metrics.verticalPaddingPx,
+                layoutHeightPx = visibleLayout.size.height,
             )
+            if (stableText.isNotEmpty()) {
+                drawText(
+                    textLayoutResult = stableLayout,
+                    topLeft = topLeft,
+                    alpha = inkAlpha,
+                )
+            }
+            var glyphLeft = topLeft.x + stableLayout.size.width
+            val maskedGlyphs = ArrayList<LetterInkGlyphDraw>(
+                visibleGraphemes.size - firstMaskedIndex,
+            )
+            for (index in firstMaskedIndex until visibleGraphemes.size) {
+                val grapheme = visibleGraphemes[index]
+                val layout = textMeasurer.measure(
+                    text = grapheme,
+                    style = style.copy(color = LETTER_INK),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                maskedGlyphs += LetterInkGlyphDraw(
+                    layout = layout,
+                    topLeft = Offset(glyphLeft, topLeft.y),
+                    targetAlpha = inkAlpha,
+                    progress = progressByGlyph[index],
+                    maskSeed = grapheme.hashCode() xor
+                        (column.lineIndex * 31 + column.revealStartIndex + index),
+                )
+                glyphLeft += layout.size.width
+            }
+            drawLetterInkGlyphs(maskedGlyphs)
         }
         return
     }
 
-    val lineStartMs = column.line.startMs
-    val lineEndMs = column.line.endMs ?: column.fallbackEndMs ?: (lineStartMs + 4_000)
-    val lineDurationMs = (lineEndMs - lineStartMs).coerceAtLeast(1)
-    val revealTotalCount = column.revealTotalCount.coerceAtLeast(1)
+    val maskedGlyphs = ArrayList<LetterInkGlyphDraw>()
     column.graphemes.forEachIndexed { index, grapheme ->
-        val glyphGlobalIndex = column.revealStartIndex + index
-        val glyphRevealMs = lineStartMs +
-            (lineDurationMs.toLong() * glyphGlobalIndex / revealTotalCount).toInt()
+        val glyphRevealMs = letterGlyphRevealMs(column = column, glyphIndex = index)
         if (framePositionMs < glyphRevealMs) return@forEachIndexed
         val topLeft = Offset(
             x = x,
@@ -426,24 +735,197 @@ private fun DrawScope.drawLetterColumn(
         )
         val layout = textMeasurer.measure(
             text = grapheme,
-            style = style.copy(
-                color = LETTER_INK.copy(alpha = inkAlpha),
-            ),
+            style = style.copy(color = LETTER_INK),
             maxLines = 1,
             softWrap = false,
         )
         val centeredTopLeft = topLeft.copy(x = x - layout.size.width / 2f)
+        val inkProgress = letterInkSettleProgress(
+            framePositionMs = framePositionMs,
+            glyphRevealMs = glyphRevealMs,
+            motionEnabled = inkMotionEnabled,
+        )
+        if (inkProgress >= 0.999f) {
+            drawText(
+                textLayoutResult = layout,
+                topLeft = centeredTopLeft,
+                alpha = inkAlpha,
+            )
+        } else {
+            maskedGlyphs += LetterInkGlyphDraw(
+                layout = layout,
+                topLeft = centeredTopLeft,
+                targetAlpha = inkAlpha,
+                progress = inkProgress,
+                maskSeed = grapheme.hashCode() xor
+                    (column.lineIndex * 31 + column.revealStartIndex + index),
+            )
+        }
+    }
+    drawLetterInkGlyphs(maskedGlyphs)
+}
+
+internal fun letterRotatedLatinTopLeft(
+    columnCenterX: Float,
+    verticalTopPx: Float,
+    layoutHeightPx: Int,
+): Offset = Offset(
+    x = columnCenterX,
+    y = verticalTopPx - layoutHeightPx / 2f,
+)
+
+private fun letterGlyphRevealMs(column: LetterColumn, glyphIndex: Int): Int {
+    val lineStartMs = column.line.startMs
+    val lineEndMs = column.line.endMs ?: column.fallbackEndMs ?: (lineStartMs + 4_000)
+    val lineDurationMs = (lineEndMs - lineStartMs).coerceAtLeast(1)
+    val glyphGlobalIndex = column.revealStartIndex + glyphIndex
+    return lineStartMs +
+        (lineDurationMs.toLong() * glyphGlobalIndex /
+            column.revealTotalCount.coerceAtLeast(1)).toInt()
+}
+
+internal fun letterInkSettleProgress(
+    framePositionMs: Int,
+    glyphRevealMs: Int,
+    motionEnabled: Boolean,
+): Float {
+    if (!motionEnabled) return 1f
+    return ((framePositionMs - glyphRevealMs) / LETTER_INK_SETTLE_MS.toFloat())
+        .coerceIn(0f, 1f)
+}
+
+/**
+ * PROTOTYPE — a per-glyph paper-absorption mask for the letter-paper theme.
+ *
+ * Several deterministic ink pools spread through each glyph and merge along short fibre
+ * tendrils. All unfinished glyphs in a column share one pair of offscreen layers; each still
+ * completes from its own reveal timestamp, independent of later glyphs.
+ */
+private fun DrawScope.drawLetterInkGlyphs(
+    glyphs: List<LetterInkGlyphDraw>,
+) {
+    if (glyphs.isEmpty()) return
+
+    val bounds = Rect(
+        left = glyphs.minOf { it.topLeft.x },
+        top = glyphs.minOf { it.topLeft.y },
+        right = glyphs.maxOf { it.topLeft.x + it.layout.size.width },
+        bottom = glyphs.maxOf { it.topLeft.y + it.layout.size.height },
+    )
+
+    drawContext.canvas.saveLayer(bounds, Paint())
+    glyphs.forEach { glyph ->
         drawText(
-            textLayoutResult = layout,
-            topLeft = centeredTopLeft,
+            textLayoutResult = glyph.layout,
+            topLeft = glyph.topLeft,
+            alpha = glyph.targetAlpha,
         )
     }
+
+    val maskLayerPaint = Paint().apply { blendMode = BlendMode.DstIn }
+    drawContext.canvas.saveLayer(bounds, maskLayerPaint)
+    glyphs.forEach { glyph ->
+        val glyphBounds = glyph.bounds()
+        clipRect(
+            left = glyphBounds.left,
+            top = glyphBounds.top,
+            right = glyphBounds.right,
+            bottom = glyphBounds.bottom,
+        ) {
+            drawLetterInkMask(glyph)
+        }
+    }
+    drawContext.canvas.restore()
+    drawContext.canvas.restore()
+}
+
+private fun DrawScope.drawLetterInkMask(
+    glyph: LetterInkGlyphDraw,
+) {
+    val layout = glyph.layout
+    val topLeft = glyph.topLeft
+    val progress = glyph.progress
+    val maskSeed = glyph.maskSeed
+    val glyphWidth = layout.size.width.toFloat().coerceAtLeast(1f)
+    val glyphHeight = layout.size.height.toFloat().coerceAtLeast(1f)
+    val minDimension = minOf(glyphWidth, glyphHeight)
+    val bounds = Rect(
+        left = topLeft.x,
+        top = topLeft.y,
+        right = topLeft.x + glyphWidth,
+        bottom = topLeft.y + glyphHeight,
+    )
+    val settled = progress * progress * (3f - 2f * progress)
+
+    var randomState = maskSeed.takeIf { it != 0 } ?: 0x51A7C3
+
+    fun nextUnit(): Float {
+        randomState = randomState * 1_664_525 + 1_013_904_223
+        return ((randomState ushr 8) and 0x00FFFFFF) / 16_777_215f
+    }
+
+    repeat(LETTER_INK_POOL_COUNT) {
+        val center = Offset(
+            x = bounds.left + glyphWidth * (0.12f + nextUnit() * 0.76f),
+            y = bounds.top + glyphHeight * (0.1f + nextUnit() * 0.8f),
+        )
+        val radiusVariance = 0.82f + nextUnit() * 0.36f
+        val radius = minDimension *
+            (LETTER_INK_POOL_START_RADIUS + LETTER_INK_POOL_GROWTH * settled) *
+            radiusVariance
+        drawCircle(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0f to Color.White,
+                    0.68f to Color.White,
+                    1f to Color.Transparent,
+                ),
+                center = center,
+                radius = radius,
+            ),
+            radius = radius,
+            center = center,
+        )
+    }
+
+    repeat(LETTER_INK_FIBRE_COUNT) {
+        val start = Offset(
+            x = bounds.left + glyphWidth * nextUnit(),
+            y = bounds.top + glyphHeight * nextUnit(),
+        )
+        val direction = Offset(
+            x = (nextUnit() - 0.5f) * minDimension * (0.22f + settled * 0.28f),
+            y = (nextUnit() - 0.5f) * minDimension * (0.38f + settled * 0.32f),
+        )
+        drawLine(
+            color = Color.White.copy(alpha = 0.48f + settled * 0.34f),
+            start = start,
+            end = start + direction,
+            strokeWidth = (0.55f + nextUnit() * 0.8f) * density,
+        )
+    }
+}
+
+private data class LetterInkGlyphDraw(
+    val layout: TextLayoutResult,
+    val topLeft: Offset,
+    val targetAlpha: Float,
+    val progress: Float,
+    val maskSeed: Int,
+) {
+    fun bounds(): Rect = Rect(
+        left = topLeft.x,
+        top = topLeft.y,
+        right = topLeft.x + layout.size.width,
+        bottom = topLeft.y + layout.size.height,
+    )
 }
 
 private fun buildLetterPages(
     lines: List<LyricLineNode>,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     metrics: LetterPageMetrics,
+    measureLatinTextWidthPx: (text: String, isTranslation: Boolean) -> Float,
 ): List<LetterPage> {
     if (lines.isEmpty()) return listOf(LetterPage.EMPTY)
     val capacityUnits = (
@@ -457,6 +939,9 @@ private fun buildLetterPages(
         (metrics.heightPx - metrics.verticalPaddingPx * 2f) /
             metrics.translationCharacterStepPx
         ).toInt().coerceAtLeast(1)
+    val latinColumnWidthPx = (
+        metrics.heightPx - metrics.verticalPaddingPx * 2f
+        ).coerceAtLeast(1f)
     val pages = mutableListOf<MutableList<LetterColumn>>()
     var currentColumns = mutableListOf<LetterColumn>()
     var usedUnits = 0f
@@ -484,10 +969,17 @@ private fun buildLetterPages(
             LyricsBilingualDisplayMode.ALL -> translations.takeIf { originals.isNotEmpty() }.orEmpty()
             else -> ""
         }
-        val primarySegments = splitIntoVerticalSegments(primaryText, mainCharactersPerColumn)
+        val primarySegments = splitIntoVerticalSegments(
+            text = primaryText,
+            maxCharacters = mainCharactersPerColumn,
+            maxLatinWidthPx = latinColumnWidthPx,
+            measureLatinTextWidthPx = { measureLatinTextWidthPx(it, false) },
+        )
         val secondarySegments = splitIntoVerticalSegments(
-            secondaryText,
-            translationCharactersPerColumn,
+            text = secondaryText,
+            maxCharacters = translationCharactersPerColumn,
+            maxLatinWidthPx = latinColumnWidthPx,
+            measureLatinTextWidthPx = { measureLatinTextWidthPx(it, true) },
         )
         val primaryTotal = primaryText.graphemes().size.coerceAtLeast(1)
         val secondaryTotal = secondaryText.graphemes().size.coerceAtLeast(1)
@@ -587,10 +1079,81 @@ private fun buildLetterPages(
     }.ifEmpty { listOf(LetterPage.EMPTY) }
 }
 
-private fun splitIntoVerticalSegments(text: String, maxCharacters: Int): List<String> {
+private fun splitIntoVerticalSegments(
+    text: String,
+    maxCharacters: Int,
+    maxLatinWidthPx: Float,
+    measureLatinTextWidthPx: (String) -> Float,
+): List<String> {
     if (text.isBlank()) return emptyList()
+    if (text.isRotatedLatinPhrase()) {
+        return splitLatinPhraseIntoSegments(
+            text = text,
+            maxWidthPx = maxLatinWidthPx,
+            measureTextWidthPx = measureLatinTextWidthPx,
+        )
+    }
     val graphemes = text.graphemes()
     return graphemes.chunked(maxCharacters).map { it.joinToString("") }
+}
+
+internal fun splitLatinPhraseIntoSegments(
+    text: String,
+    maxWidthPx: Float,
+    measureTextWidthPx: (String) -> Float,
+): List<String> {
+    if (text.isBlank()) return emptyList()
+    val graphemes = text.graphemes()
+    val segments = ArrayList<String>()
+    var segmentStart = 0
+
+    while (segmentStart < graphemes.size) {
+        var fittedEnd = segmentStart
+        var lastBreakEnd = -1
+        var candidateEnd = segmentStart + 1
+
+        while (candidateEnd <= graphemes.size) {
+            val candidate = graphemes
+                .subList(segmentStart, candidateEnd)
+                .joinToString("")
+            if (measureTextWidthPx(candidate) > maxWidthPx) break
+
+            fittedEnd = candidateEnd
+            if (graphemes[candidateEnd - 1].isLatinLineBreakOpportunity()) {
+                lastBreakEnd = candidateEnd
+            }
+            candidateEnd += 1
+        }
+
+        if (fittedEnd == graphemes.size) {
+            segments += graphemes.subList(segmentStart, fittedEnd).joinToString("")
+            break
+        }
+
+        val segmentEnd = when {
+            lastBreakEnd > segmentStart -> lastBreakEnd
+            fittedEnd > segmentStart -> fittedEnd
+            else -> segmentStart + 1
+        }
+        segments += graphemes.subList(segmentStart, segmentEnd).joinToString("")
+        segmentStart = segmentEnd
+    }
+
+    return segments
+}
+
+private fun String.isLatinLineBreakOpportunity(): Boolean {
+    if (all(Char::isWhitespace)) return true
+    val codePoint = codePointAt(0)
+    return when (Character.getType(codePoint)) {
+        Character.DASH_PUNCTUATION.toInt(),
+        Character.END_PUNCTUATION.toInt(),
+        Character.CONNECTOR_PUNCTUATION.toInt(),
+        Character.OTHER_PUNCTUATION.toInt(),
+        Character.FINAL_QUOTE_PUNCTUATION.toInt(),
+        -> true
+        else -> false
+    }
 }
 
 private fun letterActiveLineIndex(renderState: LyricsRenderState): Int = when (
@@ -686,6 +1249,13 @@ private data class LetterPageMetrics(
     val pageCapacityColumnPitchPx: Float,
 )
 
+private data class LetterSealAppearance(
+    val customImagePath: String?,
+    val sizeDp: Int,
+    val opacityPercent: Int,
+    val rotationDegrees: Int,
+)
+
 private data class LetterColumn(
     val lineIndex: Int,
     val line: LyricLineNode,
@@ -733,6 +1303,12 @@ private const val TRANSLATION_COLUMN_UNITS = 0.58f
 private const val GROUP_GAP_UNITS = 0.42f
 private const val INTERLUDE_BLANK_UNITS = 1f
 private const val LETTER_INTERLUDE_MIN_MS = 7_000
+private const val LETTER_INK_SETTLE_MS = 460
+private const val LETTER_INK_POOL_COUNT = 7
+private const val LETTER_INK_FIBRE_COUNT = 9
+private const val LETTER_INK_POOL_START_RADIUS = 0.17f
+private const val LETTER_INK_POOL_GROWTH = 0.5f
+private val LETTER_OVERVIEW_ROTATIONS = floatArrayOf(-1.1f, 0.7f, -0.35f, 0.9f)
 
 private object LetterPrototypeHintSession {
     private var claimed = false

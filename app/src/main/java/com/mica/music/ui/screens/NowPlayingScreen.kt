@@ -1632,6 +1632,10 @@ fun NowPlayingContent(
                     renderState = lyricsRenderState,
                     isPlaying = surfaceState.isPlaying,
                     bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                    customSealImagePath = uiSettings.letterSealCustomImagePath,
+                    sealSizeDp = uiSettings.letterSealSizeDp,
+                    sealOpacityPercent = uiSettings.letterSealOpacityPercent,
+                    sealRotationDegrees = uiSettings.letterSealRotationDegrees,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {

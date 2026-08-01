@@ -13,7 +13,16 @@ import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
+import com.mica.music.data.DEFAULT_LETTER_SEAL_OPACITY_PERCENT
+import com.mica.music.data.DEFAULT_LETTER_SEAL_ROTATION_DEGREES
+import com.mica.music.data.DEFAULT_LETTER_SEAL_SIZE_DP
 import com.mica.music.data.LyricsSlot
+import com.mica.music.data.MAX_LETTER_SEAL_OPACITY_PERCENT
+import com.mica.music.data.MAX_LETTER_SEAL_ROTATION_DEGREES
+import com.mica.music.data.MAX_LETTER_SEAL_SIZE_DP
+import com.mica.music.data.MIN_LETTER_SEAL_OPACITY_PERCENT
+import com.mica.music.data.MIN_LETTER_SEAL_ROTATION_DEGREES
+import com.mica.music.data.MIN_LETTER_SEAL_SIZE_DP
 
 /** 歌词页、通知歌词与播放页歌词文字相关偏好。 */
 object LyricsPreferences {
@@ -30,6 +39,10 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_TEXT_COLOR = "lyrics_page_text_color"
     private const val KEY_LYRICS_PAGE_ALIGNMENT = "lyrics_page_alignment"
     private const val KEY_LYRICS_PAGE_THEME = "lyrics_page_theme"
+    private const val KEY_LETTER_SEAL_CUSTOM_IMAGE_PATH = "letter_seal_custom_image_path"
+    private const val KEY_LETTER_SEAL_SIZE_DP = "letter_seal_size_dp"
+    private const val KEY_LETTER_SEAL_OPACITY_PERCENT = "letter_seal_opacity_percent"
+    private const val KEY_LETTER_SEAL_ROTATION_DEGREES = "letter_seal_rotation_degrees"
     private const val KEY_LYRICS_WORD_ANIMATION_PRESET = "lyrics_word_animation_preset"
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
     private const val KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE = "lyrics_page_translation_font_size"
@@ -130,6 +143,63 @@ object LyricsPreferences {
     fun setLyricsPageTheme(context: Context, theme: LyricsPageTheme) {
         MicaSettingsStore.prefs(context).edit()
             .putString(KEY_LYRICS_PAGE_THEME, theme.storageValue)
+            .apply()
+    }
+
+    fun letterSealCustomImagePath(context: Context): String? =
+        MicaSettingsStore.prefs(context).getString(KEY_LETTER_SEAL_CUSTOM_IMAGE_PATH, null)
+
+    fun setLetterSealCustomImagePath(context: Context, path: String?) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_LETTER_SEAL_CUSTOM_IMAGE_PATH, path)
+            .apply()
+    }
+
+    fun letterSealSizeDp(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_LETTER_SEAL_SIZE_DP, DEFAULT_LETTER_SEAL_SIZE_DP)
+            .coerceIn(MIN_LETTER_SEAL_SIZE_DP, MAX_LETTER_SEAL_SIZE_DP)
+
+    fun setLetterSealSizeDp(context: Context, sizeDp: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_LETTER_SEAL_SIZE_DP,
+                sizeDp.coerceIn(MIN_LETTER_SEAL_SIZE_DP, MAX_LETTER_SEAL_SIZE_DP),
+            )
+            .apply()
+    }
+
+    fun letterSealOpacityPercent(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_LETTER_SEAL_OPACITY_PERCENT, DEFAULT_LETTER_SEAL_OPACITY_PERCENT)
+            .coerceIn(MIN_LETTER_SEAL_OPACITY_PERCENT, MAX_LETTER_SEAL_OPACITY_PERCENT)
+
+    fun setLetterSealOpacityPercent(context: Context, opacityPercent: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_LETTER_SEAL_OPACITY_PERCENT,
+                opacityPercent.coerceIn(
+                    MIN_LETTER_SEAL_OPACITY_PERCENT,
+                    MAX_LETTER_SEAL_OPACITY_PERCENT,
+                ),
+            )
+            .apply()
+    }
+
+    fun letterSealRotationDegrees(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_LETTER_SEAL_ROTATION_DEGREES, DEFAULT_LETTER_SEAL_ROTATION_DEGREES)
+            .coerceIn(MIN_LETTER_SEAL_ROTATION_DEGREES, MAX_LETTER_SEAL_ROTATION_DEGREES)
+
+    fun setLetterSealRotationDegrees(context: Context, rotationDegrees: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_LETTER_SEAL_ROTATION_DEGREES,
+                rotationDegrees.coerceIn(
+                    MIN_LETTER_SEAL_ROTATION_DEGREES,
+                    MAX_LETTER_SEAL_ROTATION_DEGREES,
+                ),
+            )
             .apply()
     }
 

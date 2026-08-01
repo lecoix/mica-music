@@ -5,14 +5,21 @@ import com.mica.music.data.AppFontSource
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.DEFAULT_LETTER_SEAL_OPACITY_PERCENT
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
+import com.mica.music.data.MAX_LETTER_SEAL_OPACITY_PERCENT
+import com.mica.music.data.MAX_LETTER_SEAL_ROTATION_DEGREES
+import com.mica.music.data.MAX_LETTER_SEAL_SIZE_DP
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
+import com.mica.music.data.MIN_LETTER_SEAL_OPACITY_PERCENT
+import com.mica.music.data.MIN_LETTER_SEAL_ROTATION_DEGREES
+import com.mica.music.data.MIN_LETTER_SEAL_SIZE_DP
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.MiniPlayerStyle
@@ -109,6 +116,20 @@ internal val LyricsPageFontSizeChoices = (MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRI
 
 internal val LyricsPageLineSpacingChoices =
     (MIN_LYRICS_PAGE_LINE_SPACING_DP..MAX_LYRICS_PAGE_LINE_SPACING_DP).map { it to "$it dp" }
+
+internal val LetterSealSizeChoices =
+    (MIN_LETTER_SEAL_SIZE_DP..MAX_LETTER_SEAL_SIZE_DP step 2).map { it to "$it dp" }
+
+internal val LetterSealOpacityChoices =
+    ((MIN_LETTER_SEAL_OPACITY_PERCENT..MAX_LETTER_SEAL_OPACITY_PERCENT step 5).toList() +
+        DEFAULT_LETTER_SEAL_OPACITY_PERCENT)
+        .distinct()
+        .sorted()
+        .map { it to "$it%" }
+
+internal val LetterSealRotationChoices =
+    (MIN_LETTER_SEAL_ROTATION_DEGREES..MAX_LETTER_SEAL_ROTATION_DEGREES)
+        .map { it to if (it > 0) "+$it°" else "$it°" }
 
 internal enum class SettingsCategory(
     val title: String,
