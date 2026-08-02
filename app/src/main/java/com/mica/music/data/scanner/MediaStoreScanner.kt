@@ -64,13 +64,16 @@ object MediaStoreScanner {
             var done = 0
             drafts.chunked(PROBE_PARALLELISM).forEach { chunk ->
                 val batch = chunk.map { draft ->
+                val forceRefreshLyrics = draft.forceRefreshLyricsFor(options)
+                val forceRefreshArtwork = draft.forceRefreshArtworkFor(options)
                 draft.reusableCachedSong(
                     context = context,
                     cachedById = cachedById,
                     requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
-                    forceRefreshLyrics = options.forceRefreshLyrics,
-                    forceRefreshArtwork = options.forceRefreshArtwork,
+                    forceRefreshLyrics = forceRefreshLyrics,
+                    forceRefreshArtwork = forceRefreshArtwork,
+                    onReuseMiss = profiler::recordReuseMiss,
                 )?.let { song -> ScannedSong(song).also { reused.incrementAndGet() } }
                     ?: profiler.measure("quickSong") {
                         probed.incrementAndGet()
@@ -80,7 +83,7 @@ object MediaStoreScanner {
                             profiler = profiler,
                             cachedSong = draft.unchangedCachedSongForProbe(
                                 cachedById,
-                                options.forceRefreshLyrics,
+                                forceRefreshLyrics,
                             ),
                         )
                     }
@@ -98,14 +101,17 @@ object MediaStoreScanner {
                     chunk.map { draft ->
                     async {
                         semaphore.withPermit {
+                            val forceRefreshLyrics = draft.forceRefreshLyricsFor(options)
+                            val forceRefreshArtwork = draft.forceRefreshArtworkFor(options)
                             val song = draft.reusableCachedSong(
                                 context = context,
                                 cachedById = cachedById,
                                 requireDeepMetadata = true,
                                 requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                                 requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
-                                forceRefreshLyrics = options.forceRefreshLyrics,
-                                forceRefreshArtwork = options.forceRefreshArtwork,
+                                forceRefreshLyrics = forceRefreshLyrics,
+                                forceRefreshArtwork = forceRefreshArtwork,
+                                onReuseMiss = profiler::recordReuseMiss,
                             )
                                 ?.let { cached -> ScannedSong(cached).also { reused.incrementAndGet() } }
                                 ?: profiler.measure("probeTrack") {
@@ -116,7 +122,7 @@ object MediaStoreScanner {
                                         profiler = profiler,
                                         cachedSong = draft.unchangedCachedSongForProbe(
                                             cachedById,
-                                            options.forceRefreshLyrics,
+                                            forceRefreshLyrics,
                                         ),
                                         technicalProbeFailures = technicalFailed,
                                     )
@@ -495,13 +501,16 @@ internal suspend fun persistScannedLyricsBatch(
 ): List<Song> {
     val readFailedCount = songs.count { it.lyrics is LyricsProbeResult.ReadFailed }
     lyricsReadFailures?.addAndGet(readFailedCount)
-    if (onLyricsBatch == null) return songs.map(ScannedSong::song)
-    val payloads = songs.mapNotNull { scanned ->
-        (scanned.lyrics as? LyricsProbeResult.Complete)?.let { completed ->
-            ScannedSongLyrics(scanned.song.id, scanned.song.lyricsCacheRevision, completed.slots)
+    val payloads = if (onLyricsBatch == null) {
+        emptyList()
+    } else {
+        songs.mapNotNull { scanned ->
+            (scanned.lyrics as? LyricsProbeResult.Complete)?.let { completed ->
+                ScannedSongLyrics(scanned.song.id, scanned.song.lyricsCacheRevision, completed.slots)
+            }
         }
     }
-    if (payloads.isNotEmpty() || readFailedCount > 0) {
+    if (onLyricsBatch != null && (payloads.isNotEmpty() || readFailedCount > 0)) {
         val batch = LyricsScanBatch(payloads, readFailedCount)
         if (profiler == null) {
             onLyricsBatch(batch)
@@ -509,12 +518,22 @@ internal suspend fun persistScannedLyricsBatch(
             profiler.measureSuspend("lyrics.persist") { onLyricsBatch(batch) }
         }
     }
-    return songs.map { scanned ->
-        if (scanned.lyrics is LyricsProbeResult.NotProbed) scanned.song else scanned.song.copy(
-            lyricsDocument = LyricsDocument(),
-            lyricsLoaded = false,
+    return songs.map(::retainScannedSong)
+}
+
+private fun retainScannedSong(scanned: ScannedSong): Song {
+    val song = when (scanned.lyrics) {
+        is LyricsProbeResult.Complete -> scanned.song.copy(
+            embeddedLyricsProbeRevision = scanned.song.embeddedLyricsProbeRevisionForCurrentFile(),
         )
+        LyricsProbeResult.ReadFailed,
+        LyricsProbeResult.NotProbed,
+        -> scanned.song
     }
+    return if (scanned.lyrics is LyricsProbeResult.NotProbed) song else song.copy(
+        lyricsDocument = LyricsDocument(),
+        lyricsLoaded = false,
+    )
 }
 
 internal suspend fun persistScannedLyricsBatches(

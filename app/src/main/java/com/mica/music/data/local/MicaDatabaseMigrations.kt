@@ -207,3 +207,9 @@ val MIGRATION_14_15 = object : Migration(14, 15) {
         )
     }
 }
+
+val MIGRATION_15_16 = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN embeddedLyricsProbeRevision TEXT NOT NULL DEFAULT ''")
+    }
+}

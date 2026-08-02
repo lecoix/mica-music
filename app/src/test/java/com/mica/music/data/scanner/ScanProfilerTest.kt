@@ -1,6 +1,7 @@
 package com.mica.music.data.scanner
 
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.LyricsDocument
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -116,6 +117,114 @@ class ScanProfilerTest {
             forceRefreshLyrics = true,
         )
         assertTrue(probeCached?.lyricsDocument?.lines?.isEmpty() == true)
+    }
+
+    @Test
+    fun targetedRefreshUsesTheSamePerSongLyricsProbePolicy() {
+        val draft = draft()
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(
+            mediaUri = draft.mediaUri,
+            sizeBytes = draft.sizeBytes,
+            dateModifiedMs = draft.dateModifiedMs,
+        )
+        val options = ScanOptions(forceRefreshSongIds = setOf(draft.scanSongId()))
+
+        assertNull(
+            draft.reusableCachedSong(
+                context = ApplicationProvider.getApplicationContext(),
+                cachedById = mapOf(cached.id to cached),
+                forceRefreshLyrics = draft.forceRefreshLyricsFor(options),
+                forceRefreshArtwork = draft.forceRefreshArtworkFor(options),
+            ),
+        )
+        val probeCached = draft.unchangedCachedSongForProbe(
+            cachedById = mapOf(cached.id to cached),
+            forceRefreshLyrics = draft.forceRefreshLyricsFor(options),
+        )
+        assertTrue(probeCached?.lyricsDocument?.lines?.isEmpty() == true)
+    }
+
+    @Test
+    fun reprobingAnExistingSongPreservesItsOriginalDateAdded() {
+        val draft = draft().copy(dateAddedMs = 100L)
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(dateAddedMs = 200L)
+
+        assertEquals(200L, draft.dateAddedMsFor(cached))
+        assertEquals(100L, draft.dateAddedMsFor(null))
+    }
+
+    @Test
+    fun cacheReuseReportsEmbeddedLyricsMissAsThePrimaryReason() {
+        val draft = draft(displayName = "song.m4a", mimeType = "audio/mp4")
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(
+            mediaUri = draft.mediaUri,
+            sizeBytes = draft.sizeBytes,
+            dateModifiedMs = draft.dateModifiedMs,
+            lyricsDocument = LyricsDocument(),
+        )
+        val reasons = mutableListOf<String>()
+
+        assertNull(
+            draft.reusableCachedSong(
+                context = ApplicationProvider.getApplicationContext(),
+                cachedById = mapOf(cached.id to cached),
+                requireFreshEmbeddedLyrics = true,
+                onReuseMiss = reasons::add,
+            ),
+        )
+
+        assertEquals(listOf("embedded-lyrics-probe-stale"), reasons)
+    }
+
+    @Test
+    fun matchingEmbeddedLyricsProbeRevisionAllowsCachedSongReuse() {
+        val draft = draft(displayName = "song.m4a", mimeType = "audio/mp4")
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(
+            mediaUri = draft.mediaUri,
+            sizeBytes = draft.sizeBytes,
+            dateModifiedMs = draft.dateModifiedMs,
+            embeddedLyricsProbeRevision = draft.embeddedLyricsProbeRevisionForCurrentFile(),
+        )
+
+        assertEquals(
+            cached,
+            draft.reusableCachedSong(
+                context = ApplicationProvider.getApplicationContext(),
+                cachedById = mapOf(cached.id to cached),
+                requireFreshEmbeddedLyrics = true,
+            ),
+        )
+    }
+
+    @Test
+    fun unknownModificationTimeDoesNotTrustEmbeddedLyricsProbeRevision() {
+        val draft = draft(displayName = "song.m4a", mimeType = "audio/mp4").copy(
+            dateModifiedMs = 0L,
+        )
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(
+            mediaUri = draft.mediaUri,
+            sizeBytes = draft.sizeBytes,
+            dateModifiedMs = draft.dateModifiedMs,
+            embeddedLyricsProbeRevision = draft.embeddedLyricsProbeRevisionForCurrentFile(),
+        )
+
+        assertNull(
+            draft.reusableCachedSong(
+                context = ApplicationProvider.getApplicationContext(),
+                cachedById = mapOf(cached.id to cached),
+                requireFreshEmbeddedLyrics = true,
+            ),
+        )
+    }
+
+    @Test
+    fun scanPerfSummaryIncludesCacheReuseMissReasons() {
+        val profiler = ScanProfiler("test")
+        profiler.recordReuseMiss("embedded-lyrics-unread")
+
+        assertTrue(profiler.finish(total = 1, reused = 0, probed = 1).contains(
+            "reuseMisses=embedded-lyrics-unread=1",
+        ))
     }
 
     @Test

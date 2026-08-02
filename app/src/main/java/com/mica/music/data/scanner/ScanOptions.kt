@@ -10,6 +10,8 @@ data class ScanOptions(
     val excludedDirectories: List<String> = emptyList(),
     val forceRefreshLyrics: Boolean = false,
     val forceRefreshArtwork: Boolean = false,
+    /** One-off metadata refresh targets, normally used after an external tag editor returns. */
+    val forceRefreshSongIds: Set<String> = emptySet(),
 )
 
 object ExcludedScanDirectories {

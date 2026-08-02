@@ -74,13 +74,16 @@ object FolderScanner {
             var done = 0
             drafts.chunked(PROBE_PARALLELISM).forEach { chunk ->
                 val batch = chunk.map { draft ->
+                val forceRefreshLyrics = draft.forceRefreshLyricsFor(options)
+                val forceRefreshArtwork = draft.forceRefreshArtworkFor(options)
                 draft.reusableCachedSong(
                     context = context,
                     cachedById = cachedById,
                     requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                     requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
-                    forceRefreshLyrics = options.forceRefreshLyrics,
-                    forceRefreshArtwork = options.forceRefreshArtwork,
+                    forceRefreshLyrics = forceRefreshLyrics,
+                    forceRefreshArtwork = forceRefreshArtwork,
+                    onReuseMiss = profiler::recordReuseMiss,
                 )?.let { song -> ScannedSong(song).also { reused.incrementAndGet() } }
                     ?: profiler.measure("quickSong") {
                         probed.incrementAndGet()
@@ -90,7 +93,7 @@ object FolderScanner {
                             profiler = profiler,
                             cachedSong = draft.unchangedCachedSongForProbe(
                                 cachedById,
-                                options.forceRefreshLyrics,
+                                forceRefreshLyrics,
                             ),
                         )
                     }
@@ -113,14 +116,17 @@ object FolderScanner {
                     chunk.map { draft ->
                     async {
                         semaphore.withPermit {
+                            val forceRefreshLyrics = draft.forceRefreshLyricsFor(options)
+                            val forceRefreshArtwork = draft.forceRefreshArtworkFor(options)
                             val song = draft.reusableCachedSong(
                                 context = context,
                                 cachedById = cachedById,
                                 requireDeepMetadata = true,
                                 requireDirectLyrics = draft.externalLyricsUris.isNotEmpty(),
                                 requireFreshEmbeddedLyrics = draft.mayContainMp4EmbeddedLyrics(),
-                                forceRefreshLyrics = options.forceRefreshLyrics,
-                                forceRefreshArtwork = options.forceRefreshArtwork,
+                                forceRefreshLyrics = forceRefreshLyrics,
+                                forceRefreshArtwork = forceRefreshArtwork,
+                                onReuseMiss = profiler::recordReuseMiss,
                             )
                                 ?.let { cached -> ScannedSong(cached).also { reused.incrementAndGet() } }
                                 ?: profiler.measure("probeTrack") {
@@ -131,7 +137,7 @@ object FolderScanner {
                                         profiler = profiler,
                                         cachedSong = draft.unchangedCachedSongForProbe(
                                             cachedById,
-                                            options.forceRefreshLyrics,
+                                            forceRefreshLyrics,
                                         ),
                                         technicalProbeFailures = technicalFailed,
                                     )

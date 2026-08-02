@@ -218,6 +218,7 @@ object AudioMetadataProbe {
                 lyricsDocument = lyrics.selectedOrCached(cachedSong),
                 copyrightOverride = copyright,
                 metadataScanVersion = 0,
+                dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
             ),
             lyrics = lyrics,
         )
@@ -373,6 +374,7 @@ object AudioMetadataProbe {
                     lyrics.selectedOrCached(cachedSong),
                     trackNumber = tags.trackNumber,
                     discNumber = tags.discNumber,
+                    dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
                 ),
                 lyrics = lyrics,
             )
@@ -416,6 +418,7 @@ object AudioMetadataProbe {
                     },
                     lyricsDocument = lyrics.selectedOrCached(cachedSong),
                     copyrightOverride = copyright,
+                    dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
                 ),
                 lyrics = lyrics,
             )
@@ -604,6 +607,7 @@ object AudioMetadataProbe {
                 lyricsDocument = lyrics.selectedOrCached(cachedSong),
                 trackNumber = tags.trackNumber,
                 discNumber = tags.discNumber,
+                dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
             ).copy(replayGain = tagLib.replayGain),
             lyrics = lyrics,
         )
@@ -962,6 +966,7 @@ object AudioMetadataProbe {
                 lyricsDocument = lyrics.selectedOrCached(cachedSong),
                 trackNumber = tags.trackNumber,
                 discNumber = tags.discNumber,
+                dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
             ),
             lyrics = lyrics,
         )
@@ -1097,6 +1102,7 @@ object AudioMetadataProbe {
         trackNumber: Int = 0,
         discNumber: Int = 0,
         metadataScanVersion: Int = CURRENT_METADATA_SCAN_VERSION,
+        dateAddedMsOverride: Long? = null,
     ): Song {
         val id = if (mediaStoreId > 0) "ms_$mediaStoreId" else SongIdentity.documentId(mediaUri)
         return Song(
@@ -1122,7 +1128,7 @@ object AudioMetadataProbe {
             filePath = filePath,
             copyright = copyrightOverride.ifBlank { copyright },
             codecLabel = codecLabel,
-            dateAddedMs = dateAddedMs,
+            dateAddedMs = dateAddedMsOverride ?: dateAddedMs,
             dateModifiedMs = dateModifiedMs,
             externalLyricsSignature = externalLyricsSignature,
             lyricsDocument = lyricsDocument,

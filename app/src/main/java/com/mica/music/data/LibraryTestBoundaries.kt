@@ -23,6 +23,21 @@ internal interface LibraryScanner {
         onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
     ): ScanResult
 
+    suspend fun scanDeviceForSongs(
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean = false,
+        forceRefreshArtwork: Boolean = false,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
+    ): ScanResult = scanDevice(
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        forceRefreshLyrics = forceRefreshLyrics,
+        forceRefreshArtwork = forceRefreshArtwork,
+        onLyricsBatch = onLyricsBatch,
+    )
+
     suspend fun scanFolder(
         treeUri: Uri,
         cachedSongs: List<Song>,
@@ -31,6 +46,23 @@ internal interface LibraryScanner {
         forceRefreshArtwork: Boolean = false,
         onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
     ): ScanResult
+
+    suspend fun scanFolderForSongs(
+        treeUri: Uri,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean = false,
+        forceRefreshArtwork: Boolean = false,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
+    ): ScanResult = scanFolder(
+        treeUri = treeUri,
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        forceRefreshLyrics = forceRefreshLyrics,
+        forceRefreshArtwork = forceRefreshArtwork,
+        onLyricsBatch = onLyricsBatch,
+    )
 }
 
 internal interface LibraryStore {
@@ -144,6 +176,25 @@ internal class AndroidLibraryScanner(
         onLyricsBatch = onLyricsBatch,
     )
 
+    override suspend fun scanDeviceForSongs(
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean,
+        forceRefreshArtwork: Boolean,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+    ): ScanResult = MediaStoreScanner.scan(
+        context = context,
+        options = LibraryScanSettings.scanOptions(context).copy(
+            forceRefreshLyrics = forceRefreshLyrics,
+            forceRefreshArtwork = forceRefreshArtwork,
+            forceRefreshSongIds = songIds,
+        ),
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        onLyricsBatch = onLyricsBatch,
+    )
+
     override suspend fun scanFolder(
         treeUri: Uri,
         cachedSongs: List<Song>,
@@ -157,6 +208,27 @@ internal class AndroidLibraryScanner(
         options = LibraryScanSettings.scanOptions(context).copy(
             forceRefreshLyrics = forceRefreshLyrics,
             forceRefreshArtwork = forceRefreshArtwork,
+        ),
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        onLyricsBatch = onLyricsBatch,
+    )
+
+    override suspend fun scanFolderForSongs(
+        treeUri: Uri,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean,
+        forceRefreshArtwork: Boolean,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+    ): ScanResult = FolderScanner.scan(
+        context = context,
+        treeUri = treeUri,
+        options = LibraryScanSettings.scanOptions(context).copy(
+            forceRefreshLyrics = forceRefreshLyrics,
+            forceRefreshArtwork = forceRefreshArtwork,
+            forceRefreshSongIds = songIds,
         ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,

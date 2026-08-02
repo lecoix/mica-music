@@ -12,11 +12,27 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 private const val ScanPerfTag = "ScanPerf"
+internal const val CURRENT_EMBEDDED_LYRICS_PROBE_VERSION = 1
+
+private fun embeddedLyricsProbeRevision(
+    songId: String,
+    sizeBytes: Long,
+    dateModifiedMs: Long,
+): String = buildString {
+    append(CURRENT_EMBEDDED_LYRICS_PROBE_VERSION)
+    append('\u0001')
+    append(songId)
+    append('\u0001')
+    append(sizeBytes.coerceAtLeast(0L))
+    append('\u0001')
+    append(dateModifiedMs.coerceAtLeast(0L))
+}
 
 internal class ScanProfiler(private val source: String) {
     private val startedAtNs = SystemClock.elapsedRealtimeNanos()
     private val stages = ConcurrentHashMap<String, Stage>()
     private val byteStages = ConcurrentHashMap<String, ByteStage>()
+    private val reuseMisses = ConcurrentHashMap<String, AtomicInteger>()
 
     fun <T> measure(stage: String, block: () -> T): T {
         val start = SystemClock.elapsedRealtimeNanos()
@@ -48,6 +64,10 @@ internal class ScanProfiler(private val source: String) {
         item.totalBytes.addAndGet(byteCount.coerceAtLeast(0L))
     }
 
+    fun recordReuseMiss(reason: String) {
+        reuseMisses.computeIfAbsent(reason) { AtomicInteger(0) }.incrementAndGet()
+    }
+
     fun finish(total: Int, reused: Int, probed: Int): String {
         val totalMs = (SystemClock.elapsedRealtimeNanos() - startedAtNs).nanosToMs()
         val stageSummary = stages.entries
@@ -67,10 +87,14 @@ internal class ScanProfiler(private val source: String) {
                 val avgKiB = if (count > 0) totalBytes / count / 1024L else 0L
                 "$name=${totalMiB}MiB/${count}x(avg ${avgKiB}KiB)"
             }
+        val reuseMissSummary = reuseMisses.entries
+            .sortedByDescending { it.value.get() }
+            .joinToString(",") { (reason, count) -> "$reason=${count.get()}" }
         return buildString {
             append("source=$source wall=${totalMs}ms tracks=$total reused=$reused probed=$probed")
             append(" stages(cumulative): $stageSummary")
             if (byteSummary.isNotEmpty()) append(" bytes(cumulative): $byteSummary")
+            if (reuseMissSummary.isNotEmpty()) append(" reuseMisses=$reuseMissSummary")
         }
             .also {
                 Log.i(ScanPerfTag, it)
@@ -93,6 +117,16 @@ internal class ScanProfiler(private val source: String) {
 internal fun TrackDraft.scanSongId(): String =
     if (mediaStoreId > 0) "ms_$mediaStoreId" else SongIdentity.documentId(mediaUri)
 
+internal fun TrackDraft.embeddedLyricsProbeRevisionForCurrentFile(): String =
+    embeddedLyricsProbeRevision(scanSongId(), sizeBytes, dateModifiedMs)
+
+internal fun Song.embeddedLyricsProbeRevisionForCurrentFile(): String =
+    embeddedLyricsProbeRevision(id, sizeBytes, dateModifiedMs)
+
+/** Preserve the original library-add time when an existing song is re-probed. */
+internal fun TrackDraft.dateAddedMsFor(cachedSong: Song?): Long =
+    cachedSong?.dateAddedMs ?: dateAddedMs
+
 internal fun TrackDraft.reusableCachedSong(
     context: Context,
     cachedById: Map<String, Song>,
@@ -101,20 +135,54 @@ internal fun TrackDraft.reusableCachedSong(
     requireFreshEmbeddedLyrics: Boolean = false,
     forceRefreshLyrics: Boolean = false,
     forceRefreshArtwork: Boolean = false,
+    onReuseMiss: ((String) -> Unit)? = null,
 ): Song? {
-    val cached = unchangedCachedSong(cachedById) ?: return null
-    if (forceRefreshLyrics) return null
-    if (forceRefreshArtwork && cached.hasRefreshableArtwork(context)) return null
-    return cached.takeIf {
-        AlbumArtCache.hasReadableCachedArt(context, it) &&
-        (!requireDeepMetadata || it.hasDeepMetadata()) &&
-            (!requireDeepMetadata || it.metadataScanVersion >= AudioMetadataProbe.CURRENT_METADATA_SCAN_VERSION) &&
-            (!requireDeepMetadata || it.discNumber >= 0) &&
-            (!requireDeepMetadata || !isDsdDraft() || DsdSupport.isDsdMetadata(it.metadata)) &&
-            (!requireDirectLyrics || it.lyricsDocument.lines.isNotEmpty()) &&
-            (!requireFreshEmbeddedLyrics || it.lyricsDocument.lines.isNotEmpty())
+    fun miss(reason: String): Song? {
+        onReuseMiss?.invoke(reason)
+        return null
     }
+
+    val cached = cachedById[scanSongId()] ?: return miss("cache-missing")
+    if (cached.mediaUri != mediaUri) return miss("media-uri-changed")
+    if (cached.sizeBytes != sizeBytes) return miss("size-changed")
+    if (cached.dateModifiedMs != dateModifiedMs) return miss("date-modified-changed")
+    if (cached.externalLyricsSignature != externalLyricsSignature) {
+        return miss("external-lyrics-changed")
+    }
+    if (forceRefreshLyrics) return miss("force-lyrics")
+    if (forceRefreshArtwork && cached.hasRefreshableArtwork(context)) return miss("force-artwork")
+    if (!AlbumArtCache.hasReadableCachedArt(context, cached)) return miss("art-cache-unreadable")
+    if (requireDeepMetadata && !cached.hasDeepMetadata()) return miss("deep-metadata-missing")
+    if (
+        requireDeepMetadata &&
+        cached.metadataScanVersion < AudioMetadataProbe.CURRENT_METADATA_SCAN_VERSION
+    ) {
+        return miss("metadata-scan-version-stale")
+    }
+    if (requireDeepMetadata && cached.discNumber < 0) return miss("disc-number-missing")
+    if (requireDeepMetadata && isDsdDraft() && !DsdSupport.isDsdMetadata(cached.metadata)) {
+        return miss("dsd-metadata-invalid")
+    }
+    if (requireDirectLyrics && cached.lyricsDocument.lines.isEmpty()) {
+        return miss("direct-lyrics-missing")
+    }
+    if (requireFreshEmbeddedLyrics &&
+        (!hasStableEmbeddedLyricsFingerprint() ||
+            cached.embeddedLyricsProbeRevision != embeddedLyricsProbeRevisionForCurrentFile())
+    ) {
+        return miss(
+            if (hasStableEmbeddedLyricsFingerprint()) {
+                "embedded-lyrics-probe-stale"
+            } else {
+                "embedded-lyrics-fingerprint-unreliable"
+            },
+        )
+    }
+    return cached
 }
+
+private fun TrackDraft.hasStableEmbeddedLyricsFingerprint(): Boolean =
+    sizeBytes > 0L && dateModifiedMs > 0L
 
 internal fun TrackDraft.unchangedCachedSong(cachedById: Map<String, Song>): Song? {
     val cached = cachedById[scanSongId()] ?: return null
@@ -133,6 +201,12 @@ internal fun TrackDraft.unchangedCachedSongForProbe(
     unchangedCachedSong(cachedById)?.let { cached ->
         if (forceRefreshLyrics) cached.copy(lyricsDocument = com.mica.music.data.LyricsDocument()) else cached
     }
+
+internal fun TrackDraft.forceRefreshLyricsFor(options: ScanOptions): Boolean =
+    options.forceRefreshLyrics || scanSongId() in options.forceRefreshSongIds
+
+internal fun TrackDraft.forceRefreshArtworkFor(options: ScanOptions): Boolean =
+    options.forceRefreshArtwork || scanSongId() in options.forceRefreshSongIds
 
 private fun Song.hasDeepMetadata(): Boolean =
     metadata.sampleRateHz > 0 ||

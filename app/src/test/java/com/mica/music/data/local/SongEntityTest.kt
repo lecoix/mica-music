@@ -21,6 +21,7 @@ class SongEntityTest {
         val song = SongFixtures.song(id = "round-trip", queueOrder = 4).copy(
             discNumber = 2,
             releaseDate = "2024-02-29",
+            embeddedLyricsProbeRevision = "1\u0001round-trip\u00011000000\u00012000",
         )
         val entity = song.toEntity(queueOrder = 7)
         val restored = entity.toSong()

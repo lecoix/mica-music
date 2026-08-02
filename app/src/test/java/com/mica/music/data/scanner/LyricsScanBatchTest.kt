@@ -9,6 +9,7 @@ import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsFormat
 import com.mica.music.data.LyricsOrigin
 import com.mica.music.data.LyricsProbeResult
+import com.mica.music.data.ScannedSongLyrics
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.test.runTest
 import java.util.concurrent.atomic.AtomicInteger
@@ -54,7 +55,26 @@ class LyricsScanBatchTest {
         retained.forEach { song ->
             assertFalse(song.lyricsLoaded)
             assertEquals(0, song.lyricsDocument.lines.size)
+            assertEquals(
+                song.embeddedLyricsProbeRevisionForCurrentFile(),
+                song.embeddedLyricsProbeRevision,
+            )
         }
+    }
+
+    @Test
+    fun emptyCompletedLyricsProbeIsForwardedToClearOldPayloads() = runTest {
+        val song = SongFixtures.song("empty-probe")
+        var payload: ScannedSongLyrics? = null
+
+        persistScannedLyricsBatch(
+            listOf(ScannedSong(song, LyricsProbeResult.Complete(LyricsSlots()))),
+        ) { batch ->
+            payload = batch.completed.single()
+        }
+
+        assertEquals(song.id, payload?.songId)
+        assertEquals(LyricsSlots(), payload?.slots)
     }
 
     @Test

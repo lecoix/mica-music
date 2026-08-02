@@ -51,6 +51,7 @@ class LibraryScanOrchestratorTest {
         runCurrent()
 
         assertEquals(1, scanner.deviceRequests.size)
+        assertFalse(scanner.deviceRequests.single().forceRefreshLyrics)
         assertFalse(scanner.deviceRequests.single().forceRefreshArtwork)
         scanner.deviceRequests.single().result.complete(
             ScanResult(listOf(SongFixtures.song("old")), 10),
@@ -146,6 +147,25 @@ class LibraryScanOrchestratorTest {
 
         assertFalse(environment.retryRequired)
         assertEquals(CURRENT_LYRICS_PARSER_VERSION, environment.parserVersion)
+        harness.backing.release()
+    }
+
+    @Test
+    fun targetedSongRefreshUsesOneOffProbeTargetWithoutGlobalLyricsRefresh() = runTest {
+        val scanner = ControlledScanner()
+        val harness = scanHarness(scanner)
+        val target = SongFixtures.song("target")
+        val other = SongFixtures.song("other")
+        harness.backing.replaceSongs(listOf(target, other))
+
+        val refresh = async { harness.orchestrator.refreshSongMetadata(target.id) }
+        runCurrent()
+
+        assertEquals(setOf(target.id), scanner.deviceRequests.single().forceRefreshSongIds)
+        assertFalse(scanner.deviceRequests.single().forceRefreshLyrics)
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(target, other), 2))
+        refresh.await()
+
         harness.backing.release()
     }
 
@@ -339,6 +359,7 @@ class LibraryScanOrchestratorTest {
         val cachedSongs: List<Song>,
         val forceRefreshLyrics: Boolean,
         val forceRefreshArtwork: Boolean,
+        val forceRefreshSongIds: Set<String> = emptySet(),
         val onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
         val result: CompletableDeferred<ScanResult> = CompletableDeferred(),
     )
@@ -359,6 +380,24 @@ class LibraryScanOrchestratorTest {
                 cachedSongs = cachedSongs,
                 forceRefreshLyrics = forceRefreshLyrics,
                 forceRefreshArtwork = forceRefreshArtwork,
+                onLyricsBatch = onLyricsBatch,
+            ).also(deviceRequests::add).result.await()
+        }
+
+        override suspend fun scanDeviceForSongs(
+            songIds: Set<String>,
+            cachedSongs: List<Song>,
+            onProgress: (Int, Int) -> Unit,
+            forceRefreshLyrics: Boolean,
+            forceRefreshArtwork: Boolean,
+            onLyricsBatch: (suspend (com.mica.music.data.LyricsScanBatch) -> Unit)?,
+        ): ScanResult {
+            onProgress(0, cachedSongs.size)
+            return ScanRequest(
+                cachedSongs = cachedSongs,
+                forceRefreshLyrics = forceRefreshLyrics,
+                forceRefreshArtwork = forceRefreshArtwork,
+                forceRefreshSongIds = songIds,
                 onLyricsBatch = onLyricsBatch,
             ).also(deviceRequests::add).result.await()
         }

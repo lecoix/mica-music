@@ -43,6 +43,8 @@ data class Song(
     val dateAddedMs: Long = 0L,
     val dateModifiedMs: Long = 0L,
     val externalLyricsSignature: String = "",
+    /** File fingerprint for the last successful embedded-lyrics probe; empty means unknown. */
+    val embeddedLyricsProbeRevision: String = "",
     val playCount: Int = 0,
     val totalListenSeconds: Long = 0L,
     /** 最近一次开始播放的时间戳（毫秒），未播放过为 0 */
@@ -71,7 +73,7 @@ data class Song(
     val isHiRes: Boolean get() = metadata.isHiRes
 
     val lyricsCacheRevision: String
-        get() = "$dateModifiedMs:$externalLyricsSignature"
+        get() = "$sizeBytes:$dateModifiedMs:$externalLyricsSignature"
 }
 
 data class LyricLine(
