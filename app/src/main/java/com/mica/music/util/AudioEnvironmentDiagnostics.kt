@@ -69,6 +69,8 @@ object AudioEnvironmentDiagnostics {
             append(if (running.isEmpty()) "none" else running.joinToString("|"))
             append("; activePlaybackCount=$playbackCount")
             append("; musicActive=$musicActive")
+            append("; spatialAudio=")
+            append(SpatialAudioMonitor.snapshot(appCtx).toLogMessage())
         }
         DiagnosticLog.event("AudioEnv", message)
     }

@@ -49,6 +49,7 @@ fun SettingsScreen(
     uiSettings: AppUiSettings,
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
+    onOpenSpatialAudio: () -> Unit,
     onOpenParticleCoverPreview: () -> Unit,
     onOpenPhotoStackShadowPreview: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
@@ -227,6 +228,7 @@ fun SettingsScreen(
                                 scanState = scanState.withDeepProbe(context, it)
                             },
                             onOpenMetadataDebug = onOpenMetadataDebug,
+                            onOpenSpatialAudio = onOpenSpatialAudio,
                             onOpenAppSettings = { openAppSettings(context) },
                         )
                     }

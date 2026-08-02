@@ -5,6 +5,7 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LyricsSlot
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsDropdownRow
+import com.mica.music.ui.components.SettingsNavigationRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
 
@@ -17,6 +18,7 @@ internal fun AdvancedSettingsPanel(
     onIncludeNonMusicChange: (Boolean) -> Unit,
     onDeepProbeChange: (Boolean) -> Unit,
     onOpenMetadataDebug: () -> Unit,
+    onOpenSpatialAudio: () -> Unit,
     onOpenAppSettings: () -> Unit,
 ) {
     SettingsSectionTitle("高级扫描与调试")
@@ -58,6 +60,12 @@ internal fun AdvancedSettingsPanel(
         subtitle = "逐首查看应用内字段、ID3/Vorbis、Retriever 与解析器结果",
         onClick = onOpenMetadataDebug,
         enabled = hasSongs,
+    )
+
+    SettingsNavigationRow(
+        title = "系统空间音频",
+        subtitle = "查看系统 Spatializer、当前输出、5.1 PCM 能力与头部跟踪状态",
+        onClick = onOpenSpatialAudio,
     )
 
     SettingsActionRow(

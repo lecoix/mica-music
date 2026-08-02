@@ -10,6 +10,7 @@ import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.AudioEnvironmentDiagnostics
+import com.mica.music.util.SpatialAudioMonitor
 
 class MicaApp : Application() {
     /** Process-lifetime catalog for external songs; it is intentionally not persisted. */
@@ -41,6 +42,7 @@ class MicaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ScanCacheManager.runStartupCacheCleanup(this)
+        SpatialAudioMonitor.install(this)
         DiagnosticLog.install(this)
         BluetoothAudioDiagnostics.install(this)
         AudioEnvironmentDiagnostics.install(this)

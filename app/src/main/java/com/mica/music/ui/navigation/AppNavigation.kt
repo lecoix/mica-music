@@ -44,6 +44,7 @@ import com.mica.music.ui.screens.ParticleCoverPreviewScreen
 import com.mica.music.ui.screens.PhotoStackShadowPreviewScreen
 import com.mica.music.ui.screens.settings.SettingsScreen
 import com.mica.music.ui.screens.SongDetailScreen
+import com.mica.music.ui.screens.SpatialAudioScreen
 import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.logBackFlow
@@ -57,6 +58,7 @@ object Routes {
     const val Equalizer = "equalizer"
     const val About = "about"
     const val MetadataDebug = "metadata_debug"
+    const val SpatialAudio = "spatial_audio"
     const val ParticleCoverPreview = "particle_cover_preview"
     const val PhotoStackShadowPreview = "photo_stack_shadow_preview"
     const val SongDetail = "song_detail/{songId}"
@@ -238,6 +240,10 @@ fun AppNavigationMain(
                     logBackFlow("nav-action open-metadata-debug from=settings")
                     coordinator.navigate(Routes.MetadataDebug)
                 },
+                onOpenSpatialAudio = {
+                    logBackFlow("nav-action open-spatial-audio from=settings")
+                    coordinator.navigate(Routes.SpatialAudio)
+                },
                 onOpenParticleCoverPreview = {
                     logBackFlow("nav-action open-particle-preview from=settings")
                     coordinator.navigate(Routes.ParticleCoverPreview)
@@ -284,6 +290,20 @@ fun AppNavigationMain(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
                 ),
+            )
+        }
+        composable(Routes.SpatialAudio) {
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            SpatialAudioScreen(
+                onBack = {
+                    logBackFlow("back-consume source=spatial-audio-topbar")
+                    navController.popBackStack()
+                },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+                bottomContentClearance = bottomOverlayClearance,
             )
         }
         composable(Routes.PhotoStackShadowPreview) {
