@@ -25,6 +25,8 @@ internal fun HomeOverlays(
     onAddToPlaylistCreated: (String) -> Unit,
     onDismissCreatePlaylist: () -> Unit,
     onCreatePlaylist: (String) -> Unit,
+    onDismissRenamePlaylist: () -> Unit,
+    onRenamePlaylist: (String) -> Unit,
     onConfirmDeleteSong: (Song) -> Unit,
     onDismissDeleteSong: () -> Unit,
     onConfirmDeletePlaylist: (String) -> Unit,
@@ -70,6 +72,19 @@ internal fun HomeOverlays(
         onConfirm = onCreatePlaylist,
         onDismiss = onDismissCreatePlaylist,
     )
+
+    overlay.renamePlaylistId?.let { playlistId ->
+        val playlist = playlistStore.playlistById(playlistId)
+        MicaTextInputDialog(
+            visible = playlist != null,
+            title = "重命名歌单",
+            hint = "姝屽崟鍚嶇О",
+            initialValue = playlist?.name.orEmpty(),
+            confirmLabel = "淇濆瓨",
+            onConfirm = onRenamePlaylist,
+            onDismiss = onDismissRenamePlaylist,
+        )
+    }
 
     overlay.pendingDeleteSong?.let { song ->
         MicaConfirmDialog(

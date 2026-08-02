@@ -44,6 +44,7 @@ internal fun HomeSortSheets(
     onDismiss: () -> Unit,
     onMultiSelectClick: (() -> Unit)?,
     uiSettings: AppUiSettings,
+    playlistActions: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     if (!visible) return
 
@@ -151,6 +152,7 @@ internal fun HomeSortSheets(
                     null
                 },
                 uiSettings = uiSettings.takeIf { section == HomeSection.Songs && !isPlaylistSort },
+                playlistActions = playlistActions,
             )
         }
     }

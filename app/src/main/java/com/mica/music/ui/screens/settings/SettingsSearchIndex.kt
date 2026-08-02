@@ -70,6 +70,7 @@ internal object SettingsSearchIndex {
         setting("appearance.restore-wallpaper", "恢复默认壁纸", "壁纸", "恢复", "云母背景"),
         setting("appearance.hide-status-bar", "隐藏状态栏", "全屏", "状态栏"),
         setting("appearance.mini-player-style", "迷你播放栏", "迷你播放", "底栏", "样式", section = SettingsIndexSections.MINI_PLAYER),
+        setting("appearance.playlist-sidebar-style", "侧栏歌单样式", "歌单", "侧栏", "总览", "默认形式"),
         setting("appearance.mini-player-lyrics", "迷你播放栏歌词", "迷你播放", "歌词", section = SettingsIndexSections.MINI_PLAYER),
         setting(
             "appearance.mini-player-word-lyrics",

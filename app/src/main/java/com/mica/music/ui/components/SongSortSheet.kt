@@ -34,6 +34,7 @@ fun SongSortSheet(
     customSortLocked: Boolean = false,
     onMultiSelectClick: (() -> Unit)? = null,
     uiSettings: AppUiSettings? = null,
+    playlistActions: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     val sortFields = if (includeCustomSort) {
         listOf(SongSortField.CUSTOM) + SongSortField.entries.filter { it != SongSortField.CUSTOM }
@@ -120,6 +121,28 @@ fun SongSortSheet(
                         onDismiss()
                     },
                 )
+            }
+            if (playlistActions.isNotEmpty()) {
+                Text(
+                    text = "歌单操作",
+                    style = MicaTheme.typography.caption,
+                    color = MicaTheme.colors.textSecondary,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+                ) {
+                    playlistActions.forEach { (label, action) ->
+                        AccentTextChoice(
+                            label = label,
+                            selected = false,
+                            onClick = {
+                                action()
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
             }
             if (uiSettings != null) {
                 val info = uiSettings.songListInfoVisibility

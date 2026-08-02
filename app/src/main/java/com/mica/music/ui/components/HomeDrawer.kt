@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.UserPlaylist
+import com.mica.music.data.PlaylistSidebarStyle
 import com.mica.music.ui.screens.home.HomeSection
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -65,6 +66,7 @@ fun HomeDrawerPanel(
     selectedSection: HomeSection,
     activePlaylistId: String?,
     playlists: List<UserPlaylist>,
+    playlistSidebarStyle: PlaylistSidebarStyle = PlaylistSidebarStyle.DEFAULT,
     statusBarTop: Dp,
     bottomInset: Dp,
     onSectionSelected: (HomeSection) -> Unit,
@@ -79,8 +81,7 @@ fun HomeDrawerPanel(
         widthDp = configuration.screenWidthDp,
         heightDp = configuration.screenHeightDp,
     )
-    val libraryItems =
-        listOf(
+    val libraryItems = listOf(
             DrawerItem("歌曲", Icons.Outlined.LibraryMusic, selectedSection == HomeSection.Songs) {
                 onSectionSelected(HomeSection.Songs)
             },
@@ -93,7 +94,15 @@ fun HomeDrawerPanel(
             DrawerItem("文件夹", Icons.Outlined.Folder, selectedSection == HomeSection.Folders) {
                 onSectionSelected(HomeSection.Folders)
             },
+        ) + if (playlistSidebarStyle == PlaylistSidebarStyle.OVERVIEW) {
+        listOf(
+            DrawerItem("歌单", Icons.Outlined.PlaylistPlay, selectedSection == HomeSection.Playlist) {
+                onSectionSelected(HomeSection.Playlist)
+            },
         )
+    } else {
+        emptyList()
+    }
     val discoveryItems =
         listOf(
             DrawerItem("最近播放", Icons.Outlined.History, selectedSection == HomeSection.Recent) {
@@ -107,20 +116,29 @@ fun HomeDrawerPanel(
                 onSectionSelected(HomeSection.LibraryAnalysis)
             },
         )
-    val playlistItems = playlists.map { playlist ->
-        DrawerItem(
-            label = playlist.name,
-            icon = Icons.Outlined.PlaylistPlay,
-            selected = selectedSection == HomeSection.Playlist && activePlaylistId == playlist.id,
-            onClick = { onPlaylistSelected(playlist.id) },
+    val playlistItems = when (playlistSidebarStyle) {
+        PlaylistSidebarStyle.DEFAULT -> playlists.map { playlist ->
+            DrawerItem(
+                label = playlist.name,
+                icon = Icons.Outlined.PlaylistPlay,
+                selected = selectedSection == HomeSection.Playlist && activePlaylistId == playlist.id,
+                onClick = { onPlaylistSelected(playlist.id) },
+            )
+        }
+        PlaylistSidebarStyle.OVERVIEW -> emptyList()
+    } + if (playlistSidebarStyle == PlaylistSidebarStyle.DEFAULT) {
+        listOf(
+            DrawerItem(
+                label = "新建歌单",
+                icon = Icons.Outlined.Add,
+                selected = false,
+                muted = true,
+                onClick = onCreatePlaylist,
+            ),
         )
-    } + DrawerItem(
-        label = "新建歌单",
-        icon = Icons.Outlined.Add,
-        selected = false,
-        muted = true,
-        onClick = onCreatePlaylist,
-    )
+    } else {
+        emptyList()
+    }
     val bottomItems = listOf(
         DrawerItem("均衡器", Icons.Outlined.GraphicEq, false, onClick = onOpenEqualizer),
         DrawerItem("关于", Icons.Outlined.Info, false, onClick = onOpenAbout),
@@ -153,10 +171,11 @@ fun HomeDrawerPanel(
                 DrawerSectionLabel("发现")
                 DrawerNavGrid(items = discoveryItems, columns = columns)
 
-                Spacer(Modifier.height(HifiSpacing.xl))
-
-                DrawerSectionLabel("歌单")
-                DrawerNavGrid(items = playlistItems, columns = columns)
+                if (playlistSidebarStyle == PlaylistSidebarStyle.DEFAULT) {
+                    Spacer(Modifier.height(HifiSpacing.xl))
+                    DrawerSectionLabel("歌单")
+                    DrawerNavGrid(items = playlistItems, columns = columns)
+                }
             }
 
             DrawerNavGrid(

@@ -6,6 +6,7 @@ internal sealed interface HomePaneKey {
     data object Songs : HomePaneKey
     data object Analysis : HomePaneKey
     data object Folders : HomePaneKey
+    data object PlaylistOverview : HomePaneKey
     data class Playlist(val id: String) : HomePaneKey
     data class Browse(
         val section: HomeSection,
@@ -45,6 +46,7 @@ internal fun homePaneDepth(key: HomePaneKey): Int = when (key) {
     is HomePaneKey.Browse -> homeSectionOrder(key.section) * 10 + browseDestinationDepth(key.destination)
     HomePaneKey.Folders -> homeSectionOrder(HomeSection.Folders) * 10
     HomePaneKey.Analysis -> homeSectionOrder(HomeSection.LibraryAnalysis) * 10
+    HomePaneKey.PlaylistOverview -> homeSectionOrder(HomeSection.Playlist) * 10
     is HomePaneKey.Playlist -> homeSectionOrder(HomeSection.Playlist) * 10
 }
 
@@ -75,6 +77,7 @@ internal fun resolveHomePaneKey(
     section == HomeSection.Songs -> HomePaneKey.Songs
     section == HomeSection.Folders -> HomePaneKey.Folders
     section == HomeSection.LibraryAnalysis -> HomePaneKey.Analysis
+    section == HomeSection.Playlist && activePlaylistId == null -> HomePaneKey.PlaylistOverview
     section == HomeSection.Playlist && activePlaylistId != null -> HomePaneKey.Playlist(activePlaylistId)
     section == HomeSection.Artists ||
         section == HomeSection.Albums ||

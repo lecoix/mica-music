@@ -28,6 +28,7 @@ import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlaybackQueueIconStyle
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.PlaylistSidebarStyle
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.ui.theme.MicaPreset
 
@@ -70,6 +71,10 @@ internal val AccentColorChoices = AppAccentColor.entries.map {
 }
 
 internal val MicaBackgroundChoices = MicaPreset.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+internal val PlaylistSidebarStyleChoices = PlaylistSidebarStyle.entries.map {
     it.ordinal to it.settingsLabel
 }
 

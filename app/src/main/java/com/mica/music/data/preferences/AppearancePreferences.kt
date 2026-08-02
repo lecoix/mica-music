@@ -5,6 +5,7 @@ import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.CustomMicaBackground
 import com.mica.music.data.MicaPreset
+import com.mica.music.data.PlaylistSidebarStyle
 
 /** 主题、状态栏、强调色与云母背景偏好。 */
 object AppearancePreferences {
@@ -19,6 +20,7 @@ object AppearancePreferences {
     private const val KEY_CUSTOM_MICA_END = "custom_mica_end"
     private const val KEY_CUSTOM_MICA_SINGLE_COLOR = "custom_mica_single_color"
     private const val KEY_CUSTOM_WALLPAPER_PATH = "custom_wallpaper_path"
+    private const val KEY_PLAYLIST_SIDEBAR_STYLE = "playlist_sidebar_style"
 
     private const val DEFAULT_CUSTOM_ACCENT_COLOR_ARGB = 0xFF8B7AFF.toInt()
     private const val DEFAULT_CUSTOM_MICA_START_ARGB = CustomMicaBackground.DEFAULT_START_ARGB
@@ -120,5 +122,16 @@ object AppearancePreferences {
                 putString(KEY_CUSTOM_WALLPAPER_PATH, path)
             }
         }.apply()
+    }
+
+    fun playlistSidebarStyle(context: Context): PlaylistSidebarStyle =
+        PlaylistSidebarStyle.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_PLAYLIST_SIDEBAR_STYLE, null),
+        )
+
+    fun setPlaylistSidebarStyle(context: Context, style: PlaylistSidebarStyle) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_PLAYLIST_SIDEBAR_STYLE, style.storageValue)
+            .apply()
     }
 }

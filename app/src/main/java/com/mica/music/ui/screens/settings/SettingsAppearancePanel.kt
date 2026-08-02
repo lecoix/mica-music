@@ -16,6 +16,7 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.AppWallpaperImporter
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
+import com.mica.music.data.PlaylistSidebarStyle
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
@@ -126,6 +127,16 @@ internal fun AppearanceSettingsPanel(
             AppWallpaperImporter.clearWallpaper(context)
             uiSettings.updateCustomWallpaperPath(null)
             Toast.makeText(context, "已恢复默认壁纸", Toast.LENGTH_SHORT).show()
+        },
+    )
+
+    SettingsChoiceRow(
+        title = "侧栏歌单样式",
+        subtitle = "逐个显示歌单，或进入歌单总览页管理歌单",
+        choices = PlaylistSidebarStyleChoices,
+        selectedValue = uiSettings.playlistSidebarStyle.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updatePlaylistSidebarStyle(PlaylistSidebarStyle.entries[ordinal])
         },
     )
 

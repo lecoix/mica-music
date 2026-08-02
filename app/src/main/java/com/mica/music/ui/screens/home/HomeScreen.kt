@@ -6,6 +6,9 @@ import com.mica.music.ui.screens.LibraryAnalysisContent
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -58,8 +61,10 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.PlaylistCoverImporter
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
+import com.mica.music.data.UserPlaylist
 import com.mica.music.media.NotificationLyrics
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.components.HomeDrawerPanel
@@ -82,7 +87,9 @@ import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val HomeDrawerSwipeVelocityThreshold = 400.dp
 private const val HomeDrawerSwipePositionThreshold = 0.5f
@@ -118,6 +125,9 @@ fun HomeScreen(
     var drawerOpen by remember { mutableStateOf(false) }
     var sortSheetOpen by remember { mutableStateOf(false) }
     var overlay by remember { mutableStateOf(HomeOverlayState()) }
+    var coverSongPickerPlaylistId by remember { mutableStateOf<String?>(null) }
+    var pendingCoverImportPlaylistId by remember { mutableStateOf<String?>(null) }
+    var pendingExportPlaylistId by remember { mutableStateOf<String?>(null) }
     var songMultiSelectActive by remember { mutableStateOf(false) }
     var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -131,6 +141,67 @@ fun HomeScreen(
     val artistGridState = rememberLazyGridState()
     val albumListState = rememberLazyListState()
     val albumGridState = rememberLazyGridState()
+
+    val coverImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        val playlistId = pendingCoverImportPlaylistId
+        pendingCoverImportPlaylistId = null
+        if (uri == null || playlistId == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                PlaylistCoverImporter.importCover(context, playlistId, uri)
+            }
+            result.path?.let { path -> playlistStore.setCustomCoverPath(playlistId, path) }
+            snackbarHostState.showSnackbar(result.message)
+        }
+    }
+
+    val playlistImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = runCatching {
+                val raw = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                } ?: error("无法读取歌单 JSON")
+                playlistStore.importPlaylistJson(raw, library.songs)
+            }
+            result.fold(
+                onSuccess = { imported ->
+                    snackbarHostState.showSnackbar(
+                        "已导入 ${imported.playlist.name}：${imported.importedSongCount} 首歌曲，跳过 ${imported.skippedSongCount} 首",
+                    )
+                },
+                onFailure = { error ->
+                    snackbarHostState.showSnackbar(error.message ?: "歌单 JSON 导入失败")
+                },
+            )
+        }
+    }
+
+    val playlistExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        val playlistId = pendingExportPlaylistId
+        pendingExportPlaylistId = null
+        if (uri == null || playlistId == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val json = playlistStore.exportPlaylistJson(playlistId, library::songById)
+            val saved = if (json == null) {
+                false
+            } else {
+                withContext(Dispatchers.IO) {
+                    val output = context.contentResolver.openOutputStream(uri)
+                        ?: return@withContext false
+                    output.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                    true
+                }
+            }
+            snackbarHostState.showSnackbar(if (saved) "歌单已导出" else "歌单 JSON 导出失败")
+        }
+    }
 
     fun currentNavigationSnapshot() = uiState.navigationSnapshot(
         songMultiSelectActive = songMultiSelectActive,
@@ -198,6 +269,51 @@ fun HomeScreen(
         }
         outcome.snackbarMessage?.let { message ->
             scope.launch { snackbarHostState.showSnackbar(message) }
+        }
+    }
+
+    fun renamePlaylist(name: String) {
+        val playlistId = overlay.renamePlaylistId
+        overlay = homeController.clearRenamePlaylist(overlay)
+        if (playlistId == null) return
+        val renamed = runCatching { playlistStore.renamePlaylist(playlistId, name) }
+            .getOrDefault(false)
+        if (renamed) {
+            scope.launch { snackbarHostState.showSnackbar("歌单已重命名") }
+        }
+    }
+
+    fun handlePlaylistAction(playlist: UserPlaylist, action: PlaylistOverviewAction) {
+        when (action) {
+            PlaylistOverviewAction.OPEN -> {
+                drawerOpen = false
+                uiState = uiState.copy(
+                    section = HomeSection.Playlist,
+                    activePlaylistId = playlist.id,
+                    browseDestination = BrowseDestination.Root,
+                    browseStack = emptyList(),
+                    searchOpen = false,
+                )
+            }
+            PlaylistOverviewAction.RENAME -> {
+                overlay = homeController.requestRenamePlaylist(overlay, playlist.id)
+            }
+            PlaylistOverviewAction.CHOOSE_SONG_COVER -> {
+                coverSongPickerPlaylistId = playlist.id
+            }
+            PlaylistOverviewAction.IMPORT_COVER -> {
+                pendingCoverImportPlaylistId = playlist.id
+                coverImportLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            }
+            PlaylistOverviewAction.EXPORT -> {
+                pendingExportPlaylistId = playlist.id
+                playlistExportLauncher.launch("${playlist.name}.json")
+            }
+            PlaylistOverviewAction.DELETE -> {
+                overlay = homeController.requestDeletePlaylist(overlay, playlist.id)
+            }
         }
     }
 
@@ -285,7 +401,15 @@ fun HomeScreen(
         drawerOpen = false
         when (target) {
             HomeSection.Settings -> onOpenSettings()
-            HomeSection.Playlist -> Unit
+            HomeSection.Playlist -> {
+                uiState = uiState.copy(
+                    section = HomeSection.Playlist,
+                    activePlaylistId = null,
+                    browseDestination = BrowseDestination.Root,
+                    browseStack = emptyList(),
+                    searchOpen = false,
+                )
+            }
             else -> {
                 val nextReturnSection = if (
                     (target == HomeSection.Recent || target == HomeSection.LibraryAnalysis) &&
@@ -496,6 +620,20 @@ fun HomeScreen(
                 destination == BrowseDestination.Root ||
                     (destination is BrowseDestination.Folder && destination.scopePathSegments.isEmpty())
             }
+    val activePlaylistActions: List<Pair<String, () -> Unit>> = activePlaylist?.let { playlist ->
+        listOf(
+            "导入歌单" to {
+                playlistImportLauncher.launch(arrayOf("application/json", "text/plain"))
+            },
+            "重命名" to { handlePlaylistAction(playlist, PlaylistOverviewAction.RENAME) },
+            "选择歌曲封面" to {
+                handlePlaylistAction(playlist, PlaylistOverviewAction.CHOOSE_SONG_COVER)
+            },
+            "导入封面" to { handlePlaylistAction(playlist, PlaylistOverviewAction.IMPORT_COVER) },
+            "导出歌单" to { handlePlaylistAction(playlist, PlaylistOverviewAction.EXPORT) },
+            "删除歌单" to { handlePlaylistAction(playlist, PlaylistOverviewAction.DELETE) },
+        )
+    } ?: emptyList()
 
     val miniPlayerStyle = uiSettings.miniPlayerStyle
     val currentSongSummary = playbackState.currentSong
@@ -641,6 +779,7 @@ fun HomeScreen(
             selectedSection = uiState.section,
             activePlaylistId = uiState.activePlaylistId,
             playlists = playlistStore.playlists,
+            playlistSidebarStyle = uiSettings.playlistSidebarStyle,
             statusBarTop = statusBarTop,
             bottomInset = drawerBottomInset,
             onSectionSelected = ::onDrawerPick,
@@ -780,6 +919,7 @@ fun HomeScreen(
                 onDismiss = { sortSheetOpen = false },
                 onMultiSelectClick = ::openSongMultiSelect,
                 uiSettings = uiSettings,
+                playlistActions = activePlaylistActions,
             )
 
             val paneKey = resolveHomePaneKey(
@@ -836,6 +976,18 @@ fun HomeScreen(
                         library = library,
                         hiResBadgeAppearance = uiSettings.hiResBadgeAppearance,
                         listBottomPadding = listBottomPadding,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    HomePaneKey.PlaylistOverview -> HomePlaylistOverviewContent(
+                        playlists = playlistStore.playlists,
+                        resolveSong = library::songById,
+                        onAction = ::handlePlaylistAction,
+                        onCreatePlaylist = {
+                            overlay = homeController.showCreatePlaylistDialog(overlay)
+                        },
+                        onImportPlaylist = {
+                            playlistImportLauncher.launch(arrayOf("application/json", "text/plain"))
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                     is HomePaneKey.Playlist -> HomePlaylistContent(
@@ -1035,6 +1187,10 @@ fun HomeScreen(
                 overlay = homeController.dismissCreatePlaylistDialog(overlay)
             },
             onCreatePlaylist = ::createPlaylist,
+            onDismissRenamePlaylist = {
+                overlay = homeController.clearRenamePlaylist(overlay)
+            },
+            onRenamePlaylist = ::renamePlaylist,
             onConfirmDeleteSong = ::confirmDeleteSong,
             onDismissDeleteSong = {
                 overlay = homeController.clearPendingDeleteSong(overlay)
@@ -1044,6 +1200,29 @@ fun HomeScreen(
                 overlay = homeController.clearPendingDeletePlaylist(overlay)
             },
         )
+
+        coverSongPickerPlaylistId?.let { playlistId ->
+            val playlist = playlistStore.playlistById(playlistId)
+            if (playlist != null) {
+                PlaylistCoverSongSheet(
+                    songs = library.songs,
+                    selectedSongId = playlist.coverSongId,
+                    onSelect = { song ->
+                        PlaylistCoverImporter.clearCover(context, playlistId)
+                        playlistStore.setCoverSong(playlistId, song.id)
+                        coverSongPickerPlaylistId = null
+                    },
+                    onClear = {
+                        PlaylistCoverImporter.clearCover(context, playlistId)
+                        playlistStore.clearCover(playlistId)
+                        coverSongPickerPlaylistId = null
+                    },
+                    onDismiss = { coverSongPickerPlaylistId = null },
+                )
+            } else {
+                coverSongPickerPlaylistId = null
+            }
+        }
     }
     }
 }

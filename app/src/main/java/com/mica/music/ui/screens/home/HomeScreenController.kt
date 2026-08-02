@@ -18,6 +18,7 @@ data class HomeOverlayState(
     val addToPlaylistAsCustomOrder: Boolean = false,
     val pendingDeleteSong: Song? = null,
     val pendingDeletePlaylistId: String? = null,
+    val renamePlaylistId: String? = null,
     val showCreatePlaylistDialog: Boolean = false,
 )
 
@@ -116,6 +117,12 @@ class HomeScreenController(
 
     fun clearPendingDeletePlaylist(overlay: HomeOverlayState): HomeOverlayState =
         overlay.copy(pendingDeletePlaylistId = null)
+
+    fun requestRenamePlaylist(overlay: HomeOverlayState, playlistId: String): HomeOverlayState =
+        overlay.copy(renamePlaylistId = playlistId)
+
+    fun clearRenamePlaylist(overlay: HomeOverlayState): HomeOverlayState =
+        overlay.copy(renamePlaylistId = null)
 
     fun showCreatePlaylistDialog(overlay: HomeOverlayState): HomeOverlayState =
         overlay.copy(showCreatePlaylistDialog = true)

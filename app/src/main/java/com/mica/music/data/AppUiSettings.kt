@@ -106,6 +106,11 @@ class AppUiSettings(context: Context) {
     var customWallpaperPath by mutableStateOf(AppearancePreferences.customWallpaperPath(appContext))
         private set
 
+    var playlistSidebarStyle by mutableStateOf(
+        AppearancePreferences.playlistSidebarStyle(appContext),
+    )
+        private set
+
     var globalFont by mutableStateOf(FontPreferences.globalFont(appContext))
         private set
 
@@ -344,6 +349,11 @@ class AppUiSettings(context: Context) {
     fun updateCustomWallpaperPath(path: String?) {
         customWallpaperPath = path
         AppearancePreferences.setCustomWallpaperPath(appContext, path)
+    }
+
+    fun updatePlaylistSidebarStyle(style: PlaylistSidebarStyle) {
+        playlistSidebarStyle = style
+        AppearancePreferences.setPlaylistSidebarStyle(appContext, style)
     }
 
     fun updateGlobalFont(selection: AppFontSelection) {
