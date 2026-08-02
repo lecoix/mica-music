@@ -60,6 +60,28 @@ class LibraryScaleTest {
         })
     }
 
+    @Test(timeout = 8_000)
+    fun indexedSearchFieldsStayBoundedAtTenThousandSongs() {
+        val previousConfig = ArtistNames.currentConfig()
+        try {
+            ArtistNames.configure(ArtistSplitConfig())
+            val index = LibraryBrowse.searchIndex(songs, Locale.getDefault())
+            val featured = LibraryBrowse.search(index, "featured artist")
+
+            assertEquals(100, featured.size)
+            val retainedTextBytes = index.entries.sumOf { entry ->
+                entry.titleLower.toByteArray().size.toLong() +
+                    entry.artistLowerRoot.toByteArray().size +
+                    entry.artistPartsLowerRoot.sumOf { it.toByteArray().size.toLong() } +
+                    entry.albumLower.toByteArray().size +
+                    entry.fileNameLower.toByteArray().size
+            }
+            assertTrue(retainedTextBytes < 8_000_000L)
+        } finally {
+            ArtistNames.configure(previousConfig)
+        }
+    }
+
     @Test(timeout = 5_000)
     fun configurableArtistSplittingStaysBoundedAtTenThousandSongs() {
         ArtistNames.configure(
@@ -96,6 +118,46 @@ class LibraryScaleTest {
         assertEquals(10_000, groups.sumOf { it.songCount })
         assertTrue(retainedTextBytes < 2_000_000L)
         assertTrue(groups.all { it.pathSegments.size == 3 })
+    }
+
+    @Test(timeout = 8_000)
+    fun indexedFolderQueriesStayBoundedAtTenThousandSongs() {
+        val oneFolderPerSong = songs.mapIndexed { index, song ->
+            song.copy(
+                folderPath = "Music/Collection ${index / 100}/Album $index",
+                filePath = "Music/Collection ${index / 100}/Album $index/${song.fileName}",
+            )
+        }
+
+        val index = LibraryBrowse.folderBrowseIndex(oneFolderPerSong)
+        val collectionGroups = LibraryBrowse.folderGroupsAtDepth(
+            index,
+            depth = 1,
+            scopePathSegments = listOf("Music"),
+        )
+        val albumGroups = LibraryBrowse.folderGroupsAtDepth(
+            index,
+            depth = 2,
+            scopePathSegments = listOf("Music", "Collection 42"),
+        )
+
+        assertEquals(3, index.maxDepth)
+        assertEquals(100, collectionGroups.size)
+        assertEquals(100, albumGroups.size)
+        assertEquals(
+            100,
+            LibraryBrowse.songsForFolder(index, listOf("Music", "Collection 42")).size,
+        )
+        assertEquals(
+            1,
+            LibraryBrowse.songsInFolder(index, listOf("Music", "Collection 42", "Album 4200")).size,
+        )
+
+        val retainedTextBytes =
+            index.groupsByDepth.values.flatten().sumOf { it.path.toByteArray().size.toLong() } +
+                index.directSongsByPath.keys.sumOf { it.toByteArray().size.toLong() } +
+                index.descendantSongsByPath.keys.sumOf { it.toByteArray().size.toLong() }
+        assertTrue(retainedTextBytes < 8_000_000L)
     }
 
     @Test(timeout = 5_000)

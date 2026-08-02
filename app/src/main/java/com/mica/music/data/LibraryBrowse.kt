@@ -104,6 +104,32 @@ data class FolderBrowseGroup(
     val pathSegments: List<String>,
 )
 
+internal data class FolderBrowseIndexedGroup(
+    val path: String,
+    val songCount: Int,
+)
+
+/** Revision-scoped folder projection. It retains songs and path keys, never lyrics payloads. */
+internal class FolderBrowseIndex internal constructor(
+    internal val maxDepth: Int,
+    internal val groupsByDepth: Map<Int, List<FolderBrowseIndexedGroup>>,
+    internal val directSongsByPath: Map<String, List<Song>>,
+    internal val descendantSongsByPath: Map<String, List<Song>>,
+)
+
+internal data class LibrarySearchEntry(
+    val song: Song,
+    val titleLower: String,
+    val artistLowerRoot: String,
+    val artistPartsLowerRoot: List<String>,
+    val albumLower: String,
+    val fileNameLower: String,
+)
+
+internal class LibrarySearchIndex internal constructor(
+    internal val entries: List<LibrarySearchEntry>,
+)
+
 enum class FolderBrowseMode(val storageValue: String, val label: String) {
     HIERARCHY("hierarchy", "层级浏览"),
     MUSIC_FOLDERS("music_folders", "扁平浏览"),
@@ -122,15 +148,42 @@ object LibraryBrowse {
     }
 
     fun search(songs: List<Song>, query: String): List<Song> {
+        val locale = Locale.getDefault()
         val q = query.trim()
         if (q.isEmpty()) return emptyList()
-        val lower = q.lowercase(Locale.getDefault())
-        return songs.filter { song ->
-            song.title.lowercase(Locale.getDefault()).contains(lower) ||
-                ArtistNames.matchesSearch(song.artist, lower) ||
-                song.album.lowercase(Locale.getDefault()).contains(lower) ||
-                song.fileName.lowercase(Locale.getDefault()).contains(lower)
+        return search(searchIndex(songs, locale), q.lowercase(locale))
+    }
+
+    internal fun searchIndex(songs: List<Song>, locale: Locale): LibrarySearchIndex =
+        LibrarySearchIndex(
+            entries = songs.map { song ->
+                LibrarySearchEntry(
+                    song = song,
+                    titleLower = song.title.lowercase(locale),
+                    artistLowerRoot = song.artist.lowercase(Locale.ROOT),
+                    artistPartsLowerRoot = ArtistNames.split(song.artist)
+                        .map { it.lowercase(Locale.ROOT) },
+                    albumLower = song.album.lowercase(locale),
+                    fileNameLower = song.fileName.lowercase(locale),
+                )
+            },
+        )
+
+    internal fun search(index: LibrarySearchIndex, queryLower: String): List<Song> {
+        if (queryLower.isEmpty()) return emptyList()
+        val results = ArrayList<Song>()
+        index.entries.forEach { entry ->
+            if (
+                entry.titleLower.contains(queryLower) ||
+                entry.artistLowerRoot.contains(queryLower) ||
+                entry.artistPartsLowerRoot.any { it.contains(queryLower) } ||
+                entry.albumLower.contains(queryLower) ||
+                entry.fileNameLower.contains(queryLower)
+            ) {
+                results += entry.song
+            }
         }
+        return results
     }
 
     fun groupByArtist(songs: List<Song>): List<BrowseGroup> {
@@ -344,34 +397,99 @@ object LibraryBrowse {
 
     fun folderGroups(songs: List<Song>, parentPathSegments: List<String>): List<FolderBrowseGroup> {
         val parent = parentPathSegments.normalizedFolderSegments()
-        return folderGroupsAtDepth(songs, parent.size, parent)
+        return folderGroupsAtDepth(folderBrowseIndex(songs), parent.size, parent)
     }
 
     fun folderGroupsAtDepth(
         songs: List<Song>,
         depth: Int,
         scopePathSegments: List<String> = emptyList(),
+    ): List<FolderBrowseGroup> = folderGroupsAtDepth(
+        folderBrowseIndex(songs),
+        depth,
+        scopePathSegments,
+    )
+
+    /**
+     * Returns only exact directories that directly contain at least one song.
+     *
+     * Parent directories that merely contain music in descendants are intentionally omitted.
+     * Counts are direct-song counts and no song or lyrics payload is retained by the result.
+     */
+    fun musicFolderGroups(songs: List<Song>): List<FolderBrowseGroup> =
+        musicFolderGroups(folderBrowseIndex(songs))
+
+    fun maxFolderDepth(songs: List<Song>): Int = folderBrowseIndex(songs).maxDepth
+
+    fun songsForFolder(songs: List<Song>, pathSegments: List<String>): List<Song> =
+        songsForFolder(folderBrowseIndex(songs), pathSegments)
+
+    fun songsInFolder(songs: List<Song>, pathSegments: List<String>): List<Song> =
+        songsInFolder(folderBrowseIndex(songs), pathSegments)
+
+    /** Builds all folder query projections once for the current library revision. */
+    internal fun folderBrowseIndex(songs: List<Song>): FolderBrowseIndex {
+        val groupBuckets = linkedMapOf<Int, LinkedHashMap<String, Int>>()
+        val directSongsByPath = linkedMapOf<String, MutableList<Song>>()
+        val descendantSongsByPath = linkedMapOf<String, MutableList<Song>>()
+        var maxDepth = 0
+
+        songs.forEach { song ->
+            val segments = song.folderBrowseSegments()
+            if (segments.isEmpty()) return@forEach
+            maxDepth = maxOf(maxDepth, segments.size)
+
+            val prefixes = ArrayList<String>(segments.size)
+            var path = ""
+            segments.forEach { segment ->
+                path = if (path.isEmpty()) segment else "$path/$segment"
+                prefixes += path
+            }
+
+            directSongsByPath.getOrPut(prefixes.last()) { mutableListOf() }.add(song)
+            prefixes.forEach { prefix ->
+                descendantSongsByPath.getOrPut(prefix) { mutableListOf() }.add(song)
+            }
+
+            prefixes.forEachIndexed { targetDepth, childPath ->
+                val bucket = groupBuckets.getOrPut(targetDepth) { linkedMapOf() }
+                bucket[childPath] = bucket.getOrDefault(childPath, 0) + 1
+            }
+        }
+
+        return FolderBrowseIndex(
+            maxDepth = maxDepth,
+            groupsByDepth = groupBuckets.mapValues { (_, bucket) ->
+                bucket.map { (path, songCount) -> FolderBrowseIndexedGroup(path, songCount) }
+            },
+            directSongsByPath = directSongsByPath.mapValues { (_, songsAtPath) -> songsAtPath.toList() },
+            descendantSongsByPath = descendantSongsByPath.mapValues { (_, songsUnderPath) -> songsUnderPath.toList() },
+        )
+    }
+
+    internal fun folderGroupsAtDepth(
+        index: FolderBrowseIndex,
+        depth: Int,
+        scopePathSegments: List<String> = emptyList(),
     ): List<FolderBrowseGroup> {
         val targetDepth = depth.coerceAtLeast(0)
         val scope = scopePathSegments.normalizedFolderSegments()
         if (scope.isNotEmpty() && targetDepth < scope.size) return emptyList()
-        val buckets = linkedMapOf<String, MutableList<Song>>()
-        songs.forEach { song ->
-            val segments = song.folderBrowseSegments()
-            if (segments.size <= targetDepth || !segments.startsWith(scope)) return@forEach
-            val folderPath = segments.take(targetDepth + 1).joinToString("/")
-            buckets.getOrPut(folderPath) { mutableListOf() }.add(song)
-        }
-        return buckets.map { (folderPath, list) ->
-            val pathSegments = folderPath.folderSegments()
+        val scopePath = scope.joinToString("/")
+        val scopePrefix = scopePath.takeIf { it.isNotEmpty() }?.let { "$it/" }
+        val groups = index.groupsByDepth[targetDepth]
+            ?.filter { group -> scopePrefix == null || group.path.startsWith(scopePrefix) }
+            ?: return emptyList()
+        return groups.map { group ->
+            val pathSegments = group.path.folderSegments()
             val parentLabel = pathSegments.dropLast(1).joinToString(" / ")
             FolderBrowseGroup(
                 title = pathSegments.lastOrNull().orEmpty(),
                 subtitle = listOfNotNull(
                     parentLabel.takeIf { it.isNotBlank() },
-                    "${list.size} 首",
+                    "${group.songCount} 首",
                 ).joinToString(" · "),
-                songCount = list.size,
+                songCount = group.songCount,
                 pathSegments = pathSegments,
             )
         }.sortedWith(
@@ -380,49 +498,27 @@ object LibraryBrowse {
         )
     }
 
-    /**
-     * Returns only exact directories that directly contain at least one song.
-     *
-     * Parent directories that merely contain music in descendants are intentionally omitted.
-     * Counts are direct-song counts and no song or lyrics payload is retained by the result.
-     */
-    fun musicFolderGroups(songs: List<Song>): List<FolderBrowseGroup> {
-        val directSongCounts = linkedMapOf<String, Int>()
-        songs.forEach { song ->
-            val folderPath = song.folderBrowseSegments().joinToString("/")
-            if (folderPath.isNotEmpty()) {
-                directSongCounts[folderPath] = directSongCounts.getOrDefault(folderPath, 0) + 1
-            }
-        }
-        return directSongCounts.map { (folderPath, songCount) ->
+    internal fun musicFolderGroups(index: FolderBrowseIndex): List<FolderBrowseGroup> =
+        index.directSongsByPath.map { (folderPath, songsAtPath) ->
             val pathSegments = folderPath.folderSegments()
             FolderBrowseGroup(
                 title = pathSegments.lastOrNull().orEmpty(),
-                subtitle = "$songCount 首",
-                songCount = songCount,
+                subtitle = "${songsAtPath.size} 首",
+                songCount = songsAtPath.size,
                 pathSegments = pathSegments,
             )
         }.sortedWith(folderGroupComparator())
-    }
 
-    fun maxFolderDepth(songs: List<Song>): Int {
-        return songs.maxOfOrNull { it.folderBrowseSegments().size } ?: 0
-    }
-
-    fun songsForFolder(songs: List<Song>, pathSegments: List<String>): List<Song> {
+    internal fun songsForFolder(index: FolderBrowseIndex, pathSegments: List<String>): List<Song> {
         val folder = pathSegments.normalizedFolderSegments()
-        return songs.filter { song ->
-            val segments = song.folderBrowseSegments()
-            folder.isNotEmpty() && segments.startsWith(folder)
-        }
+        if (folder.isEmpty()) return emptyList()
+        return index.descendantSongsByPath[folder.joinToString("/")].orEmpty()
     }
 
-    fun songsInFolder(songs: List<Song>, pathSegments: List<String>): List<Song> {
+    internal fun songsInFolder(index: FolderBrowseIndex, pathSegments: List<String>): List<Song> {
         val folder = pathSegments.normalizedFolderSegments()
-        return songs.filter { song ->
-            val segments = song.folderBrowseSegments()
-            folder.isNotEmpty() && segments == folder
-        }
+        if (folder.isEmpty()) return emptyList()
+        return index.directSongsByPath[folder.joinToString("/")].orEmpty()
     }
 
     fun recentSongs(songs: List<Song>, recentIds: List<String>): List<Song> {
@@ -494,11 +590,6 @@ object LibraryBrowse {
 
     private fun List<String>.normalizedFolderSegments(): List<String> =
         map { it.trim() }.filter { it.isNotEmpty() }
-
-    private fun List<String>.startsWith(prefix: List<String>): Boolean {
-        if (prefix.size > size) return false
-        return prefix.indices.all { index -> this[index] == prefix[index] }
-    }
 
     private fun List<String>.endsWith(suffix: List<String>): Boolean {
         if (suffix.size > size) return false

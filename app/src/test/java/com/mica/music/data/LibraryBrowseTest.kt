@@ -7,6 +7,30 @@ import org.junit.Test
 class LibraryBrowseTest {
 
     @Test
+    fun searchMatchesIndexedFieldsAndConfiguredArtistParts() {
+        val previousConfig = ArtistNames.currentConfig()
+        try {
+            ArtistNames.configure(
+                ArtistSplitConfig(enabledSeparators = setOf(ArtistSeparator.SLASH)),
+            )
+            val songs = listOf(
+                SongFixtures.song("title").copy(title = "Needle in a Haystack"),
+                SongFixtures.song("artist").copy(artist = "Alpha / Needle"),
+                SongFixtures.song("album").copy(album = "Needle Collection"),
+                SongFixtures.song("file").copy(fileName = "needle.flac"),
+                SongFixtures.song("other").copy(title = "Unrelated"),
+            )
+
+            assertEquals(
+                listOf("title", "artist", "album", "file"),
+                LibraryBrowse.search(songs, "NEEDLE").map { it.id },
+            )
+        } finally {
+            ArtistNames.configure(previousConfig)
+        }
+    }
+
+    @Test
     fun albumGroupsExposeArtworkYearAndArtistSummary() {
         val songs = listOf(
             SongFixtures.song(id = "late", queueOrder = 4).copy(

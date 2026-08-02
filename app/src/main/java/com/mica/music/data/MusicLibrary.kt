@@ -12,12 +12,24 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.LinkedHashMap
+import java.util.Locale
 
 enum class StartupBrowseTarget {
     NONE,
     ARTISTS,
     ALBUMS,
 }
+
+private const val SEARCH_QUERY_CACHE_MAX_ENTRIES = 8
+
+private data class SearchQueryCacheKey(
+    val catalogRevision: Long,
+    val artistSplitRevision: Long,
+    val artistConfigKey: String,
+    val localeTag: String,
+    val queryLower: String,
+)
 
 class MusicLibrary internal constructor(
     context: Context,
@@ -51,8 +63,23 @@ class MusicLibrary internal constructor(
     private var persistedArtistPresentation: BrowseGroupPresentation? = null
     private var persistedAlbumPresentation: BrowseGroupPresentation? = null
     private var persistedBrowsePresentationsMatchCurrentSort = false
+    private var folderBrowseIndexRevision = -1L
+    private var folderBrowseIndex: FolderBrowseIndex? = null
     private var musicFolderGroupCacheRevision = -1L
     private var musicFolderGroupCache: List<FolderBrowseGroup>? = null
+    private var searchIndexRevision = -1L
+    private var searchIndexArtistSplitRevision = -1L
+    private var searchIndexArtistConfigKey = ""
+    private var searchIndexLocaleTag = ""
+    private var searchIndex: LibrarySearchIndex? = null
+    private val searchResultCache = object : LinkedHashMap<SearchQueryCacheKey, List<Song>>(
+        SEARCH_QUERY_CACHE_MAX_ENTRIES,
+        0.75f,
+        true,
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<SearchQueryCacheKey, List<Song>>?): Boolean =
+            size > SEARCH_QUERY_CACHE_MAX_ENTRIES
+    }
 
     constructor(context: Context) : this(
         context = context,
@@ -148,7 +175,62 @@ class MusicLibrary internal constructor(
         backing.catalog.applyPlayStats(songId, stats)
     }
 
-    fun searchSongs(query: String): List<Song> = LibraryBrowse.search(songs, query)
+    fun searchSongs(query: String): List<Song> {
+        val locale = Locale.getDefault()
+        val queryLower = query.trim().lowercase(locale)
+        if (queryLower.isEmpty()) return emptyList()
+
+        val sourceRevision = backing.catalogRevision
+        val splitRevision = artistSplitRevision
+        val artistConfigKey = ArtistNames.currentConfig().cacheKey()
+        val localeTag = locale.toLanguageTag()
+        val cacheKey = SearchQueryCacheKey(
+            catalogRevision = sourceRevision,
+            artistSplitRevision = splitRevision,
+            artistConfigKey = artistConfigKey,
+            localeTag = localeTag,
+            queryLower = queryLower,
+        )
+        searchResultCache[cacheKey]?.let { return it }
+
+        val index = currentSearchIndex(
+            source = songs,
+            sourceRevision = sourceRevision,
+            splitRevision = splitRevision,
+            artistConfigKey = artistConfigKey,
+            localeTag = localeTag,
+            locale = locale,
+        )
+        return LibraryBrowse.search(index, queryLower).also {
+            searchResultCache[cacheKey] = it
+        }
+    }
+
+    private fun currentSearchIndex(
+        source: List<Song>,
+        sourceRevision: Long,
+        splitRevision: Long,
+        artistConfigKey: String,
+        localeTag: String,
+        locale: Locale,
+    ): LibrarySearchIndex {
+        searchIndex
+            ?.takeIf {
+                searchIndexRevision == sourceRevision &&
+                    searchIndexArtistSplitRevision == splitRevision &&
+                    searchIndexArtistConfigKey == artistConfigKey &&
+                    searchIndexLocaleTag == localeTag
+            }
+            ?.let { return it }
+        searchResultCache.clear()
+        return LibraryBrowse.searchIndex(source, locale).also {
+            searchIndexRevision = sourceRevision
+            searchIndexArtistSplitRevision = splitRevision
+            searchIndexArtistConfigKey = artistConfigKey
+            searchIndexLocaleTag = localeTag
+            searchIndex = it
+        }
+    }
 
     fun songById(id: String): Song? = backing.songById(id)
 
@@ -341,24 +423,41 @@ class MusicLibrary internal constructor(
         )
     }
 
-    fun folderGroups(pathSegments: List<String> = emptyList()): List<FolderBrowseGroup> =
-        LibraryBrowse.folderGroups(songs, pathSegments)
+    private fun currentFolderBrowseIndex(): FolderBrowseIndex {
+        val sourceRevision = backing.catalogRevision
+        folderBrowseIndex
+            ?.takeIf { folderBrowseIndexRevision == sourceRevision }
+            ?.let { return it }
+        return LibraryBrowse.folderBrowseIndex(songs).also {
+            folderBrowseIndexRevision = sourceRevision
+            folderBrowseIndex = it
+        }
+    }
+
+    fun folderGroups(pathSegments: List<String> = emptyList()): List<FolderBrowseGroup> {
+        val parent = pathSegments.map { it.trim() }.filter { it.isNotEmpty() }
+        return LibraryBrowse.folderGroupsAtDepth(
+            currentFolderBrowseIndex(),
+            parent.size,
+            parent,
+        )
+    }
 
     fun folderGroupsAtDepth(depth: Int, scopePathSegments: List<String> = emptyList()): List<FolderBrowseGroup> =
-        LibraryBrowse.folderGroupsAtDepth(songs, depth, scopePathSegments)
+        LibraryBrowse.folderGroupsAtDepth(currentFolderBrowseIndex(), depth, scopePathSegments)
 
     fun musicFolderGroups(): List<FolderBrowseGroup> {
         val sourceRevision = backing.catalogRevision
         musicFolderGroupCache
             ?.takeIf { musicFolderGroupCacheRevision == sourceRevision }
             ?.let { return it }
-        return LibraryBrowse.musicFolderGroups(songs).also {
+        return LibraryBrowse.musicFolderGroups(currentFolderBrowseIndex()).also {
             musicFolderGroupCacheRevision = sourceRevision
             musicFolderGroupCache = it
         }
     }
 
-    fun maxFolderDepth(): Int = LibraryBrowse.maxFolderDepth(songs)
+    fun maxFolderDepth(): Int = currentFolderBrowseIndex().maxDepth
 
     fun songsForArtist(artist: String): List<Song> = LibraryBrowse.songsForArtist(songs, artist)
 
@@ -366,10 +465,10 @@ class MusicLibrary internal constructor(
         LibraryBrowse.songsForAlbum(songs, albumKey)
 
     fun songsForFolder(pathSegments: List<String>): List<Song> =
-        LibraryBrowse.songsForFolder(songs, pathSegments)
+        LibraryBrowse.songsForFolder(currentFolderBrowseIndex(), pathSegments)
 
     fun songsInFolder(pathSegments: List<String>): List<Song> =
-        LibraryBrowse.songsInFolder(songs, pathSegments)
+        LibraryBrowse.songsInFolder(currentFolderBrowseIndex(), pathSegments)
 
     fun reloadLibraryFolderFromPrefs() = backing.folder.reloadLibraryFolderFromPrefs()
 
