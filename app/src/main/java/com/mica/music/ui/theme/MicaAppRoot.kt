@@ -2,14 +2,10 @@ package com.mica.music.ui.theme
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
 import com.mica.music.data.AppUiSettings
-import com.mica.music.data.PlaybackQueueIconStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberReduceMotion
 import com.mica.music.ui.system.StatusBarEffect
-
-val LocalPlaybackQueueIconStyle = staticCompositionLocalOf { PlaybackQueueIconStyle.ORIGINAL }
 
 @Composable
 fun MicaAppRoot(
@@ -22,7 +18,6 @@ fun MicaAppRoot(
     CompositionLocalProvider(
         MicaMotion.LocalEnabled provides !reduceMotion,
         LocalWallpaperViewportState provides wallpaperViewportState,
-        LocalPlaybackQueueIconStyle provides uiSettings.playbackQueueIconStyle,
     ) {
         MicaTheme(
             darkTheme = darkTheme,

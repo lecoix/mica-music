@@ -13,7 +13,6 @@ import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerBackgroundMode
-import com.mica.music.data.PlaybackQueueIconStyle
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 
@@ -27,7 +26,6 @@ object PlaybackUiPreferences {
     private const val KEY_MINI_PLAYER_LEFT_SWIPE_ACTION = "mini_player_left_swipe_action"
     private const val KEY_MINI_PLAYER_RIGHT_SWIPE_ACTION = "mini_player_right_swipe_action"
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
-    private const val KEY_PLAYBACK_QUEUE_ICON_STYLE = "playback_queue_icon_style"
     internal const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
     private const val KEY_VIDEO_ALBUM_COVER_ENABLED = "video_album_cover_enabled"
     private const val KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE = "custom_standard_cover_tap_play_pause"
@@ -163,17 +161,6 @@ object PlaybackUiPreferences {
     fun setCoverDisplayMode(context: Context, mode: CoverDisplayMode) {
         MicaSettingsStore.prefs(context).edit()
             .putString(KEY_COVER_DISPLAY_MODE, mode.storageValue)
-            .apply()
-    }
-
-    fun playbackQueueIconStyle(context: Context): PlaybackQueueIconStyle =
-        PlaybackQueueIconStyle.fromStorage(
-            MicaSettingsStore.prefs(context).getString(KEY_PLAYBACK_QUEUE_ICON_STYLE, null),
-        )
-
-    fun setPlaybackQueueIconStyle(context: Context, style: PlaybackQueueIconStyle) {
-        MicaSettingsStore.prefs(context).edit()
-            .putString(KEY_PLAYBACK_QUEUE_ICON_STYLE, style.storageValue)
             .apply()
     }
 

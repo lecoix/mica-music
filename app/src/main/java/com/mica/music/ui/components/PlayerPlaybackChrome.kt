@@ -27,11 +27,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
 import com.mica.music.data.PlaybackSurfaceState
-import com.mica.music.data.PlaybackQueueIconStyle
 import com.mica.music.data.PlaybackQueueMode
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
-import com.mica.music.ui.theme.LocalPlaybackQueueIconStyle
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
 
@@ -224,7 +222,7 @@ internal fun PlayerPlaybackControlsSection(
             modifier = Modifier.size(HifiSize.touchTarget),
         ) {
             Icon(
-                imageVector = playbackQueueIcon(LocalPlaybackQueueIconStyle.current),
+                imageVector = MicaPlaybackIcons.queueMusic19,
                 contentDescription = "播放列表",
                 tint = colors.secondary,
                 modifier = Modifier.size(HifiSize.iconLg * visualScale),
@@ -238,12 +236,6 @@ private fun playbackQueueModeIcon(mode: PlaybackQueueMode) = when (mode) {
     PlaybackQueueMode.REPEAT_ALL -> Icons.Outlined.Repeat
     PlaybackQueueMode.REPEAT_ONE -> Icons.Filled.RepeatOne
     PlaybackQueueMode.SHUFFLE -> Icons.Outlined.Shuffle
-}
-
-private fun playbackQueueIcon(style: PlaybackQueueIconStyle) = when (style) {
-    PlaybackQueueIconStyle.ORIGINAL -> MicaPlaybackIcons.queueMusic19
-    PlaybackQueueIconStyle.IMAGE_11 -> MicaPlaybackIcons.queueMusic11
-    PlaybackQueueIconStyle.IMAGE_18 -> MicaPlaybackIcons.queueMusic18
 }
 
 private fun playbackQueueModeDescription(mode: PlaybackQueueMode) = when (mode) {

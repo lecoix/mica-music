@@ -17,7 +17,6 @@ import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.PlaybackContentColorMode
-import com.mica.music.data.PlaybackQueueIconStyle
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerInfoVisibility
@@ -79,16 +78,6 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
             },
         )
     }
-
-    SettingsChoiceRow(
-        title = "播放列表图标",
-        subtitle = "切换播放页底部右侧的播放列表按钮，用于对比原图、11、18",
-        choices = PlaybackQueueIconStyleChoices,
-        selectedValue = uiSettings.playbackQueueIconStyle.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updatePlaybackQueueIconStyle(PlaybackQueueIconStyle.entries[ordinal])
-        },
-    )
 
     SettingsChoiceRow(
         title = "播放页背景",
