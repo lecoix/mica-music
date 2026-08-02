@@ -17,7 +17,12 @@ class CoverDecodeTarget private constructor(
 
     companion object {
         private const val SizeBucketPx = 64
+        private const val CompactCoverPx = 256f
         private const val LandscapeCoverFlowViewportRatio = 1.8f
+
+        /** Stable target for list rows, mini-player covers, queue rows, and compact cards. */
+        fun forCompactCover(): CoverDecodeTarget =
+            fromPixels(CompactCoverPx, CompactCoverPx)
 
         fun fromPixels(widthPx: Float, heightPx: Float): CoverDecodeTarget =
             CoverDecodeTarget(

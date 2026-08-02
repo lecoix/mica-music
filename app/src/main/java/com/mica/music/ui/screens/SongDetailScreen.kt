@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongDetails
+import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -102,6 +103,7 @@ fun SongDetailScreen(
                     albumArtUri = song.albumArtUri,
                     fallbackColor = song.coverColor,
                     contentDescription = song.title,
+                    decodeTarget = CoverDecodeTarget.forCompactCover(),
                     modifier = Modifier.size(HifiSize.coverMd),
                 )
                 Column(modifier = Modifier.weight(1f)) {

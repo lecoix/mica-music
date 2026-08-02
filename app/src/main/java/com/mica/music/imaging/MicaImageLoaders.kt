@@ -8,7 +8,10 @@ import coil.memory.MemoryCache
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Scale
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 模糊背景源图解码尺寸，与 [com.mica.music.ui.theme.BlurredCoverBackground] 一致。 */
@@ -26,6 +29,8 @@ object MicaImageLoaders {
      */
     const val PollutedCoverCacheMaxSidePx = 256
     private lateinit var appContext: Context
+    private val coverLoadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val coverLoadCoordinator = CoverLoadCoordinator(coverLoadScope)
 
     lateinit var cover: ImageLoader
         private set
@@ -104,7 +109,9 @@ object MicaImageLoaders {
     /** 将封面 URI 预载进封面专用内存缓存。 */
     fun preloadCover(context: Context, albumArtUri: String?) {
         if (albumArtUri.isNullOrBlank() || !::cover.isInitialized) return
-        cover.enqueue(buildCoverRequest(context, albumArtUri))
+        coverLoadScope.launch {
+            runCatching { ensureCoverCached(context, albumArtUri) }
+        }
     }
 
     fun preloadCover(
@@ -113,7 +120,9 @@ object MicaImageLoaders {
         target: CoverDecodeTarget,
     ) {
         if (albumArtUri.isNullOrBlank() || !::cover.isInitialized) return
-        cover.enqueue(buildCoverRequest(context, albumArtUri, target))
+        coverLoadScope.launch {
+            runCatching { ensureCoverCached(context, albumArtUri, target) }
+        }
     }
 
     fun preloadBackground(context: Context, albumArtUri: String?) {
@@ -125,14 +134,17 @@ object MicaImageLoaders {
     suspend fun ensureCoverCached(context: Context, albumArtUri: String): Boolean =
         withContext(Dispatchers.IO) {
             if (!::cover.isInitialized) return@withContext false
-            if (coverMemoryBitmap(albumArtUri) != null && !coverCacheNeedsUpgrade(albumArtUri)) {
-                return@withContext true
+            coverLoadCoordinator.execute(originalCoverLoadKey(albumArtUri)) {
+                if (coverMemoryBitmap(albumArtUri) != null && !coverCacheNeedsUpgrade(albumArtUri)) {
+                    true
+                } else {
+                    if (coverMemoryBitmap(albumArtUri) != null) {
+                        evictCoverMemory(albumArtUri)
+                    }
+                    val result = cover.execute(buildCoverRequest(context, albumArtUri))
+                    result is SuccessResult
+                }
             }
-            if (coverMemoryBitmap(albumArtUri) != null) {
-                evictCoverMemory(albumArtUri)
-            }
-            val result = cover.execute(buildCoverRequest(context, albumArtUri))
-            result is SuccessResult
         }
 
     suspend fun ensureCoverCached(
@@ -141,9 +153,14 @@ object MicaImageLoaders {
         target: CoverDecodeTarget,
     ): Boolean = withContext(Dispatchers.IO) {
         if (!::cover.isInitialized) return@withContext false
-        if (coverMemoryBitmap(albumArtUri, target) != null) return@withContext true
-        val result = cover.execute(buildCoverRequest(context, albumArtUri, target))
-        result is SuccessResult
+        coverLoadCoordinator.execute(target.memoryCacheKey(albumArtUri)) {
+            if (coverMemoryBitmap(albumArtUri, target) != null) {
+                true
+            } else {
+                val result = cover.execute(buildCoverRequest(context, albumArtUri, target))
+                result is SuccessResult
+            }
+        }
     }
 
     /** 阻塞直到模糊背景源图进入内存缓存（或失败）。 */
@@ -172,6 +189,8 @@ object MicaImageLoaders {
         .allowHardware(false)
         .memoryCacheKey(target.memoryCacheKey(albumArtUri))
         .build()
+
+    private fun originalCoverLoadKey(albumArtUri: String): String = "cover:original:$albumArtUri"
 
     private fun buildBackgroundRequest(context: Context, albumArtUri: String): ImageRequest =
         ImageRequest.Builder(context)

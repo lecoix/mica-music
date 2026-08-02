@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.PlaylistStore
@@ -213,6 +214,7 @@ private fun SongMenuHeader(
             albumArtUri = song.albumArtUri,
             fallbackColor = song.coverColor,
             contentDescription = song.title,
+            decodeTarget = CoverDecodeTarget.forCompactCover(),
             modifier = Modifier.size(HifiSize.coverMd),
         )
         Column(modifier = Modifier.weight(1f)) {

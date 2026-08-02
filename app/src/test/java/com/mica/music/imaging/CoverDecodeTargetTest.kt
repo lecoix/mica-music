@@ -38,6 +38,14 @@ class CoverDecodeTargetTest {
     }
 
     @Test
+    fun `compact cover target is bounded for list-sized artwork`() {
+        val target = CoverDecodeTarget.forCompactCover()
+
+        assertEquals(256, target.widthPx)
+        assertEquals(256, target.heightPx)
+    }
+
+    @Test
     fun `landscape cover flow decodes to visible slot instead of full viewport`() {
         val target = CoverDecodeTarget.forCoverFlow(
             viewportWidthPx = 2624f,

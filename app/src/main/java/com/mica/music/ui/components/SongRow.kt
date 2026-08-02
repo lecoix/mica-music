@@ -31,6 +31,7 @@ import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
+import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -118,6 +119,7 @@ fun SongRow(
                     fallbackColor = song.coverColor,
                     contentDescription = song.title,
                     noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
+                    decodeTarget = CoverDecodeTarget.forCompactCover(),
                     modifier = Modifier.size(HifiSize.coverSm),
                 )
                 Spacer(Modifier.width(HifiSpacing.md))

@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.Song
@@ -343,6 +344,7 @@ private fun QueueSongRow(
                 fallbackColor = song.coverColor,
                 contentDescription = null,
                 noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
+                decodeTarget = CoverDecodeTarget.forCompactCover(),
                 modifier = Modifier
                     .padding(horizontal = if (landscape) HifiSpacing.xs else HifiSpacing.sm)
                     .size(if (landscape) 36.dp else HifiSize.coverXs),

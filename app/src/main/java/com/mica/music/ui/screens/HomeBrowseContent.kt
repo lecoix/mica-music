@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.imaging.CoverDecodeTarget
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.AlbumBrowseSortField
@@ -988,6 +989,7 @@ private fun ArtistAlbumHeader(
             albumArtUri = section.albumArtUri,
             fallbackColor = Color(section.coverColorArgb),
             contentDescription = section.title,
+            decodeTarget = CoverDecodeTarget.forCompactCover(),
             modifier = Modifier
                 .width(68.dp)
                 .aspectRatio(1f),

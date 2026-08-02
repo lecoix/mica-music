@@ -11,8 +11,11 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.util.LruCache
 import com.mica.music.ui.screens.player.CoverFlowMath
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * 封面流倒影预烘焙：封面解码后离线生成翻转渐隐条带，动画帧只 [Canvas.drawBitmap]。
@@ -25,27 +28,84 @@ internal object CoverFlowReflectionBake {
     internal const val CACHE_MAX_BYTES = 16 * 1024 * 1024
 
     private val cache = BitmapByteLruCache(CACHE_MAX_BYTES)
+    private val stateLock = Any()
+    private val bakeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val inFlight = mutableMapOf<String, BakeRequest>()
 
-    fun cached(uri: String, dstAspect: Float): Bitmap? = cache.get(cacheKey(uri, dstAspect))
+    fun cached(uri: String, dstAspect: Float, sourceKey: String = ""): Bitmap? =
+        synchronized(stateLock) {
+            cache.get(cacheKey(uri, dstAspect, sourceKey))
+        }
 
     fun evict(uri: String) {
         val prefix = "$uri#"
-        cache.snapshot().keys.filter { it.startsWith(prefix) }.forEach { cache.remove(it) }
+        val requestsToComplete = synchronized(stateLock) {
+            cache.snapshot().keys
+                .filter { it.startsWith(prefix) }
+                .forEach { cache.remove(it) }
+            inFlight.entries
+                .filter { it.value.uri == uri }
+                .onEach { it.value.invalidated = true }
+                .also { entries -> entries.forEach { inFlight.remove(it.key) } }
+                .map { it.value }
+        }
+        requestsToComplete.forEach { it.result.complete(null) }
     }
 
-    fun clear() = cache.evictAll()
+    fun clear() {
+        val requestsToComplete = synchronized(stateLock) {
+            cache.evictAll()
+            val requests = inFlight.values.toList()
+            requests.forEach { it.invalidated = true }
+            inFlight.clear()
+            requests
+        }
+        requestsToComplete.forEach { it.result.complete(null) }
+    }
 
-    internal fun cacheSizeBytes(): Int = cache.size() * 1024
+    internal fun cacheSizeBytes(): Int = synchronized(stateLock) { cache.size() * 1024 }
 
-    suspend fun ensureBaked(uri: String, cover: Bitmap, dstAspect: Float): Bitmap? {
+    suspend fun ensureBaked(
+        uri: String,
+        cover: Bitmap,
+        dstAspect: Float,
+        sourceKey: String = "",
+    ): Bitmap? {
         if (!ENABLED || uri.isBlank() || dstAspect <= 0f) return null
-        val key = cacheKey(uri, dstAspect)
-        cache.get(key)?.let { return it }
-        val baked = withContext(Dispatchers.Default) {
-            bake(cover, dstAspect)
-        } ?: return null
-        cache.put(key, baked)
-        return baked
+        val key = cacheKey(uri, dstAspect, sourceKey)
+        var shouldStart = false
+        val request = synchronized(stateLock) {
+            cache.get(key)?.let { return it }
+            inFlight[key] ?: BakeRequest(
+                uri = uri,
+            ).also {
+                inFlight[key] = it
+                shouldStart = true
+            }
+        }
+        if (!shouldStart) return request.result.await()
+
+        bakeScope.launch {
+            try {
+                val baked = bake(cover, dstAspect)
+                val accepted = synchronized(stateLock) {
+                    if (!request.invalidated) {
+                        baked?.let { cache.put(key, it) }
+                        baked
+                    } else {
+                        null
+                    }
+                }
+                request.result.complete(accepted)
+            } catch (error: Throwable) {
+                request.result.completeExceptionally(error)
+            } finally {
+                synchronized(stateLock) {
+                    if (inFlight[key] === request) inFlight.remove(key)
+                }
+            }
+        }
+        return request.result.await()
     }
 
     internal fun bake(cover: Bitmap, dstAspect: Float): Bitmap? {
@@ -108,10 +168,16 @@ internal object CoverFlowReflectionBake {
         return source.copy(Bitmap.Config.ARGB_8888, false) ?: source
     }
 
-    private fun cacheKey(uri: String, dstAspect: Float): String {
+    private fun cacheKey(uri: String, dstAspect: Float, sourceKey: String): String {
         val aspectMilli = (dstAspect * 1000f).toInt()
-        return "$uri#$aspectMilli"
+        return "$uri#$aspectMilli#$sourceKey"
     }
+
+    private data class BakeRequest(
+        val uri: String,
+        val result: CompletableDeferred<Bitmap?> = CompletableDeferred(),
+        var invalidated: Boolean = false,
+    )
 
     private fun centerCropSrc(srcW: Int, srcH: Int, dstAspect: Float, out: Rect) {
         val srcRatio = srcW.toFloat() / srcH

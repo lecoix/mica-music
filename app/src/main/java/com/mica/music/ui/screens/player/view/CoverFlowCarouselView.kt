@@ -659,7 +659,11 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
             bitmap != null &&
             !albumArtUri.isNullOrBlank()
         ) {
-            CoverFlowReflectionBake.cached(albumArtUri, slotAspect)
+            CoverFlowReflectionBake.cached(
+                albumArtUri,
+                slotAspect,
+                coverDecodeTarget.memoryCacheKey(albumArtUri),
+            )
         } else {
             null
         }
@@ -864,14 +868,18 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private fun preloadWindow() {
         pruneBitmapWindow()
         val radius = laneWindowRadius
+        val reflectionUris = linkedSetOf<String>()
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
             val reflectionEligible = CoverFlowMath.shouldRenderReflection(offset, laneWindowRadius)
             bitmapFor(uri, reflectionEligible)
             if (reflectionEligible) {
-                bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
-                    ?.let { scheduleReflectionBake(uri, it) }
+                reflectionUris += uri
             }
+        }
+        reflectionUris.forEach { uri ->
+            bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
+                ?.let { scheduleReflectionBake(uri, it) }
         }
     }
 
@@ -898,12 +906,14 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private fun scheduleReflectionBake(uri: String, cover: Bitmap) {
         if (!CoverFlowReflectionBake.ENABLED || !reflectionEnabled()) return
         val aspect = coverSlotAspect()
-        val cacheHit = CoverFlowReflectionBake.cached(uri, aspect) != null
+        val sourceKey = coverDecodeTarget.memoryCacheKey(uri)
+        val cacheHit = CoverFlowReflectionBake.cached(uri, aspect, sourceKey) != null
+        if (cacheHit) return
         val bakeStartedNs = SystemClock.elapsedRealtimeNanos()
         TrackSwitchPerformance.coverAsyncStarted("reflection-bake")
         scope.launch {
             runCatching {
-                CoverFlowReflectionBake.ensureBaked(uri, cover, aspect)
+                CoverFlowReflectionBake.ensureBaked(uri, cover, aspect, sourceKey)
             }.onFailure {
                 com.mica.music.util.DiagnosticLog.event(
                     "CoverFlow",
@@ -923,13 +933,19 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
     private fun scheduleReflectionRebakeForWindow() {
         if (!CoverFlowReflectionBake.ENABLED || !reflectionEnabled()) return
         val radius = laneWindowRadius
+        val windowUris = linkedSetOf<String>()
+        val reflectionUris = linkedSetOf<String>()
         for (offset in -radius..radius) {
             val uri = queue.getOrNull(logicalCenter + offset)?.albumArtUri ?: continue
-            CoverFlowReflectionBake.evict(uri)
+            windowUris += uri
             if (CoverFlowMath.shouldRenderReflection(offset, laneWindowRadius)) {
-                bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
-                    ?.let { scheduleReflectionBake(uri, it) }
+                reflectionUris += uri
             }
+        }
+        windowUris.forEach(CoverFlowReflectionBake::evict)
+        reflectionUris.forEach { uri ->
+            bitmapByUri[coverDecodeTarget.memoryCacheKey(uri)]
+                ?.let { scheduleReflectionBake(uri, it) }
         }
     }
 

@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
+import com.mica.music.imaging.CoverDecodeTarget
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.R
@@ -425,6 +426,7 @@ private fun FloatingIslandMiniPlayer(
                     fallbackColor = song.coverColor,
                     contentDescription = song.title,
                     noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
+                    decodeTarget = CoverDecodeTarget.forCompactCover(),
                     modifier = Modifier
                         .size(FloatingCoverSize)
                         .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
