@@ -543,6 +543,9 @@ class MusicLibrary internal constructor(
 
     suspend fun scanLibraryFolder() = backing.scanOrchestrator.scanLibraryFolder()
 
+    fun launchRefreshSongMetadata(songId: String) =
+        backing.scanOrchestrator.launchRefreshSongMetadata(songId)
+
     fun clearScanSyncSummary() {
         backing.lastScanSyncSummary = null
     }

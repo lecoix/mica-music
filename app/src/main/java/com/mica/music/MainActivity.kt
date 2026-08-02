@@ -51,6 +51,7 @@ import com.mica.music.util.DiagnosticLog
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
+import com.mica.music.util.LyricoTagEditorHost
 import eightbitlab.com.blurview.BlurTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -81,7 +82,7 @@ internal fun MainAppSurface(
     }
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     override fun onStart() {
         super.onStart()
@@ -96,10 +97,38 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var navigationCoordinator: AppNavigationCoordinator
     private var externalAudioOpenJob: Job? = null
+    private var pendingLyricoSongId: String? = null
+
+    private val lyricoTagEditorLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val songId = pendingLyricoSongId
+        pendingLyricoSongId = null
+        if (songId != null) {
+            DiagnosticLog.event(
+                "TagEditor",
+                "lyrico return song=$songId result=${result.resultCode}",
+            )
+            viewModel.refreshSongMetadataAfterTagEditor(songId)
+        }
+    }
 
     private companion object {
         const val KEY_PLAYER_EXPANDED = "player_expanded"
         const val KEY_LOCATE_REQUEST = "locate_request"
+        const val KEY_LYRICO_SONG_ID = "lyrico_song_id"
+    }
+
+    override fun launchLyricoTagEditor(intent: Intent, songId: String): Boolean {
+        pendingLyricoSongId = songId
+        return runCatching {
+            lyricoTagEditorLauncher.launch(intent)
+            true
+        }.getOrElse { error ->
+            pendingLyricoSongId = null
+            DiagnosticLog.event("TagEditor", "lyrico result launch failed song=$songId", error)
+            false
+        }
     }
 
     override fun onResume() {
@@ -139,6 +168,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        pendingLyricoSongId = savedInstanceState?.getString(KEY_LYRICO_SONG_ID)
         applyWindowStatusBar()
 
         val library = viewModel.library
@@ -337,5 +367,6 @@ class MainActivity : ComponentActivity() {
             outState.putBoolean(KEY_PLAYER_EXPANDED, navigationCoordinator.playerExpanded)
             outState.putInt(KEY_LOCATE_REQUEST, navigationCoordinator.locateCurrentSongRequest)
         }
+        outState.putString(KEY_LYRICO_SONG_ID, pendingLyricoSongId)
     }
 }

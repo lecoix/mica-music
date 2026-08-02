@@ -3,6 +3,7 @@ package com.mica.music.util
 import android.app.Activity
 import android.content.ClipData
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -13,6 +14,10 @@ import com.mica.music.data.Song
 internal const val LYRICO_PACKAGE_NAME = "com.lonx.lyrico"
 internal const val LYRICO_EDIT_TAG_ACTION = "com.lonx.lyrico.action.EDIT_TAG"
 private const val LYRICO_EDIT_TAG_MIME = "audio/*"
+
+internal interface LyricoTagEditorHost {
+    fun launchLyricoTagEditor(intent: Intent, songId: String): Boolean
+}
 
 fun shareSong(context: Context, song: Song): Boolean {
     val shareText = buildSongShareText(song)
@@ -93,7 +98,12 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
     )
     if (lyricoActivity != null) {
         return runCatching {
-            context.startActivity(lyricoIntent.withActivityLaunchFlags(context))
+            val host = context.findLyricoTagEditorHost()
+            val launched = host?.launchLyricoTagEditor(lyricoIntent, song.id) ?: run {
+                context.startActivity(lyricoIntent.withActivityLaunchFlags(context))
+                true
+            }
+            check(launched)
             DiagnosticLog.event("TagEditor", "lyrico launch ok song=${song.id} resolved=$lyricoActivity")
             true
         }.getOrElse { error ->
@@ -187,6 +197,16 @@ private fun Intent.withActivityLaunchFlags(context: Context): Intent =
     apply {
         if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+private fun Context.findLyricoTagEditorHost(): LyricoTagEditorHost? {
+    var current: Context = this
+    while (true) {
+        if (current is LyricoTagEditorHost) return current
+        val next = (current as? ContextWrapper)?.baseContext ?: return null
+        if (next === current) return null
+        current = next
+    }
+}
 
 /** 尝试从设备删除音频文件；SAF 与 MediaStore 分别处理。 */
 fun deleteSongFile(context: Context, song: Song): Boolean {

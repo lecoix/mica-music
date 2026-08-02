@@ -74,6 +74,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resolveSong(id: String): Song? =
         transientPlaybackCatalog.songById(id) ?: library.songById(id)
 
+    fun refreshSongMetadataAfterTagEditor(songId: String) {
+        library.launchRefreshSongMetadata(songId)
+    }
+
     override fun onCleared() {
         playbackStatistics.detachPresentationSink(this)
         sleepTimer.cancel()
