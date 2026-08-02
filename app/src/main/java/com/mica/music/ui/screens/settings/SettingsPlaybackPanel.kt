@@ -7,11 +7,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppHiResBadgeImporter
@@ -23,14 +20,13 @@ import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerInfoVisibility
-import com.mica.music.data.ReplayGainMode
-import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.data.usesCompactLyricsLinePreference
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.components.SettingsTextFieldRow
+import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
 import com.mica.music.ui.theme.HifiSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,7 +36,6 @@ import kotlinx.coroutines.withContext
 internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
     val badgeImagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -57,31 +52,32 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         }
     }
 
-    SettingsSectionTitle("音量标准化")
+    SettingsSectionTitle("主题")
+
     SettingsChoiceRow(
-        title = "ReplayGain",
-        subtitle = "按标签降低音量并防止削波；无有效标签时保持原始音量",
-        choices = ReplayGainChoices,
-        selectedValue = replayGainMode.ordinal,
+        title = "播放页特殊主题",
+        subtitle = "选择播放页的封面与下半区呈现方式；主题会决定下方可用的专属选项",
+        choices = PlayerCoverFlowChoices,
+        selectedValue = uiSettings.playerCoverFlowMode.ordinal,
         onSelect = { ordinal ->
-            replayGainMode = ReplayGainMode.entries[ordinal]
-            ReplayGainPreferences.setMode(context, replayGainMode)
+            uiSettings.updatePlayerCoverFlowMode(PlayerCoverFlowMode.entries[ordinal])
         },
     )
 
     Spacer(Modifier.height(HifiSpacing.lg))
-
     SettingsSectionTitle("封面与播放页")
 
-    SettingsChoiceRow(
-        title = "封面显示",
-        subtitle = "原样比例：列表/歌词页为正方框内完整显示；播放页大图可按比例；裁切填充：居中裁切",
-        choices = CoverDisplayChoices,
-        selectedValue = uiSettings.coverDisplayMode.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateCoverDisplayMode(CoverDisplayMode.entries[ordinal])
-        },
-    )
+    if (!ParticleCoverThemePolicy.forcesSquareCrop(uiSettings.playerCoverFlowMode)) {
+        SettingsChoiceRow(
+            title = "封面显示",
+            subtitle = "原样比例：列表/歌词页为正方框内完整显示；播放页大图可按比例；裁切填充：居中裁切",
+            choices = CoverDisplayChoices,
+            selectedValue = uiSettings.coverDisplayMode.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateCoverDisplayMode(CoverDisplayMode.entries[ordinal])
+            },
+        )
+    }
 
     SettingsChoiceRow(
         title = "播放页背景",
@@ -104,22 +100,14 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         },
     )
 
-    SettingsChoiceRow(
-        title = "播放页特殊主题",
-        subtitle = "所有特殊主题仅使用裁切填充封面",
-        choices = PlayerCoverFlowChoices,
-        selectedValue = uiSettings.playerCoverFlowMode.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updatePlayerCoverFlowMode(PlayerCoverFlowMode.entries[ordinal])
-        },
-    )
-
-    SettingsToggleRow(
-        title = "视频专辑封面",
-        subtitle = "默认关闭；开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准播放页静音循环播放",
-        checked = uiSettings.videoAlbumCoverEnabled,
-        onCheckedChange = uiSettings::updateVideoAlbumCoverEnabled,
-    )
+    if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) {
+        SettingsToggleRow(
+            title = "视频专辑封面",
+            subtitle = "默认关闭；开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准播放页静音循环播放",
+            checked = uiSettings.videoAlbumCoverEnabled,
+            onCheckedChange = uiSettings::updateVideoAlbumCoverEnabled,
+        )
+    }
 
     if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
         SettingsToggleRow(
@@ -134,17 +122,21 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         )
     }
 
-    if (uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD) {
+    val coverEdgeProgressAvailable = uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD &&
+        !uiSettings.playerCoverFlowMode.usesPhotoStack &&
+        (uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.STANDARD ||
+            uiSettings.playerLowerBackground == PlayerLowerBackgroundMode.THEME ||
+            uiSettings.playerLowerBackground.usesBlurredArtwork)
+    if (coverEdgeProgressAvailable) {
         SettingsToggleRow(
             title = "封面底边进度",
             subtitle = when {
                 uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.PARTICLE_COVER ->
                     "开启后隐藏进度条与频谱；关闭后使用普通布局"
-                uiSettings.playerLowerBackground == PlayerLowerBackgroundMode.THEME ||
-                    uiSettings.playerLowerBackground.usesBlurredArtwork ->
+                uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD ->
                     "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
                 else ->
-                    "标准主题仅「封面渐变」下不生效；特殊主题仍可在普通与底边布局间切换"
+                    "当前特殊主题支持将进度条与频谱移到专辑图底边；关闭后使用普通布局"
             },
             checked = uiSettings.coverEdgeProgress,
             onCheckedChange = { uiSettings.updateCoverEdgeProgress(it) },
@@ -158,17 +150,12 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
         onCheckedChange = { uiSettings.updateKeepScreenOnWhenPlaying(it) },
     )
 
-    if (uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD) {
+    if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
         SettingsToggleRow(
             title = "下半屏沉浸",
             subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关，粒子封面&拍立得回忆不适用（制作中）",
-            checked = uiSettings.playerImmersiveLower &&
-                uiSettings.playerCoverFlowMode.supportsImmersiveLower,
-            onCheckedChange = {
-                if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
-                    uiSettings.updatePlayerImmersiveLower(it)
-                }
-            },
+            checked = uiSettings.playerImmersiveLower,
+            onCheckedChange = uiSettings::updatePlayerImmersiveLower,
         )
     }
 

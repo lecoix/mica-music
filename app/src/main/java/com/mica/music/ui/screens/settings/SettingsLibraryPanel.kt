@@ -6,16 +6,19 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
+import com.mica.music.ui.components.SettingsToggleRow
 
 @Composable
 internal fun LibraryScanSettingsPanel(
     library: MusicLibrary,
     excludedDirectories: List<String>,
     minDurationSec: Int,
+    deepProbe: Boolean,
     artistSplitConfig: ArtistSplitConfig,
     onChooseLibraryFolder: () -> Unit,
     onRescan: () -> Unit,
     onScanAllMusic: () -> Unit,
+    onDeepProbeChange: (Boolean) -> Unit,
     onEditExcludedDirectories: () -> Unit,
     onMinDurationSelected: (Int) -> Unit,
     onEditArtistSplit: () -> Unit,
@@ -69,6 +72,15 @@ internal fun LibraryScanSettingsPanel(
         choices = DurationChoices,
         selectedValue = minDurationSec,
         onSelect = onMinDurationSelected,
+    )
+
+    SettingsSectionTitle("扫描行为")
+
+    SettingsToggleRow(
+        title = "深度分析音质与封面",
+        subtitle = "读取更完整的音频与封面信息，扫描时间和耗电会增加",
+        checked = deepProbe,
+        onCheckedChange = onDeepProbeChange,
     )
 
     SettingsSectionTitle("艺术家")

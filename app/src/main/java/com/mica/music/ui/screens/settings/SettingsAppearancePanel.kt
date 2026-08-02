@@ -14,8 +14,8 @@ import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.AppWallpaperImporter
-import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
+import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
@@ -172,61 +172,29 @@ internal fun AppearanceSettingsPanel(
         onCheckedChange = { uiSettings.updateMiniPlayerSwipeEnabled(it) },
     )
 
-    SettingsDropdownRow(
-        title = "左滑动作",
-        subtitle = "手指向左滑动后的切歌动作",
-        choices = MiniPlayerSwipeActionChoices,
-        selectedValue = uiSettings.miniPlayerLeftSwipeAction.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateMiniPlayerLeftSwipeAction(
-                MiniPlayerSwipeAction.entries[ordinal],
-            )
-        },
-    )
+    if (uiSettings.miniPlayerSwipeEnabled) {
+        SettingsDropdownRow(
+            title = "左滑动作",
+            subtitle = "手指向左滑动后的切歌动作",
+            choices = MiniPlayerSwipeActionChoices,
+            selectedValue = uiSettings.miniPlayerLeftSwipeAction.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateMiniPlayerLeftSwipeAction(
+                    MiniPlayerSwipeAction.entries[ordinal],
+                )
+            },
+        )
 
-    SettingsDropdownRow(
-        title = "右滑动作",
-        subtitle = "手指向右滑动后的切歌动作",
-        choices = MiniPlayerSwipeActionChoices,
-        selectedValue = uiSettings.miniPlayerRightSwipeAction.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateMiniPlayerRightSwipeAction(
-                MiniPlayerSwipeAction.entries[ordinal],
-            )
-        },
-    )
-
-    Spacer(Modifier.height(HifiSpacing.lg))
-
-    SettingsSectionTitle("其他歌词位置")
-
-    SettingsToggleRow(
-        title = "信息行歌词",
-        subtitle = "播放时在列表信息行显示当前歌词；暂停或无歌词时仍显示列表信息",
-        checked = uiSettings.infoRowLyricsEnabled,
-        onCheckedChange = { uiSettings.updateInfoRowLyricsEnabled(it) },
-    )
-
-    if (uiSettings.infoRowLyricsEnabled) {
-        SettingsToggleRow(
-            title = "信息行逐字歌词",
-            subtitle = "开启后以柔边逐字填充显示，且仅显示原文；无逐字时间轴时回退为整行",
-            checked = uiSettings.infoRowWordLyricsEnabled,
-            onCheckedChange = { uiSettings.updateInfoRowWordLyricsEnabled(it) },
+        SettingsDropdownRow(
+            title = "右滑动作",
+            subtitle = "手指向右滑动后的切歌动作",
+            choices = MiniPlayerSwipeActionChoices,
+            selectedValue = uiSettings.miniPlayerRightSwipeAction.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateMiniPlayerRightSwipeAction(
+                    MiniPlayerSwipeAction.entries[ordinal],
+                )
+            },
         )
     }
-
-    SettingsToggleRow(
-        title = "通知栏歌词",
-        subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
-        checked = uiSettings.notificationLyricsEnabled,
-        onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
-    )
-
-    SettingsToggleRow(
-        title = "车载蓝牙歌词（实验）",
-        subtitle = "使用独立的无队列媒体会话向蓝牙设备发送歌词；可能影响部分车机的媒体控制",
-        checked = uiSettings.carBluetoothLyricsEnabled,
-        onCheckedChange = { uiSettings.updateCarBluetoothLyricsEnabled(it) },
-    )
 }

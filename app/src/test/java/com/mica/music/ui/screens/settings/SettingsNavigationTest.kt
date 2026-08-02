@@ -49,7 +49,7 @@ class SettingsNavigationTest {
     fun resolveSettingsTopBarBackActionOnSubpagePopsCategory() {
         assertEquals(
             SettingsTopBarBackAction.PopCategory,
-            resolveSettingsTopBarBackAction(SettingsCategory.ADVANCED),
+            resolveSettingsTopBarBackAction(SettingsCategory.DIAGNOSTICS),
         )
     }
 

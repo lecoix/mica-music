@@ -109,7 +109,9 @@ internal object LibraryScanSettings {
 
     fun scanOptions(context: Context): ScanOptions = ScanOptions(
         minDurationMs = minTrackDurationSec(context).coerceAtLeast(0) * 1000L,
-        includeNonMusicByMime = includeNonMusicAudio(context),
+        // MediaStore music compatibility is intentionally always enabled; the old preference
+        // key is retained only so existing installations can migrate without data loss.
+        includeNonMusicByMime = true,
         deepMetadataProbe = deepMetadataProbe(context),
         excludedDirectories = excludedScanDirectories(context),
     )

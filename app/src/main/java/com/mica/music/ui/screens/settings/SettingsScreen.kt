@@ -11,12 +11,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,7 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
@@ -50,8 +61,6 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
     onOpenSpatialAudio: () -> Unit,
-    onOpenParticleCoverPreview: () -> Unit,
-    onOpenPhotoStackShadowPreview: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
     playerOverlayOpen: Boolean = false,
@@ -63,22 +72,45 @@ fun SettingsScreen(
     var artistSplitConfig by remember { mutableStateOf(LibraryBrowseSettings.artistSplitConfig(context)) }
     var overlays by remember { mutableStateOf(SettingsOverlayState()) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+    var settingsSearchOpen by remember { mutableStateOf(false) }
+    var settingsSearchQuery by remember { mutableStateOf("") }
     val settingsSubpageBackEnabled = canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
+    val settingsSearchBackEnabled = selectedCategory == null && settingsSearchOpen
+    val settingsBackEnabled = settingsSubpageBackEnabled || settingsSearchBackEnabled
+    val settingsSearchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
-    LaunchedEffect(selectedCategory, playerOverlayOpen, settingsSubpageBackEnabled) {
+    LaunchedEffect(settingsSearchOpen) {
+        if (settingsSearchOpen) {
+            settingsSearchFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    fun closeSettingsSearch() {
+        settingsSearchOpen = false
+        settingsSearchQuery = ""
+    }
+
+    LaunchedEffect(selectedCategory, playerOverlayOpen, settingsBackEnabled, settingsSearchOpen) {
         logBackFlow(
             "page settings category=${selectedCategory?.name ?: "none"} " +
-                "playerOverlayOpen=$playerOverlayOpen " +
-                "backEnabled=$settingsSubpageBackEnabled",
+                "playerOverlayOpen=$playerOverlayOpen searchOpen=$settingsSearchOpen " +
+                "backEnabled=$settingsBackEnabled",
         )
         DiagnosticLog.event(
             "BackRoot",
             "$BackRootDebugTag settings-state category=${selectedCategory?.name ?: "none"} " +
-                "playerOverlayOpen=$playerOverlayOpen enabled=$settingsSubpageBackEnabled",
+                "playerOverlayOpen=$playerOverlayOpen searchOpen=$settingsSearchOpen " +
+                "enabled=$settingsBackEnabled",
         )
     }
 
-    BackHandler(enabled = settingsSubpageBackEnabled) {
+    BackHandler(enabled = settingsBackEnabled) {
+        if (settingsSearchBackEnabled) {
+            closeSettingsSearch()
+            return@BackHandler
+        }
         logBackFlow(
             "back-consume source=settings-subpage category=${selectedCategory?.name ?: "none"} " +
                 "playerOverlayOpen=$playerOverlayOpen",
@@ -131,17 +163,21 @@ fun SettingsScreen(
         ) {
             IconButton(
                 onClick = {
-                    when (resolveSettingsTopBarBackAction(selectedCategory)) {
-                        SettingsTopBarBackAction.ExitSettings -> {
-                            logBackFlow("back-consume source=settings-topbar category=none")
-                            onBack()
-                        }
+                    if (selectedCategory == null && settingsSearchOpen) {
+                        closeSettingsSearch()
+                    } else {
+                        when (resolveSettingsTopBarBackAction(selectedCategory)) {
+                            SettingsTopBarBackAction.ExitSettings -> {
+                                logBackFlow("back-consume source=settings-topbar category=none")
+                                onBack()
+                            }
 
-                        SettingsTopBarBackAction.PopCategory -> {
-                            logBackFlow(
-                                "back-consume source=settings-topbar category=${selectedCategory?.name}",
-                            )
-                            selectedCategory = consumeSettingsBack(selectedCategory)
+                            SettingsTopBarBackAction.PopCategory -> {
+                                logBackFlow(
+                                    "back-consume source=settings-topbar category=${selectedCategory?.name}",
+                                )
+                                selectedCategory = consumeSettingsBack(selectedCategory)
+                            }
                         }
                     }
                 },
@@ -153,11 +189,68 @@ fun SettingsScreen(
                     tint = MicaTheme.colors.textPrimary,
                 )
             }
-            Text(
-                text = settingsScreenTitle(selectedCategory),
-                style = MicaTheme.typography.display,
-                color = MicaTheme.colors.textPrimary,
-            )
+            if (selectedCategory == null && settingsSearchOpen) {
+                TextField(
+                    value = settingsSearchQuery,
+                    onValueChange = { settingsSearchQuery = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(settingsSearchFocusRequester),
+                    placeholder = {
+                        Text(
+                            text = "搜索设置项，例如 ReplayGain、字体、歌词",
+                            style = MicaTheme.typography.bodyMd,
+                            color = MicaTheme.colors.textTertiary,
+                        )
+                    },
+                    textStyle = MicaTheme.typography.bodyMd.copy(
+                        color = MicaTheme.colors.textPrimary,
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions.Default,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                    ),
+                    trailingIcon = if (settingsSearchQuery.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { settingsSearchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "清除",
+                                    tint = MicaTheme.colors.textSecondary,
+                                )
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                )
+            } else {
+                Text(
+                    text = settingsScreenTitle(selectedCategory),
+                    style = MicaTheme.typography.bodyLg,
+                    color = MicaTheme.colors.textPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                if (selectedCategory == null) {
+                    IconButton(
+                        onClick = { settingsSearchOpen = true },
+                        modifier = Modifier.size(HifiSize.touchTarget),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = "搜索设置",
+                            tint = MicaTheme.colors.textPrimary,
+                        )
+                    }
+                }
+            }
         }
 
         Column(
@@ -167,8 +260,10 @@ fun SettingsScreen(
         ) {
             if (selectedCategory == null) {
                 SettingsCategoryList(
+                    query = settingsSearchQuery,
                     onSelectCategory = { category ->
                         logBackFlow("page-action settings-open-category category=${category.name}")
+                        closeSettingsSearch()
                         selectedCategory = category
                     },
                 )
@@ -199,10 +294,14 @@ fun SettingsScreen(
                             library = library,
                             excludedDirectories = scanState.excludedDirectories,
                             minDurationSec = scanState.minDurationSec,
+                            deepProbe = scanState.deepProbe,
                             artistSplitConfig = artistSplitConfig,
                             onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
                             onRescan = libraryAccess.onRescan,
                             onScanAllMusic = libraryAccess.onScanAllMusic,
+                            onDeepProbeChange = {
+                                scanState = scanState.withDeepProbe(context, it)
+                            },
                             onEditExcludedDirectories = {
                                 overlays = overlays.copy(showExcludedDirectories = true)
                             },
@@ -215,18 +314,13 @@ fun SettingsScreen(
                         )
                     }
 
-                    SettingsCategory.ADVANCED -> {
-                        AdvancedSettingsPanel(
-                            uiSettings = uiSettings,
-                            includeNonMusic = scanState.includeNonMusic,
-                            deepProbe = scanState.deepProbe,
+                    SettingsCategory.AUDIO -> {
+                        AudioSettingsPanel(uiSettings = uiSettings)
+                    }
+
+                    SettingsCategory.DIAGNOSTICS -> {
+                        DiagnosticsSettingsPanel(
                             hasSongs = library.songs.isNotEmpty(),
-                            onIncludeNonMusicChange = {
-                                scanState = scanState.withIncludeNonMusic(context, it)
-                            },
-                            onDeepProbeChange = {
-                                scanState = scanState.withDeepProbe(context, it)
-                            },
                             onOpenMetadataDebug = onOpenMetadataDebug,
                             onOpenSpatialAudio = onOpenSpatialAudio,
                             onOpenAppSettings = { openAppSettings(context) },

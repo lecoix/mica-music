@@ -9,6 +9,7 @@ import com.mica.music.data.DEFAULT_LETTER_SEAL_OPACITY_PERCENT
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
+import com.mica.music.data.LyricsSlot
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.MAX_LETTER_SEAL_OPACITY_PERCENT
 import com.mica.music.data.MAX_LETTER_SEAL_ROTATION_DEGREES
@@ -111,6 +112,21 @@ internal val LyricsBilingualDisplayChoices = LyricsBilingualDisplayMode.entries.
     it.ordinal to it.settingsLabel
 }
 
+internal val LyricsPriorityChoices = listOf(
+    listOf(LyricsSlot.EXTERNAL_TTML, LyricsSlot.EXTERNAL_LRC, LyricsSlot.EMBEDDED) to
+        "外部 TTML → 外部 LRC → 内嵌",
+    listOf(LyricsSlot.EXTERNAL_TTML, LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_LRC) to
+        "外部 TTML → 内嵌 → 外部 LRC",
+    listOf(LyricsSlot.EXTERNAL_LRC, LyricsSlot.EXTERNAL_TTML, LyricsSlot.EMBEDDED) to
+        "外部 LRC → 外部 TTML → 内嵌",
+    listOf(LyricsSlot.EXTERNAL_LRC, LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_TTML) to
+        "外部 LRC → 内嵌 → 外部 TTML",
+    listOf(LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_TTML, LyricsSlot.EXTERNAL_LRC) to
+        "内嵌 → 外部 TTML → 外部 LRC",
+    listOf(LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_LRC, LyricsSlot.EXTERNAL_TTML) to
+        "内嵌 → 外部 LRC → 外部 TTML",
+)
+
 internal val LyricsPageFontSizeChoices = (MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP)
     .map { it to "$it sp" }
 
@@ -136,23 +152,27 @@ internal enum class SettingsCategory(
     val subtitle: String,
 ) {
     APPEARANCE(
-        title = "外观与主题",
-        subtitle = "主题、强调色、云母背景、状态栏、迷你播放栏",
+        title = "外观",
+        subtitle = "主题、强调色、云母背景、壁纸、状态栏、迷你播放",
     ),
     PLAYBACK(
         title = "播放页",
-        subtitle = "封面、播放页背景/UI 颜色、特殊主题、频谱",
+        subtitle = "封面、背景、播放页主题、信息行",
     ),
     LYRICS(
-        title = "歌词页",
-        subtitle = "双语拆分、逐字填充、歌词颜色与样式",
+        title = "歌词",
+        subtitle = "歌词主题、显示、经典列表、字体、歌词输出",
     ),
     LIBRARY(
         title = "曲库与扫描",
-        subtitle = "曲库文件夹、重新扫描、时长过滤",
+        subtitle = "曲库文件夹、重新扫描、过滤与扫描行为",
     ),
-    ADVANCED(
-        title = "高级与调试",
-        subtitle = "扫描兼容、元数据调试、系统权限",
+    AUDIO(
+        title = "音频与设备",
+        subtitle = "ReplayGain、音频焦点",
+    ),
+    DIAGNOSTICS(
+        title = "诊断与系统",
+        subtitle = "元数据调试、空间音频、系统权限",
     ),
 }

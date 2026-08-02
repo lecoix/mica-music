@@ -73,6 +73,18 @@ internal fun LyricsSettingsPanel(
         },
     )
 
+    SettingsDropdownRow(
+        title = "歌词优先级",
+        subtitle = "按顺序选择已扫描的歌词；缺少前一项时自动使用下一项",
+        choices = LyricsPriorityChoices.mapIndexed { index, (_, label) -> index to label },
+        selectedValue = LyricsPriorityChoices.indexOfFirst {
+            it.first == uiSettings.lyricsSlotPriority
+        }.coerceAtLeast(0),
+        onSelect = { index ->
+            LyricsPriorityChoices.getOrNull(index)?.first?.let(uiSettings::updateLyricsSlotPriority)
+        },
+    )
+
     if (uiSettings.lyricsPageTheme == LyricsPageTheme.LETTER) {
         Spacer(Modifier.height(HifiSpacing.lg))
         SettingsSectionTitle("信笺朱印")
@@ -159,63 +171,97 @@ internal fun LyricsSettingsPanel(
         },
     )
 
-    Spacer(Modifier.height(HifiSpacing.lg))
+    SettingsSectionTitle("歌词输出")
 
-    SettingsSectionTitle("经典列表")
+    SettingsToggleRow(
+        title = "信息行歌词",
+        subtitle = "播放时在列表信息行显示当前歌词；暂停或无歌词时仍显示列表信息",
+        checked = uiSettings.infoRowLyricsEnabled,
+        onCheckedChange = { uiSettings.updateInfoRowLyricsEnabled(it) },
+    )
 
-    SettingsChoiceRow(
-        title = "逐字动画",
-        subtitle = "用于经典列表及歌词云不可用时的回退页面；仅影响带有真实逐字时间轴的歌词",
-        choices = LyricsWordAnimationPresetChoices,
-        selectedValue = uiSettings.lyricsWordAnimationPreset.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateLyricsWordAnimationPreset(LyricsWordAnimationPreset.entries[ordinal])
-        },
+    if (uiSettings.infoRowLyricsEnabled) {
+        SettingsToggleRow(
+            title = "信息行逐字歌词",
+            subtitle = "开启后以柔边逐字填充显示，且仅显示原文；无逐字时间轴时回退为整行",
+            checked = uiSettings.infoRowWordLyricsEnabled,
+            onCheckedChange = { uiSettings.updateInfoRowWordLyricsEnabled(it) },
+        )
+    }
+
+    SettingsToggleRow(
+        title = "通知栏歌词",
+        subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
+        checked = uiSettings.notificationLyricsEnabled,
+        onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )
 
     SettingsToggleRow(
-        title = "强制使用逐字歌词样式",
-        subtitle = "用于经典列表与播放页迷你歌词；没有逐字时间轴时，当前句按播放进度从左到右填充",
-        checked = uiSettings.lyricLineFillEnabled,
-        onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
+        title = "车载蓝牙歌词（实验）",
+        subtitle = "使用独立的无队列媒体会话向蓝牙设备发送歌词；可能影响部分车机的媒体控制",
+        checked = uiSettings.carBluetoothLyricsEnabled,
+        onCheckedChange = { uiSettings.updateCarBluetoothLyricsEnabled(it) },
     )
 
-    SettingsChoiceRow(
-        title = "歌词页对齐",
-        choices = LyricsPageAlignmentChoices,
-        selectedValue = uiSettings.lyricsPageAlignment.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateLyricsPageAlignment(LyricsPageAlignment.entries[ordinal])
-        },
-    )
+    if (uiSettings.lyricsPageTheme == LyricsPageTheme.LIST) {
+        Spacer(Modifier.height(HifiSpacing.lg))
 
-    SettingsDropdownRow(
-        title = "原歌词字号",
-        choices = LyricsPageFontSizeChoices,
-        selectedValue = uiSettings.lyricsPageFontSizeSp,
-        onSelect = { uiSettings.updateLyricsPageFontSizeSp(it) },
-    )
+        SettingsSectionTitle("经典列表")
 
-    SettingsDropdownRow(
-        title = "翻译歌词字号",
-        choices = LyricsPageFontSizeChoices,
-        selectedValue = uiSettings.lyricsPageTranslationFontSizeSp,
-        onSelect = { uiSettings.updateLyricsPageTranslationFontSizeSp(it) },
-    )
+        SettingsChoiceRow(
+            title = "逐字动画",
+            subtitle = "用于经典列表及歌词云不可用时的回退页面；仅影响带有真实逐字时间轴的歌词",
+            choices = LyricsWordAnimationPresetChoices,
+            selectedValue = uiSettings.lyricsWordAnimationPreset.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateLyricsWordAnimationPreset(LyricsWordAnimationPreset.entries[ordinal])
+            },
+        )
 
-    SettingsDropdownRow(
-        title = "行间距",
-        choices = LyricsPageLineSpacingChoices,
-        selectedValue = uiSettings.lyricsPageLineSpacingDp,
-        onSelect = { uiSettings.updateLyricsPageLineSpacingDp(it) },
-    )
+        SettingsToggleRow(
+            title = "强制使用逐字歌词样式",
+            subtitle = "用于经典列表与播放页迷你歌词；没有逐字时间轴时，当前句按播放进度从左到右填充",
+            checked = uiSettings.lyricLineFillEnabled,
+            onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
+        )
 
-    SettingsToggleRow(
-        title = "歌词页沉浸模式",
-        subtitle = "开启后歌词页隐藏进度条和底部五个按钮；在歌词页长按播放按钮也可切换",
-        checked = uiSettings.lyricsPageImmersive,
-        onCheckedChange = { uiSettings.updateLyricsPageImmersive(it) },
-    )
+        SettingsChoiceRow(
+            title = "歌词页对齐",
+            choices = LyricsPageAlignmentChoices,
+            selectedValue = uiSettings.lyricsPageAlignment.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateLyricsPageAlignment(LyricsPageAlignment.entries[ordinal])
+            },
+        )
+
+        SettingsDropdownRow(
+            title = "原歌词字号",
+            choices = LyricsPageFontSizeChoices,
+            selectedValue = uiSettings.lyricsPageFontSizeSp,
+            onSelect = { uiSettings.updateLyricsPageFontSizeSp(it) },
+        )
+
+        SettingsDropdownRow(
+            title = "翻译歌词字号",
+            choices = LyricsPageFontSizeChoices,
+            selectedValue = uiSettings.lyricsPageTranslationFontSizeSp,
+            onSelect = { uiSettings.updateLyricsPageTranslationFontSizeSp(it) },
+        )
+
+        SettingsDropdownRow(
+            title = "行间距",
+            choices = LyricsPageLineSpacingChoices,
+            selectedValue = uiSettings.lyricsPageLineSpacingDp,
+            onSelect = { uiSettings.updateLyricsPageLineSpacingDp(it) },
+        )
+
+        SettingsToggleRow(
+            title = "歌词页沉浸模式",
+            subtitle = "开启后歌词页隐藏进度条和底部五个按钮；在歌词页长按播放按钮也可切换",
+            checked = uiSettings.lyricsPageImmersive,
+            onCheckedChange = { uiSettings.updateLyricsPageImmersive(it) },
+        )
+    }
 
     Spacer(Modifier.height(HifiSpacing.lg))
 
@@ -223,13 +269,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsActionRow(
         title = "歌词字体",
-        subtitle = "当前：${uiSettings.lyricFont.settingsLabel}",
-        onClick = { fontPicker.launch(arrayOf("*/*")) },
-    )
-
-    SettingsActionRow(
-        title = "导入字体文件",
-        subtitle = "支持 TTF / OTF；新导入会覆盖旧的歌词字体",
+        subtitle = "当前：${uiSettings.lyricFont.settingsLabel}；点击导入 TTF / OTF 字体",
         onClick = { fontPicker.launch(arrayOf("*/*")) },
     )
 

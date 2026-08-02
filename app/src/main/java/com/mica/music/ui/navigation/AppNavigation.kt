@@ -244,14 +244,6 @@ fun AppNavigationMain(
                     logBackFlow("nav-action open-spatial-audio from=settings")
                     coordinator.navigate(Routes.SpatialAudio)
                 },
-                onOpenParticleCoverPreview = {
-                    logBackFlow("nav-action open-particle-preview from=settings")
-                    coordinator.navigate(Routes.ParticleCoverPreview)
-                },
-                onOpenPhotoStackShadowPreview = {
-                    logBackFlow("nav-action open-photo-stack-preview from=settings")
-                    coordinator.navigate(Routes.PhotoStackShadowPreview)
-                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
