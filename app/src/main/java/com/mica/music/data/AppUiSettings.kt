@@ -65,6 +65,9 @@ class AppUiSettings(context: Context) {
     var coverDisplayMode by mutableStateOf(PlaybackUiPreferences.coverDisplayMode(appContext))
         private set
 
+    var playbackQueueIconStyle by mutableStateOf(PlaybackUiPreferences.playbackQueueIconStyle(appContext))
+        private set
+
     var playerCoverFlowMode by mutableStateOf(PlaybackUiPreferences.playerCoverFlowMode(appContext))
         private set
 
@@ -280,6 +283,11 @@ class AppUiSettings(context: Context) {
     fun updateCoverDisplayMode(mode: CoverDisplayMode) {
         coverDisplayMode = mode
         PlaybackUiPreferences.setCoverDisplayMode(appContext, mode)
+    }
+
+    fun updatePlaybackQueueIconStyle(style: PlaybackQueueIconStyle) {
+        playbackQueueIconStyle = style
+        PlaybackUiPreferences.setPlaybackQueueIconStyle(appContext, style)
     }
 
     fun updatePlayerCoverFlowMode(mode: PlayerCoverFlowMode) {

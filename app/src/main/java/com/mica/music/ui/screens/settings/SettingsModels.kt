@@ -25,6 +25,7 @@ import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.PlaybackContentColorMode
+import com.mica.music.data.PlaybackQueueIconStyle
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.ReplayGainMode
@@ -73,6 +74,10 @@ internal val MicaBackgroundChoices = MicaPreset.entries.map {
 }
 
 internal val CoverDisplayChoices = CoverDisplayMode.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+internal val PlaybackQueueIconStyleChoices = PlaybackQueueIconStyle.entries.map {
     it.ordinal to it.settingsLabel
 }
 
