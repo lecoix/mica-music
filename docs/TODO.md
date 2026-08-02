@@ -1,6 +1,6 @@
 # Mica 功能清单
 
-> 最后整理：2026-07。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
+> 最后整理：2026-08-02。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
 
 ---
 
@@ -15,6 +15,7 @@
 - [x] 歌曲列表 **排序**（字段 + 升/降序；`SharedPreferences` 持久化，统计栏显示「标题 · 升序」等）
 - [x] 播放次数记录（`PlayHistoryStore`，供「最近播放」等）
 - [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（不自动续播）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
+- [x] 文件夹浏览模式：层级浏览与**扁平浏览**均已持久化；扁平模式只列出直接包含歌曲的目录，不把仅包含子目录的父目录重复列出
 
 
 
@@ -32,9 +33,11 @@
 - [x] Media3 **ExoPlayer** + 前台 `MicaMediaService`（`MediaSessionService`；播放出声统一走 Exo 单链路）
 - [x] **ExoPlayer 单链路播放**：普通格式、ALAC/DSF 等均由 ExoPlayer / Media3 扩展链路处理；不再走整首 `.pcm` 落盘 + `AudioTrack` 自建播放管线
 - [x] 播放队列、上一首 / 下一首、拖动进度条 seek、缓冲与错误提示
+- [x] 外部文件管理器打开音频：消费 `ACTION_VIEW` 的 `content://` 音频 URI，支持冷启动与 warm `onNewIntent()`；已知曲目复用曲库记录，否则使用不持久化的临时单曲替换当前队列
 - [x] **累计播放时长**统计（按曲 / 全库；切歌与暂停时落盘；音乐库分析或统计栏展示）
 - [x] **播放模式**：顺序 / 列表循环 / 单曲循环 / 随机（单按钮切换）
 - [x] 播放页 **播放列表** 底部弹层（查看队列、点击切歌）
+- [x] Hi‑Res 标志样式：默认、黄底镂空、自定义图片；自定义图片失效时回退默认样式
 - [x] 曲库 **Room 持久化**（扫描结果写入 DB，冷启动自动恢复；**增量同步**新增/更新/移除）
 - [x] 播放列表：**拖拽排序**、**从队列删除**
 - [x] **音乐库分析**（格式 / 采样率 / 码率分布，侧栏入口）
@@ -52,8 +55,9 @@
   - **封面模糊**（`COVER_GLOW`）：Android 12+ 全屏模糊封面 + 取色叠层；低版本取色渐变兜底；下半屏控件 **白色**（Hi‑Fi 标签仍用主题色）
   - **动态烟云**（`DYNAMIC_LIGHT`）：低分辨率封面纹理 + GLES 动态渲染
   - **流光溢彩**（`DYNAMIC_ARTWORK`）：多层封面纹理、blur shader 与切歌 crossfade
-- [x] 五种**播放页封面行为**（设置 → 播放页封面行为；见 `[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0 与 `[CONTEXT.md](../CONTEXT.md)`）：
+- [x] 六种**播放页封面行为**（设置 → 播放页封面行为；见 `[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0 与 `[CONTEXT.md](../CONTEXT.md)`）：
   - **标准**（`STANDARD`）：大封面 + 横向轻扫切歌
+  - **自定义标准**（`CUSTOM_STANDARD`）：标准封面布局的可配置歌词页/横屏契约
   - **粒子封面**（`PARTICLE_COVER`）：边缘粒子化与切歌分解；现网 **GLES**（`ParticleCoverPlayerLayer` → `ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 回退仅 `UseNativeParticleCoverInPlayer = false`。详见 `[PARTICLE_COVER_OPENGL_MIGRATION.md](PARTICLE_COVER_OPENGL_MIGRATION.md)` §0
   - **平行封面带**（`PAUSE_FOLD`）、**复古立体封面**（`RETRO_3D`）：七轨 View 岛封面流
   - **拍立得回忆**（`PHOTO_STACK`）：拍立得叠放转场
@@ -74,6 +78,8 @@
 - [x] ~~收藏 / 我喜欢~~（已有歌单，已移除）
 - [x] **歌曲**列表完整流程（权限、选文件夹、扫描、空状态）
 - [x] 设置：主题（跟随系统/浅/深）、强调色、云母背景、封面显示、隐藏状态栏、播放页背景、扫描相关、**元数据调试**（设置 → 扫描）、ALAC 播放方式、权限入口等
+- [x] 歌词页主题：经典列表、歌词云、**信笺**；信笺支持自定义朱印图片、大小、浓度和旋转
+- [x] 睡眠定时：墙钟倒计时，通过当前 ExoPlayer/MediaController 音量接口结束前渐弱并暂停；保留最近使用时长
 - [x] 云母风格 Compose 设计系统（直角、渐变背景、状态栏处理）
 
 ---
@@ -184,7 +190,7 @@
 
 - [x] **ExoPlayer 单链路优先**：普通格式与扩展格式统一走 ExoPlayer / Media3 解码播放，避免旧的多播放管线分叉
 - [x] **内存流式解码**：已移除整首 `.pcm` 落盘播放路径；seek 与进度状态跟随 ExoPlayer 当前播放状态
-- [ ] **MediaSession 外部控制边界**：做车机 / Android Auto / 外部 controller 接入前复查 `MicaMediaService` 的 `exported=true`；优先用连接身份粗分 + 命令限制，保留系统媒体控件、蓝牙、车机所需的标准播放命令，不做品牌包名白名单
+- [x] **MediaSession 外部控制边界**：已完成连接能力与命令限制的基础边界；保留系统媒体控件、蓝牙和车机所需的标准播放命令，不做品牌包名白名单。Android Auto / OEM 真机验收仍见下方 P2 项
 - [ ] **P2：Android Auto / 车机 MediaSession 验收**：补充真实车机或 Android Auto DHU 的连接、元数据、播放控制与重连验证。
 - [ ] **P2：OEM 车机兼容性验收**：覆盖不同厂商车机/系统控制器的媒体按键、元数据、封面与进程重启行为。
 - [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变
@@ -195,12 +201,10 @@
 ### 音频与其它
 
 - [x] **EQ** 均衡器（10 段软件 EQ、系统/自定义预设、保存配置；界面已重做为横向推子布局）
-- [x] **均衡器全局增益（Preamp / Master Gain）**（优先级：中）
-  - 在现有 10 段软件 EQ 上增加用户可调全局输出增益（设置或 EQ 页单滑块 / dB 显示）。
-  - 与 `[SoftwareEqualizer](../app/src/main/java/com/mica/music/media/eq/SoftwareEqualizer.kt)` 现有自动 preamp、限幅协调，避免削波；预设切换时增益是否随 preset 保存待产品确认。
-- [ ] **横屏**播放页
+- [x] **均衡器全局增益（Preamp / Master Gain）**：EQ 页提供可调全局输出增益并持久化；与现有 EQ 限幅协调，避免削波
+- [x] **横屏**播放页基础实现：播放页、队列侧栏及全局窗口横屏布局已接入；视觉、生命周期、音频连续性仍需真机验收
 - [ ] 车机模式
-- [ ] 多文件夹读取
+- [ ] 多文件夹读取（扫描授权仍是单一根目录；这不是已实现的“扁平浏览”模式）
 
 
 ### 远期 · 低优先级
@@ -214,7 +218,7 @@
 - [ ] **瘦身**（APK / 运行时占用）
   - **播放缓存**：复查 ExoPlayer / 扩展解码缓存与临时文件上限，避免大曲库长期占用膨胀
   - **依赖与资源**：ProGuard/R8、未用资源与 so；设置项说明占用
-- [x] **平行封面带** / **复古立体封面**（见上「五种播放页封面行为」；`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0–§12）
+- [x] **平行封面带** / **复古立体封面**（见上「六种播放页封面行为」；`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0–§12）
   - **观感**：启用后播放页常驻平行/立体封面带；播放 / 暂停不再触发布局放大缩小。
   - **实现**：View + Canvas 七轨；启用时强制裁切填充；与任意播放页背景组合。
 - [x] **封面流切歌闪帧 / 位移跳变（已治本）**

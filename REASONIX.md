@@ -5,7 +5,7 @@
 ## Stack
 
 - **Language:** Kotlin 2.2.21 + Jetpack Compose (Material3 BOM 2024.10.00)
-- **Android SDK:** minSdk 26, targetSdk 34, compileSdk 34; **arm64-v8a only**
+- **Android SDK:** minSdk 26, targetSdk 34, compileSdk 35; **arm64-v8a only**
 - **Build:** AGP 8.7.0, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
 - **Key deps:** Media3 **1.9.0**, Jellyfin `media3-ffmpeg-decoder` **1.9.0+1**, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, reorderable 2.4.3, **BlurView 3.2.0** (JitPack), Kyant Taglib, jAudiotagger
 - **Test:** JUnit 4, Robolectric 4.13, MockK, Roborazzi 1.34

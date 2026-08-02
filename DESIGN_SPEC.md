@@ -354,10 +354,10 @@
 ●  Hi-Res
 ```
 
-- 金色标记（`#D4AC4F`, **6dp 方形**点；规范写「圆点」，现网为直角 `Box`）
-- 后接文字 "Hi-Res"（caption 字号）
-- **现网出现位置**：播放页 Hi‑Fi 信息行旁（`HiFiBadgeSection`）；音乐库分析页。**未**出现在列表行；**无**「Hi‑Res 直通」设置项
-- 永远不框起来，永远不变色
+- 现网提供三种样式：**默认**、**黄底镂空**、**自定义图片**（`HiResBadgeStyle`）。
+- 默认与黄底样式仍使用 Hi‑Fi 信息行的紧凑标志；自定义图片使用等比适配并在文件失效时回退默认样式。
+- **现网出现位置**：播放页 Hi‑Fi 信息行旁（`HiFiBadgeSection`）；音乐库分析页。仍**未**出现在列表行。
+- 样式由设置持久化；本文不把某一种样式描述为唯一视觉规范。
 
 ### 10.3 HiFi 信息行（播放页专用）
 
@@ -967,7 +967,7 @@ fun MinimalTabRow(
 | Taglib / jAudiotagger | 元数据 | 1.0.5 / 3.0.1 |
 | 测试 | JUnit / Robolectric / MockK / Roborazzi | 4.13.2 / 4.13 / 1.13.13 / 1.34.0 |
 
-**平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 34`，**仅 arm64-v8a**。
+**平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 35`，**仅 arm64-v8a**。
 
 **v1.1 草案已移除或未采用的依赖**：直接 `implementation("androidx.media3:media3-exoplayer-hls")`、Compose `ui-text-google-fonts`（字体 spec 仍未落地）。
 
@@ -992,7 +992,7 @@ dependencies {
 | 页面 / 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 设置 · 外观与主题 | ✅ | `SettingsCategory.APPEARANCE`：主题、强调色、云母背景（含 CUSTOM）、隐藏状态栏、迷你播放栏 |
-| 设置 · 播放与界面 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（5 模式）、封面显示、沉浸、频谱、封面底边进度、通知歌词等 |
+| 设置 · 播放与界面 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、沉浸、频谱、封面底边进度、通知歌词等 |
 | 设置 · 歌词 | ✅ | `LYRICS`：对齐、字号、双语、逐字/沉浸等 |
 | 设置 · 列表与信息 | ✅ | `LIST_INFO`：列表统计栏、Hi‑Fi 信息行显示 |
 | 设置 · 曲库与扫描 | ✅ | `LIBRARY`：文件夹、重扫、排除目录、最短时长（**非** spec 原「音频」分类） |
@@ -1060,15 +1060,16 @@ dependencies {
 | 能力 | 位置 |
 | --- | --- |
 | 播放页背景 5 模式 | §2.7、`PlayerLowerBackgroundMode.kt` |
-| 封面行为 5 模式 | §2.7、`PlayerCoverFlowMode.kt` |
+| 封面行为 6 模式 | §2.7、`PlayerCoverFlowMode.kt`（含 `CUSTOM_STANDARD`） |
 | 设置 6 大类 | `SettingsScreen.kt` → `SettingsCategory` |
 | 通知歌词 | 设置 → 播放与界面 |
-| 粒子封面 GLES 现网 / WebView 回退 | `ParticleCoverHost`、`ThreeParticleCoverHost`（预览对比） |
+| 粒子封面 GLES 现网 / WebView 回退 | `ParticleCoverHost`、`ThreeParticleCoverHost`（回退路径待退役） |
+| Hi‑Res 标志三种样式 | `HiResBadgeStyle.kt`、播放页设置 |
 | 深色云母每预设双端点 | `Color.kt` `*DarkStart/*DarkEnd` |
 | `HifiColors.surfaceCard` / `like` / `isDark` | `Color.kt` |
 
 ---
 
 **版本**：v1.3  
-**最后更新**：2026-07-04  
+**最后更新**：2026-08-02
 **适用平台**：Android 8.0+（minSdk 26）/ Jetpack Compose BOM 2024.10+

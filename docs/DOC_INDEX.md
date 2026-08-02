@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-07  
+> 最后整理：2026-08-02
 > 范围：本仓库 **Mica Android** 文档（不含 `.icey-ref/`、`.codex-push-*` 副本）。
 
 ---
@@ -11,9 +11,10 @@
 2. [`CONTEXT.md`](../CONTEXT.md) — 领域词汇（播放队列、封面行为、持久化等）  
 3. [`DESIGN_SPEC.md`](../DESIGN_SPEC.md) — 设计语言（§十五 规范与现网对照）  
 4. [`TODO.md`](TODO.md) — 已实现 / 待办  
-5. [`MOTION.md`](MOTION.md) — 动效规范 + **§七 Compose/View 岛**  
-6. 按任务：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)、[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)、[`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0、[`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md)
-7. 参考拆解：[`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md)
+5. [`CURRENT_FEATURE_STATUS.md`](CURRENT_FEATURE_STATUS.md) — 近期功能的实现状态与验收边界
+6. [`MOTION.md`](MOTION.md) — 动效规范 + **§七 Compose/View 岛**
+7. 按任务：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)、[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md)、[`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0、[`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md)
+8. 参考拆解：[`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md)
 
 ---
 
@@ -24,6 +25,7 @@
 | [`README.md`](../README.md) | 项目入口 |
 | [`DESIGN_SPEC.md`](../DESIGN_SPEC.md) | 设计规范 v1.3（含 §十五 规范与现网对照） |
 | [`TODO.md`](TODO.md) | 功能 living list |
+| [`CURRENT_FEATURE_STATUS.md`](CURRENT_FEATURE_STATUS.md) | 近期功能的当前行为、测试覆盖与真机验收边界 |
 | [`MOTION.md`](MOTION.md) | 动效权威 + View 岛分工 |
 | [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) | 播放页封面行为 **产品 §0 + 封面流 §1–12 + 拍立得 §13** |
 | [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md) | 播放页契约、模块地图、回归清单 |
@@ -45,6 +47,7 @@
 | [`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md) | Exo PCM 链路**讨论记录**（背景与机制分析；结论已并入 REFACTOR） |
 | [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) | 当前音频实施范围：实际 ReplayGain 系数的事实来源、兼容契约与测试计划 |
 | [`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md) | 远期 USB 独占采用 USB Host 独立 output adapter 的架构决策 |
+| [`adr/0002-library-snapshot-publication.md`](adr/0002-library-snapshot-publication.md) | 完整曲库 snapshot 的 generation / revision / Room 发布顺序契约 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
@@ -81,6 +84,7 @@
          SHARED_ELEMENT_ANIMATION_NOTES
 合规     OPEN_SOURCE_NOTICES
 工具     REASONIX
+现状     CURRENT_FEATURE_STATUS
 ```
 
 ---
@@ -116,3 +120,4 @@
 | 2026-07-07 | 新增 **Audio quality consent**：`.cursor/rules/audio-quality-consent.mdc`、`CONTEXT.md` |
 | 2026-07-14 | 新增 `EXTERNAL_EVENT_CONTRACT_TESTING.md`：记录播放计数漏测原因，并提炼跨模块外部事件契约测试规则 |
 | 2026-08-01 | 新增 `ADDING_AUDIO_FORMAT_SUPPORT.md`：沉淀 APE 接入中的帧边界、seek、频谱时钟和 JNI 缓冲区扩容经验 |
+| 2026-08-02 | 更新 SDK、封面行为、Hi‑Res、DSD renderer split 与 TODO 状态；新增 `CURRENT_FEATURE_STATUS.md`，补录外部音频、扁平浏览、Letter、睡眠定时和 Room v15 |

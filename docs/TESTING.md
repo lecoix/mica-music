@@ -78,8 +78,9 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 - 蓝牙、耳机拔出、音频焦点、锁屏控制和后台播放。
 - 通知权限拒绝、划掉任务、进程恢复和重启。
 - SAF 文件夹授权及重启后的持久权限。
-- 删除、分享、睡眠定时和 EQ。
-- 手势导航、三键导航、横屏、浅色和深色模式。
+- 文件管理器 `ACTION_VIEW` 打开 `content://` 音频；验证冷启动、warm `onNewIntent()`、曲库复用和临时单曲队列。
+- 曲库层级浏览与扁平浏览、删除、分享、睡眠定时和 EQ。
+- 手势导航、三键导航、横屏、浅色和深色模式；歌词页的 Letter/信笺主题与 Hi‑Res 标志样式。
 - 手势提示线周围必须由应用背景完整覆盖。
 
 设备验收失败时，即使 JVM 测试全部通过也不得发布。
@@ -179,7 +180,8 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 ### P1 状态写入、迁移与系统事件契约
 
 - `NotificationLyricsMedia3ContractTest.realQueueWritesKeepPlayerAndMirrorAlignedWithoutFalsePlayCounts`：真实 ExoPlayer/MediaSession/MediaController/PlayerController 连续执行三次 metadata replacement、preserve-current 重排、移动、删除当前/非当前项及删空；同时断言 Player 队列、UI 镜像、当前曲、进度和播放计数回调。
-- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证 4→5 `trackNumber` 默认值及 2→8 全链 identity/schema；迁移后通过真实 `SongDao`/`LibraryMetaDao` 读回代表数据。
+- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 v15，`DatabaseMigrationTest` 另覆盖包含 `14→15` 的最新迁移，迁移后通过真实 `SongDao`/`LibraryMetaDao` 读回代表数据。
+- `SongIdentityMigrationTest`：验证旧 URI hash ID 到稳定文档 ID 的一次性迁移，以及播放列表、播放历史、播放会话和曲库浏览偏好的引用同步。
 - `MicaMediaServiceNoisyReceiverTest`：Robolectric 验证 Service 只保留 Media3 内置 noisy receiver，一次广播只暂停一次，销毁时完成注销。设备端普通 App/shell UID 不能伪造受保护的 `AUDIO_BECOMING_NOISY`；OEM 音频焦点、真实耳机拔出和连续系统事件仍属于设备矩阵。
 
 Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极简表代替 `runMigrationsAndValidate`。

@@ -1,6 +1,6 @@
 # DSD / Exo 播放扩展
 
-> 最后更新：2026-06-18  
+> 最后更新：2026-08-02
 > 状态：`.dsf` 经 **Media3（Exo）单链路** 播放；`.dff` **不支持播放**（可扫描，播放时提示改用 DSF）。
 
 ---
@@ -9,7 +9,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| **主路径** | `.dsf` → `DsfExtractor` + 自编 `libffmpegJNI`（`dsd_lsbf_planar`）+ PCM 降采样 → `AudioTrack` |
+| **主路径** | `.dsf` → `DsfExtractor` → `DsdOnly` `FfmpegAudioRenderer`（`dsd_lsbf_planar`）→ DSD 专用 Sink（PCM 降采样 / 频谱 / EQ）→ `AudioTrack` |
 | **不支持** | `.dff` / DSDIFF：路由层拒绝，不启动 Exo |
 | **不在范围** | USB DAC Native DSD / DoP 直出（以后可在解复用后分叉，与本文路径并存） |
 
@@ -30,9 +30,9 @@ flowchart LR
     DECIM["DsdDecimationAudioProcessor"]
     SPEC["SpectrumAudioProcessor"]
     EQ["SoftwareEqualizerAudioProcessor\nEQ 开时"]
-    AT["AudioTrack"]
+    DSDSINK["DsdOnly AudioSink\nIntPcm production path"]
   end
-  DSF --> EXT --> DEC --> DECIM --> SPEC --> EQ --> AT
+  DSF --> EXT --> DEC --> DECIM --> SPEC --> EQ --> DSDSINK
 ```
 
 **采样率变化（DSD256 示例）**
@@ -40,7 +40,7 @@ flowchart LR
 | 阶段 | 采样率 | 格式 |
 |------|--------|------|
 | DSF 内 1-bit 流 | 11.2896 MHz | DSD |
-| FFmpeg 解码后（每 DSD 字节 → 1 PCM 样本） | 1.4112 MHz | float（sink 内常先 ToInt16） |
+| FFmpeg 解码后（每 DSD 字节 → 1 PCM 样本） | 1.4112 MHz | PCM；由 DsdOnly 输出策略接收 |
 | 降采样后（factor=8） | **176.4 kHz** | **24-bit packed** |
 | 进 `AudioTrack` | 176.4 kHz | 与设备能力探测一致 |
 
@@ -68,8 +68,9 @@ flowchart LR
 ### 3. 渲染与 Sink：`MicaRenderersFactory`
 
 - 开启 FFmpeg **扩展 Renderer**（`EXTENSION_RENDERER_MODE_PREFER`）；ALAC 禁用平台 `MediaCodec`，强制 `FfmpegAudioRenderer`。
-- **`setEnableFloatOutput(false)`**：强制走「非 float 直通」分支，否则 Media3 会跳过自定义 `AudioProcessor`，无法对 ~1.4 MHz PCM 降采样。
-- **`MicaAudioProcessorChain`**（自定义链，替代默认 `DefaultAudioProcessorChain` 尾巴）：
+- 当前生产路径使用 renderer split：`DsdOnly` 负责 DSD，`PcmOnly` 负责 FLAC / ALAC / APE 等高解析 PCM，普通 MP3 / AAC / WAV 仍由平台 renderer 处理；各扩展 renderer 绑定自己的 Sink。
+- 当前生产配置的 DSD `DsdDecimationOutputMode` 是 `IntPcm`，因此 DSD 降采样后的 24-bit PCM 进入 DsdOnly Sink；PcmOnly 则使用独立的 float DSP Sink，避免高解析 PCM 被这条 DSD 整数路径统一收成 16-bit。
+- **DsdOnly 的 `MicaAudioProcessorChain`**（替代默认 `DefaultAudioProcessorChain` 尾巴）：
   - 包含：`DsdDecimationAudioProcessor` → `SpectrumAudioProcessor` → `SoftwareEqualizerAudioProcessor`
   - **省略** `SilenceSkippingAudioProcessor`（不认 packed 24-bit）与 `SonicAudioProcessor`（不认 24-bit）
   - 变速：依赖 `setEnableAudioOutputPlaybackParameters`（`AudioTrack.setPlaybackParams`）
@@ -152,7 +153,7 @@ flowchart LR
 
 1. **无 bit-perfect DSD**：输出为解码 + 降采样 PCM，非 DoP / Native DSD。
 2. **无曲首静音裁剪**：自定义链移除了 `SilenceSkippingAudioProcessor`。
-3. **共用 Sink**：`setEnableFloatOutput(false)` 为 DSD 降采样服务，**Hi-Res FLAC 等也可能经 ToInt16 收成 16bit**（见对话记录）；进一步改动须遵守 **Audio quality consent**（`CONTEXT.md`）。
+3. **分离 Sink**：生产 renderer split 将 DSD 的 IntPcm Sink 与 FLAC / ALAC / APE 的 float DSP Sink 分开；这不等于 USB DAC Native DSD，也不改变当前 DSD 的 PCM 降采样取舍。任何进一步的音质改动仍须遵守 **Audio quality consent**（`CONTEXT.md`）。
 4. **大文件**：DSD256 单文件体积大，首次缓冲 / seek 可能较慢。
 5. **`.dff`**：不支持播放。
 
