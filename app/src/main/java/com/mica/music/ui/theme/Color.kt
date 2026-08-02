@@ -7,6 +7,7 @@ object HifiPalette {
     val PurpleGlow = Color(0xFFA89BFF)
     val HiResGold = Color(0xFFD4AC4F)
     val LikeRed = Color(0xFFFF6B6B)
+    val SuccessGreen = Color(0xFF22C55E)
 
     val NeutralBlack = Color(0xFF1A1A1A)
     val NeutralGray600 = Color(0xFF6B6B6B)

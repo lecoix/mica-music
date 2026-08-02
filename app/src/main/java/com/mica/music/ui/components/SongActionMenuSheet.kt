@@ -391,7 +391,7 @@ private fun LandscapeSongMenuItem(entry: LandscapeSongMenuEntry) {
             .height(64.dp)
             .clickable(onClick = entry.onClick),
         color = MicaTheme.colors.surfaceGlass,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        shape = androidx.compose.ui.graphics.RectangleShape,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = HifiSpacing.md),

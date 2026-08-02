@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -72,6 +71,7 @@ import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
+import com.mica.music.ui.components.MicaSnackbarHost
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.PlaybackTuningSheet
 import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
@@ -88,6 +88,7 @@ import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
+import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.screens.player.landscapeCoverFlowCloudExitActive
 import com.mica.music.ui.screens.player.landscapeCoverFlowStageActive
 import com.mica.music.ui.screens.player.landscapeCoverModeForPage
@@ -1653,10 +1654,11 @@ fun NowPlayingContent(
             }
         }
 
-        SnackbarHost(
+        MicaSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .padding(bottom = HifiSpacing.xl)
                 .then(
                     if (playerOverlayOpen) Modifier.clearAndSetSemantics { } else Modifier,
                 ),

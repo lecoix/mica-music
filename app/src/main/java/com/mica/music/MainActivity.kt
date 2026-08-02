@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -44,6 +45,7 @@ import com.mica.music.ui.navigation.PlayerSheetOverlay
 import com.mica.music.ui.navigation.AppNavigationCoordinator
 import com.mica.music.ui.system.StatusBarController
 import com.mica.music.ui.theme.AnimatedMicaAppBackground
+import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.ui.theme.LocalMicaBlurTarget
@@ -228,6 +230,7 @@ class MainActivity : ComponentActivity() {
                                 message = playerController.userMessage,
                                 onMessageConsumed = playerController::clearUserMessage,
                                 snackbarHostState = snackbarHostState,
+                                modifier = Modifier.padding(bottom = HifiSpacing.xl),
                             )
                         },
                     ) {

@@ -1,6 +1,5 @@
 package com.mica.music.ui.components
 
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -19,5 +18,5 @@ fun UserMessageHost(
         snackbarHostState.showSnackbar(msg.text)
         onMessageConsumed()
     }
-    SnackbarHost(hostState = snackbarHostState, modifier = modifier)
+    MicaSnackbarHost(hostState = snackbarHostState, modifier = modifier)
 }

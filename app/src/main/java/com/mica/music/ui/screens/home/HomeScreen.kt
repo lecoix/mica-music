@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -67,6 +66,7 @@ import com.mica.music.ui.components.HomeDrawerPanel
 import com.mica.music.ui.components.LibrarySearchPanel
 import com.mica.music.ui.components.LocalAlphabetFastScrollGesturesEnabled
 import com.mica.music.ui.components.MiniPlayer
+import com.mica.music.ui.components.MicaSnackbarHost
 import com.mica.music.ui.components.miniPlayerText
 import com.mica.music.ui.components.rememberSongWithLyrics
 import com.mica.music.ui.components.SongMenuAction
@@ -1000,11 +1000,11 @@ fun HomeScreen(
         }
 
         val snackbarBottomPadding = if (currentSong != null) {
-            miniPlayerOverlayHeight(miniPlayerStyle) + HifiSpacing.md
+            miniPlayerOverlayHeight(miniPlayerStyle) + HifiSpacing.xl
         } else {
-            contentPadding.calculateBottomPadding() + HifiSpacing.md
+            contentPadding.calculateBottomPadding() + HifiSpacing.xl
         }
-        SnackbarHost(
+        MicaSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
