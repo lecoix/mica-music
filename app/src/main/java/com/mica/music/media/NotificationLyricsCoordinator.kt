@@ -24,8 +24,9 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
- * Updates notification metadata at lyric boundaries. Playback, retry and watchdog deadlines share
- * one replaceable Handler callback, so the coordinator never owns more than one scheduled wake-up.
+ * Updates notification metadata and external lyric projections at lyric boundaries. Playback,
+ * retry and watchdog deadlines share one replaceable Handler callback, so the coordinator never
+ * owns more than one scheduled wake-up.
  */
 @UnstableApi
 internal class NotificationLyricsCoordinator(
@@ -33,6 +34,7 @@ internal class NotificationLyricsCoordinator(
     private val player: Player,
     handler: Handler,
     private val carBluetoothLyrics: CarBluetoothLyricsSink? = null,
+    private val desktopLyrics: DesktopLyricsOverlayStateStore? = null,
     private val transientSongResolver: ((String) -> Song?)? = null,
     private val songLoader: suspend (LyricsLoadSpec) -> Song? = { spec ->
         transientSongResolver?.invoke(spec.songId)
@@ -121,6 +123,7 @@ internal class NotificationLyricsCoordinator(
                     LyricsPreferences.NotificationLyricsChange.SOURCE -> resetPendingLoad()
                     LyricsPreferences.NotificationLyricsChange.ENABLED,
                     LyricsPreferences.NotificationLyricsChange.CAR_BLUETOOTH_ENABLED,
+                    LyricsPreferences.NotificationLyricsChange.DESKTOP_ENABLED,
                     -> {
                         lastPublishedIndex = null
                         lastSignature = null
@@ -156,6 +159,7 @@ internal class NotificationLyricsCoordinator(
         invalidationJob = null
         lyricsScope.cancel()
         songCache.clear()
+        desktopLyrics?.clear()
     }
 
     private fun reconcile() {
@@ -167,11 +171,14 @@ internal class NotificationLyricsCoordinator(
         val nowRealtimeMs = SystemClock.elapsedRealtime()
         val notificationEnabled = LyricsPreferences.notificationLyricsEnabled(appContext)
         val carBluetoothEnabled = LyricsPreferences.carBluetoothLyricsEnabled(appContext)
+        val desktopLyricsEnabled = LyricsPreferences.desktopLyricsEnabled(appContext)
+        desktopLyrics?.setPlaying(player.isPlaying)
         carBluetoothLyrics?.setEnabled(carBluetoothEnabled)
         val item = player.currentMediaItem
         val decoded = item?.let(SongMediaItemCodec::decode)
         if (item == null || decoded == null) {
             carBluetoothLyrics?.clear()
+            desktopLyrics?.clear()
             resetForSong(null)
             return
         }
@@ -180,7 +187,8 @@ internal class NotificationLyricsCoordinator(
         if (!notificationEnabled) {
             restoreDefaultMetadataIfNeeded(decoded, item)
         }
-        if (!notificationEnabled && !carBluetoothEnabled) {
+        if (!notificationEnabled && !carBluetoothEnabled && !desktopLyricsEnabled) {
+            desktopLyrics?.clear()
             return
         }
 
@@ -217,12 +225,14 @@ internal class NotificationLyricsCoordinator(
                     nowRealtimeMs = nowRealtimeMs,
                     notificationEnabled = notificationEnabled,
                     carBluetoothEnabled = carBluetoothEnabled,
+                    desktopLyricsEnabled = desktopLyricsEnabled,
                 )
             }
             plannedWakeInMs = plan.wakeInMs
         } else {
             if (notificationEnabled) restoreDefaultMetadataIfNeeded(decoded, item)
             if (carBluetoothEnabled) carBluetoothLyrics?.publishDefault(decoded)
+            desktopLyrics?.clear()
         }
 
         val retryWakeInMs = retryAtRealtimeMs
@@ -326,13 +336,20 @@ internal class NotificationLyricsCoordinator(
         nowRealtimeMs: Long,
         notificationEnabled: Boolean,
         carBluetoothEnabled: Boolean,
+        desktopLyricsEnabled: Boolean,
     ) {
         val display = NotificationLyrics.displayOptions(appContext)
         val displayLine = NotificationLyrics.lyricLineText(session.lyrics, index, display)
         if (displayLine == null) {
             // Preserve phase-one behavior: a blank line keeps the previous notification lyric.
+            desktopLyrics?.clear()
             lastPublishedIndex = index
             return
+        }
+        if (desktopLyricsEnabled) {
+            desktopLyrics?.publish(displayLine, index)
+        } else {
+            desktopLyrics?.clear()
         }
         val inputRevision = listOf(
             SongMediaItemCodec.metadataRevision(item).orEmpty(),
@@ -390,6 +407,7 @@ internal class NotificationLyricsCoordinator(
         lastPublishedRealtimeMs = null
         lastSignature = null
         lastOverlayToken = null
+        desktopLyrics?.clear()
     }
 
     private fun replaceCurrentItem(item: MediaItem, metadata: MediaMetadata) {
@@ -439,6 +457,7 @@ internal class NotificationLyricsCoordinator(
         lastPublishedRealtimeMs = null
         lastSignature = null
         lastOverlayToken = null
+        desktopLyrics?.clear()
     }
 
     private fun metadataMatches(current: MediaMetadata, target: MediaMetadata): Boolean =

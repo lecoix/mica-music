@@ -20,6 +20,7 @@ import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.PlaybackContentColorMode
+import com.mica.music.media.DesktopLyricsOverlayController
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
@@ -194,6 +195,24 @@ internal fun LyricsSettingsPanel(
         subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
         checked = uiSettings.notificationLyricsEnabled,
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
+    )
+
+    SettingsToggleRow(
+        title = "桌面歌词",
+        subtitle = "用系统悬浮窗显示当前歌词；可拖动位置，暂停时自动隐藏",
+        checked = uiSettings.desktopLyricsEnabled,
+        onCheckedChange = { enabled ->
+            if (!enabled) {
+                uiSettings.updateDesktopLyricsEnabled(false)
+                DesktopLyricsOverlayController.stop(context)
+            } else if (!DesktopLyricsOverlayController.canDrawOverlays(context)) {
+                Toast.makeText(context, "请先允许悬浮窗权限", Toast.LENGTH_SHORT).show()
+                DesktopLyricsOverlayController.openPermissionSettings(context)
+            } else {
+                uiSettings.updateDesktopLyricsEnabled(true)
+                DesktopLyricsOverlayController.start(context)
+            }
+        },
     )
 
     SettingsToggleRow(

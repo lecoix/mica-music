@@ -7,6 +7,7 @@ import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlayerController
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.scanner.ScanCacheManager
+import com.mica.music.media.DesktopLyricsOverlayStateStore
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.AudioEnvironmentDiagnostics
@@ -15,6 +16,9 @@ import com.mica.music.util.SpatialAudioMonitor
 class MicaApp : Application() {
     /** Process-lifetime catalog for external songs; it is intentionally not persisted. */
     val transientPlaybackCatalog = TransientPlaybackCatalog()
+
+    /** Process-lifetime lyric snapshot shared by the media service and desktop overlay. */
+    val desktopLyricsOverlayStateStore = DesktopLyricsOverlayStateStore()
 
     /**
      * Process-lifetime playback facade. Activity/ViewModel destruction must never tear down

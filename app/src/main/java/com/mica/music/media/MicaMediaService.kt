@@ -25,6 +25,7 @@ import com.mica.music.MainActivity
 import com.mica.music.MicaApp
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.preferences.EqualizerPreferences
+import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
@@ -134,8 +135,15 @@ class MicaMediaService : MediaSessionService() {
             player = stack.compositePlayer,
             handler = mainHandler,
             carBluetoothLyrics = carBluetoothLyricsSession,
+            desktopLyrics = micaApp.desktopLyricsOverlayStateStore,
             transientSongResolver = (application as MicaApp).transientPlaybackCatalog::songById,
         ).also { it.start() }
+
+        if (LyricsPreferences.desktopLyricsEnabled(this) &&
+            DesktopLyricsOverlayController.canDrawOverlays(this)
+        ) {
+            DesktopLyricsOverlayController.start(this)
+        }
 
         attachEqualizerSessionListener(stack.exoPlayer)
 

@@ -179,6 +179,9 @@ class AppUiSettings(context: Context) {
     var carBluetoothLyricsEnabled by mutableStateOf(LyricsPreferences.carBluetoothLyricsEnabled(appContext))
         private set
 
+    var desktopLyricsEnabled by mutableStateOf(LyricsPreferences.desktopLyricsEnabled(appContext))
+        private set
+
     var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
         private set
 
@@ -469,6 +472,11 @@ class AppUiSettings(context: Context) {
     fun updateCarBluetoothLyricsEnabled(enabled: Boolean) {
         carBluetoothLyricsEnabled = enabled
         LyricsPreferences.setCarBluetoothLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateDesktopLyricsEnabled(enabled: Boolean) {
+        desktopLyricsEnabled = enabled
+        LyricsPreferences.setDesktopLyricsEnabled(appContext, enabled)
     }
 
     fun updateInfoRowLyricsEnabled(enabled: Boolean) {

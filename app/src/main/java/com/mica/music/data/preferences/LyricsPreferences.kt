@@ -29,6 +29,7 @@ object LyricsPreferences {
     internal enum class NotificationLyricsChange {
         ENABLED,
         CAR_BLUETOOTH_ENABLED,
+        DESKTOP_ENABLED,
         DISPLAY,
         SOURCE,
     }
@@ -50,6 +51,9 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
     private const val KEY_CAR_BLUETOOTH_LYRICS_ENABLED = "car_bluetooth_lyrics_enabled"
+    private const val KEY_DESKTOP_LYRICS_ENABLED = "desktop_lyrics_enabled"
+    private const val KEY_DESKTOP_LYRICS_X = "desktop_lyrics_x"
+    private const val KEY_DESKTOP_LYRICS_Y = "desktop_lyrics_y"
     private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
     private const val KEY_INFO_ROW_WORD_LYRICS_ENABLED = "info_row_word_lyrics_enabled"
     private const val KEY_LYRICS_SLOT_PRIORITY = "lyrics_slot_priority"
@@ -284,6 +288,35 @@ object LyricsPreferences {
             .apply()
     }
 
+    fun desktopLyricsEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_DESKTOP_LYRICS_ENABLED, false)
+
+    fun setDesktopLyricsEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_DESKTOP_LYRICS_ENABLED, enabled)
+            .apply()
+    }
+
+    /** Horizontal offset from the centered overlay position, in physical pixels. */
+    fun desktopLyricsX(context: Context): Int =
+        MicaSettingsStore.prefs(context).getInt(KEY_DESKTOP_LYRICS_X, 0)
+
+    fun setDesktopLyricsX(context: Context, x: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(KEY_DESKTOP_LYRICS_X, x)
+            .apply()
+    }
+
+    /** Top offset in physical pixels; -1 means use the first-run default. */
+    fun desktopLyricsY(context: Context): Int =
+        MicaSettingsStore.prefs(context).getInt(KEY_DESKTOP_LYRICS_Y, -1)
+
+    fun setDesktopLyricsY(context: Context, y: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(KEY_DESKTOP_LYRICS_Y, y)
+            .apply()
+    }
+
     fun infoRowLyricsEnabled(context: Context): Boolean =
         MicaSettingsStore.prefs(context).getBoolean(KEY_INFO_ROW_LYRICS_ENABLED, false)
 
@@ -311,6 +344,7 @@ object LyricsPreferences {
             val change = when (key) {
                 KEY_NOTIFICATION_LYRICS_ENABLED -> NotificationLyricsChange.ENABLED
                 KEY_CAR_BLUETOOTH_LYRICS_ENABLED -> NotificationLyricsChange.CAR_BLUETOOTH_ENABLED
+                KEY_DESKTOP_LYRICS_ENABLED -> NotificationLyricsChange.DESKTOP_ENABLED
                 KEY_LYRIC_SPLIT_ENABLED,
                 KEY_LYRICS_BILINGUAL_DISPLAY_MODE,
                 -> NotificationLyricsChange.DISPLAY
