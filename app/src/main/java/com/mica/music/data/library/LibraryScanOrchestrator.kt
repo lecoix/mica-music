@@ -388,7 +388,17 @@ internal class LibraryScanOrchestrator(
         )
         if (backing.isActiveGeneration(generation)) {
             withContext(backing.ioDispatcher) {
-                backing.scanEnvironment.pruneAlbumArtCache(prepared.visible)
+                backing.scanEnvironment.pruneAlbumArtCache(prepared.visible) {
+                    backing.isActiveGeneration(generation)
+                }
+            }
+            if (!backing.isActiveGeneration(generation)) {
+                DiagnosticLog.event(
+                    "LibraryScan",
+                    "publishSongs discarded after artwork prune generation=$generation " +
+                        "current=${backing.scanGeneration}",
+                )
+                return null
             }
             catalog.adoptPrepared(prepared)
             catalog.releaseLoadedLyrics()

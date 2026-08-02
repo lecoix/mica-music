@@ -106,6 +106,7 @@ class MicaMediaService : MediaSessionService() {
             } else {
                 AudioQualityMode.HIFI
             },
+            externalSongResolver = micaApp.transientPlaybackCatalog::songById,
         ).also { coordinator ->
             coordinator.onRestoreCompleted = {
                 mainHandler.post {
@@ -139,7 +140,7 @@ class MicaMediaService : MediaSessionService() {
             transientSongResolver = (application as MicaApp).transientPlaybackCatalog::songById,
         ).also { it.start() }
 
-        if (LyricsPreferences.desktopLyricsEnabled(this) &&
+        if (LyricsPreferences.externalLyricsMode(this) != com.mica.music.data.ExternalLyricsMode.OFF &&
             DesktopLyricsOverlayController.canDrawOverlays(this)
         ) {
             DesktopLyricsOverlayController.start(this)

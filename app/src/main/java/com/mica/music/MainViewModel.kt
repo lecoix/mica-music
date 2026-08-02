@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LibraryPlaybackQueueCoordinator
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
 import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.asLibraryPlaybackQueueTarget
@@ -25,7 +24,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playlistStore = (application as MicaApp).playlistStore
     private val transientPlaybackCatalog = (application as MicaApp).transientPlaybackCatalog
     val uiSettings = AppUiSettings(application)
-    val sleepTimer = SleepTimerController(viewModelScope, playerController, application)
+    val sleepTimer = (application as MicaApp).sleepTimer
     private val playbackStatistics = (application as MicaApp).playbackStatistics
     private val libraryPlaybackQueueSync = LibraryPlaybackQueueCoordinator()
 
@@ -52,7 +51,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "songs=${songs.size} hasScanned=${library.hasScanned}",
             )
             val pruneStartedMs = SystemClock.elapsedRealtime()
-            ScanCacheManager.pruneAlbumArtCache(application, songs)
+            ScanCacheManager.pruneAlbumArtCache(application, songs) { true }
             DiagnosticLog.event(
                 "LibraryStartup",
                 "pruneAlbumArt end durMs=${SystemClock.elapsedRealtime() - pruneStartedMs} songs=${songs.size}",
@@ -80,7 +79,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         playbackStatistics.detachPresentationSink(this)
-        sleepTimer.cancel()
         library.release()
         super.onCleared()
     }

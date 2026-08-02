@@ -29,6 +29,24 @@ internal fun parseExternalAudioOpenRequest(intent: Intent?): ExternalAudioOpenRe
     return ExternalAudioOpenRequest(uri = uri, mimeType = mimeType)
 }
 
+/** Best-effort persistence of a provider grant so the external snapshot can survive a restart. */
+internal fun persistExternalAudioUriPermission(
+    context: Context,
+    intent: Intent?,
+    request: ExternalAudioOpenRequest,
+) {
+    if (request.uri.scheme != "content") return
+    val flags = intent?.flags ?: 0
+    if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) return
+    val accessFlags = flags and (
+        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+    if (accessFlags == 0) return
+    runCatching {
+        context.contentResolver.takePersistableUriPermission(request.uri, accessFlags)
+    }
+}
+
 internal fun mergeExternalAudioProbeResult(existing: Song?, probed: Song): Song {
     if (existing == null) return probed
     return probed.copy(

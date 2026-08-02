@@ -11,6 +11,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.mica.music.media.AudioQualityMode
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PendingPlaybackNavigation
+import com.mica.music.media.ServiceExternalSongSnapshot
 import com.mica.music.media.ServicePlaybackSnapshot
 import com.mica.music.media.ServicePlaybackStateStore
 import com.mica.music.media.SongMediaItemCodec
@@ -68,7 +69,6 @@ class PlayerControllerBoundaryTest {
     fun rapidEquivalentPlaylistChangesAreDebouncedAndRebuiltOnce() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val connector = FakeConnector()
-        val controller = controller(connector = connector, dispatcher = dispatcher)
         val mediaController = mockk<MediaController>(relaxed = true)
         val listener = slot<Player.Listener>()
         val queue = List(4) { index -> SongFixtures.song("local-$index") }
@@ -85,10 +85,15 @@ class PlayerControllerBoundaryTest {
         every { mediaController.mediaItemCount } returns queue.size
         every { mediaController.currentPosition } returns 12_345L
         every { mediaController.duration } returns 60_000L
-        controller.songResolver = { id ->
+        val resolver = PlaybackSongResolver { id ->
             resolverCalls += 1
             playerQueue.firstOrNull { it.id == id }
         }
+        val controller = controller(
+            connector = connector,
+            dispatcher = dispatcher,
+            songResolver = resolver,
+        )
         controller.setQueue(queue)
         controller.connectIfNeeded()
         connector.requests.single().onConnected(mediaController)
@@ -363,7 +368,10 @@ class PlayerControllerBoundaryTest {
         val store = ServicePlaybackStateStore(context)
         val queue = SongFixtures.queue(2)
         val connector = FakeConnector()
-        val controller = controller(connector = connector)
+        val controller = controller(
+            connector = connector,
+            songResolver = PlaybackSongResolver { id -> queue.firstOrNull { it.id == id } },
+        )
         val mediaController = mockk<MediaController>(relaxed = true)
         store.clear(sync = true)
         store.save(
@@ -401,7 +409,10 @@ class PlayerControllerBoundaryTest {
         val store = ServicePlaybackStateStore(context)
         val queue = SongFixtures.queue(2)
         val connector = FakeConnector()
-        val controller = controller(connector = connector)
+        val controller = controller(
+            connector = connector,
+            songResolver = PlaybackSongResolver { id -> queue.firstOrNull { it.id == id } },
+        )
         val mediaController = mockk<MediaController>(relaxed = true)
         val restoredItem = MediaItem.Builder().setMediaId(queue[0].id).build()
         var playerPositionMs = 622L
@@ -440,6 +451,38 @@ class PlayerControllerBoundaryTest {
         }
     }
 
+    @Test
+    fun coldStartBootstrapHydratesPersistedExternalSongWhenLibraryResolverMisses() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = ServicePlaybackStateStore(context)
+        val external = SongFixtures.song("external_test").copy(source = SongSource.TRANSIENT_EXTERNAL)
+        val controller = controller()
+        store.clear(sync = true)
+        store.save(
+            ServicePlaybackSnapshot(
+                queueSongIds = listOf(external.id),
+                currentIndex = 0,
+                positionMs = 2_000L,
+                repeatMode = Player.REPEAT_MODE_OFF,
+                shuffleEnabled = false,
+                playWhenReady = false,
+                qualityMode = AudioQualityMode.HIFI,
+                externalSongs = listOf(ServiceExternalSongSnapshot.from(external)),
+            ),
+            sync = true,
+        )
+
+        try {
+            assertTrue(controller.bootstrapQueue { null })
+            assertEquals(external.id, controller.playbackSurfaceState.currentSong?.id)
+            assertEquals(SongSource.TRANSIENT_EXTERNAL, controller.playbackSurfaceState.currentSong?.source)
+            assertEquals(2_000, controller.uiPositionMs())
+        } finally {
+            controller.release()
+            store.clear(sync = true)
+        }
+    }
+
     private fun positionInfo(
         item: MediaItem,
         mediaItemIndex: Int,
@@ -459,6 +502,7 @@ class PlayerControllerBoundaryTest {
     private fun controller(
         connector: FakeConnector = FakeConnector(),
         storage: FakeSessionStorage = FakeSessionStorage(),
+        songResolver: PlaybackSongResolver = PlaybackSongResolver { null },
         dispatcher: CoroutineDispatcher = StandardTestDispatcher(),
         queueMirrorDispatcher: CoroutineDispatcher = dispatcher,
         monotonicNowMs: () -> Long = { 0L },
@@ -466,6 +510,7 @@ class PlayerControllerBoundaryTest {
         context = ApplicationProvider.getApplicationContext(),
         mediaControllerConnector = connector,
         sessionStorage = storage,
+        songResolver = songResolver,
         dispatcher = dispatcher,
         queueMirrorDispatcher = queueMirrorDispatcher,
         monotonicNowMs = monotonicNowMs,

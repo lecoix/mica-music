@@ -105,6 +105,7 @@
 
 ### 曲库 / 数据
 
+- [ ] **完整曲库 snapshot 发布保护回归复查（2026-08-03）**：已发生过“旧 generation 保护修好后，后续新增的挂起/文件副作用又插入保护区间并绕过校验”的情况：`bb0802da` 建立 cache/scan/clear 的 generation 协议后，`b9407a1d` 在 `publishSongs()` 的 generation 检查与 `adoptPrepared()` 之间加入 `pruneAlbumArtCache()`，重新留下过期 snapshot 与过期封面清理风险。修复后必须继续审查所有 `generation` 检查之间的 `withContext`、IO、文件删除和异步发布；为每类交错补回归测试，并把完整 snapshot 发布收敛到不可绕过的统一 seam，防止新增功能再次绕过保护。
 - [ ] **大曲库启动后续优化（低优先级）**：当前 `cachedOrder=true` 后测试反馈不卡；仅当实机再次报告冷启动/回后台恢复慢，或日志出现明确瓶颈时再推进。
   - 单一 `LibraryUiSnapshot` / sealed library state 一次发布，减少 `songs`、`songIds`、fast-scroll 数据、scan flags 等多个 Compose state 连续更新。
   - 持久化多字段 `sortKey` / `section`（标题、歌手、专辑、文件夹），用于非当前排序切换时避免现场 `Collator` 排序。

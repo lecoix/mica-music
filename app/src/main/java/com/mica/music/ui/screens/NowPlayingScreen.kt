@@ -109,6 +109,7 @@ import com.mica.music.util.deleteSongEverywhere
 import com.mica.music.util.logBackFlow
 import com.mica.music.util.openSongInTagEditor
 import com.mica.music.util.shareSong
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -304,13 +305,10 @@ fun NowPlayingContent(
         }
     }
 
-    DisposableEffect(sleepTimer) {
-        sleepTimer.onExpired = {
-            scope.launch {
-                snackbarHostState.showSnackbar("睡眠定时已结束，播放已暂停")
-            }
+    LaunchedEffect(sleepTimer) {
+        sleepTimer.expiredEvents.collect {
+            snackbarHostState.showSnackbar("睡眠定时已结束，播放已暂停")
         }
-        onDispose { sleepTimer.onExpired = null }
     }
 
     fun openSongActionMenu(target: Song) {

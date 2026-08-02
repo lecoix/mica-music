@@ -36,6 +36,8 @@ class MicaCompositePlayer(
         exoPlayer.volume = requestedVolume * replayGainVolume
     }
 
+    override fun getVolume(): Float = requestedVolume
+
     fun setReplayGainVolume(volume: Float) {
         replayGainVolume = volume.coerceIn(0f, 1f)
         exoPlayer.volume = requestedVolume * replayGainVolume

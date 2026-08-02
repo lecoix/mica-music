@@ -179,6 +179,81 @@ class AppUiSettings(context: Context) {
     var desktopLyricsEnabled by mutableStateOf(LyricsPreferences.desktopLyricsEnabled(appContext))
         private set
 
+    var externalLyricsMode by mutableStateOf(LyricsPreferences.externalLyricsMode(appContext))
+        private set
+
+    var desktopLyricsOriginalFontSizeSp by mutableIntStateOf(
+        LyricsPreferences.desktopLyricsOriginalFontSizeSp(appContext),
+    )
+        private set
+
+    var desktopLyricsTranslationFontSizeSp by mutableIntStateOf(
+        LyricsPreferences.desktopLyricsTranslationFontSizeSp(appContext),
+    )
+        private set
+
+    var desktopLyricsBilingualDisplayMode by mutableStateOf(
+        LyricsPreferences.desktopLyricsBilingualDisplayMode(appContext),
+    )
+        private set
+
+    var desktopLyricsWidthPercent by mutableIntStateOf(
+        LyricsPreferences.desktopLyricsWidthPercent(appContext),
+    )
+        private set
+
+    var statusBarLyricsEnabled by mutableStateOf(LyricsPreferences.statusBarLyricsEnabled(appContext))
+        private set
+
+    var statusBarLyricsTopOffsetDp by mutableIntStateOf(
+        LyricsPreferences.statusBarLyricsTopOffsetDp(appContext),
+    )
+        private set
+
+    var statusBarLyricsOriginalFontSizeSp by mutableIntStateOf(
+        LyricsPreferences.statusBarLyricsOriginalFontSizeSp(appContext),
+    )
+        private set
+
+    var statusBarLyricsTranslationFontSizeSp by mutableIntStateOf(
+        LyricsPreferences.statusBarLyricsTranslationFontSizeSp(appContext),
+    )
+        private set
+
+    var statusBarLyricsSplitEnabled by mutableStateOf(
+        LyricsPreferences.statusBarLyricsSplitEnabled(appContext),
+    )
+        private set
+
+    var statusBarLyricsBilingualDisplayMode by mutableStateOf(
+        LyricsPreferences.statusBarLyricsBilingualDisplayMode(appContext),
+    )
+        private set
+
+    var statusBarLyricsWidthPercent by mutableIntStateOf(
+        LyricsPreferences.statusBarLyricsWidthPercent(appContext),
+    )
+        private set
+
+    var externalLyricsVisibilityMode by mutableStateOf(
+        LyricsPreferences.externalLyricsVisibilityMode(appContext),
+    )
+        private set
+
+    var externalLyricsColorMode by mutableStateOf(LyricsPreferences.externalLyricsColorMode(appContext))
+        private set
+
+    var externalLyricsColorCount by mutableIntStateOf(LyricsPreferences.externalLyricsColorCount(appContext))
+        private set
+
+    var externalLyricsGradientAngleDegrees by mutableIntStateOf(
+        LyricsPreferences.externalLyricsGradientAngleDegrees(appContext),
+    )
+        private set
+
+    var externalLyricsColors by mutableStateOf(LyricsPreferences.externalLyricsColors(appContext))
+        private set
+
     var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
         private set
 
@@ -469,6 +544,134 @@ class AppUiSettings(context: Context) {
     fun updateDesktopLyricsEnabled(enabled: Boolean) {
         desktopLyricsEnabled = enabled
         LyricsPreferences.setDesktopLyricsEnabled(appContext, enabled)
+        externalLyricsMode = LyricsPreferences.externalLyricsMode(appContext)
+    }
+
+    fun updateExternalLyricsMode(mode: ExternalLyricsMode) {
+        externalLyricsMode = mode
+        LyricsPreferences.setExternalLyricsMode(appContext, mode)
+        desktopLyricsEnabled = mode == ExternalLyricsMode.DESKTOP
+        statusBarLyricsEnabled = mode == ExternalLyricsMode.STATUS_BAR
+    }
+
+    fun updateDesktopLyricsOriginalFontSizeSp(fontSizeSp: Int) {
+        desktopLyricsOriginalFontSizeSp = fontSizeSp.coerceIn(
+            MIN_LYRICS_PAGE_FONT_SIZE_SP,
+            MAX_LYRICS_PAGE_FONT_SIZE_SP,
+        )
+        LyricsPreferences.setDesktopLyricsOriginalFontSizeSp(appContext, desktopLyricsOriginalFontSizeSp)
+    }
+
+    fun updateDesktopLyricsTranslationFontSizeSp(fontSizeSp: Int) {
+        desktopLyricsTranslationFontSizeSp = fontSizeSp.coerceIn(
+            MIN_LYRICS_PAGE_FONT_SIZE_SP,
+            MAX_LYRICS_PAGE_FONT_SIZE_SP,
+        )
+        LyricsPreferences.setDesktopLyricsTranslationFontSizeSp(
+            appContext,
+            desktopLyricsTranslationFontSizeSp,
+        )
+    }
+
+    fun updateDesktopLyricsBilingualDisplayMode(mode: LyricsBilingualDisplayMode) {
+        desktopLyricsBilingualDisplayMode = mode
+        LyricsPreferences.setDesktopLyricsBilingualDisplayMode(appContext, mode)
+    }
+
+    fun updateDesktopLyricsWidthPercent(percent: Int) {
+        desktopLyricsWidthPercent = percent.coerceIn(
+            MIN_EXTERNAL_LYRICS_WIDTH_PERCENT,
+            MAX_EXTERNAL_LYRICS_WIDTH_PERCENT,
+        )
+        LyricsPreferences.setDesktopLyricsWidthPercent(appContext, desktopLyricsWidthPercent)
+    }
+
+    fun updateStatusBarLyricsEnabled(enabled: Boolean) {
+        statusBarLyricsEnabled = enabled
+        LyricsPreferences.setStatusBarLyricsEnabled(appContext, enabled)
+        externalLyricsMode = LyricsPreferences.externalLyricsMode(appContext)
+    }
+
+    fun updateStatusBarLyricsTopOffsetDp(offsetDp: Int) {
+        statusBarLyricsTopOffsetDp = offsetDp.coerceIn(
+            MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP,
+            MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP,
+        )
+        LyricsPreferences.setStatusBarLyricsTopOffsetDp(appContext, statusBarLyricsTopOffsetDp)
+    }
+
+    fun updateStatusBarLyricsOriginalFontSizeSp(fontSizeSp: Int) {
+        statusBarLyricsOriginalFontSizeSp = fontSizeSp.coerceIn(
+            MIN_LYRICS_PAGE_FONT_SIZE_SP,
+            MAX_LYRICS_PAGE_FONT_SIZE_SP,
+        )
+        LyricsPreferences.setStatusBarLyricsOriginalFontSizeSp(
+            appContext,
+            statusBarLyricsOriginalFontSizeSp,
+        )
+    }
+
+    fun updateStatusBarLyricsTranslationFontSizeSp(fontSizeSp: Int) {
+        statusBarLyricsTranslationFontSizeSp = fontSizeSp.coerceIn(
+            MIN_LYRICS_PAGE_FONT_SIZE_SP,
+            MAX_LYRICS_PAGE_FONT_SIZE_SP,
+        )
+        LyricsPreferences.setStatusBarLyricsTranslationFontSizeSp(
+            appContext,
+            statusBarLyricsTranslationFontSizeSp,
+        )
+    }
+
+    fun updateStatusBarLyricsSplitEnabled(enabled: Boolean) {
+        statusBarLyricsSplitEnabled = enabled
+        LyricsPreferences.setStatusBarLyricsSplitEnabled(appContext, enabled)
+    }
+
+    fun updateStatusBarLyricsBilingualDisplayMode(mode: LyricsBilingualDisplayMode) {
+        statusBarLyricsBilingualDisplayMode = mode
+        LyricsPreferences.setStatusBarLyricsBilingualDisplayMode(appContext, mode)
+    }
+
+    fun updateStatusBarLyricsWidthPercent(percent: Int) {
+        statusBarLyricsWidthPercent = percent.coerceIn(
+            MIN_EXTERNAL_LYRICS_WIDTH_PERCENT,
+            MAX_EXTERNAL_LYRICS_WIDTH_PERCENT,
+        )
+        LyricsPreferences.setStatusBarLyricsWidthPercent(appContext, statusBarLyricsWidthPercent)
+    }
+
+    fun updateExternalLyricsVisibilityMode(mode: ExternalLyricsVisibilityMode) {
+        externalLyricsVisibilityMode = mode
+        LyricsPreferences.setExternalLyricsVisibilityMode(appContext, mode)
+    }
+
+    fun updateExternalLyricsColorMode(mode: ExternalLyricsColorMode) {
+        externalLyricsColorMode = mode
+        LyricsPreferences.setExternalLyricsColorMode(appContext, mode)
+        if (mode == ExternalLyricsColorMode.GRADIENT && externalLyricsColorCount < 2) {
+            externalLyricsColorCount = 2
+            LyricsPreferences.setExternalLyricsColorCount(appContext, 2)
+            externalLyricsColors = LyricsPreferences.externalLyricsColors(appContext)
+        }
+    }
+
+    fun updateExternalLyricsColorCount(count: Int) {
+        externalLyricsColorCount = count.coerceIn(1, MAX_EXTERNAL_LYRICS_COLORS)
+        LyricsPreferences.setExternalLyricsColorCount(appContext, externalLyricsColorCount)
+        externalLyricsColors = LyricsPreferences.externalLyricsColors(appContext)
+    }
+
+    fun updateExternalLyricsGradientAngleDegrees(angleDegrees: Int) {
+        externalLyricsGradientAngleDegrees = angleDegrees.coerceIn(0, 360)
+        LyricsPreferences.setExternalLyricsGradientAngleDegrees(
+            appContext,
+            externalLyricsGradientAngleDegrees,
+        )
+    }
+
+    fun updateExternalLyricsColors(colors: List<Int>) {
+        externalLyricsColors = normalizeExternalLyricsColors(colors)
+        LyricsPreferences.setExternalLyricsColors(appContext, externalLyricsColors)
     }
 
     fun updateInfoRowLyricsEnabled(enabled: Boolean) {

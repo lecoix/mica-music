@@ -220,6 +220,30 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
+    fun generationChangeDuringArtworkPruneDiscardsPreparedSnapshot() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val environment = FakeScanEnvironment()
+        val harness = scanHarness(scanner, store, environment)
+        environment.duringPrune = {
+            harness.backing.scanGeneration++
+        }
+
+        val scan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(
+            ScanResult(listOf(SongFixtures.song("invalidated")), 1),
+        )
+        scan.await()
+
+        assertTrue(environment.prunedSongIds.isNotEmpty())
+        assertFalse(environment.pruneShouldContinue?.invoke() ?: true)
+        assertTrue(harness.backing.songs.isEmpty())
+        assertFalse(harness.backing.hasScanned)
+        harness.backing.release()
+    }
+
+    @Test
     fun scanFailureDoesNotPublishMetadataOrHasScanned() = runTest {
         val scanner = ControlledScanner()
         val store = FakeLibraryStore()
@@ -495,14 +519,18 @@ class LibraryScanOrchestratorTest {
         var retryRequired: Boolean = false,
     ) : ScanEnvironment {
         var prunedSongIds: List<String> = emptyList()
+        var duringPrune: (() -> Unit)? = null
+        var pruneShouldContinue: (() -> Boolean)? = null
         var prefetchedVideoCoverUris: List<String> = emptyList()
         override fun hasAudioReadPermission(): Boolean = true
         override fun canReadTree(treeUri: Uri): Boolean = true
         override fun currentTimeMillis(): Long = 1_234L
         override fun playStats(songId: String): PlayStats = PlayStats(0, 0)
         override fun clearTransientCache() = Unit
-        override fun pruneAlbumArtCache(songs: List<Song>) {
+        override fun pruneAlbumArtCache(songs: List<Song>, shouldContinue: () -> Boolean) {
             prunedSongIds = songs.map(Song::id)
+            pruneShouldContinue = shouldContinue
+            duringPrune?.invoke()
         }
         override fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) {
             prefetchedVideoCoverUris = videoCoverUris.toList()

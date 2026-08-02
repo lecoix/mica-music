@@ -5,6 +5,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Timeline
+import com.mica.music.data.Song
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.Executors
@@ -15,6 +16,7 @@ internal class ServicePlaybackStateCoordinator(
     private val store: ServicePlaybackStateStore,
     private val handler: Handler,
     initialQualityMode: AudioQualityMode,
+    private val externalSongResolver: (String) -> Song? = { null },
 ) {
     private var pendingRestore = store.load()
     private var qualityMode = initialQualityMode
@@ -22,6 +24,7 @@ internal class ServicePlaybackStateCoordinator(
     private var queueRevision = pendingRestore?.queueRevision ?: 0L
     private var lastPersistedPositionMs = Long.MIN_VALUE
     private var lastPersistedQueueIds: List<String>? = null
+    private var lastPersistedExternalSongs: List<ServiceExternalSongSnapshot>? = null
     private val persistenceExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "mica-playback-state").apply { isDaemon = true }
     }
@@ -32,10 +35,15 @@ internal class ServicePlaybackStateCoordinator(
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
             if (!tryRestore()) {
                 val songIds = currentSongIds()
-                if (songIds.isNotEmpty() && songIds != lastPersistedQueueIds) {
+                val externalSongs = currentExternalSongs()
+                if (
+                    songIds.isNotEmpty() &&
+                    (songIds != lastPersistedQueueIds || externalSongs != lastPersistedExternalSongs)
+                ) {
                     queueRevision++
                     lastPersistedQueueIds = songIds
-                    persistQueue()
+                    lastPersistedExternalSongs = externalSongs
+                    persistQueue(externalSongs = externalSongs)
                 }
                 persistCursor(force = true)
             }
@@ -114,19 +122,30 @@ internal class ServicePlaybackStateCoordinator(
             "service restored index=${restore.currentIndex} positionMs=${restore.positionMs} " +
                 "savedPlayWhenReady=${snapshot.playWhenReady} resumed=false",
         )
-        persistQueue()
+        persistQueue(externalSongs = currentExternalSongs())
         persistCursor(force = true)
         lastPersistedQueueIds = currentSongIds()
+        lastPersistedExternalSongs = currentExternalSongs()
         onRestoreCompleted?.invoke()
         return true
     }
 
-    private fun persistQueue(sync: Boolean = false) {
+    private fun persistQueue(
+        sync: Boolean = false,
+        externalSongs: List<ServiceExternalSongSnapshot> = currentExternalSongs(),
+    ) {
         if (pendingRestore != null || player.mediaItemCount <= 0) return
         val songIds = currentSongIds()
         if (songIds.isEmpty()) return
         submit(sync) {
-            store.saveQueue(ServiceQueueSnapshot(songIds, queueRevision), sync)
+            store.saveQueue(
+                ServiceQueueSnapshot(
+                    songIds = songIds,
+                    revision = queueRevision,
+                    externalSongs = externalSongs,
+                ),
+                sync,
+            )
         }
     }
 
@@ -162,6 +181,18 @@ internal class ServicePlaybackStateCoordinator(
     private fun currentSongIds(): List<String> = buildList {
         for (index in 0 until player.mediaItemCount) {
             player.getMediaItemAt(index).mediaId.takeIf(String::isNotBlank)?.let(::add)
+        }
+    }
+
+    private fun currentExternalSongs(): List<ServiceExternalSongSnapshot> = buildList {
+        for (index in 0 until player.mediaItemCount) {
+            val item = player.getMediaItemAt(index)
+            if (!com.mica.music.data.TransientPlaybackCatalog.isTransientId(item.mediaId)) continue
+            val song = externalSongResolver(item.mediaId)
+                ?.takeIf(Song::isTransient)
+                ?: ExternalMediaItemCodec.decode(item)
+            song?.let(ServiceExternalSongSnapshot::from)
+                ?.let(::add)
         }
     }
 

@@ -90,15 +90,22 @@ class PlayerController internal constructor(
     private val context: Context,
     private val mediaControllerConnector: MediaControllerConnector,
     private val sessionStorage: PlaybackSessionStorage,
+    private val songResolver: PlaybackSongResolver,
     dispatcher: CoroutineDispatcher,
     private val queueMirrorDispatcher: CoroutineDispatcher = Dispatchers.Default,
     monotonicNowMs: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
-    constructor(context: Context) : this(
+    constructor(context: Context, songResolver: PlaybackSongResolver) : this(
         context = context,
         mediaControllerConnector = AndroidMediaControllerConnector(context.applicationContext),
         sessionStorage = PreferencesPlaybackSessionStorage(context.applicationContext),
+        songResolver = songResolver,
         dispatcher = Dispatchers.Main.immediate,
+    )
+
+    constructor(context: Context) : this(
+        context = context,
+        songResolver = ProcessPlaybackSongResolver(TransientPlaybackCatalog()),
     )
 
     internal companion object {
@@ -134,9 +141,6 @@ class PlayerController internal constructor(
     var onSongPlayStarted: ((songId: String) -> Unit)? = null
 
     var onSongListenSecondsAdded: ((songId: String, seconds: Long) -> Unit)? = null
-
-    /** 从曲库按 ID 补全 [MediaItem] 镜像时缺失的 [Song] 元数据。 */
-    var songResolver: ((String) -> Song?)? = null
 
     private var currentIndex by mutableIntStateOf(0)
 
@@ -823,12 +827,15 @@ class PlayerController internal constructor(
     }
 
     /** 从服务侧权威队列镜像到 UI 状态（[songQueue] / [currentIndex]）。 */
-    private fun syncQueueMirrorFromPlayer(c: Player) {
+    private fun syncQueueMirrorFromPlayer(
+        c: Player,
+        resolver: (String) -> Song? = songResolver::resolve,
+    ) {
         if (c.mediaItemCount <= 0) return
         val mirrorStartedNs = SystemClock.elapsedRealtimeNanos()
         val result = queueMirrorCoordinator.rebuildNow(
             player = c,
-            resolver = songResolver,
+            resolver = resolver,
         ) { mirrored, playerIndex ->
             installQueueModel(queueModel().mirrorFromPlayer(mirrored, playerIndex))
         }
@@ -847,7 +854,7 @@ class PlayerController internal constructor(
             player = c,
             isCurrentPlayer = { controller === c },
             localQueue = { songQueue },
-            fallbackResolver = { songResolver },
+            fallbackResolver = { songResolver::resolve },
             applyMirrored = { mirrored, playerIndex ->
                 installQueueModel(queueModel().mirrorFromPlayer(mirrored, playerIndex))
             },
@@ -881,15 +888,17 @@ class PlayerController internal constructor(
      * 若服务已有队列或服务侧无持久化记录，则仅镜像；返回 false 表示调用方应装入全曲库。
      */
     fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
-        songResolver = resolveSong
         val c = controller
         if (c != null && c.mediaItemCount > 0) {
-            syncQueueMirrorFromPlayer(c)
+            syncQueueMirrorFromPlayer(c, resolver = resolveSong)
             return true
         }
         val snapshot = ServicePlaybackStateStore(appCtx).load() ?: return false
         val session = sessionStorage.load()
-        val hydrated = snapshot.queueSongIds.mapNotNull(resolveSong)
+        val persistedExternalSongs = snapshot.externalSongs.associateBy { it.id }
+        val hydrated = snapshot.queueSongIds.mapNotNull { id ->
+            songResolver.resolve(id) ?: resolveSong(id) ?: persistedExternalSongs[id]?.toSong()
+        }
         if (hydrated.isEmpty()) return false
         val preserveId = snapshot.currentSongId.ifBlank {
             snapshot.queueSongIds.getOrNull(snapshot.currentIndex).orEmpty()
@@ -1155,6 +1164,10 @@ class PlayerController internal constructor(
     fun setPlaybackVolume(volume: Float) {
         controller?.volume = volume.coerceIn(0f, 1f)
     }
+
+    /** Current app-level playback gain, excluding the service-side ReplayGain multiplier. */
+    val playbackVolume: Float
+        get() = controller?.volume ?: 1f
 
     fun setPlaybackSpeed(speed: Float) {
         applyPlaybackTuning(playbackTuning.withSpeed(speed))

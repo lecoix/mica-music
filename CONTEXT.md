@@ -122,6 +122,14 @@ _Avoid_: 在业务层手写 `index + 1`
 App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaController` 写入服务；`songQueue` / `PlaybackQueueState` 由服务队列镜像填充，**不是**出声权威源。
 _Avoid_: player view model、media player（指底层引擎时）
 
+**SleepTimerController（睡眠定时器控制器）**：
+`MicaApp` 持有的进程级播放策略；倒计时、淡出和到期暂停必须独立于 `MainViewModel` / Activity 生命周期。启动定时器时保存当前 App 播放增益，淡出只缩放该基线，到期或取消后恢复该基线；到期通知经短生命周期事件流交给当前 UI，不持有 Composable 或 ViewModel 回调。它不持久化倒计时，进程死亡后不恢复。
+_Avoid_: 使用 `viewModelScope` 承载播放定时器；取消时固定写回 `1f`；让进程级对象持有 UI 回调
+
+**Playback song resolver（播放曲目解析边界）**：
+`PlayerController` 进程级只持有 `TransientPlaybackCatalog` 的解析器；曲库解析器只作为 `bootstrapQueue` 的一次性参数，用于恢复当前服务队列或首次镜像，调用返回后不得留在播放器、协调器或进程单例中。这样 Activity / `MainViewModel` 销毁时不会被播放控制器反向持有，也不会为了解析队列在进程级常驻整套曲库或歌词。
+_Avoid_: 在 `PlayerController` 保存 `MusicLibrary` / `MainViewModel` 的 bound method；把全库快照复制到进程级 resolver；用 resolver 缺失接受不可信的 caller metadata
+
 **PlaybackStatisticsTracker（播放统计跟踪器）**：
 App 侧运行时统计状态机。用户明确点播/重播仍由 `PlayerController` 的请求加匹配的 seek/transition 证据确认；自然下一首和单曲循环的权威边界来自 Service 所持有的原始 `Player.onPositionDiscontinuity(AUTO_TRANSITION)`，经一次性 `MediaSession` custom command 送到 Controller，避免依赖 `MediaController` 对相同 `PositionInfo` / `MediaItem` 的差分合并。状态机只接受跨 mediaId 的自动边界，或同 mediaId 且位置从后向前回卷的自动边界；Controller 侧 AUTO/REPEAT 回调仅作状态同步，不能自行创建自动播放会话。每个确认边界最多创建一个待发布会话，且只在目标歌曲实际处于 playing 时发布一次；同曲 seek、暂停恢复、连接恢复和通知歌词 `replaceMediaItem` 元数据刷新均不得创建会话。连续收听时长仍按 session 向下取整发布整秒。它不写曲库、不持久化，也不参与出声或队列推进；发布结果由进程级 `PlaybackStatisticsRepository` 消费。
 _Avoid_: 在 `PlayerController` callbacks 中重新实现去重、pending target 或收听 session 结算

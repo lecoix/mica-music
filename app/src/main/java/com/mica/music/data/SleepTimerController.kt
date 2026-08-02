@@ -9,6 +9,9 @@ import com.mica.music.data.preferences.SleepTimerPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -27,6 +30,7 @@ class SleepTimerController(
     private val scope: CoroutineScope,
     private val playerController: PlayerController,
     context: Context,
+    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     private val appContext = context.applicationContext
 
@@ -37,10 +41,12 @@ class SleepTimerController(
     var displayTick by mutableIntStateOf(0)
         private set
 
-    var onExpired: (() -> Unit)? = null
+    private val _expiredEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val expiredEvents: SharedFlow<Unit> = _expiredEvents.asSharedFlow()
 
     private var tickJob: Job? = null
     private var fadeJob: Job? = null
+    private var volumeBeforeTimer: Float? = null
 
     val isActive: Boolean
         get() = state != null
@@ -51,21 +57,21 @@ class SleepTimerController(
     val remainingMs: Long
         get() {
             val end = state?.endTimeMillis ?: return 0L
-            return (end - System.currentTimeMillis()).coerceAtLeast(0L)
+            return (end - nowMillis()).coerceAtLeast(0L)
         }
 
     fun start(durationMinutes: Int) {
-        cancelInternal(restoreVolume = false)
+        cancelInternal(restoreVolume = true)
         val duration = durationMinutes.coerceAtLeast(1)
         SleepTimerPreferences.setLastDurationMinutes(appContext, duration)
-        val now = System.currentTimeMillis()
+        volumeBeforeTimer = playerController.playbackVolume
+        val now = nowMillis()
         val durationMs = duration * 60_000L
         val end = now + durationMs
         state = SleepTimerState(
             endTimeMillis = end,
             fadeStartTimeMillis = (end - FADE_DURATION_MS).coerceAtLeast(now),
         )
-        playerController.setPlaybackVolume(1f)
         startTickLoop()
     }
 
@@ -88,7 +94,7 @@ class SleepTimerController(
         tickJob = scope.launch {
             while (isActive) {
                 val current = state ?: break
-                val now = System.currentTimeMillis()
+                val now = nowMillis()
                 displayTick++
 
                 if (now >= current.fadeStartTimeMillis && fadeJob == null) {
@@ -109,16 +115,18 @@ class SleepTimerController(
         fadeJob = scope.launch {
             while (isActive) {
                 if (state == null) break
-                val now = System.currentTimeMillis()
+                val now = nowMillis()
                 if (now >= endTimeMillis) break
                 val progress = ((now - fadeStartMillis).toFloat() / FADE_DURATION_MS).coerceIn(0f, 1f)
-                playerController.setPlaybackVolume(1f - progress)
+                val baselineVolume = volumeBeforeTimer ?: break
+                playerController.setPlaybackVolume(baselineVolume * (1f - progress))
                 delay(FADE_STEP_MS)
             }
         }
     }
 
     private fun onExpire() {
+        val baselineVolume = volumeBeforeTimer
         fadeJob?.cancel()
         fadeJob = null
         tickJob?.cancel()
@@ -126,19 +134,23 @@ class SleepTimerController(
         if (playerController.playbackSurfaceState.isPlaying) {
             playerController.pauseIfPlaying()
         }
-        playerController.setPlaybackVolume(1f)
+        baselineVolume?.let(playerController::setPlaybackVolume)
+        volumeBeforeTimer = null
         state = null
-        onExpired?.invoke()
+        _expiredEvents.tryEmit(Unit)
     }
 
     private fun cancelInternal(restoreVolume: Boolean) {
+        val hasTimer = state != null || tickJob != null || fadeJob != null || volumeBeforeTimer != null
+        val baselineVolume = volumeBeforeTimer
         tickJob?.cancel()
         fadeJob?.cancel()
         tickJob = null
         fadeJob = null
-        if (restoreVolume) {
-            playerController.setPlaybackVolume(1f)
+        if (restoreVolume && hasTimer) {
+            baselineVolume?.let(playerController::setPlaybackVolume)
         }
+        volumeBeforeTimer = null
         state = null
     }
 

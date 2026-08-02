@@ -2,6 +2,7 @@ package com.mica.music.data.preferences
 
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageTheme
+import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
 import com.mica.music.data.DEFAULT_LETTER_SEAL_OPACITY_PERCENT
@@ -126,6 +127,37 @@ class LyricsPreferencesRobolectricTest {
 
         assertEquals(22, LyricsPreferences.lyricsPageFontSizeSp(context))
         assertEquals(14, LyricsPreferences.lyricsPageTranslationFontSizeSp(context))
+    }
+
+    @Test
+    fun externalLyricsDisplayModesDefaultToSharedModeAndRemainIndependent() {
+        LyricsPreferences.setLyricsBilingualDisplayMode(
+            context,
+            LyricsBilingualDisplayMode.TRANSLATION,
+        )
+
+        assertEquals(
+            LyricsBilingualDisplayMode.TRANSLATION,
+            LyricsPreferences.desktopLyricsBilingualDisplayMode(context),
+        )
+        assertEquals(
+            LyricsBilingualDisplayMode.TRANSLATION,
+            LyricsPreferences.statusBarLyricsBilingualDisplayMode(context),
+        )
+
+        LyricsPreferences.setDesktopLyricsBilingualDisplayMode(
+            context,
+            LyricsBilingualDisplayMode.ORIGINAL,
+        )
+
+        assertEquals(
+            LyricsBilingualDisplayMode.ORIGINAL,
+            LyricsPreferences.desktopLyricsBilingualDisplayMode(context),
+        )
+        assertEquals(
+            LyricsBilingualDisplayMode.TRANSLATION,
+            LyricsPreferences.statusBarLyricsBilingualDisplayMode(context),
+        )
     }
 
     @Test

@@ -3,12 +3,21 @@ package com.mica.music.media
 import android.os.Handler
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
+import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.PlaybackTuning
+import com.mica.music.data.SongSource
+import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verifyOrder
+import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class ServicePlaybackStateCoordinatorTest {
 
     @Test
@@ -49,5 +58,42 @@ class ServicePlaybackStateCoordinatorTest {
             player.seekTo(1, 12_345L)
             player.prepare()
         }
+    }
+
+    @Test
+    fun timelinePersistenceIncludesCurrentExternalSongSnapshot() {
+        val store = mockk<ServicePlaybackStateStore>(relaxed = true)
+        val handler = mockk<Handler>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val external = SongFixtures.song("external_test").copy(source = SongSource.TRANSIENT_EXTERNAL)
+        val queueSnapshot = slot<ServiceQueueSnapshot>()
+        val item = ExternalMediaItemCodec.encode(
+            ApplicationProvider.getApplicationContext(),
+            external,
+        )
+
+        every { store.load() } returns null
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.mediaItemCount } returns 1
+        every { player.getMediaItemAt(0) } returns item
+        every { store.saveQueue(capture(queueSnapshot), any()) } returns Unit
+
+        val coordinator = ServicePlaybackStateCoordinator(
+            player = player,
+            store = store,
+            handler = handler,
+            initialQualityMode = AudioQualityMode.HIFI,
+            externalSongResolver = { external },
+        )
+        coordinator.start()
+        listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
+        coordinator.release()
+
+        assertEquals(listOf(external.id), queueSnapshot.captured.songIds)
+        assertEquals(
+            listOf(ServiceExternalSongSnapshot.from(external)),
+            queueSnapshot.captured.externalSongs,
+        )
     }
 }

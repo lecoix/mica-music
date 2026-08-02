@@ -3,8 +3,8 @@ package com.mica.music.data
 /**
  * Process-lifetime owner for songs opened from another app.
  *
- * Nothing in this catalog is persisted. The current external song replaces the previous one so
- * a long-running playback process cannot retain an unbounded number of transient metadata rows.
+ * The current external queue replaces the previous one, so a long-running playback process
+ * cannot retain an unbounded number of transient metadata rows.
  */
 class TransientPlaybackCatalog {
     companion object {
@@ -18,9 +18,20 @@ class TransientPlaybackCatalog {
     @Synchronized
     fun replace(song: Song): Song {
         val transientSong = song.copy(source = SongSource.TRANSIENT_EXTERNAL)
-        songs.clear()
-        songs[transientSong.id] = transientSong
+        replaceAll(listOf(transientSong))
         return transientSong
+    }
+
+    @Synchronized
+    fun replaceAll(newSongs: List<Song>): List<Song> {
+        songs.clear()
+        newSongs
+            .asSequence()
+            .map { it.copy(source = SongSource.TRANSIENT_EXTERNAL) }
+            .filter { it.id.isNotBlank() }
+            .distinctBy(Song::id)
+            .forEach { songs[it.id] = it }
+        return songs.values.toList()
     }
 
     @Synchronized

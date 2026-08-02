@@ -1,46 +1,141 @@
 package com.mica.music.media
 
+import com.mica.music.data.ExternalLyricsStyle
+import com.mica.music.data.LyricCue
+import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** The only lyric payload retained by either external surface: the currently displayed line. */
+data class ExternalLyricsText(
+    val text: String,
+    val cues: List<LyricCue> = emptyList(),
+)
+
+data class ExternalLyricsLine(
+    val lineIndex: Int,
+    val startMs: Int,
+    val endMs: Int?,
+    val original: ExternalLyricsText? = null,
+    val translation: ExternalLyricsText? = null,
+)
+
+data class ExternalLyricsSurfaceState(
+    val line: ExternalLyricsLine? = null,
+    val positionMs: Int = 0,
+    val isPlaying: Boolean = false,
+    val enabled: Boolean = false,
+) {
+    val visible: Boolean
+        get() = enabled && isPlaying && line != null
+}
+
 /**
- * Process-lifetime projection for the desktop lyric surface.
+ * Process-lifetime projection for the desktop and status-bar lyric surfaces.
  *
- * The media-service coordinator owns lyric interpretation. The overlay only observes this small,
- * bounded snapshot and therefore never parses the library or runs its own position ticker.
+ * The media-service coordinator owns lyric interpretation. Both windows observe this bounded
+ * snapshot and therefore never parse the library or run their own position ticker.
  */
 data class DesktopLyricsOverlayState(
-    val text: String? = null,
-    val lineIndex: Int? = null,
-    val isPlaying: Boolean = false,
-    val visible: Boolean = false,
-)
+    val desktop: ExternalLyricsSurfaceState = ExternalLyricsSurfaceState(),
+    val statusBar: ExternalLyricsSurfaceState = ExternalLyricsSurfaceState(),
+    val style: ExternalLyricsStyle = ExternalLyricsStyle(
+        desktopOriginalFontSizeSp = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
+        desktopTranslationFontSizeSp = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
+        statusBarOriginalFontSizeSp = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
+        statusBarTranslationFontSizeSp = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
+    ),
+    val appInForeground: Boolean = false,
+) {
+    /** Compatibility projections retained for existing callers and phase-one tests. */
+    val text: String?
+        get() = desktop.line?.original?.text ?: desktop.line?.translation?.text
+    val lineIndex: Int?
+        get() = desktop.line?.lineIndex
+    val isPlaying: Boolean
+        get() = desktop.isPlaying
+    val visible: Boolean
+        get() = desktop.visible
+}
 
 class DesktopLyricsOverlayStateStore {
     private val _state = MutableStateFlow(DesktopLyricsOverlayState())
     val state: StateFlow<DesktopLyricsOverlayState> = _state.asStateFlow()
 
+    /** Compatibility entry point for the original single-line desktop projection. */
     fun publish(text: String, lineIndex: Int) {
-        _state.value = _state.value.copy(
-            text = text,
-            lineIndex = lineIndex,
-            visible = _state.value.isPlaying,
+        publish(
+            line = ExternalLyricsLine(
+                lineIndex = lineIndex,
+                startMs = 0,
+                endMs = null,
+                original = ExternalLyricsText(text),
+            ),
+            positionMs = 0,
+            desktopEnabled = true,
+            statusBarEnabled = false,
+        )
+    }
+
+    fun publish(
+        line: ExternalLyricsLine,
+        positionMs: Int,
+        desktopEnabled: Boolean,
+        statusBarEnabled: Boolean,
+    ) {
+        val current = _state.value
+        _state.value = current.copy(
+            desktop = current.desktop.copy(
+                line = line,
+                positionMs = positionMs,
+                enabled = desktopEnabled,
+            ),
+            statusBar = current.statusBar.copy(
+                line = line,
+                positionMs = positionMs,
+                enabled = statusBarEnabled,
+            ),
+        )
+    }
+
+    fun setSurfaceEnabled(desktopEnabled: Boolean, statusBarEnabled: Boolean) {
+        val current = _state.value
+        _state.value = current.copy(
+            desktop = current.desktop.copy(enabled = desktopEnabled),
+            statusBar = current.statusBar.copy(enabled = statusBarEnabled),
         )
     }
 
     fun setPlaying(isPlaying: Boolean) {
-        _state.value = _state.value.copy(
-            isPlaying = isPlaying,
-            visible = isPlaying && _state.value.text != null,
+        val current = _state.value
+        _state.value = current.copy(
+            desktop = current.desktop.copy(isPlaying = isPlaying),
+            statusBar = current.statusBar.copy(isPlaying = isPlaying),
         )
     }
 
+    fun updatePosition(positionMs: Int) {
+        val current = _state.value
+        _state.value = current.copy(
+            desktop = current.desktop.copy(positionMs = positionMs),
+            statusBar = current.statusBar.copy(positionMs = positionMs),
+        )
+    }
+
+    fun setStyle(style: ExternalLyricsStyle) {
+        _state.value = _state.value.copy(style = style)
+    }
+
+    fun setAppInForeground(inForeground: Boolean) {
+        _state.value = _state.value.copy(appInForeground = inForeground)
+    }
+
     fun clear() {
-        _state.value = _state.value.copy(
-            text = null,
-            lineIndex = null,
-            visible = false,
+        val current = _state.value
+        _state.value = current.copy(
+            desktop = current.desktop.copy(line = null),
+            statusBar = current.statusBar.copy(line = null),
         )
     }
 }

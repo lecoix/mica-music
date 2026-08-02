@@ -40,6 +40,7 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.mica.music.ui.components.UserMessageHost
+import com.mica.music.MicaApp
 import com.mica.music.ui.navigation.AppNavigationMain
 import com.mica.music.ui.navigation.PlayerSheetOverlay
 import com.mica.music.ui.navigation.AppNavigationCoordinator
@@ -87,10 +88,12 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     override fun onStart() {
         super.onStart()
         MicaSpectrumAnalyzer.setAnalysisActive(true)
+        (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(true)
     }
 
     override fun onStop() {
         MicaSpectrumAnalyzer.setAnalysisActive(false)
+        (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(false)
         super.onStop()
     }
 
@@ -327,6 +330,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     private fun handleExternalAudioIntent(intent: Intent?) {
         val request = parseExternalAudioOpenRequest(intent) ?: return
+        persistExternalAudioUriPermission(this, intent, request)
         externalAudioOpenJob?.cancel()
         externalAudioOpenJob = lifecycleScope.launch {
             val song = withContext(Dispatchers.IO) {
@@ -355,7 +359,6 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                     "art=${!song.albumArtUri.isNullOrBlank()} " +
                     "lyricsOrigin=${song.lyricsDocument.origin} lyricsLines=${song.lyricsDocument.lines.size}",
             )
-            viewModel.playerController.songResolver = viewModel::resolveSong
             viewModel.playerController.playSingleSong(song)
             navigationCoordinator.playerExpanded = true
         }

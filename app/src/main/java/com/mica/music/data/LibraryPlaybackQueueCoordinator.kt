@@ -17,7 +17,6 @@ internal class LibraryPlaybackQueueCoordinator(
     private val policy: LibraryQueueSyncPolicy = LibraryQueueSyncPolicy(),
 ) {
     internal interface Target {
-        var songResolver: ((String) -> Song?)?
         val currentQueueIds: List<String>
         val queueSize: Int
         fun connectIfNeeded()
@@ -34,7 +33,6 @@ internal class LibraryPlaybackQueueCoordinator(
         val effectStartedMs = SystemClock.elapsedRealtime()
         val songs = library.songs
         if (songs.isNotEmpty()) {
-            player.songResolver = library.songById
             DiagnosticLog.event("LibraryQueue", "$reason connectIfNeeded start songs=${songs.size}")
             player.connectIfNeeded()
         }
@@ -112,12 +110,6 @@ internal fun MusicLibrary.toLibraryQueueSyncInput(
 
 internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQueueCoordinator.Target =
     object : LibraryPlaybackQueueCoordinator.Target {
-        override var songResolver: ((String) -> Song?)?
-            get() = this@asLibraryPlaybackQueueTarget.songResolver
-            set(value) {
-                this@asLibraryPlaybackQueueTarget.songResolver = value
-            }
-
         override val currentQueueIds: List<String>
             get() = playbackQueueState.queue.map { it.id }
 

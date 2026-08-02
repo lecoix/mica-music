@@ -10,6 +10,11 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsSession
+import com.mica.music.data.LyricDisplayRows
+import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricTextRole
+import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.ExternalLyricsMode
 import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
 import com.mica.music.data.local.LibraryRepository
@@ -124,6 +129,7 @@ internal class NotificationLyricsCoordinator(
                     LyricsPreferences.NotificationLyricsChange.ENABLED,
                     LyricsPreferences.NotificationLyricsChange.CAR_BLUETOOTH_ENABLED,
                     LyricsPreferences.NotificationLyricsChange.DESKTOP_ENABLED,
+                    LyricsPreferences.NotificationLyricsChange.STATUS_BAR_ENABLED,
                     -> {
                         lastPublishedIndex = null
                         lastSignature = null
@@ -171,7 +177,12 @@ internal class NotificationLyricsCoordinator(
         val nowRealtimeMs = SystemClock.elapsedRealtime()
         val notificationEnabled = LyricsPreferences.notificationLyricsEnabled(appContext)
         val carBluetoothEnabled = LyricsPreferences.carBluetoothLyricsEnabled(appContext)
-        val desktopLyricsEnabled = LyricsPreferences.desktopLyricsEnabled(appContext)
+        val externalLyricsMode = LyricsPreferences.externalLyricsMode(appContext)
+        val desktopLyricsEnabled = externalLyricsMode == ExternalLyricsMode.DESKTOP
+        val statusBarLyricsEnabled = externalLyricsMode == ExternalLyricsMode.STATUS_BAR
+        val externalLyricsEnabled = desktopLyricsEnabled || statusBarLyricsEnabled
+        desktopLyrics?.setStyle(LyricsPreferences.externalLyricsStyle(appContext))
+        desktopLyrics?.setSurfaceEnabled(desktopLyricsEnabled, statusBarLyricsEnabled)
         desktopLyrics?.setPlaying(player.isPlaying)
         carBluetoothLyrics?.setEnabled(carBluetoothEnabled)
         val item = player.currentMediaItem
@@ -187,7 +198,7 @@ internal class NotificationLyricsCoordinator(
         if (!notificationEnabled) {
             restoreDefaultMetadataIfNeeded(decoded, item)
         }
-        if (!notificationEnabled && !carBluetoothEnabled && !desktopLyricsEnabled) {
+        if (!notificationEnabled && !carBluetoothEnabled && !externalLyricsEnabled) {
             desktopLyrics?.clear()
             return
         }
@@ -226,6 +237,7 @@ internal class NotificationLyricsCoordinator(
                     notificationEnabled = notificationEnabled,
                     carBluetoothEnabled = carBluetoothEnabled,
                     desktopLyricsEnabled = desktopLyricsEnabled,
+                    statusBarLyricsEnabled = statusBarLyricsEnabled,
                 )
             }
             plannedWakeInMs = plan.wakeInMs
@@ -241,7 +253,11 @@ internal class NotificationLyricsCoordinator(
         val watchdogWakeInMs = WATCHDOG_MS.takeIf {
             player.isPlaying || pendingSpec != null || retryWakeInMs != null
         }
-        scheduleEarliest(plannedWakeInMs, retryWakeInMs, watchdogWakeInMs)
+        val externalLyricsWakeInMs = WORD_SYNC_TICK_MS.takeIf {
+            player.isPlaying && externalLyricsEnabled && document != null
+        }
+        desktopLyrics?.updatePosition(player.currentPosition.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        scheduleEarliest(plannedWakeInMs, retryWakeInMs, watchdogWakeInMs, externalLyricsWakeInMs)
     }
 
     private fun ensureLyrics(decoded: Song, spec: LyricsLoadSpec, nowRealtimeMs: Long) {
@@ -337,6 +353,7 @@ internal class NotificationLyricsCoordinator(
         notificationEnabled: Boolean,
         carBluetoothEnabled: Boolean,
         desktopLyricsEnabled: Boolean,
+        statusBarLyricsEnabled: Boolean,
     ) {
         val display = NotificationLyrics.displayOptions(appContext)
         val displayLine = NotificationLyrics.lyricLineText(session.lyrics, index, display)
@@ -346,8 +363,24 @@ internal class NotificationLyricsCoordinator(
             lastPublishedIndex = index
             return
         }
-        if (desktopLyricsEnabled) {
-            desktopLyrics?.publish(displayLine, index)
+        val externalDisplay = when {
+            desktopLyricsEnabled -> display.copy(
+                bilingualMode = LyricsPreferences.desktopLyricsBilingualDisplayMode(appContext),
+            )
+            statusBarLyricsEnabled -> display.copy(
+                splitEnabled = LyricsPreferences.statusBarLyricsSplitEnabled(appContext),
+                bilingualMode = LyricsPreferences.statusBarLyricsBilingualDisplayMode(appContext),
+            )
+            else -> display
+        }
+        val externalLine = externalLyricsLine(session.document, session.lyrics, index, externalDisplay)
+        if (externalLine != null) {
+            desktopLyrics?.publish(
+                line = externalLine,
+                positionMs = player.currentPosition.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                desktopEnabled = desktopLyricsEnabled,
+                statusBarEnabled = statusBarLyricsEnabled,
+            )
         } else {
             desktopLyrics?.clear()
         }
@@ -431,6 +464,13 @@ internal class NotificationLyricsCoordinator(
         return checkNotNull(lyricsSession)
     }
 
+    private fun externalLyricsLine(
+        document: LyricsDocument,
+        lyrics: List<LyricLine>,
+        index: Int,
+        display: NotificationLyrics.DisplayOptions,
+    ): ExternalLyricsLine? = buildExternalLyricsLine(document, lyrics, index, display)
+
     private fun resetPendingLoad() {
         generation += 1
         pendingSpec = null
@@ -481,6 +521,7 @@ internal class NotificationLyricsCoordinator(
         const val FIRST_RETRY_MS = 5_000L
         const val SECOND_RETRY_MS = 30_000L
         const val WATCHDOG_MS = 30_000L
+        const val WORD_SYNC_TICK_MS = 100L
 
         val RECONCILE_EVENTS = intArrayOf(
             Player.EVENT_MEDIA_ITEM_TRANSITION,
@@ -496,3 +537,108 @@ internal class NotificationLyricsCoordinator(
         )
     }
 }
+
+internal fun buildExternalLyricsLine(
+    document: LyricsDocument,
+    lyrics: List<LyricLine>,
+    index: Int,
+    display: NotificationLyrics.DisplayOptions,
+): ExternalLyricsLine? {
+        val node = document.lines.getOrNull(index) ?: return null
+        val legacyLine = lyrics.getOrNull(index)
+        val rawText = legacyLine?.text?.trim().orEmpty()
+        if (rawText.isBlank()) return null
+
+        val originalPart = node.parts
+            .filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        val translationPart = node.parts
+            .filter { it.role == LyricTextRole.TRANSLATION }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        val allRows = LyricDisplayRows.splitForDisplayRows(
+            text = rawText,
+            // Always recover the source bilingual parts. The output toggle controls layout,
+            // not whether the projection is allowed to understand an existing separator.
+            enabled = true,
+        )
+        val hasSemanticTranslation = translationPart.isNotBlank()
+        val baseOriginal = when {
+            hasSemanticTranslation -> originalPart
+            allRows.size >= 2 -> allRows.firstOrNull()?.text.orEmpty()
+            else -> rawText
+        }.trim()
+        val baseTranslation = when {
+            hasSemanticTranslation -> translationPart
+            allRows.size >= 2 -> allRows.drop(1).joinToString(" ") { it.text.trim() }
+            else -> ""
+        }.trim()
+        val originalCues = node.tokens
+            .filter { it.partRole == LyricTextRole.ORIGINAL || it.partRole == LyricTextRole.EXTRA }
+            .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text) }
+        val translationCues = node.tokens
+            .filter { it.partRole == LyricTextRole.TRANSLATION }
+            .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text) }
+
+        val bilingual = hasSemanticTranslation || allRows.size >= 2
+        if (!display.splitEnabled) {
+            val collapsedText = when (display.bilingualMode) {
+                LyricsBilingualDisplayMode.ORIGINAL -> baseOriginal
+                LyricsBilingualDisplayMode.TRANSLATION -> baseTranslation.ifBlank { baseOriginal }
+                LyricsBilingualDisplayMode.ALL -> listOf(baseOriginal, baseTranslation)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+            }.ifBlank { rawText.replace(Regex("\\s+"), " ").trim() }
+            val selectedCues = when {
+                !bilingual -> originalCues
+                display.bilingualMode == LyricsBilingualDisplayMode.ORIGINAL -> originalCues
+                display.bilingualMode == LyricsBilingualDisplayMode.TRANSLATION ->
+                    translationCues.ifEmpty { originalCues }
+                else -> emptyList()
+            }
+            val selectedText = ExternalLyricsText(
+                text = collapsedText,
+                // A collapsed bilingual line has one shared phrase-level progress. Keeping
+                // both languages' word cues would fill the text serially.
+                cues = selectedCues,
+            )
+            val renderAsTranslation =
+                display.bilingualMode == LyricsBilingualDisplayMode.TRANSLATION &&
+                    baseTranslation.isNotBlank()
+            return ExternalLyricsLine(
+                lineIndex = index,
+                startMs = node.startMs,
+                endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
+                original = selectedText.takeUnless { renderAsTranslation },
+                translation = selectedText.takeIf { renderAsTranslation },
+            )
+        }
+
+        val original = when (display.bilingualMode) {
+            LyricsBilingualDisplayMode.TRANSLATION -> null
+            else -> baseOriginal.takeIf { it.isNotBlank() }?.let { ExternalLyricsText(it, originalCues) }
+        }
+        val translation = when (display.bilingualMode) {
+            LyricsBilingualDisplayMode.ORIGINAL -> null
+            LyricsBilingualDisplayMode.TRANSLATION ->
+                (baseTranslation.ifBlank { baseOriginal })
+                    .takeIf { it.isNotBlank() }
+                    ?.let {
+                        ExternalLyricsText(
+                            it,
+                            translationCues.ifEmpty { originalCues },
+                        )
+                    }
+            LyricsBilingualDisplayMode.ALL ->
+                baseTranslation.takeIf { it.isNotBlank() }?.let { ExternalLyricsText(it, translationCues) }
+        }
+        if (original == null && translation == null) return null
+        return ExternalLyricsLine(
+            lineIndex = index,
+            startMs = node.startMs,
+            endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
+            original = original,
+            translation = translation,
+        )
+    }

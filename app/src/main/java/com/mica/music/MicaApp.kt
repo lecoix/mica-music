@@ -3,19 +3,31 @@ package com.mica.music
 import android.app.Application
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.data.PlaybackStatisticsRepository
+import com.mica.music.data.ProcessPlaybackSongResolver
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlayerController
+import com.mica.music.data.SleepTimerController
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.media.DesktopLyricsOverlayStateStore
+import com.mica.music.media.ServicePlaybackStateStore
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.AudioEnvironmentDiagnostics
 import com.mica.music.util.SpatialAudioMonitor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class MicaApp : Application() {
-    /** Process-lifetime catalog for external songs; it is intentionally not persisted. */
+    /** Process-lifetime scope for playback behavior that must outlive Activity/ViewModel owners. */
+    private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Process-lifetime catalog for the current external queue. */
     val transientPlaybackCatalog = TransientPlaybackCatalog()
+
+    /** Process-lifetime playback lookup; it must not capture a ViewModel or Activity callback. */
+    val playbackSongResolver = ProcessPlaybackSongResolver(transientPlaybackCatalog)
 
     /** Process-lifetime lyric snapshot shared by the media service and desktop overlay. */
     val desktopLyricsOverlayStateStore = DesktopLyricsOverlayStateStore()
@@ -25,7 +37,12 @@ class MicaApp : Application() {
      * the service-backed playback session.
      */
     val playerController: PlayerController by lazy(LazyThreadSafetyMode.NONE) {
-        PlayerController(this)
+        PlayerController(this, playbackSongResolver)
+    }
+
+    /** Process-lifetime sleep timer; Activity/ViewModel teardown must not cancel active playback policy. */
+    val sleepTimer: SleepTimerController by lazy(LazyThreadSafetyMode.NONE) {
+        SleepTimerController(processScope, playerController, this)
     }
 
     /**
@@ -51,6 +68,9 @@ class MicaApp : Application() {
         BluetoothAudioDiagnostics.install(this)
         AudioEnvironmentDiagnostics.install(this)
         MicaImageLoaders.init(this)
+        ServicePlaybackStateStore(this).load()?.externalSongs
+            ?.map { it.toSong() }
+            ?.let(transientPlaybackCatalog::replaceAll)
         // Bind stats persistence before any MediaSession playback can publish sessions.
         playbackStatistics
     }

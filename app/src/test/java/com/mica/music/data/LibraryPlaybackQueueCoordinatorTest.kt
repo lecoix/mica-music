@@ -8,7 +8,6 @@ import org.junit.Test
 
 class LibraryPlaybackQueueCoordinatorTest {
     private class FakeTarget : LibraryPlaybackQueueCoordinator.Target {
-        override var songResolver: ((String) -> Song?)? = null
         var queuedSongs: List<Song> = emptyList()
         var connectCount = 0
         var bootstrapResult = false

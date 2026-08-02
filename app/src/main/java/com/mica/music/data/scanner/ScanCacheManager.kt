@@ -34,8 +34,12 @@ internal object ScanCacheManager {
     }
 
     /** 曲库就绪后：删除 [album_art] 中未被任何曲目引用的 jpg。 */
-    fun pruneAlbumArtCache(context: Context, songs: List<Song>) {
-        AlbumArtCache.pruneUnreferenced(context, songs)
+    fun pruneAlbumArtCache(
+        context: Context,
+        songs: List<Song>,
+        shouldContinue: () -> Boolean = { true },
+    ) {
+        AlbumArtCache.pruneUnreferenced(context, songs, shouldContinue)
     }
 
     /** 删除上次扫描可能残留的 FFmpeg 临时文件。 */

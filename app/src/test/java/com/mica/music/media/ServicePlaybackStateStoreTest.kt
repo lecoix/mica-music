@@ -4,8 +4,12 @@ import android.content.Context
 import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.PlaybackTuning
+import com.mica.music.data.SongSource
+import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,6 +29,9 @@ class ServicePlaybackStateStoreTest {
 
     @Test
     fun roundTripsCompleteServiceSnapshot() {
+        val externalSong = ServiceExternalSongSnapshot.from(
+            SongFixtures.song("external_test").copy(source = SongSource.TRANSIENT_EXTERNAL),
+        )
         val snapshot = ServicePlaybackSnapshot(
             queueSongIds = listOf("one", "two", "three"),
             currentIndex = 1,
@@ -34,11 +41,31 @@ class ServicePlaybackStateStoreTest {
             playWhenReady = true,
             qualityMode = AudioQualityMode.DSP,
             playbackTuning = PlaybackTuning(speed = 1.25f, pitchSemitones = 7f),
+            externalSongs = listOf(externalSong),
         )
 
         store.save(snapshot, sync = true)
 
         assertEquals(snapshot, store.load())
+    }
+
+    @Test
+    fun externalSnapshotRecreatesTransientSongWithoutLyricsOrLibraryStats() {
+        val original = SongFixtures.song("external_test", totalListenSeconds = 123L).copy(
+            source = SongSource.TRANSIENT_EXTERNAL,
+            playCount = 4,
+        )
+
+        val restored = ServiceExternalSongSnapshot.from(original).toSong()
+
+        assertEquals(original.id, restored.id)
+        assertEquals(original.mediaUri, restored.mediaUri)
+        assertEquals(original.metadata, restored.metadata)
+        assertEquals(SongSource.TRANSIENT_EXTERNAL, restored.source)
+        assertFalse(restored.lyricsLoaded)
+        assertTrue(restored.lyricsDocument.lines.isEmpty())
+        assertEquals(0, restored.playCount)
+        assertEquals(0L, restored.totalListenSeconds)
     }
 
     @Test

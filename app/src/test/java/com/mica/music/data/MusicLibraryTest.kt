@@ -821,6 +821,7 @@ class MusicLibraryTest {
         override fun currentTimeMillis(): Long = 1_234L
         override fun playStats(songId: String): PlayStats = PlayStats(0, 0)
         override fun clearTransientCache() = Unit
+        override fun pruneAlbumArtCache(songs: List<Song>, shouldContinue: () -> Boolean) = Unit
         override fun persistLastScanSource(source: ScanSource) = Unit
         override fun lyricsParserVersion(): Int = parserVersion
         override fun persistLyricsParserVersion(version: Int) {

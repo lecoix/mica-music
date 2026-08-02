@@ -278,18 +278,25 @@ internal object AlbumArtCache {
     }
 
     /** 删除曲库未引用的封面文件（保留 [songs] 中 `albumArtUri` 仍指向的 jpg）。 */
-    fun pruneUnreferenced(context: Context, songs: List<Song>) {
-        val keep = buildSet {
-            songs.forEach { song ->
-                if (isCachedArtUri(context, song.albumArtUri)) {
-                    digestFromArtUri(song.albumArtUri)?.let { add(it) }
-                }
+    fun pruneUnreferenced(
+        context: Context,
+        songs: List<Song>,
+        shouldContinue: () -> Boolean = { true },
+    ) {
+        val keep = HashSet<String>(songs.size)
+        for (song in songs) {
+            if (!shouldContinue()) return
+            if (isCachedArtUri(context, song.albumArtUri)) {
+                digestFromArtUri(song.albumArtUri)?.let(keep::add)
             }
         }
-        listOf(currentAlbumArtDir(context), legacyAlbumArtDir(context)).forEach { dir ->
-            if (!dir.exists()) return@forEach
-            dir.listFiles()?.forEach { file ->
-                if (!file.isFile) return@forEach
+
+        for (dir in listOf(currentAlbumArtDir(context), legacyAlbumArtDir(context))) {
+            if (!shouldContinue()) return
+            if (!dir.exists()) continue
+            for (file in dir.listFiles().orEmpty()) {
+                if (!shouldContinue()) return
+                if (!file.isFile) continue
                 if (file.nameWithoutExtension !in keep) {
                     file.delete()
                 }

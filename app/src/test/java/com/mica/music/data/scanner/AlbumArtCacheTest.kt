@@ -109,6 +109,30 @@ class AlbumArtCacheTest {
     }
 
     @Test
+    fun pruneStopsBeforeDeletingWhenGenerationIsNoLongerActive() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val keep = AlbumArtCache.fileForKey(context, "prune-keep-${System.nanoTime()}")
+        val orphan = AlbumArtCache.fileForKey(context, "prune-orphan-${System.nanoTime()}")
+        keep.parentFile?.mkdirs()
+        keep.writeBytes(byteArrayOf(1))
+        orphan.writeBytes(byteArrayOf(2))
+        val song = SongFixtures.song("prune-keep").copy(albumArtUri = keep.toUri().toString())
+        var checks = 0
+
+        try {
+            AlbumArtCache.pruneUnreferenced(context, listOf(song)) {
+                checks++ == 0
+            }
+
+            assertEquals(true, keep.exists())
+            assertEquals(true, orphan.exists())
+        } finally {
+            keep.delete()
+            orphan.delete()
+        }
+    }
+
+    @Test
     fun concurrentIdenticalArtworkWritesPublishOneCompleteFile() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val bytes = ByteArray(256 * 1024) { index -> (index * 31).toByte() }

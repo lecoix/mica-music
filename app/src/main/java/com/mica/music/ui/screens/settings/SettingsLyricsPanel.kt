@@ -7,7 +7,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppFontImporter
@@ -15,6 +19,9 @@ import com.mica.music.data.AppFontSelection
 import com.mica.music.data.AppFontSource
 import com.mica.music.data.AppLetterSealImporter
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.ExternalLyricsColorMode
+import com.mica.music.data.ExternalLyricsMode
+import com.mica.music.data.ExternalLyricsVisibilityMode
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
@@ -26,6 +33,7 @@ import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsToggleRow
+import com.mica.music.ui.screens.settings.color.ExternalLyricsColorDialog
 import com.mica.music.ui.theme.HifiSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,6 +45,7 @@ internal fun LyricsSettingsPanel(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var showExternalLyricsColors by remember { mutableStateOf(false) }
     val fontPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -197,20 +206,19 @@ internal fun LyricsSettingsPanel(
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )
 
-    SettingsToggleRow(
-        title = "桌面歌词",
-        subtitle = "用系统悬浮窗显示当前歌词；可拖动位置，暂停时自动隐藏",
-        checked = uiSettings.desktopLyricsEnabled,
-        onCheckedChange = { enabled ->
-            if (!enabled) {
-                uiSettings.updateDesktopLyricsEnabled(false)
-                DesktopLyricsOverlayController.stop(context)
-            } else if (!DesktopLyricsOverlayController.canDrawOverlays(context)) {
+    SettingsChoiceRow(
+        title = "外部歌词输出",
+        subtitle = "桌面歌词、状态栏歌词和关闭三选一；下面只显示当前状态的子选项",
+        choices = ExternalLyricsModeChoices,
+        selectedValue = uiSettings.externalLyricsMode.ordinal,
+        onSelect = { ordinal ->
+            val mode = ExternalLyricsMode.entries[ordinal]
+            if (mode != ExternalLyricsMode.OFF && !DesktopLyricsOverlayController.canDrawOverlays(context)) {
                 Toast.makeText(context, "请先允许悬浮窗权限", Toast.LENGTH_SHORT).show()
                 DesktopLyricsOverlayController.openPermissionSettings(context)
             } else {
-                uiSettings.updateDesktopLyricsEnabled(true)
-                DesktopLyricsOverlayController.start(context)
+                uiSettings.updateExternalLyricsMode(mode)
+                DesktopLyricsOverlayController.sync(context)
             }
         },
     )
@@ -221,6 +229,158 @@ internal fun LyricsSettingsPanel(
         checked = uiSettings.carBluetoothLyricsEnabled,
         onCheckedChange = { uiSettings.updateCarBluetoothLyricsEnabled(it) },
     )
+
+    if (uiSettings.externalLyricsMode == ExternalLyricsMode.DESKTOP) {
+        SettingsDropdownRow(
+            title = "桌面歌词：原文大小",
+            choices = LyricsPageFontSizeChoices,
+            selectedValue = uiSettings.desktopLyricsOriginalFontSizeSp,
+            onSelect = { uiSettings.updateDesktopLyricsOriginalFontSizeSp(it) },
+        )
+
+        SettingsDropdownRow(
+            title = "桌面歌词：译文大小",
+            choices = LyricsPageFontSizeChoices,
+            selectedValue = uiSettings.desktopLyricsTranslationFontSizeSp,
+            onSelect = { uiSettings.updateDesktopLyricsTranslationFontSizeSp(it) },
+        )
+
+        SettingsChoiceRow(
+            title = "\u684C\u9762\u6B4C\u8BCD\u663E\u793A\u5185\u5BB9",
+            subtitle = "\u53CC\u8BED\u6B4C\u8BCD\u53EF\u9009\u4EC5\u539F\u6587\u3001\u4EC5\u8BD1\u6587\u6216\u5168\u6587\uFF1B\u65E0\u8BD1\u6587\u65F6\u4F1A\u56DE\u9000\u5230\u539F\u6587",
+            choices = ExternalLyricsBilingualDisplayChoices,
+            selectedValue = uiSettings.desktopLyricsBilingualDisplayMode.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateDesktopLyricsBilingualDisplayMode(
+                    LyricsBilingualDisplayMode.entries[ordinal],
+                )
+            },
+        )
+
+        SettingsDropdownRow(
+            title = "桌面歌词可用宽度",
+            subtitle = "相对于屏幕宽度；全宽仍会保留两侧内边距",
+            choices = ExternalLyricsWidthChoices,
+            selectedValue = uiSettings.desktopLyricsWidthPercent,
+            onSelect = { uiSettings.updateDesktopLyricsWidthPercent(it) },
+        )
+    }
+
+    if (uiSettings.externalLyricsMode == ExternalLyricsMode.STATUS_BAR) {
+        SettingsDropdownRow(
+            title = "状态栏歌词：原文大小",
+            choices = LyricsPageFontSizeChoices,
+            selectedValue = uiSettings.statusBarLyricsOriginalFontSizeSp,
+            onSelect = { uiSettings.updateStatusBarLyricsOriginalFontSizeSp(it) },
+        )
+
+        SettingsDropdownRow(
+            title = "状态栏歌词：译文大小",
+            choices = LyricsPageFontSizeChoices,
+            selectedValue = uiSettings.statusBarLyricsTranslationFontSizeSp,
+            onSelect = { uiSettings.updateStatusBarLyricsTranslationFontSizeSp(it) },
+        )
+
+        SettingsToggleRow(
+            title = "状态栏歌词分割双语",
+            subtitle = "关闭后，双语歌词按一行显示；仅影响状态栏歌词",
+            checked = uiSettings.statusBarLyricsSplitEnabled,
+            onCheckedChange = { uiSettings.updateStatusBarLyricsSplitEnabled(it) },
+        )
+
+        SettingsChoiceRow(
+            title = "\u72B6\u6001\u680F\u6B4C\u8BCD\u663E\u793A\u5185\u5BB9",
+            subtitle = "\u53EF\u9009\u4EC5\u539F\u6587\u3001\u4EC5\u8BD1\u6587\u6216\u5168\u6587\uFF1B\u5173\u95ED\u5206\u5272\u65F6\u4ECD\u6309\u6240\u9009\u5185\u5BB9\u663E\u793A\u4E00\u884C",
+            choices = ExternalLyricsBilingualDisplayChoices,
+            selectedValue = uiSettings.statusBarLyricsBilingualDisplayMode.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateStatusBarLyricsBilingualDisplayMode(
+                    LyricsBilingualDisplayMode.entries[ordinal],
+                )
+            },
+        )
+
+        SettingsDropdownRow(
+            title = "状态栏歌词位置",
+            subtitle = "相对于屏幕顶部的垂直偏移，默认贴顶",
+            choices = StatusBarLyricsTopOffsetChoices,
+            selectedValue = uiSettings.statusBarLyricsTopOffsetDp,
+            onSelect = {
+                uiSettings.updateStatusBarLyricsTopOffsetDp(it)
+                DesktopLyricsOverlayController.refreshPosition(context)
+            },
+        )
+
+        SettingsDropdownRow(
+            title = "状态栏歌词可用宽度",
+            subtitle = "相对于屏幕宽度；全宽仍会保留两侧内边距",
+            choices = ExternalLyricsWidthChoices,
+            selectedValue = uiSettings.statusBarLyricsWidthPercent,
+            onSelect = { uiSettings.updateStatusBarLyricsWidthPercent(it) },
+        )
+    }
+
+    if (uiSettings.externalLyricsMode != ExternalLyricsMode.OFF) {
+        SettingsChoiceRow(
+            title = "外部歌词显示规则",
+            subtitle = "默认跟随播放显示；选择后，在 Mica 软件处于前台时隐藏外部歌词窗口",
+            choices = ExternalLyricsVisibilityChoices,
+            selectedValue = uiSettings.externalLyricsVisibilityMode.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateExternalLyricsVisibilityMode(
+                    ExternalLyricsVisibilityMode.entries[ordinal],
+                )
+            },
+        )
+
+        SettingsChoiceRow(
+            title = "外部歌词颜色",
+            subtitle = "逐字填充使用单色或最多四色渐变；渐变角度决定颜色的分布方向",
+            choices = ExternalLyricsColorModeChoices,
+            selectedValue = uiSettings.externalLyricsColorMode.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateExternalLyricsColorMode(ExternalLyricsColorMode.entries[ordinal])
+            },
+        )
+
+        if (uiSettings.externalLyricsColorMode == ExternalLyricsColorMode.GRADIENT) {
+            SettingsDropdownRow(
+                title = "渐变颜色数量",
+                choices = ExternalLyricsColorCountChoices,
+                selectedValue = uiSettings.externalLyricsColorCount,
+                onSelect = { uiSettings.updateExternalLyricsColorCount(it) },
+            )
+
+            SettingsDropdownRow(
+                title = "渐变角度",
+                choices = ExternalLyricsGradientAngleChoices,
+                selectedValue = uiSettings.externalLyricsGradientAngleDegrees,
+                onSelect = { uiSettings.updateExternalLyricsGradientAngleDegrees(it) },
+            )
+        }
+
+        SettingsActionRow(
+            title = "编辑外部歌词颜色",
+            subtitle = "当前 ${uiSettings.externalLyricsColors.take(uiSettings.externalLyricsColorCount).joinToString { formatExternalLyricsHex(it) }}",
+            onClick = { showExternalLyricsColors = true },
+        )
+
+        if (showExternalLyricsColors) {
+            ExternalLyricsColorDialog(
+                initialColors = uiSettings.externalLyricsColors,
+                colorCount = if (uiSettings.externalLyricsColorMode == ExternalLyricsColorMode.SINGLE) {
+                    1
+                } else {
+                    uiSettings.externalLyricsColorCount
+                },
+                onDismiss = { showExternalLyricsColors = false },
+                onConfirm = { colors ->
+                    uiSettings.updateExternalLyricsColors(colors)
+                    showExternalLyricsColors = false
+                },
+            )
+        }
+    }
 
     if (uiSettings.lyricsPageTheme == LyricsPageTheme.LIST) {
         Spacer(Modifier.height(HifiSpacing.lg))
@@ -303,3 +463,6 @@ internal fun LyricsSettingsPanel(
         },
     )
 }
+
+private fun formatExternalLyricsHex(colorArgb: Int): String =
+    "#" + Integer.toUnsignedString(colorArgb, 16).padStart(8, '0').uppercase()

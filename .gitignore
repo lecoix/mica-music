@@ -29,6 +29,7 @@ ffmpeg/build/
 .icey-ref/
 .lunabeat-ref/
 .pixelplayer-ref/
+.halcyon-ref/
 
 # Local media fixtures and prototypes
 .test-music/

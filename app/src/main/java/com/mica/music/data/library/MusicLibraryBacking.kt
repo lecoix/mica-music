@@ -37,6 +37,7 @@ internal class MusicLibraryBacking(
      * Bumped when starting cache hydrate, scan, clear, or release so stale
      * complete-snapshot publishers discard their results.
      */
+    @Volatile
     var scanGeneration = 0
     var released = false
     val scanExecutionMutex = Mutex()

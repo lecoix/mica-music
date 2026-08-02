@@ -135,6 +135,7 @@ class MicaCompositePlayerCommandRoutingTest {
             exo.volume = 0.4f
             exo.volume = 0.3f
         }
+        assertEquals(0.6f, player.volume, 0f)
     }
 
     private fun items(count: Int): List<MediaItem> =

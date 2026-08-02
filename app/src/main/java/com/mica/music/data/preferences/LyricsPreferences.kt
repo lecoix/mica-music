@@ -3,6 +3,14 @@ package com.mica.music.data.preferences
 import android.content.Context
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_LINE_SPACING_DP
+import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_COLORS
+import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_GRADIENT_ANGLE
+import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.DEFAULT_STATUS_BAR_LYRICS_TOP_OFFSET_DP
+import com.mica.music.data.ExternalLyricsColorMode
+import com.mica.music.data.ExternalLyricsMode
+import com.mica.music.data.ExternalLyricsStyle
+import com.mica.music.data.ExternalLyricsVisibilityMode
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
@@ -23,6 +31,12 @@ import com.mica.music.data.MAX_LETTER_SEAL_SIZE_DP
 import com.mica.music.data.MIN_LETTER_SEAL_OPACITY_PERCENT
 import com.mica.music.data.MIN_LETTER_SEAL_ROTATION_DEGREES
 import com.mica.music.data.MIN_LETTER_SEAL_SIZE_DP
+import com.mica.music.data.MAX_EXTERNAL_LYRICS_COLORS
+import com.mica.music.data.MAX_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP
+import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
+import com.mica.music.data.normalizeExternalLyricsColors
 
 /** 歌词页、通知歌词与播放页歌词文字相关偏好。 */
 object LyricsPreferences {
@@ -30,6 +44,7 @@ object LyricsPreferences {
         ENABLED,
         CAR_BLUETOOTH_ENABLED,
         DESKTOP_ENABLED,
+        STATUS_BAR_ENABLED,
         DISPLAY,
         SOURCE,
     }
@@ -54,6 +69,23 @@ object LyricsPreferences {
     private const val KEY_DESKTOP_LYRICS_ENABLED = "desktop_lyrics_enabled"
     private const val KEY_DESKTOP_LYRICS_X = "desktop_lyrics_x"
     private const val KEY_DESKTOP_LYRICS_Y = "desktop_lyrics_y"
+    private const val KEY_DESKTOP_LYRICS_ORIGINAL_FONT_SIZE = "desktop_lyrics_original_font_size"
+    private const val KEY_DESKTOP_LYRICS_TRANSLATION_FONT_SIZE = "desktop_lyrics_translation_font_size"
+    private const val KEY_DESKTOP_LYRICS_BILINGUAL_DISPLAY_MODE = "desktop_lyrics_bilingual_display_mode"
+    private const val KEY_EXTERNAL_LYRICS_MODE = "external_lyrics_mode"
+    private const val KEY_DESKTOP_LYRICS_WIDTH_PERCENT = "desktop_lyrics_width_percent"
+    private const val KEY_STATUS_BAR_LYRICS_ENABLED = "status_bar_lyrics_enabled"
+    private const val KEY_STATUS_BAR_LYRICS_TOP_OFFSET_DP = "status_bar_lyrics_top_offset_dp"
+    private const val KEY_STATUS_BAR_LYRICS_ORIGINAL_FONT_SIZE = "status_bar_lyrics_original_font_size"
+    private const val KEY_STATUS_BAR_LYRICS_TRANSLATION_FONT_SIZE = "status_bar_lyrics_translation_font_size"
+    private const val KEY_STATUS_BAR_LYRICS_SPLIT_ENABLED = "status_bar_lyrics_split_enabled"
+    private const val KEY_STATUS_BAR_LYRICS_BILINGUAL_DISPLAY_MODE = "status_bar_lyrics_bilingual_display_mode"
+    private const val KEY_STATUS_BAR_LYRICS_WIDTH_PERCENT = "status_bar_lyrics_width_percent"
+    private const val KEY_EXTERNAL_LYRICS_VISIBILITY_MODE = "external_lyrics_visibility_mode"
+    private const val KEY_EXTERNAL_LYRICS_COLOR_MODE = "external_lyrics_color_mode"
+    private const val KEY_EXTERNAL_LYRICS_COLOR_COUNT = "external_lyrics_color_count"
+    private const val KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE = "external_lyrics_gradient_angle"
+    private const val KEY_EXTERNAL_LYRICS_COLOR_PREFIX = "external_lyrics_color_"
     private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
     private const val KEY_INFO_ROW_WORD_LYRICS_ENABLED = "info_row_word_lyrics_enabled"
     private const val KEY_LYRICS_SLOT_PRIORITY = "lyrics_slot_priority"
@@ -289,11 +321,37 @@ object LyricsPreferences {
     }
 
     fun desktopLyricsEnabled(context: Context): Boolean =
-        MicaSettingsStore.prefs(context).getBoolean(KEY_DESKTOP_LYRICS_ENABLED, false)
+        externalLyricsMode(context) == ExternalLyricsMode.DESKTOP
 
     fun setDesktopLyricsEnabled(context: Context, enabled: Boolean) {
+        val current = externalLyricsMode(context)
+        setExternalLyricsMode(
+            context,
+            when {
+                enabled -> ExternalLyricsMode.DESKTOP
+                current == ExternalLyricsMode.DESKTOP -> ExternalLyricsMode.OFF
+                else -> current
+            },
+        )
+    }
+
+    fun externalLyricsMode(context: Context): ExternalLyricsMode {
+        val preferences = MicaSettingsStore.prefs(context)
+        preferences.getString(KEY_EXTERNAL_LYRICS_MODE, null)?.let {
+            return ExternalLyricsMode.fromStorage(it)
+        }
+        return when {
+            preferences.getBoolean(KEY_DESKTOP_LYRICS_ENABLED, false) -> ExternalLyricsMode.DESKTOP
+            preferences.getBoolean(KEY_STATUS_BAR_LYRICS_ENABLED, false) -> ExternalLyricsMode.STATUS_BAR
+            else -> ExternalLyricsMode.OFF
+        }
+    }
+
+    fun setExternalLyricsMode(context: Context, mode: ExternalLyricsMode) {
         MicaSettingsStore.prefs(context).edit()
-            .putBoolean(KEY_DESKTOP_LYRICS_ENABLED, enabled)
+            .putString(KEY_EXTERNAL_LYRICS_MODE, mode.storageValue)
+            .putBoolean(KEY_DESKTOP_LYRICS_ENABLED, mode == ExternalLyricsMode.DESKTOP)
+            .putBoolean(KEY_STATUS_BAR_LYRICS_ENABLED, mode == ExternalLyricsMode.STATUS_BAR)
             .apply()
     }
 
@@ -316,6 +374,211 @@ object LyricsPreferences {
             .putInt(KEY_DESKTOP_LYRICS_Y, y)
             .apply()
     }
+
+    fun desktopLyricsOriginalFontSizeSp(context: Context): Int =
+        readLyricsPageFontSizeSp(
+            context,
+            KEY_DESKTOP_LYRICS_ORIGINAL_FONT_SIZE,
+            lyricsPageFontSizeSp(context),
+        )
+
+    fun setDesktopLyricsOriginalFontSizeSp(context: Context, fontSizeSp: Int) {
+        putExternalLyricsFontSize(context, KEY_DESKTOP_LYRICS_ORIGINAL_FONT_SIZE, fontSizeSp)
+    }
+
+    fun desktopLyricsTranslationFontSizeSp(context: Context): Int =
+        readLyricsPageFontSizeSp(
+            context,
+            KEY_DESKTOP_LYRICS_TRANSLATION_FONT_SIZE,
+            lyricsPageTranslationFontSizeSp(context),
+        )
+
+    fun setDesktopLyricsTranslationFontSizeSp(context: Context, fontSizeSp: Int) {
+        putExternalLyricsFontSize(context, KEY_DESKTOP_LYRICS_TRANSLATION_FONT_SIZE, fontSizeSp)
+    }
+
+    fun desktopLyricsBilingualDisplayMode(context: Context): LyricsBilingualDisplayMode =
+        LyricsBilingualDisplayMode.fromStorage(
+            MicaSettingsStore.prefs(context).getString(
+                KEY_DESKTOP_LYRICS_BILINGUAL_DISPLAY_MODE,
+                null,
+            ) ?: lyricsBilingualDisplayMode(context).storageValue,
+        )
+
+    fun setDesktopLyricsBilingualDisplayMode(
+        context: Context,
+        mode: LyricsBilingualDisplayMode,
+    ) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_DESKTOP_LYRICS_BILINGUAL_DISPLAY_MODE, mode.storageValue)
+            .apply()
+    }
+
+    fun statusBarLyricsEnabled(context: Context): Boolean =
+        externalLyricsMode(context) == ExternalLyricsMode.STATUS_BAR
+
+    fun setStatusBarLyricsEnabled(context: Context, enabled: Boolean) {
+        val current = externalLyricsMode(context)
+        setExternalLyricsMode(
+            context,
+            when {
+                enabled -> ExternalLyricsMode.STATUS_BAR
+                current == ExternalLyricsMode.STATUS_BAR -> ExternalLyricsMode.OFF
+                else -> current
+            },
+        )
+    }
+
+    fun desktopLyricsWidthPercent(context: Context): Int =
+        externalLyricsWidthPercent(context, KEY_DESKTOP_LYRICS_WIDTH_PERCENT)
+
+    fun setDesktopLyricsWidthPercent(context: Context, percent: Int) {
+        setExternalLyricsWidthPercent(context, KEY_DESKTOP_LYRICS_WIDTH_PERCENT, percent)
+    }
+
+    /** Additional top offset below the system status bar, in density-independent pixels. */
+    fun statusBarLyricsTopOffsetDp(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_STATUS_BAR_LYRICS_TOP_OFFSET_DP, DEFAULT_STATUS_BAR_LYRICS_TOP_OFFSET_DP)
+            .coerceIn(MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP, MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP)
+
+    fun setStatusBarLyricsTopOffsetDp(context: Context, offsetDp: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_STATUS_BAR_LYRICS_TOP_OFFSET_DP,
+                offsetDp.coerceIn(MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP, MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP),
+            )
+            .apply()
+    }
+
+    fun statusBarLyricsOriginalFontSizeSp(context: Context): Int =
+        readLyricsPageFontSizeSp(
+            context,
+            KEY_STATUS_BAR_LYRICS_ORIGINAL_FONT_SIZE,
+            lyricsPageFontSizeSp(context),
+        )
+
+    fun setStatusBarLyricsOriginalFontSizeSp(context: Context, fontSizeSp: Int) {
+        putExternalLyricsFontSize(context, KEY_STATUS_BAR_LYRICS_ORIGINAL_FONT_SIZE, fontSizeSp)
+    }
+
+    fun statusBarLyricsTranslationFontSizeSp(context: Context): Int =
+        readLyricsPageFontSizeSp(
+            context,
+            KEY_STATUS_BAR_LYRICS_TRANSLATION_FONT_SIZE,
+            lyricsPageTranslationFontSizeSp(context),
+        )
+
+    fun setStatusBarLyricsTranslationFontSizeSp(context: Context, fontSizeSp: Int) {
+        putExternalLyricsFontSize(context, KEY_STATUS_BAR_LYRICS_TRANSLATION_FONT_SIZE, fontSizeSp)
+    }
+
+    fun statusBarLyricsSplitEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_STATUS_BAR_LYRICS_SPLIT_ENABLED, true)
+
+    fun setStatusBarLyricsSplitEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_STATUS_BAR_LYRICS_SPLIT_ENABLED, enabled)
+            .apply()
+    }
+
+    fun statusBarLyricsBilingualDisplayMode(context: Context): LyricsBilingualDisplayMode =
+        LyricsBilingualDisplayMode.fromStorage(
+            MicaSettingsStore.prefs(context).getString(
+                KEY_STATUS_BAR_LYRICS_BILINGUAL_DISPLAY_MODE,
+                null,
+            ) ?: lyricsBilingualDisplayMode(context).storageValue,
+        )
+
+    fun setStatusBarLyricsBilingualDisplayMode(
+        context: Context,
+        mode: LyricsBilingualDisplayMode,
+    ) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_STATUS_BAR_LYRICS_BILINGUAL_DISPLAY_MODE, mode.storageValue)
+            .apply()
+    }
+
+    fun statusBarLyricsWidthPercent(context: Context): Int =
+        externalLyricsWidthPercent(context, KEY_STATUS_BAR_LYRICS_WIDTH_PERCENT)
+
+    fun setStatusBarLyricsWidthPercent(context: Context, percent: Int) {
+        setExternalLyricsWidthPercent(context, KEY_STATUS_BAR_LYRICS_WIDTH_PERCENT, percent)
+    }
+
+    fun externalLyricsVisibilityMode(context: Context): ExternalLyricsVisibilityMode =
+        ExternalLyricsVisibilityMode.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_EXTERNAL_LYRICS_VISIBILITY_MODE, null),
+        )
+
+    fun setExternalLyricsVisibilityMode(context: Context, mode: ExternalLyricsVisibilityMode) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_EXTERNAL_LYRICS_VISIBILITY_MODE, mode.storageValue)
+            .apply()
+    }
+
+    fun externalLyricsColorMode(context: Context): ExternalLyricsColorMode =
+        ExternalLyricsColorMode.fromStorage(
+            MicaSettingsStore.prefs(context).getString(KEY_EXTERNAL_LYRICS_COLOR_MODE, null),
+        )
+
+    fun setExternalLyricsColorMode(context: Context, mode: ExternalLyricsColorMode) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_EXTERNAL_LYRICS_COLOR_MODE, mode.storageValue)
+            .apply()
+    }
+
+    fun externalLyricsColorCount(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_EXTERNAL_LYRICS_COLOR_COUNT, 1)
+            .coerceIn(1, MAX_EXTERNAL_LYRICS_COLORS)
+
+    fun setExternalLyricsColorCount(context: Context, count: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(KEY_EXTERNAL_LYRICS_COLOR_COUNT, count.coerceIn(1, MAX_EXTERNAL_LYRICS_COLORS))
+            .apply()
+    }
+
+    fun externalLyricsGradientAngleDegrees(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE, DEFAULT_EXTERNAL_LYRICS_GRADIENT_ANGLE)
+            .coerceIn(0, 360)
+
+    fun setExternalLyricsGradientAngleDegrees(context: Context, angleDegrees: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE, angleDegrees.coerceIn(0, 360))
+            .apply()
+    }
+
+    fun externalLyricsColors(context: Context): List<Int> {
+        val preferences = MicaSettingsStore.prefs(context)
+        val count = externalLyricsColorCount(context)
+        val colors = (0 until count).map { index ->
+            preferences.all[externalColorKey(index)] as? Int
+                ?: DEFAULT_EXTERNAL_LYRICS_COLORS[index]
+        }
+        return normalizeExternalLyricsColors(colors)
+    }
+
+    fun setExternalLyricsColors(context: Context, colors: List<Int>) {
+        val normalized = normalizeExternalLyricsColors(colors)
+        MicaSettingsStore.prefs(context).edit().apply {
+            normalized.forEachIndexed { index, color -> putInt(externalColorKey(index), color) }
+        }.apply()
+    }
+
+    fun externalLyricsStyle(context: Context): ExternalLyricsStyle = ExternalLyricsStyle(
+        visibilityMode = externalLyricsVisibilityMode(context),
+        colorMode = externalLyricsColorMode(context),
+        colorsArgb = externalLyricsColors(context),
+        gradientAngleDegrees = externalLyricsGradientAngleDegrees(context),
+        desktopOriginalFontSizeSp = desktopLyricsOriginalFontSizeSp(context),
+        desktopTranslationFontSizeSp = desktopLyricsTranslationFontSizeSp(context),
+        statusBarOriginalFontSizeSp = statusBarLyricsOriginalFontSizeSp(context),
+        statusBarTranslationFontSizeSp = statusBarLyricsTranslationFontSizeSp(context),
+        desktopWidthPercent = desktopLyricsWidthPercent(context),
+        statusBarWidthPercent = statusBarLyricsWidthPercent(context),
+    )
 
     fun infoRowLyricsEnabled(context: Context): Boolean =
         MicaSettingsStore.prefs(context).getBoolean(KEY_INFO_ROW_LYRICS_ENABLED, false)
@@ -345,11 +608,30 @@ object LyricsPreferences {
                 KEY_NOTIFICATION_LYRICS_ENABLED -> NotificationLyricsChange.ENABLED
                 KEY_CAR_BLUETOOTH_LYRICS_ENABLED -> NotificationLyricsChange.CAR_BLUETOOTH_ENABLED
                 KEY_DESKTOP_LYRICS_ENABLED -> NotificationLyricsChange.DESKTOP_ENABLED
+                KEY_STATUS_BAR_LYRICS_ENABLED -> NotificationLyricsChange.STATUS_BAR_ENABLED
+                KEY_EXTERNAL_LYRICS_MODE -> NotificationLyricsChange.DISPLAY
                 KEY_LYRIC_SPLIT_ENABLED,
                 KEY_LYRICS_BILINGUAL_DISPLAY_MODE,
+                KEY_DESKTOP_LYRICS_ORIGINAL_FONT_SIZE,
+                KEY_DESKTOP_LYRICS_TRANSLATION_FONT_SIZE,
+                KEY_DESKTOP_LYRICS_BILINGUAL_DISPLAY_MODE,
+                KEY_DESKTOP_LYRICS_WIDTH_PERCENT,
+                KEY_STATUS_BAR_LYRICS_ORIGINAL_FONT_SIZE,
+                KEY_STATUS_BAR_LYRICS_TRANSLATION_FONT_SIZE,
+                KEY_STATUS_BAR_LYRICS_SPLIT_ENABLED,
+                KEY_STATUS_BAR_LYRICS_BILINGUAL_DISPLAY_MODE,
+                KEY_STATUS_BAR_LYRICS_WIDTH_PERCENT,
+                KEY_EXTERNAL_LYRICS_VISIBILITY_MODE,
+                KEY_EXTERNAL_LYRICS_COLOR_MODE,
+                KEY_EXTERNAL_LYRICS_COLOR_COUNT,
+                KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE,
                 -> NotificationLyricsChange.DISPLAY
                 KEY_LYRICS_SLOT_PRIORITY -> NotificationLyricsChange.SOURCE
-                else -> null
+                else -> if (key?.startsWith(KEY_EXTERNAL_LYRICS_COLOR_PREFIX) == true) {
+                    NotificationLyricsChange.DISPLAY
+                } else {
+                    null
+                }
             }
             change?.let(onChange)
         }
@@ -368,4 +650,26 @@ object LyricsPreferences {
             }
             else -> defaultValue
         }.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP)
+
+    private fun putExternalLyricsFontSize(context: Context, key: String, fontSizeSp: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(key, fontSizeSp.coerceIn(MIN_LYRICS_PAGE_FONT_SIZE_SP, MAX_LYRICS_PAGE_FONT_SIZE_SP))
+            .apply()
+    }
+
+    private fun externalLyricsWidthPercent(context: Context, key: String): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(key, DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT)
+            .coerceIn(MIN_EXTERNAL_LYRICS_WIDTH_PERCENT, MAX_EXTERNAL_LYRICS_WIDTH_PERCENT)
+
+    private fun setExternalLyricsWidthPercent(context: Context, key: String, percent: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                key,
+                percent.coerceIn(MIN_EXTERNAL_LYRICS_WIDTH_PERCENT, MAX_EXTERNAL_LYRICS_WIDTH_PERCENT),
+            )
+            .apply()
+    }
+
+    private fun externalColorKey(index: Int): String = "$KEY_EXTERNAL_LYRICS_COLOR_PREFIX$index"
 }
