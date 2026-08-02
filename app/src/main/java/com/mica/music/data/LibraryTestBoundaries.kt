@@ -2,6 +2,7 @@ package com.mica.music.data
 
 import android.content.Context
 import android.net.Uri
+import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.local.CachedLibrary
@@ -110,6 +111,8 @@ internal interface ScanEnvironment {
     fun canReadTree(treeUri: Uri): Boolean
     fun currentTimeMillis(): Long
     fun playStats(songId: String): PlayStats
+    fun playStatsSnapshot(songIds: Collection<String>): PlayStatsSnapshot =
+        PlayStatsSnapshot.from(songIds.associateWith { songId -> playStats(songId) })
     fun clearTransientCache()
     fun pruneAlbumArtCache(songs: List<Song>) = Unit
     /** Folder-scan only: background first-frame posters for matched video cover URIs. */
@@ -289,6 +292,9 @@ internal class AndroidScanEnvironment(
 
     override fun playStats(songId: String): PlayStats =
         PlayHistoryStore.getStats(context, songId)
+
+    override fun playStatsSnapshot(songIds: Collection<String>): PlayStatsSnapshot =
+        PlayHistoryStore.snapshotStats(context, songIds)
 
     override fun clearTransientCache() =
         ScanCacheManager.clearTransientScanCache(context)

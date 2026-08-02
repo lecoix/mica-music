@@ -4,6 +4,7 @@ import android.os.SystemClock
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.LibraryPresentationBuilder
 import com.mica.music.data.PlayStats
+import com.mica.music.data.PlayStatsSnapshot
 import com.mica.music.data.Song
 import com.mica.music.data.SongChangeDiagnostics
 import com.mica.music.data.SongSortField
@@ -209,7 +210,8 @@ internal class LibraryCatalogPublisher(
         cachedSectionTargets: Map<String, Int>? = null,
     ): PreparedLibrarySongs = withContext(backing.ioDispatcher) {
         val statsStartedMs = SystemClock.elapsedRealtime()
-        val scanned = raw.map { song -> song.withPlayStats() }
+        val playStats = backing.scanEnvironment.playStatsSnapshot(raw.map(Song::id))
+        val scanned = raw.map { song -> song.withPlayStats(playStats) }
         DiagnosticLog.event(
             diagnosticTag,
             "$diagnosticReason stats durMs=${SystemClock.elapsedRealtime() - statsStartedMs} songs=${scanned.size}",
@@ -243,8 +245,8 @@ internal class LibraryCatalogPublisher(
         )
     }
 
-    private fun Song.withPlayStats(): Song {
-        val stats = backing.scanEnvironment.playStats(id)
+    private fun Song.withPlayStats(playStats: PlayStatsSnapshot): Song {
+        val stats = playStats[id]
         return copy(
             playCount = stats.count,
             totalListenSeconds = stats.totalListenSeconds,

@@ -56,4 +56,19 @@ class PlayHistoryStoreTest {
         assertEquals(listOf("doc_sha256_new"), PlayHistoryStore.recentSongIds(context))
         assertEquals(0, PlayHistoryStore.getStats(context, "legacy").count)
     }
+
+    @Test
+    fun statsSnapshotCapturesRequestedSongsWithoutChangingSingleSongReads() {
+        PlayHistoryStore.recordPlay(context, "song-1")
+        PlayHistoryStore.recordListenSeconds(context, "song-1", 42)
+
+        val snapshot = PlayHistoryStore.snapshotStats(context, listOf("song-1", "missing"))
+
+        assertEquals(PlayHistoryStore.getStats(context, "song-1"), snapshot["song-1"])
+        assertEquals(PlayStats(0, 0L, 0L), snapshot["missing"])
+
+        PlayHistoryStore.recordListenSeconds(context, "song-1", 8)
+        assertEquals(42L, snapshot["song-1"].totalListenSeconds)
+        assertEquals(50L, PlayHistoryStore.getStats(context, "song-1").totalListenSeconds)
+    }
 }
