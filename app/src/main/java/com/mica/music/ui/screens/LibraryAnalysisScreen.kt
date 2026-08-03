@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,7 +40,7 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import java.util.Locale
 
-private val OverviewCellHeight = 88.dp
+private val OverviewCellMinHeight = 88.dp
 private const val WaffleGridColumns = 10
 private val WaffleCellGap = 4.dp
 private const val WaffleGridWidthFraction = 0.58f
@@ -154,7 +156,12 @@ private fun AnalysisOverviewPanel(
     hiResBadgeAppearance: HiResBadgeAppearance,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().height(OverviewCellHeight)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+                .heightIn(min = OverviewCellMinHeight),
+        ) {
             OverviewMetricCell(
                 value = formatSongCount(analysis.totalSongs),
                 unit = "首",
@@ -170,7 +177,12 @@ private fun AnalysisOverviewPanel(
             )
         }
         AnalysisHairlineHorizontal()
-        Row(Modifier.fillMaxWidth().height(OverviewCellHeight)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+                .heightIn(min = OverviewCellMinHeight),
+        ) {
             OverviewHiResCell(
                 count = analysis.hiResCount,
                 percent = analysis.hiResPercent,

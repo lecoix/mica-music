@@ -72,6 +72,10 @@ internal fun HomePlaylistOverviewContent(
             PlaylistOverviewActions(
                 onCreatePlaylist = onCreatePlaylist,
                 onImportPlaylist = onImportPlaylist,
+                horizontalArrangement = Arrangement.spacedBy(
+                    HifiSpacing.lg,
+                    Alignment.CenterHorizontally,
+                ),
             )
         }
         return
@@ -107,10 +111,11 @@ private fun PlaylistOverviewActions(
     onCreatePlaylist: () -> Unit,
     onImportPlaylist: () -> Unit,
     modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(HifiSpacing.lg),
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.lg),
+        horizontalArrangement = horizontalArrangement,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OverviewAction(
