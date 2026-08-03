@@ -40,6 +40,7 @@ import com.mica.music.ui.components.textLineHeightDp
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
+import com.mica.music.ui.theme.resolvePlayerInfoRowTextColor
 import com.mica.music.ui.theme.rememberPlayerInfoRowHeight
 
 @Composable
@@ -88,7 +89,7 @@ internal fun HiFiBadgeSection(
         HiFiInfoRow(
             segments = segments,
             modifier = Modifier.weight(1f),
-            textColor = colors.tertiary,
+            textColor = resolvePlayerInfoRowTextColor(colors),
         )
         if (song.isHiRes) {
             HiResIndicator(

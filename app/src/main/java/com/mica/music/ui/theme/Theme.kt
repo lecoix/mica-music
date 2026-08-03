@@ -172,6 +172,10 @@ data class PlayerContentColors(
     val tertiary: Color,
 )
 
+/** 信息行使用较弱层级；深色前景提高不透明度，避免在浅色主题上发灰。 */
+fun resolvePlayerInfoRowTextColor(colors: PlayerContentColors): Color =
+    if (colors.primary.relativeLuminance() > 0.5f) colors.tertiary else colors.secondary
+
 /** 封面模糊模式：下半屏控件与文字统一为白色。 */
 fun blurredCoverPlayerContentColors(): PlayerContentColors = lightPlayerContentColors()
 
