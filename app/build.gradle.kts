@@ -43,8 +43,8 @@ android {
         applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 46
-        versionName = "0.2.3.0" + if (qaSideBySide) "-qa" else ""
+        versionCode = 47
+        versionName = "0.2.4.0" + if (qaSideBySide) "-qa" else ""
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
@@ -94,7 +94,6 @@ android {
         }
         create("perf") {
             initWith(getByName("release"))
-            versionNameSuffix = "-car-bt-test"
             isDebuggable = qaSideBySide
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")

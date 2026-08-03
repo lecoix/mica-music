@@ -179,7 +179,7 @@ class HomeUiStateTest {
         assertEquals(HomeSection.Artists to null, restoreHomeLocation(HomeSection.Artists.name, null))
         assertEquals(HomeSection.Albums to null, restoreHomeLocation(HomeSection.Albums.name, "ignored"))
         assertEquals(HomeSection.Playlist to "pl_1", restoreHomeLocation(HomeSection.Playlist.name, "pl_1"))
-        assertEquals(HomeSection.Songs to null, restoreHomeLocation(HomeSection.Playlist.name, ""))
+        assertEquals(HomeSection.Playlist to null, restoreHomeLocation(HomeSection.Playlist.name, ""))
         assertEquals(HomeSection.Songs to null, restoreHomeLocation(HomeSection.Folders.name, null))
         assertEquals(HomeSection.Songs to null, restoreHomeLocation("unknown", null))
     }
