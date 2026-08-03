@@ -1,15 +1,20 @@
 package com.mica.music.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -33,13 +38,19 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +65,7 @@ import com.mica.music.ui.theme.MicaTheme
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyGridState
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -159,7 +171,7 @@ fun PlaybackQueueSheet(
                         color = MicaTheme.colors.textPrimary,
                     )
                     Text(
-                        text = "长按右侧把手拖动排序",
+                        text = "拖动左侧把手调整顺序",
                         style = MicaTheme.typography.caption,
                         color = MicaTheme.colors.textTertiary,
                     )
@@ -203,73 +215,121 @@ fun PlaybackQueueSheet(
                     textAlign = TextAlign.Center,
                 )
             } else {
+                val queueViewportModifier = if (landscape) {
+                    Modifier.weight(1f)
+                } else {
+                    Modifier.fillMaxWidth()
+                }
                 if (landscape) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        state = lazyGridState,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        items(
-                            count = queue.size,
-                            key = { visualIndex: Int ->
-                                val sourceIndex =
-                                    previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
-                                queue[sourceIndex].id
-                            },
-                        ) { index: Int ->
-                            val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
-                            val song = queue[sourceIndex]
-                            ReorderableItem(reorderGridState, key = song.id) { isDragging ->
-                                QueueSongRow(
-                                    index = index,
-                                    song = song,
-                                    isCurrent = sourceIndex == currentIndex,
-                                    isPlaying = sourceIndex == currentIndex && isPlaying,
-                                    isDragging = isDragging,
-                                    onClick = {
-                                        onPlayAt(sourceIndex)
-                                        onDismiss()
-                                    },
-                                    onRemove = { onRemove(sourceIndex) },
-                                    dragModifier = Modifier.draggableHandle(),
-                                    landscape = true,
-                                )
+                    Box(modifier = queueViewportModifier) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            state = lazyGridState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(end = HifiSpacing.lg),
+                        ) {
+                            items(
+                                count = queue.size,
+                                key = { visualIndex: Int ->
+                                    val sourceIndex =
+                                        previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
+                                    queue[sourceIndex].id
+                                },
+                            ) { index: Int ->
+                                val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
+                                val song = queue[sourceIndex]
+                                ReorderableItem(reorderGridState, key = song.id) { isDragging ->
+                                    QueueSongRow(
+                                        index = index,
+                                        song = song,
+                                        isCurrent = sourceIndex == currentIndex,
+                                        isPlaying = sourceIndex == currentIndex && isPlaying,
+                                        isDragging = isDragging,
+                                        onClick = {
+                                            onPlayAt(sourceIndex)
+                                            onDismiss()
+                                        },
+                                        onRemove = { onRemove(sourceIndex) },
+                                        dragModifier = Modifier.draggableHandle(),
+                                        landscape = true,
+                                    )
+                                }
                             }
                         }
+                        val layoutInfo = lazyGridState.layoutInfo
+                        PlaybackQueueVerticalScrollbar(
+                            itemCount = (queue.size + 1) / 2,
+                            visibleItemSizes = layoutInfo.visibleItemsInfo.map { it.size.height },
+                            firstVisibleItemIndex = lazyGridState.firstVisibleItemIndex / 2,
+                            firstVisibleItemScrollOffset = lazyGridState.firstVisibleItemScrollOffset,
+                            viewportHeightPx = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset,
+                            onScrollBy = { delta -> lazyGridState.scrollBy(delta) },
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(
+                                    top = HifiSpacing.sm,
+                                    bottom = HifiSpacing.sm,
+                                    end = HifiSpacing.xs,
+                                )
+                                .width(32.dp)
+                                .fillMaxHeight(),
+                        )
                     }
                 } else {
-                    LazyColumn(
-                        state = lazyListState,
-                    ) {
-                        items(
-                            count = queue.size,
-                            key = { visualIndex ->
-                                val sourceIndex =
-                                    previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
-                                queue[sourceIndex].id
-                            },
-                        ) { index ->
-                        val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
-                        val song = queue[sourceIndex]
-                            ReorderableItem(reorderListState, key = song.id) { isDragging ->
-                            QueueSongRow(
-                                index = index,
-                                song = song,
-                                isCurrent = sourceIndex == currentIndex,
-                                isPlaying = sourceIndex == currentIndex && isPlaying,
-                                isDragging = isDragging,
-                                onClick = {
-                                    onPlayAt(sourceIndex)
-                                    onDismiss()
+                    Box(modifier = queueViewportModifier) {
+                        LazyColumn(
+                            state = lazyListState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(end = HifiSpacing.lg),
+                        ) {
+                            items(
+                                count = queue.size,
+                                key = { visualIndex ->
+                                    val sourceIndex =
+                                        previewProjection?.sourceIndexAt(visualIndex) ?: visualIndex
+                                    queue[sourceIndex].id
                                 },
-                                onRemove = {
-                                    onRemove(sourceIndex)
-                                },
-                                dragModifier = Modifier.draggableHandle(),
-                                    landscape = false,
-                                )
+                            ) { index ->
+                                val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
+                                val song = queue[sourceIndex]
+                                ReorderableItem(reorderListState, key = song.id) { isDragging ->
+                                    QueueSongRow(
+                                        index = index,
+                                        song = song,
+                                        isCurrent = sourceIndex == currentIndex,
+                                        isPlaying = sourceIndex == currentIndex && isPlaying,
+                                        isDragging = isDragging,
+                                        onClick = {
+                                            onPlayAt(sourceIndex)
+                                            onDismiss()
+                                        },
+                                        onRemove = { onRemove(sourceIndex) },
+                                        dragModifier = Modifier.draggableHandle(),
+                                        landscape = false,
+                                    )
+                                }
                             }
                         }
+                        val layoutInfo = lazyListState.layoutInfo
+                        PlaybackQueueVerticalScrollbar(
+                            itemCount = layoutInfo.totalItemsCount,
+                            visibleItemSizes = layoutInfo.visibleItemsInfo.map { it.size },
+                            firstVisibleItemIndex = lazyListState.firstVisibleItemIndex,
+                            firstVisibleItemScrollOffset = lazyListState.firstVisibleItemScrollOffset,
+                            viewportHeightPx = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset,
+                            onScrollBy = { delta -> lazyListState.scrollBy(delta) },
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(
+                                    top = HifiSpacing.sm,
+                                    bottom = HifiSpacing.sm,
+                                    end = HifiSpacing.xs,
+                                )
+                                .width(32.dp)
+                                .fillMaxHeight(),
+                        )
                     }
                 }
             }
@@ -298,7 +358,6 @@ fun PlaybackQueueSheet(
         }
     }
 }
-
 @Composable
 private fun QueueSongRow(
     index: Int,
@@ -320,6 +379,19 @@ private fun QueueSongRow(
                 .clickable(onClick = onClick)
                 .padding(start = if (landscape) HifiSpacing.sm else HifiSpacing.lg),
         ) {
+            Icon(
+                imageVector = Icons.Outlined.DragHandle,
+                contentDescription = "拖动排序",
+                tint = if (isDragging) {
+                    MicaTheme.colors.accent
+                } else {
+                    MicaTheme.colors.textTertiary
+                },
+                modifier = dragModifier
+                    .padding(end = if (landscape) HifiSpacing.xs else HifiSpacing.sm)
+                    .size(if (landscape) HifiSize.iconMd else HifiSize.iconLg),
+            )
+
             Box(
                 modifier = Modifier.size(28.dp),
                 contentAlignment = Alignment.Center,
@@ -378,19 +450,6 @@ private fun QueueSongRow(
                     modifier = Modifier.size(HifiSize.iconMd),
                 )
             }
-
-            Icon(
-                imageVector = Icons.Outlined.DragHandle,
-                contentDescription = "拖动排序",
-                tint = if (isDragging) {
-                    MicaTheme.colors.accent
-                } else {
-                    MicaTheme.colors.textTertiary
-                },
-                modifier = dragModifier
-                    .padding(end = if (landscape) HifiSpacing.sm else HifiSpacing.md)
-                    .size(if (landscape) HifiSize.iconMd else HifiSize.iconLg),
-            )
         }
         HorizontalDivider(
             thickness = HifiSize.dividerHairline,
@@ -398,4 +457,157 @@ private fun QueueSongRow(
             modifier = Modifier.padding(start = HifiSpacing.lg),
         )
     }
+}
+
+@Composable
+private fun PlaybackQueueVerticalScrollbar(
+    itemCount: Int,
+    visibleItemSizes: List<Int>,
+    firstVisibleItemIndex: Int,
+    firstVisibleItemScrollOffset: Int,
+    viewportHeightPx: Int,
+    onScrollBy: suspend (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (itemCount <= 0 || visibleItemSizes.isEmpty()) return
+
+    val density = LocalDensity.current
+    val minimumThumbHeightPx = with(density) { 24.dp.toPx() }
+    val latestItemCount by rememberUpdatedState(itemCount)
+    val latestAverageItemSizePx by rememberUpdatedState(visibleItemSizes.average().toFloat())
+    val latestViewportHeightPx by rememberUpdatedState(viewportHeightPx)
+    val latestFirstVisibleItemIndex by rememberUpdatedState(firstVisibleItemIndex)
+    val latestFirstVisibleItemScrollOffset by rememberUpdatedState(firstVisibleItemScrollOffset)
+    val latestOnScrollBy by rememberUpdatedState(onScrollBy)
+    val scrollScope = rememberCoroutineScope()
+    val thumbColor = MicaTheme.colors.accent.copy(alpha = 0.78f)
+    Box(
+        modifier = modifier.pointerInput(Unit) {
+            var grabOffsetPx = 0f
+            var previousScrollOffsetPx = 0f
+            var dragging = false
+
+            detectDragGestures(
+                onDragStart = { offset ->
+                    playbackQueueScrollbarMetrics(
+                        trackHeightPx = size.height.toFloat(),
+                        itemCount = latestItemCount,
+                        averageItemSizePx = latestAverageItemSizePx,
+                        viewportHeightPx = latestViewportHeightPx,
+                        firstVisibleItemIndex = latestFirstVisibleItemIndex,
+                        firstVisibleItemScrollOffset = latestFirstVisibleItemScrollOffset,
+                        minimumThumbHeightPx = minimumThumbHeightPx,
+                    )?.let { metrics ->
+                        val distanceFromThumb = offset.y - metrics.thumbTopPx
+                        grabOffsetPx = if (
+                            distanceFromThumb in 0f..metrics.thumbHeightPx
+                        ) {
+                            distanceFromThumb
+                        } else {
+                            metrics.thumbHeightPx / 2f
+                        }
+                        previousScrollOffsetPx = metrics.currentScrollOffsetPx
+                        dragging = true
+                    }
+                },
+                onDragEnd = { dragging = false },
+                onDragCancel = { dragging = false },
+            ) { change, _ ->
+                if (!dragging) return@detectDragGestures
+
+                val metrics = playbackQueueScrollbarMetrics(
+                    trackHeightPx = size.height.toFloat(),
+                    itemCount = latestItemCount,
+                    averageItemSizePx = latestAverageItemSizePx,
+                    viewportHeightPx = latestViewportHeightPx,
+                    firstVisibleItemIndex = latestFirstVisibleItemIndex,
+                    firstVisibleItemScrollOffset = latestFirstVisibleItemScrollOffset,
+                    minimumThumbHeightPx = minimumThumbHeightPx,
+                ) ?: return@detectDragGestures
+                change.consume()
+
+                val thumbTop = (
+                    change.position.y - grabOffsetPx
+                ).coerceIn(0f, metrics.maxThumbTopPx)
+                val targetScrollOffset = if (metrics.maxThumbTopPx <= 0f) {
+                    0f
+                } else {
+                    thumbTop / metrics.maxThumbTopPx * metrics.maxScrollOffsetPx
+                }
+                val delta = targetScrollOffset - previousScrollOffsetPx
+                if (delta != 0f) {
+                    scrollScope.launch { latestOnScrollBy(delta) }
+                    previousScrollOffsetPx = targetScrollOffset
+                }
+            }
+        },
+    ) {
+        Canvas(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .width(4.dp)
+                .fillMaxHeight(),
+        ) {
+            val metrics = playbackQueueScrollbarMetrics(
+                trackHeightPx = size.height,
+                itemCount = itemCount,
+                averageItemSizePx = visibleItemSizes.average().toFloat(),
+                viewportHeightPx = viewportHeightPx,
+                firstVisibleItemIndex = firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
+                minimumThumbHeightPx = minimumThumbHeightPx,
+            ) ?: return@Canvas
+
+            drawRect(
+                color = thumbColor,
+                topLeft = Offset(0f, metrics.thumbTopPx),
+                size = Size(size.width, metrics.thumbHeightPx),
+            )
+        }
+    }
+}
+
+private data class PlaybackQueueScrollbarMetrics(
+    val thumbHeightPx: Float,
+    val thumbTopPx: Float,
+    val maxThumbTopPx: Float,
+    val currentScrollOffsetPx: Float,
+    val maxScrollOffsetPx: Float,
+)
+
+private fun playbackQueueScrollbarMetrics(
+    trackHeightPx: Float,
+    itemCount: Int,
+    averageItemSizePx: Float,
+    viewportHeightPx: Int,
+    firstVisibleItemIndex: Int,
+    firstVisibleItemScrollOffset: Int,
+    minimumThumbHeightPx: Float,
+): PlaybackQueueScrollbarMetrics? {
+    if (trackHeightPx <= 0f || itemCount <= 0 || averageItemSizePx <= 0f) return null
+
+    val viewportHeight = viewportHeightPx.toFloat().coerceAtLeast(1f)
+    val contentHeight = averageItemSizePx * itemCount
+    if (contentHeight <= viewportHeight) return null
+
+    val thumbHeight = (trackHeightPx * viewportHeight / contentHeight)
+        .coerceIn(minimumThumbHeightPx.coerceAtMost(trackHeightPx), trackHeightPx)
+    val maxScrollOffset = (contentHeight - viewportHeight).coerceAtLeast(1f)
+    val maxThumbTop = (trackHeightPx - thumbHeight).coerceAtLeast(0f)
+    val currentScrollOffset = (
+        firstVisibleItemIndex * averageItemSizePx + firstVisibleItemScrollOffset
+    ).coerceIn(0f, maxScrollOffset)
+    val thumbTop = if (maxThumbTop <= 0f) {
+        0f
+    } else {
+        maxThumbTop * (currentScrollOffset / maxScrollOffset)
+    }
+
+    return PlaybackQueueScrollbarMetrics(
+        thumbHeightPx = thumbHeight,
+        thumbTopPx = thumbTop,
+        maxThumbTopPx = maxThumbTop,
+        currentScrollOffsetPx = currentScrollOffset,
+        maxScrollOffsetPx = maxScrollOffset,
+    )
 }
