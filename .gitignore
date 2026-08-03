@@ -39,6 +39,9 @@ particle-theme-*.bundle.js
 # Alternate Gradle build directories
 app/build-hybrid*/
 
+# GitHub Pages update manifest artifact
+site/
+
 # OS
 .DS_Store
 Thumbs.db

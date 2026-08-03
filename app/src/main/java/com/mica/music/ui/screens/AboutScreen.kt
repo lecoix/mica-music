@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.Song
@@ -45,6 +47,7 @@ import kotlinx.coroutines.launch
 fun AboutScreen(
     songs: List<Song>,
     onBack: () -> Unit,
+    onOpenVersionUpdate: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
 ) {
@@ -94,7 +97,11 @@ fun AboutScreen(
             AboutHero()
 
             SettingsSectionTitle("版本")
-            AboutInfoRow(title = "Mica Music", subtitle = versionName)
+            AboutInfoRow(
+                title = "Mica Music",
+                subtitle = versionName,
+                onClick = onOpenVersionUpdate,
+            )
             AboutInfoRow(title = "平台", subtitle = "Android · arm64-v8a")
             AboutInfoRow(title = "播放链路", subtitle = "Media3 ExoPlayer · libffmpegJNI · AudioTrack")
 
@@ -234,10 +241,19 @@ private fun AboutHero() {
 private fun AboutInfoRow(
     title: String,
     subtitle: String,
+    onClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = HifiSize.touchTarget)
+            .then(
+                if (onClick == null) {
+                    Modifier
+                } else {
+                    Modifier.clickable(role = Role.Button, onClick = onClick)
+                },
+            )
             .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
     ) {
         Text(
@@ -248,7 +264,7 @@ private fun AboutInfoRow(
         Text(
             text = subtitle,
             style = MicaTheme.typography.caption,
-            color = MicaTheme.colors.textTertiary,
+            color = if (onClick == null) MicaTheme.colors.textTertiary else MicaTheme.colors.accent,
             modifier = Modifier.padding(top = HifiSpacing.xxs),
         )
     }

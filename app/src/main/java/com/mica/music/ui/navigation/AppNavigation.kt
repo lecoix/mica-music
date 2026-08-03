@@ -45,6 +45,7 @@ import com.mica.music.ui.screens.PhotoStackShadowPreviewScreen
 import com.mica.music.ui.screens.settings.SettingsScreen
 import com.mica.music.ui.screens.SongDetailScreen
 import com.mica.music.ui.screens.SpatialAudioScreen
+import com.mica.music.ui.screens.VersionUpdateScreen
 import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.logBackFlow
@@ -57,6 +58,7 @@ object Routes {
     const val Settings = "settings"
     const val Equalizer = "equalizer"
     const val About = "about"
+    const val VersionUpdate = "version_update"
     const val MetadataDebug = "metadata_debug"
     const val SpatialAudio = "spatial_audio"
     const val ParticleCoverPreview = "particle_cover_preview"
@@ -333,6 +335,24 @@ fun AppNavigationMain(
                 songs = library.songs,
                 onBack = {
                     logBackFlow("back-consume source=about-topbar")
+                    navController.popBackStack()
+                },
+                onOpenVersionUpdate = {
+                    logBackFlow("nav-action open-version-update from=about")
+                    navController.navigate(Routes.VersionUpdate)
+                },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+                bottomContentClearance = bottomOverlayClearance,
+            )
+        }
+        composable(Routes.VersionUpdate) {
+            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            VersionUpdateScreen(
+                onBack = {
+                    logBackFlow("back-consume source=version-update-topbar")
                     navController.popBackStack()
                 },
                 contentPadding = PaddingValues(

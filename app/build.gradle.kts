@@ -35,6 +35,17 @@ val keystoreProperties = Properties().apply {
 fun readReleaseSigningEnv(name: String): String? =
     System.getenv(name)?.takeIf { it.isNotBlank() }
 
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val updateDomesticManifestUrl = providers.gradleProperty("mica.update.domesticUrl")
+    .orNull
+    .orEmpty()
+val updateInternationalManifestUrl = providers.gradleProperty("mica.update.internationalUrl")
+    .orNull
+    ?.takeIf { it.isNotBlank() }
+    ?: "https://lecoix.github.io/mica-music/update.json"
+
 android {
     namespace = "com.mica.music"
     compileSdk = 35
@@ -45,6 +56,16 @@ android {
         targetSdk = 34
         versionCode = 48
         versionName = "0.2.4.1" + if (qaSideBySide) "-qa" else ""
+        buildConfigField(
+            "String",
+            "UPDATE_DOMESTIC_MANIFEST_URL",
+            buildConfigString(updateDomesticManifestUrl),
+        )
+        buildConfigField(
+            "String",
+            "UPDATE_INTERNATIONAL_MANIFEST_URL",
+            buildConfigString(updateInternationalManifestUrl),
+        )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
