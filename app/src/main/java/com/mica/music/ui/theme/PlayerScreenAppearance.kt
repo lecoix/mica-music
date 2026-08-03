@@ -40,12 +40,19 @@ fun rememberPlayerScreenAppearance(
         PlayerLowerBackgroundMode.COVER_GLOW,
         PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
         PlayerLowerBackgroundMode.DYNAMIC_ARTWORK,
-        ->
-            remember { blurredCoverPlayerContentColors() }
+        -> remember { blurredCoverPlayerContentColors() }
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             remember(lowerSurface) { PlayerBackgroundBlend.readableTextColors(lowerSurface) }
         else -> rememberPlayerContentColors()
-    }
+    }.copy(
+        dynamicColors = remember(coverColor, lowerSurface, isDark) {
+            PlayerBackgroundBlend.dynamicTextColors(
+                coverColor = coverColor,
+                surface = lowerSurface,
+                isDark = isDark,
+            )
+        },
+    )
     val hifiBadgeColors = rememberPlayerContentColors()
     val artworkJunction = when (lowerBackground) {
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->

@@ -101,7 +101,7 @@ internal object SettingsSearchIndex {
         ),
         setting("playback.cover-display", "封面显示", "封面", "原样比例", "裁切", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "粒子、平行、复古、拍立得主题强制裁切时不显示"),
         setting("playback.lower-background", "播放页背景", "背景", "云母", "模糊", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER),
-        setting("playback.content-color", "播放页 UI 颜色", "文字颜色", "前景色", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER),
+        setting("playback.content-color", "播放页 UI 颜色", "文字颜色", "前景色", "动态取色", "稳定主色", "语义色阶", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER),
         setting("playback.video-album-cover", "视频专辑封面", "视频", "MP4", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "仅标准播放页；开启后需要重扫曲库"),
         setting("playback.custom-cover-tap", "点击封面暂停/播放", "封面", "播放", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "仅自定义标准主题"),
         setting("playback.custom-layout", "自定义播放页下半区布局", "布局", "拖动", "自定义标准", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "仅自定义标准主题"),

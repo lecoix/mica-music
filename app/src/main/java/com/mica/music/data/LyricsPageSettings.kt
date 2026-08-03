@@ -49,19 +49,25 @@ enum class LyricsWordAnimationPreset(
     }
 }
 
-/** 播放页控件/歌词前景色覆盖（自动 / 固定浅色 / 固定深色）。 */
+/** 播放页控件/歌词前景色覆盖（自动 / 稳定动态取色 / 固定浅色 / 固定深色）。 */
 enum class PlaybackContentColorMode(
     val storageValue: String,
     val settingsLabel: String,
 ) {
     AUTO("auto", "自动"),
+    DYNAMIC("dynamic", "动态取色"),
     LIGHT("light", "浅色（白）"),
     DARK("dark", "深色（黑）"),
     ;
 
     companion object {
         fun fromStorage(value: String?): PlaybackContentColorMode =
-            entries.firstOrNull { it.storageValue == value } ?: AUTO
+            when (value) {
+                // The former comparison mode was removed; keep existing users on the
+                // replacement dynamic scheme instead of silently falling back to AUTO.
+                "dynamic_reference" -> DYNAMIC
+                else -> entries.firstOrNull { it.storageValue == value } ?: AUTO
+            }
     }
 }
 

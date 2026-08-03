@@ -90,7 +90,7 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
 
     SettingsChoiceRow(
         title = "播放页 UI 颜色",
-        subtitle = "信息行、歌名、艺人、专辑、进度条与底部五个按钮；自动：随播放页背景与封面取色",
+        subtitle = "信息行、歌名、艺人、专辑、进度条与底部五个按钮；动态取色：稳定主色 + 语义色阶（浅色更鲜艳）",
         choices = PlaybackContentColorChoices,
         selectedValue = uiSettings.playerPageTextColorMode.ordinal,
         onSelect = { ordinal ->

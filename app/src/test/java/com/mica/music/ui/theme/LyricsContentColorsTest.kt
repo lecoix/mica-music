@@ -26,4 +26,29 @@ class LyricsContentColorsTest {
             resolvePlaybackContentColors(auto, PlaybackContentColorMode.DARK),
         )
     }
+
+    @Test
+    fun removedReferenceModeStorageMigratesToStableDynamicMode() {
+        assertEquals(
+            PlaybackContentColorMode.DYNAMIC,
+            PlaybackContentColorMode.fromStorage("dynamic_reference"),
+        )
+    }
+
+    @Test
+    fun resolveLyricsContentColors_dynamicUsesArtworkDerivedPalette() {
+        val auto = lightPlayerContentColors().copy(
+            dynamicColors = PlayerBackgroundBlend.dynamicTextColors(
+                coverColor = androidx.compose.ui.graphics.Color(0xFF6E4CA8),
+                surface = androidx.compose.ui.graphics.Color(0xFF191722),
+                isDark = true,
+            ),
+        )
+
+        assertEquals(
+            checkNotNull(auto.dynamicColors),
+            resolvePlaybackContentColors(auto, PlaybackContentColorMode.DYNAMIC),
+        )
+    }
+
 }

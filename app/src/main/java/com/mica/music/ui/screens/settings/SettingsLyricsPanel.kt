@@ -180,7 +180,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsChoiceRow(
         title = "歌词颜色",
-        subtitle = "自动：随播放页背景与封面取色；浅色/深色：全屏歌词与播放页迷你歌词统一使用该颜色",
+        subtitle = "动态取色：稳定主色 + 语义色阶（浅色更鲜艳）；自动：随背景判断黑白",
         choices = LyricsPageTextColorChoices,
         selectedValue = uiSettings.lyricsPageTextColorMode.ordinal,
         onSelect = { ordinal ->

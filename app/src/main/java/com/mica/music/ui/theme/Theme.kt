@@ -170,6 +170,7 @@ data class PlayerContentColors(
     val primary: Color,
     val secondary: Color,
     val tertiary: Color,
+    val dynamicColors: PlayerContentColors? = null,
 )
 
 /** 信息行使用较弱层级；深色前景提高不透明度，避免在浅色主题上发灰。 */
@@ -198,6 +199,7 @@ fun resolvePlaybackContentColors(
     mode: PlaybackContentColorMode,
 ): PlayerContentColors = when (mode) {
     PlaybackContentColorMode.AUTO -> autoColors
+    PlaybackContentColorMode.DYNAMIC -> autoColors.dynamicColors ?: autoColors
     PlaybackContentColorMode.LIGHT -> lightPlayerContentColors()
     PlaybackContentColorMode.DARK -> darkPlayerContentColors()
 }
