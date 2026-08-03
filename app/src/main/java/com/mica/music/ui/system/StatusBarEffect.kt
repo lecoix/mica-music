@@ -2,6 +2,7 @@ package com.mica.music.ui.system
 
 import android.app.Activity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 
@@ -13,8 +14,20 @@ import androidx.compose.ui.platform.LocalView
 fun StatusBarEffect(
     hideStatusBar: Boolean,
     darkStatusBarIcons: Boolean,
+    restoreFromPreferencesOnDispose: Boolean = false,
 ) {
     val view = LocalView.current
+
+    DisposableEffect(view, restoreFromPreferencesOnDispose) {
+        if (restoreFromPreferencesOnDispose) {
+            onDispose {
+                val activity = view.context as Activity
+                StatusBarController.applyFromPreferences(activity, activity.window)
+            }
+        } else {
+            onDispose {}
+        }
+    }
 
     SideEffect {
         val window = (view.context as Activity).window

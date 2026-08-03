@@ -498,6 +498,7 @@ fun NowPlayingContent(
                         lowerBackground = lowerBackground,
                         darkTheme = darkTheme,
                     ),
+                restoreFromPreferencesOnDispose = true,
             )
 
             val motionEnabled = rememberMicaMotionEnabled()
