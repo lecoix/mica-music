@@ -354,7 +354,7 @@ private fun DesktopLyricsOverlayContent(
             modifier = if (visible) {
                 Modifier
                     .widthIn(max = maxWidthDp)
-                    .padding(horizontal = if (surface == ExternalLyricsSurface.DESKTOP) 16.dp else 8.dp, vertical = 6.dp)
+                    .padding(horizontal = if (surface == ExternalLyricsSurface.DESKTOP) 5.dp else 8.dp, vertical = 2.dp)
             } else {
                 Modifier.size(1.dp)
             },
