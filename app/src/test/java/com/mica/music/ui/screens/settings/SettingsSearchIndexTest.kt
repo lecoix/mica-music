@@ -33,12 +33,14 @@ class SettingsSearchIndexTest {
     }
 
     @Test
-    fun conditionalAndExperimentalMetadataIsPreserved() {
+    fun conditionalMetadataIncludesMergedCarBluetoothOutput() {
         val classic = SettingsSearchIndex.entries.first { it.id == "lyrics.classic-alignment" }
-        val carBluetooth = SettingsSearchIndex.entries.first { it.id == "lyrics.car-bluetooth" }
+        val notification = SettingsSearchIndex.entries.first { it.id == "lyrics.notification" }
 
         assertNotNull(classic.availability)
         assertTrue(classic.availability!!.contains("经典列表"))
-        assertTrue(carBluetooth.isExperimental)
+        assertTrue(notification.keywords.contains("车载蓝牙"))
+        assertNotNull(notification.availability)
+        assertTrue(notification.availability!!.contains("车载蓝牙输出与通知栏歌词共用开关"))
     }
 }

@@ -230,12 +230,14 @@ class LyricsPreferencesRobolectricTest {
     }
 
     @Test
-    fun carBluetoothLyricsDefaultsOffAndRoundTrips() {
-        assertFalse(LyricsPreferences.carBluetoothLyricsEnabled(context))
+    fun notificationLyricsDefaultsOnAndRoundTrips() {
+        assertTrue(LyricsPreferences.notificationLyricsEnabled(context))
 
-        LyricsPreferences.setCarBluetoothLyricsEnabled(context, true)
+        LyricsPreferences.setNotificationLyricsEnabled(context, false)
+        assertFalse(LyricsPreferences.notificationLyricsEnabled(context))
 
-        assertTrue(LyricsPreferences.carBluetoothLyricsEnabled(context))
+        LyricsPreferences.setNotificationLyricsEnabled(context, true)
+        assertTrue(LyricsPreferences.notificationLyricsEnabled(context))
     }
 
     @Test

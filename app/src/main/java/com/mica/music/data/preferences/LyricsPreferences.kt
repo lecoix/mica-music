@@ -42,7 +42,6 @@ import com.mica.music.data.normalizeExternalLyricsColors
 object LyricsPreferences {
     internal enum class NotificationLyricsChange {
         ENABLED,
-        CAR_BLUETOOTH_ENABLED,
         DESKTOP_ENABLED,
         STATUS_BAR_ENABLED,
         DISPLAY,
@@ -65,7 +64,6 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_LINE_SPACING = "lyrics_page_line_spacing"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
-    private const val KEY_CAR_BLUETOOTH_LYRICS_ENABLED = "car_bluetooth_lyrics_enabled"
     private const val KEY_DESKTOP_LYRICS_ENABLED = "desktop_lyrics_enabled"
     private const val KEY_DESKTOP_LYRICS_X = "desktop_lyrics_x"
     private const val KEY_DESKTOP_LYRICS_Y = "desktop_lyrics_y"
@@ -312,15 +310,6 @@ object LyricsPreferences {
     fun setNotificationLyricsEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_NOTIFICATION_LYRICS_ENABLED, enabled)
-            .apply()
-    }
-
-    fun carBluetoothLyricsEnabled(context: Context): Boolean =
-        MicaSettingsStore.prefs(context).getBoolean(KEY_CAR_BLUETOOTH_LYRICS_ENABLED, false)
-
-    fun setCarBluetoothLyricsEnabled(context: Context, enabled: Boolean) {
-        MicaSettingsStore.prefs(context).edit()
-            .putBoolean(KEY_CAR_BLUETOOTH_LYRICS_ENABLED, enabled)
             .apply()
     }
 
@@ -656,7 +645,6 @@ object LyricsPreferences {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             val change = when (key) {
                 KEY_NOTIFICATION_LYRICS_ENABLED -> NotificationLyricsChange.ENABLED
-                KEY_CAR_BLUETOOTH_LYRICS_ENABLED -> NotificationLyricsChange.CAR_BLUETOOTH_ENABLED
                 KEY_DESKTOP_LYRICS_ENABLED -> NotificationLyricsChange.DESKTOP_ENABLED
                 KEY_STATUS_BAR_LYRICS_ENABLED -> NotificationLyricsChange.STATUS_BAR_ENABLED
                 KEY_EXTERNAL_LYRICS_MODE -> NotificationLyricsChange.DISPLAY

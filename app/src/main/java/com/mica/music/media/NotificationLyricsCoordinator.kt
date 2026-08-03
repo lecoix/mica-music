@@ -128,7 +128,6 @@ internal class NotificationLyricsCoordinator(
                     }
                     LyricsPreferences.NotificationLyricsChange.SOURCE -> resetPendingLoad()
                     LyricsPreferences.NotificationLyricsChange.ENABLED,
-                    LyricsPreferences.NotificationLyricsChange.CAR_BLUETOOTH_ENABLED,
                     LyricsPreferences.NotificationLyricsChange.DESKTOP_ENABLED,
                     LyricsPreferences.NotificationLyricsChange.STATUS_BAR_ENABLED,
                     -> {
@@ -177,7 +176,6 @@ internal class NotificationLyricsCoordinator(
         playerHandler.removeCallbacks(wakeUp)
         val nowRealtimeMs = SystemClock.elapsedRealtime()
         val notificationEnabled = LyricsPreferences.notificationLyricsEnabled(appContext)
-        val carBluetoothEnabled = LyricsPreferences.carBluetoothLyricsEnabled(appContext)
         val externalLyricsMode = LyricsPreferences.externalLyricsMode(appContext)
         val desktopLyricsEnabled = externalLyricsMode == ExternalLyricsMode.DESKTOP
         val statusBarLyricsEnabled = externalLyricsMode == ExternalLyricsMode.STATUS_BAR
@@ -185,7 +183,10 @@ internal class NotificationLyricsCoordinator(
         desktopLyrics?.setStyle(LyricsPreferences.externalLyricsStyle(appContext))
         desktopLyrics?.setSurfaceEnabled(desktopLyricsEnabled, statusBarLyricsEnabled)
         desktopLyrics?.setPlaying(player.isPlaying)
-        carBluetoothLyrics?.setEnabled(carBluetoothEnabled)
+        // The car surface shares the notification lyric load and boundary schedule. Its
+        // legacy session is enabled with the notification lyric setting so the two outputs
+        // cannot drift or perform duplicate lyric work.
+        carBluetoothLyrics?.setEnabled(notificationEnabled)
         val item = player.currentMediaItem
         val decoded = item?.let(SongMediaItemCodec::decode)
         if (item == null || decoded == null) {
@@ -199,7 +200,7 @@ internal class NotificationLyricsCoordinator(
         if (!notificationEnabled) {
             restoreDefaultMetadataIfNeeded(decoded, item)
         }
-        if (!notificationEnabled && !carBluetoothEnabled && !externalLyricsEnabled) {
+        if (!notificationEnabled && !externalLyricsEnabled) {
             desktopLyrics?.clear()
             return
         }
@@ -236,7 +237,6 @@ internal class NotificationLyricsCoordinator(
                     index = index,
                     nowRealtimeMs = nowRealtimeMs,
                     notificationEnabled = notificationEnabled,
-                    carBluetoothEnabled = carBluetoothEnabled,
                     desktopLyricsEnabled = desktopLyricsEnabled,
                     statusBarLyricsEnabled = statusBarLyricsEnabled,
                 )
@@ -244,7 +244,7 @@ internal class NotificationLyricsCoordinator(
             plannedWakeInMs = plan.wakeInMs
         } else {
             if (notificationEnabled) restoreDefaultMetadataIfNeeded(decoded, item)
-            if (carBluetoothEnabled) carBluetoothLyrics?.publishDefault(decoded)
+            if (notificationEnabled) carBluetoothLyrics?.publishDefault(decoded)
             desktopLyrics?.clear()
         }
 
@@ -352,7 +352,6 @@ internal class NotificationLyricsCoordinator(
         index: Int,
         nowRealtimeMs: Long,
         notificationEnabled: Boolean,
-        carBluetoothEnabled: Boolean,
         desktopLyricsEnabled: Boolean,
         statusBarLyricsEnabled: Boolean,
     ) {
@@ -402,7 +401,7 @@ internal class NotificationLyricsCoordinator(
             lastPublishedIndex = index
             return
         }
-        if (carBluetoothEnabled) carBluetoothLyrics?.publishLyric(song, displayLine)
+        if (notificationEnabled) carBluetoothLyrics?.publishLyric(song, displayLine)
         if (!notificationEnabled) {
             lastPublishedIndex = index
             lastPublishedRealtimeMs = nowRealtimeMs

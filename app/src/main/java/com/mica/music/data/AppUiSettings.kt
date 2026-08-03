@@ -174,9 +174,6 @@ class AppUiSettings(context: Context) {
     var notificationLyricsEnabled by mutableStateOf(LyricsPreferences.notificationLyricsEnabled(appContext))
         private set
 
-    var carBluetoothLyricsEnabled by mutableStateOf(LyricsPreferences.carBluetoothLyricsEnabled(appContext))
-        private set
-
     var desktopLyricsEnabled by mutableStateOf(LyricsPreferences.desktopLyricsEnabled(appContext))
         private set
 
@@ -206,9 +203,6 @@ class AppUiSettings(context: Context) {
     var desktopLyricsWidthPercent by mutableIntStateOf(
         LyricsPreferences.desktopLyricsWidthPercent(appContext),
     )
-        private set
-
-    var desktopLyricsLocked by mutableStateOf(LyricsPreferences.desktopLyricsLocked(appContext))
         private set
 
     var statusBarLyricsEnabled by mutableStateOf(LyricsPreferences.statusBarLyricsEnabled(appContext))
@@ -556,11 +550,6 @@ class AppUiSettings(context: Context) {
         LyricsPreferences.setNotificationLyricsEnabled(appContext, enabled)
     }
 
-    fun updateCarBluetoothLyricsEnabled(enabled: Boolean) {
-        carBluetoothLyricsEnabled = enabled
-        LyricsPreferences.setCarBluetoothLyricsEnabled(appContext, enabled)
-    }
-
     fun updateDesktopLyricsEnabled(enabled: Boolean) {
         desktopLyricsEnabled = enabled
         LyricsPreferences.setDesktopLyricsEnabled(appContext, enabled)
@@ -609,11 +598,6 @@ class AppUiSettings(context: Context) {
             MAX_EXTERNAL_LYRICS_WIDTH_PERCENT,
         )
         LyricsPreferences.setDesktopLyricsWidthPercent(appContext, desktopLyricsWidthPercent)
-    }
-
-    fun updateDesktopLyricsLocked(locked: Boolean) {
-        desktopLyricsLocked = locked
-        LyricsPreferences.setDesktopLyricsLocked(appContext, locked)
     }
 
     fun updateStatusBarLyricsEnabled(enabled: Boolean) {

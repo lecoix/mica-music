@@ -34,7 +34,7 @@
 | 信息行歌词 | `LyricsPreferences` / `info_row_lyrics_enabled` | `HomeScreen` 列表信息行 | `ACTIVE` | 移入“歌词输出” |
 | 信息行逐字歌词 | `LyricsPreferences` / `info_row_word_lyrics_enabled` | 父开关开启、播放中且有逐字时间轴时生效 | `CONDITIONAL` | 跟随信息行歌词折叠 |
 | 通知栏歌词 | `LyricsPreferences` / `notification_lyrics_enabled` | `NotificationLyricsCoordinator`；通知/媒体会话条件 | `CONDITIONAL` | 移入“歌词输出”并注明系统通知条件 |
-| 车载蓝牙歌词 | `LyricsPreferences` / `car_bluetooth_lyrics_enabled` | `NotificationLyricsCoordinator` 的独立无队列媒体会话 | `CONDITIONAL` | 移入“歌词输出”；保留“实验”标识，需真车验收 |
+| 车载蓝牙歌词输出 | `LyricsPreferences` / `notification_lyrics_enabled` | 与通知栏歌词共用 `NotificationLyricsCoordinator` 的歌词加载和边界调度；通知栏歌词开启时额外更新兼容车机的无队列媒体会话 | `CONDITIONAL` | 已合入通知栏歌词；保留 legacy session，需真车验收 |
 
 ### 播放与封面
 
@@ -125,7 +125,7 @@
 
 - 播放页和歌词页子页面把主题选择置于最上方；主题专属设置按当前主题条件显示。
 - 稳定分类调整为“外观 / 播放页 / 歌词 / 曲库与扫描 / 音频与设备 / 诊断与系统”。
-- 迷你播放栏移入外观；歌词优先级、信息行/通知栏/车载蓝牙歌词移入歌词；扫描行为移入曲库与扫描；ReplayGain 与音频焦点移入音频与设备。
+- 迷你播放栏移入外观；歌词优先级、信息行和通知栏（含车载蓝牙输出）移入歌词；扫描行为移入曲库与扫描；ReplayGain 与音频焦点移入音频与设备。
 - 按实际能力隐藏视频专辑封面、封面底边进度、下半屏沉浸的无效组合；迷你播放左右动作和信息行逐字歌词继续按父开关折叠。
 - 合并歌词字体的重复入口；移除 SettingsScreen 未消费的粒子/拍立得预览回调，但保留内部预览路由和相关 preference key。
 - 移除“纳入非‘音乐’标记的音频”入口；MediaStore 兼容筛选固定开启，旧 preference key 保留但不再提供用户控制。

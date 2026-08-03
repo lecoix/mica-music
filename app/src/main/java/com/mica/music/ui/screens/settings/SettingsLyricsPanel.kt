@@ -28,9 +28,11 @@ import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.MAX_EXTERNAL_LYRICS_WIDTH_PERCENT
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.media.DesktopLyricsOverlayController
@@ -208,7 +210,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsToggleRow(
         title = "通知栏歌词",
-        subtitle = "在系统媒体通知主位显示当前歌词，副位显示歌名与歌手",
+        subtitle = "在系统媒体通知主位显示当前歌词，兼容车载蓝牙设备复用同一输出；副位显示歌名与歌手",
         checked = uiSettings.notificationLyricsEnabled,
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )
@@ -228,13 +230,6 @@ internal fun LyricsSettingsPanel(
                 DesktopLyricsOverlayController.sync(context)
             }
         },
-    )
-
-    SettingsToggleRow(
-        title = "车载蓝牙歌词（实验）",
-        subtitle = "使用独立的无队列媒体会话向蓝牙设备发送歌词；可能影响部分车机的媒体控制",
-        checked = uiSettings.carBluetoothLyricsEnabled,
-        onCheckedChange = { uiSettings.updateCarBluetoothLyricsEnabled(it) },
     )
 
     if (uiSettings.externalLyricsMode == ExternalLyricsMode.DESKTOP) {
@@ -271,16 +266,6 @@ internal fun LyricsSettingsPanel(
             subtitle = "\u6709\u9010\u5B57\u65F6\u95F4\u8F74\u65F6\u6309\u5B57\u586B\u5145\u5E76\u9690\u85CF\u8BD1\u6587\uFF1B\u666E\u901A\u6B4C\u8BCD\u81EA\u52A8\u56DE\u9000\u4E3A\u9010\u884C\u8FDB\u5EA6",
             checked = uiSettings.desktopLyricsWordByWordEnabled,
             onCheckedChange = { uiSettings.updateDesktopLyricsWordByWordEnabled(it) },
-        )
-
-        SettingsToggleRow(
-            title = "\u9501\u5B9A\u684C\u9762\u6B4C\u8BCD",
-            subtitle = "\u9501\u5B9A\u540E\u684C\u9762\u6B4C\u8BCD\u4E0D\u53EF\u62D6\u52A8\uFF1B\u5173\u95ED\u5373\u53EF\u89E3\u9501",
-            checked = uiSettings.desktopLyricsLocked,
-            onCheckedChange = {
-                uiSettings.updateDesktopLyricsLocked(it)
-                DesktopLyricsOverlayController.refreshSettings(context)
-            },
         )
 
         SettingsSliderRow(
@@ -466,25 +451,28 @@ internal fun LyricsSettingsPanel(
             },
         )
 
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "原歌词字号",
-            choices = LyricsPageFontSizeChoices,
-            selectedValue = uiSettings.lyricsPageFontSizeSp,
-            onSelect = { uiSettings.updateLyricsPageFontSizeSp(it) },
+            value = uiSettings.lyricsPageFontSizeSp,
+            valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
+            suffix = " sp",
+            onValueChange = { uiSettings.updateLyricsPageFontSizeSp(it) },
         )
 
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "翻译歌词字号",
-            choices = LyricsPageFontSizeChoices,
-            selectedValue = uiSettings.lyricsPageTranslationFontSizeSp,
-            onSelect = { uiSettings.updateLyricsPageTranslationFontSizeSp(it) },
+            value = uiSettings.lyricsPageTranslationFontSizeSp,
+            valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
+            suffix = " sp",
+            onValueChange = { uiSettings.updateLyricsPageTranslationFontSizeSp(it) },
         )
 
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "行间距",
-            choices = LyricsPageLineSpacingChoices,
-            selectedValue = uiSettings.lyricsPageLineSpacingDp,
-            onSelect = { uiSettings.updateLyricsPageLineSpacingDp(it) },
+            value = uiSettings.lyricsPageLineSpacingDp,
+            valueRange = MIN_LYRICS_PAGE_LINE_SPACING_DP..MAX_LYRICS_PAGE_LINE_SPACING_DP,
+            suffix = " dp",
+            onValueChange = { uiSettings.updateLyricsPageLineSpacingDp(it) },
         )
 
         SettingsToggleRow(

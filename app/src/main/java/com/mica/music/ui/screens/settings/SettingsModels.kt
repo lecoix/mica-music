@@ -17,10 +17,6 @@ import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.MAX_LETTER_SEAL_OPACITY_PERCENT
 import com.mica.music.data.MAX_LETTER_SEAL_ROTATION_DEGREES
 import com.mica.music.data.MAX_LETTER_SEAL_SIZE_DP
-import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
-import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
-import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
-import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_LETTER_SEAL_OPACITY_PERCENT
 import com.mica.music.data.MIN_LETTER_SEAL_ROTATION_DEGREES
 import com.mica.music.data.MIN_LETTER_SEAL_SIZE_DP
@@ -193,12 +189,6 @@ internal val LyricsPriorityChoices = listOf(
     listOf(LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_LRC, LyricsSlot.EXTERNAL_TTML) to
         "内嵌 → 外部 LRC → 外部 TTML",
 )
-
-internal val LyricsPageFontSizeChoices = (MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP)
-    .map { it to "$it sp" }
-
-internal val LyricsPageLineSpacingChoices =
-    (MIN_LYRICS_PAGE_LINE_SPACING_DP..MAX_LYRICS_PAGE_LINE_SPACING_DP).map { it to "$it dp" }
 
 internal val LetterSealSizeChoices =
     (MIN_LETTER_SEAL_SIZE_DP..MAX_LETTER_SEAL_SIZE_DP step 2).map { it to "$it dp" }

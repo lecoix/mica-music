@@ -83,14 +83,14 @@ internal fun SettingsSliderRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "$clampedValue$suffix",
-                style = MicaTheme.typography.monoMd,
-                color = MicaTheme.colors.textSecondary,
-            )
-            Text(
                 text = "$min$suffix / $max$suffix",
                 style = MicaTheme.typography.monoSm,
                 color = MicaTheme.colors.textTertiary,
+            )
+            Text(
+                text = "$clampedValue$suffix",
+                style = MicaTheme.typography.monoMd,
+                color = MicaTheme.colors.textSecondary,
             )
         }
         Canvas(
