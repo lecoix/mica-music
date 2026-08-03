@@ -344,6 +344,7 @@ class MusicLibrary internal constructor(
         val artistDirection = LibraryBrowseSettings.artistBrowseSortDirection(backing.context)
         val albumField = LibraryBrowseSettings.albumBrowseSortField(backing.context)
         val albumDirection = LibraryBrowseSettings.albumBrowseSortDirection(backing.context)
+        val artistConfigKey = ArtistNames.currentConfig().cacheKey()
         if (
             artistGroupCacheRevision == sourceRevision &&
             artistGroupCacheField == artistField &&
@@ -384,27 +385,25 @@ class MusicLibrary internal constructor(
             } ?: LibraryBrowse.albumGroupPresentation(source, albumField, albumDirection)
             artists to albums
         }
-        if (sourceRevision != backing.catalogRevision || splitRevision != artistSplitRevision) return
-        artistGroupCacheRevision = sourceRevision
-        artistGroupCacheField = artistField
-        artistGroupCacheDirection = artistDirection
-        artistGroupCache = prewarmed.first
-        albumGroupCacheRevision = sourceRevision
-        albumGroupCacheField = albumField
-        albumGroupCacheDirection = albumDirection
-        albumGroupCache = prewarmed.second
-        persistedArtistGroups = prewarmed.first.groups
-        persistedAlbumGroups = prewarmed.second.groups
-        persistedBrowseRevision = sourceRevision
-        persistedBrowseSplitRevision = splitRevision
-        persistedArtistPresentation = prewarmed.first
-        persistedAlbumPresentation = prewarmed.second
-        if (!canReusePersistedGroups || !persistedBrowsePresentationsMatchCurrentSort) {
-            withContext(backing.ioDispatcher) {
+        val isCurrent: () -> Boolean = {
+            splitRevision == artistSplitRevision &&
+                ArtistNames.currentConfig().cacheKey() == artistConfigKey &&
+                LibraryBrowseSettings.artistBrowseSortField(backing.context) == artistField &&
+                LibraryBrowseSettings.artistBrowseSortDirection(backing.context) == artistDirection &&
+                LibraryBrowseSettings.albumBrowseSortField(backing.context) == albumField &&
+                LibraryBrowseSettings.albumBrowseSortDirection(backing.context) == albumDirection
+        }
+        val needsPersistence = persistedBrowseRevision != sourceRevision ||
+            persistedBrowseSplitRevision != splitRevision ||
+            persistedArtistGroups == null ||
+            persistedAlbumGroups == null ||
+            !persistedBrowsePresentationsMatchCurrentSort
+        val storeCommitted = if (needsPersistence) {
+            backing.storeWriteIfCurrentCatalog(sourceRevision, isCurrent) {
                 backing.libraryStore.updateBrowseGroups(
                     artistGroups = prewarmed.first.groups,
                     albumGroups = prewarmed.second.groups,
-                    artistConfigKey = ArtistNames.currentConfig().cacheKey(),
+                    artistConfigKey = artistConfigKey,
                     artistSortField = artistField,
                     artistSortDirection = artistDirection,
                     artistFastScrollSectionTargets = prewarmed.first.fastScrollIndex?.sectionTargets,
@@ -413,8 +412,33 @@ class MusicLibrary internal constructor(
                     albumFastScrollSectionTargets = prewarmed.second.fastScrollIndex?.sectionTargets,
                 )
             }
-            persistedBrowsePresentationsMatchCurrentSort = true
+        } else {
+            true
         }
+        if (!storeCommitted) return
+        val published = backing.withCurrentCatalogPublication(sourceRevision) {
+            if (!isCurrent()) {
+                false
+            } else {
+                artistGroupCacheRevision = sourceRevision
+                artistGroupCacheField = artistField
+                artistGroupCacheDirection = artistDirection
+                artistGroupCache = prewarmed.first
+                albumGroupCacheRevision = sourceRevision
+                albumGroupCacheField = albumField
+                albumGroupCacheDirection = albumDirection
+                albumGroupCache = prewarmed.second
+                persistedArtistGroups = prewarmed.first.groups
+                persistedAlbumGroups = prewarmed.second.groups
+                persistedBrowseRevision = sourceRevision
+                persistedBrowseSplitRevision = splitRevision
+                persistedArtistPresentation = prewarmed.first
+                persistedAlbumPresentation = prewarmed.second
+                if (needsPersistence) persistedBrowsePresentationsMatchCurrentSort = true
+                true
+            }
+        } == true
+        if (!published) return
         DiagnosticLog.event(
             "LibraryLoad",
             "prewarmBrowseGroups durMs=${SystemClock.elapsedRealtime() - startedMs} " +
@@ -509,6 +533,16 @@ class MusicLibrary internal constructor(
             albumGroupCacheDirection = cachedBrowse.albumDirection
             albumGroupCache = it
         }
+    }
+
+    /** Schedules non-blocking album-art maintenance against the committed library snapshot. */
+    fun launchAlbumArtCacheMaintenance(reason: String = "background") {
+        if (backing.released) return
+        DiagnosticLog.event(
+            "AlbumArtCache",
+            "maintenance scheduled reason=$reason songs=${backing.songs.size}",
+        )
+        backing.launchAlbumArtCacheMaintenance(backing.songs)
     }
 
     suspend fun rescan() = backing.scanOrchestrator.rescan()

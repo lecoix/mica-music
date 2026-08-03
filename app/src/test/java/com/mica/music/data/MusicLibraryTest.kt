@@ -178,6 +178,52 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun staleBrowsePrewarmCannotOverwriteACompletedNewerScan() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val oldSong = SongFixtures.song("browse-old").copy(album = "Old Album", artist = "Old Artist")
+        val freshSong = SongFixtures.song("browse-fresh").copy(album = "Fresh Album", artist = "Fresh Artist")
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(
+                songs = listOf(oldSong),
+                lastScanAtMs = 100,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+                artistGroups = listOf(BrowseGroup("Old Artist", "1 song", 1)),
+                albumGroups = listOf(BrowseGroup("Old Album", "Old Artist", 1)),
+                browseArtistConfigKey = ArtistSplitConfig().cacheKey(),
+                albumBrowseSortField = AlbumBrowseSortField.TITLE,
+                albumBrowseSortDirection = SortDirection.ASC,
+            ),
+        )
+        val library = library(scanner, store)
+        library.loadCachedLibrary()
+        LibraryBrowseSettings.setAlbumBrowseSort(context, AlbumBrowseSortField.TITLE, SortDirection.DESC)
+        library.albumGroupPresentation(AlbumBrowseSortField.TITLE, SortDirection.DESC)
+        store.browseGroupUpdateGate = CompletableDeferred()
+
+        val prewarm = async { library.prewarmBrowseGroupCache() }
+        runCurrent()
+        assertTrue(store.browseGroupUpdateStarted.isCompleted)
+
+        val scan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(freshSong), totalSizeMb = 2))
+        runCurrent()
+
+        if (scan.isCompleted) {
+            assertEquals(listOf("Fresh Album"), store.persistedAlbumTitles)
+        }
+        store.browseGroupUpdateGate?.complete(Unit)
+        prewarm.await()
+        scan.await()
+
+        assertEquals(listOf("Fresh Album"), store.persistedAlbumTitles)
+        library.release()
+    }
+
+    @Test
     fun staleArtistRulesRejectPersistedBrowseGroupsAndRebuildOnce() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         PreferencesTestFixtures.clearMicaSettings(context)
@@ -671,6 +717,10 @@ class MusicLibraryTest {
         var lyricsLoadCount: Int = 0
         var browseGroupUpdateCount: Int = 0
         var updatedAlbumSortDirection: SortDirection? = null
+        var persistedAlbumTitles: List<String> = cached?.albumGroups?.map(BrowseGroup::title).orEmpty()
+        var updatedAlbumTitles: List<String> = emptyList()
+        val browseGroupUpdateStarted = CompletableDeferred<Unit>()
+        var browseGroupUpdateGate: CompletableDeferred<Unit>? = null
 
         override suspend fun loadCached(): CachedLibrary? = cached
 
@@ -719,6 +769,7 @@ class MusicLibraryTest {
         ): LibrarySyncResult {
             syncedSongs = songs
             syncedSource = lastScanSource
+            persistedAlbumTitles = songs.map(Song::album).distinct()
             return LibrarySyncResult(songs.size, 0, 0, 0)
         }
 
@@ -745,6 +796,10 @@ class MusicLibraryTest {
             albumFastScrollSectionTargets: Map<String, Int>?,
         ) {
             browseGroupUpdateCount++
+            browseGroupUpdateStarted.complete(Unit)
+            browseGroupUpdateGate?.await()
+            updatedAlbumTitles = albumGroups.map(BrowseGroup::title)
+            persistedAlbumTitles = updatedAlbumTitles
             updatedAlbumSortDirection = albumSortDirection
         }
 
@@ -821,7 +876,7 @@ class MusicLibraryTest {
         override fun currentTimeMillis(): Long = 1_234L
         override fun playStats(songId: String): PlayStats = PlayStats(0, 0)
         override fun clearTransientCache() = Unit
-        override fun pruneAlbumArtCache(songs: List<Song>, shouldContinue: () -> Boolean) = Unit
+        override fun pruneAlbumArtCache(songs: List<Song>) = Unit
         override fun persistLastScanSource(source: ScanSource) = Unit
         override fun lyricsParserVersion(): Int = parserVersion
         override fun persistLyricsParserVersion(version: Int) {

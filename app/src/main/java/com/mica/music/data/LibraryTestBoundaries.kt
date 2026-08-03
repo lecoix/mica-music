@@ -146,12 +146,8 @@ internal interface ScanEnvironment {
     fun playStatsSnapshot(songIds: Collection<String>): PlayStatsSnapshot =
         PlayStatsSnapshot.from(songIds.associateWith { songId -> playStats(songId) })
     fun clearTransientCache()
-    /**
-     * Prune only while the caller's complete-snapshot generation remains current.
-     * The callback is checked before and during file deletion because pruning is a side effect,
-     * not just preparation for publication.
-     */
-    fun pruneAlbumArtCache(songs: List<Song>, shouldContinue: () -> Boolean)
+    /** Background cache maintenance against a snapshot that has already been committed. */
+    fun pruneAlbumArtCache(songs: List<Song>)
     /** Folder-scan only: background first-frame posters for matched video cover URIs. */
     fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) = Unit
     fun persistLastScanSource(source: ScanSource)
@@ -376,11 +372,14 @@ internal class AndroidScanEnvironment(
     override fun clearTransientCache() =
         ScanCacheManager.clearTransientScanCache(context)
 
-    override fun pruneAlbumArtCache(songs: List<Song>, shouldContinue: () -> Boolean) =
-        ScanCacheManager.pruneAlbumArtCache(context, songs, shouldContinue)
+    override fun pruneAlbumArtCache(songs: List<Song>) =
+        ScanCacheManager.pruneAlbumArtCache(context, songs)
 
     override fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) {
-        if (!PlaybackUiPreferences.videoAlbumCoverEnabled(context)) return
+        if (!PlaybackUiPreferences.videoAlbumCoverEnabled(context)) {
+            VideoCoverPosterPrefetcher.cancel()
+            return
+        }
         VideoCoverPosterPrefetcher.enqueue(context, videoCoverUris)
     }
 

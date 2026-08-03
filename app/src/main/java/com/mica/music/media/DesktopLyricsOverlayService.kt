@@ -3,34 +3,46 @@ package com.mica.music.media
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
+import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -38,7 +50,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.style.TextAlign
@@ -59,12 +71,19 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CustomMicaBackground
 import com.mica.music.data.ExternalLyricsColorMode
 import com.mica.music.data.ExternalLyricsMode
+import com.mica.music.data.ExternalLyricsStyle
 import com.mica.music.data.ExternalLyricsVisibilityMode
+import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsSync
 import com.mica.music.data.preferences.LyricsPreferences
+import com.mica.music.ui.components.marqueeHorizontalEdgeFade
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.util.DiagnosticLog
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 object DesktopLyricsOverlayController {
@@ -91,6 +110,15 @@ object DesktopLyricsOverlayController {
         }
     }
 
+    fun refreshSettings(context: Context) {
+        if (canDrawOverlays(context)) {
+            context.startService(
+                Intent(context, DesktopLyricsOverlayService::class.java)
+                    .setAction(DesktopLyricsOverlayService.ACTION_APPLY_SETTINGS),
+            )
+        }
+    }
+
     fun stop(context: Context) {
         context.stopService(Intent(context, DesktopLyricsOverlayService::class.java))
     }
@@ -108,8 +136,15 @@ object DesktopLyricsOverlayController {
 }
 
 class DesktopLyricsOverlayService : Service() {
+    companion object {
+        const val ACTION_APPLY_SETTINGS = "com.mica.music.action.APPLY_DESKTOP_LYRICS_SETTINGS"
+        private const val CONTROL_PANEL_TIMEOUT_MS = 4_000L
+    }
+
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: ComposeView
+    private lateinit var overlayRoot: LinearLayout
+    private lateinit var controlPanelView: LinearLayout
     private lateinit var statusBarView: ComposeView
     private lateinit var layoutParams: WindowManager.LayoutParams
     private lateinit var statusBarLayoutParams: WindowManager.LayoutParams
@@ -120,6 +155,10 @@ class DesktopLyricsOverlayService : Service() {
     private var touchDownRawY = 0f
     private var touchDownX = 0
     private var touchDownY = 0
+    private var touchMoved = false
+    private var desktopLocked = false
+    private var controlsVisible = false
+    private val hideControlsRunnable = Runnable { hideControlPanel() }
 
     override fun onCreate() {
         super.onCreate()
@@ -133,14 +172,20 @@ class DesktopLyricsOverlayService : Service() {
             stateStore = micaApp.desktopLyricsOverlayStateStore
             val uiSettings = AppUiSettings(this)
             windowManager = getSystemService(WindowManager::class.java)
+            desktopLocked = LyricsPreferences.desktopLyricsLocked(this)
             val metrics = resources.displayMetrics
             val density = metrics.density
             val defaultY = (metrics.heightPixels * 0.78f).toInt()
             layoutParams = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
+                desktopLyricsWindowWidthPx(metrics),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    if (desktopLocked || LyricsPreferences.externalLyricsMode(this) != ExternalLyricsMode.DESKTOP) {
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    } else {
+                        0
+                    },
                 PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -170,13 +215,28 @@ class DesktopLyricsOverlayService : Service() {
                 surface = ExternalLyricsSurface.DESKTOP,
                 screenWidthDp = (metrics.widthPixels / density).dp,
             ).apply { setOnTouchListener(::handleTouch) }
+            controlPanelView = createDesktopControlPanel()
+            overlayRoot = LinearLayout(this).apply {
+                setViewTreeLifecycleOwner(lifecycleOwner)
+                setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                addView(overlayView)
+                addView(
+                    controlPanelView,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply { topMargin = dp(4) },
+                )
+            }
             statusBarView = createComposeView(
                 uiSettings = uiSettings,
                 stateStore = stateStore,
                 surface = ExternalLyricsSurface.STATUS_BAR,
                 screenWidthDp = (metrics.widthPixels / density).dp,
             )
-            windowManager.addView(overlayView, layoutParams)
+            windowManager.addView(overlayRoot, layoutParams)
             windowManager.addView(statusBarView, statusBarLayoutParams)
 
         } catch (error: Throwable) {
@@ -192,6 +252,8 @@ class DesktopLyricsOverlayService : Service() {
             DesktopLyricsOverlayController.canDrawOverlays(this) &&
             enabled
         ) {
+            updateDesktopWindowWidth()
+            applyDesktopTouchMode(LyricsPreferences.desktopLyricsLocked(this))
             if (::statusBarLayoutParams.isInitialized && ::statusBarView.isInitialized) {
                 statusBarLayoutParams.y = statusBarLyricsY(resources.displayMetrics.density)
                 runCatching { windowManager.updateViewLayout(statusBarView, statusBarLayoutParams) }
@@ -203,8 +265,8 @@ class DesktopLyricsOverlayService : Service() {
     }
 
     override fun onDestroy() {
-        if (::overlayView.isInitialized && overlayView.isAttachedToWindow) {
-            windowManager.removeViewImmediate(overlayView)
+        if (::overlayRoot.isInitialized && overlayRoot.isAttachedToWindow) {
+            windowManager.removeViewImmediate(overlayRoot)
         }
         if (::statusBarView.isInitialized && statusBarView.isAttachedToWindow) {
             windowManager.removeViewImmediate(statusBarView)
@@ -238,40 +300,154 @@ class DesktopLyricsOverlayService : Service() {
         return (LyricsPreferences.statusBarLyricsTopOffsetDp(this) * density).toInt()
     }
 
+    private fun desktopLyricsWindowWidthPx(metrics: android.util.DisplayMetrics): Int =
+        if (LyricsPreferences.externalLyricsMode(this) != ExternalLyricsMode.DESKTOP) {
+            dp(1)
+        } else {
+            (metrics.widthPixels * LyricsPreferences.desktopLyricsWidthPercent(this) / 100f)
+                .roundToInt()
+                .coerceAtLeast(dp(1))
+        }
+
+    private fun updateDesktopWindowWidth() {
+        if (!::layoutParams.isInitialized || !::overlayRoot.isInitialized) return
+        val width = desktopLyricsWindowWidthPx(resources.displayMetrics)
+        if (layoutParams.width == width) return
+        layoutParams.width = width
+        if (overlayRoot.isAttachedToWindow) {
+            runCatching { windowManager.updateViewLayout(overlayRoot, layoutParams) }
+        }
+    }
+
+    private fun createDesktopControlPanel(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        visibility = View.GONE
+        setPadding(dp(4), dp(2), dp(4), dp(2))
+
+        addView(
+            ImageButton(this@DesktopLyricsOverlayService).apply {
+                setImageResource(com.mica.music.R.drawable.ic_desktop_lock)
+                setColorFilter(AndroidColor.WHITE)
+                setBackgroundColor(AndroidColor.TRANSPARENT)
+                contentDescription = "锁定桌面歌词"
+                setOnClickListener { setDesktopLocked(true) }
+            },
+            LinearLayout.LayoutParams(dp(40), dp(40)),
+        )
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).roundToInt()
+
+    private fun showControlPanel() {
+        if (desktopLocked || !::controlPanelView.isInitialized || controlsVisible) return
+        controlsVisible = true
+        controlPanelView.visibility = View.VISIBLE
+        controlPanelView.background = GradientDrawable().apply {
+            cornerRadius = dp(16).toFloat()
+            setColor(AndroidColor.argb(170, 18, 18, 18))
+            setStroke(dp(1), AndroidColor.argb(80, 255, 255, 255))
+        }
+        controlPanelView.setPadding(dp(10), dp(6), dp(10), dp(6))
+        overlayRoot.removeCallbacks(hideControlsRunnable)
+        overlayRoot.postDelayed(hideControlsRunnable, CONTROL_PANEL_TIMEOUT_MS)
+    }
+
+    private fun hideControlPanel() {
+        if (!::controlPanelView.isInitialized || !::overlayRoot.isInitialized) return
+        controlsVisible = false
+        overlayRoot.removeCallbacks(hideControlsRunnable)
+        controlPanelView.visibility = View.GONE
+        controlPanelView.background = null
+        controlPanelView.setPadding(dp(4), dp(2), dp(4), dp(2))
+    }
+
+    private fun setDesktopLocked(locked: Boolean) {
+        LyricsPreferences.setDesktopLyricsLocked(this, locked)
+        applyDesktopTouchMode(locked)
+    }
+
     private fun handleTouch(view: android.view.View, event: MotionEvent): Boolean {
+        if (desktopLocked) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 touchDownRawX = event.rawX
                 touchDownRawY = event.rawY
                 touchDownX = layoutParams.x
                 touchDownY = layoutParams.y
+                touchMoved = false
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                val deltaX = event.rawX - touchDownRawX
+                val deltaY = event.rawY - touchDownRawY
+                if (!touchMoved &&
+                    (abs(deltaX) >= dp(4) || abs(deltaY) >= dp(4))
+                ) {
+                    touchMoved = true
+                }
+                if (!touchMoved) return true
                 val metrics = resources.displayMetrics
-                layoutParams.x = (touchDownX + event.rawX - touchDownRawX)
+                layoutParams.x = (touchDownX + deltaX)
                     .toInt()
                     .coerceIn(-metrics.widthPixels / 2, metrics.widthPixels / 2)
-                layoutParams.y = (touchDownY + event.rawY - touchDownRawY)
+                layoutParams.y = (touchDownY + deltaY)
                     .toInt()
                     .coerceIn(0, metrics.heightPixels)
-                windowManager.updateViewLayout(view, layoutParams)
+                windowManager.updateViewLayout(overlayRoot, layoutParams)
                 return true
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                LyricsPreferences.setDesktopLyricsX(this, layoutParams.x)
-                LyricsPreferences.setDesktopLyricsY(this, layoutParams.y)
+            MotionEvent.ACTION_UP -> {
+                if (touchMoved) {
+                    LyricsPreferences.setDesktopLyricsX(this, layoutParams.x)
+                    LyricsPreferences.setDesktopLyricsY(this, layoutParams.y)
+                } else if (controlsVisible) {
+                    hideControlPanel()
+                } else {
+                    showControlPanel()
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                if (touchMoved) {
+                    LyricsPreferences.setDesktopLyricsX(this, layoutParams.x)
+                    LyricsPreferences.setDesktopLyricsY(this, layoutParams.y)
+                }
                 return true
             }
         }
         return false
     }
+
+    private fun applyDesktopTouchMode(locked: Boolean) {
+        desktopLocked = locked
+        val touchDisabled = locked || LyricsPreferences.externalLyricsMode(this) != ExternalLyricsMode.DESKTOP
+        if (touchDisabled) hideControlPanel()
+        if (!::layoutParams.isInitialized || !::overlayRoot.isInitialized) return
+        val oldFlags = layoutParams.flags
+        layoutParams.flags = if (touchDisabled) {
+            oldFlags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            oldFlags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        if (layoutParams.flags != oldFlags && overlayRoot.isAttachedToWindow) {
+            runCatching { windowManager.updateViewLayout(overlayRoot, layoutParams) }
+        }
+    }
+
 }
 
 private enum class ExternalLyricsSurface {
     DESKTOP,
     STATUS_BAR,
 }
+
+private data class ExternalLyricsOverlayRenderState(
+    val surfaceState: ExternalLyricsSurfaceState = ExternalLyricsSurfaceState(),
+    val style: ExternalLyricsStyle = ExternalLyricsStyle(),
+    val appInForeground: Boolean = false,
+)
 
 internal fun statusBarLyricsWindowFlags(): Int =
     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -311,27 +487,48 @@ private fun DesktopLyricsOverlayContent(
     surface: ExternalLyricsSurface,
     screenWidthDp: androidx.compose.ui.unit.Dp,
 ) {
-    val state by stateStore.state.collectAsState()
-    val surfaceState = if (surface == ExternalLyricsSurface.DESKTOP) state.desktop else state.statusBar
-    val hiddenInApp = state.style.visibilityMode == ExternalLyricsVisibilityMode.HIDE_WHEN_APP_FOREGROUND &&
-        state.appInForeground
+    val renderState by remember(stateStore, surface) {
+        stateStore.state
+            .map { state ->
+                ExternalLyricsOverlayRenderState(
+                    surfaceState = if (surface == ExternalLyricsSurface.DESKTOP) state.desktop else state.statusBar,
+                    style = state.style,
+                    appInForeground = state.appInForeground,
+                )
+            }
+            .distinctUntilChanged()
+    }.collectAsState(initial = ExternalLyricsOverlayRenderState())
+    val surfaceState = renderState.surfaceState
+    val style = renderState.style
+    val hiddenInApp = style.visibilityMode == ExternalLyricsVisibilityMode.HIDE_WHEN_APP_FOREGROUND &&
+        renderState.appInForeground
     val visible = surfaceState.visible && !hiddenInApp
     val originalFontSize = if (surface == ExternalLyricsSurface.DESKTOP) {
-        state.style.desktopOriginalFontSizeSp
+        style.desktopOriginalFontSizeSp
     } else {
-        state.style.statusBarOriginalFontSizeSp
+        style.statusBarOriginalFontSizeSp
     }
     val translationFontSize = if (surface == ExternalLyricsSurface.DESKTOP) {
-        state.style.desktopTranslationFontSizeSp
+        style.desktopTranslationFontSizeSp
     } else {
-        state.style.statusBarTranslationFontSizeSp
+        style.statusBarTranslationFontSizeSp
     }
     val widthPercent = if (surface == ExternalLyricsSurface.DESKTOP) {
-        state.style.desktopWidthPercent
+        style.desktopWidthPercent
     } else {
-        state.style.statusBarWidthPercent
+        style.statusBarWidthPercent
     }
     val maxWidthDp = screenWidthDp * (widthPercent / 100f)
+    val textAlignment = if (surface == ExternalLyricsSurface.STATUS_BAR) {
+        style.statusBarTextAlignment
+    } else {
+        LyricsPageAlignment.CENTER
+    }
+    val bilingualDisplayMode = if (surface == ExternalLyricsSurface.DESKTOP) {
+        style.desktopBilingualDisplayMode
+    } else {
+        style.statusBarBilingualDisplayMode
+    }
 
     MicaTheme(
         darkTheme = uiSettings.isDarkTheme(),
@@ -353,7 +550,11 @@ private fun DesktopLyricsOverlayContent(
         Box(
             modifier = if (visible) {
                 Modifier
-                    .widthIn(max = maxWidthDp)
+                    .then(if (surface == ExternalLyricsSurface.DESKTOP) {
+                        Modifier.width(maxWidthDp)
+                    } else {
+                        Modifier.widthIn(max = maxWidthDp).fillMaxWidth()
+                    })
                     .padding(horizontal = if (surface == ExternalLyricsSurface.DESKTOP) 5.dp else 8.dp, vertical = 2.dp)
             } else {
                 Modifier.size(1.dp)
@@ -364,28 +565,40 @@ private fun DesktopLyricsOverlayContent(
                 enter = fadeIn(tween(150)),
                 exit = fadeOut(tween(150)),
             ) {
-                val line = checkNotNull(surfaceState.line)
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    line.original?.let { text ->
-                        ExternalLyricsLineText(
-                            text = text,
-                            line = line,
-                            positionMs = surfaceState.positionMs,
-                            fontSizeSp = originalFontSize,
-                            style = state.style,
-                        )
-                    }
-                    line.translation?.let { text ->
-                        ExternalLyricsLineText(
-                            text = text,
-                            line = line,
-                            positionMs = surfaceState.positionMs,
-                            fontSizeSp = translationFontSize,
-                            style = state.style,
-                        )
+                // AnimatedVisibility may keep this content alive during its exit transition,
+                // after a song change has already cleared the current lyric line.
+                surfaceState.line?.forExternalDisplay(bilingualDisplayMode)?.let { line ->
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = textAlignment.toHorizontalAlignment(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        line.original?.let { text ->
+                            key(line.lineIndex, line.startMs, text.text) {
+                                ExternalLyricsLineText(
+                                    text = text,
+                                    line = line,
+                                    positionMs = surfaceState.positionMs,
+                                    fontSizeSp = originalFontSize,
+                                    style = style,
+                                    marquee = true,
+                                    textAlign = textAlignment.toTextAlign(),
+                                )
+                            }
+                        }
+                        line.translation?.let { text ->
+                            key(line.lineIndex, line.startMs, text.text) {
+                                ExternalLyricsLineText(
+                                    text = text,
+                                    line = line,
+                                    positionMs = surfaceState.positionMs,
+                                    fontSizeSp = translationFontSize,
+                                    style = style,
+                                    marquee = true,
+                                    textAlign = textAlignment.toTextAlign(),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -393,6 +606,7 @@ private fun DesktopLyricsOverlayContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ExternalLyricsLineText(
     text: ExternalLyricsText,
@@ -400,64 +614,106 @@ private fun ExternalLyricsLineText(
     positionMs: Int,
     fontSizeSp: Int,
     style: com.mica.music.data.ExternalLyricsStyle,
+    marquee: Boolean,
+    textAlign: TextAlign,
 ) {
     val textStyle = MicaTheme.typography.lyricCurrent.copy(
         fontSize = fontSizeSp.sp,
-        textAlign = TextAlign.Center,
+        textAlign = textAlign,
         shadow = Shadow(
             color = Color.Black.copy(alpha = 0.9f),
             blurRadius = 8f,
         ),
     )
     val fillFraction = externalLyricsFillFraction(text, line, positionMs)
+    // The coordinator supplies position samples at 10 Hz. Interpolate only real cue timelines
+    // on the display clock; line-timed fallback remains an instant full-line reveal.
+    val renderedFillFraction by animateFloatAsState(
+        targetValue = fillFraction,
+        animationSpec = tween(
+            durationMillis = if (text.cues.isEmpty()) 0 else 100,
+            easing = LinearEasing,
+        ),
+        label = "externalLyricsFill",
+    )
     var textLayout by remember(text.text, fontSizeSp) { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     val baseColor = Color(style.normalizedColors.first()).copy(alpha = 0.42f)
 
-    Box {
+    val marqueeModifier = if (marquee) {
+        Modifier
+            .fillMaxWidth()
+            .basicMarquee(
+                iterations = Int.MAX_VALUE,
+                initialDelayMillis = 1_200,
+                repeatDelayMillis = 1_200,
+            )
+    } else {
+        Modifier
+    }
+    Box(
+        modifier = if (marquee) {
+            Modifier
+                .fillMaxWidth()
+                .clipToBounds()
+                .marqueeHorizontalEdgeFade()
+        } else {
+            Modifier
+        },
+    ) {
         Text(
             text = text.text,
             style = textStyle.copy(color = baseColor),
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
+            maxLines = if (marquee) 1 else 3,
+            softWrap = !marquee,
+            overflow = if (marquee) TextOverflow.Visible else TextOverflow.Ellipsis,
+            modifier = marqueeModifier,
         )
         Text(
             text = text.text,
             style = textStyle.copy(color = Color.White),
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
+            maxLines = if (marquee) 1 else 3,
+            softWrap = !marquee,
+            overflow = if (marquee) TextOverflow.Visible else TextOverflow.Ellipsis,
             onTextLayout = { textLayout = it },
-            modifier = Modifier.drawWithContent {
+            modifier = marqueeModifier.drawWithContent {
                 val layout = textLayout ?: return@drawWithContent
-                if (fillFraction <= 0f) return@drawWithContent
+                if (renderedFillFraction <= 0f) return@drawWithContent
                 var remainingFillPx = (0 until layout.lineCount).sumOf { index ->
                     (layout.getLineRight(index) - layout.getLineLeft(index)).toDouble()
-                }.toFloat() * fillFraction
+                }.toFloat() * renderedFillFraction
+                val filledPath = androidx.compose.ui.graphics.Path()
+                var hasFilledArea = false
                 for (index in 0 until layout.lineCount) {
                     val left = layout.getLineLeft(index)
                     val right = layout.getLineRight(index)
                     val width = (right - left).coerceAtLeast(0f)
                     if (width <= 0f || remainingFillPx <= 0f) continue
-                    clipRect(
-                        left = left,
-                        top = layout.getLineTop(index),
-                        right = left + remainingFillPx.coerceAtMost(width),
-                        bottom = layout.getLineBottom(index),
-                    ) {
-                        val layerBounds = androidx.compose.ui.geometry.Rect(
-                            left = 0f,
-                            top = 0f,
-                            right = size.width,
-                            bottom = size.height,
-                        )
-                        drawContext.canvas.saveLayer(layerBounds, androidx.compose.ui.graphics.Paint())
-                        this@drawWithContent.drawContent()
-                        drawRect(
-                            brush = externalLyricsBrush(style, size),
-                            blendMode = BlendMode.SrcIn,
-                        )
-                        drawContext.canvas.restore()
-                    }
+                    filledPath.addRect(
+                        androidx.compose.ui.geometry.Rect(
+                            left = left,
+                            top = layout.getLineTop(index),
+                            right = left + remainingFillPx.coerceAtMost(width),
+                            bottom = layout.getLineBottom(index),
+                        ),
+                    )
+                    hasFilledArea = true
                     remainingFillPx -= width
+                }
+                if (!hasFilledArea) return@drawWithContent
+                val layerBounds = androidx.compose.ui.geometry.Rect(
+                    left = 0f,
+                    top = 0f,
+                    right = size.width,
+                    bottom = size.height,
+                )
+                clipPath(filledPath) {
+                    drawContext.canvas.saveLayer(layerBounds, androidx.compose.ui.graphics.Paint())
+                    this@drawWithContent.drawContent()
+                    drawRect(
+                        brush = externalLyricsBrush(style, size),
+                        blendMode = BlendMode.SrcIn,
+                    )
+                    drawContext.canvas.restore()
                 }
             },
         )
@@ -488,16 +744,28 @@ private fun externalLyricsBrush(
     )
 }
 
-private fun externalLyricsFillFraction(
+private fun LyricsPageAlignment.toTextAlign(): TextAlign = when (this) {
+    LyricsPageAlignment.START -> TextAlign.Start
+    LyricsPageAlignment.CENTER -> TextAlign.Center
+    LyricsPageAlignment.END -> TextAlign.End
+}
+
+private fun LyricsPageAlignment.toHorizontalAlignment(): Alignment.Horizontal = when (this) {
+    LyricsPageAlignment.START -> Alignment.Start
+    LyricsPageAlignment.CENTER -> Alignment.CenterHorizontally
+    LyricsPageAlignment.END -> Alignment.End
+}
+
+internal fun externalLyricsFillFraction(
     text: ExternalLyricsText,
     line: ExternalLyricsLine,
     positionMs: Int,
 ): Float {
     val shiftedPosition = positionMs + LyricsSync.LEAD_MS
     if (text.cues.isEmpty()) {
-        val end = line.endMs?.takeIf { it > line.startMs } ?: line.startMs + 3_000
-        return ((shiftedPosition - line.startMs).toFloat() / (end - line.startMs))
-            .coerceIn(0f, 1f)
+        // A line-timed lyric is not a sequence of character cues. Once the line is active,
+        // reveal the whole line at once so the fallback cannot look like word-by-word karaoke.
+        return if (shiftedPosition >= line.startMs) 1f else 0f
     }
     if (shiftedPosition < text.cues.first().timeMs) return 0f
     val cueIndex = text.cues.indexOfLast { it.timeMs <= shiftedPosition }.coerceAtLeast(0)

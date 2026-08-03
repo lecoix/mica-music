@@ -69,9 +69,11 @@ object LyricsPreferences {
     private const val KEY_DESKTOP_LYRICS_ENABLED = "desktop_lyrics_enabled"
     private const val KEY_DESKTOP_LYRICS_X = "desktop_lyrics_x"
     private const val KEY_DESKTOP_LYRICS_Y = "desktop_lyrics_y"
+    private const val KEY_DESKTOP_LYRICS_LOCKED = "desktop_lyrics_locked"
     private const val KEY_DESKTOP_LYRICS_ORIGINAL_FONT_SIZE = "desktop_lyrics_original_font_size"
     private const val KEY_DESKTOP_LYRICS_TRANSLATION_FONT_SIZE = "desktop_lyrics_translation_font_size"
     private const val KEY_DESKTOP_LYRICS_BILINGUAL_DISPLAY_MODE = "desktop_lyrics_bilingual_display_mode"
+    private const val KEY_DESKTOP_LYRICS_WORD_BY_WORD_ENABLED = "desktop_lyrics_word_by_word_enabled"
     private const val KEY_EXTERNAL_LYRICS_MODE = "external_lyrics_mode"
     private const val KEY_DESKTOP_LYRICS_WIDTH_PERCENT = "desktop_lyrics_width_percent"
     private const val KEY_STATUS_BAR_LYRICS_ENABLED = "status_bar_lyrics_enabled"
@@ -80,6 +82,8 @@ object LyricsPreferences {
     private const val KEY_STATUS_BAR_LYRICS_TRANSLATION_FONT_SIZE = "status_bar_lyrics_translation_font_size"
     private const val KEY_STATUS_BAR_LYRICS_SPLIT_ENABLED = "status_bar_lyrics_split_enabled"
     private const val KEY_STATUS_BAR_LYRICS_BILINGUAL_DISPLAY_MODE = "status_bar_lyrics_bilingual_display_mode"
+    private const val KEY_STATUS_BAR_LYRICS_WORD_BY_WORD_ENABLED = "status_bar_lyrics_word_by_word_enabled"
+    private const val KEY_STATUS_BAR_LYRICS_TEXT_ALIGNMENT = "status_bar_lyrics_text_alignment"
     private const val KEY_STATUS_BAR_LYRICS_WIDTH_PERCENT = "status_bar_lyrics_width_percent"
     private const val KEY_EXTERNAL_LYRICS_VISIBILITY_MODE = "external_lyrics_visibility_mode"
     private const val KEY_EXTERNAL_LYRICS_COLOR_MODE = "external_lyrics_color_mode"
@@ -375,6 +379,15 @@ object LyricsPreferences {
             .apply()
     }
 
+    fun desktopLyricsLocked(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_DESKTOP_LYRICS_LOCKED, false)
+
+    fun setDesktopLyricsLocked(context: Context, locked: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_DESKTOP_LYRICS_LOCKED, locked)
+            .apply()
+    }
+
     fun desktopLyricsOriginalFontSizeSp(context: Context): Int =
         readLyricsPageFontSizeSp(
             context,
@@ -411,6 +424,16 @@ object LyricsPreferences {
     ) {
         MicaSettingsStore.prefs(context).edit()
             .putString(KEY_DESKTOP_LYRICS_BILINGUAL_DISPLAY_MODE, mode.storageValue)
+            .apply()
+    }
+
+    fun desktopLyricsWordByWordEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context)
+            .getBoolean(KEY_DESKTOP_LYRICS_WORD_BY_WORD_ENABLED, true)
+
+    fun setDesktopLyricsWordByWordEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_DESKTOP_LYRICS_WORD_BY_WORD_ENABLED, enabled)
             .apply()
     }
 
@@ -499,6 +522,30 @@ object LyricsPreferences {
             .apply()
     }
 
+    fun statusBarLyricsWordByWordEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context)
+            .getBoolean(KEY_STATUS_BAR_LYRICS_WORD_BY_WORD_ENABLED, true)
+
+    fun setStatusBarLyricsWordByWordEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_STATUS_BAR_LYRICS_WORD_BY_WORD_ENABLED, enabled)
+            .apply()
+    }
+
+    fun statusBarLyricsTextAlignment(context: Context): LyricsPageAlignment =
+        LyricsPageAlignment.fromStorage(
+            MicaSettingsStore.prefs(context).getString(
+                KEY_STATUS_BAR_LYRICS_TEXT_ALIGNMENT,
+                LyricsPageAlignment.CENTER.storageValue,
+            ),
+        )
+
+    fun setStatusBarLyricsTextAlignment(context: Context, alignment: LyricsPageAlignment) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_STATUS_BAR_LYRICS_TEXT_ALIGNMENT, alignment.storageValue)
+            .apply()
+    }
+
     fun statusBarLyricsWidthPercent(context: Context): Int =
         externalLyricsWidthPercent(context, KEY_STATUS_BAR_LYRICS_WIDTH_PERCENT)
 
@@ -576,8 +623,11 @@ object LyricsPreferences {
         desktopTranslationFontSizeSp = desktopLyricsTranslationFontSizeSp(context),
         statusBarOriginalFontSizeSp = statusBarLyricsOriginalFontSizeSp(context),
         statusBarTranslationFontSizeSp = statusBarLyricsTranslationFontSizeSp(context),
+        desktopBilingualDisplayMode = desktopLyricsBilingualDisplayMode(context),
+        statusBarBilingualDisplayMode = statusBarLyricsBilingualDisplayMode(context),
         desktopWidthPercent = desktopLyricsWidthPercent(context),
         statusBarWidthPercent = statusBarLyricsWidthPercent(context),
+        statusBarTextAlignment = statusBarLyricsTextAlignment(context),
     )
 
     fun infoRowLyricsEnabled(context: Context): Boolean =
@@ -610,16 +660,20 @@ object LyricsPreferences {
                 KEY_DESKTOP_LYRICS_ENABLED -> NotificationLyricsChange.DESKTOP_ENABLED
                 KEY_STATUS_BAR_LYRICS_ENABLED -> NotificationLyricsChange.STATUS_BAR_ENABLED
                 KEY_EXTERNAL_LYRICS_MODE -> NotificationLyricsChange.DISPLAY
+                KEY_DESKTOP_LYRICS_LOCKED -> NotificationLyricsChange.DISPLAY
                 KEY_LYRIC_SPLIT_ENABLED,
                 KEY_LYRICS_BILINGUAL_DISPLAY_MODE,
                 KEY_DESKTOP_LYRICS_ORIGINAL_FONT_SIZE,
                 KEY_DESKTOP_LYRICS_TRANSLATION_FONT_SIZE,
                 KEY_DESKTOP_LYRICS_BILINGUAL_DISPLAY_MODE,
+                KEY_DESKTOP_LYRICS_WORD_BY_WORD_ENABLED,
                 KEY_DESKTOP_LYRICS_WIDTH_PERCENT,
                 KEY_STATUS_BAR_LYRICS_ORIGINAL_FONT_SIZE,
                 KEY_STATUS_BAR_LYRICS_TRANSLATION_FONT_SIZE,
                 KEY_STATUS_BAR_LYRICS_SPLIT_ENABLED,
                 KEY_STATUS_BAR_LYRICS_BILINGUAL_DISPLAY_MODE,
+                KEY_STATUS_BAR_LYRICS_WORD_BY_WORD_ENABLED,
+                KEY_STATUS_BAR_LYRICS_TEXT_ALIGNMENT,
                 KEY_STATUS_BAR_LYRICS_WIDTH_PERCENT,
                 KEY_EXTERNAL_LYRICS_VISIBILITY_MODE,
                 KEY_EXTERNAL_LYRICS_COLOR_MODE,

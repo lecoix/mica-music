@@ -26,12 +26,19 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
+import com.mica.music.data.MAX_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP
+import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.media.DesktopLyricsOverlayController
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
+import com.mica.music.ui.components.SettingsSliderRow
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.screens.settings.color.ExternalLyricsColorDialog
 import com.mica.music.ui.theme.HifiSpacing
@@ -231,18 +238,20 @@ internal fun LyricsSettingsPanel(
     )
 
     if (uiSettings.externalLyricsMode == ExternalLyricsMode.DESKTOP) {
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "桌面歌词：原文大小",
-            choices = LyricsPageFontSizeChoices,
-            selectedValue = uiSettings.desktopLyricsOriginalFontSizeSp,
-            onSelect = { uiSettings.updateDesktopLyricsOriginalFontSizeSp(it) },
+            value = uiSettings.desktopLyricsOriginalFontSizeSp,
+            valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
+            suffix = " sp",
+            onValueChange = { uiSettings.updateDesktopLyricsOriginalFontSizeSp(it) },
         )
 
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "桌面歌词：译文大小",
-            choices = LyricsPageFontSizeChoices,
-            selectedValue = uiSettings.desktopLyricsTranslationFontSizeSp,
-            onSelect = { uiSettings.updateDesktopLyricsTranslationFontSizeSp(it) },
+            value = uiSettings.desktopLyricsTranslationFontSizeSp,
+            valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
+            suffix = " sp",
+            onValueChange = { uiSettings.updateDesktopLyricsTranslationFontSizeSp(it) },
         )
 
         SettingsChoiceRow(
@@ -257,28 +266,51 @@ internal fun LyricsSettingsPanel(
             },
         )
 
-        SettingsDropdownRow(
+        SettingsToggleRow(
+            title = "\u684C\u9762\u6B4C\u8BCD\u9010\u5B57",
+            subtitle = "\u6709\u9010\u5B57\u65F6\u95F4\u8F74\u65F6\u6309\u5B57\u586B\u5145\u5E76\u9690\u85CF\u8BD1\u6587\uFF1B\u666E\u901A\u6B4C\u8BCD\u81EA\u52A8\u56DE\u9000\u4E3A\u9010\u884C\u8FDB\u5EA6",
+            checked = uiSettings.desktopLyricsWordByWordEnabled,
+            onCheckedChange = { uiSettings.updateDesktopLyricsWordByWordEnabled(it) },
+        )
+
+        SettingsToggleRow(
+            title = "\u9501\u5B9A\u684C\u9762\u6B4C\u8BCD",
+            subtitle = "\u9501\u5B9A\u540E\u684C\u9762\u6B4C\u8BCD\u4E0D\u53EF\u62D6\u52A8\uFF1B\u5173\u95ED\u5373\u53EF\u89E3\u9501",
+            checked = uiSettings.desktopLyricsLocked,
+            onCheckedChange = {
+                uiSettings.updateDesktopLyricsLocked(it)
+                DesktopLyricsOverlayController.refreshSettings(context)
+            },
+        )
+
+        SettingsSliderRow(
             title = "桌面歌词可用宽度",
             subtitle = "相对于屏幕宽度；全宽仍会保留两侧内边距",
-            choices = ExternalLyricsWidthChoices,
-            selectedValue = uiSettings.desktopLyricsWidthPercent,
-            onSelect = { uiSettings.updateDesktopLyricsWidthPercent(it) },
+            value = uiSettings.desktopLyricsWidthPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_WIDTH_PERCENT..MAX_EXTERNAL_LYRICS_WIDTH_PERCENT,
+            suffix = "%",
+            onValueChange = {
+                uiSettings.updateDesktopLyricsWidthPercent(it)
+                DesktopLyricsOverlayController.refreshSettings(context)
+            },
         )
     }
 
     if (uiSettings.externalLyricsMode == ExternalLyricsMode.STATUS_BAR) {
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "状态栏歌词：原文大小",
-            choices = LyricsPageFontSizeChoices,
-            selectedValue = uiSettings.statusBarLyricsOriginalFontSizeSp,
-            onSelect = { uiSettings.updateStatusBarLyricsOriginalFontSizeSp(it) },
+            value = uiSettings.statusBarLyricsOriginalFontSizeSp,
+            valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
+            suffix = " sp",
+            onValueChange = { uiSettings.updateStatusBarLyricsOriginalFontSizeSp(it) },
         )
 
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "状态栏歌词：译文大小",
-            choices = LyricsPageFontSizeChoices,
-            selectedValue = uiSettings.statusBarLyricsTranslationFontSizeSp,
-            onSelect = { uiSettings.updateStatusBarLyricsTranslationFontSizeSp(it) },
+            value = uiSettings.statusBarLyricsTranslationFontSizeSp,
+            valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
+            suffix = " sp",
+            onValueChange = { uiSettings.updateStatusBarLyricsTranslationFontSizeSp(it) },
         )
 
         SettingsToggleRow(
@@ -300,23 +332,44 @@ internal fun LyricsSettingsPanel(
             },
         )
 
-        SettingsDropdownRow(
+        SettingsToggleRow(
+            title = "\u72B6\u6001\u680F\u6B4C\u8BCD\u9010\u5B57",
+            subtitle = "\u6709\u9010\u5B57\u65F6\u95F4\u8F74\u65F6\u6309\u5B57\u586B\u5145\u5E76\u9690\u85CF\u8BD1\u6587\uFF1B\u666E\u901A\u6B4C\u8BCD\u81EA\u52A8\u56DE\u9000\u4E3A\u9010\u884C\u8FDB\u5EA6",
+            checked = uiSettings.statusBarLyricsWordByWordEnabled,
+            onCheckedChange = { uiSettings.updateStatusBarLyricsWordByWordEnabled(it) },
+        )
+
+        SettingsSliderRow(
             title = "状态栏歌词位置",
             subtitle = "相对于屏幕顶部的垂直偏移，默认贴顶",
-            choices = StatusBarLyricsTopOffsetChoices,
-            selectedValue = uiSettings.statusBarLyricsTopOffsetDp,
-            onSelect = {
+            value = uiSettings.statusBarLyricsTopOffsetDp,
+            valueRange = MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP..MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP,
+            suffix = " dp",
+            onValueChange = {
                 uiSettings.updateStatusBarLyricsTopOffsetDp(it)
                 DesktopLyricsOverlayController.refreshPosition(context)
             },
         )
 
-        SettingsDropdownRow(
+        SettingsSliderRow(
             title = "状态栏歌词可用宽度",
             subtitle = "相对于屏幕宽度；全宽仍会保留两侧内边距",
-            choices = ExternalLyricsWidthChoices,
-            selectedValue = uiSettings.statusBarLyricsWidthPercent,
-            onSelect = { uiSettings.updateStatusBarLyricsWidthPercent(it) },
+            value = uiSettings.statusBarLyricsWidthPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_WIDTH_PERCENT..MAX_EXTERNAL_LYRICS_WIDTH_PERCENT,
+            suffix = "%",
+            onValueChange = { uiSettings.updateStatusBarLyricsWidthPercent(it) },
+        )
+
+        SettingsChoiceRow(
+            title = "\u72B6\u6001\u680F\u6B4C\u8BCD\u6587\u5B57\u5BF9\u9F50",
+            subtitle = "\u53EF\u9009\u9760\u5DE6\u3001\u5C45\u4E2D\u6216\u9760\u53F3\uFF0C\u5BF9\u9F50\u5BB9\u5668\u5185\u7684\u72B6\u6001\u680F\u6B4C\u8BCD",
+            choices = StatusBarLyricsTextAlignmentChoices,
+            selectedValue = uiSettings.statusBarLyricsTextAlignment.ordinal,
+            onSelect = { ordinal ->
+                uiSettings.updateStatusBarLyricsTextAlignment(
+                    LyricsPageAlignment.entries[ordinal],
+                )
+            },
         )
     }
 

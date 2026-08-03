@@ -2,6 +2,7 @@ package com.mica.music.data.scanner
 
 import android.graphics.Bitmap
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -59,5 +60,31 @@ class VideoCoverPosterPrefetcherTest {
             shouldContinue = { go },
         )
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun prefetchDoesNotStoreWhenCancelledDuringExtraction() {
+        var go = true
+        val stored = mutableListOf<String>()
+        val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
+
+        try {
+            val stats = VideoCoverPosterPrefetcher.prefetchVideoCoverPosters(
+                uris = listOf("content://cancel-during-extract"),
+                isCached = { false },
+                extract = {
+                    go = false
+                    bitmap
+                },
+                store = { uri, _ -> stored += uri },
+                shouldContinue = { go },
+            )
+
+            assertEquals(0, stats.stored)
+            assertEquals(emptyList<String>(), stored)
+            assertTrue(bitmap.isRecycled)
+        } finally {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
     }
 }

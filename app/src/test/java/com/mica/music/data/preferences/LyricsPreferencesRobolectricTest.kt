@@ -3,6 +3,7 @@ package com.mica.music.data.preferences
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
 import com.mica.music.data.DEFAULT_LETTER_SEAL_OPACITY_PERCENT
@@ -157,6 +158,47 @@ class LyricsPreferencesRobolectricTest {
         assertEquals(
             LyricsBilingualDisplayMode.TRANSLATION,
             LyricsPreferences.statusBarLyricsBilingualDisplayMode(context),
+        )
+    }
+
+    @Test
+    fun externalLyricsWordByWordSettingsDefaultOnAndRemainIndependent() {
+        assertTrue(LyricsPreferences.desktopLyricsWordByWordEnabled(context))
+        assertTrue(LyricsPreferences.statusBarLyricsWordByWordEnabled(context))
+
+        LyricsPreferences.setDesktopLyricsWordByWordEnabled(context, false)
+
+        assertFalse(LyricsPreferences.desktopLyricsWordByWordEnabled(context))
+        assertTrue(LyricsPreferences.statusBarLyricsWordByWordEnabled(context))
+
+        LyricsPreferences.setStatusBarLyricsWordByWordEnabled(context, false)
+
+        assertFalse(LyricsPreferences.statusBarLyricsWordByWordEnabled(context))
+    }
+
+    @Test
+    fun desktopLyricsLockDefaultsToUnlockedAndRoundTrips() {
+        assertFalse(LyricsPreferences.desktopLyricsLocked(context))
+
+        LyricsPreferences.setDesktopLyricsLocked(context, true)
+        assertTrue(LyricsPreferences.desktopLyricsLocked(context))
+
+        LyricsPreferences.setDesktopLyricsLocked(context, false)
+        assertFalse(LyricsPreferences.desktopLyricsLocked(context))
+    }
+
+    @Test
+    fun statusBarLyricsTextAlignmentDefaultsToCenterAndRoundTrips() {
+        assertEquals(
+            LyricsPageAlignment.CENTER,
+            LyricsPreferences.statusBarLyricsTextAlignment(context),
+        )
+
+        LyricsPreferences.setStatusBarLyricsTextAlignment(context, LyricsPageAlignment.START)
+
+        assertEquals(
+            LyricsPageAlignment.START,
+            LyricsPreferences.statusBarLyricsTextAlignment(context),
         )
     }
 

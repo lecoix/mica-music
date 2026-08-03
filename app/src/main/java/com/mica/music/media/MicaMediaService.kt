@@ -54,6 +54,7 @@ class MicaMediaService : MediaSessionService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
+    private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -151,7 +152,14 @@ class MicaMediaService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, stack.compositePlayer)
             .setCallback(createMediaSessionCallback())
             .setSessionActivity(createSessionActivityPendingIntent())
+            .setMediaButtonPreferences(
+                ExternalLyricsSessionCommands.mediaButtonPreferences(this),
+            )
             .build()
+        unregisterLyricsPreferenceListener =
+            LyricsPreferences.registerNotificationLyricsChangeListener(this) {
+                mainHandler.post(::updateMediaButtonPreferences)
+            }
         playbackEngineCoordinator?.onPlaybackBoundary = { boundary ->
             mediaSession?.broadcastCustomCommand(
                 PlaybackBoundarySessionEvent.command,
@@ -177,6 +185,8 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        unregisterLyricsPreferenceListener?.invoke()
+        unregisterLyricsPreferenceListener = null
         sessionScope?.cancel()
         sessionScope = null
         trustedMediaItemResolver = null
@@ -222,7 +232,26 @@ class MicaMediaService : MediaSessionService() {
 
                 // Media3's default callback preserves its standard trusted/untrusted player
                 // command rules. Mica-specific capabilities are handled below and are explicit.
-                return super.onConnect(session, controller).also {
+                val defaultResult = super.onConnect(session, controller)
+                if (!controller.isTrusted && controller.packageName != packageName) {
+                    return defaultResult.also {
+                        grantArtworkUriPermissions(
+                            targetPackage = controller.packageName,
+                            mediaItems = session.player.timelineMediaItems(),
+                        )
+                    }
+                }
+                val availableSessionCommands = defaultResult.availableSessionCommands
+                    .buildUpon()
+                    .add(ExternalLyricsSessionCommands.toggleDesktopLock)
+                    .build()
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailablePlayerCommands(defaultResult.availablePlayerCommands)
+                    .setAvailableSessionCommands(availableSessionCommands)
+                    .setMediaButtonPreferences(
+                        ExternalLyricsSessionCommands.mediaButtonPreferences(this@MicaMediaService),
+                    )
+                    .build().also {
                     grantArtworkUriPermissions(
                         targetPackage = controller.packageName,
                         mediaItems = session.player.timelineMediaItems(),
@@ -237,6 +266,24 @@ class MicaMediaService : MediaSessionService() {
                 args: Bundle,
             ): ListenableFuture<SessionResult> {
                 val identity = controllerIdentity(controller)
+                if (customCommand.customAction ==
+                    ExternalLyricsSessionCommands.TOGGLE_DESKTOP_LOCK_ACTION &&
+                    isMediaNotificationController(session, controller)
+                ) {
+                    mainHandler.post {
+                        if (LyricsPreferences.externalLyricsMode(this@MicaMediaService) ==
+                            com.mica.music.data.ExternalLyricsMode.DESKTOP
+                        ) {
+                            LyricsPreferences.setDesktopLyricsLocked(
+                                this@MicaMediaService,
+                                !LyricsPreferences.desktopLyricsLocked(this@MicaMediaService),
+                            )
+                            DesktopLyricsOverlayController.refreshSettings(this@MicaMediaService)
+                            updateMediaButtonPreferences()
+                        }
+                    }
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
                 if (!ControllerCapabilityPolicy.allowsIncomingCustomAction(
                         identity = identity,
                         ownPackageName = packageName,
@@ -344,6 +391,22 @@ class MicaMediaService : MediaSessionService() {
                 )
             }
         }
+    }
+
+    private fun isMediaNotificationController(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo,
+    ): Boolean {
+        val notificationController = session.getMediaNotificationControllerInfo()
+            ?: return false
+        return notificationController.packageName == controller.packageName &&
+            notificationController.uid == controller.uid
+    }
+
+    private fun updateMediaButtonPreferences() {
+        mediaSession?.setMediaButtonPreferences(
+            ExternalLyricsSessionCommands.mediaButtonPreferences(this),
+        )
     }
 
     private fun Player.timelineMediaItems(): List<MediaItem> =

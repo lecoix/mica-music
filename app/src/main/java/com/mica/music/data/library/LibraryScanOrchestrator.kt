@@ -283,13 +283,13 @@ internal class LibraryScanOrchestrator(
                 },
                 cachedSongs,
                 { batch ->
-                    if (backing.isActiveGeneration(generation)) {
+                    val committed = backing.storeWriteIfCurrent(generation) {
                         if (batch.readFailedCount > 0) {
                             backing.scanEnvironment.persistLyricsRetryRequired(true)
                         }
-                        withContext(backing.ioDispatcher) {
-                            backing.libraryStore.applyLyricsBatch(batch.completed)
-                        }
+                        backing.libraryStore.applyLyricsBatch(batch.completed)
+                    }
+                    if (committed) {
                         SharedLyricsMemoryCache.invalidateSongs(batch.completed.map { it.songId })
                     }
                 },
@@ -387,19 +387,6 @@ internal class LibraryScanOrchestrator(
                 "generation=$generation visible=${prepared.visible.size}",
         )
         if (backing.isActiveGeneration(generation)) {
-            withContext(backing.ioDispatcher) {
-                backing.scanEnvironment.pruneAlbumArtCache(prepared.visible) {
-                    backing.isActiveGeneration(generation)
-                }
-            }
-            if (!backing.isActiveGeneration(generation)) {
-                DiagnosticLog.event(
-                    "LibraryScan",
-                    "publishSongs discarded after artwork prune generation=$generation " +
-                        "current=${backing.scanGeneration}",
-                )
-                return null
-            }
             catalog.adoptPrepared(prepared)
             catalog.releaseLoadedLyrics()
             backing.totalSizeMb = totalSizeMb
@@ -409,6 +396,7 @@ internal class LibraryScanOrchestrator(
             backing.lastScanError = null
             backing.scanEnvironment.persistLastScanSource(source)
             backing.lastScanSyncSummary = sync.toSummary()
+            backing.launchAlbumArtCacheMaintenance(prepared.visible)
         }
         return sync
     }

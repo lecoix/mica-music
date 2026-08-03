@@ -11,7 +11,6 @@ import com.mica.music.data.Song
 import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.asLibraryPlaybackQueueTarget
 import com.mica.music.data.preferences.LibraryBrowseSettings
-import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.data.toLibraryQueueSyncInput
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
@@ -50,12 +49,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "loadCached returned durMs=${SystemClock.elapsedRealtime() - startupStartedMs} " +
                     "songs=${songs.size} hasScanned=${library.hasScanned}",
             )
-            val pruneStartedMs = SystemClock.elapsedRealtime()
-            ScanCacheManager.pruneAlbumArtCache(application, songs) { true }
-            DiagnosticLog.event(
-                "LibraryStartup",
-                "pruneAlbumArt end durMs=${SystemClock.elapsedRealtime() - pruneStartedMs} songs=${songs.size}",
-            )
+            library.launchAlbumArtCacheMaintenance("startup")
             if (songs.isNotEmpty()) {
                 library.launchArtworkCacheRepairIfNeeded("startup")
             }

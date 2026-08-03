@@ -6,7 +6,6 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.mica.music.data.local.MicaDatabase
-import java.io.File
 import java.io.FileNotFoundException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -46,33 +45,32 @@ class AlbumArtContentProvider : ContentProvider() {
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (mode != "r") throw FileNotFoundException("Album artwork provider is read-only")
-        val file = resolveArtworkFile(uri)
-            ?: throw FileNotFoundException("Unable to resolve album artwork: $uri")
-        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        val appContext = context?.applicationContext
+            ?: throw FileNotFoundException("Album artwork provider is unavailable")
+        AlbumArtCache.openExistingManagedArtwork(appContext, uri.toString())?.let { return it }
+        if (!restoreArtworkFile(uri)) {
+            throw FileNotFoundException("Unable to resolve album artwork: $uri")
+        }
+        return AlbumArtCache.openExistingManagedArtwork(appContext, uri.toString())
+            ?: throw FileNotFoundException("Unable to open restored album artwork: $uri")
     }
 
-    private fun resolveArtworkFile(uri: Uri): File? {
-        val appContext = context?.applicationContext ?: return null
-        val managed = AlbumArtCache.parseManagedArtworkUri(appContext, uri.toString()) ?: return null
-        AlbumArtCache.fileForManagedArtwork(appContext, uri.toString())
-            ?.takeIf { it.isFile && it.length() > 0L }
-            ?.let { resident ->
-                resident.setLastModified(System.currentTimeMillis())
-                return resident
-            }
+    private fun restoreArtworkFile(uri: Uri): Boolean {
+        val appContext = context?.applicationContext ?: return false
+        val managed = AlbumArtCache.parseManagedArtworkUri(appContext, uri.toString()) ?: return false
 
         return runBlocking(Dispatchers.IO) {
             val song = MicaDatabase.get(appContext).songDao().getById(managed.songId)
-                ?: return@runBlocking null
+                ?: return@runBlocking false
             val bytes = AudioMetadataProbe.readEmbeddedArtworkBytes(appContext, song)
-                ?: return@runBlocking null
+                ?: return@runBlocking false
             val restored = AlbumArtCache.storeEmbeddedPicture(appContext, bytes)
             if (restored.nameWithoutExtension != managed.contentKey) {
                 restored.delete()
-                return@runBlocking null
+                return@runBlocking false
             }
             AlbumArtCache.trimToBudget(appContext, protectedFile = restored)
-            restored
+            true
         }
     }
 }

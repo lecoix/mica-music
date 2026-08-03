@@ -18,7 +18,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 
 internal class MusicLibraryBacking(
@@ -96,6 +99,73 @@ internal class MusicLibraryBacking(
 
     fun isLatestStoreRevision(revision: Long): Boolean =
         revision == latestStoreRevision.get()
+
+    /** Runs maintenance after any in-flight scan has settled, using the committed snapshot. */
+    fun launchAlbumArtCacheMaintenance(fallbackSongs: List<Song>) {
+        val fallback = fallbackSongs.toList()
+        ioScope.launch {
+            scanExecutionMutex.withLock {
+                if (!released) scanEnvironment.pruneAlbumArtCache(fallback)
+            }
+        }
+    }
+
+    /**
+     * Runs a catalog-dependent publication while no complete scan can adopt a newer snapshot.
+     * Partial derived state must use this seam before publishing to memory or the store.
+     */
+    suspend fun <T> withCurrentCatalogPublication(
+        expectedCatalogRevision: Long,
+        block: suspend () -> T,
+    ): T? = scanExecutionMutex.withLock {
+        if (released || catalogRevision != expectedCatalogRevision) return@withLock null
+        block()
+    }
+
+    /**
+     * Writes derived state for the current catalog under the store revision protocol.
+     * The caller takes [scanExecutionMutex] separately for the short in-memory publication.
+     */
+    suspend fun storeWriteIfCurrentCatalog(
+        expectedCatalogRevision: Long,
+        isCurrent: () -> Boolean,
+        block: suspend () -> Unit,
+    ): Boolean {
+        val storeRevision = nextStoreRevision()
+        return storeSyncMutex.withLock {
+            if (
+                released ||
+                catalogRevision != expectedCatalogRevision ||
+                !isCurrent() ||
+                !isLatestStoreRevision(storeRevision)
+            ) {
+                return@withLock false
+            }
+            withContext(ioDispatcher) { block() }
+            !released &&
+                catalogRevision == expectedCatalogRevision &&
+                isCurrent() &&
+                isLatestStoreRevision(storeRevision)
+        }
+    }
+
+    /**
+     * Runs a store side effect only while the complete-snapshot generation and store revision
+     * remain current. The lock intentionally covers the whole IO transaction so clear/commit
+     * cannot finish before an older transaction and then be followed by that older write.
+     */
+    suspend fun storeWriteIfCurrent(
+        generation: Int,
+        block: suspend () -> Unit,
+    ): Boolean {
+        val storeRevision = nextStoreRevision()
+        return storeSyncMutex.withLock {
+            if (!isActiveGeneration(generation)) return@withLock false
+            if (!isLatestStoreRevision(storeRevision)) return@withLock false
+            withContext(ioDispatcher) { block() }
+            isActiveGeneration(generation) && isLatestStoreRevision(storeRevision)
+        }
+    }
 
     fun release() {
         released = true

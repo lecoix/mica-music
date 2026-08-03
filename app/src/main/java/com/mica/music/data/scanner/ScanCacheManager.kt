@@ -37,9 +37,8 @@ internal object ScanCacheManager {
     fun pruneAlbumArtCache(
         context: Context,
         songs: List<Song>,
-        shouldContinue: () -> Boolean = { true },
     ) {
-        AlbumArtCache.pruneUnreferenced(context, songs, shouldContinue)
+        AlbumArtCache.pruneUnreferenced(context, songs)
     }
 
     /** 删除上次扫描可能残留的 FFmpeg 临时文件。 */

@@ -5,11 +5,15 @@ import androidx.test.core.app.ApplicationProvider
 import com.mica.music.testutil.SongFixtures
 import java.io.File
 import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -109,26 +113,96 @@ class AlbumArtCacheTest {
     }
 
     @Test
-    fun pruneStopsBeforeDeletingWhenGenerationIsNoLongerActive() {
+    fun pruneDeletesOldUnreferencedArtworkButKeepsReferencedArtwork() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val keep = AlbumArtCache.fileForKey(context, "prune-keep-${System.nanoTime()}")
+        val contentKey = "content_v1_${"0".repeat(64)}"
+        val keepUri = AlbumArtCache.buildManagedArtworkUri(context, "prune-keep", contentKey)
+        val keep = AlbumArtCache.fileForManagedArtwork(context, keepUri)!!
         val orphan = AlbumArtCache.fileForKey(context, "prune-orphan-${System.nanoTime()}")
         keep.parentFile?.mkdirs()
         keep.writeBytes(byteArrayOf(1))
         orphan.writeBytes(byteArrayOf(2))
-        val song = SongFixtures.song("prune-keep").copy(albumArtUri = keep.toUri().toString())
-        var checks = 0
+        val song = SongFixtures.song("prune-keep").copy(albumArtUri = keepUri)
+        keep.setLastModified(1L)
+        orphan.setLastModified(1L)
 
         try {
-            AlbumArtCache.pruneUnreferenced(context, listOf(song)) {
-                checks++ == 0
-            }
+            AlbumArtCache.pruneUnreferenced(
+                context = context,
+                songs = listOf(song),
+                minimumAgeMs = 0L,
+                nowMs = { System.currentTimeMillis() + 60_000L },
+            )
 
-            assertEquals(true, keep.exists())
-            assertEquals(true, orphan.exists())
+            assertTrue(keep.exists())
+            assertFalse(orphan.exists())
         } finally {
             keep.delete()
             orphan.delete()
+        }
+    }
+
+    @Test
+    fun pruneGracePeriodKeepsFreshArtwork() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val fresh = AlbumArtCache.storeEmbeddedPicture(
+            context,
+            "fresh-prune-art-${System.nanoTime()}".toByteArray(),
+        )
+
+        try {
+            AlbumArtCache.pruneUnreferenced(context, emptyList())
+
+            assertTrue(fresh.exists())
+        } finally {
+            fresh.delete()
+        }
+    }
+
+    @Test
+    fun artworkStoreWaitsForPruneDeleteAndSurvivesAfterMaintenance() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val bytes = "prune-write-race-${System.nanoTime()}".toByteArray()
+        val existing = AlbumArtCache.storeEmbeddedPicture(context, bytes)
+        existing.setLastModified(1L)
+        val pruneEntered = CountDownLatch(1)
+        val releasePrune = CountDownLatch(1)
+        val storeStarted = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+
+        try {
+            val prune = executor.submit(Callable {
+                AlbumArtCache.pruneUnreferenced(
+                    context = context,
+                    songs = emptyList(),
+                    minimumAgeMs = 0L,
+                    nowMs = { System.currentTimeMillis() + 60_000L },
+                    beforeDelete = { file ->
+                        if (file.absolutePath == existing.absolutePath) {
+                            pruneEntered.countDown()
+                            check(releasePrune.await(5, TimeUnit.SECONDS))
+                        }
+                    },
+                )
+            })
+            assertTrue(pruneEntered.await(5, TimeUnit.SECONDS))
+
+            val store = executor.submit(Callable {
+                storeStarted.countDown()
+                AlbumArtCache.storeEmbeddedPicture(context, bytes.copyOf())
+            })
+            assertTrue(storeStarted.await(5, TimeUnit.SECONDS))
+            assertFalse(store.isDone)
+
+            releasePrune.countDown()
+            prune.get(5, TimeUnit.SECONDS)
+            val stored = store.get(5, TimeUnit.SECONDS)
+            assertTrue(stored.exists())
+            assertArrayEquals(bytes, stored.readBytes())
+        } finally {
+            releasePrune.countDown()
+            executor.shutdownNow()
+            existing.delete()
         }
     }
 

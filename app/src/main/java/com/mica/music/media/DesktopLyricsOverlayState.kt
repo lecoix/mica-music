@@ -3,6 +3,7 @@ package com.mica.music.media
 import com.mica.music.data.ExternalLyricsStyle
 import com.mica.music.data.LyricCue
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
+import com.mica.music.data.LyricsBilingualDisplayMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,17 @@ data class ExternalLyricsLine(
     val original: ExternalLyricsText? = null,
     val translation: ExternalLyricsText? = null,
 )
+
+/** Applies the selected external bilingual mode at the final rendering boundary. */
+internal fun ExternalLyricsLine.forExternalDisplay(
+    mode: LyricsBilingualDisplayMode,
+): ExternalLyricsLine = when (mode) {
+    LyricsBilingualDisplayMode.ALL -> this
+    LyricsBilingualDisplayMode.ORIGINAL ->
+        if (original != null) copy(translation = null) else this
+    LyricsBilingualDisplayMode.TRANSLATION ->
+        if (translation != null) copy(original = null) else this
+}
 
 data class ExternalLyricsSurfaceState(
     val line: ExternalLyricsLine? = null,
@@ -117,10 +129,18 @@ class DesktopLyricsOverlayStateStore {
 
     fun updatePosition(positionMs: Int) {
         val current = _state.value
-        _state.value = current.copy(
-            desktop = current.desktop.copy(positionMs = positionMs),
-            statusBar = current.statusBar.copy(positionMs = positionMs),
-        )
+        if (!current.desktop.needsPositionUpdates() && !current.statusBar.needsPositionUpdates()) return
+        val desktop = current.desktop.takeIf { it.needsPositionUpdates() }
+            ?.takeUnless { it.positionMs == positionMs }
+            ?.copy(positionMs = positionMs)
+            ?: current.desktop
+        val statusBar = current.statusBar.takeIf { it.needsPositionUpdates() }
+            ?.takeUnless { it.positionMs == positionMs }
+            ?.copy(positionMs = positionMs)
+            ?: current.statusBar
+        if (desktop != current.desktop || statusBar != current.statusBar) {
+            _state.value = current.copy(desktop = desktop, statusBar = statusBar)
+        }
     }
 
     fun setStyle(style: ExternalLyricsStyle) {
@@ -139,3 +159,9 @@ class DesktopLyricsOverlayStateStore {
         )
     }
 }
+
+private fun ExternalLyricsSurfaceState.needsPositionUpdates(): Boolean =
+    visible && (
+        line?.original?.cues?.isNotEmpty() == true ||
+            line?.translation?.cues?.isNotEmpty() == true
+        )

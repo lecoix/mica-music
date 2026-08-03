@@ -2,10 +2,12 @@ package com.mica.music.data.scanner
 
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import com.mica.music.data.Song
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 /** 深度扫描写入的 `cache/album_art` 内嵌封面文件。 */
 internal object AlbumArtCache {
@@ -17,8 +19,13 @@ internal object AlbumArtCache {
     private const val PATH_SONG = "song"
     private const val CONTENT_PREFIX = "content_v1_"
     private const val WRITE_LOCK_COUNT = 64
+    internal const val PRUNE_GRACE_PERIOD_MS = 5 * 60 * 1000L
     private val writeLocks = Array(WRITE_LOCK_COUNT) { Any() }
-    private val trimLock = Any()
+    /**
+     * Independent content-addressed writes share the read side. Maintenance takes the write
+     * side so check/delete cannot overlap a write or an existing-file open.
+     */
+    private val artworkAccessLock = ReentrantReadWriteLock()
     private var trackedDirectoryPath: String? = null
     private var trackedFileBytes = mutableMapOf<String, Long>()
     private var trackedTotalBytes = 0L
@@ -59,31 +66,33 @@ internal object AlbumArtCache {
         val target = File(currentAlbumArtDir(context), "$CONTENT_PREFIX$contentDigest.jpg")
         val lockIndex = (target.name.hashCode() and Int.MAX_VALUE) % writeLocks.size
 
-        synchronized(writeLocks[lockIndex]) {
-            if (target.isFile && target.length() == bytes.size.toLong()) {
-                target.setLastModified(System.currentTimeMillis())
-                return target
-            }
+        return withArtworkReadAccess {
+            synchronized(writeLocks[lockIndex]) {
+                if (target.isFile && target.length() == bytes.size.toLong()) {
+                    target.setLastModified(System.currentTimeMillis())
+                    return@withArtworkReadAccess target
+                }
 
-            target.parentFile?.mkdirs()
-            val temporary = File(target.parentFile, "${target.name}.part")
-            try {
-                FileOutputStream(temporary).use { output ->
-                    output.write(bytes)
-                    output.fd.sync()
+                target.parentFile?.mkdirs()
+                val temporary = File(target.parentFile, "${target.name}.part")
+                try {
+                    FileOutputStream(temporary).use { output ->
+                        output.write(bytes)
+                        output.fd.sync()
+                    }
+                    if (target.exists() && !target.delete()) {
+                        error("Unable to replace cached album art: ${target.absolutePath}")
+                    }
+                    check(temporary.renameTo(target)) {
+                        "Unable to publish cached album art: ${target.absolutePath}"
+                    }
+                    check(target.isFile && target.length() == bytes.size.toLong()) {
+                        "Cached album art was not published completely: ${target.absolutePath}"
+                    }
+                    return@withArtworkReadAccess target
+                } finally {
+                    temporary.delete()
                 }
-                if (target.exists() && !target.delete()) {
-                    error("Unable to replace cached album art: ${target.absolutePath}")
-                }
-                check(temporary.renameTo(target)) {
-                    "Unable to publish cached album art: ${target.absolutePath}"
-                }
-                check(target.isFile && target.length() == bytes.size.toLong()) {
-                    "Cached album art was not published completely: ${target.absolutePath}"
-                }
-                return target
-            } finally {
-                temporary.delete()
             }
         }
     }
@@ -129,7 +138,7 @@ internal object AlbumArtCache {
         protectedFile: File? = null,
     ) {
         require(maxBytes >= 0L)
-        synchronized(trimLock) {
+        withArtworkMaintenanceAccess {
             val directory = currentAlbumArtDir(context)
             val files = residentFiles(directory)
             val totalBytes = files.sumOf(File::length)
@@ -142,7 +151,7 @@ internal object AlbumArtCache {
     }
 
     private fun accountStoredFileAndTrim(context: Context, storedFile: File) {
-        synchronized(trimLock) {
+        withArtworkMaintenanceAccess {
             val directory = currentAlbumArtDir(context)
             ensureTrackedState(directory)
             val previousBytes = trackedFileBytes.put(storedFile.absolutePath, storedFile.length()) ?: 0L
@@ -271,6 +280,18 @@ internal object AlbumArtCache {
         )
     }
 
+    /** Opens an existing managed file while maintenance is excluded from the open. */
+    fun openExistingManagedArtwork(
+        context: Context,
+        uriString: String?,
+    ): ParcelFileDescriptor? = withArtworkReadAccess {
+        val file = fileForManagedArtwork(context, uriString)
+            ?.takeIf { it.isFile && it.length() > 0L }
+            ?: return@withArtworkReadAccess null
+        file.setLastModified(System.currentTimeMillis())
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
     fun digestFromArtUri(uriString: String?): String? {
         if (uriString.isNullOrBlank()) return null
         val name = Uri.parse(uriString).lastPathSegment ?: return null
@@ -281,26 +302,51 @@ internal object AlbumArtCache {
     fun pruneUnreferenced(
         context: Context,
         songs: List<Song>,
-        shouldContinue: () -> Boolean = { true },
+        minimumAgeMs: Long = PRUNE_GRACE_PERIOD_MS,
+        nowMs: () -> Long = System::currentTimeMillis,
+        beforeDelete: (File) -> Unit = {},
     ) {
+        require(minimumAgeMs >= 0L)
         val keep = HashSet<String>(songs.size)
         for (song in songs) {
-            if (!shouldContinue()) return
             if (isCachedArtUri(context, song.albumArtUri)) {
                 digestFromArtUri(song.albumArtUri)?.let(keep::add)
             }
         }
 
-        for (dir in listOf(currentAlbumArtDir(context), legacyAlbumArtDir(context))) {
-            if (!shouldContinue()) return
-            if (!dir.exists()) continue
-            for (file in dir.listFiles().orEmpty()) {
-                if (!shouldContinue()) return
-                if (!file.isFile) continue
-                if (file.nameWithoutExtension !in keep) {
-                    file.delete()
+        val cutoffMs = nowMs() - minimumAgeMs
+        withArtworkMaintenanceAccess {
+            for (dir in listOf(currentAlbumArtDir(context), legacyAlbumArtDir(context))) {
+                if (!dir.exists()) continue
+                for (file in dir.listFiles().orEmpty()) {
+                    if (!file.isFile) continue
+                    if (file.lastModified() > cutoffMs) continue
+                    if (file.nameWithoutExtension !in keep) {
+                        beforeDelete(file)
+                        file.delete()
+                    }
                 }
             }
+        }
+    }
+
+    private inline fun <T> withArtworkReadAccess(block: () -> T): T {
+        val lock = artworkAccessLock.readLock()
+        lock.lock()
+        return try {
+            block()
+        } finally {
+            lock.unlock()
+        }
+    }
+
+    private inline fun <T> withArtworkMaintenanceAccess(block: () -> T): T {
+        val lock = artworkAccessLock.writeLock()
+        lock.lock()
+        return try {
+            block()
+        } finally {
+            lock.unlock()
         }
     }
 

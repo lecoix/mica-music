@@ -126,6 +126,12 @@ internal val ExternalLyricsBilingualDisplayChoices = listOf(
     LyricsBilingualDisplayMode.ALL.ordinal to "\u5168\u6587",
 )
 
+internal val StatusBarLyricsTextAlignmentChoices = listOf(
+    LyricsPageAlignment.START,
+    LyricsPageAlignment.CENTER,
+    LyricsPageAlignment.END,
+).map { it.ordinal to it.settingsLabel }
+
 internal val ExternalLyricsVisibilityChoices = ExternalLyricsVisibilityMode.entries.map {
     it.ordinal to it.settingsLabel
 }

@@ -58,8 +58,11 @@ data class ExternalLyricsStyle(
     val desktopTranslationFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
     val statusBarOriginalFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
     val statusBarTranslationFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
+    val desktopBilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+    val statusBarBilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     val desktopWidthPercent: Int = DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT,
     val statusBarWidthPercent: Int = DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT,
+    val statusBarTextAlignment: LyricsPageAlignment = LyricsPageAlignment.CENTER,
 ) {
     val normalizedColors: List<Int>
         get() = normalizeExternalLyricsColors(colorsArgb)

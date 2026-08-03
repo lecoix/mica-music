@@ -11,6 +11,7 @@ import com.mica.music.data.preferences.AppearancePreferences
 import com.mica.music.data.preferences.FontPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.data.scanner.VideoCoverPosterPrefetcher
 import com.mica.music.util.DiagnosticLog
 
 /**
@@ -197,9 +198,17 @@ class AppUiSettings(context: Context) {
     )
         private set
 
+    var desktopLyricsWordByWordEnabled by mutableStateOf(
+        LyricsPreferences.desktopLyricsWordByWordEnabled(appContext),
+    )
+        private set
+
     var desktopLyricsWidthPercent by mutableIntStateOf(
         LyricsPreferences.desktopLyricsWidthPercent(appContext),
     )
+        private set
+
+    var desktopLyricsLocked by mutableStateOf(LyricsPreferences.desktopLyricsLocked(appContext))
         private set
 
     var statusBarLyricsEnabled by mutableStateOf(LyricsPreferences.statusBarLyricsEnabled(appContext))
@@ -227,6 +236,16 @@ class AppUiSettings(context: Context) {
 
     var statusBarLyricsBilingualDisplayMode by mutableStateOf(
         LyricsPreferences.statusBarLyricsBilingualDisplayMode(appContext),
+    )
+        private set
+
+    var statusBarLyricsWordByWordEnabled by mutableStateOf(
+        LyricsPreferences.statusBarLyricsWordByWordEnabled(appContext),
+    )
+        private set
+
+    var statusBarLyricsTextAlignment by mutableStateOf(
+        LyricsPreferences.statusBarLyricsTextAlignment(appContext),
     )
         private set
 
@@ -373,6 +392,7 @@ class AppUiSettings(context: Context) {
     fun updateVideoAlbumCoverEnabled(enabled: Boolean) {
         videoAlbumCoverEnabled = enabled
         PlaybackUiPreferences.setVideoAlbumCoverEnabled(appContext, enabled)
+        if (!enabled) VideoCoverPosterPrefetcher.cancel()
     }
 
     fun updateCustomPlayerLowerLayout(config: PlayerLowerLayoutConfig) {
@@ -578,12 +598,22 @@ class AppUiSettings(context: Context) {
         LyricsPreferences.setDesktopLyricsBilingualDisplayMode(appContext, mode)
     }
 
+    fun updateDesktopLyricsWordByWordEnabled(enabled: Boolean) {
+        desktopLyricsWordByWordEnabled = enabled
+        LyricsPreferences.setDesktopLyricsWordByWordEnabled(appContext, enabled)
+    }
+
     fun updateDesktopLyricsWidthPercent(percent: Int) {
         desktopLyricsWidthPercent = percent.coerceIn(
             MIN_EXTERNAL_LYRICS_WIDTH_PERCENT,
             MAX_EXTERNAL_LYRICS_WIDTH_PERCENT,
         )
         LyricsPreferences.setDesktopLyricsWidthPercent(appContext, desktopLyricsWidthPercent)
+    }
+
+    fun updateDesktopLyricsLocked(locked: Boolean) {
+        desktopLyricsLocked = locked
+        LyricsPreferences.setDesktopLyricsLocked(appContext, locked)
     }
 
     fun updateStatusBarLyricsEnabled(enabled: Boolean) {
@@ -630,6 +660,16 @@ class AppUiSettings(context: Context) {
     fun updateStatusBarLyricsBilingualDisplayMode(mode: LyricsBilingualDisplayMode) {
         statusBarLyricsBilingualDisplayMode = mode
         LyricsPreferences.setStatusBarLyricsBilingualDisplayMode(appContext, mode)
+    }
+
+    fun updateStatusBarLyricsWordByWordEnabled(enabled: Boolean) {
+        statusBarLyricsWordByWordEnabled = enabled
+        LyricsPreferences.setStatusBarLyricsWordByWordEnabled(appContext, enabled)
+    }
+
+    fun updateStatusBarLyricsTextAlignment(alignment: LyricsPageAlignment) {
+        statusBarLyricsTextAlignment = alignment
+        LyricsPreferences.setStatusBarLyricsTextAlignment(appContext, alignment)
     }
 
     fun updateStatusBarLyricsWidthPercent(percent: Int) {

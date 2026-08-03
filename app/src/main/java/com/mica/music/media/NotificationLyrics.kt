@@ -18,6 +18,8 @@ object NotificationLyrics {
     data class DisplayOptions(
         val splitEnabled: Boolean,
         val bilingualMode: LyricsBilingualDisplayMode,
+        val wordByWordEnabled: Boolean = true,
+        val hideTranslationWhenWordByWordEnabled: Boolean = false,
     )
 
     fun displayOptions(context: Context): DisplayOptions =

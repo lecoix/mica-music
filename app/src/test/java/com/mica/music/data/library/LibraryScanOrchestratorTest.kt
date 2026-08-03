@@ -199,7 +199,50 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
-    fun successfulScanPrunesArtworkOnlyAfterTheNewLibraryIsCommitted() = runTest {
+    fun clearLibraryDoesNotAllowAnInFlightLyricsBatchToRepopulateTheClearedStore() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val harness = scanHarness(scanner, store)
+        val releaseLyricsBatch = CompletableDeferred<Unit>()
+        store.lyricsBatchGate = releaseLyricsBatch
+        val song = SongFixtures.song("clear-lyrics-race")
+
+        val scan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        val applyBatch = async {
+            scanner.deviceRequests.single().onLyricsBatch?.invoke(
+                LyricsScanBatch(
+                    completed = listOf(
+                        ScannedSongLyrics(
+                            song.id,
+                            song.lyricsCacheRevision,
+                            LyricsSlots(embedded = song.lyricsDocument),
+                        ),
+                    ),
+                    readFailedCount = 0,
+                ),
+            )
+        }
+        runCurrent()
+        assertTrue(store.lyricsBatchStarted.isCompleted)
+
+        val generationBeforeClear = harness.backing.scanGeneration
+        harness.backing.folder.clearLibrary()
+        runCurrent()
+        assertTrue(harness.backing.scanGeneration > generationBeforeClear)
+
+        releaseLyricsBatch.complete(Unit)
+        applyBatch.await()
+        runCurrent()
+
+        assertTrue(store.appliedLyrics.isEmpty())
+        assertTrue(store.clearCompleted)
+        scan.cancelAndJoin()
+        harness.backing.release()
+    }
+
+    @Test
+    fun successfulScanSchedulesArtworkMaintenanceAfterTheNewLibraryIsCommitted() = runTest {
         val scanner = ControlledScanner()
         val store = FakeLibraryStore()
         val environment = FakeScanEnvironment()
@@ -212,6 +255,7 @@ class LibraryScanOrchestratorTest {
 
         scanner.deviceRequests.single().result.complete(ScanResult(scanned, 2))
         scan.await()
+        runCurrent()
 
         assertEquals(scanned.map(Song::id), store.syncedSongs.map(Song::id))
         assertEquals(scanned.map(Song::id), environment.prunedSongIds)
@@ -220,7 +264,7 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
-    fun generationChangeDuringArtworkPruneDiscardsPreparedSnapshot() = runTest {
+    fun generationChangeDuringBackgroundArtworkMaintenanceDoesNotDiscardPublishedSnapshot() = runTest {
         val scanner = ControlledScanner()
         val store = FakeLibraryStore()
         val environment = FakeScanEnvironment()
@@ -235,11 +279,11 @@ class LibraryScanOrchestratorTest {
             ScanResult(listOf(SongFixtures.song("invalidated")), 1),
         )
         scan.await()
+        runCurrent()
 
         assertTrue(environment.prunedSongIds.isNotEmpty())
-        assertFalse(environment.pruneShouldContinue?.invoke() ?: true)
-        assertTrue(harness.backing.songs.isEmpty())
-        assertFalse(harness.backing.hasScanned)
+        assertEquals(listOf("invalidated"), harness.backing.songs.map(Song::id))
+        assertTrue(harness.backing.hasScanned)
         harness.backing.release()
     }
 
@@ -450,6 +494,9 @@ class LibraryScanOrchestratorTest {
     ) : LibraryStore {
         var syncedSongs: List<Song> = emptyList()
         val appliedLyrics = mutableListOf<ScannedSongLyrics>()
+        val lyricsBatchStarted = CompletableDeferred<Unit>()
+        var lyricsBatchGate: CompletableDeferred<Unit>? = null
+        var clearCompleted = false
 
         override suspend fun loadCached(): CachedLibrary? =
             cachedLoader?.invoke() ?: cached
@@ -487,9 +534,13 @@ class LibraryScanOrchestratorTest {
 
         override suspend fun clear() {
             syncedSongs = emptyList()
+            appliedLyrics.clear()
+            clearCompleted = true
         }
 
         override suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) {
+            lyricsBatchStarted.complete(Unit)
+            lyricsBatchGate?.await()
             appliedLyrics += batch
         }
 
@@ -520,16 +571,14 @@ class LibraryScanOrchestratorTest {
     ) : ScanEnvironment {
         var prunedSongIds: List<String> = emptyList()
         var duringPrune: (() -> Unit)? = null
-        var pruneShouldContinue: (() -> Boolean)? = null
         var prefetchedVideoCoverUris: List<String> = emptyList()
         override fun hasAudioReadPermission(): Boolean = true
         override fun canReadTree(treeUri: Uri): Boolean = true
         override fun currentTimeMillis(): Long = 1_234L
         override fun playStats(songId: String): PlayStats = PlayStats(0, 0)
         override fun clearTransientCache() = Unit
-        override fun pruneAlbumArtCache(songs: List<Song>, shouldContinue: () -> Boolean) {
+        override fun pruneAlbumArtCache(songs: List<Song>) {
             prunedSongIds = songs.map(Song::id)
-            pruneShouldContinue = shouldContinue
             duringPrune?.invoke()
         }
         override fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) {

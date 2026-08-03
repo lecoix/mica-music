@@ -5,8 +5,12 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.media.MediaMetadataRetriever
 import com.mica.music.util.DiagnosticLog
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.FutureTask
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * After folder scan publishes matched video covers, extract first-frame posters
@@ -15,29 +19,66 @@ import java.util.concurrent.atomic.AtomicLong
 internal object VideoCoverPosterPrefetcher {
     private const val MaxEdgePx = 720
 
-    private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "video-cover-poster-prefetch").apply { isDaemon = true }
-    }
+    private val executor = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(1),
+        ThreadFactory { runnable ->
+            Thread(runnable, "video-cover-poster-prefetch").apply { isDaemon = true }
+        },
+    )
     private val generation = AtomicLong(0)
+    private val enqueueLock = Any()
+    private var latestTask: FutureTask<Unit>? = null
+
+    fun cancel() {
+        synchronized(enqueueLock) {
+            generation.incrementAndGet()
+            latestTask?.let { task ->
+                task.cancel(true)
+                executor.remove(task)
+            }
+            latestTask = null
+        }
+    }
 
     fun enqueue(context: Context, uris: Collection<String>) {
         val unique = uris.mapNotNull { it.takeIf(String::isNotBlank) }.distinct()
-        if (unique.isEmpty()) return
         val appContext = context.applicationContext
-        val gen = generation.incrementAndGet()
-        executor.execute {
-            val stats = prefetchVideoCoverPosters(
-                uris = unique,
-                isCached = { VideoCoverPosterStore.isCached(appContext, it) },
-                extract = { extractFirstFrame(appContext, it) },
-                store = { uri, bitmap -> VideoCoverPosterStore.put(appContext, uri, bitmap) },
-                shouldContinue = { generation.get() == gen },
-            )
-            DiagnosticLog.event(
-                "VideoCover",
-                "prefetch gen=$gen stored=${stats.stored} skipped=${stats.skipped} " +
-                    "failed=${stats.failed} total=${stats.total}",
-            )
+        synchronized(enqueueLock) {
+            val gen = generation.incrementAndGet()
+            latestTask?.let { task ->
+                task.cancel(true)
+                executor.remove(task)
+            }
+            latestTask = null
+            if (unique.isEmpty()) return
+
+            lateinit var task: FutureTask<Unit>
+            task = FutureTask {
+                try {
+                    val stats = prefetchVideoCoverPosters(
+                        uris = unique,
+                        isCached = { VideoCoverPosterStore.isCached(appContext, it) },
+                        extract = { extractFirstFrame(appContext, it) },
+                        store = { uri, bitmap -> VideoCoverPosterStore.put(appContext, uri, bitmap) },
+                        shouldContinue = { generation.get() == gen },
+                    )
+                    DiagnosticLog.event(
+                        "VideoCover",
+                        "prefetch gen=$gen stored=${stats.stored} skipped=${stats.skipped} " +
+                            "failed=${stats.failed} total=${stats.total}",
+                    )
+                } finally {
+                    synchronized(enqueueLock) {
+                        if (latestTask === task) latestTask = null
+                    }
+                }
+            }
+            latestTask = task
+            executor.execute(task)
         }
     }
 
@@ -66,6 +107,10 @@ internal object VideoCoverPosterPrefetcher {
                 continue
             }
             val bitmap = extract(uri)
+            if (!shouldContinue()) {
+                recycleIfNeeded(bitmap)
+                break
+            }
             if (bitmap == null || bitmap.isRecycled) {
                 failed++
                 continue
@@ -79,6 +124,12 @@ internal object VideoCoverPosterPrefetcher {
             stored = stored,
             failed = failed,
         )
+    }
+
+    private fun recycleIfNeeded(bitmap: Bitmap?) {
+        if (bitmap != null && !bitmap.isRecycled) {
+            runCatching { bitmap.recycle() }
+        }
     }
 
     private fun extractFirstFrame(context: Context, uriString: String): Bitmap? {

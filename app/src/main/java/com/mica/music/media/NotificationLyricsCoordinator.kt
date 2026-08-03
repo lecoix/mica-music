@@ -12,6 +12,7 @@ import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.ExternalLyricsMode
@@ -366,10 +367,14 @@ internal class NotificationLyricsCoordinator(
         val externalDisplay = when {
             desktopLyricsEnabled -> display.copy(
                 bilingualMode = LyricsPreferences.desktopLyricsBilingualDisplayMode(appContext),
+                wordByWordEnabled = LyricsPreferences.desktopLyricsWordByWordEnabled(appContext),
+                hideTranslationWhenWordByWordEnabled = true,
             )
             statusBarLyricsEnabled -> display.copy(
                 splitEnabled = LyricsPreferences.statusBarLyricsSplitEnabled(appContext),
                 bilingualMode = LyricsPreferences.statusBarLyricsBilingualDisplayMode(appContext),
+                wordByWordEnabled = LyricsPreferences.statusBarLyricsWordByWordEnabled(appContext),
+                hideTranslationWhenWordByWordEnabled = true,
             )
             else -> display
         }
@@ -390,6 +395,7 @@ internal class NotificationLyricsCoordinator(
             spec.lyricsDataVersion.toString(),
             display.splitEnabled.toString(),
             display.bilingualMode.name,
+            display.wordByWordEnabled.toString(),
         ).joinToString("|")
         val signature = NotificationLyrics.signature(song.id, index, "$inputRevision|$displayLine")
         if (signature == lastSignature) {
@@ -574,16 +580,27 @@ internal fun buildExternalLyricsLine(
             allRows.size >= 2 -> allRows.drop(1).joinToString(" ") { it.text.trim() }
             else -> ""
         }.trim()
-        val originalCues = node.tokens
-            .filter { it.partRole == LyricTextRole.ORIGINAL || it.partRole == LyricTextRole.EXTRA }
-            .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text) }
-        val translationCues = node.tokens
-            .filter { it.partRole == LyricTextRole.TRANSLATION }
-            .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text) }
+        val originalCues = externalLyricsWordCues(
+            tokens = node.tokens.filter {
+                it.partRole == LyricTextRole.ORIGINAL || it.partRole == LyricTextRole.EXTRA
+            },
+            enabled = display.wordByWordEnabled,
+        )
+        val translationCues = externalLyricsWordCues(
+            tokens = node.tokens.filter { it.partRole == LyricTextRole.TRANSLATION },
+            enabled = display.wordByWordEnabled,
+        )
 
         val bilingual = hasSemanticTranslation || allRows.size >= 2
+        val bilingualMode = if (
+            display.wordByWordEnabled && display.hideTranslationWhenWordByWordEnabled
+        ) {
+            LyricsBilingualDisplayMode.ORIGINAL
+        } else {
+            display.bilingualMode
+        }
         if (!display.splitEnabled) {
-            val collapsedText = when (display.bilingualMode) {
+            val collapsedText = when (bilingualMode) {
                 LyricsBilingualDisplayMode.ORIGINAL -> baseOriginal
                 LyricsBilingualDisplayMode.TRANSLATION -> baseTranslation.ifBlank { baseOriginal }
                 LyricsBilingualDisplayMode.ALL -> listOf(baseOriginal, baseTranslation)
@@ -592,8 +609,8 @@ internal fun buildExternalLyricsLine(
             }.ifBlank { rawText.replace(Regex("\\s+"), " ").trim() }
             val selectedCues = when {
                 !bilingual -> originalCues
-                display.bilingualMode == LyricsBilingualDisplayMode.ORIGINAL -> originalCues
-                display.bilingualMode == LyricsBilingualDisplayMode.TRANSLATION ->
+                bilingualMode == LyricsBilingualDisplayMode.ORIGINAL -> originalCues
+                bilingualMode == LyricsBilingualDisplayMode.TRANSLATION ->
                     translationCues.ifEmpty { originalCues }
                 else -> emptyList()
             }
@@ -604,7 +621,7 @@ internal fun buildExternalLyricsLine(
                 cues = selectedCues,
             )
             val renderAsTranslation =
-                display.bilingualMode == LyricsBilingualDisplayMode.TRANSLATION &&
+                bilingualMode == LyricsBilingualDisplayMode.TRANSLATION &&
                     baseTranslation.isNotBlank()
             return ExternalLyricsLine(
                 lineIndex = index,
@@ -615,11 +632,11 @@ internal fun buildExternalLyricsLine(
             )
         }
 
-        val original = when (display.bilingualMode) {
+        val original = when (bilingualMode) {
             LyricsBilingualDisplayMode.TRANSLATION -> null
             else -> baseOriginal.takeIf { it.isNotBlank() }?.let { ExternalLyricsText(it, originalCues) }
         }
-        val translation = when (display.bilingualMode) {
+        val translation = when (bilingualMode) {
             LyricsBilingualDisplayMode.ORIGINAL -> null
             LyricsBilingualDisplayMode.TRANSLATION ->
                 (baseTranslation.ifBlank { baseOriginal })
@@ -642,3 +659,20 @@ internal fun buildExternalLyricsLine(
             translation = translation,
         )
     }
+
+private fun externalLyricsWordCues(
+    tokens: List<LyricToken>,
+    enabled: Boolean,
+): List<com.mica.music.data.LyricCue> {
+    if (!enabled || !isWordTimedTokens(tokens)) return emptyList()
+    return tokens
+        .filter { it.text.isNotBlank() }
+        .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text) }
+}
+
+internal fun isWordTimedTokens(tokens: List<LyricToken>): Boolean {
+    val meaningfulTokens = tokens.filter { it.text.isNotBlank() }
+    return meaningfulTokens.size >= 2 &&
+        meaningfulTokens.map { it.startMs }.distinct().size >= 2 &&
+        meaningfulTokens.zipWithNext().all { (left, right) -> right.startMs >= left.startMs }
+}
