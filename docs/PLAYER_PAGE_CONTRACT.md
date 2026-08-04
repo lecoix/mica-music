@@ -30,7 +30,7 @@
 | **标准**（`STANDARD`） | [`CoverGestureCoordinator.kt`](../app/src/main/java/com/mica/music/ui/screens/player/CoverGestureCoordinator.kt) | 横向轻扫 → `onPrevious` / `onNext` |
 | **自定义标准**（`CUSTOM_STANDARD`） | `CustomPlayerPagePanel` 统一六组件布局 | 标准封面手势保持；封面、信息行、标题、歌词、进度和控制按 `PlayerLowerLayoutConfig` 拖拽排序、缩放、显隐和调间距 |
 | **封面流**（平行 / 复古） | [`CoverFlowCarouselView`](../app/src/main/java/com/mica/music/ui/screens/player/view/CoverFlowCarouselView.kt) | 拖动跟手；松手超阈值 → `onPlayQueueIndex` / `onNext` / `onPrevious`；点击侧槽 → `onPlayQueueIndex` |
-| **拍立得**（`PHOTO_STACK`） | [`PhotoStackTransitionView`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackTransitionView.kt) | 轻扫最前卡切歌；前卡底带 seek；转场中禁触。详见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §13 |
+| **拍立得**（`PHOTO_STACK`） | [`PhotoStackTransitionView`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackTransitionView.kt) + [`PhotoStackLyricsTransition.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackLyricsTransition.kt) | 卡片轻扫切歌、前卡底带 seek；播放页空白区域左右滑进出歌词页并跟手；卡片/seek/控制/歌词列表继续各自消费手势。详见 [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §13 |
 | **粒子封面**（`PARTICLE_COVER`） | [`ParticleCoverPlayerLayer`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt) + [`ParticleCoverHost`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverHost.kt) | 全屏 GLES 层；切歌分解动画；**不**走标准轻扫/封面流。详见 [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0 |
 
 不新增 Controller API。封面流切歌动画由 View 监听 `currentIndex`（`CoverFlowCarouselHost.update` → `updateCurrentIndex`）驱动；拍立得经 `PhotoStackCarouselNavigationBridge`；粒子封面切歌由 `ParticleCoverHost` 内部阶段动画 + 播放器 `currentIndex` 同步。
@@ -148,13 +148,13 @@
 - [ ] 封面底边进度模式 ↔ 歌词页返回无跳变
 - [ ] 原样比例横/竖封面无两步位移
 - [ ] 封面流：平行 / 复古 × 拖动与按钮切歌，无闪帧（`CoverFlowRailsTest`）
-- [ ] 拍立得：轻扫切歌、前卡 seek、转场中不可 seek；× 各播放页背景
+- [ ] 拍立得：轻扫切歌、前卡 seek、转场中不可 seek；进入/退出歌词页的中间帧保持双页挂载且布局不跳；× 各播放页背景
 - [ ] 粒子封面：切歌分解/重组、歌词聚焦几何时 `ParticleCoverPlayerLayer` 与布局一致；预览页调参后播放页一致
 - [ ] 粒子 / 拍立得：确认沉浸模式入口不可用或无效
 - [ ] 手势导航条设备：背景铺满底边，控件避让 `navigationBars`
 - [ ] 迷你栏 → 播放页共享封面（含搜索/键盘场景，见共享元素文档）
 
-纯布局/歌词 helper 可补 JVM 单测：`CoverFlowRailsTest`、`PlayerPageLayoutEngineTest` 等。
+纯布局/歌词 helper 可补 JVM 单测：`CoverFlowRailsTest`、`PlayerPageLayoutEngineTest`、`PhotoStackLyricsTransitionTest` 等。
 
 ## 修订记录
 

@@ -251,6 +251,14 @@ fun NowPlayingContent(
         addToPlaylistSong != null ||
         sleepTimerSheetOpen ||
         playbackTuningSheetOpen
+    val motionEnabled = rememberMicaMotionEnabled()
+    val photoStackLyricsEnabled = uiSettings.playerCoverFlowMode.usesPhotoStack &&
+        !isLandscapeWindow
+    val photoStackLyricsTransition = rememberPhotoStackLyricsTransition(
+        enabled = photoStackLyricsEnabled,
+        open = lyricsExpanded,
+        motionEnabled = motionEnabled,
+    )
     var previousLandscapeWindow by remember { mutableStateOf(isLandscapeWindow) }
 
     LaunchedEffect(isLandscapeWindow) {
@@ -432,6 +440,11 @@ fun NowPlayingContent(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
+                .photoStackLyricsSwipe(
+                    enabled = photoStackLyricsEnabled && !playerOverlayOpen,
+                    transition = photoStackLyricsTransition,
+                    onSettled = { lyricsExpanded = it },
+                )
                 .then(
                     if (playerOverlayOpen) Modifier.clearAndSetSemantics { } else Modifier,
                 ),
@@ -501,7 +514,6 @@ fun NowPlayingContent(
                 restoreFromPreferencesOnDispose = true,
             )
 
-            val motionEnabled = rememberMicaMotionEnabled()
             val lyricsCloudAvailable = uiSettings.lyricsPageTheme == LyricsPageTheme.CLOUD &&
                 hasTimedPageLyrics
             val cloudPrewarmLyrics = remember(song.lyricsDocument) {
@@ -525,7 +537,7 @@ fun NowPlayingContent(
                     !letterLyricsAvailable &&
                     !customHorizontalClassicRequested
             val useVerticalCloudSplit = lyricsCloudUsesVerticalSplit(effectiveCoverFlowMode)
-            val lyricsPageTransition by animateFloatAsState(
+            val animatedLyricsPageTransition by animateFloatAsState(
                 targetValue = if (
                     lyricsCloudRequested ||
                     letterLyricsRequested ||
@@ -541,6 +553,21 @@ fun NowPlayingContent(
                 ),
                 label = "lyricsPageTransition",
             )
+            val photoStackLyricsPageEnabled = photoStackLyricsEnabled &&
+                effectiveCoverFlowMode.usesPhotoStack &&
+                !landscapeMode
+            val photoStackLyricsFrame = photoStackLyricsTransitionFrame(
+                progress = if (photoStackLyricsPageEnabled) {
+                    photoStackLyricsTransition.progress
+                } else {
+                    0f
+                },
+                targetOpen = photoStackLyricsPageEnabled && lyricsExpanded,
+                dragging = photoStackLyricsPageEnabled && photoStackLyricsTransition.dragging,
+            )
+            val lyricsPageTransition = if (photoStackLyricsPageEnabled) {
+                photoStackLyricsFrame.progress
+            } else animatedLyricsPageTransition
             // Landscape cover-flow + cloud: theme-specific cover exit (fold / scatter).
             val coverFlowCloudExitActive = landscapeCoverFlowCloudExitActive(
                 landscapeMode = landscapeMode,
@@ -588,7 +615,9 @@ fun NowPlayingContent(
             val landscapeCloudScatterPx =
                 with(density) { 96.dp.toPx() } * landscapeCloudExitProgress
 
-            val modelLyricsExpanded = classicLyricsExpanded && !landscapeMode
+            val modelLyricsExpanded = classicLyricsExpanded &&
+                !landscapeMode &&
+                !photoStackLyricsPageEnabled
             val pageModel = rememberPlayerPageUiModel(
                 surfaceState = surfaceState,
                 queueState = queueState,
@@ -602,6 +631,12 @@ fun NowPlayingContent(
                 immersiveAllowed = !landscapeMode,
             ) ?: return@BoxWithConstraints
             val previewFrame = pageModel.frameFor(screenHeight * 0.45f)
+            val photoStackLyricsPageVisible = photoStackLyricsPageEnabled &&
+                photoStackLyricsFrame.lyricsMounted
+            val photoStackClassicLyricsPageVisible = photoStackLyricsPageVisible &&
+                !lyricsCloudAvailable &&
+                !letterLyricsAvailable &&
+                !customHorizontalClassicRequested
             val customLayout = uiSettings.customPlayerLowerLayout.normalized()
             val customPanelHeight = (
                 fullHeight - contentPadding.calculateTopPadding() - contentPadding.calculateBottomPadding()
@@ -678,6 +713,7 @@ fun NowPlayingContent(
 
             val coverFlowStageActive = previewFrame.coverFlowStageActive
             val photoStackStageActive = effectiveCoverFlowMode.usesPhotoStack &&
+                photoStackLyricsFrame.playbackInputEnabled &&
                 previewFrame.photoStack.normalLayerVisible
             val onPlayerNext: () -> Unit = {
                 if (coverFlowStageActive) {
@@ -723,7 +759,10 @@ fun NowPlayingContent(
                     queue = pageModel.queue,
                     currentIndex = pageModel.currentIndex,
                     frame = if (coverFlowProgressOverride == null) {
-                        previewFrame
+                        previewFrame.copy(
+                            gesturesEnabled = previewFrame.gesturesEnabled &&
+                                photoStackLyricsFrame.playbackInputEnabled,
+                        )
                     } else {
                         previewFrame.copy(
                             coverFlowProgress = coverFlowProgressOverride,
@@ -731,6 +770,7 @@ fun NowPlayingContent(
                             // own rail math leaves only the center cover visible.
                             coverFlowStageActive = true,
                             gesturesEnabled = previewFrame.gesturesEnabled &&
+                                photoStackLyricsFrame.playbackInputEnabled &&
                                 coverFlowProgressOverride > 0.99f,
                         )
                     },
@@ -746,7 +786,7 @@ fun NowPlayingContent(
                         !lyricsExpanded,
                     trackSkipDirection = effectiveTrackWipeDirection,
                     particleCoverTuning = uiSettings.particleCoverTuning,
-                    lyricsExpanded = classicLyricsExpanded,
+                    lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
                     coverContentAlpha = coverContentAlpha,
                     onCoverBoundsChanged = onCoverBoundsChanged,
                     onCoverAspectRatioChanged = { coverAspectRatio = it },
@@ -886,7 +926,8 @@ fun NowPlayingContent(
                 LyricsCloudPanel(
                     renderState = lyricsRenderState,
                     isPlaying = surfaceState.isPlaying,
-                    isVisible = lyricsCloudRequested,
+                    isVisible = lyricsCloudRequested ||
+                        (photoStackLyricsPageEnabled && lyricsPageTransition > 0.001f),
                     colors = cloudColors,
                     onLineClick = actions.seekToMs,
                     bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
@@ -894,8 +935,16 @@ fun NowPlayingContent(
                         .fillMaxSize()
                         .padding(contentPadding)
                         .padding(top = landscapeTopPadding)
+                        .photoStackLyricsInputEnabled(
+                            enabled = !photoStackLyricsPageEnabled ||
+                                photoStackLyricsFrame.lyricsInputEnabled,
+                        )
                         .graphicsLayer {
-                            if (landscapeCloudBurstActive || coverFlowCloudExitActive) {
+                            if (photoStackLyricsPageEnabled) {
+                                translationX = with(density) { fullWidth.toPx() } *
+                                    (1f - lyricsPageTransition)
+                                alpha = lyricsPageTransition
+                            } else if (landscapeCloudBurstActive || coverFlowCloudExitActive) {
                                 val t = landscapeCloudExitProgress
                                 val scale = 0.88f + 0.12f * t
                                 scaleX = scale
@@ -925,32 +974,42 @@ fun NowPlayingContent(
                 )
             }
 
+            if (!photoStackLyricsPageEnabled || photoStackLyricsFrame.playbackMounted) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .photoStackLyricsInputEnabled(
+                        enabled = !photoStackLyricsPageEnabled ||
+                            photoStackLyricsFrame.playbackInputEnabled,
+                    )
                     .graphicsLayer {
                         translationX = when {
+                            photoStackLyricsPageEnabled -> with(density) { fullWidth.toPx() } *
+                                photoStackLyricsFrame.playbackTranslationFraction
                             letterLyricsAvailable -> 0f
                             useVerticalCloudSplit ||
                                 landscapeCloudBurstActive ||
                                 coverFlowCloudExitActive -> 0f
                             else -> -with(density) { fullWidth.toPx() } * lyricsPageTransition
                         }
+                        if (photoStackLyricsPageEnabled) {
+                            alpha = photoStackLyricsFrame.playbackAlpha
+                        }
                     },
             ) {
-            ParticleCoverPlayerLayer(
-                song = pageModel.song,
-                frame = previewFrame,
-                seekState = seekState,
-                screenWidth = fullWidth,
-                screenHeight = fullHeight,
-                contentPadding = contentPadding,
-                motionEnabled = motionEnabled,
-                coverColor = appearance.coverColor,
-                tuning = uiSettings.particleCoverTuning,
-                onAspectRatioChanged = { coverAspectRatio = it },
-                onMotionActiveChanged = { coverMotionActive = it },
-            )
+                ParticleCoverPlayerLayer(
+                    song = pageModel.song,
+                    frame = previewFrame,
+                    seekState = seekState,
+                    screenWidth = fullWidth,
+                    screenHeight = fullHeight,
+                    contentPadding = contentPadding,
+                    motionEnabled = motionEnabled,
+                    coverColor = appearance.coverColor,
+                    tuning = uiSettings.particleCoverTuning,
+                    onAspectRatioChanged = { coverAspectRatio = it },
+                    onMotionActiveChanged = { coverMotionActive = it },
+                )
 
             if (landscapeCloudFullyOpen) {
                 // Cloud owns the surface after the burst finishes; drop the player host.
@@ -1629,6 +1688,8 @@ fun NowPlayingContent(
                     }
                 }
             }
+            }
+            }
             if (
                 letterLyricsAvailable &&
                 (letterLyricsRequested || lyricsPageTransition > 0f)
@@ -1643,14 +1704,69 @@ fun NowPlayingContent(
                     sealRotationDegrees = uiSettings.letterSealRotationDegrees,
                     modifier = Modifier
                         .fillMaxSize()
+                        .photoStackLyricsInputEnabled(
+                            enabled = !photoStackLyricsPageEnabled ||
+                                photoStackLyricsFrame.lyricsInputEnabled,
+                        )
                         .graphicsLayer {
-                            alpha = lyricsPageTransition
+                            if (photoStackLyricsPageEnabled) {
+                                translationX = with(density) { fullWidth.toPx() } *
+                                    photoStackLyricsFrame.lyricsTranslationFraction
+                            }
+                            alpha = if (photoStackLyricsPageEnabled) {
+                                photoStackLyricsFrame.lyricsAlpha
+                            } else {
+                                lyricsPageTransition
+                            }
                         },
                 )
             }
+            if (photoStackClassicLyricsPageVisible) {
+                val lyricsFrame = pageModel.lyricsFrameFor(screenHeight)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding)
+                        .photoStackLyricsInputEnabled(
+                            enabled = photoStackLyricsFrame.lyricsInputEnabled,
+                        )
+                        .graphicsLayer {
+                            translationX = with(density) { fullWidth.toPx() } *
+                                photoStackLyricsFrame.lyricsTranslationFraction
+                            alpha = photoStackLyricsFrame.lyricsAlpha
+                        },
+                ) {
+                    key(song.id) {
+                        PhotoStackLyricsPage(
+                            renderState = lyricsRenderState,
+                            surfaceState = surfaceState,
+                            colors = playerUiColors,
+                            lower = lyricsFrame.lower,
+                            seekState = seekState,
+                            lyricsPageImmersive = uiSettings.lyricsPageImmersive,
+                            lyricsAlignment = uiSettings.lyricsPageAlignment,
+                            lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
+                            lyricsTranslationFontSizeSp =
+                                uiSettings.lyricsPageTranslationFontSizeSp,
+                            lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
+                            lyricsWordAnimationPreset = uiSettings.lyricsWordAnimationPreset,
+                            lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                            onLineClick = actions.seekToMs,
+                            onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
+                            onPrevious = onPlayerPrevious,
+                            onTogglePlay = actions.togglePlay,
+                            onNext = onPlayerNext,
+                            onToggleLyricsPageImmersive = actions.toggleLyricsPageImmersive,
+                            onOpenEqualizer = onOpenEqualizer,
+                            onOpenQueue = { queueSheetOpen = true },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+
             // No external OutgoingCoverArtworkWipe: disabled wipe themes raced a solid SongCover
             // frame on track change (particle classic lyrics). STANDARD/CUSTOM wipe in CoverSection.
-            }
         }
 
         MicaSnackbarHost(

@@ -655,7 +655,10 @@ internal fun NowPlayingCoverSection(
                 }
             }
             }
-            if (frame.lyricsProgress > 0.01f && !particleFrame.enabled) {
+            if (frame.lyricsProgress > 0.01f &&
+                !particleFrame.enabled &&
+                !coverFlowMode.usesPhotoStack
+            ) {
                 LyricsFocusHeaderOverlay(
                     title = displayTitle,
                     artist = song.artist,

@@ -22,7 +22,7 @@
 共性：
 
 - 播放 / 暂停：不改变封面区布局形态。
-- 歌词聚焦：临时退出特殊主题层，回到普通播放页布局过渡（拍立得 **`normalLayerVisible=false`**，且**不支持**下半屏沉浸）。
+- 歌词页：平行 / 复古继续使用特殊主题的歌词聚焦过渡；拍立得使用 §13.5 的页面级左右滑转场，保持播放页布局帧稳定（且**不支持**下半屏沉浸）。
 - 特殊主题下播放页强制**裁切填充**，忽略设置里「原样比例」。
 
 封面流（平行 / 复古）：启用后封面区常驻**横向七轨**队列带。  
@@ -60,6 +60,9 @@
 - 点击最前一张卡片**底部波形/进度带** → 拖动 seek（`TouchMode.Seek`）；进度嵌在前卡底部，非下半屏 chrome。
 - 长按最前一张 → `onCoverLongPress`。
 - 转场动画进行中 **禁用**触摸（`activeTransitionCards` 非空）。
+- 播放页其余未被子组件消费的空白区域：向左进入歌词页，向右退出；方向锁定后进度跟手，松手沿当前页方向移动不足四分之一屏宽回到原页。
+- 拍立得卡片、波形 seek、播放控制和歌词列表滚动继续由各自组件消费，不参与歌词页手势竞争。
+- 歌词页沿用粒子歌词的列表与底部播放控制，隐藏歌词聚焦顶栏；LIST / CLOUD / LETTER 以及无歌词空状态都使用同一套页面级滑入/滑出与淡出转场。
 - **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。
 
 **共用**：
@@ -118,7 +121,7 @@
 
 **已做**：播放页封面区；平行 / 复古七轨 ±3 + 拖动 + 按钮切歌；拍立得三卡栈 + 轻扫/seek；各主题 × 各播放页背景。
 
-**未做**：专辑浏览页 Cover Flow；强拟物舞台；拍立得 JVM 单测（封面流有 `CoverFlowRailsTest`）。
+**未做**：专辑浏览页 Cover Flow；强拟物舞台；拍立得歌词页转场的真机触摸与视觉自动化。
 
 ---
 
@@ -383,6 +386,7 @@ flowchart TB
 | 布局帧 | [`PlayerPageLayoutEngine.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PlayerPageLayoutEngine.kt) | `PhotoStackFrame`、卡片尺寸、垂直留白 |
 | 类型 | [`PlayerPageTypes.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PlayerPageTypes.kt) | `PhotoStackFrame` 字段 |
 | 导航桥 | [`PhotoStackCarouselNavigationBridge.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackCarouselNavigationBridge.kt) | 外部 `updateCurrentIndex` → View |
+| 歌词页转场 | [`PhotoStackLyricsTransition.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackLyricsTransition.kt) + [`PhotoStackLyricsPage.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackLyricsPage.kt) | 空白区域左右滑、跟手 progress、无顶栏歌词列表与底部 chrome |
 | 阴影调参 | [`PhotoStackShadowTuning.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackShadowTuning.kt) | 预览页可调；现网默认构造 |
 | 预览 | [`PhotoStackShadowPreviewScreen.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackShadowPreviewScreen.kt) | 设置 → 高级 → 阴影预览路由 |
 
@@ -430,7 +434,7 @@ flowchart TB
 
 `normalLayerVisible = photoStackMode && !lyricsExpanded && !immersiveLower && lyricsFocus≈0`。
 
-歌词聚焦时拍立得层隐藏，封面区走与普通模式相同的 shrink lerp。
+拍立得歌词页保持播放页布局帧稳定；页面级 `PhotoStackLyricsTransitionState` 持有单一跟手 progress，纯函数 `photoStackLyricsTransitionFrame` 决定双页挂载、位移、透明度与输入资格。转场中播放页和歌词页作为 sibling layer 持续挂载，只有到达 `0 / 1` 稳定端点后才卸载完全不可见的一页。播放页整体向左并淡出，歌词页从右侧滑入并淡入；关闭时反向执行。这样不改变拍立得卡片本身的尺寸、旋转、阴影和波形绘制，也不把卡片手势交给歌词页。
 
 ### 13.6 绘制管线
 
@@ -455,7 +459,7 @@ flowchart TB
 | 倒影 | 28% 条带翻转 | 无；纸框 + 阴影 |
 | 进度 UI | 下半屏 chrome 或封面底边 | **前卡底带**内嵌 seek |
 | 点击侧槽切歌 | 有 | 无（轻扫 / 按钮 / 队列） |
-| 单测 | `CoverFlowRailsTest` | 暂无 |
+| 单测 | `CoverFlowRailsTest` | `PhotoStackTransitionTest` + `PhotoStackLyricsTransitionTest` |
 
 **勿**把拍立得硬套 `CoverFlowRails` 或 Compose 七槽 `AnimatedContent`。
 
