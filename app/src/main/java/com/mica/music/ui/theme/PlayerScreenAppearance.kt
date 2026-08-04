@@ -40,7 +40,8 @@ fun rememberPlayerScreenAppearance(
         PlayerLowerBackgroundMode.COVER_GLOW,
         PlayerLowerBackgroundMode.DYNAMIC_LIGHT,
         PlayerLowerBackgroundMode.DYNAMIC_ARTWORK,
-        -> remember { blurredCoverPlayerContentColors() }
+        // ponytail: cover-sample luminance → B/W; overlays ignored until contrast bugs show up
+        -> remember(coverColor) { PlayerBackgroundBlend.readableTextColors(coverColor) }
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             remember(lowerSurface) { PlayerBackgroundBlend.readableTextColors(lowerSurface) }
         else -> rememberPlayerContentColors()

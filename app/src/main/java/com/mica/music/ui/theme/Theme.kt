@@ -192,9 +192,6 @@ data class PlayerContentColors(
 fun resolvePlayerInfoRowTextColor(colors: PlayerContentColors): Color =
     if (colors.primary.relativeLuminance() > 0.5f) colors.tertiary else colors.secondary
 
-/** 封面模糊模式：下半屏控件与文字统一为白色。 */
-fun blurredCoverPlayerContentColors(): PlayerContentColors = lightPlayerContentColors()
-
 /** 播放页/歌词页固定浅色（白）前景。 */
 fun lightPlayerContentColors(): PlayerContentColors = PlayerContentColors(
     primary = HifiPalette.NeutralWhite,

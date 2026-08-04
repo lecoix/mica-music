@@ -1,5 +1,6 @@
 package com.mica.music.ui.theme
 
+import androidx.compose.ui.graphics.Color
 import com.mica.music.data.PlaybackContentColorMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -12,6 +13,18 @@ class LyricsContentColorsTest {
         val auto = darkPlayerContentColors()
         val resolved = resolvePlaybackContentColors(auto, PlaybackContentColorMode.AUTO)
         assertSame(auto, resolved)
+    }
+
+    @Test
+    fun readableTextColors_usesDarkOnLightCoverAndLightOnDarkCover() {
+        assertEquals(
+            darkPlayerContentColors(),
+            PlayerBackgroundBlend.readableTextColors(Color.White),
+        )
+        assertEquals(
+            lightPlayerContentColors(),
+            PlayerBackgroundBlend.readableTextColors(Color.Black),
+        )
     }
 
     @Test
