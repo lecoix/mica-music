@@ -6,6 +6,47 @@ import org.junit.Test
 class LyricDisplayRowsTest {
 
     @Test
+    fun splitPartsAtIngestSplitsThinSpaceIntoOriginalAndTranslation() {
+        val split = LyricDisplayRows.splitPartsAtIngest(
+            listOf(
+                LyricTextPart(LyricTextRole.ORIGINAL, "未熟 無ジョウ されど\u2009不成熟 无情（常） 但是"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                LyricTextRole.ORIGINAL to "未熟 無ジョウ されど",
+                LyricTextRole.TRANSLATION to "不成熟 无情（常） 但是",
+            ),
+            split.map { it.role to it.text },
+        )
+    }
+
+    @Test
+    fun splitPartsAtIngestLeavesExistingTranslationTrackUntouched() {
+        val parts = listOf(
+            LyricTextPart(LyricTextRole.READING, "a i wa"),
+            LyricTextPart(LyricTextRole.ORIGINAL, "愛は"),
+            LyricTextPart(LyricTextRole.TRANSLATION, "爱"),
+        )
+
+        assertEquals(parts, LyricDisplayRows.splitPartsAtIngest(parts))
+    }
+
+    @Test
+    fun rowsFromPartsMergesWhenSplitDisabled() {
+        val rows = LyricDisplayRows.rowsFromParts(
+            parts = listOf(
+                LyricTextPart(LyricTextRole.ORIGINAL, "原文"),
+                LyricTextPart(LyricTextRole.TRANSLATION, "译文"),
+            ),
+            splitEnabled = false,
+        )!!
+
+        assertEquals(listOf("原文\u2009译文"), rows.map { it.text })
+    }
+
+    @Test
     fun splitRowsRetainRangesInOriginalText() {
         val rows = LyricDisplayRows.splitForDisplayRows("original / translation")
 

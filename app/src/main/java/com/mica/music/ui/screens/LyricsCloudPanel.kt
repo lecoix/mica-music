@@ -106,6 +106,7 @@ internal fun LyricsCloudPanel(
                 parts = renderState.document.lines.getOrNull(index)?.parts.orEmpty(),
                 mode = bilingualDisplayMode,
                 readingEnabled = readingEnabled,
+                splitEnabled = splitEnabled,
             ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
                 text = line.text,
                 enabled = splitEnabled,

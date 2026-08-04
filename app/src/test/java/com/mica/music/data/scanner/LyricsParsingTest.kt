@@ -1,5 +1,6 @@
 package com.mica.music.data.scanner
 
+import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricsSync
@@ -29,6 +30,32 @@ class LyricsParsingTest {
         assertEquals(LyricsFormat.TTML, document.format)
         assertEquals(LyricsOrigin.EXTERNAL, document.origin)
         assertEquals(listOf("main", "译文"), document.lines.single().parts.map { it.text })
+    }
+
+    @Test
+    fun lrcThinSpaceBilingualLineSplitsIntoPartsAtIngest() {
+        val thin = "\u2009"
+        val document = LyricsSanitizer.parseFilteredDocument(
+            """
+            [00:01.36]未熟 無ジョウ されど${thin}不成熟 无情（常） 但是
+            [00:07.40]美しくあれ${thin}如此美丽
+            """.trimIndent(),
+            origin = LyricsOrigin.EXTERNAL,
+        )
+
+        val first = document.lines.first { it.startMs == 1_360 }
+        assertEquals(
+            listOf(
+                LyricTextRole.ORIGINAL to "未熟 無ジョウ されど",
+                LyricTextRole.TRANSLATION to "不成熟 无情（常） 但是",
+            ),
+            first.parts.map { it.role to it.text },
+        )
+        val second = document.lines.first { it.startMs == 7_400 }
+        assertEquals(
+            listOf(LyricTextRole.ORIGINAL to "美しくあれ", LyricTextRole.TRANSLATION to "如此美丽"),
+            second.parts.map { it.role to it.text },
+        )
     }
 
     @Test

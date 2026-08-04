@@ -153,6 +153,7 @@ internal fun LyricsCloudLayoutPrewarm(
                 parts = document.lines.getOrNull(index)?.parts.orEmpty(),
                 mode = bilingualDisplayMode,
                 readingEnabled = readingEnabled,
+                splitEnabled = splitEnabled,
             ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
                 text = line.text,
                 enabled = splitEnabled,

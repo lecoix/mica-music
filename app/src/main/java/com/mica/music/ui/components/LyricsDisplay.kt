@@ -250,6 +250,7 @@ fun LyricLineBlock(
             parts = parts.orEmpty(),
             mode = bilingualDisplayMode,
             readingEnabled = lyricReadingEnabled,
+            splitEnabled = lyricSplitEnabled,
         ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
             text = text.orEmpty(),
             enabled = lyricSplitEnabled,

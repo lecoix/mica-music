@@ -86,6 +86,7 @@ object LyricDisplayRows {
         parts: List<LyricTextPart>,
         mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
         readingEnabled: Boolean = true,
+        splitEnabled: Boolean = true,
     ): List<DisplayRow>? {
         if (parts.isEmpty()) return null
         val reading = parts
@@ -115,6 +116,13 @@ object LyricDisplayRows {
             )
         }
 
+        if (!splitEnabled && translation.isNotEmpty()) {
+            val merged = listOf(original, translation)
+                .filter { it.isNotEmpty() }
+                .joinToString("\u2009")
+            return listOfNotNull(row(LyricTextRole.ORIGINAL, merged, 0))
+        }
+
         val built = when (mode) {
             LyricsBilingualDisplayMode.ALL -> buildList {
                 if (readingEnabled) row(LyricTextRole.READING, reading, 0)?.let(::add)
@@ -134,6 +142,27 @@ object LyricDisplayRows {
 
     fun isBilingualLine(text: String, enabled: Boolean = true): Boolean =
         splitForDisplay(text, enabled).size > 1
+
+    /**
+     * 入库时将单行 LRC 内的细空格 / 显式分隔符拆成 ORIGINAL + TRANSLATION parts。
+     * 已有 TRANSLATION part（NetEase 多轨、TTML role 等）的行保持不变。
+     */
+    fun splitPartsAtIngest(parts: List<LyricTextPart>): List<LyricTextPart> {
+        if (parts.isEmpty() || parts.any { it.role == LyricTextRole.TRANSLATION }) return parts
+        val reading = parts.filter { it.role == LyricTextRole.READING }
+        val bodyText = parts
+            .filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        if (bodyText.isEmpty()) return parts
+        val split = splitForDisplay(bodyText, enabled = true)
+        if (split.size < 2) return parts
+        return buildList {
+            addAll(reading)
+            add(LyricTextPart(LyricTextRole.ORIGINAL, split[0]))
+            add(LyricTextPart(LyricTextRole.TRANSLATION, split[1]))
+        }
+    }
 
     /** 在最后一个细空格类字符处切成两行。 */
     private fun splitBySpecialSpaces(text: String): List<String>? {

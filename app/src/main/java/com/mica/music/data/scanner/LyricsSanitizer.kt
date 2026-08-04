@@ -1,5 +1,6 @@
 package com.mica.music.data.scanner
 
+import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsFormat
@@ -179,7 +180,7 @@ internal object LyricsSanitizer {
                     ?.let { part.copy(text = it) }
             }
             if (parts.isEmpty()) return@mapNotNull null
-            line.copy(parts = parts)
+            line.copy(parts = LyricDisplayRows.splitPartsAtIngest(parts))
         }
         return document.copy(lines = cleaned)
     }
