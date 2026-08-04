@@ -3,6 +3,8 @@ package com.mica.music.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import java.io.File
 import java.io.FileOutputStream
@@ -12,52 +14,32 @@ object AppWallpaperImporter {
     private const val MAX_DECODE_SIDE_PX = 2160
 
     data class ImportResult(
-        val path: String?,
+        val applied: Boolean,
         val message: String,
     )
 
-    fun importWallpaper(context: Context, uri: Uri): ImportResult {
-        val appContext = context.applicationContext
-        val dir = File(appContext.filesDir, WALLPAPER_DIR)
-        if (!dir.exists() && !dir.mkdirs()) {
-            return ImportResult(null, "无法创建壁纸目录")
-        }
-
-        val fileStamp = System.currentTimeMillis()
-        val tempFile = File(dir, "wallpaper.$fileStamp.importing.jpg")
-        val finalFile = File(dir, "wallpaper.$fileStamp.jpg")
-
-        return try {
-            val bitmap = decodeScaledBitmap(appContext, uri)
-                ?: return ImportResult(null, "无法读取图片文件")
-            val saved = FileOutputStream(tempFile).use { output ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
-            }
-            bitmap.recycle()
-            if (!saved) {
-                tempFile.delete()
-                return ImportResult(null, "壁纸图片无法保存")
-            }
-
-            if (!tempFile.renameTo(finalFile)) {
-                tempFile.copyTo(finalFile, overwrite = true)
-                tempFile.delete()
-            }
-            dir.listFiles()?.forEach { file ->
-                if (file != finalFile) file.delete()
-            }
-
-            ImportResult(finalFile.absolutePath, "已设置自定义壁纸")
-        } catch (_: Exception) {
-            tempFile.delete()
-            ImportResult(null, "壁纸图片无法加载")
-        }
-    }
-
-    fun clearWallpaper(context: Context) {
+    internal fun wallpaperDirectory(context: Context): File =
         File(context.applicationContext.filesDir, WALLPAPER_DIR)
-            .listFiles()
-            ?.forEach { it.delete() }
+
+    internal fun validStoredPath(path: String?): String? = path
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::File)
+        ?.takeIf { it.isFile && it.length() > 0L }
+        ?.absolutePath
+
+    /** Writes one fully encoded candidate. Publication and old-file cleanup belong to [AppWallpaperStore]. */
+    internal fun writeCandidate(context: Context, uri: Uri, destination: File): Boolean {
+        val appContext = context.applicationContext
+        val decoded = decodeScaledBitmap(appContext, uri) ?: return false
+        val oriented = applyExifRotation(appContext, uri, decoded)
+        return try {
+            FileOutputStream(destination).use { output ->
+                oriented.compress(Bitmap.CompressFormat.JPEG, 90, output)
+            }
+        } finally {
+            if (oriented !== decoded) oriented.recycle()
+            decoded.recycle()
+        }
     }
 
     private fun decodeScaledBitmap(context: Context, uri: Uri): Bitmap? {
@@ -85,5 +67,32 @@ object AppWallpaperImporter {
             currentHeight /= 2
         }
         return sample
+    }
+
+    private fun applyExifRotation(context: Context, uri: Uri, bitmap: Bitmap): Bitmap {
+        val orientation = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                ExifInterface(input).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            }
+        }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+        val degrees = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+        if (degrees == 0f) return bitmap
+        return Bitmap.createBitmap(
+            bitmap,
+            0,
+            0,
+            bitmap.width,
+            bitmap.height,
+            Matrix().apply { postRotate(degrees) },
+            true,
+        )
     }
 }

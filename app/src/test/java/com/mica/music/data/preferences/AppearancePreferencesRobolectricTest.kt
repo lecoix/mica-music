@@ -1,6 +1,7 @@
 package com.mica.music.data.preferences
 
 import com.mica.music.data.AppAccentColor
+import com.mica.music.data.CustomWallpaperCrop
 import com.mica.music.data.MicaPreset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -46,5 +47,29 @@ class AppearancePreferencesRobolectricTest {
         assertEquals(startColor, AppearancePreferences.customMicaStartArgb(context))
         assertEquals(endColor, AppearancePreferences.customMicaEndArgb(context))
         assertTrue(AppearancePreferences.customMicaSingleColor(context))
+    }
+
+    @Test
+    fun customWallpaperSettingsRoundTripAndClamp() {
+        AppearancePreferences.setCustomWallpaperOverlayPercent(context, 120)
+        AppearancePreferences.setCustomWallpaperBlurDp(context, 40)
+        AppearancePreferences.setCustomWallpaperCrop(
+            context,
+            CustomWallpaperCrop(zoom = 2.5f, offsetX = -0.5f, offsetY = 0.75f),
+        )
+
+        assertEquals(100, AppearancePreferences.customWallpaperOverlayPercent(context))
+        assertEquals(32, AppearancePreferences.customWallpaperBlurDp(context))
+        assertEquals(
+            CustomWallpaperCrop(zoom = 2.5f, offsetX = -0.5f, offsetY = 0.75f),
+            AppearancePreferences.customWallpaperCrop(context),
+        )
+    }
+
+    @Test
+    fun customWallpaperSettingsDefaultValuesAreStable() {
+        assertEquals(40, AppearancePreferences.customWallpaperOverlayPercent(context))
+        assertEquals(0, AppearancePreferences.customWallpaperBlurDp(context))
+        assertEquals(CustomWallpaperCrop.Default, AppearancePreferences.customWallpaperCrop(context))
     }
 }

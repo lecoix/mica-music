@@ -13,7 +13,6 @@ import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
-import com.mica.music.data.AppWallpaperImporter
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.PlaylistSidebarStyle
@@ -21,19 +20,19 @@ import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
+import com.mica.music.ui.components.SettingsSliderRow
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.screens.settings.color.formatAccentHex
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaPreset
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 internal fun AppearanceSettingsPanel(
     uiSettings: AppUiSettings,
     onShowCustomAccentDialog: () -> Unit,
     onShowCustomMicaDialog: () -> Unit,
+    onShowCustomWallpaperCrop: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -42,11 +41,13 @@ internal fun AppearanceSettingsPanel(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                AppWallpaperImporter.importWallpaper(context, uri)
+            val result = uiSettings.prepareCustomWallpaper(uri)
+            if (result.applied) {
+                onShowCustomWallpaperCrop()
             }
-            result.path?.let(uiSettings::updateCustomWallpaperPath)
-            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+            if (result.message.isNotEmpty()) {
+                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -108,9 +109,9 @@ internal fun AppearanceSettingsPanel(
     SettingsActionRow(
         title = "自定义壁纸",
         subtitle = if (uiSettings.customWallpaperPath == null) {
-            "选择主界面背景；播放页与歌词页不受影响"
+            "选择图片后进入裁切；点应用后替换主界面背景"
         } else {
-            "已启用；覆盖首页、设置等主界面背景"
+            "已启用；重新选择会先裁切，播放页与歌词页不受影响"
         },
         onClick = {
             wallpaperPicker.launch(
@@ -119,14 +120,41 @@ internal fun AppearanceSettingsPanel(
         },
     )
 
+    if (uiSettings.customWallpaperPath != null) {
+        SettingsSliderRow(
+            title = "壁纸遮罩强度",
+            subtitle = "同时作用于浅色和深色主题",
+            value = uiSettings.customWallpaperOverlayPercent,
+            valueRange = 0..100,
+            suffix = "%",
+            onValueChange = uiSettings::updateCustomWallpaperOverlayPercent,
+        )
+
+        SettingsSliderRow(
+            title = "壁纸模糊度",
+            subtitle = "0dp 为不模糊；当前范围为 0–32dp",
+            value = uiSettings.customWallpaperBlurDp,
+            valueRange = 0..32,
+            suffix = "dp",
+            onValueChange = uiSettings::updateCustomWallpaperBlurDp,
+        )
+
+        SettingsActionRow(
+            title = "调整壁纸裁切",
+            subtitle = "拖动移动，双指缩放；参数保存后持续生效",
+            onClick = onShowCustomWallpaperCrop,
+        )
+    }
+
     SettingsActionRow(
         title = "恢复默认壁纸",
         subtitle = "回到当前云母背景",
         enabled = uiSettings.customWallpaperPath != null,
         onClick = {
-            AppWallpaperImporter.clearWallpaper(context)
-            uiSettings.updateCustomWallpaperPath(null)
-            Toast.makeText(context, "已恢复默认壁纸", Toast.LENGTH_SHORT).show()
+            scope.launch {
+                uiSettings.clearCustomWallpaper()
+                Toast.makeText(context, "已恢复默认壁纸", Toast.LENGTH_SHORT).show()
+            }
         },
     )
 

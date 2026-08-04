@@ -1,6 +1,7 @@
 package com.mica.music.data
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
@@ -101,8 +102,33 @@ class AppUiSettings(context: Context) {
     var customMicaSingleColor by mutableStateOf(AppearancePreferences.customMicaSingleColor(appContext))
         private set
 
-    var customWallpaperPath by mutableStateOf(AppearancePreferences.customWallpaperPath(appContext))
+    var customWallpaperPath by mutableStateOf(loadValidCustomWallpaperPath())
         private set
+
+    var customWallpaperOverlayPercent by mutableIntStateOf(
+        AppearancePreferences.customWallpaperOverlayPercent(appContext),
+    )
+        private set
+
+    var customWallpaperBlurDp by mutableIntStateOf(
+        AppearancePreferences.customWallpaperBlurDp(appContext),
+    )
+        private set
+
+    var customWallpaperCrop by mutableStateOf(AppearancePreferences.customWallpaperCrop(appContext))
+        private set
+
+    var pendingCustomWallpaperPath by mutableStateOf<String?>(null)
+        private set
+
+    private var pendingCustomWallpaper: AppWallpaperStore.PreparedWallpaper? = null
+
+    private val wallpaperStore by lazy {
+        AppWallpaperStore(
+            directory = AppWallpaperImporter.wallpaperDirectory(appContext),
+            publishPath = { path -> publishCustomWallpaperPath(path, CustomWallpaperCrop.Default) },
+        )
+    }
 
     var playlistSidebarStyle by mutableStateOf(
         AppearancePreferences.playlistSidebarStyle(appContext),
@@ -430,9 +456,98 @@ class AppUiSettings(context: Context) {
         updateMicaBackgroundPreset(MicaPreset.CUSTOM)
     }
 
-    fun updateCustomWallpaperPath(path: String?) {
+    suspend fun prepareCustomWallpaper(uri: Uri): AppWallpaperImporter.ImportResult {
+        pendingCustomWallpaper?.let { wallpaperStore.discard(it) }
+        pendingCustomWallpaper = null
+        pendingCustomWallpaperPath = null
+        val outcome = wallpaperStore.prepare { candidate ->
+            AppWallpaperImporter.writeCandidate(appContext, uri, candidate)
+        }
+        return when (outcome.result) {
+            AppWallpaperStore.ReplaceResult.PREPARED -> {
+                val prepared = requireNotNull(outcome.wallpaper)
+                pendingCustomWallpaper = prepared
+                pendingCustomWallpaperPath = prepared.previewPath
+                AppWallpaperImporter.ImportResult(true, "")
+            }
+            AppWallpaperStore.ReplaceResult.SUPERSEDED -> {
+                AppWallpaperImporter.ImportResult(false, "")
+            }
+            AppWallpaperStore.ReplaceResult.PREPARE_FAILED -> {
+                AppWallpaperImporter.ImportResult(false, "无法读取或保存壁纸图片")
+            }
+            AppWallpaperStore.ReplaceResult.COMMIT_FAILED -> {
+                AppWallpaperImporter.ImportResult(false, "壁纸图片无法提交")
+            }
+            AppWallpaperStore.ReplaceResult.APPLIED -> {
+                error("prepare must not return APPLIED")
+            }
+        }
+    }
+
+    suspend fun applyPendingCustomWallpaper(
+        crop: CustomWallpaperCrop,
+        expectedPath: String? = pendingCustomWallpaperPath,
+    ): Boolean {
+        val prepared = pendingCustomWallpaper ?: return false
+        if (prepared.previewPath != expectedPath) return false
+        val normalizedCrop = crop.clamped()
+        val result = wallpaperStore.commit(prepared) { path ->
+            publishCustomWallpaperPath(path, normalizedCrop)
+        }
+        if (pendingCustomWallpaper === prepared) {
+            pendingCustomWallpaper = null
+            pendingCustomWallpaperPath = null
+        }
+        return result == AppWallpaperStore.ReplaceResult.APPLIED
+    }
+
+    suspend fun cancelPendingCustomWallpaper(expectedPath: String? = pendingCustomWallpaperPath) {
+        val prepared = pendingCustomWallpaper ?: return
+        if (prepared.previewPath != expectedPath) return
+        pendingCustomWallpaper = null
+        pendingCustomWallpaperPath = null
+        wallpaperStore.discard(prepared)
+    }
+
+    suspend fun clearCustomWallpaper() {
+        pendingCustomWallpaper = null
+        pendingCustomWallpaperPath = null
+        wallpaperStore.clear()
+    }
+
+    private fun publishCustomWallpaperPath(path: String?, crop: CustomWallpaperCrop) {
+        customWallpaperCrop = crop.clamped()
+        AppearancePreferences.setCustomWallpaperCrop(appContext, customWallpaperCrop)
         customWallpaperPath = path
         AppearancePreferences.setCustomWallpaperPath(appContext, path)
+    }
+
+    private fun loadValidCustomWallpaperPath(): String? {
+        val storedPath = AppearancePreferences.customWallpaperPath(appContext)
+        val validPath = AppWallpaperImporter.validStoredPath(storedPath)
+        if (storedPath != null && validPath == null) {
+            AppearancePreferences.setCustomWallpaperPath(appContext, null)
+        }
+        return validPath
+    }
+
+    fun updateCustomWallpaperOverlayPercent(percent: Int) {
+        customWallpaperOverlayPercent = percent.coerceIn(
+            MIN_CUSTOM_WALLPAPER_OVERLAY_PERCENT,
+            MAX_CUSTOM_WALLPAPER_OVERLAY_PERCENT,
+        )
+        AppearancePreferences.setCustomWallpaperOverlayPercent(appContext, customWallpaperOverlayPercent)
+    }
+
+    fun updateCustomWallpaperBlurDp(blurDp: Int) {
+        customWallpaperBlurDp = blurDp.coerceIn(MIN_CUSTOM_WALLPAPER_BLUR_DP, MAX_CUSTOM_WALLPAPER_BLUR_DP)
+        AppearancePreferences.setCustomWallpaperBlurDp(appContext, customWallpaperBlurDp)
+    }
+
+    fun updateCustomWallpaperCrop(crop: CustomWallpaperCrop) {
+        customWallpaperCrop = crop.clamped()
+        AppearancePreferences.setCustomWallpaperCrop(appContext, customWallpaperCrop)
     }
 
     fun updatePlaylistSidebarStyle(style: PlaylistSidebarStyle) {

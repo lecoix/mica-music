@@ -488,23 +488,23 @@ private fun AudiophileMiniPlayer(
         onCoverBoundsChanged(null)
     }
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(AudiophileBarHeight + bottomInset),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(AudiophileBarHeight),
+        AudiophileBarBackdrop(
+            barSurface = barSurface,
+            hasCustomWallpaper = hasCustomWallpaper,
+            height = AudiophileBarHeight + bottomInset,
+        )
+        Column(
+            modifier = Modifier.fillMaxSize(),
         ) {
-            AudiophileBarBackdrop(
-                barSurface = barSurface,
-                isDark = colors.isDark,
-                hasCustomWallpaper = hasCustomWallpaper,
-                height = AudiophileBarHeight,
-            )
             Box(
                 modifier = Modifier
-                    .fillMaxSize(),
+                    .fillMaxWidth()
+                    .height(AudiophileBarHeight),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
@@ -557,14 +557,9 @@ private fun AudiophileMiniPlayer(
                     )
                 }
             }
-        }
-        if (bottomInset > 0.dp) {
-            AudiophileBarBackdrop(
-                barSurface = barSurface,
-                isDark = colors.isDark,
-                hasCustomWallpaper = hasCustomWallpaper,
-                height = bottomInset,
-            )
+            if (bottomInset > 0.dp) {
+                Spacer(Modifier.height(bottomInset))
+            }
         }
     }
 }
@@ -573,14 +568,12 @@ private fun AudiophileMiniPlayer(
 @Composable
 private fun AudiophileBarBackdrop(
     barSurface: Color,
-    isDark: Boolean,
     hasCustomWallpaper: Boolean,
     height: Dp,
     modifier: Modifier = Modifier,
 ) {
     if (hasCustomWallpaper) {
         MicaCustomWallpaperSlice(
-            isDark = isDark,
             fallbackColor = barSurface,
             modifier = modifier
                 .fillMaxWidth()

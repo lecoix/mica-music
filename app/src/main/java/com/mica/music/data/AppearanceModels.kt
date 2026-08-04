@@ -35,3 +35,29 @@ data class CustomMicaBackground(
         const val DEFAULT_END_ARGB = 0xFFE3EEF8.toInt()
     }
 }
+
+const val DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT = 40
+const val MIN_CUSTOM_WALLPAPER_OVERLAY_PERCENT = 0
+const val MAX_CUSTOM_WALLPAPER_OVERLAY_PERCENT = 100
+const val DEFAULT_CUSTOM_WALLPAPER_BLUR_DP = 0
+const val MIN_CUSTOM_WALLPAPER_BLUR_DP = 0
+const val MAX_CUSTOM_WALLPAPER_BLUR_DP = 32
+
+/** 用户壁纸在“自动铺满”基础上的额外缩放与归一化偏移。 */
+data class CustomWallpaperCrop(
+    val zoom: Float = 1f,
+    val offsetX: Float = 0f,
+    val offsetY: Float = 0f,
+) {
+    fun clamped(): CustomWallpaperCrop = copy(
+        zoom = zoom.coerceIn(MIN_ZOOM, MAX_ZOOM),
+        offsetX = offsetX.coerceIn(-1f, 1f),
+        offsetY = offsetY.coerceIn(-1f, 1f),
+    )
+
+    companion object {
+        const val MIN_ZOOM = 1f
+        const val MAX_ZOOM = 4f
+        val Default = CustomWallpaperCrop()
+    }
+}

@@ -3,6 +3,7 @@ package com.mica.music.ui.screens.settings
 import androidx.compose.runtime.Composable
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.ArtistSplitConfig
+import com.mica.music.data.CustomWallpaperCrop
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.scanner.scanDirectoryCandidates
 import com.mica.music.ui.screens.settings.color.CustomAccentColorDialog
@@ -11,6 +12,7 @@ import com.mica.music.ui.screens.settings.color.CustomMicaBackgroundDialog
 data class SettingsOverlayState(
     val showCustomAccent: Boolean = false,
     val showCustomMica: Boolean = false,
+    val showCustomWallpaperCrop: Boolean = false,
     val showExcludedDirectories: Boolean = false,
     val showArtistSplit: Boolean = false,
 )
@@ -24,6 +26,8 @@ internal fun SettingsOverlays(
     artistSplitConfig: ArtistSplitConfig,
     onDismissCustomAccent: () -> Unit,
     onDismissCustomMica: () -> Unit,
+    onDismissCustomWallpaperCrop: () -> Unit,
+    onConfirmCustomWallpaperCrop: (CustomWallpaperCrop) -> Unit,
     onDismissExcludedDirectories: () -> Unit,
     onConfirmExcludedDirectories: (List<String>) -> Unit,
     onDismissArtistSplit: () -> Unit,
@@ -50,6 +54,23 @@ internal fun SettingsOverlays(
                 uiSettings.updateCustomMicaBackground(startArgb, endArgb, singleColor)
                 onDismissCustomMica()
             },
+        )
+    }
+
+    val pendingWallpaperPath = uiSettings.pendingCustomWallpaperPath
+    val wallpaperCropPath = pendingWallpaperPath ?: uiSettings.customWallpaperPath
+    if (overlays.showCustomWallpaperCrop && wallpaperCropPath != null) {
+        CustomWallpaperCropDialog(
+            imagePath = wallpaperCropPath,
+            initialCrop = if (pendingWallpaperPath != null) {
+                CustomWallpaperCrop.Default
+            } else {
+                uiSettings.customWallpaperCrop
+            },
+            overlayPercent = uiSettings.customWallpaperOverlayPercent,
+            blurDp = uiSettings.customWallpaperBlurDp,
+            onDismiss = onDismissCustomWallpaperCrop,
+            onConfirm = onConfirmCustomWallpaperCrop,
         )
     }
 

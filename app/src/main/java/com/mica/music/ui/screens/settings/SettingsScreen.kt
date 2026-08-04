@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens.settings
 
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +53,7 @@ import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
+import kotlinx.coroutines.launch
 
 private const val BackRootDebugTag = "DEBUG-BACK-ROOT-1A2B"
 
@@ -79,6 +82,7 @@ fun SettingsScreen(
     val settingsBackEnabled = settingsSubpageBackEnabled || settingsSearchBackEnabled
     val settingsSearchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(settingsSearchOpen) {
         if (settingsSearchOpen) {
@@ -139,6 +143,29 @@ fun SettingsScreen(
         artistSplitConfig = artistSplitConfig,
         onDismissCustomAccent = { overlays = overlays.copy(showCustomAccent = false) },
         onDismissCustomMica = { overlays = overlays.copy(showCustomMica = false) },
+        onDismissCustomWallpaperCrop = {
+            overlays = overlays.copy(showCustomWallpaperCrop = false)
+            val pendingPath = uiSettings.pendingCustomWallpaperPath
+            if (pendingPath != null) {
+                scope.launch { uiSettings.cancelPendingCustomWallpaper(pendingPath) }
+            }
+        },
+        onConfirmCustomWallpaperCrop = { crop ->
+            overlays = overlays.copy(showCustomWallpaperCrop = false)
+            val pendingPath = uiSettings.pendingCustomWallpaperPath
+            if (pendingPath != null) {
+                scope.launch {
+                    val applied = uiSettings.applyPendingCustomWallpaper(crop, pendingPath)
+                    Toast.makeText(
+                        context,
+                        if (applied) "已应用自定义壁纸" else "壁纸应用失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            } else {
+                uiSettings.updateCustomWallpaperCrop(crop)
+            }
+        },
         onDismissExcludedDirectories = { overlays = overlays.copy(showExcludedDirectories = false) },
         onConfirmExcludedDirectories = ::updateExcludedDirectories,
         onDismissArtistSplit = { overlays = overlays.copy(showArtistSplit = false) },
@@ -277,6 +304,9 @@ fun SettingsScreen(
                             },
                             onShowCustomMicaDialog = {
                                 overlays = overlays.copy(showCustomMica = true)
+                            },
+                            onShowCustomWallpaperCrop = {
+                                overlays = overlays.copy(showCustomWallpaperCrop = true)
                             },
                         )
                     }

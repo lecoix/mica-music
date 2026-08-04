@@ -3,7 +3,14 @@ package com.mica.music.data.preferences
 import android.content.Context
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppThemeMode
+import com.mica.music.data.CustomWallpaperCrop
 import com.mica.music.data.CustomMicaBackground
+import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_BLUR_DP
+import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT
+import com.mica.music.data.MAX_CUSTOM_WALLPAPER_BLUR_DP
+import com.mica.music.data.MAX_CUSTOM_WALLPAPER_OVERLAY_PERCENT
+import com.mica.music.data.MIN_CUSTOM_WALLPAPER_BLUR_DP
+import com.mica.music.data.MIN_CUSTOM_WALLPAPER_OVERLAY_PERCENT
 import com.mica.music.data.MicaPreset
 import com.mica.music.data.PlaylistSidebarStyle
 
@@ -20,6 +27,11 @@ object AppearancePreferences {
     private const val KEY_CUSTOM_MICA_END = "custom_mica_end"
     private const val KEY_CUSTOM_MICA_SINGLE_COLOR = "custom_mica_single_color"
     private const val KEY_CUSTOM_WALLPAPER_PATH = "custom_wallpaper_path"
+    private const val KEY_CUSTOM_WALLPAPER_OVERLAY_PERCENT = "custom_wallpaper_overlay_percent"
+    private const val KEY_CUSTOM_WALLPAPER_BLUR_DP = "custom_wallpaper_blur_dp"
+    private const val KEY_CUSTOM_WALLPAPER_CROP_ZOOM = "custom_wallpaper_crop_zoom"
+    private const val KEY_CUSTOM_WALLPAPER_CROP_OFFSET_X = "custom_wallpaper_crop_offset_x"
+    private const val KEY_CUSTOM_WALLPAPER_CROP_OFFSET_Y = "custom_wallpaper_crop_offset_y"
     private const val KEY_PLAYLIST_SIDEBAR_STYLE = "playlist_sidebar_style"
 
     private const val DEFAULT_CUSTOM_ACCENT_COLOR_ARGB = 0xFF8B7AFF.toInt()
@@ -122,6 +134,52 @@ object AppearancePreferences {
                 putString(KEY_CUSTOM_WALLPAPER_PATH, path)
             }
         }.apply()
+    }
+
+    fun customWallpaperOverlayPercent(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_CUSTOM_WALLPAPER_OVERLAY_PERCENT, DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT)
+            .coerceIn(MIN_CUSTOM_WALLPAPER_OVERLAY_PERCENT, MAX_CUSTOM_WALLPAPER_OVERLAY_PERCENT)
+
+    fun setCustomWallpaperOverlayPercent(context: Context, percent: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_CUSTOM_WALLPAPER_OVERLAY_PERCENT,
+                percent.coerceIn(MIN_CUSTOM_WALLPAPER_OVERLAY_PERCENT, MAX_CUSTOM_WALLPAPER_OVERLAY_PERCENT),
+            )
+            .apply()
+    }
+
+    fun customWallpaperBlurDp(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_CUSTOM_WALLPAPER_BLUR_DP, DEFAULT_CUSTOM_WALLPAPER_BLUR_DP)
+            .coerceIn(MIN_CUSTOM_WALLPAPER_BLUR_DP, MAX_CUSTOM_WALLPAPER_BLUR_DP)
+
+    fun setCustomWallpaperBlurDp(context: Context, blurDp: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_CUSTOM_WALLPAPER_BLUR_DP,
+                blurDp.coerceIn(MIN_CUSTOM_WALLPAPER_BLUR_DP, MAX_CUSTOM_WALLPAPER_BLUR_DP),
+            )
+            .apply()
+    }
+
+    fun customWallpaperCrop(context: Context): CustomWallpaperCrop {
+        val prefs = MicaSettingsStore.prefs(context)
+        return CustomWallpaperCrop(
+            zoom = prefs.getFloat(KEY_CUSTOM_WALLPAPER_CROP_ZOOM, CustomWallpaperCrop.MIN_ZOOM),
+            offsetX = prefs.getFloat(KEY_CUSTOM_WALLPAPER_CROP_OFFSET_X, 0f),
+            offsetY = prefs.getFloat(KEY_CUSTOM_WALLPAPER_CROP_OFFSET_Y, 0f),
+        ).clamped()
+    }
+
+    fun setCustomWallpaperCrop(context: Context, crop: CustomWallpaperCrop) {
+        val normalized = crop.clamped()
+        MicaSettingsStore.prefs(context).edit()
+            .putFloat(KEY_CUSTOM_WALLPAPER_CROP_ZOOM, normalized.zoom)
+            .putFloat(KEY_CUSTOM_WALLPAPER_CROP_OFFSET_X, normalized.offsetX)
+            .putFloat(KEY_CUSTOM_WALLPAPER_CROP_OFFSET_Y, normalized.offsetY)
+            .apply()
     }
 
     fun playlistSidebarStyle(context: Context): PlaylistSidebarStyle =

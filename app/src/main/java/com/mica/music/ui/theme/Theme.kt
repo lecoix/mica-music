@@ -19,6 +19,9 @@ import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppFontSelection
 import com.mica.music.data.AppFontSource
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.CustomWallpaperCrop
+import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_BLUR_DP
+import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import java.io.File
@@ -28,6 +31,9 @@ val LocalHifiTypography = staticCompositionLocalOf { HifiTypography() }
 val LocalMicaBackgroundPreset = staticCompositionLocalOf { MicaPreset.Dawn }
 val LocalCustomMicaBackground = staticCompositionLocalOf { CustomMicaBackground.Default }
 val LocalCustomWallpaperPath = staticCompositionLocalOf<String?> { null }
+val LocalCustomWallpaperOverlayPercent = staticCompositionLocalOf { DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT }
+val LocalCustomWallpaperBlurDp = staticCompositionLocalOf { DEFAULT_CUSTOM_WALLPAPER_BLUR_DP }
+val LocalCustomWallpaperCrop = staticCompositionLocalOf { CustomWallpaperCrop.Default }
 internal val LocalWallpaperViewportState = staticCompositionLocalOf<WallpaperViewportState?> { null }
 val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
 val LocalLyricSplitEnabled = staticCompositionLocalOf { true }
@@ -53,6 +59,9 @@ fun MicaTheme(
     micaBackgroundPreset: MicaPreset = MicaPreset.Dawn,
     customMicaBackground: CustomMicaBackground = CustomMicaBackground.Default,
     customWallpaperPath: String? = null,
+    customWallpaperOverlayPercent: Int = DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT,
+    customWallpaperBlurDp: Int = DEFAULT_CUSTOM_WALLPAPER_BLUR_DP,
+    customWallpaperCrop: CustomWallpaperCrop = CustomWallpaperCrop.Default,
     coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     lyricSplitEnabled: Boolean = true,
     lyricLineFillEnabled: Boolean = false,
@@ -129,6 +138,9 @@ fun MicaTheme(
         LocalMicaBackgroundPreset provides micaBackgroundPreset,
         LocalCustomMicaBackground provides customMicaBackground,
         LocalCustomWallpaperPath provides customWallpaperPath,
+        LocalCustomWallpaperOverlayPercent provides customWallpaperOverlayPercent,
+        LocalCustomWallpaperBlurDp provides customWallpaperBlurDp,
+        LocalCustomWallpaperCrop provides customWallpaperCrop,
         LocalCoverDisplayMode provides coverDisplayMode,
         LocalLyricSplitEnabled provides lyricSplitEnabled,
         LocalLyricLineFillEnabled provides lyricLineFillEnabled,
