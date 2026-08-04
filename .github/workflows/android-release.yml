@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       changelog:
-        description: "Optional override for the update manifest; GitHub generated notes are used when empty"
+        description: "Optional override for the update manifest; annotated tag message is used when empty"
         required: false
         type: string
       domestic_download_url:
@@ -39,6 +39,8 @@ jobs:
       DOMESTIC_DOWNLOAD_URL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.domestic_download_url || vars.UPDATE_DOMESTIC_DOWNLOAD_URL || '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -74,6 +76,29 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve release notes
+        id: release_notes
+        env:
+          TAG: ${{ steps.metadata.outputs.tag }}
+          MANUAL_CHANGELOG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.changelog || '' }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+          if [[ -n "$MANUAL_CHANGELOG" ]]; then
+            printf '%s\n' "$MANUAL_CHANGELOG" > "$NOTES_FILE"
+            echo "source=manual" >> "$GITHUB_OUTPUT"
+          else
+            TAG_MESSAGE="$(git tag -l "$TAG" --format='%(contents)' | sed -e '/./,$!d')"
+            if [[ -n "$TAG_MESSAGE" ]]; then
+              printf '%s\n' "$TAG_MESSAGE" > "$NOTES_FILE"
+              echo "source=tag" >> "$GITHUB_OUTPUT"
+            else
+              : > "$NOTES_FILE"
+              echo "source=none" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "file=$NOTES_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Validate release signing secrets
         env:
@@ -138,11 +163,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.metadata.outputs.tag }}
+          NOTES_SOURCE: ${{ steps.release_notes.outputs.source }}
+          NOTES_FILE: ${{ steps.release_notes.outputs.file }}
         run: |
           set -euo pipefail
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_PATH" --clobber
+            if [[ "$NOTES_SOURCE" != "none" && -s "$NOTES_FILE" ]]; then
+              gh release edit "$TAG" --notes-file "$NOTES_FILE"
+            fi
+          elif [[ "$NOTES_SOURCE" != "none" && -s "$NOTES_FILE" ]]; then
+            gh release create "$TAG" "$APK_PATH" \
+              --target "$GITHUB_SHA" \
+              --title "Mica $TAG" \
+              --notes-file "$NOTES_FILE"
           else
             gh release create "$TAG" "$APK_PATH" \
               --target "$GITHUB_SHA" \
@@ -155,16 +190,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.metadata.outputs.tag }}
-          MANUAL_CHANGELOG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.changelog || '' }}
+          NOTES_SOURCE: ${{ steps.release_notes.outputs.source }}
+          NOTES_FILE: ${{ steps.release_notes.outputs.file }}
         run: |
           set -euo pipefail
-          if [[ -n "$MANUAL_CHANGELOG" ]]; then
-            printf '%s\n' "$MANUAL_CHANGELOG" > "${RUNNER_TEMP}/release-notes.md"
+          if [[ "$NOTES_SOURCE" != "none" && -s "$NOTES_FILE" ]]; then
+            cp "$NOTES_FILE" "${RUNNER_TEMP}/release-notes-final.md"
           else
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.body' > "${RUNNER_TEMP}/release-notes.md"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.body' > "${RUNNER_TEMP}/release-notes-final.md"
           fi
-          if [[ ! -s "${RUNNER_TEMP}/release-notes.md" ]]; then
-            printf '%s\n' '此版本暂无更新日志。' > "${RUNNER_TEMP}/release-notes.md"
+          if [[ ! -s "${RUNNER_TEMP}/release-notes-final.md" ]]; then
+            printf '%s\n' '此版本暂无更新日志。' > "${RUNNER_TEMP}/release-notes-final.md"
           fi
 
       - name: Generate update.json
@@ -174,7 +210,7 @@ jobs:
           set -euo pipefail
           python3 scripts/generate_update_manifest.py \
             --gradle-file app/build.gradle.kts \
-            --changelog-file "${RUNNER_TEMP}/release-notes.md" \
+            --changelog-file "${RUNNER_TEMP}/release-notes-final.md" \
             --domestic-download-url "$DOMESTIC_DOWNLOAD_URL" \
             --github-download-url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
             --tag "$TAG" \

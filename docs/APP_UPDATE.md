@@ -30,7 +30,7 @@ Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入
 
 1. 校验标签是否与 `app/build.gradle.kts` 的 `versionName` 一致。
 2. 使用仓库 Secret 构建并验证签名 APK。
-3. 创建或更新 GitHub Release，上传 APK，并使用 GitHub 自动生成的 Release notes。
+3. 创建或更新 GitHub Release，上传 APK；更新日志优先使用附注 tag 的 `-m` 正文，否则回退 GitHub 自动生成 notes。
 4. 生成 `site/update.json`，把版本号、更新日志、123 下载页和 GitHub Release 页写入清单。
 5. 将只包含 `update.json` 的 Pages artifact 部署到 GitHub Pages。
 
@@ -38,9 +38,15 @@ Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入
 
 ```powershell
 # 先在 app/build.gradle.kts 递增 versionCode/versionName，并提交代码
-git tag v0.2.5.0
+git tag -a v0.2.5.0 -m @"
+- 修复若干问题
+- 新增某某功能
+"@
+git push origin exoplayer-only
 git push origin v0.2.5.0
 ```
+
+附注 tag（`-a`）的 message 会写入 GitHub Release 与 `update.json.changelog`。轻量 tag 或无 message 时，workflow 仍回退 `--generate-notes`。
 
 仓库首次使用前，在 GitHub Settings → Pages 中把 Source 设为 **GitHub Actions**。
 
