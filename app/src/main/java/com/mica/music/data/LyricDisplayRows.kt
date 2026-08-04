@@ -11,6 +11,7 @@ object LyricDisplayRows {
         val start: Int,
         val endExclusive: Int,
         val splitIndex: Int,
+        val role: LyricTextRole = LyricTextRole.ORIGINAL,
     )
 
     /** LRC 原文与译文之间常见的不可见窄空格 */
@@ -66,13 +67,69 @@ object LyricDisplayRows {
         enabled: Boolean = true,
         mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     ): List<DisplayRow> {
-        val rows = splitForDisplayRows(text, enabled)
+        val rows = splitForDisplayRows(text, enabled).mapIndexed { index, row ->
+            row.copy(role = if (index == 0) LyricTextRole.ORIGINAL else LyricTextRole.TRANSLATION)
+        }
         if (!enabled || rows.size < 2) return rows
         return when (mode) {
             LyricsBilingualDisplayMode.ALL -> rows
             LyricsBilingualDisplayMode.ORIGINAL -> rows.take(1)
             LyricsBilingualDisplayMode.TRANSLATION -> rows.drop(1).take(1)
         }
+    }
+
+    /**
+     * Structured parts path for TTML / LRC-SPL: READING above ORIGINAL, TRANSLATION below.
+     * Returns null when [parts] cannot drive display (caller should fall back to text split).
+     */
+    fun rowsFromParts(
+        parts: List<LyricTextPart>,
+        mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+        readingEnabled: Boolean = true,
+    ): List<DisplayRow>? {
+        if (parts.isEmpty()) return null
+        val reading = parts
+            .filter { it.role == LyricTextRole.READING }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        val original = parts
+            .filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        val translation = parts
+            .filter { it.role == LyricTextRole.TRANSLATION }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        val structured = reading.isNotEmpty() || translation.isNotEmpty() ||
+            parts.any { it.role == LyricTextRole.ORIGINAL }
+        if (!structured) return null
+
+        fun row(role: LyricTextRole, text: String, splitIndex: Int): DisplayRow? {
+            if (text.isEmpty()) return null
+            return DisplayRow(
+                text = text,
+                start = 0,
+                endExclusive = text.length,
+                splitIndex = splitIndex,
+                role = role,
+            )
+        }
+
+        val built = when (mode) {
+            LyricsBilingualDisplayMode.ALL -> buildList {
+                if (readingEnabled) row(LyricTextRole.READING, reading, 0)?.let(::add)
+                row(LyricTextRole.ORIGINAL, original, size)?.let(::add)
+                row(LyricTextRole.TRANSLATION, translation, size)?.let(::add)
+            }
+            LyricsBilingualDisplayMode.ORIGINAL -> buildList {
+                if (readingEnabled) row(LyricTextRole.READING, reading, 0)?.let(::add)
+                row(LyricTextRole.ORIGINAL, original, size)?.let(::add)
+            }
+            LyricsBilingualDisplayMode.TRANSLATION -> listOfNotNull(
+                row(LyricTextRole.TRANSLATION, translation.ifEmpty { original }, 0),
+            )
+        }
+        return built.takeIf { it.isNotEmpty() }
     }
 
     fun isBilingualLine(text: String, enabled: Boolean = true): Boolean =

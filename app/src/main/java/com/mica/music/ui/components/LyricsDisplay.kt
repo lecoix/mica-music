@@ -44,12 +44,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricTextPart
+import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalLyricLineFillEnabled
+import com.mica.music.ui.theme.LocalLyricReadingEnabled
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
@@ -233,19 +236,40 @@ fun LyricLineBlock(
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     translationTextStyle: TextStyle = textStyle,
+    readingTextStyle: TextStyle = translationTextStyle,
+    parts: List<LyricTextPart>? = null,
     karaokeSyllableLift: Boolean = false,
     karaokeDiscreteActiveCue: Boolean = karaokeSyllableLift,
     karaokeWordFadeWidthEm: Float = 0f,
 ) {
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
+    val lyricReadingEnabled = LocalLyricReadingEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
-    val rows = LyricDisplayRows.rowsForBilingualDisplayMode(
-        text = text.orEmpty(),
-        enabled = lyricSplitEnabled,
-        mode = bilingualDisplayMode,
-    )
+    val rows = remember(text, parts, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
+        LyricDisplayRows.rowsFromParts(
+            parts = parts.orEmpty(),
+            mode = bilingualDisplayMode,
+            readingEnabled = lyricReadingEnabled,
+        ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+            text = text.orEmpty(),
+            enabled = lyricSplitEnabled,
+            mode = bilingualDisplayMode,
+        )
+    }
     val bilingualGap = if (rows.size > 1) HifiSpacing.lyricBilingualGap else 0.dp
-    val cueRanges = remember(lyricLine) { lyricLine?.let(::lyricCueRanges).orEmpty() }
+    val originalCueLine = remember(lyricLine, parts, rows) {
+        val originalText = parts
+            ?.filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
+            ?.joinToString(" ") { it.text.trim() }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        when {
+            lyricLine == null -> null
+            originalText != null && parts != null -> lyricLine.copy(text = originalText)
+            else -> lyricLine
+        }
+    }
+    val cueRanges = remember(originalCueLine) { originalCueLine?.let(::lyricCueRanges).orEmpty() }
     val canFillLineTimed = lyricLineFillEnabled &&
         lyricLine != null &&
         (lyricLine.timeMs > 0 || nextLineTimeMs != null)
@@ -260,14 +284,21 @@ fun LyricLineBlock(
         verticalArrangement = Arrangement.spacedBy(bilingualGap),
     ) {
         rows.forEach { row ->
-            val rowHasCueRanges = cueRanges.any { it.overlaps(row) }
-            val rowTextStyle = if (row.splitIndex > 0) translationTextStyle else textStyle
-            if (cueRanges.isNotEmpty() && rowHasCueRanges) {
-                val wordSync = if (isCurrent && lyricLine != null) {
+            val rowCueLine = if (row.role == LyricTextRole.ORIGINAL) originalCueLine else null
+            val rowCueRanges = if (row.role == LyricTextRole.ORIGINAL) cueRanges else emptyList()
+            val rowHasCueRanges = rowCueRanges.any { it.overlaps(row) }
+            val rowTextStyle = when (row.role) {
+                LyricTextRole.READING -> readingTextStyle
+                LyricTextRole.TRANSLATION -> translationTextStyle
+                LyricTextRole.ORIGINAL, LyricTextRole.EXTRA ->
+                    if (row.splitIndex > 0 && parts.isNullOrEmpty()) translationTextStyle else textStyle
+            }
+            if (rowCueRanges.isNotEmpty() && rowHasCueRanges && rowCueLine != null) {
+                val wordSync = if (isCurrent) {
                     wordSyncedFill(
-                        line = lyricLine,
+                        line = rowCueLine,
                         row = row,
-                        cueRanges = cueRanges,
+                        cueRanges = rowCueRanges,
                         positionMs = fillPositionMs,
                         nextLineTimeMs = nextLineTimeMs,
                         discreteActiveCue = karaokeDiscreteActiveCue,
@@ -290,7 +321,9 @@ fun LyricLineBlock(
                 )
             } else if (
                 isCurrent &&
-                canFillLineTimed
+                canFillLineTimed &&
+                row.role == LyricTextRole.ORIGINAL &&
+                lyricLine != null
             ) {
                 KaraokeLyricLineText(
                     text = row.text,

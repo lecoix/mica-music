@@ -76,6 +76,7 @@ import com.mica.music.data.LyricsTimelinePhase
 import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.theme.LocalLyricReadingEnabled
 import coil.compose.AsyncImage
 import java.io.File
 import java.text.BreakIterator
@@ -102,6 +103,7 @@ internal fun LetterLyricsPrototype(
 ) {
     val density = LocalDensity.current
     val motionEnabled = rememberMicaMotionEnabled()
+    val readingEnabled = LocalLyricReadingEnabled.current
     val textMeasurer = rememberTextMeasurer(cacheSize = 256)
     val lyricStyle = rememberLyricUniformStyle()
     var overviewVisible by remember(renderState.document) { mutableStateOf(false) }
@@ -195,6 +197,7 @@ internal fun LetterLyricsPrototype(
                         softWrap = false,
                     ).size.width.toFloat()
                 },
+                readingEnabled = readingEnabled,
             )
         }
         val activeLineIndex = letterActiveLineIndex(renderState)
@@ -926,6 +929,7 @@ private fun buildLetterPages(
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     metrics: LetterPageMetrics,
     measureLatinTextWidthPx: (text: String, isTranslation: Boolean) -> Float,
+    readingEnabled: Boolean = true,
 ): List<LetterPage> {
     if (lines.isEmpty()) return listOf(LetterPage.EMPTY)
     val capacityUnits = (
@@ -953,6 +957,10 @@ private fun buildLetterPages(
     }
 
     lines.forEachIndexed { lineIndex, line ->
+        val readings = line.parts
+            .filter { it.role == LyricTextRole.READING }
+            .joinToString(" ") { it.text }
+            .trim()
         val originals = line.parts
             .filter { it.role == LyricTextRole.ORIGINAL }
             .joinToString("") { it.text }
@@ -965,10 +973,21 @@ private fun buildLetterPages(
             LyricsBilingualDisplayMode.TRANSLATION -> translations.ifEmpty { originals }
             else -> originals.ifEmpty { translations }
         }
+        val readingText = when {
+            !readingEnabled -> ""
+            bilingualDisplayMode == LyricsBilingualDisplayMode.TRANSLATION -> ""
+            else -> readings
+        }
         val secondaryText = when (bilingualDisplayMode) {
             LyricsBilingualDisplayMode.ALL -> translations.takeIf { originals.isNotEmpty() }.orEmpty()
             else -> ""
         }
+        val readingSegments = splitIntoVerticalSegments(
+            text = readingText,
+            maxCharacters = mainCharactersPerColumn,
+            maxLatinWidthPx = latinColumnWidthPx,
+            measureLatinTextWidthPx = { measureLatinTextWidthPx(it, false) },
+        )
         val primarySegments = splitIntoVerticalSegments(
             text = primaryText,
             maxCharacters = mainCharactersPerColumn,
@@ -982,10 +1001,24 @@ private fun buildLetterPages(
             measureLatinTextWidthPx = { measureLatinTextWidthPx(it, true) },
         )
         val primaryTotal = primaryText.graphemes().size.coerceAtLeast(1)
+        val readingTotal = readingText.graphemes().size.coerceAtLeast(1)
         val secondaryTotal = secondaryText.graphemes().size.coerceAtLeast(1)
+        var readingStart = 0
         var primaryStart = 0
         var secondaryStart = 0
         val columnSpecs = buildList {
+            readingSegments.forEach { segment ->
+                add(
+                    LetterColumnSpec(
+                        text = segment,
+                        isTranslation = true,
+                        widthUnits = TRANSLATION_COLUMN_UNITS,
+                        revealStartIndex = readingStart,
+                        revealTotalCount = readingTotal,
+                    ),
+                )
+                readingStart += segment.graphemes().size
+            }
             primarySegments.forEach { segment ->
                 add(
                     LetterColumnSpec(

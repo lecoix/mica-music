@@ -353,6 +353,7 @@ internal fun ExpandedLyricsPanel(
                             horizontalAlignment = horizontalAlignment,
                             bilingualDisplayMode = bilingualDisplayMode,
                             translationTextStyle = translationTextStyle.copy(shadow = pressShadow),
+                            parts = renderState.document.lines.getOrNull(index)?.parts,
                             karaokeSyllableLift = lyricsWordAnimationPreset.syllableLiftEnabled,
                             karaokeDiscreteActiveCue = lyricsWordAnimationPreset.usesDiscreteCueFill,
                             karaokeWordFadeWidthEm = lyricsWordAnimationPreset.wordFadeWidthEm,

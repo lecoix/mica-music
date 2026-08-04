@@ -8,12 +8,21 @@ import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.data.toLyricsDocumentCompat
 
 /**
- * 歌词文本清理：严格过滤 FFmpeg 元数据噪声；仅拒绝明显二进制乱码。
+ * 歌词文本清理。
+ *
+ * - LRC/SPL 逐行：只丢空、`//`、纯音符、元数据/容器噪声（对齐 Icey/Halcyon）。
+ * - 内嵌字节解码的乱码/可渲染性门槛仍在 [LyricsEncoding]（如 ID3 encoding=0、MP4 候选）。
  */
 internal object LyricsSanitizer {
 
     private val timedLrc = Regex("""\[\d{1,2}:\d{2}""")
     private val lrcTimestampPrefix = Regex("""^(\[[^\]]+\]\s*)+""")
+    /** `[ti:…]` / `[offset:…]` 等非时间轴标签整行。 */
+    private val lrcMetadataTagLine = Regex("""(?i)^\[[a-z][^:\]]*:[^\]]*]\s*$""")
+    private val slashOnlyPlaceholder = Regex("""^[/／\\]+$""")
+    private val musicSymbolOnly = Regex(
+        """^[\s♪♫♬♩♭♯♮🎵🎶🎼]+$""",
+    )
 
     internal val timedLrcHint: Regex get() = timedLrc
 
@@ -23,10 +32,38 @@ internal object LyricsSanitizer {
     fun lyricTextWithoutTimestamps(line: String): String =
         lrcTimestampPrefix.replace(line.trim(), "").trim()
 
-    /** FFmpeg/容器常见的单字符占位歌词（含带时间轴的 LRC 行）。 */
+    /**
+     * FFmpeg/容器常见的单字符占位，以及 `//` 类占位（含带时间轴的 LRC 行）。
+     * 保留给旧调用方；新逻辑请优先用 [isIgnorableLyricText]。
+     */
     fun isPlaceholderLyric(text: String): Boolean {
         val core = lyricTextWithoutTimestamps(text)
+        if (core.isEmpty()) return true
+        if (slashOnlyPlaceholder.matches(core)) return true
         return core.length == 1 && core[0] in singleCharPlaceholders
+    }
+
+    fun isMusicSymbolOnly(text: String): Boolean =
+        musicSymbolOnly.matches(lyricTextWithoutTimestamps(text))
+
+    fun isLrcMetadataTagLine(line: String): Boolean =
+        lrcMetadataTagLine.matches(line.trim())
+
+    /**
+     * LRC/SPL 逐行丢弃：空、`//`、纯音符、元数据标签、FFmpeg/容器噪声行。
+     * 不做 [LyricsEncoding.isRenderable] / binary 打分。
+     */
+    fun isIgnorableLyricText(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty()) return true
+        if (isLrcMetadataTagLine(t)) return true
+        if (noiseLinePatterns.any { it.containsMatchIn(t) }) return true
+        val core = lyricTextWithoutTimestamps(t)
+        if (core.isEmpty()) return true
+        if (slashOnlyPlaceholder.matches(core)) return true
+        if (musicSymbolOnly.matches(core)) return true
+        if (core.length == 1 && core[0] in singleCharPlaceholders) return true
+        return false
     }
 
     fun pickBest(candidates: List<List<LyricLine>>): List<LyricLine>? =
@@ -62,19 +99,18 @@ internal object LyricsSanitizer {
         Regex("""^\d+\.\d+\s*$"""),
     )
 
-    fun isNoiseLine(line: String): Boolean {
-        val t = line.trim()
-        if (t.isEmpty()) return true
-        if (isPlaceholderLyric(t)) return true
-        return noiseLinePatterns.any { it.containsMatchIn(t) }
-    }
+    /** @deprecated 语义等同 [isIgnorableLyricText]；保留旧名避免扩散改动。 */
+    fun isNoiseLine(line: String): Boolean = isIgnorableLyricText(line)
 
-    /** 仅拒绝明显二进制/乱码，避免误杀正常歌词（含标点、日文、英文）。 */
+    /**
+     * 内嵌解码用：拒绝明显二进制/控制符垃圾。
+     * LRC 逐行保活不要走这里；见 [isIgnorableLyricText]。
+     */
     fun isBinaryGarbage(line: String): Boolean {
         val t = line.trim()
         if (t.isEmpty()) return true
         if (!LyricsEncoding.isRenderable(t)) return true
-        if (isNoiseLine(t)) return true
+        if (isIgnorableLyricText(t)) return true
         if (timedLrc.containsMatchIn(t)) {
             if (isPlaceholderLyric(t)) return true
             return false
@@ -108,7 +144,7 @@ internal object LyricsSanitizer {
     fun filterNoise(text: String): String =
         text.lines()
             .map { it.trim() }
-            .filter { it.isNotEmpty() && !isNoiseLine(it) }
+            .filter { it.isNotEmpty() && !isIgnorableLyricText(it) }
             .joinToString("\n")
 
     fun parseFiltered(raw: String): List<LyricLine> =
@@ -129,7 +165,7 @@ internal object LyricsSanitizer {
     fun finalize(lines: List<LyricLine>): List<LyricLine> {
         val cleaned = lines.mapNotNull { line ->
             val text = MetadataTextFix.normalize(line.text.trim())
-            if (text.isEmpty() || isPlaceholderLyric(text) || isBinaryGarbage(text)) null
+            if (text.isEmpty() || isIgnorableLyricText(text)) null
             else line.copy(text = text)
         }
         return cleaned.takeIf { it.isNotEmpty() && it.any { it.text.length >= 1 } } ?: emptyList()
@@ -137,18 +173,13 @@ internal object LyricsSanitizer {
 
     fun finalizeDocument(document: LyricsDocument): LyricsDocument {
         val cleaned = document.lines.mapNotNull { line ->
-            val legacyText = MetadataTextFix.normalize(
-                line.parts.joinToString("\n") { it.text }.trim(),
-            )
-            if (legacyText.isEmpty() || isPlaceholderLyric(legacyText) || isBinaryGarbage(legacyText)) {
-                return@mapNotNull null
-            }
             val parts = line.parts.mapNotNull { part ->
                 MetadataTextFix.normalize(part.text.trim())
-                    .takeIf { it.isNotEmpty() }
+                    .takeIf { it.isNotEmpty() && !isIgnorableLyricText(it) }
                     ?.let { part.copy(text = it) }
             }
-            line.copy(parts = parts).takeIf { parts.isNotEmpty() }
+            if (parts.isEmpty()) return@mapNotNull null
+            line.copy(parts = parts)
         }
         return document.copy(lines = cleaned)
     }
@@ -157,7 +188,7 @@ internal object LyricsSanitizer {
         val lines = text.lines()
             .map { MetadataTextFix.normalize(it.trim()) }
             .filter {
-                it.isNotEmpty() && !it.contains('\uFFFD') && !isNoiseLine(it) && !isPlaceholderLyric(it)
+                it.isNotEmpty() && !it.contains('\uFFFD') && !isIgnorableLyricText(it)
             }
             .filter { !LyricsEncoding.looksLikeMojibake(it) }
         return lines.map { LyricLine(timeMs = 0, it) }.takeIf { it.isNotEmpty() }
@@ -173,7 +204,7 @@ internal object LyricsSanitizer {
         if (lines.isEmpty()) return 0
         val valid = lines.filter { line ->
             val t = line.text.trim()
-            t.isNotEmpty() && !t.contains('\uFFFD') && !isPlaceholderLyric(t) &&
+            t.isNotEmpty() && !t.contains('\uFFFD') && !isIgnorableLyricText(t) &&
                 !LyricsEncoding.looksLikeMojibake(t)
         }
         if (valid.isEmpty()) return 0

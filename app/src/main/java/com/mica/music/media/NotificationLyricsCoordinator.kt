@@ -554,6 +554,10 @@ internal fun buildExternalLyricsLine(
         val rawText = legacyLine?.text?.trim().orEmpty()
         if (rawText.isBlank()) return null
 
+        val readingPart = node.parts
+            .filter { it.role == LyricTextRole.READING }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
         val originalPart = node.parts
             .filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
             .joinToString(" ") { it.text.trim() }
@@ -569,11 +573,15 @@ internal fun buildExternalLyricsLine(
             enabled = true,
         )
         val hasSemanticTranslation = translationPart.isNotBlank()
-        val baseOriginal = when {
+        val baseOriginalCore = when {
             hasSemanticTranslation -> originalPart
             allRows.size >= 2 -> allRows.firstOrNull()?.text.orEmpty()
             else -> rawText
         }.trim()
+        val baseOriginal = listOf(readingPart, baseOriginalCore)
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+            .ifBlank { baseOriginalCore }
         val baseTranslation = when {
             hasSemanticTranslation -> translationPart
             allRows.size >= 2 -> allRows.drop(1).joinToString(" ") { it.text.trim() }

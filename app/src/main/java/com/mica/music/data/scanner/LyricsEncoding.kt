@@ -366,7 +366,9 @@ internal object LyricsEncoding {
 
         val t = stripBomOnly(text)
 
-        if (t.length < 2 || t.contains('\uFFFD') || looksLikeMojibake(t)) return false
+        // Do not require length >= 2: a single CJK syllable (e.g. Chinese translation "爱")
+        // is valid lyric text and already scores meaningful >= 2 below.
+        if (t.isEmpty() || t.contains('\uFFFD') || looksLikeMojibake(t)) return false
 
         var meaningful = 0
 
@@ -376,9 +378,11 @@ internal object LyricsEncoding {
 
                 c == '\uFEFF' -> return false
 
-                c.isLetterOrDigit() -> meaningful++
-
+                // CJK must precede isLetterOrDigit: Java treats ideographs as letters (+1),
+                // which would reject valid single-character lyric lines like Chinese "爱".
                 c.code in 0x3040..0x9FFF || c.code in 0xAC00..0xD7AF -> meaningful += 2
+
+                c.isLetterOrDigit() -> meaningful++
 
                 c.isWhitespace() || c.code in 0x2000..0x200B -> {}
 

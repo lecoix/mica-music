@@ -90,6 +90,8 @@ data class LyricTextPart(
 
 enum class LyricTextRole {
     ORIGINAL,
+    /** Romaji / romanization / reading track carried by the lyric file (not auto-generated). */
+    READING,
     TRANSLATION,
     EXTRA,
 }
@@ -134,7 +136,10 @@ fun List<LyricLine>.toLyricsDocumentCompat(
 fun LyricsDocument.toLegacyLyricLines(): List<LyricLine> = lines.map { line ->
     LyricLine(
         timeMs = line.startMs,
-        text = line.parts.joinToString(separator = "\n") { it.text },
+        // Keep READING out of the legacy flat text so cue ranges stay aligned to original syllables.
+        text = line.parts
+            .filter { it.role != LyricTextRole.READING }
+            .joinToString(separator = "\n") { it.text },
         cues = line.tokens.map { token -> LyricCue(timeMs = token.startMs, text = token.text) },
         endTimeMs = line.endMs,
     )

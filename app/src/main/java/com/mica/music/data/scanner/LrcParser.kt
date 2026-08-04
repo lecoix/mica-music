@@ -1,10 +1,14 @@
 package com.mica.music.data.scanner
 
-import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricCue
+import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricLineNode
+import com.mica.music.data.LyricTextPart
+import com.mica.music.data.LyricTextRole
+import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsFormat
-import com.mica.music.data.toLyricsDocumentCompat
+import com.mica.music.data.toLegacyLyricLines
 
 internal object LrcParser {
 
@@ -20,24 +24,156 @@ internal object LrcParser {
 
     fun parse(text: String): List<LyricLine> {
         if (TtmlLyricsParser.looksLikeTtml(text)) return TtmlLyricsParser.parse(text)
+        return parseDocument(text).toLegacyLyricLines()
+    }
+
+    fun parseDocument(text: String): LyricsDocument {
+        if (TtmlLyricsParser.looksLikeTtml(text)) return TtmlLyricsParser.parseDocument(text)
+        val format = if (timestamp.containsMatchIn(text) || kugouLine.containsMatchIn(text)) {
+            LyricsFormat.LRC
+        } else {
+            LyricsFormat.PLAIN
+        }
+        val entries = parseEntries(text)
+        if (entries.isEmpty()) {
+            val plain = text.lines()
+                .map { it.trim() }
+                .filter {
+                    it.isNotEmpty() && !tagLine.matches(it) && !LyricsSanitizer.isIgnorableLyricText(it)
+                }
+                .map { MetadataTextFix.normalize(it) }
+            if (plain.isEmpty()) return LyricsDocument(format = format)
+            return LyricsDocument(
+                format = format,
+                lines = plain.mapIndexed { index, lineText ->
+                    LyricLineNode(
+                        id = "$index-0",
+                        startMs = 0,
+                        parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, lineText)),
+                    )
+                },
+            )
+        }
+        return LyricsDocument(
+            format = format,
+            lines = groupEntries(entries).mapIndexed { index, group -> group.toNode(index) },
+        )
+    }
+
+    private data class ParsedBody(val text: String, val cues: List<LyricCue>) {
+        fun toLyricLine(lineTimeMs: Int): LyricLine = LyricLine(lineTimeMs, text, cues)
+    }
+
+    /**
+     * One timed (or orphan untimed) lyric row as encountered in file order.
+     * [trailingTexts] holds SPL untimestamped continuation lines attached while adjacent.
+     */
+    private data class RawEntry(
+        val timeMs: Int,
+        val text: String,
+        val cues: List<LyricCue>,
+        val explicitTime: Boolean,
+        val trailingTexts: MutableList<String> = mutableListOf(),
+    )
+
+    private data class GroupedLine(
+        val timeMs: Int,
+        val text: String,
+        val cues: List<LyricCue>,
+        val secondaries: List<String>,
+    ) {
+        fun toNode(index: Int): LyricLineNode {
+            val reading: String?
+            val translation: String?
+            when (secondaries.size) {
+                0 -> {
+                    reading = null
+                    translation = null
+                }
+                1 -> {
+                    // NetEase dual-track / SPL bilingual: second line is translation.
+                    reading = null
+                    translation = secondaries[0]
+                }
+                else -> {
+                    // NetEase triple-track merge: reading then translation(+extra langs).
+                    reading = secondaries[0]
+                    translation = secondaries.drop(1).joinToString("\n")
+                }
+            }
+            val parts = buildList {
+                reading?.takeIf { it.isNotEmpty() }?.let {
+                    add(LyricTextPart(LyricTextRole.READING, it))
+                }
+                add(LyricTextPart(LyricTextRole.ORIGINAL, text))
+                translation?.takeIf { it.isNotEmpty() }?.let {
+                    add(LyricTextPart(LyricTextRole.TRANSLATION, it))
+                }
+            }
+            return LyricLineNode(
+                id = "$index-$timeMs",
+                startMs = timeMs,
+                parts = parts,
+                tokens = cues.mapIndexed { cueIndex, cue ->
+                    LyricToken(
+                        text = cue.text,
+                        startMs = cue.timeMs,
+                        endMs = cues.getOrNull(cueIndex + 1)?.timeMs,
+                        partRole = LyricTextRole.ORIGINAL,
+                    )
+                },
+            )
+        }
+    }
+
+    private fun parseEntries(text: String): List<RawEntry> {
         val lines = text.lines()
         val offsetMs = lines.firstNotNullOfOrNull { line ->
             offsetTag.find(line)?.groupValues?.get(1)?.toIntOrNull()
         } ?: 0
-        val timed = mutableListOf<LyricLine>()
+        val entries = mutableListOf<RawEntry>()
+        var openEntry: RawEntry? = null
+        var allowUntimedAttach = false
+
+        fun addEntry(entry: RawEntry) {
+            entries += entry
+            openEntry = entry
+            allowUntimedAttach = entry.explicitTime
+        }
+
         for (line in lines) {
             val trimmed = line.trim()
-            if (trimmed.isEmpty()) continue
-            parseKugouLine(trimmed, offsetMs)?.let {
-                timed += it
+            if (trimmed.isEmpty()) {
+                // SPL: untimestamped translation must be adjacent; blank breaks the chain.
+                allowUntimedAttach = false
+                continue
+            }
+            parseKugouLine(trimmed, offsetMs)?.let { parsed ->
+                if (shouldKeepParsedLine(parsed)) {
+                    addEntry(
+                        RawEntry(
+                            timeMs = parsed.timeMs,
+                            text = parsed.text,
+                            cues = parsed.cues,
+                            explicitTime = true,
+                        ),
+                    )
+                }
                 continue
             }
             val matches = timestamp.findAll(trimmed).toList()
             parseInlineBracketLine(trimmed, matches, offsetMs)?.let { parsed ->
                 if (shouldKeepParsedLine(parsed)) {
-                    timed += parsed
-                    continue
+                    addEntry(
+                        RawEntry(
+                            timeMs = parsed.timeMs,
+                            text = parsed.text,
+                            cues = parsed.cues,
+                            explicitTime = true,
+                        ),
+                    )
                 }
+                continue
             }
             val hasLeadingTimestamps = matches.isNotEmpty() &&
                 matches.first().range.first == 0 &&
@@ -48,80 +184,116 @@ internal object LrcParser {
                     val lineTimeMs = timestampMs(match) + offsetMs
                     val parsedBody = parseEnhancedBody(body, lineTimeMs, offsetMs)
                     if (parsedBody.text.isNotEmpty() && shouldKeepParsedLine(parsedBody.toLyricLine(lineTimeMs))) {
-                        timed += LyricLine(
-                            timeMs = lineTimeMs.coerceAtLeast(0),
-                            text = parsedBody.text,
-                            cues = parsedBody.cues,
+                        addEntry(
+                            RawEntry(
+                                timeMs = lineTimeMs.coerceAtLeast(0),
+                                text = parsedBody.text,
+                                cues = parsedBody.cues,
+                                explicitTime = true,
+                            ),
                         )
                     }
                 }
                 continue
             }
-            if (!trimmed.startsWith("[") && !LyricsSanitizer.isPlaceholderLyric(trimmed) &&
-                !LyricsSanitizer.isBinaryGarbage(trimmed)
-            ) {
-                timed += LyricLine(timeMs = 0, text = MetadataTextFix.normalize(trimmed))
-            }
-        }
-        if (timed.isEmpty()) {
-            val plain = text.lines()
-                .map { it.trim() }
-                .filter {
-                    it.isNotEmpty() && !tagLine.matches(it) && !LyricsSanitizer.isPlaceholderLyric(it) &&
-                        !LyricsSanitizer.isBinaryGarbage(it)
+            if (!trimmed.startsWith("[") && !LyricsSanitizer.isIgnorableLyricText(trimmed)) {
+                val normalized = MetadataTextFix.normalize(trimmed)
+                val open = openEntry
+                if (allowUntimedAttach && open != null && open.explicitTime) {
+                    open.trailingTexts += normalized
+                } else {
+                    addEntry(
+                        RawEntry(
+                            timeMs = 0,
+                            text = normalized,
+                            cues = emptyList(),
+                            explicitTime = false,
+                        ),
+                    )
+                    // Orphan / plain-file lines are not SPL translation hosts.
+                    allowUntimedAttach = false
                 }
-                .map { MetadataTextFix.normalize(it) }
-            if (plain.isNotEmpty()) {
-                return plain.map { LyricLine(timeMs = 0, it) }
             }
         }
-        return mergeSameTimestampWordTranslationLines(timed)
+        return entries
     }
 
-    fun parseDocument(text: String): LyricsDocument {
-        if (TtmlLyricsParser.looksLikeTtml(text)) return TtmlLyricsParser.parseDocument(text)
-        val format = if (timestamp.containsMatchIn(text) || kugouLine.containsMatchIn(text)) {
-            LyricsFormat.LRC
-        } else {
-            LyricsFormat.PLAIN
-        }
-        return parse(text).toLyricsDocumentCompat(format = format)
-    }
+    /**
+     * Same-timestamp grouping (stable by file order) plus NetEase/SPL secondary roles.
+     * Two word-timed lines at the same stamp stay separate (harmony / ad-lib).
+     */
+    private fun groupEntries(entries: List<RawEntry>): List<GroupedLine> {
+        if (entries.isEmpty()) return emptyList()
+        val sorted = entries.mapIndexed { index, entry -> index to entry }
+            .sortedWith(compareBy({ it.second.timeMs }, { it.first }))
+            .map { it.second }
 
-    private data class ParsedBody(val text: String, val cues: List<LyricCue>) {
-        fun toLyricLine(lineTimeMs: Int): LyricLine = LyricLine(lineTimeMs, text, cues)
-    }
-
-    private fun mergeSameTimestampWordTranslationLines(lines: List<LyricLine>): List<LyricLine> {
-        if (lines.size < 2) return lines.sortedBy { it.timeMs }
-        val sorted = lines.sortedBy { it.timeMs }
         return buildList {
             var index = 0
             while (index < sorted.size) {
-                val group = sorted.drop(index).takeWhile { it.timeMs == sorted[index].timeMs }
-                if (group.size == 2) {
-                    val wordLine = group.singleOrNull { it.cues.isNotEmpty() }
-                    val translationLine = group.singleOrNull { it.cues.isEmpty() }
-                    if (wordLine != null && translationLine != null) {
-                        add(
-                            wordLine.copy(
-                                text = "${wordLine.text}\n${translationLine.text}",
-                            ),
-                        )
-                        index += group.size
-                        continue
-                    }
+                val head = sorted[index]
+                if (!head.explicitTime) {
+                    add(head.toGroupedLine())
+                    index += 1
+                    continue
                 }
-                addAll(group)
+                val group = sorted.drop(index).takeWhile {
+                    it.explicitTime && it.timeMs == head.timeMs
+                }
+                addAll(collapseSameTimestampGroup(group))
                 index += group.size
             }
         }
     }
 
+    private fun RawEntry.toGroupedLine(): GroupedLine = GroupedLine(
+        timeMs = timeMs,
+        text = text,
+        cues = cues,
+        secondaries = trailingTexts.toList(),
+    )
+
+    private fun collapseSameTimestampGroup(group: List<RawEntry>): List<GroupedLine> {
+        if (group.size == 1) return listOf(group.single().toGroupedLine())
+
+        val withCues = group.filter { it.cues.isNotEmpty() }
+        val withoutCues = group.filter { it.cues.isEmpty() }
+
+        // Preserve prior behavior: two (or more) word-timed lines do not merge.
+        if (withCues.size >= 2 && withoutCues.isEmpty()) {
+            return group.map { it.toGroupedLine() }
+        }
+
+        val main: RawEntry
+        val others: List<RawEntry>
+        if (withCues.size == 1) {
+            main = withCues.single()
+            others = group.filter { it !== main }
+        } else {
+            main = group.first()
+            others = group.drop(1)
+        }
+
+        val secondaries = buildList {
+            addAll(main.trailingTexts)
+            others.forEach { other ->
+                add(other.text)
+                addAll(other.trailingTexts)
+            }
+        }
+        return listOf(
+            GroupedLine(
+                timeMs = main.timeMs,
+                text = main.text,
+                cues = main.cues,
+                secondaries = secondaries,
+            ),
+        )
+    }
+
     private fun shouldKeepParsedLine(line: LyricLine): Boolean {
-        if (LyricsSanitizer.isPlaceholderLyric(line.text)) return false
         if (line.cues.isNotEmpty()) return true
-        return !LyricsSanitizer.isBinaryGarbage(line.text)
+        return !LyricsSanitizer.isIgnorableLyricText(line.text)
     }
 
     /** [00:00.000]字[00:00.022]词 — common in NetEase/QQ embedded word lyrics. */

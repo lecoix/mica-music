@@ -37,6 +37,7 @@ val LocalCustomWallpaperCrop = staticCompositionLocalOf { CustomWallpaperCrop.De
 internal val LocalWallpaperViewportState = staticCompositionLocalOf<WallpaperViewportState?> { null }
 val LocalCoverDisplayMode = staticCompositionLocalOf { CoverDisplayMode.CROP_FILL }
 val LocalLyricSplitEnabled = staticCompositionLocalOf { true }
+val LocalLyricReadingEnabled = staticCompositionLocalOf { true }
 val LocalLyricLineFillEnabled = staticCompositionLocalOf { false }
 
 class WallpaperViewportState {
@@ -64,6 +65,7 @@ fun MicaTheme(
     customWallpaperCrop: CustomWallpaperCrop = CustomWallpaperCrop.Default,
     coverDisplayMode: CoverDisplayMode = CoverDisplayMode.CROP_FILL,
     lyricSplitEnabled: Boolean = true,
+    lyricReadingEnabled: Boolean = true,
     lyricLineFillEnabled: Boolean = false,
     globalFont: AppFontSelection = AppFontSelection.SystemDefault,
     lyricFont: AppFontSelection = AppFontSelection.SystemDefault,
@@ -143,6 +145,7 @@ fun MicaTheme(
         LocalCustomWallpaperCrop provides customWallpaperCrop,
         LocalCoverDisplayMode provides coverDisplayMode,
         LocalLyricSplitEnabled provides lyricSplitEnabled,
+        LocalLyricReadingEnabled provides lyricReadingEnabled,
         LocalLyricLineFillEnabled provides lyricLineFillEnabled,
         LocalContentColor provides hifiColors.textPrimary,
     ) {

@@ -46,12 +46,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.ui.theme.LocalLyricReadingEnabled
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.PlayerContentColors
 import kotlin.math.abs
@@ -84,6 +86,7 @@ internal fun LyricsCloudPanel(
     val density = LocalDensity.current
     val motionEnabled = rememberMicaMotionEnabled()
     val splitEnabled = LocalLyricSplitEnabled.current
+    val readingEnabled = LocalLyricReadingEnabled.current
     val uniformStyle = rememberLyricUniformStyle()
     val lyrics = renderState.lyrics
     val currentIndex = remember(renderState.activeLineIndex, lyrics.size) {
@@ -97,9 +100,13 @@ internal fun LyricsCloudPanel(
     val translationStyles = remember(fontSizes, uniformStyle) {
         fontSizes.map { uniformStyle.withCloudFontSize((it - 3).coerceAtLeast(14)) }
     }
-    val displayRows = remember(lyrics, splitEnabled, bilingualDisplayMode) {
-        lyrics.map { line ->
-            LyricDisplayRows.rowsForBilingualDisplayMode(
+    val displayRows = remember(lyrics, renderState.document, splitEnabled, bilingualDisplayMode, readingEnabled) {
+        lyrics.mapIndexed { index, line ->
+            LyricDisplayRows.rowsFromParts(
+                parts = renderState.document.lines.getOrNull(index)?.parts.orEmpty(),
+                mode = bilingualDisplayMode,
+                readingEnabled = readingEnabled,
+            ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
                 text = line.text,
                 enabled = splitEnabled,
                 mode = bilingualDisplayMode,
@@ -110,6 +117,7 @@ internal fun LyricsCloudPanel(
         documentSeed = seed,
         bilingualMode = bilingualDisplayMode,
         splitEnabled = splitEnabled,
+        readingEnabled = readingEnabled,
         density = density.density,
         lineCount = lyrics.size,
     )
@@ -515,7 +523,11 @@ private fun CloudLyricLine(
     }
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         rows.forEach { row ->
-            val style = if (row.splitIndex > 0) translationTextStyle else textStyle
+            val style = when (row.role) {
+                LyricTextRole.READING, LyricTextRole.TRANSLATION -> translationTextStyle
+                LyricTextRole.ORIGINAL, LyricTextRole.EXTRA ->
+                    if (row.splitIndex > 0) translationTextStyle else textStyle
+            }
             val pressedStyle = style.copy(
                 fontWeight = FontWeight.Normal,
                 shadow = Shadow(

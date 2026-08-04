@@ -166,6 +166,13 @@ internal fun LyricsSettingsPanel(
         onCheckedChange = { uiSettings.updateLyricSplitEnabled(it) },
     )
 
+    SettingsToggleRow(
+        title = "显示读音 / 罗马音",
+        subtitle = "歌词文件自带读音时显示在原文上方（TTML x-roman* / Apple transliterations；LRC/SPL 同戳三行或主行后罗马音行）",
+        checked = uiSettings.lyricReadingEnabled,
+        onCheckedChange = { uiSettings.updateLyricReadingEnabled(it) },
+    )
+
     SettingsChoiceRow(
         title = "双语歌词显示",
         subtitle = "仅在分割双语歌词开启、且当前歌词行可拆分时生效",

@@ -12,9 +12,11 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsDocument
 import com.mica.music.ui.components.rememberLyricUniformStyle
+import com.mica.music.ui.theme.LocalLyricReadingEnabled
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import kotlin.random.Random
 import kotlinx.coroutines.delay
@@ -29,6 +31,7 @@ internal data class LyricsCloudWarmKey(
     val documentSeed: Int,
     val bilingualMode: LyricsBilingualDisplayMode,
     val splitEnabled: Boolean,
+    val readingEnabled: Boolean = true,
     val density: Float,
     val lineCount: Int,
 )
@@ -87,8 +90,11 @@ internal fun measureLyricsCloudLinePrecise(
     translationNormalStyle: TextStyle,
     textMeasurer: TextMeasurer,
 ): List<LyricsCloudMeasuredRow> = rows.map { row ->
-    val style = if (row.splitIndex > 0) translationStyle else lineStyle
-    val normalStyle = if (row.splitIndex > 0) translationNormalStyle else lineNormalStyle
+    val useSecondary = row.role == LyricTextRole.READING ||
+        row.role == LyricTextRole.TRANSLATION ||
+        row.splitIndex > 0
+    val style = if (useSecondary) translationStyle else lineStyle
+    val normalStyle = if (useSecondary) translationNormalStyle else lineNormalStyle
     val whole = textMeasurer.measure(
         text = row.text,
         style = style,
@@ -123,6 +129,7 @@ internal fun LyricsCloudLayoutPrewarm(
     }
     if (!enabled || lyrics.isEmpty()) return
     val splitEnabled = LocalLyricSplitEnabled.current
+    val readingEnabled = LocalLyricReadingEnabled.current
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val uniformStyle = rememberLyricUniformStyle()
@@ -140,9 +147,13 @@ internal fun LyricsCloudLayoutPrewarm(
     val translationNormalStyles = remember(translationStyles) {
         translationStyles.map { it.copy(fontWeight = FontWeight.Normal) }
     }
-    val displayRows = remember(lyrics, splitEnabled, bilingualDisplayMode) {
-        lyrics.map { line ->
-            LyricDisplayRows.rowsForBilingualDisplayMode(
+    val displayRows = remember(lyrics, document, splitEnabled, bilingualDisplayMode, readingEnabled) {
+        lyrics.mapIndexed { index, line ->
+            LyricDisplayRows.rowsFromParts(
+                parts = document.lines.getOrNull(index)?.parts.orEmpty(),
+                mode = bilingualDisplayMode,
+                readingEnabled = readingEnabled,
+            ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
                 text = line.text,
                 enabled = splitEnabled,
                 mode = bilingualDisplayMode,
@@ -153,6 +164,7 @@ internal fun LyricsCloudLayoutPrewarm(
         documentSeed = seed,
         bilingualMode = bilingualDisplayMode,
         splitEnabled = splitEnabled,
+        readingEnabled = readingEnabled,
         density = density.density,
         lineCount = lyrics.size,
     )

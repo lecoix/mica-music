@@ -35,6 +35,7 @@ fun MicaAppRoot(
             customWallpaperCrop = uiSettings.customWallpaperCrop,
             coverDisplayMode = uiSettings.coverDisplayMode,
             lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+            lyricReadingEnabled = uiSettings.lyricReadingEnabled,
             lyricLineFillEnabled = uiSettings.lyricLineFillEnabled,
             globalFont = uiSettings.globalFont,
             lyricFont = uiSettings.lyricFont,

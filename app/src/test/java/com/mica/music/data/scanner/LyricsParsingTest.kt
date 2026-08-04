@@ -5,6 +5,7 @@ import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricsSync
 import com.mica.music.data.LyricsFormat
 import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.toLegacyLyricLines
 import java.io.File
 import java.nio.charset.StandardCharsets
 import javax.xml.parsers.DocumentBuilder
@@ -156,6 +157,105 @@ class LyricsParsingTest {
 
         assertEquals(com.mica.music.data.LyricsFormat.LRC, document.format)
         assertEquals(listOf("original", "translation"), document.lines.single().parts.map { it.text })
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            document.lines.single().parts.map { it.role },
+        )
+    }
+
+    @Test
+    fun lrcSameTimestampTripleTrackMapsReadingThenTranslation() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:01.000]生まれた場所
+            [00:01.000]u ma re ta ba sho
+            [00:01.000]诞生的地方
+            [00:02.000]次の行
+            """.trimIndent(),
+        )
+
+        val line = document.lines.first()
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.READING,
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            line.parts.map { it.role },
+        )
+        assertEquals(
+            listOf("u ma re ta ba sho", "生まれた場所", "诞生的地方"),
+            line.parts.map { it.text },
+        )
+        assertEquals("生まれた場所\n诞生的地方", document.toLegacyLyricLines().first().text)
+        assertEquals(listOf("次の行"), document.lines[1].parts.map { it.text })
+    }
+
+    @Test
+    fun lrcUntimestampedContinuationAttachesAsTranslation() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:01.000]你好椒盐音乐
+            Hello Salt Player
+            [00:02.000]下一句
+            """.trimIndent(),
+        )
+
+        assertEquals(2, document.lines.size)
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            document.lines[0].parts.map { it.role },
+        )
+        assertEquals(
+            listOf("你好椒盐音乐", "Hello Salt Player"),
+            document.lines[0].parts.map { it.text },
+        )
+    }
+
+    @Test
+    fun lrcUntimestampedTripleContinuationMapsReadingAndTranslation() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:01.000]生まれ
+            u ma re
+            诞生
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.READING,
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            line.parts.map { it.role },
+        )
+        assertEquals(listOf("u ma re", "生まれ", "诞生"), line.parts.map { it.text })
+    }
+
+    @Test
+    fun lrcBlankLineBreaksUntimestampedContinuation() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:01.000]main
+            
+            orphan translation
+            """.trimIndent(),
+        )
+
+        assertEquals(2, document.lines.size)
+        // Orphan untimed lines stay at 0ms and therefore sort before the timed main line.
+        assertEquals(0, document.lines[0].startMs)
+        assertEquals(listOf("orphan translation"), document.lines[0].parts.map { it.text })
+        assertEquals(1_000, document.lines[1].startMs)
+        assertEquals(listOf("main"), document.lines[1].parts.map { it.text })
     }
 
     @Test
@@ -247,6 +347,100 @@ class LyricsParsingTest {
         )
         assertEquals(listOf("original", "translation"), line.parts.map { it.text })
         assertEquals(2_000, line.tokens.single().endMs)
+    }
+
+    @Test
+    fun ttmlParsesXRomanizationAboveOriginalWithoutMergingIntoOriginal() {
+        val document = TtmlLyricsParser.parseDocument(
+            """
+            <tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+              <p begin="1s" end="2s">
+                <span begin="1s">生まれ</span>
+                <span ttm:role="x-romanization">u ma re</span>
+                <span ttm:role="x-translation">诞生</span>
+              </p>
+            </div></body></tt>
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.READING,
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            line.parts.map { it.role },
+        )
+        assertEquals(listOf("u ma re", "生まれ", "诞生"), line.parts.map { it.text })
+        assertEquals("生まれ\n诞生", document.toLegacyLyricLines().single().text)
+        assertEquals(listOf("生まれ"), document.toLegacyLyricLines().single().cues.map { it.text })
+    }
+
+    @Test
+    fun ttmlPrefersItunesTransliterationsOverInlineRoman() {
+        val document = TtmlLyricsParser.parseDocument(
+            """
+            <tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+                xmlns:itunes="http://music.apple.com/lyric-ttml-extensions">
+              <head><metadata>
+                <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal">
+                  <transliterations>
+                    <transliteration xml:lang="ja-Latn">
+                      <text for="L1">head roman</text>
+                    </transliteration>
+                  </transliterations>
+                </iTunesMetadata>
+              </metadata></head>
+              <body><div>
+                <p begin="1s" end="2s" itunes:key="L1">
+                  <span begin="1s">原文</span>
+                  <span ttm:role="x-roman">inline roman</span>
+                </p>
+              </div></body>
+            </tt>
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(com.mica.music.data.LyricTextRole.READING, line.parts.first().role)
+        assertEquals("head roman", line.parts.first().text)
+        assertEquals("原文", line.parts.first { it.role == com.mica.music.data.LyricTextRole.ORIGINAL }.text)
+    }
+
+    @Test
+    fun ttmlAcceptsXRomanAlias() {
+        val document = TtmlLyricsParser.parseDocument(
+            """
+            <tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+              <p begin="1s"><span begin="1s">君</span><span ttm:role="x-roman">kimi</span></p>
+            </div></body></tt>
+            """.trimIndent(),
+        )
+        assertEquals(
+            listOf("kimi", "君"),
+            document.lines.single().parts.map { it.text },
+        )
+    }
+
+    @Test
+    fun rowsFromPartsOrdersReadingAboveOriginal() {
+        val rows = com.mica.music.data.LyricDisplayRows.rowsFromParts(
+            parts = listOf(
+                com.mica.music.data.LyricTextPart(com.mica.music.data.LyricTextRole.READING, "romaji"),
+                com.mica.music.data.LyricTextPart(com.mica.music.data.LyricTextRole.ORIGINAL, "原文"),
+                com.mica.music.data.LyricTextPart(com.mica.music.data.LyricTextRole.TRANSLATION, "译文"),
+            ),
+        )!!
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.READING,
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            rows.map { it.role },
+        )
+        assertEquals(listOf("romaji", "原文", "译文"), rows.map { it.text })
     }
 
     @Test

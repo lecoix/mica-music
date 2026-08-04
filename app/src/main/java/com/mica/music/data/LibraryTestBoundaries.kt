@@ -136,7 +136,7 @@ internal interface LibraryStore {
     suspend fun clear()
 }
 
-internal const val CURRENT_LYRICS_PARSER_VERSION = 7
+internal const val CURRENT_LYRICS_PARSER_VERSION = 11
 
 internal interface ScanEnvironment {
     fun hasAudioReadPermission(): Boolean

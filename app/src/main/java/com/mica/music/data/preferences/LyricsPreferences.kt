@@ -48,6 +48,7 @@ object LyricsPreferences {
         SOURCE,
     }
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
+    private const val KEY_LYRIC_READING_ENABLED = "lyric_reading_enabled"
     private const val KEY_LYRICS_BILINGUAL_DISPLAY_MODE = "lyrics_bilingual_display_mode"
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
     private const val KEY_PLAYER_PAGE_TEXT_COLOR = "player_page_text_color"
@@ -117,6 +118,15 @@ object LyricsPreferences {
     fun setLyricSplitEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_LYRIC_SPLIT_ENABLED, enabled)
+            .apply()
+    }
+
+    fun lyricReadingEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_LYRIC_READING_ENABLED, true)
+
+    fun setLyricReadingEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_LYRIC_READING_ENABLED, enabled)
             .apply()
     }
 

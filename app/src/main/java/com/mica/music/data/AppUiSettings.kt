@@ -144,6 +144,9 @@ class AppUiSettings(context: Context) {
     var lyricSplitEnabled by mutableStateOf(LyricsPreferences.lyricSplitEnabled(appContext))
         private set
 
+    var lyricReadingEnabled by mutableStateOf(LyricsPreferences.lyricReadingEnabled(appContext))
+        private set
+
     var lyricsBilingualDisplayMode by mutableStateOf(LyricsPreferences.lyricsBilingualDisplayMode(appContext))
         private set
 
@@ -568,6 +571,11 @@ class AppUiSettings(context: Context) {
     fun updateLyricSplitEnabled(enabled: Boolean) {
         lyricSplitEnabled = enabled
         LyricsPreferences.setLyricSplitEnabled(appContext, enabled)
+    }
+
+    fun updateLyricReadingEnabled(enabled: Boolean) {
+        lyricReadingEnabled = enabled
+        LyricsPreferences.setLyricReadingEnabled(appContext, enabled)
     }
 
     fun updateLyricsBilingualDisplayMode(mode: LyricsBilingualDisplayMode) {
