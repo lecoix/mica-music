@@ -1,0 +1,88 @@
+﻿2026-07-07T07:22:30.0945541Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:22:30.0947303Z ##[group]Run gradle/actions/setup-gradle@v4
+2026-07-07T07:22:30.0948241Z with:
+2026-07-07T07:22:30.0949245Z   cache-disabled: false
+2026-07-07T07:22:30.0950140Z   cache-read-only: false
+2026-07-07T07:22:30.0950949Z   cache-write-only: false
+2026-07-07T07:22:30.0951602Z   cache-overwrite-existing: false
+2026-07-07T07:22:30.0952262Z   cache-cleanup: on-success
+2026-07-07T07:22:30.0952971Z   gradle-home-cache-includes: caches
+notifications
+
+2026-07-07T07:22:30.0953736Z   add-job-summary: always
+2026-07-07T07:22:30.0954429Z   add-job-summary-as-pr-comment: never
+2026-07-07T07:22:30.0955138Z   dependency-graph: disabled
+2026-07-07T07:22:30.0955885Z   dependency-graph-report-dir: dependency-graph-reports
+2026-07-07T07:22:30.0956797Z   dependency-graph-continue-on-failure: true
+2026-07-07T07:22:30.0957545Z   build-scan-publish: false
+2026-07-07T07:22:30.0958170Z   validate-wrappers: true
+2026-07-07T07:22:30.0958983Z   allow-snapshot-wrappers: false
+2026-07-07T07:22:30.0959674Z   gradle-home-cache-strict-match: false
+2026-07-07T07:22:30.0960362Z   workflow-job-context: null
+2026-07-07T07:22:30.0965170Z   github-token: ***
+2026-07-07T07:22:30.0965741Z env:
+2026-07-07T07:22:30.0966275Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.19-10/x64
+2026-07-07T07:22:30.0966910Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.19-10/x64
+2026-07-07T07:22:30.0967668Z ##[endgroup]
+2026-07-07T07:22:31.8492763Z Merged default JDK locations into /home/runner/.m2/toolchains.xml
+2026-07-07T07:22:31.8509527Z Preparing cache for cleanup.
+2026-07-07T07:22:31.8529384Z ##[group]Restore Gradle state from cache
+2026-07-07T07:22:31.9171442Z Cache hit for restore-key: gradle-home-v1|Linux-X64|jvm-tests[fac4a4ef294ecd9be4e3dedc36848af2]-6f2c7380bc1d8dae097fe23119c0496928e5c8ec
+2026-07-07T07:22:32.1593039Z Received 11087222 of 11087222 (100.0%), 54.2 MBs/sec
+2026-07-07T07:22:32.1594327Z Cache Size: ~11 MB (11087222 B)
+2026-07-07T07:22:32.1632941Z [command]/usr/bin/tar -xf /home/runner/work/_temp/75159a9b-47b4-4e53-b77d-261243ca2577/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:32.3342158Z Cache restored successfully
+2026-07-07T07:22:32.3352438Z Restored cache entry with key gradle-home-v1|Linux-X64|jvm-tests[fac4a4ef294ecd9be4e3dedc36848af2]-9a2e8fe8e0ebae58948e1b6f6a20475b25670e66 to /home/runner/.gradle/caches,/home/runner/.gradle/notifications,/home/runner/.gradle/.setup-gradle in 483ms
+2026-07-07T07:22:32.4157399Z Cache hit for: gradle-kotlin-dsl-v1-f3b9a4b8f92d36297386d0eff407c9ac
+2026-07-07T07:22:32.4186300Z Cache hit for: gradle-wrapper-zips-v1-df6ecc383658ce44d9cbac4d1bfd12bf
+2026-07-07T07:22:32.4193517Z Cache hit for: gradle-transforms-v1-47c6b3d0f4eb522a931df99344627658
+2026-07-07T07:22:32.4230643Z Cache hit for: gradle-groovy-dsl-v1-e8418e300106c3063f72e81b7e217d14
+2026-07-07T07:22:32.4437130Z Cache hit for: gradle-instrumented-jars-v1-40816a2cef8f6d6a41305c6e37d448ea
+2026-07-07T07:22:32.4441128Z Cache hit for: gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c
+2026-07-07T07:22:32.4547388Z Cache hit for: gradle-dependencies-v1-90ddff43fa6e5334384b44be96fe5cf7
+2026-07-07T07:22:32.6352602Z Received 249840 of 249840 (100.0%), 1.7 MBs/sec
+2026-07-07T07:22:32.6353522Z Cache Size: ~0 MB (249840 B)
+2026-07-07T07:22:32.6441398Z Received 121928 of 121928 (100.0%), 1.0 MBs/sec
+2026-07-07T07:22:32.6442190Z Cache Size: ~0 MB (121928 B)
+2026-07-07T07:22:32.6807924Z Received 194113 of 194113 (100.0%), 1.0 MBs/sec
+2026-07-07T07:22:32.6809483Z Cache Size: ~0 MB (194113 B)
+2026-07-07T07:22:32.7943290Z [command]/usr/bin/tar -xf /home/runner/work/_temp/0b6a1837-1704-4b0c-acb4-82cd2b1dfb19/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:32.8401184Z [command]/usr/bin/tar -xf /home/runner/work/_temp/09fbdb9f-fe39-4c47-8721-335f0cfcedfa/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:32.9196252Z Cache restored successfully
+2026-07-07T07:22:32.9227536Z Restored cache entry with key gradle-instrumented-jars-v1-40816a2cef8f6d6a41305c6e37d448ea to /home/runner/.gradle/caches/jars-*/*/ in 586ms
+2026-07-07T07:22:32.9364183Z [command]/usr/bin/tar -xf /home/runner/work/_temp/257d4594-f3a7-47bf-8b0f-b885bf123e9b/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:32.9748598Z Cache restored successfully
+2026-07-07T07:22:32.9754690Z Restored cache entry with key gradle-kotlin-dsl-v1-f3b9a4b8f92d36297386d0eff407c9ac to /home/runner/.gradle/caches/*/kotlin-dsl/accessors/*/,/home/runner/.gradle/caches/*/kotlin-dsl/scripts/*/ in 638ms
+2026-07-07T07:22:32.9929189Z Cache restored successfully
+2026-07-07T07:22:32.9935490Z Restored cache entry with key gradle-groovy-dsl-v1-e8418e300106c3063f72e81b7e217d14 to /home/runner/.gradle/caches/*/groovy-dsl/*/ in 656ms
+2026-07-07T07:22:33.4339627Z Received 92274688 of 210543127 (43.8%), 87.8 MBs/sec
+2026-07-07T07:22:33.4483554Z Received 39619897 of 39619897 (100.0%), 41.7 MBs/sec
+2026-07-07T07:22:33.4486573Z Cache Size: ~38 MB (39619897 B)
+2026-07-07T07:22:33.4865643Z Received 41943040 of 135425875 (31.0%), 39.8 MBs/sec
+2026-07-07T07:22:33.5107672Z Received 50331648 of 491614807 (10.2%), 47.7 MBs/sec
+2026-07-07T07:22:33.6199774Z [command]/usr/bin/tar -xf /home/runner/work/_temp/a5094280-82a5-4033-9af0-06c17c8e3fb3/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:34.0358374Z Cache restored successfully
+2026-07-07T07:22:34.0541697Z Restored cache entry with key gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c to /home/runner/.gradle/caches/8.9/generated-gradle-jars/gradle-api-8.9.jar in 1718ms
+2026-07-07T07:22:34.2840307Z Received 210543127 of 210543127 (100.0%), 108.4 MBs/sec
+2026-07-07T07:22:34.2843393Z Cache Size: ~201 MB (210543127 B)
+2026-07-07T07:22:34.3052353Z [command]/usr/bin/tar -xf /home/runner/work/_temp/5278b26b-9959-48a5-bceb-c03ed3f7b255/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:34.4933103Z Received 134217728 of 135425875 (99.1%), 63.6 MBs/sec
+2026-07-07T07:22:34.5194765Z Received 146800640 of 491614807 (29.9%), 69.4 MBs/sec
+2026-07-07T07:22:34.5913175Z Received 135425875 of 135425875 (100.0%), 61.2 MBs/sec
+2026-07-07T07:22:34.5914503Z Cache Size: ~129 MB (135425875 B)
+2026-07-07T07:22:34.7781057Z [command]/usr/bin/tar -xf /home/runner/work/_temp/6f48534e-db26-4c27-a822-0e7adad5ff6e/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:35.1770286Z Cache restored successfully
+2026-07-07T07:22:35.2008271Z Restored cache entry with key gradle-wrapper-zips-v1-df6ecc383658ce44d9cbac4d1bfd12bf to /home/runner/.gradle/wrapper/dists/gradle-8.9-bin/90cnw93cvbtalezasaz0blq0a in 2864ms
+2026-07-07T07:22:35.5218059Z Received 339738624 of 491614807 (69.1%), 107.4 MBs/sec
+2026-07-07T07:22:36.3434591Z Received 491614807 of 491614807 (100.0%), 122.1 MBs/sec
+2026-07-07T07:22:36.3445058Z Cache Size: ~469 MB (491614807 B)
+2026-07-07T07:22:36.3643083Z [command]/usr/bin/tar -xf /home/runner/work/_temp/d4769146-e113-48cf-acc1-4c7f4ba961e7/cache.tzst -P -C /home/runner/work/mica-music/mica-music --use-compress-program unzstd
+2026-07-07T07:22:36.7856269Z Cache restored successfully
+2026-07-07T07:22:36.7979423Z Restored cache entry with key gradle-transforms-v1-47c6b3d0f4eb522a931df99344627658 to /home/runner/.gradle/caches/transforms-4/*/,/home/runner/.gradle/caches/*/transforms/*/ in 4460ms
+2026-07-07T07:22:37.3059296Z Cache restored successfully
+2026-07-07T07:22:37.3244950Z Restored cache entry with key gradle-dependencies-v1-90ddff43fa6e5334384b44be96fe5cf7 to /home/runner/.gradle/caches/modules-*/files-*/*/*/*/* in 4988ms
+2026-07-07T07:22:37.3335889Z ##[endgroup]
+2026-07-07T07:22:37.3476976Z ##[group]All Gradle Wrapper jars are valid
+2026-07-07T07:22:37.3478316Z ✓ Found known Gradle Wrapper JAR files:
+2026-07-07T07:22:37.3479590Z   498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17 gradle/wrapper/gradle-wrapper.jar
+2026-07-07T07:22:37.3480423Z ##[endgroup]

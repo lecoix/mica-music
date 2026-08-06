@@ -1,0 +1,12 @@
+[versions]
+agp = "9.1.1"
+
+rules = "1.7.0"
+runner = "1.7.0"
+
+[libraries]
+androidx-rules = { module = "androidx.test:rules", version.ref = "rules" }
+androidx-runner = { module = "androidx.test:runner", version.ref = "runner" }
+
+[plugins]
+android-library = { id = "com.android.library", version.ref = "agp" }

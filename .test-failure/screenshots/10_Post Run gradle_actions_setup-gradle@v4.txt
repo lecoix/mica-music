@@ -1,0 +1,17 @@
+﻿2026-07-07T07:23:44.7032170Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:23:44.7033731Z Post job cleanup.
+2026-07-07T07:23:44.9817986Z In post-action step
+2026-07-07T07:23:44.9837128Z ##[group]Stopping Gradle daemons
+2026-07-07T07:23:44.9839248Z Stopping Gradle daemons for D:\a\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9
+2026-07-07T07:23:44.9883052Z [command]C:\Windows\system32\cmd.exe /D /S /C "D:\a\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9\bin\gradle.bat --stop"
+2026-07-07T07:23:46.0554912Z Stopping Daemon(s)
+2026-07-07T07:23:46.0556119Z 1 Daemon stopped
+2026-07-07T07:23:46.0863843Z ##[endgroup]
+2026-07-07T07:23:46.0864411Z Not performing cache-cleanup due to build failure
+2026-07-07T07:23:46.0865380Z ##[group]Caching Gradle state
+2026-07-07T07:23:50.5841700Z [command]"C:\Program Files\Git\usr\bin\tar.exe" --posix -cf cache.tzst --exclude cache.tzst -P -C D:/a/mica-music/mica-music --files-from manifest.txt --force-local --use-compress-program "zstd -T0"
+2026-07-07T07:23:52.0669165Z Sent 19129445 of 19129445 (100.0%), 30.3 MBs/sec
+2026-07-07T07:23:52.2526858Z Saved cache entry with key gradle-home-v1|Windows-X64|screenshots[fac4a4ef294ecd9be4e3dedc36848af2]-9a2e8fe8e0ebae58948e1b6f6a20475b25670e66 from D:\a\.gradle\caches,D:\a\.gradle\notifications,D:\a\.gradle\.setup-gradle in 1797ms
+2026-07-07T07:23:52.2528140Z ##[endgroup]
+2026-07-07T07:23:52.2534208Z Generating Job Summary
+2026-07-07T07:23:52.2553253Z Completed post-action step

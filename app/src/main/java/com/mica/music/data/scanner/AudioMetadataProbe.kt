@@ -249,7 +249,10 @@ object AudioMetadataProbe {
             null
         }
         val tagLibResult = profiler.measureOptional("taglib") {
-            TagLibReader.read(appCtx, uri)
+            TagLibReader.read(
+                context = appCtx,
+                uri = uri,
+            )
         }
         if (tagLibResult != null) {
             val wavFallback = if (
@@ -505,14 +508,24 @@ object AudioMetadataProbe {
 
         val detectedContainer = trackProbe?.containerName
             ?: TrackMetadata.containerFromMime(draft.mimeType, draft.displayName)
-        val technicalResult = profiler.measureOptional("technical") {
-            AudioTechnicalProbe.probe(
-                context = context,
-                uri = uri,
-                detectedContainer = detectedContainer,
-                mimeType = draft.mimeType,
-                displayName = draft.displayName,
+        val bitsFromTagLib = tagLib.bitsPerSample.takeIf { it > 0 }
+        val technicalResult = if (bitsFromTagLib != null) {
+            ProbeResult.Ok(
+                AudioTechnicalProbe.Result(
+                    containerName = detectedContainer,
+                    bitsPerSample = bitsFromTagLib,
+                ),
             )
+        } else {
+            profiler.measureOptional("technical") {
+                AudioTechnicalProbe.probe(
+                    context = context,
+                    uri = uri,
+                    detectedContainer = detectedContainer,
+                    mimeType = draft.mimeType,
+                    displayName = draft.displayName,
+                )
+            }
         }
         if (technicalResult is ProbeResult.Failed) {
             technicalProbeFailures?.incrementAndGet()

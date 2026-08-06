@@ -1,0 +1,73 @@
+﻿2026-07-07T07:22:28.6216701Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:22:28.6227962Z ##[group]Run actions/checkout@v4
+2026-07-07T07:22:28.6229743Z with:
+2026-07-07T07:22:28.6230582Z   repository: lecoix/mica-music
+2026-07-07T07:22:28.6239406Z   token: ***
+2026-07-07T07:22:28.6240211Z   ssh-strict: true
+2026-07-07T07:22:28.6241012Z   ssh-user: git
+2026-07-07T07:22:28.6241833Z   persist-credentials: true
+2026-07-07T07:22:28.6242746Z   clean: true
+2026-07-07T07:22:28.6243572Z   sparse-checkout-cone-mode: true
+2026-07-07T07:22:28.6244564Z   fetch-depth: 1
+2026-07-07T07:22:28.6245368Z   fetch-tags: false
+2026-07-07T07:22:28.6246225Z   show-progress: true
+2026-07-07T07:22:28.6247066Z   lfs: false
+2026-07-07T07:22:28.6247827Z   submodules: false
+2026-07-07T07:22:28.6248880Z   set-safe-directory: true
+2026-07-07T07:22:28.6250091Z ##[endgroup]
+2026-07-07T07:22:28.7272337Z Syncing repository: lecoix/mica-music
+2026-07-07T07:22:28.7275043Z ##[group]Getting Git version info
+2026-07-07T07:22:28.7276444Z Working directory is '/home/runner/work/mica-music/mica-music'
+2026-07-07T07:22:28.7279209Z [command]/usr/bin/git version
+2026-07-07T07:22:28.7341010Z git version 2.54.0
+2026-07-07T07:22:28.7374710Z ##[endgroup]
+2026-07-07T07:22:28.7386309Z Temporarily overriding HOME='/home/runner/work/_temp/8d31fdef-5939-42fa-9eb9-402f941cc3d7' before making global git config changes
+2026-07-07T07:22:28.7395733Z Adding repository directory to the temporary git global config as a safe directory
+2026-07-07T07:22:28.7406402Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mica-music/mica-music
+2026-07-07T07:22:28.7500384Z Deleting the contents of '/home/runner/work/mica-music/mica-music'
+2026-07-07T07:22:28.7506490Z ##[group]Initializing the repository
+2026-07-07T07:22:28.7512941Z [command]/usr/bin/git init /home/runner/work/mica-music/mica-music
+2026-07-07T07:22:28.7616519Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-07-07T07:22:28.7619583Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-07-07T07:22:28.7622066Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-07-07T07:22:28.7624528Z hint: call:
+2026-07-07T07:22:28.7626151Z hint:
+2026-07-07T07:22:28.7627733Z hint: 	git config --global init.defaultBranch <name>
+2026-07-07T07:22:28.7629762Z hint:
+2026-07-07T07:22:28.7631679Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-07-07T07:22:28.7634302Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-07-07T07:22:28.7635753Z hint:
+2026-07-07T07:22:28.7636562Z hint: 	git branch -m <name>
+2026-07-07T07:22:28.7637444Z hint:
+2026-07-07T07:22:28.7639425Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-07-07T07:22:28.7642540Z Initialized empty Git repository in /home/runner/work/mica-music/mica-music/.git/
+2026-07-07T07:22:28.7646620Z [command]/usr/bin/git remote add origin https://github.com/lecoix/mica-music
+2026-07-07T07:22:28.7698577Z ##[endgroup]
+2026-07-07T07:22:28.7708477Z ##[group]Disabling automatic garbage collection
+2026-07-07T07:22:28.7711247Z [command]/usr/bin/git config --local gc.auto 0
+2026-07-07T07:22:28.7740887Z ##[endgroup]
+2026-07-07T07:22:28.7743684Z ##[group]Setting up auth
+2026-07-07T07:22:28.7747636Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-07-07T07:22:28.7796050Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-07-07T07:22:28.8143751Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-07-07T07:22:28.8183280Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-07-07T07:22:28.8420429Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-07-07T07:22:28.8456733Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-07-07T07:22:28.8717490Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-07-07T07:22:28.8759961Z ##[endgroup]
+2026-07-07T07:22:28.8762533Z ##[group]Fetching the repository
+2026-07-07T07:22:28.8775059Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9a2e8fe8e0ebae58948e1b6f6a20475b25670e66:refs/remotes/origin/exoplayer-only
+2026-07-07T07:22:29.7140868Z From https://github.com/lecoix/mica-music
+2026-07-07T07:22:29.7142453Z  * [new ref]         9a2e8fe8e0ebae58948e1b6f6a20475b25670e66 -> origin/exoplayer-only
+2026-07-07T07:22:29.7167358Z ##[endgroup]
+2026-07-07T07:22:29.7168057Z ##[group]Determining the checkout info
+2026-07-07T07:22:29.7170872Z ##[endgroup]
+2026-07-07T07:22:29.7176485Z [command]/usr/bin/git sparse-checkout disable
+2026-07-07T07:22:29.7226474Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-07-07T07:22:29.7257466Z ##[group]Checking out the ref
+2026-07-07T07:22:29.7262156Z [command]/usr/bin/git checkout --progress --force -B exoplayer-only refs/remotes/origin/exoplayer-only
+2026-07-07T07:22:29.8415425Z Switched to a new branch 'exoplayer-only'
+2026-07-07T07:22:29.8416963Z branch 'exoplayer-only' set up to track 'origin/exoplayer-only'.
+2026-07-07T07:22:29.8431010Z ##[endgroup]
+2026-07-07T07:22:29.8482018Z [command]/usr/bin/git log -1 --format=%H
+2026-07-07T07:22:29.8509989Z 9a2e8fe8e0ebae58948e1b6f6a20475b25670e66

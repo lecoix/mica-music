@@ -4,11 +4,14 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import com.mica.music.util.DiagnosticLog
+import java.io.FileInputStream
 
 /**
  * 从文件头读取无损/特殊格式的技术参数（位深、容器修正）。
- * TagLib 负责标签；本模块负责 FLAC STREAMINFO、WAV fmt、MP4 ALAC 等。
+ * TagLib fork 已 native 暴露 [com.kyant.taglib.AudioProperties.bitsPerSample]；
+ * 本模块仅在 native 返回 0 时兜底（如部分 ALAC、MP3 等）。
  */
 internal object AudioTechnicalProbe {
 
@@ -23,18 +26,19 @@ internal object AudioTechnicalProbe {
         detectedContainer: String,
         mimeType: String,
         displayName: String?,
+        prefetchedHead: ByteArray? = null,
     ): ProbeResult<Result> {
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         return runCatching {
             when {
                 detectedContainer == "FLAC" || ext == "flac" -> Result(
                     containerName = "FLAC",
-                    bitsPerSample = readFlacBits(context, uri),
+                    bitsPerSample = readFlacBits(context, uri, prefetchedHead),
                 )
 
                 detectedContainer == "WAV" || ext in setOf("wav", "wave") -> Result(
                     containerName = "WAV",
-                    bitsPerSample = readWavBits(context, uri),
+                    bitsPerSample = readWavBits(context, uri, prefetchedHead),
                 )
 
                 shouldProbeAlac(detectedContainer, mimeType, displayName) -> readAlacInfo(
@@ -80,11 +84,13 @@ internal object AudioTechnicalProbe {
         )
     }
 
-    private fun readFlacBits(context: Context, uri: Uri): Int? =
-        readHeadCompat(context, uri, 64 * 1024)?.let { readFlacBitDepthFromHead(it) }
+    private fun readFlacBits(context: Context, uri: Uri, prefetchedHead: ByteArray?): Int? =
+        (prefetchedHead ?: readHeadCompat(context, uri, 64 * 1024))
+            ?.let { readFlacBitDepthFromHead(it) }
 
-    private fun readWavBits(context: Context, uri: Uri): Int? =
-        readHeadCompat(context, uri, 16 * 1024)?.let { readWavBitDepthFromHead(it) }
+    private fun readWavBits(context: Context, uri: Uri, prefetchedHead: ByteArray?): Int? =
+        (prefetchedHead ?: readHeadCompat(context, uri, 16 * 1024))
+            ?.let { readWavBitDepthFromHead(it) }
 
     internal fun readFlacBitDepthFromHead(head: ByteArray): Int? {
         val start = Id3Binary.indexOf(head, "fLaC".toByteArray(Charsets.US_ASCII), 0)
@@ -186,6 +192,25 @@ internal object AudioTechnicalProbe {
         } finally {
             runCatching { retriever.release() }
         }
+    }
+}
+
+/** TagLib 同次 [ParcelFileDescriptor] 打开后读取文件头；比 SAF [android.content.ContentResolver.openInputStream] 更快。 */
+internal fun readHeadFromPfd(pfd: ParcelFileDescriptor, maxBytes: Int): ByteArray? =
+    runCatching {
+        FileInputStream(pfd.fileDescriptor).use { input ->
+            input.channel.position(0)
+            input.readUpToCompat(maxBytes).takeIf { it.isNotEmpty() }
+        }
+    }.getOrNull()
+
+internal fun technicalHeadByteLimit(displayName: String?, mimeType: String): Int? {
+    val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+    val mime = mimeType.lowercase()
+    return when {
+        ext == "flac" || mime.contains("flac") -> 64 * 1024
+        ext in setOf("wav", "wave") || mime.contains("wav") -> 16 * 1024
+        else -> null
     }
 }
 

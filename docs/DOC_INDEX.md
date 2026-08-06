@@ -41,6 +41,7 @@
 | [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md) | 外部事件源、框架回调与状态机之间的契约测试原则；防止 mock 输入模型与生产事件流脱节 |
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
+| [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库扫描架构、TagLib fork 接入、增量复用、性能实测与冷扫上界结论 |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`ADDING_AUDIO_FORMAT_SUPPORT.md`](ADDING_AUDIO_FORMAT_SUPPORT.md) | 新增音频格式的端到端接入、基准对比与排障指南；含 APE 大帧、频谱时钟和 JNI 扩容案例 |
 | [`SPECTRUM_STALL_BUG.md`](SPECTRUM_STALL_BUG.md) | **频谱停滞**问题档案（根因、日志特征、tap/write 解耦修复、回归清单、输出设备参考调研） |
@@ -122,4 +123,5 @@
 | 2026-07-14 | 新增 `EXTERNAL_EVENT_CONTRACT_TESTING.md`：记录播放计数漏测原因，并提炼跨模块外部事件契约测试规则 |
 | 2026-08-01 | 新增 `ADDING_AUDIO_FORMAT_SUPPORT.md`：沉淀 APE 接入中的帧边界、seek、频谱时钟和 JNI 缓冲区扩容经验 |
 | 2026-08-02 | 更新 SDK、封面行为、Hi‑Res、DSD renderer split 与 TODO 状态；新增 `CURRENT_FEATURE_STATUS.md`，补录外部音频、扁平浏览、Letter、睡眠定时和 Room v15 |
+| 2026-08-07 | 新增 `LIBRARY_SCAN.md`：扫描流水线、性能 (9)(10)(11) 与暂缓优化方向 |
 | 2026-08-06 | 新增 `SPECTRUM_STALL_BUG.md`：VORACITY 频谱停滞根因、解耦修复与输出设备参考调研 |

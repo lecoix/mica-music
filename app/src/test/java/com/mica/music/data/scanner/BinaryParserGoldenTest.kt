@@ -97,6 +97,13 @@ class BinaryParserGoldenTest {
     }
 
     @Test
+    fun technicalHeadByteLimitMatchesFlacAndWav() {
+        assertEquals(64 * 1024, technicalHeadByteLimit("song.flac", "audio/flac"))
+        assertEquals(16 * 1024, technicalHeadByteLimit("song.wav", "audio/wav"))
+        assertNull(technicalHeadByteLimit("song.mp3", "audio/mpeg"))
+    }
+
+    @Test
     fun alacContainerDetectedEvenWhenBitDepthMissing() {
         val config = ByteArray(28).also {
             it[9] = 99

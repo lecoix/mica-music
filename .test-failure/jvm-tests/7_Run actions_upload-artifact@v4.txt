@@ -1,0 +1,28 @@
+﻿2026-07-07T07:23:15.1792789Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:23:15.1794170Z ##[group]Run actions/upload-artifact@v4
+2026-07-07T07:23:15.1794498Z with:
+2026-07-07T07:23:15.1794746Z   name: jvm-test-report
+2026-07-07T07:23:15.1795091Z   path: app/build/reports/tests/
+app/build/test-results/
+
+2026-07-07T07:23:15.1795482Z   if-no-files-found: warn
+2026-07-07T07:23:15.1795762Z   compression-level: 6
+2026-07-07T07:23:15.1796031Z   overwrite: false
+2026-07-07T07:23:15.1796293Z   include-hidden-files: false
+2026-07-07T07:23:15.1796573Z env:
+2026-07-07T07:23:15.1796914Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.19-10/x64
+2026-07-07T07:23:15.1797464Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.19-10/x64
+2026-07-07T07:23:15.1797984Z   GRADLE_ACTION_ID: gradle/actions/setup-gradle
+2026-07-07T07:23:15.1798391Z   GRADLE_USER_HOME: /home/runner/.gradle
+2026-07-07T07:23:15.1799133Z   GRADLE_BUILD_ACTION_SETUP_COMPLETED: true
+2026-07-07T07:23:15.1799474Z   GRADLE_BUILD_ACTION_CACHE_RESTORED: true
+2026-07-07T07:23:15.1799957Z   DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: gradle-actions.inject-develocity.init.gradle
+2026-07-07T07:23:15.1800486Z   DEVELOCITY_INJECTION_CUSTOM_VALUE: gradle-actions
+2026-07-07T07:23:15.1800849Z   GITHUB_DEPENDENCY_GRAPH_ENABLED: false
+2026-07-07T07:23:15.1801161Z ##[endgroup]
+2026-07-07T07:23:15.3441941Z (node:2598) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-07T07:23:15.3443440Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-07T07:23:15.3484043Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-07-07T07:23:15.3487527Z The least common ancestor is /home/runner/work/mica-music/mica-music/app/build. This will be the root directory of the artifact
+2026-07-07T07:23:15.3503047Z ##[warning]No files were found with the provided path: app/build/reports/tests/
+app/build/test-results/. No artifacts will be uploaded.

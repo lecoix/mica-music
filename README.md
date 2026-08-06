@@ -32,8 +32,9 @@
 ### 自行编译
 
 1. Android Studio → `File → Open`，选择**本仓库根目录**
-2. 等待 Gradle Sync（首次会下载 Gradle 8.9 与依赖）
-3. 连接 **arm64 真机**（或 arm64 模拟器），点击 `Run 'app'`
+2. 若未递归克隆，初始化 TagLib 的 utfcpp submodule：`git submodule update --init third_party/taglib/src/main/cpp/taglib/3rdparty/utfcpp`
+3. 等待 Gradle Sync（首次会下载 Gradle 8.9 与依赖）
+4. 连接 **arm64 真机**（或 arm64 模拟器），点击 `Run 'app'`
 
 命令行编译：
 

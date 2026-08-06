@@ -8,9 +8,8 @@ import com.mica.music.data.ReleaseDates
 import com.mica.music.data.ReplayGainTags
 
 /**
- * 基于 TagLib（io.github.kyant0:taglib）的标签/封面/歌词/音频属性读取。
+ * 基于 TagLib（Mica fork：probeTrack 合并读 + bitsPerSample）的标签/封面/歌词/音频属性读取。
  * 任何失败（无法打开、native 异常、属性无效）返回 null，由调用方回退 MediaMetadataRetriever。
- * 位深等技术参数见 [AudioTechnicalProbe]。
  */
 internal object TagLibReader {
 
@@ -26,6 +25,8 @@ internal object TagLibReader {
         val sampleRateHz: Int,
         val bitrateKbps: Int,
         val channelCount: Int,
+        /** native 位深；0 表示未知，由 [AudioTechnicalProbe] 补全 */
+        val bitsPerSample: Int,
         /** 0 表示未知 */
         val trackNumber: Int,
         /** 0 表示未知 */
@@ -35,12 +36,19 @@ internal object TagLibReader {
         val replayGain: ReplayGainTags,
     )
 
-    fun read(context: Context, uri: Uri): Result? = runCatching {
+    fun read(
+        context: Context,
+        uri: Uri,
+    ): Result? = runCatching {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-            val metadata = TagLib.getMetadata(pfd.dup().detachFd(), readPictures = true)
-                ?: return@use null
-            val props = TagLib.getAudioProperties(pfd.dup().detachFd(), AudioPropertiesReadStyle.Average)
-            if (props == null || props.sampleRate <= 0) return@use null
+            val probe = TagLib.probeTrack(
+                fd = pfd.detachFd(),
+                readPictures = true,
+                readStyle = AudioPropertiesReadStyle.Average,
+            ) ?: return@use null
+            val metadata = probe.metadata
+            val props = probe.audioProperties
+            if (props.sampleRate <= 0) return@use null
             val tags = metadata.propertyMap
             val rawDates = tags.valuesFor("DATE", "YEAR", "ORIGINALDATE", "ICRD")
             val releaseDate = rawDates.firstNotNullOfOrNull { raw ->
@@ -62,6 +70,7 @@ internal object TagLibReader {
                 sampleRateHz = props.sampleRate,
                 bitrateKbps = props.bitrate,
                 channelCount = props.channels,
+                bitsPerSample = props.bitsPerSample.coerceAtLeast(0),
                 trackNumber = MetadataTextFix.parseTrackNumber(
                     tags.firstValue("TRACKNUMBER", "TRCK", "TRACK", "IPRT"),
                 ),
