@@ -32,6 +32,7 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.NowPlayingContent
+import com.mica.music.util.WallpaperBarSliceDiagnostics
 
 internal enum class PlayerSheetPhase {
     Collapsed,
@@ -148,31 +149,46 @@ fun PlayerSheetHost(
         onOverlayFullScreenChange(showFullPlayer)
     }
 
+    val miniPlayerChromeVisible = !expanded || progress < 0.99f
+
+    SideEffect {
+        WallpaperBarSliceDiagnostics.logPlayerSheet(
+            expanded = expanded,
+            progress = progress,
+            sheetPhase = sheetPhase.name,
+            showFullPlayer = showFullPlayer,
+            miniPlayerChromeVisible = miniPlayerChromeVisible,
+            miniPlayerStyle = uiSettings.miniPlayerStyle.name,
+            overlayFullScreen = showFullPlayer,
+        )
+    }
+
     Box(
         if (showFullPlayer) modifier.fillMaxSize() else modifier.fillMaxWidth(),
     ) {
-        if (!expanded || progress < 0.99f) {
-            MiniPlayer(
-                style = uiSettings.miniPlayerStyle,
-                song = song,
-                isPlaying = surfaceState.isPlaying,
-                positionMs = progressState.positionMs,
-                onPlayPause = actions.togglePlay,
-                onPrevious = actions.previous,
-                onNext = actions.next,
-                onExpand = { onExpandedChange(true) },
-                onLongPress = onLocateCurrentSong,
-                miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
-                miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
-                lyricSplitEnabled = uiSettings.lyricSplitEnabled,
-                lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
-                swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
-                leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
-                rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter),
-            )
-        }
+        MiniPlayer(
+            style = uiSettings.miniPlayerStyle,
+            song = song,
+            isPlaying = surfaceState.isPlaying,
+            positionMs = progressState.positionMs,
+            onPlayPause = actions.togglePlay,
+            onPrevious = actions.previous,
+            onNext = actions.next,
+            onExpand = { onExpandedChange(true) },
+            onLongPress = onLocateCurrentSong,
+            miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
+            miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
+            lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+            lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+            swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
+            leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
+            rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .graphicsLayer {
+                    alpha = if (miniPlayerChromeVisible) 1f else 0f
+                },
+        )
 
         if (showFullPlayer) {
             Box(

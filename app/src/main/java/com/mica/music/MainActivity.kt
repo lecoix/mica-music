@@ -49,6 +49,7 @@ import com.mica.music.ui.theme.AnimatedMicaAppBackground
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.util.WallpaperBarSliceDiagnostics
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
@@ -300,6 +301,10 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                 } else {
                     View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                 }
+                WallpaperBarSliceDiagnostics.logOverlayLayout(
+                    fullScreen = overlayFullScreen,
+                    composeRoot = "player-overlay",
+                )
             }
 
             MicaAppRoot(

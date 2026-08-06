@@ -26,6 +26,7 @@ import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_BLUR_DP
 import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.util.WallpaperBarSliceDiagnostics
 import java.io.File
 
 val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
@@ -51,6 +52,11 @@ class WallpaperViewportState {
         private set
     var frame by mutableStateOf<ImageBitmap?>(null)
         internal set
+    /** 最近一次有效的 Hi‑Fi 底栏窗口坐标，供 remount 后首帧复用。 */
+    var barSliceTopPx by mutableFloatStateOf(Float.NaN)
+        private set
+    var barSliceHeightPx by mutableFloatStateOf(Float.NaN)
+        private set
 
     private var frameRequestId = 0
 
@@ -67,9 +73,23 @@ class WallpaperViewportState {
         this.heightPx = heightPx
     }
 
-    internal fun publishFrame(frame: ImageBitmap?, requestId: Int) {
+    internal fun publishFrame(frame: ImageBitmap?, requestId: Int, owner: String = "main-background") {
         if (!isCurrentFrameRequest(requestId)) return
         this.frame = frame
+        WallpaperBarSliceDiagnostics.logViewportFrame(
+            owner = owner,
+            hasFrame = frame != null,
+            viewportTopPx = topPx,
+            viewportWidthPx = widthPx,
+            viewportHeightPx = heightPx,
+            requestId = requestId,
+        )
+    }
+
+    fun updateBarSliceAnchor(sliceTopPx: Float, sliceHeightPx: Float) {
+        if (sliceTopPx.isNaN() || sliceHeightPx <= 0f) return
+        barSliceTopPx = sliceTopPx
+        barSliceHeightPx = sliceHeightPx
     }
 }
 

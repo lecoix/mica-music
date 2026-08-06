@@ -35,7 +35,11 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import com.mica.music.data.CustomWallpaperCrop
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
+import com.mica.music.util.WallpaperBarSliceDiagnostics
+import com.mica.music.util.customWallpaperBarSliceFallbackReason
+import com.mica.music.util.effectiveWallpaperBarSliceAnchor
 import java.io.File
+import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -241,7 +245,7 @@ internal fun rememberCustomWallpaperImage(path: String?): CustomWallpaperImageSt
     }.value
 }
 
-private fun isWallpaperBarAnchorValid(
+internal fun isWallpaperBarAnchorValid(
     sliceTopPx: Float,
     sliceHeightPx: Float,
     viewportTopPx: Float,
@@ -253,6 +257,25 @@ private fun isWallpaperBarAnchorValid(
     val barCenterPx = (sliceTopPx + sliceBottomPx) / 2f
     return barCenterPx >= viewportTopPx + viewportHeightPx * 0.6f &&
         sliceBottomPx <= viewportBottomPx + 1f
+}
+
+/** 底栏壁纸切片可绘制：仅依赖共享 [viewportFrame]，不等 overlay 侧重载原图。 */
+internal fun customWallpaperBarSliceReady(
+    hasWallpaperFile: Boolean,
+    wallpaperFailed: Boolean,
+    viewportFrame: ImageBitmap?,
+    sliceTopPx: Float,
+    sliceHeightPx: Float,
+    viewportTopPx: Float,
+    viewportHeightPx: Float,
+): Boolean {
+    if (!hasWallpaperFile || wallpaperFailed || viewportFrame == null) return false
+    return isWallpaperBarAnchorValid(
+        sliceTopPx = sliceTopPx,
+        sliceHeightPx = sliceHeightPx,
+        viewportTopPx = viewportTopPx,
+        viewportHeightPx = viewportHeightPx,
+    )
 }
 
 internal data class CustomWallpaperSliceLayerGeometry(
@@ -301,30 +324,80 @@ internal fun MicaCustomWallpaperOverlay(
 internal fun MicaCustomWallpaperSlice(
     fallbackColor: Color,
     modifier: Modifier = Modifier,
+    debugSource: String = "wallpaper-slice",
 ) {
     val wallpaperPath = LocalCustomWallpaperPath.current
     val wallpaperFile = remember(wallpaperPath) {
         wallpaperPath?.let(::File)?.takeIf { it.isFile }
     }
-    val wallpaperImageState = rememberCustomWallpaperImage(wallpaperFile?.absolutePath)
-    val wallpaperImage = (wallpaperImageState as? CustomWallpaperImageState.Ready)?.image
-    val wallpaperFailed = wallpaperImageState is CustomWallpaperImageState.Failed
     val overlayAlpha = LocalCustomWallpaperOverlayPercent.current
         .coerceIn(0, 100) / 100f
     val viewport = LocalWallpaperViewportState.current
     val viewportTopPx = viewport?.topPx ?: 0f
     val viewportHeightPx = viewport?.heightPx ?: 0f
     val viewportFrame = viewport?.frame
-    var sliceTopPx by remember { mutableFloatStateOf(Float.NaN) }
-    var sliceHeightPx by remember { mutableFloatStateOf(Float.NaN) }
-    val sliceAnchorReady = wallpaperImage != null &&
-        viewportFrame != null &&
-        isWallpaperBarAnchorValid(
-            sliceTopPx = sliceTopPx,
-            sliceHeightPx = sliceHeightPx,
+    var sliceTopPx by remember(viewport) {
+        mutableFloatStateOf(viewport?.barSliceTopPx ?: Float.NaN)
+    }
+    var sliceHeightPx by remember(viewport) {
+        mutableFloatStateOf(viewport?.barSliceHeightPx ?: Float.NaN)
+    }
+    val cachedBarTopPx = viewport?.barSliceTopPx ?: Float.NaN
+    val cachedBarHeightPx = viewport?.barSliceHeightPx ?: Float.NaN
+    val hasWallpaperFile = wallpaperFile != null
+    val hasViewportFrame = viewportFrame != null
+    val (drawTopPx, drawHeightPx) = effectiveWallpaperBarSliceAnchor(
+        liveTopPx = sliceTopPx,
+        liveHeightPx = sliceHeightPx,
+        cachedTopPx = cachedBarTopPx,
+        cachedHeightPx = cachedBarHeightPx,
+        viewportTopPx = viewportTopPx,
+        viewportHeightPx = viewportHeightPx,
+    )
+    val usingCachedAnchor = drawTopPx != sliceTopPx || drawHeightPx != sliceHeightPx
+    val anchorValid = isWallpaperBarAnchorValid(
+        sliceTopPx = drawTopPx,
+        sliceHeightPx = drawHeightPx,
+        viewportTopPx = viewportTopPx,
+        viewportHeightPx = viewportHeightPx,
+    )
+    val sliceAnchorReady = customWallpaperBarSliceReady(
+        hasWallpaperFile = hasWallpaperFile,
+        wallpaperFailed = false,
+        viewportFrame = viewportFrame,
+        sliceTopPx = drawTopPx,
+        sliceHeightPx = drawHeightPx,
+        viewportTopPx = viewportTopPx,
+        viewportHeightPx = viewportHeightPx,
+    )
+    val fallbackReason = customWallpaperBarSliceFallbackReason(
+        hasWallpaperFile = hasWallpaperFile,
+        viewportFrame = hasViewportFrame,
+        sliceTopPx = drawTopPx,
+        sliceHeightPx = drawHeightPx,
+        viewportTopPx = viewportTopPx,
+        viewportHeightPx = viewportHeightPx,
+    )
+    SideEffect {
+        WallpaperBarSliceDiagnostics.logSliceRender(
+            source = debugSource,
+            render = if (sliceAnchorReady) "slice" else "fallback",
+            reason = if (usingCachedAnchor && sliceAnchorReady) {
+                "cached-anchor"
+            } else {
+                fallbackReason
+            },
+            hasWallpaperFile = hasWallpaperFile,
+            viewportFrame = hasViewportFrame,
+            sliceTopPx = if (usingCachedAnchor) drawTopPx else sliceTopPx,
+            sliceHeightPx = if (usingCachedAnchor) drawHeightPx else sliceHeightPx,
             viewportTopPx = viewportTopPx,
             viewportHeightPx = viewportHeightPx,
+            cachedBarTopPx = cachedBarTopPx,
+            cachedBarHeightPx = cachedBarHeightPx,
+            anchorValid = anchorValid,
         )
+    }
 
     Box(
         modifier
@@ -334,10 +407,25 @@ internal fun MicaCustomWallpaperSlice(
                 val bounds = coordinates.boundsInWindow()
                 sliceTopPx = bounds.top
                 sliceHeightPx = bounds.height
+                val positionedAnchorValid = isWallpaperBarAnchorValid(
+                    sliceTopPx = bounds.top,
+                    sliceHeightPx = bounds.height,
+                    viewportTopPx = viewportTopPx,
+                    viewportHeightPx = viewportHeightPx,
+                )
+                if (positionedAnchorValid) {
+                    viewport?.updateBarSliceAnchor(bounds.top, bounds.height)
+                }
+                WallpaperBarSliceDiagnostics.logSliceLayout(
+                    source = debugSource,
+                    sliceTopPx = bounds.top,
+                    sliceHeightPx = bounds.height,
+                    anchorValid = positionedAnchorValid,
+                )
             },
     ) {
         when {
-            wallpaperFile == null || wallpaperFailed || !sliceAnchorReady -> {
+            !hasWallpaperFile || !sliceAnchorReady -> {
                 Box(Modifier.matchParentSize().background(fallbackColor))
             }
             else -> {
@@ -347,7 +435,7 @@ internal fun MicaCustomWallpaperSlice(
                         .drawBehind {
                             val drewSlice = drawCustomWallpaperBarSliceFromFrame(
                                 frame = requireNotNull(viewportFrame),
-                                sliceTopPx = sliceTopPx,
+                                sliceTopPx = drawTopPx,
                                 viewportTopPx = viewportTopPx,
                             )
                             if (!drewSlice) {

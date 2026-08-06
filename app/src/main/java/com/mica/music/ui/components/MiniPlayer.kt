@@ -575,6 +575,7 @@ private fun AudiophileBarBackdrop(
     if (hasCustomWallpaper) {
         MicaCustomWallpaperSlice(
             fallbackColor = barSurface,
+            debugSource = "audiophile-mini-player",
             modifier = modifier
                 .fillMaxWidth()
                 .height(height),
