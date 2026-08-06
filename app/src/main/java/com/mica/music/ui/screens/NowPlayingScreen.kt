@@ -1027,15 +1027,6 @@ fun NowPlayingContent(
                     uiSettings.lyricsPageTextColorMode,
                 )
                 if (landscapeCoverFlowLyricsTransitionActive) {
-                    val classicFrame = pageModel.frameFor(screenHeight)
-                    val classicLower = classicFrame.lower.copy(
-                        chromeHeight = landscapeChromeHeight(
-                            portraitChromeHeight = classicFrame.lower.chromeHeight,
-                            portraitControlsBottomPadding =
-                                classicFrame.lower.controlsBottomPadding,
-                        ),
-                        controlsBottomPadding = 0.dp,
-                    )
                     val landscapeSharedBoundsTransform =
                         rememberLandscapeClassicBoundsTransform(motionEnabled)
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -1103,49 +1094,66 @@ fun NowPlayingContent(
                                             landscapePlan.columnGapDp.dp,
                                         ),
                                     ) {
-                                        Column(
+                                        BoxWithConstraints(
                                             modifier = Modifier
                                                 .width(landscapePlan.coverLaneWidthDp.dp)
                                                 .fillMaxHeight(),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.SpaceEvenly,
                                         ) {
-                                            Box(modifier = Modifier.size(classicCoverSize))
-                                            DirectionalTrackWipe(
-                                                targetState = song,
-                                                contentKey = Song::id,
-                                                direction = null,
-                                                motionEnabled = motionEnabled,
-                                                modifier = titleSharedModifier,
-                                            ) { titleSong ->
-                                                SongTitleSection(
-                                                    title = SongTitleDisplay.displayTitle(
-                                                        titleSong.title,
-                                                        uiSettings.stripSongTitleParentheses,
-                                                    ),
-                                                    artist = titleSong.artist,
-                                                    album = titleSong.album,
-                                                    isBuffering = surfaceState.isBuffering,
-                                                    playbackError = surfaceState.playbackError,
-                                                    colors = playerUiColors,
-                                                    immersiveProgress = 0f,
-                                                    showAlbum = false,
-                                                )
-                                            }
-                                            PlayerLowerPanelChrome(
-                                                surfaceState = surfaceState,
-                                                colors = playerUiColors,
-                                                seekState = seekState,
-                                                lower = classicLower,
-                                                spectrumEnabled = false,
-                                                onCyclePlaybackQueueMode =
-                                                    actions.cyclePlaybackQueueMode,
-                                                onPrevious = onPlayerPrevious,
-                                                onTogglePlay = actions.togglePlay,
-                                                onNext = onPlayerNext,
-                                                onOpenEqualizer = onOpenEqualizer,
-                                                onOpenQueue = { queueSheetOpen = true },
-                                                modifier = chromeSharedModifier,
+                                            val classicFrame = pageModel.frameFor(maxHeight)
+                                            val classicLower = classicFrame.lower.copy(
+                                                chromeHeight = landscapeChromeHeight(
+                                                    portraitChromeHeight = classicFrame.lower.chromeHeight,
+                                                    portraitControlsBottomPadding =
+                                                        classicFrame.lower.controlsBottomPadding,
+                                                ),
+                                                controlsBottomPadding = 0.dp,
+                                            )
+                                            LandscapeClassicLeftColumn(
+                                                maxCoverSize = classicCoverSize,
+                                                modifier = Modifier.fillMaxSize(),
+                                                coverContent = { _, coverModifier ->
+                                                    Box(coverModifier)
+                                                },
+                                                titleContent = {
+                                                    DirectionalTrackWipe(
+                                                        targetState = song,
+                                                        contentKey = Song::id,
+                                                        direction = null,
+                                                        motionEnabled = motionEnabled,
+                                                        modifier = titleSharedModifier,
+                                                    ) { titleSong ->
+                                                        SongTitleSection(
+                                                            title = SongTitleDisplay.displayTitle(
+                                                                titleSong.title,
+                                                                uiSettings.stripSongTitleParentheses,
+                                                            ),
+                                                            artist = titleSong.artist,
+                                                            album = titleSong.album,
+                                                            isBuffering = surfaceState.isBuffering,
+                                                            playbackError = surfaceState.playbackError,
+                                                            colors = playerUiColors,
+                                                            immersiveProgress = 0f,
+                                                            showAlbum = false,
+                                                        )
+                                                    }
+                                                },
+                                                chromeContent = {
+                                                    PlayerLowerPanelChrome(
+                                                        surfaceState = surfaceState,
+                                                        colors = playerUiColors,
+                                                        seekState = seekState,
+                                                        lower = classicLower,
+                                                        spectrumEnabled = false,
+                                                        onCyclePlaybackQueueMode =
+                                                            actions.cyclePlaybackQueueMode,
+                                                        onPrevious = onPlayerPrevious,
+                                                        onTogglePlay = actions.togglePlay,
+                                                        onNext = onPlayerNext,
+                                                        onOpenEqualizer = onOpenEqualizer,
+                                                        onOpenQueue = { queueSheetOpen = true },
+                                                        modifier = chromeSharedModifier,
+                                                    )
+                                                },
                                             )
                                         }
                                         Box(
@@ -1416,75 +1424,78 @@ fun NowPlayingContent(
                                         ),
                                         controlsBottomPadding = 0.dp,
                                     )
-                                    Column(
+                                    LandscapeClassicLeftColumn(
+                                        maxCoverSize = classicCoverSize,
                                         modifier = Modifier.fillMaxSize(),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.SpaceEvenly,
-                                    ) {
-                                        // Match landscape player: cover fades, title hard-cuts.
-                                        DirectionalTrackWipe(
-                                            targetState = song,
-                                            contentKey = Song::id,
-                                            direction = null,
-                                            motionEnabled = motionEnabled,
-                                            fadeWhenNoDirection = true,
-                                            modifier = Modifier
-                                                .size(classicCoverSize)
-                                                .then(coverSharedModifier)
-                                                .onGloballyPositioned {
-                                                    onCoverBoundsChanged(it.boundsInRoot())
-                                                },
-                                        ) { coverSong ->
-                                            SongCover(
-                                                albumArtUri = coverSong.albumArtUri,
-                                                fallbackColor = appearance.coverColor,
-                                                contentDescription = coverSong.album,
-                                                decodeTarget = CoverDecodeTarget.forSpecialTheme(
-                                                    with(density) { classicCoverSize.toPx() },
-                                                ),
-                                                onAspectRatioChanged = { coverAspectRatio = it },
-                                                crossfadeMillis = if (motionEnabled) 200 else 0,
-                                                allowPreviousImageUnderlay = false,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        }
-                                        DirectionalTrackWipe(
-                                            targetState = song,
-                                            contentKey = Song::id,
-                                            direction = null,
-                                            motionEnabled = motionEnabled,
-                                            modifier = titleSharedModifier,
-                                        ) { titleSong ->
-                                            SongTitleSection(
-                                                title = SongTitleDisplay.displayTitle(
-                                                    titleSong.title,
-                                                    uiSettings.stripSongTitleParentheses,
-                                                ),
-                                                artist = titleSong.artist,
-                                                album = titleSong.album,
-                                                isBuffering = surfaceState.isBuffering,
-                                                playbackError = surfaceState.playbackError,
+                                        coverContent = { effectiveCoverSize, coverModifier ->
+                                            // Match landscape player: cover fades, title hard-cuts.
+                                            DirectionalTrackWipe(
+                                                targetState = song,
+                                                contentKey = Song::id,
+                                                direction = null,
+                                                motionEnabled = motionEnabled,
+                                                fadeWhenNoDirection = true,
+                                                modifier = coverModifier
+                                                    .then(coverSharedModifier)
+                                                    .onGloballyPositioned {
+                                                        onCoverBoundsChanged(it.boundsInRoot())
+                                                    },
+                                            ) { coverSong ->
+                                                SongCover(
+                                                    albumArtUri = coverSong.albumArtUri,
+                                                    fallbackColor = appearance.coverColor,
+                                                    contentDescription = coverSong.album,
+                                                    decodeTarget = CoverDecodeTarget.forSpecialTheme(
+                                                        with(density) { effectiveCoverSize.toPx() },
+                                                    ),
+                                                    onAspectRatioChanged = { coverAspectRatio = it },
+                                                    crossfadeMillis = if (motionEnabled) 200 else 0,
+                                                    allowPreviousImageUnderlay = false,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                        },
+                                        titleContent = {
+                                            DirectionalTrackWipe(
+                                                targetState = song,
+                                                contentKey = Song::id,
+                                                direction = null,
+                                                motionEnabled = motionEnabled,
+                                                modifier = titleSharedModifier,
+                                            ) { titleSong ->
+                                                SongTitleSection(
+                                                    title = SongTitleDisplay.displayTitle(
+                                                        titleSong.title,
+                                                        uiSettings.stripSongTitleParentheses,
+                                                    ),
+                                                    artist = titleSong.artist,
+                                                    album = titleSong.album,
+                                                    isBuffering = surfaceState.isBuffering,
+                                                    playbackError = surfaceState.playbackError,
+                                                    colors = playerUiColors,
+                                                    immersiveProgress = 0f,
+                                                    showAlbum = false,
+                                                )
+                                            }
+                                        },
+                                        chromeContent = {
+                                            PlayerLowerPanelChrome(
+                                                surfaceState = surfaceState,
                                                 colors = playerUiColors,
-                                                immersiveProgress = 0f,
-                                                showAlbum = false,
+                                                seekState = seekState,
+                                                lower = classicLower,
+                                                spectrumEnabled = false,
+                                                onCyclePlaybackQueueMode =
+                                                    actions.cyclePlaybackQueueMode,
+                                                onPrevious = onPlayerPrevious,
+                                                onTogglePlay = actions.togglePlay,
+                                                onNext = onPlayerNext,
+                                                onOpenEqualizer = onOpenEqualizer,
+                                                onOpenQueue = { queueSheetOpen = true },
+                                                modifier = chromeSharedModifier,
                                             )
-                                        }
-                                        PlayerLowerPanelChrome(
-                                            surfaceState = surfaceState,
-                                            colors = playerUiColors,
-                                            seekState = seekState,
-                                            lower = classicLower,
-                                            spectrumEnabled = false,
-                                            onCyclePlaybackQueueMode =
-                                                actions.cyclePlaybackQueueMode,
-                                            onPrevious = onPlayerPrevious,
-                                            onTogglePlay = actions.togglePlay,
-                                            onNext = onPlayerNext,
-                                            onOpenEqualizer = onOpenEqualizer,
-                                            onOpenQueue = { queueSheetOpen = true },
-                                            modifier = chromeSharedModifier,
-                                        )
-                                    }
+                                        },
+                                    )
                                 }
                                 // Remount on track change so LazyListState does not keep the
                                 // previous song's scroll offset (avoids a downward jump to anchor).
