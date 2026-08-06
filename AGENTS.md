@@ -34,3 +34,25 @@ Single-context 布局：根目录 `CONTEXT.md` + `docs/adr/`（尚未创建，sk
 ### 超大曲库容量基线（硬性）
 
 任何涉及曲库的设计或改动，必须以“**10,000 首歌曲、每首均有完整逐字歌词、8 GB 内存 Android 手机**”作为容量基线，评估启动、扫描、加载、排序、保存、同步和缓存时的内存峰值与稳定性。不得非必要地全量解析、编码、复制或常驻歌词；优先使用懒加载、有界缓存、分批或流式处理。完成前须用测试、测量或可审查的内存上界说明该设备能够承受；无法确认时必须明确标注风险，不得宣称安全。
+
+## Cursor Cloud specific instructions
+
+面向已运行过 update script 的后续 cloud agent。工具链已预装进 VM 快照，无需再装。
+
+### Toolchain（已预装，勿重复安装）
+
+- 默认 `java` 已通过 `update-alternatives` 指向 **JDK 17**（`/usr/lib/jvm/java-17-openjdk-amd64`）；AGP 8.7 / Gradle 8.9 需要 17，不要改回 21。
+- Android SDK 位于 `~/Android/sdk`（`platform-tools` + `platforms;android-35` + `build-tools;35.0.0`，许可证已接受）。`JAVA_HOME`、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 已写入 `~/.bashrc`。
+- `local.properties`（含 `sdk.dir`）被 gitignore；update script 会在每次启动时重建它。Gradle 也能直接读 `ANDROID_HOME`。
+
+### 构建 / 测试 / 运行（命令见 `README.md`、`docs/TESTING.md`）
+
+- 文档里的命令是 Windows/PowerShell 风格（`.\gradlew`）；本 Linux VM 用 `./gradlew`。所有 Gradle 命令都带 `--no-configuration-cache`（与 CI 一致）。
+- 可在本 VM 跑通的门禁：`./gradlew :app:assembleDebug`（产出 `app/build/outputs/apk/debug/app-debug.apk`）、`./gradlew :app:testDebugUnitTest`（JVM/Robolectric）、`./gradlew :app:micaScreenshotFull`（Roborazzi 渲染 Compose UI 并比对 `app/src/test/snapshots` 基线）。这些对应 CI 里通过的 `jvm-tests`、`screenshots` job，无需真机。
+
+### 重要 gotcha
+
+- **`:app:micaCheck` 目前会在 `lintDebug` 阶段失败**，原因是既有代码里的 lint error：`app/src/main/java/com/mica/music/ui/theme/AnimatedTheme.kt:225`（`ProduceStateDoesNotAssignValue`）。这不是环境问题——同一 commit 在 GitHub CI 的 `Android tests / compile-lint` job 上也同样失败。因为 `micaCheck` 在 lint 处即中止，想验证测试/截图请分别单跑 `:app:testDebugUnitTest` 和 `:app:micaScreenshotFull`。修掉该 lint error 前，别把 `micaCheck` 失败当成环境坏了。
+- `:app:micaRecordScreenshotFull` 会**覆盖** `app/src/test/snapshots/*.png` 基线；仅在有意更新基线时用，验证请用 `verifyRoborazziDebug` / `micaScreenshotFull`。
+- **无设备/模拟器**：本 app 仅 `arm64-v8a` ABI，云 VM 没有 arm64 设备。`connectedDebugAndroidTest`、真实播放/解码（ALAC/DSF/APE）、SAF 等设备契约测试无法在此运行——它们属于设备验收清单（见 `docs/TESTING.md`）。
+- DSD FFmpeg 原生库（`libffmpegJNI.so`）为 debug 可选、release/perf 必需，需 Docker + NDK r26d 单独构建（见 `ffmpeg/docker/`）；debug 构建缺它会回退 Maven 版且照常成功。
