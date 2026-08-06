@@ -10,7 +10,8 @@ import java.io.FileInputStream
 
 /**
  * 从文件头读取无损/特殊格式的技术参数（位深、容器修正）。
- * TagLib 负责标签；本模块负责 FLAC STREAMINFO、WAV fmt、MP4 ALAC 等。
+ * TagLib fork 已 native 暴露 [com.kyant.taglib.AudioProperties.bitsPerSample]；
+ * 本模块仅在 native 返回 0 时兜底（如部分 ALAC、MP3 等）。
  */
 internal object AudioTechnicalProbe {
 

@@ -213,7 +213,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.reorderable)
-    implementation(libs.kyant.taglib)
+    implementation(project(":taglib"))
     implementation(libs.jaudiotagger)
     implementation(libs.blurview)
 

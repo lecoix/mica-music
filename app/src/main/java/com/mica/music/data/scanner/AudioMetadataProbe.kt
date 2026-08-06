@@ -252,8 +252,6 @@ object AudioMetadataProbe {
             TagLibReader.read(
                 context = appCtx,
                 uri = uri,
-                displayName = draft.displayName,
-                mimeType = draft.mimeType,
             )
         }
         if (tagLibResult != null) {
@@ -510,15 +508,24 @@ object AudioMetadataProbe {
 
         val detectedContainer = trackProbe?.containerName
             ?: TrackMetadata.containerFromMime(draft.mimeType, draft.displayName)
-        val technicalResult = profiler.measureOptional("technical") {
-            AudioTechnicalProbe.probe(
-                context = context,
-                uri = uri,
-                detectedContainer = detectedContainer,
-                mimeType = draft.mimeType,
-                displayName = draft.displayName,
-                prefetchedHead = tagLib.technicalHeadBytes,
+        val bitsFromTagLib = tagLib.bitsPerSample.takeIf { it > 0 }
+        val technicalResult = if (bitsFromTagLib != null) {
+            ProbeResult.Ok(
+                AudioTechnicalProbe.Result(
+                    containerName = detectedContainer,
+                    bitsPerSample = bitsFromTagLib,
+                ),
             )
+        } else {
+            profiler.measureOptional("technical") {
+                AudioTechnicalProbe.probe(
+                    context = context,
+                    uri = uri,
+                    detectedContainer = detectedContainer,
+                    mimeType = draft.mimeType,
+                    displayName = draft.displayName,
+                )
+            }
         }
         if (technicalResult is ProbeResult.Failed) {
             technicalProbeFailures?.incrementAndGet()
