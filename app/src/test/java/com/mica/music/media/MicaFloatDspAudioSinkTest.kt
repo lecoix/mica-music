@@ -10,6 +10,7 @@ import io.mockk.slot
 import io.mockk.verify
 import java.nio.ByteBuffer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -38,19 +39,19 @@ class MicaFloatDspAudioSinkTest {
         }
     }
 
-    private fun floatFormat(): Format =
+    private fun floatFormat(sampleRate: Int = 96_000, channelCount: Int = 2): Format =
         Format.Builder()
             .setSampleMimeType(MimeTypes.AUDIO_RAW)
             .setPcmEncoding(C.ENCODING_PCM_FLOAT)
-            .setSampleRate(96_000)
-            .setChannelCount(2)
+            .setSampleRate(sampleRate)
+            .setChannelCount(channelCount)
             .build()
 
-    private fun sourceBuffer(): ByteBuffer =
-        ByteBuffer.allocate(16).apply {
-            repeat(16) { put(it, 0x11) }
+    private fun sourceBuffer(sizeBytes: Int = 16): ByteBuffer =
+        ByteBuffer.allocate(sizeBytes).apply {
+            repeat(sizeBytes) { put(it, 0x11) }
             position(0)
-            limit(16)
+            limit(sizeBytes)
         }
 
     @Test
@@ -66,7 +67,8 @@ class MicaFloatDspAudioSinkTest {
         assertTrue(sink.handleBuffer(source, 0L, 1))
 
         assertEquals(0, tap.processCalls)
-        assertSame(source, captured.captured)
+        assertNotSame(source, captured.captured)
+        assertEquals(0x11.toByte(), captured.captured.get(0))
     }
 
     @Test
@@ -87,7 +89,7 @@ class MicaFloatDspAudioSinkTest {
     }
 
     @Test
-    fun rejectThenRetry_doesNotReprocess_andConsumesSourceOnAccept() {
+    fun innerReject_consumesSourceAndReturnsFalseUntilWriteDrains() {
         val inner = mockk<AudioSink>(relaxed = true)
         every { inner.handleBuffer(any(), any(), any()) } returnsMany listOf(false, true)
         val tap = FakeTap()
@@ -95,15 +97,30 @@ class MicaFloatDspAudioSinkTest {
         sink.configure(floatFormat(), 0, null)
 
         val source = sourceBuffer()
-        // First attempt rejected: processed once, source not yet consumed.
-        assertEquals(false, sink.handleBuffer(source, 0L, 1))
-        assertEquals(1, tap.processCalls)
-        assertTrue(source.hasRemaining())
-
-        // Retry with the same source: no reprocessing, accepted, source fully consumed.
-        assertTrue(sink.handleBuffer(source, 0L, 1))
+        assertFalse(sink.handleBuffer(source, 0L, 1))
         assertEquals(1, tap.processCalls)
         assertEquals(source.limit(), source.position())
+
+        assertTrue(sink.handleBuffer(sourceBuffer(0), 0L, 1))
+        assertEquals(1, tap.processCalls)
+    }
+
+    @Test
+    fun innerRejectOnFirstBuffer_doesNotBlockTapOnSecondBuffer() {
+        val inner = mockk<AudioSink>(relaxed = true)
+        every { inner.handleBuffer(any(), any(), any()) } returnsMany listOf(false, false, true, true)
+        val tap = FakeTap()
+        val sink = MicaFloatDspAudioSink(inner, tap)
+        sink.configure(floatFormat(), 0, null)
+
+        val first = sourceBuffer()
+        val second = sourceBuffer()
+
+        assertFalse(sink.handleBuffer(first, 0L, 1))
+        assertFalse(sink.handleBuffer(second, 1L, 1))
+        assertEquals(2, tap.processCalls)
+        assertTrue(sink.handleBuffer(sourceBuffer(0), 1L, 1))
+        verify(exactly = 4) { inner.handleBuffer(any(), any(), any()) }
     }
 
     @Test
@@ -116,15 +133,15 @@ class MicaFloatDspAudioSinkTest {
         sink.configure(floatFormat(), 0, null)
 
         val source = sourceBuffer()
-        assertEquals(false, sink.handleBuffer(source, 0L, 1))
+        assertFalse(sink.handleBuffer(source, 0L, 1))
 
         tap.active = true
-        assertTrue(sink.handleBuffer(source, 0L, 1))
+        assertTrue(sink.handleBuffer(sourceBuffer(0), 0L, 1))
 
         assertEquals(0, tap.processCalls)
         assertEquals(2, captured.size)
-        assertSame(source, captured[0])
-        assertSame(source, captured[1])
+        assertEquals(0x11.toByte(), captured[0].get(0))
+        assertEquals(0x11.toByte(), captured[1].get(0))
     }
 
     @Test
@@ -137,20 +154,21 @@ class MicaFloatDspAudioSinkTest {
         sink.configure(floatFormat(), 0, null)
 
         val source = sourceBuffer()
-        assertEquals(false, sink.handleBuffer(source, 0L, 1))
+        assertFalse(sink.handleBuffer(source, 0L, 1))
 
         tap.active = false
-        assertTrue(sink.handleBuffer(source, 0L, 1))
+        assertTrue(sink.handleBuffer(sourceBuffer(0), 0L, 1))
 
         assertEquals(1, tap.processCalls)
         assertEquals(2, captured.size)
         assertNotSame(source, captured[0])
-        assertSame(captured[0], captured[1])
+        assertEquals(MARKER, captured[0].get(0))
+        assertEquals(MARKER, captured[1].get(0))
         verify(exactly = 2) { inner.handleBuffer(any(), 0L, 1) }
     }
 
     @Test
-    fun flush_clearsInFlightState_allowingFreshProcessing() {
+    fun flush_clearsPendingWrite_allowingFreshProcessing() {
         val inner = mockk<AudioSink>(relaxed = true)
         every { inner.handleBuffer(any(), any(), any()) } returnsMany listOf(false, true)
         val tap = FakeTap()
@@ -158,13 +176,13 @@ class MicaFloatDspAudioSinkTest {
         sink.configure(floatFormat(), 0, null)
 
         val source = sourceBuffer()
-        assertEquals(false, sink.handleBuffer(source, 0L, 1))
+        assertFalse(sink.handleBuffer(source, 0L, 1))
         assertEquals(1, tap.processCalls)
 
         sink.flush()
 
-        // After flush the same buffer object is treated as a fresh source → reprocessed.
-        assertTrue(sink.handleBuffer(source, 0L, 1))
+        val replay = sourceBuffer()
+        assertTrue(sink.handleBuffer(replay, 0L, 1))
         assertEquals(2, tap.processCalls)
     }
 
@@ -185,7 +203,7 @@ class MicaFloatDspAudioSinkTest {
         assertTrue(sink.handleBuffer(source, 0L, 1))
 
         assertEquals(0, tap.processCalls)
-        assertSame(source, captured.captured)
+        assertNotSame(source, captured.captured)
     }
 
     private companion object {

@@ -9,6 +9,7 @@ import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import com.mica.music.util.DiagnosticLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.ArrayDeque
 
 /**
  * R4: runs Mica's EQ + spectrum tap on the float (hi-res) PCM path.
@@ -18,6 +19,10 @@ import java.nio.ByteOrder
  * (`enableFloatOutput && isEncodingHighResolutionPcm`) is delivered without any custom processor.
  * Wrapping the float sink lets us apply EQ in place and tap the spectrum on the decoder's float PCM
  * before forwarding, without touching frame counts, so the inner sink's media clock stays correct.
+ *
+ * Spectrum/EQ taps run when ExoPlayer delivers a buffer; inner [AudioSink.handleBuffer] writes are
+ * queued separately so AudioTrack backpressure (inner reject) does not block the decoder from
+ * advancing or starve the analysis queue.
  *
  * Speed/pitch is intentionally NOT done here: it changes frame counts and must be accounted for by
  * the sink that owns the AudioTrack. The inner sink handles speed/pitch via AudioTrack playback
@@ -37,13 +42,7 @@ internal class MicaFloatDspAudioSink(
     private var channelCount = 0
     private var linearPcm = false
 
-    // Buffer state machine: while a source buffer is not yet fully consumed by the inner sink we
-    // must keep forwarding the SAME buffer object chosen on the first attempt. Active EQ/spectrum
-    // state is sampled only for new source buffers; retries keep their original forwarding mode.
-    private var inFlightSource: ByteBuffer? = null
-    private var inFlightForwarded: ByteBuffer? = null
-    private var inFlightMode: InFlightMode = InFlightMode.NONE
-    private var processedBuffer: ByteBuffer = ByteBuffer.allocate(0)
+    private val pendingWrites = ArrayDeque<PendingWrite>()
     private var scratchBytes = ByteArray(0)
     private var scratchDirect: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
 
@@ -54,6 +53,7 @@ internal class MicaFloatDspAudioSink(
     private var probePassthroughCalls = 0
     private var probeLastHandleMs = 0L
     private var probeMaxGapMs = 0L
+    private var consecutiveInnerRejects = 0
 
     @Throws(AudioSink.ConfigurationException::class)
     override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
@@ -63,7 +63,7 @@ internal class MicaFloatDspAudioSink(
         channelCount = inputFormat.channelCount
         linearPcm = MimeTypes.AUDIO_RAW == inputFormat.sampleMimeType &&
             androidEncoding != android.media.AudioFormat.ENCODING_INVALID
-        clearInFlight()
+        clearPendingWrites()
         if (linearPcm) {
             tap.configure(sampleRate, channelCount)
         }
@@ -81,80 +81,119 @@ internal class MicaFloatDspAudioSink(
         presentationTimeUs: Long,
         encodedAccessUnitCount: Int,
     ): Boolean {
-        val active = tap.isActive()
-
-        inFlightSource?.let {
-            return handleInFlightBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
-        }
-
-        if (!linearPcm || !active) {
-            return startPassthroughBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
-        }
-
-        return startProcessedBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
-    }
-
-    private fun startPassthroughBuffer(
-        source: ByteBuffer,
-        presentationTimeUs: Long,
-        encodedAccessUnitCount: Int,
-    ): Boolean {
-        // Bit-exact passthrough when there is nothing to do.
-        recordHandle(processed = false)
-        inFlightSource = source
-        inFlightForwarded = source
-        inFlightMode = InFlightMode.PASSTHROUGH
-        val accepted = super.handleBuffer(source, presentationTimeUs, encodedAccessUnitCount)
-        if (accepted) {
-            clearInFlight()
-        }
-        return accepted
-    }
-
-    private fun startProcessedBuffer(
-        source: ByteBuffer,
-        presentationTimeUs: Long,
-        encodedAccessUnitCount: Int,
-    ): Boolean {
-        recordHandle(processed = true)
-        processedBuffer = process(source)
-        inFlightSource = source
-        inFlightForwarded = processedBuffer
-        inFlightMode = InFlightMode.PROCESSED
-        val accepted = super.handleBuffer(processedBuffer, presentationTimeUs, encodedAccessUnitCount)
-        if (accepted) {
-            source.position(source.limit())
-            clearInFlight()
-        }
-        return accepted
-    }
-
-    private fun handleInFlightBuffer(
-        source: ByteBuffer,
-        presentationTimeUs: Long,
-        encodedAccessUnitCount: Int,
-    ): Boolean {
-        val mode = inFlightMode
-        val originalSource = inFlightSource ?: source
-        val forwarded = inFlightForwarded ?: source
-        val accepted = super.handleBuffer(forwarded, presentationTimeUs, encodedAccessUnitCount)
-        if (accepted) {
-            if (mode == InFlightMode.PROCESSED) {
-                originalSource.position(originalSource.limit())
+        if (buffer.hasRemaining()) {
+            if (!linearPcm || !tap.isActive()) {
+                val reason = when {
+                    !linearPcm -> "nonLinearPcm"
+                    else -> "tapInactive"
+                }
+                if (reason == "tapInactive") {
+                    SpectrumPcmPipelineDiagnostics.onFloatDspPassthroughWhileAnalysisExpected(reason)
+                }
+                enqueuePassthrough(buffer, presentationTimeUs, encodedAccessUnitCount, reason)
+            } else {
+                enqueueProcessed(buffer, presentationTimeUs, encodedAccessUnitCount)
             }
-            clearInFlight()
+            buffer.position(buffer.limit())
         }
-        return accepted
+        drainPendingWrites()
+        return pendingWrites.isEmpty()
     }
 
-    private fun recordHandle(processed: Boolean) {
+    private fun enqueuePassthrough(
+        source: ByteBuffer,
+        presentationTimeUs: Long,
+        encodedAccessUnitCount: Int,
+        passthroughReason: String?,
+    ) {
+        recordHandle(
+            processed = false,
+            bufferBytes = source.remaining(),
+            presentationTimeUs = presentationTimeUs,
+            passthroughReason = passthroughReason,
+            inFlightRetry = false,
+        )
+        pendingWrites.addLast(
+            PendingWrite(
+                buffer = copyBuffer(source),
+                presentationTimeUs = presentationTimeUs,
+                encodedAccessUnitCount = encodedAccessUnitCount,
+                mode = WriteMode.PASSTHROUGH,
+            ),
+        )
+    }
+
+    private fun enqueueProcessed(
+        source: ByteBuffer,
+        presentationTimeUs: Long,
+        encodedAccessUnitCount: Int,
+    ) {
+        recordHandle(
+            processed = true,
+            bufferBytes = source.remaining(),
+            presentationTimeUs = presentationTimeUs,
+            passthroughReason = null,
+            inFlightRetry = false,
+        )
+        val processed = process(source)
+        pendingWrites.addLast(
+            PendingWrite(
+                buffer = copyBuffer(processed),
+                presentationTimeUs = presentationTimeUs,
+                encodedAccessUnitCount = encodedAccessUnitCount,
+                mode = WriteMode.PROCESSED,
+            ),
+        )
+    }
+
+    private fun drainPendingWrites() {
+        while (pendingWrites.isNotEmpty()) {
+            val pending = pendingWrites.first()
+            val accepted = super.handleBuffer(
+                pending.buffer,
+                pending.presentationTimeUs,
+                pending.encodedAccessUnitCount,
+            )
+            if (!accepted) {
+                consecutiveInnerRejects++
+                SpectrumPcmPipelineDiagnostics.onFloatDspInnerReject(
+                    streak = consecutiveInnerRejects,
+                    mode = pending.mode.name.lowercase(),
+                    bufferBytes = pending.buffer.remaining(),
+                    presentationTimeUs = pending.presentationTimeUs,
+                )
+                return
+            }
+            consecutiveInnerRejects = 0
+            pendingWrites.removeFirst()
+        }
+    }
+
+    private fun recordHandle(
+        processed: Boolean,
+        bufferBytes: Int,
+        presentationTimeUs: Long,
+        passthroughReason: String?,
+        inFlightRetry: Boolean,
+    ) {
         val nowMs = System.currentTimeMillis()
         if (probeWindowStartMs == 0L) probeWindowStartMs = nowMs
         probeHandleCalls++
         if (processed) probeProcessCalls++ else probePassthroughCalls++
         if (probeLastHandleMs != 0L) {
-            probeMaxGapMs = maxOf(probeMaxGapMs, nowMs - probeLastHandleMs)
+            val gapMs = nowMs - probeLastHandleMs
+            probeMaxGapMs = maxOf(probeMaxGapMs, gapMs)
+            SpectrumPcmPipelineDiagnostics.onFloatDspUpstreamGap(
+                gapMs = gapMs,
+                bufferBytes = bufferBytes,
+                presentationTimeUs = presentationTimeUs,
+                processed = processed,
+                passthroughReason = passthroughReason,
+                inFlightRetry = inFlightRetry,
+                consecutiveInnerRejects = consecutiveInnerRejects,
+            )
         }
+        consecutiveInnerRejects = 0
         probeLastHandleMs = nowMs
         if (nowMs - probeWindowStartMs >= 1_000L) {
             DiagnosticLog.event(
@@ -177,12 +216,14 @@ internal class MicaFloatDspAudioSink(
     }
 
     override fun flush() {
-        clearInFlight()
+        SpectrumPcmPipelineDiagnostics.onFloatDspFlush()
+        clearPendingWrites()
+        consecutiveInnerRejects = 0
         super.flush()
     }
 
     override fun reset() {
-        clearInFlight()
+        clearPendingWrites()
         androidEncoding = android.media.AudioFormat.ENCODING_INVALID
         linearPcm = false
         super.reset()
@@ -193,8 +234,6 @@ internal class MicaFloatDspAudioSink(
         if (scratchBytes.size < length) {
             scratchBytes = ByteArray(length)
         }
-        // Read via a duplicate so the source position stays intact until the inner sink accepts;
-        // a rejected buffer must be re-presentable unchanged (handleBuffer contract).
         source.duplicate().get(scratchBytes, 0, length)
         tap.process(scratchBytes, 0, length, androidEncoding, sampleRate, channelCount)
         if (scratchDirect.capacity() < length) {
@@ -207,10 +246,15 @@ internal class MicaFloatDspAudioSink(
         return scratchDirect
     }
 
-    private fun clearInFlight() {
-        inFlightSource = null
-        inFlightForwarded = null
-        inFlightMode = InFlightMode.NONE
+    private fun copyBuffer(source: ByteBuffer): ByteBuffer {
+        val copy = ByteBuffer.allocateDirect(source.remaining()).order(source.order())
+        copy.put(source.duplicate())
+        copy.flip()
+        return copy
+    }
+
+    private fun clearPendingWrites() {
+        pendingWrites.clear()
     }
 
     private fun media3EncodingToAndroid(encoding: Int): Int = when (encoding) {
@@ -221,8 +265,14 @@ internal class MicaFloatDspAudioSink(
         else -> android.media.AudioFormat.ENCODING_INVALID
     }
 
-    private enum class InFlightMode {
-        NONE,
+    private data class PendingWrite(
+        val buffer: ByteBuffer,
+        val presentationTimeUs: Long,
+        val encodedAccessUnitCount: Int,
+        val mode: WriteMode,
+    )
+
+    private enum class WriteMode {
         PASSTHROUGH,
         PROCESSED,
     }

@@ -31,15 +31,33 @@ internal object AudioOutputCapabilities {
     }
 
     fun route(context: Context): AudioRouteSnapshot {
-        val manager = context.getSystemService(AudioManager::class.java)
-        val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            runCatching {
+        val manager = context.getSystemService(AudioManager::class.java) ?: return snapshot(null)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val device = runCatching {
                 manager.getAudioDevicesForAttributes(mediaAttributes).firstOrNull()
             }.getOrNull()
-        } else {
-            null
+            if (device != null) return snapshot(device)
         }
-        return snapshot(device)
+        return inferRouteFromOutputs(manager)
+    }
+
+    /**
+     * Best-effort active media output when [AudioManager.getAudioDevicesForAttributes] is unavailable.
+     * Priority: USB > BT A2DP > other BT > wired > speaker.
+     */
+    internal fun inferRouteFromOutputs(manager: AudioManager): AudioRouteSnapshot {
+        val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val preferred = outputs.firstOrNull { isUsb(it.type) }
+            ?: outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+            ?: outputs.firstOrNull { isBluetooth(it.type) }
+            ?: outputs.firstOrNull {
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                    it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            }
+            ?: outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            ?: outputs.firstOrNull()
+        return snapshot(preferred)
     }
 
     fun supports(context: Context, format: AlacPcmFormat): Boolean {

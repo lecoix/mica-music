@@ -173,6 +173,7 @@ object MicaSpectrumAnalyzer {
                 probeProcessCalls++
                 probePcmBytes += length
             }
+            val queuedBeforeAppend = pcmQueue.size
             val offeredSamples = appendMonoSamples(
                 buffer = buffer,
                 offset = offset,
@@ -180,6 +181,12 @@ object MicaSpectrumAnalyzer {
                 encoding = encoding,
                 channelCount = channelCount.coerceAtLeast(1),
                 maxQueuedSamples = maxQueuedSamples,
+            )
+            SpectrumPcmPipelineDiagnostics.onAnalyzerQueueBurst(
+                previousQueuedSamples = queuedBeforeAppend,
+                queuedSamples = pcmQueue.size,
+                offeredSamples = offeredSamples,
+                sampleRateHz = sampleRateHz,
             )
             if (ProbeEnabled) {
                 probeAppendNanos += System.nanoTime() - appendStart
@@ -244,7 +251,12 @@ object MicaSpectrumAnalyzer {
 
     private fun finishEmptyQueueRun(nowMs: Long) {
         if (probeEmptyRunStartMs == 0L) return
-        probeMaxEmptyRunMs = maxOf(probeMaxEmptyRunMs, nowMs - probeEmptyRunStartMs)
+        val durationMs = nowMs - probeEmptyRunStartMs
+        probeMaxEmptyRunMs = maxOf(probeMaxEmptyRunMs, durationMs)
+        SpectrumPcmPipelineDiagnostics.onAnalyzerStarvation(
+            durationMs = durationMs,
+            sampleRateHz = queuedSampleRateHz,
+        )
         probeEmptyRunStartMs = 0L
     }
 

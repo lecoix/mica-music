@@ -55,6 +55,7 @@ class MicaMediaService : MediaSessionService() {
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
     private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
+    private var playbackRouteMonitor: PlaybackRouteMonitor? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -87,6 +88,7 @@ class MicaMediaService : MediaSessionService() {
         replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
 
         wireEqualizerAndSpectrumHandlers()
+        installPlaybackRouteMonitor()
         configureQualityMode(
             stack.exoPlayer,
             dspEnabled = EqualizerPreferences.equalizerEnabled(this),
@@ -185,6 +187,8 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        playbackRouteMonitor?.release()
+        playbackRouteMonitor = null
         unregisterLyricsPreferenceListener?.invoke()
         unregisterLyricsPreferenceListener = null
         sessionScope?.cancel()
@@ -487,6 +491,19 @@ class MicaMediaService : MediaSessionService() {
 
     private fun spectrumTapEnabled(): Boolean =
         spectrumAnalyzerStateOwner?.currentEnabled ?: PlaybackUiPreferences.spectrumTapEnabled(this)
+
+    private fun installPlaybackRouteMonitor() {
+        playbackRouteMonitor?.release()
+        playbackRouteMonitor = PlaybackRouteMonitor(
+            context = this,
+            mainHandler = mainHandler,
+        ) { previous, current, event ->
+            flushAudioPipeline(
+                reason = "route-change event=$event " +
+                    "${previous.deviceName}->${current.deviceName}",
+            )
+        }.also { it.install() }
+    }
 
     private fun flushAudioPipeline(reason: String) {
         val player = compositePlayer ?: return
