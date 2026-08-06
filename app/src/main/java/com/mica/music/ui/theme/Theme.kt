@@ -10,10 +10,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppFontSelection
@@ -43,12 +45,31 @@ val LocalLyricLineFillEnabled = staticCompositionLocalOf { false }
 class WallpaperViewportState {
     var topPx by mutableFloatStateOf(0f)
         private set
+    var widthPx by mutableFloatStateOf(0f)
+        private set
     var heightPx by mutableFloatStateOf(0f)
         private set
+    var frame by mutableStateOf<ImageBitmap?>(null)
+        internal set
 
-    fun update(topPx: Float, heightPx: Float) {
+    private var frameRequestId = 0
+
+    fun beginFrameRequest(): Int {
+        frameRequestId += 1
+        return frameRequestId
+    }
+
+    fun isCurrentFrameRequest(requestId: Int): Boolean = requestId == frameRequestId
+
+    fun update(topPx: Float, widthPx: Float, heightPx: Float) {
         this.topPx = topPx
+        this.widthPx = widthPx
         this.heightPx = heightPx
+    }
+
+    internal fun publishFrame(frame: ImageBitmap?, requestId: Int) {
+        if (!isCurrentFrameRequest(requestId)) return
+        this.frame = frame
     }
 }
 

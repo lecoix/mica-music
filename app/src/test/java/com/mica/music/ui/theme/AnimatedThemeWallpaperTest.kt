@@ -49,4 +49,29 @@ class AnimatedThemeWallpaperTest {
         assertEquals(780f, geometry.layerHeightPx, 0.001f)
         assertEquals(-680f, geometry.layerOffsetYPx, 0.001f)
     }
+
+    @Test
+    fun barSliceOffsetMatchesViewportAlignedTranslate() {
+        assertEquals(-680f, customWallpaperBarSliceOffsetYPx(700f, 20f), 0.001f)
+    }
+
+    @Test
+    fun stackBlurRadiusMapsDpToTiebaLiteScale() {
+        assertEquals(0, customWallpaperStackBlurRadius(0))
+        assertEquals(25, customWallpaperStackBlurRadius(8))
+        assertEquals(31, customWallpaperStackBlurRadius(10))
+        assertEquals(100, customWallpaperStackBlurRadius(32))
+    }
+
+    @Test
+    fun stackBlurDownsampleScaleCapsLargeViewports() {
+        assertEquals(1f, customWallpaperStackBlurDownsampleScale(800, 1200), 0.001f)
+        val scale = customWallpaperStackBlurDownsampleScale(1260, 2800)
+        assert(scale < 1f)
+        assertEquals(
+            CustomWallpaperStackBlur.MAX_VIEWPORT_BLUR_PIXELS.toFloat(),
+            1260f * 2800f * scale * scale,
+            1f,
+        )
+    }
 }

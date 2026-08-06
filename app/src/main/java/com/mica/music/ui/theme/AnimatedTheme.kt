@@ -7,39 +7,91 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LayoutDirection
 import com.mica.music.data.CustomWallpaperCrop
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private fun Modifier.customWallpaperBlur(blurDp: Int): Modifier =
-    if (blurDp > 0) blur(blurDp.dp) else this
+private const val CUSTOM_WALLPAPER_BLUR_FRAME_DEBOUNCE_MS = 150L
+
+internal fun renderCustomWallpaperViewportFrame(
+    image: ImageBitmap,
+    crop: CustomWallpaperCrop,
+    widthPx: Int,
+    heightPx: Int,
+    blurRadiusPx: Int,
+): ImageBitmap? {
+    if (widthPx <= 0 || heightPx <= 0) return null
+    val viewportSize = Size(widthPx.toFloat(), heightPx.toFloat())
+    val sharp = ImageBitmap(widthPx, heightPx)
+    var drewWallpaper = false
+    CanvasDrawScope().draw(
+        density = Density(1f),
+        layoutDirection = LayoutDirection.Ltr,
+        canvas = Canvas(sharp),
+        size = viewportSize,
+    ) {
+        drewWallpaper = drawCustomWallpaper(image, crop, viewportSize)
+    }
+    if (!drewWallpaper) return null
+    if (blurRadiusPx <= 0) return sharp
+    return try {
+        CustomWallpaperStackBlur.blurForViewport(
+            source = sharp.asAndroidBitmap(),
+            blurRadius = blurRadiusPx,
+        )?.asImageBitmap() ?: sharp
+    } catch (_: OutOfMemoryError) {
+        sharp
+    }
+}
+
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCustomWallpaperBarSliceFromFrame(
+    frame: ImageBitmap,
+    sliceTopPx: Float,
+    viewportTopPx: Float,
+): Boolean {
+    clipRect(0f, 0f, size.width, size.height) {
+        translate(top = customWallpaperBarSliceOffsetYPx(sliceTopPx, viewportTopPx)) {
+            drawImage(
+                image = frame,
+                dstOffset = IntOffset.Zero,
+                dstSize = IntSize(frame.width, frame.height),
+            )
+        }
+    }
+    return true
+}
 
 internal data class CustomWallpaperDrawGeometry(
     val left: Float,
@@ -87,18 +139,72 @@ internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCustomWallpape
     image: ImageBitmap,
     crop: CustomWallpaperCrop,
     viewportSize: Size = size,
-) {
+): Boolean {
     val geometry = customWallpaperDrawGeometry(
         imageSize = Size(image.width.toFloat(), image.height.toFloat()),
         viewportSize = viewportSize,
         crop = crop,
-    ) ?: return
+    ) ?: return false
 
     drawImage(
         image = image,
         dstOffset = IntOffset(geometry.left.roundToInt(), geometry.top.roundToInt()),
         dstSize = IntSize(geometry.size.width.roundToInt(), geometry.size.height.roundToInt()),
     )
+    return true
+}
+
+internal fun customWallpaperBarSliceOffsetYPx(
+    sliceTopPx: Float,
+    viewportTopPx: Float,
+): Float = -(sliceTopPx - viewportTopPx)
+
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCustomWallpaperBarSliceWallpaper(
+    image: ImageBitmap,
+    crop: CustomWallpaperCrop,
+    sliceTopPx: Float,
+    viewportTopPx: Float,
+    viewportHeightPx: Float,
+): Boolean {
+    if (viewportHeightPx <= 0f) return false
+    val viewportSize = Size(size.width, viewportHeightPx)
+    var drewWallpaper = false
+    clipRect(0f, 0f, size.width, size.height) {
+        translate(top = customWallpaperBarSliceOffsetYPx(sliceTopPx, viewportTopPx)) {
+            drewWallpaper = drawCustomWallpaper(
+                image = image,
+                crop = crop,
+                viewportSize = viewportSize,
+            )
+        }
+    }
+    return drewWallpaper
+}
+
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCustomWallpaperBarSlice(
+    image: ImageBitmap,
+    crop: CustomWallpaperCrop,
+    sliceTopPx: Float,
+    viewportTopPx: Float,
+    viewportHeightPx: Float,
+    overlayAlpha: Float,
+): Boolean {
+    val drewWallpaper = drawCustomWallpaperBarSliceWallpaper(
+        image = image,
+        crop = crop,
+        sliceTopPx = sliceTopPx,
+        viewportTopPx = viewportTopPx,
+        viewportHeightPx = viewportHeightPx,
+    )
+    if (drewWallpaper && overlayAlpha > 0f) {
+        clipRect(0f, 0f, size.width, size.height) {
+            drawRect(
+                color = Color.Black.copy(alpha = overlayAlpha),
+                size = Size(size.width, size.height),
+            )
+        }
+    }
+    return drewWallpaper
 }
 
 internal sealed interface CustomWallpaperImageState {
@@ -189,8 +295,7 @@ internal fun MicaCustomWallpaperOverlay(
 }
 
 /**
- * 按主背景视口裁出同坐标壁纸切片。用于不透明底栏：盖住列表，并与 [AnimatedMicaAppBackground] 无缝衔接。
- * 坐标未就绪时保持透明（透出下层壁纸），避免冷启动闪主题色；就绪后切回不透明切片。
+ * 按主背景视口裁出同坐标壁纸切片。与主背景共用 [WallpaperViewportState.frame]（整屏先 blur 再裁切）。
  */
 @Composable
 internal fun MicaCustomWallpaperSlice(
@@ -204,86 +309,60 @@ internal fun MicaCustomWallpaperSlice(
     val wallpaperImageState = rememberCustomWallpaperImage(wallpaperFile?.absolutePath)
     val wallpaperImage = (wallpaperImageState as? CustomWallpaperImageState.Ready)?.image
     val wallpaperFailed = wallpaperImageState is CustomWallpaperImageState.Failed
-    val wallpaperCrop = LocalCustomWallpaperCrop.current
-    val wallpaperBlurDp = LocalCustomWallpaperBlurDp.current
     val overlayAlpha = LocalCustomWallpaperOverlayPercent.current
         .coerceIn(0, 100) / 100f
     val viewport = LocalWallpaperViewportState.current
     val viewportTopPx = viewport?.topPx ?: 0f
     val viewportHeightPx = viewport?.heightPx ?: 0f
+    val viewportFrame = viewport?.frame
     var sliceTopPx by remember { mutableFloatStateOf(Float.NaN) }
     var sliceHeightPx by remember { mutableFloatStateOf(Float.NaN) }
-    var cachedTopPx by remember { mutableFloatStateOf(Float.NaN) }
-    var cachedHeightPx by remember { mutableFloatStateOf(Float.NaN) }
-    val anchorValid = isWallpaperBarAnchorValid(
-        sliceTopPx = sliceTopPx,
-        sliceHeightPx = sliceHeightPx,
-        viewportTopPx = viewportTopPx,
-        viewportHeightPx = viewportHeightPx,
-    )
-    val drawTopPx = if (anchorValid) sliceTopPx else cachedTopPx
-    val drawHeightPx = if (anchorValid) sliceHeightPx else cachedHeightPx
-    val layerGeometry = customWallpaperSliceLayerGeometry(
-            sliceTopPx = drawTopPx,
-            sliceHeightPx = drawHeightPx,
+    val sliceAnchorReady = wallpaperImage != null &&
+        viewportFrame != null &&
+        isWallpaperBarAnchorValid(
+            sliceTopPx = sliceTopPx,
+            sliceHeightPx = sliceHeightPx,
             viewportTopPx = viewportTopPx,
             viewportHeightPx = viewportHeightPx,
         )
-    val ready = wallpaperImage != null && layerGeometry != null
-    val density = LocalDensity.current
 
     Box(
         modifier
             .fillMaxWidth()
-            .clipToBounds()
             .onGloballyPositioned { coordinates ->
                 if (!coordinates.isAttached) return@onGloballyPositioned
                 val bounds = coordinates.boundsInWindow()
                 sliceTopPx = bounds.top
                 sliceHeightPx = bounds.height
-                if (isWallpaperBarAnchorValid(
-                        sliceTopPx = sliceTopPx,
-                        sliceHeightPx = sliceHeightPx,
-                        viewportTopPx = viewportTopPx,
-                        viewportHeightPx = viewportHeightPx,
+            },
+    ) {
+        when {
+            wallpaperFile == null || wallpaperFailed || !sliceAnchorReady -> {
+                Box(Modifier.matchParentSize().background(fallbackColor))
+            }
+            else -> {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .drawBehind {
+                            val drewSlice = drawCustomWallpaperBarSliceFromFrame(
+                                frame = requireNotNull(viewportFrame),
+                                sliceTopPx = sliceTopPx,
+                                viewportTopPx = viewportTopPx,
+                            )
+                            if (!drewSlice) {
+                                drawRect(fallbackColor, size = size)
+                            }
+                        },
+                )
+                if (overlayAlpha > 0f) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(Color.Black.copy(alpha = overlayAlpha)),
                     )
-                ) {
-                    cachedTopPx = sliceTopPx
-                    cachedHeightPx = sliceHeightPx
                 }
             }
-            .then(
-                if (wallpaperFile == null || wallpaperFailed) {
-                    Modifier.background(fallbackColor)
-                } else {
-                    Modifier
-                },
-            ),
-    ) {
-        if (ready) {
-            val geometry = requireNotNull(layerGeometry)
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .requiredHeight(with(density) { geometry.layerHeightPx.toDp() })
-                    .offset {
-                        IntOffset(
-                            x = 0,
-                            y = geometry.layerOffsetYPx.roundToInt(),
-                        )
-                    }
-                    .customWallpaperBlur(wallpaperBlurDp),
-            ) {
-                drawCustomWallpaper(
-                    image = requireNotNull(wallpaperImage),
-                    crop = wallpaperCrop,
-                )
-            }
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = overlayAlpha)),
-            )
         }
     }
 }
@@ -345,25 +424,70 @@ fun AnimatedMicaAppBackground(modifier: Modifier = Modifier) {
     val wallpaperImage = (wallpaperImageState as? CustomWallpaperImageState.Ready)?.image
     val wallpaperCrop = LocalCustomWallpaperCrop.current
     val wallpaperBlurDp = LocalCustomWallpaperBlurDp.current
+    val viewportWidthPx = viewport?.widthPx ?: 0f
+    val viewportHeightPx = viewport?.heightPx ?: 0f
+    val viewportFrame = viewport?.frame
+
+    LaunchedEffect(
+        wallpaperImage,
+        wallpaperCrop,
+        wallpaperBlurDp,
+        viewportWidthPx,
+        viewportHeightPx,
+    ) {
+        val host = viewport ?: return@LaunchedEffect
+        val requestId = host.beginFrameRequest()
+        val image = wallpaperImage
+        val widthPx = viewportWidthPx.roundToInt()
+        val heightPx = viewportHeightPx.roundToInt()
+        if (image == null || widthPx <= 0 || heightPx <= 0) {
+            host.publishFrame(null, requestId)
+            return@LaunchedEffect
+        }
+        val blurRadiusPx = customWallpaperStackBlurRadius(wallpaperBlurDp)
+        if (blurRadiusPx > 0) {
+            delay(CUSTOM_WALLPAPER_BLUR_FRAME_DEBOUNCE_MS)
+        }
+        if (!host.isCurrentFrameRequest(requestId)) return@LaunchedEffect
+        val frame = withContext(Dispatchers.Default) {
+            ensureActive()
+            renderCustomWallpaperViewportFrame(
+                image = image,
+                crop = wallpaperCrop,
+                widthPx = widthPx,
+                heightPx = heightPx,
+                blurRadiusPx = blurRadiusPx,
+            )
+        }
+        host.publishFrame(frame, requestId)
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .onGloballyPositioned { coordinates ->
                 val bounds = coordinates.boundsInWindow()
-                viewport?.update(bounds.top, bounds.height)
+                viewport?.update(bounds.top, bounds.width, bounds.height)
             }
             .background(Brush.verticalGradient(listOf(start, end))),
     ) {
         if (wallpaperImage != null) {
             androidx.compose.foundation.Canvas(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .customWallpaperBlur(wallpaperBlurDp),
+                modifier = Modifier.fillMaxSize(),
             ) {
-                drawCustomWallpaper(
-                    image = wallpaperImage,
-                    crop = wallpaperCrop,
-                )
+                val frame = viewportFrame
+                if (frame != null) {
+                    drawImage(
+                        image = frame,
+                        dstOffset = IntOffset.Zero,
+                        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                    )
+                } else {
+                    drawCustomWallpaper(
+                        image = wallpaperImage,
+                        crop = wallpaperCrop,
+                    )
+                }
             }
             MicaCustomWallpaperOverlay()
         }
