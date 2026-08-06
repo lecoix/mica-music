@@ -386,6 +386,18 @@ jobject getAudioProperties(JNIEnv *env, const TagLibExt::FileRef &f) {
     return env->NewObject(audioPropertiesClass, audioPropertiesConstructor, 0, 0, 0, 0, bitsPerSample);
 }
 
+jobject getPropertyMap(JNIEnv *env, const TagLibExt::FileRef &f) {
+    return PropertyMapToJniHashMap(env, f.properties());
+}
+
+jobjectArray getPictures(JNIEnv *env, const TagLibExt::FileRef &f) {
+    return PictureListToJniPictureArray(env, f.complexProperties("PICTURE"));
+}
+
+jobjectArray emptyPictureArray(JNIEnv *env) {
+    return env->NewObjectArray(0, pictureClass, nullptr);
+}
+
 jobject buildTrackProbe(
         JNIEnv *env,
         const TagLibExt::FileRef &f,
@@ -400,18 +412,6 @@ jobject buildTrackProbe(
     return env->NewObject(
             trackProbeClass, trackProbeConstructor,
             metadata, audioProperties);
-}
-
-jobject getPropertyMap(JNIEnv *env, const TagLibExt::FileRef &f) {
-    return PropertyMapToJniHashMap(env, f.properties());
-}
-
-jobjectArray getPictures(JNIEnv *env, const TagLibExt::FileRef &f) {
-    return PictureListToJniPictureArray(env, f.complexProperties("PICTURE"));
-}
-
-jobjectArray emptyPictureArray(JNIEnv *env) {
-    return env->NewObjectArray(0, pictureClass, nullptr);
 }
 
 char *getRealPathFromFd(const int fd) {

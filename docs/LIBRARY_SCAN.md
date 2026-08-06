@@ -89,7 +89,7 @@ readCopyright（MP4 且 TagLib 无 copyright）      [copyright]
 
 ### TagLib fork（`:taglib`）
 
-Vendored 于 `third_party/taglib/`，相对 Kyant0 1.0.6 的 Mica 扩展见 `third_party/taglib/README-MICA.md`：
+Vendored 于 `third_party/taglib/`（**Mica 主仓自维护**，不依赖 Kyant0 Maven 更新）。utfcpp 为 git submodule。扩展说明见 `third_party/taglib/README-MICA.md`。
 
 1. **`AudioProperties.bitsPerSample`**：FLAC/WAV/MP4 等 native 位深；`0` 表示未知，由 `AudioTechnicalProbe` 补全。
 2. **`TagLib.probeTrack(fd)`**：单次 fd 返回 `Metadata + AudioProperties`，替代双次 `getMetadata` / `getAudioProperties`。

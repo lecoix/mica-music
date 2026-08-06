@@ -26,6 +26,11 @@ android {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        // Mirror :app perf so perfCompileClasspath can resolve this library.
+        create("perf") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+        }
     }
 
     compileOptions {
