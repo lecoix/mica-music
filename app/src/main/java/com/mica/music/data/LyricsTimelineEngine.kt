@@ -7,8 +7,10 @@ class LyricsTimelineEngine(
         val lines = document.lines
         if (lines.isEmpty()) return LyricsTimelineSnapshot(LyricsTimelinePhase.BeforeFirstLine)
 
+        val syncMs = positionMs + LyricsSync.LEAD_MS
+
         val activeIndex = lines.indexOfLast { line ->
-            line.startMs <= positionMs && (line.endMs == null || positionMs < line.endMs)
+            line.startMs <= syncMs && (line.endMs == null || syncMs < line.endMs)
         }
         if (activeIndex >= 0) {
             val line = lines[activeIndex]
@@ -16,22 +18,22 @@ class LyricsTimelineEngine(
             return LyricsTimelineSnapshot(
                 LyricsTimelinePhase.Line(
                     index = activeIndex,
-                    progress = progressBetween(line.startMs, inferredEnd, positionMs),
+                    progress = progressBetween(line.startMs, inferredEnd, syncMs),
                 ),
             )
         }
 
-        val nextIndex = lines.indexOfFirst { it.startMs > positionMs }
+        val nextIndex = lines.indexOfFirst { it.startMs > syncMs }
         if (nextIndex == 0) return LyricsTimelineSnapshot(LyricsTimelinePhase.BeforeFirstLine)
         if (nextIndex > 0) {
             val previousIndex = nextIndex - 1
             val previousEnd = lines[previousIndex].endMs
-            if (previousEnd != null && previousEnd <= positionMs) {
+            if (previousEnd != null && previousEnd <= syncMs) {
                 return LyricsTimelineSnapshot(
                     LyricsTimelinePhase.Gap(
                         previousIndex = previousIndex,
                         nextIndex = nextIndex,
-                        progress = progressBetween(previousEnd, lines[nextIndex].startMs, positionMs),
+                        progress = progressBetween(previousEnd, lines[nextIndex].startMs, syncMs),
                         durationMs = lines[nextIndex].startMs - previousEnd,
                     ),
                 )
