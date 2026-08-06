@@ -253,6 +253,8 @@ internal fun PlayerLowerPanelSection(
                     lyricsLineSpacingDp = lyricsLineSpacingDp,
                     lyricsWordAnimationPreset = lyricsWordAnimationPreset,
                     bilingualDisplayMode = lyricsBilingualDisplayMode,
+                    lyricsPageOpen = lyricsPageOpen,
+                    lyricsLayoutFocus = lyricsFocus,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = lower.lyricsChromeFade },

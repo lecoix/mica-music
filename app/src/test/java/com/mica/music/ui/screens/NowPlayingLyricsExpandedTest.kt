@@ -2,6 +2,8 @@ package com.mica.music.ui.screens
 
 import com.mica.music.data.LyricLine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NowPlayingLyricsExpandedTest {
@@ -140,6 +142,26 @@ class NowPlayingLyricsExpandedTest {
     fun expandedLyricsIndexedScrollOffset_doesNotCountLeadingPaddingTwice() {
         assertEquals(0, expandedLyricsIndexedScrollOffset(leadingPaddingPx = 450, viewportOffsetPx = -450))
         assertEquals(50, expandedLyricsIndexedScrollOffset(leadingPaddingPx = 450, viewportOffsetPx = -400))
+    }
+
+    @Test
+    fun expandedLyricsLayoutTransition_freezesScrollDuringOpenAndClose() {
+        val closing = expandedLyricsLayoutTransition(lyricsPageOpen = false, lyricsLayoutFocus = 0.5f)
+        assertTrue(closing.freezeScroll)
+        assertTrue(closing.snapshotViewport)
+        assertFalse(closing.hideUntilSettled)
+
+        val opening = expandedLyricsLayoutTransition(lyricsPageOpen = true, lyricsLayoutFocus = 0.5f)
+        assertTrue(opening.freezeScroll)
+        assertFalse(opening.snapshotViewport)
+        assertTrue(opening.hideUntilSettled)
+
+        val settledOpen = expandedLyricsLayoutTransition(lyricsPageOpen = true, lyricsLayoutFocus = 1f)
+        assertFalse(settledOpen.freezeScroll)
+        assertFalse(settledOpen.hideUntilSettled)
+
+        val settledClosed = expandedLyricsLayoutTransition(lyricsPageOpen = false, lyricsLayoutFocus = 0f)
+        assertFalse(settledClosed.freezeScroll)
     }
 
     @Test

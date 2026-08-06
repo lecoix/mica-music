@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,7 +80,10 @@ internal fun ExpandedLyricsPanel(
     lyricsLineSpacingDp: Int = DEFAULT_LYRICS_PAGE_LINE_SPACING_DP,
     lyricsWordAnimationPreset: LyricsWordAnimationPreset = LyricsWordAnimationPreset.SYLLABLE_LIFT,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+    lyricsPageOpen: Boolean = true,
+    lyricsLayoutFocus: Float = 1f,
 ) {
+    val layoutTransition = expandedLyricsLayoutTransition(lyricsPageOpen, lyricsLayoutFocus)
     val lyrics = renderState.lyrics
     val positionMs = renderState.positionMs
     val textStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsFontSizeSp)
@@ -125,17 +129,32 @@ internal fun ExpandedLyricsPanel(
     val translationLineHeightPx = with(density) { translationTextStyle.lineHeight.toPx().toInt() }
     val currentLineAnchorYPx = lineHeightPx * CLASSIC_LYRICS_ANCHOR_LINE_HEIGHTS
     var viewportHeightPx by remember { mutableIntStateOf(0) }
+    var frozenLayoutViewportPx by remember { mutableIntStateOf(0) }
+    SideEffect {
+        if (layoutTransition.snapshotViewport) {
+            if (frozenLayoutViewportPx == 0 && viewportHeightPx > 0) {
+                frozenLayoutViewportPx = viewportHeightPx
+            }
+        } else {
+            frozenLayoutViewportPx = 0
+        }
+    }
+    val layoutViewportHeightPx = if (layoutTransition.snapshotViewport && frozenLayoutViewportPx > 0) {
+        frozenLayoutViewportPx
+    } else {
+        viewportHeightPx
+    }
     val leadingPaddingPx = maxOf(
         with(density) { HifiSpacing.sm.roundToPx() },
         expandedLyricsLeadingPaddingPx(
-            viewportHeightPx = viewportHeightPx,
+            viewportHeightPx = layoutViewportHeightPx,
             itemHeightPx = lineHeightPx,
             currentLineAnchorYPx = currentLineAnchorYPx,
         ),
     )
     val leadingPadding = with(density) { leadingPaddingPx.toDp() }
     val trailingPadding = HifiSpacing.xl + with(density) {
-        expandedLyricsTrailingPaddingPx(viewportHeightPx, currentLineAnchorYPx).toDp()
+        expandedLyricsTrailingPaddingPx(layoutViewportHeightPx, currentLineAnchorYPx).toDp()
     }
     val staggerOffsets = remember { mutableStateMapOf<Int, Float>() }
     val motionEnabled = rememberMicaMotionEnabled()
@@ -156,12 +175,21 @@ internal fun ExpandedLyricsPanel(
         )
     }
     var revealedLyricsKey by remember { mutableStateOf<List<Any?>?>(null) }
-    val lyricsRevealed = !timed || revealedLyricsKey == lyricsContentKey
+    val lyricsRevealed = (!timed || revealedLyricsKey == lyricsContentKey) &&
+        !layoutTransition.hideUntilSettled
     // After a track/lyrics snap, one more layout pass often re-triggers the spring follow with
     // staggerOffsets; those translationY lags get clipped by the item bounds (top/bottom shaved).
     var suppressFollowAnimation by remember { mutableStateOf(false) }
 
-    LaunchedEffect(interludeKey, motionEnabled, lyricsLineSpacingDp) {
+    LaunchedEffect(layoutTransition.hideUntilSettled) {
+        if (layoutTransition.hideUntilSettled) {
+            revealedLyricsKey = null
+            suppressFollowAnimation = true
+        }
+    }
+
+    LaunchedEffect(interludeKey, motionEnabled, lyricsLineSpacingDp, layoutTransition.freezeScroll) {
+        if (layoutTransition.freezeScroll) return@LaunchedEffect
         val interludeAppeared = previousInterludeKey == null && interludeKey != null
         previousInterludeKey = interludeKey
         if (!interludeAppeared) return@LaunchedEffect
@@ -182,10 +210,12 @@ internal fun ExpandedLyricsPanel(
         timed,
         lyricsContentKey,
         currentLineAnchorYPx,
-        viewportHeightPx,
+        layoutViewportHeightPx,
         lineHeightPx,
         translationLineHeightPx,
+        layoutTransition.freezeScroll,
     ) {
+        if (layoutTransition.freezeScroll) return@LaunchedEffect
         if (!timed || currentIndex < 0 || currentDisplayItemIndex < 0) {
             revealedLyricsKey = lyricsContentKey
             return@LaunchedEffect
@@ -364,7 +394,11 @@ internal fun ExpandedLyricsPanel(
                                     fadeOutSpec = tween(CLASSIC_LYRICS_FADE_MS),
                                     // Avoid enter placement motion under alpha=0 / first reveal;
                                     // it reads as a clipped scroll on track change.
-                                    placementSpec = if (lyricsRevealed) moveSpring else null,
+                                    placementSpec = if (lyricsRevealed && !layoutTransition.freezeScroll) {
+                                        moveSpring
+                                    } else {
+                                        null
+                                    },
                                 )
                                 .graphicsLayer {
                                     clip = false
@@ -391,7 +425,11 @@ internal fun ExpandedLyricsPanel(
                             .animateItem(
                                 fadeInSpec = tween(CLASSIC_LYRICS_FADE_MS),
                                 fadeOutSpec = tween(CLASSIC_LYRICS_FADE_MS),
-                                placementSpec = if (lyricsRevealed) moveSpring else null,
+                                placementSpec = if (lyricsRevealed && !layoutTransition.freezeScroll) {
+                                    moveSpring
+                                } else {
+                                    null
+                                },
                             ),
                     ) {
                         InterludeDots(
@@ -408,6 +446,27 @@ internal fun ExpandedLyricsPanel(
             }
         }
     }
+}
+
+internal data class ExpandedLyricsLayoutTransition(
+    val freezeScroll: Boolean,
+    /** Keep viewport/padding fixed while lyrics chrome is still visible during close. */
+    val snapshotViewport: Boolean,
+    /** Hide list content until open layout settles, then snap once. */
+    val hideUntilSettled: Boolean,
+)
+
+internal fun expandedLyricsLayoutTransition(
+    lyricsPageOpen: Boolean,
+    lyricsLayoutFocus: Float,
+): ExpandedLyricsLayoutTransition {
+    val closing = !lyricsPageOpen && lyricsLayoutFocus > 0.01f
+    val opening = lyricsPageOpen && lyricsLayoutFocus < 0.999f
+    return ExpandedLyricsLayoutTransition(
+        freezeScroll = closing || opening,
+        snapshotViewport = closing,
+        hideUntilSettled = opening,
+    )
 }
 
 internal fun classicLyricsStaggerDelayMs(distance: Int): Long {
