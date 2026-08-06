@@ -1,0 +1,60 @@
+﻿2026-07-07T07:22:30.8430444Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:22:30.8447572Z ##[group]Run actions/checkout@v4
+2026-07-07T07:22:30.8449289Z with:
+2026-07-07T07:22:30.8450128Z   repository: lecoix/mica-music
+2026-07-07T07:22:30.8459211Z   token: ***
+2026-07-07T07:22:30.8460021Z   ssh-strict: true
+2026-07-07T07:22:30.8461450Z   ssh-user: git
+2026-07-07T07:22:30.8462292Z   persist-credentials: true
+2026-07-07T07:22:30.8463175Z   clean: true
+2026-07-07T07:22:30.8463973Z   sparse-checkout-cone-mode: true
+2026-07-07T07:22:30.8464959Z   fetch-depth: 1
+2026-07-07T07:22:30.8465761Z   fetch-tags: false
+2026-07-07T07:22:30.8466582Z   show-progress: true
+2026-07-07T07:22:30.8467400Z   lfs: false
+2026-07-07T07:22:30.8468146Z   submodules: false
+2026-07-07T07:22:30.8468998Z   set-safe-directory: true
+2026-07-07T07:22:30.8470217Z ##[endgroup]
+2026-07-07T07:22:31.0092621Z Syncing repository: lecoix/mica-music
+2026-07-07T07:22:31.0095238Z ##[group]Getting Git version info
+2026-07-07T07:22:31.0096405Z Working directory is 'D:\a\mica-music\mica-music'
+2026-07-07T07:22:31.1085283Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-07-07T07:22:31.4143182Z git version 2.54.0.windows.1
+2026-07-07T07:22:31.4193615Z ##[endgroup]
+2026-07-07T07:22:31.4213313Z Temporarily overriding HOME='D:\a\_temp\29331e22-4aee-4fca-8658-f0c4fd276597' before making global git config changes
+2026-07-07T07:22:31.4214144Z Adding repository directory to the temporary git global config as a safe directory
+2026-07-07T07:22:31.4224533Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\mica-music\mica-music
+2026-07-07T07:22:31.4800368Z Deleting the contents of 'D:\a\mica-music\mica-music'
+2026-07-07T07:22:31.4806258Z ##[group]Initializing the repository
+2026-07-07T07:22:31.4815365Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\mica-music\mica-music
+2026-07-07T07:22:31.5646411Z Initialized empty Git repository in D:/a/mica-music/mica-music/.git/
+2026-07-07T07:22:31.5696002Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/lecoix/mica-music
+2026-07-07T07:22:31.6170710Z ##[endgroup]
+2026-07-07T07:22:31.6171320Z ##[group]Disabling automatic garbage collection
+2026-07-07T07:22:31.6180110Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-07-07T07:22:31.6470992Z ##[endgroup]
+2026-07-07T07:22:31.6471515Z ##[group]Setting up auth
+2026-07-07T07:22:31.6482491Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-07-07T07:22:31.6783757Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-07-07T07:22:32.9409130Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-07-07T07:22:32.9719246Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-07-07T07:22:33.5198808Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-07-07T07:22:33.5506551Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-07-07T07:22:34.1080949Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-07-07T07:22:34.1404774Z ##[endgroup]
+2026-07-07T07:22:34.1405600Z ##[group]Fetching the repository
+2026-07-07T07:22:34.1419936Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9a2e8fe8e0ebae58948e1b6f6a20475b25670e66:refs/remotes/origin/exoplayer-only
+2026-07-07T07:22:35.1993670Z From https://github.com/lecoix/mica-music
+2026-07-07T07:22:35.1994582Z  * [new ref]         9a2e8fe8e0ebae58948e1b6f6a20475b25670e66 -> origin/exoplayer-only
+2026-07-07T07:22:35.2312364Z ##[endgroup]
+2026-07-07T07:22:35.2314594Z ##[group]Determining the checkout info
+2026-07-07T07:22:35.2317868Z ##[endgroup]
+2026-07-07T07:22:35.2329565Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-07-07T07:22:35.2821835Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-07-07T07:22:35.3202774Z ##[group]Checking out the ref
+2026-07-07T07:22:35.3217237Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B exoplayer-only refs/remotes/origin/exoplayer-only
+2026-07-07T07:22:35.5990600Z Switched to a new branch 'exoplayer-only'
+2026-07-07T07:22:35.6017826Z branch 'exoplayer-only' set up to track 'origin/exoplayer-only'.
+2026-07-07T07:22:35.6103629Z ##[endgroup]
+2026-07-07T07:22:35.6473441Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-07-07T07:22:35.6742086Z 9a2e8fe8e0ebae58948e1b6f6a20475b25670e66

@@ -1,0 +1,375 @@
+﻿2026-07-07T07:22:28.7812811Z Current runner version: '2.335.1'
+2026-07-07T07:22:28.7846146Z ##[group]Runner Image Provisioner
+2026-07-07T07:22:28.7847315Z Hosted Compute Agent
+2026-07-07T07:22:28.7848121Z Version: 20260624.560
+2026-07-07T07:22:28.7849096Z Commit: 925d229a51159bc391ae97e54a2dd1fe20af789d
+2026-07-07T07:22:28.7850163Z Build Date: 2026-06-24T18:26:47Z
+2026-07-07T07:22:28.7851143Z Worker ID: {7f1d0b19-dd6f-49b4-9fb2-37d633064e2c}
+2026-07-07T07:22:28.7852226Z Azure Region: northcentralus
+2026-07-07T07:22:28.7853122Z ##[endgroup]
+2026-07-07T07:22:28.7854966Z ##[group]Operating System
+2026-07-07T07:22:28.7855881Z Microsoft Windows Server 2025
+2026-07-07T07:22:28.7856747Z 10.0.26100
+2026-07-07T07:22:28.7857512Z Datacenter
+2026-07-07T07:22:28.7858239Z ##[endgroup]
+2026-07-07T07:22:28.7858995Z ##[group]Runner Image
+2026-07-07T07:22:28.7859866Z Image: windows-2025-vs2026
+2026-07-07T07:22:28.7860734Z Version: 20260628.158.1
+2026-07-07T07:22:28.7863379Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20260628.158/images/windows/Windows2025-VS2026-Readme.md
+2026-07-07T07:22:28.7866080Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20260628.158
+2026-07-07T07:22:28.7867697Z ##[endgroup]
+2026-07-07T07:22:28.7869297Z ##[group]GITHUB_TOKEN Permissions
+2026-07-07T07:22:28.7871865Z Contents: read
+2026-07-07T07:22:28.7872707Z Metadata: read
+2026-07-07T07:22:28.7873534Z ##[endgroup]
+2026-07-07T07:22:28.7876186Z Secret source: Actions
+2026-07-07T07:22:28.7877628Z Prepare workflow directory
+2026-07-07T07:22:28.8289604Z Prepare all required actions
+2026-07-07T07:22:28.8328336Z Getting action download info
+2026-07-07T07:22:29.0369859Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-07-07T07:22:29.1988264Z Download action repository 'actions/setup-java@v4' (SHA:c1e323688fd81a25caa38c78aa6df2d33d3e20d9)
+2026-07-07T07:22:29.6465917Z Download action repository 'gradle/actions@v4' (SHA:ed408507eac070d1f99cc633dbcf757c94c7933a)
+2026-07-07T07:22:30.2965629Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-07-07T07:22:30.6891105Z Complete job name: screenshots
+2026-07-07T07:22:30.8430502Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:22:30.8447610Z ##[group]Run actions/checkout@v4
+2026-07-07T07:22:30.8449313Z with:
+2026-07-07T07:22:30.8450133Z   repository: lecoix/mica-music
+2026-07-07T07:22:30.8459228Z   token: ***
+2026-07-07T07:22:30.8460025Z   ssh-strict: true
+2026-07-07T07:22:30.8461461Z   ssh-user: git
+2026-07-07T07:22:30.8462297Z   persist-credentials: true
+2026-07-07T07:22:30.8463179Z   clean: true
+2026-07-07T07:22:30.8463976Z   sparse-checkout-cone-mode: true
+2026-07-07T07:22:30.8464970Z   fetch-depth: 1
+2026-07-07T07:22:30.8465773Z   fetch-tags: false
+2026-07-07T07:22:30.8466586Z   show-progress: true
+2026-07-07T07:22:30.8467403Z   lfs: false
+2026-07-07T07:22:30.8468191Z   submodules: false
+2026-07-07T07:22:30.8469001Z   set-safe-directory: true
+2026-07-07T07:22:30.8470224Z ##[endgroup]
+2026-07-07T07:22:31.0092683Z Syncing repository: lecoix/mica-music
+2026-07-07T07:22:31.0095254Z ##[group]Getting Git version info
+2026-07-07T07:22:31.0096410Z Working directory is 'D:\a\mica-music\mica-music'
+2026-07-07T07:22:31.1085377Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-07-07T07:22:31.4143264Z git version 2.54.0.windows.1
+2026-07-07T07:22:31.4193647Z ##[endgroup]
+2026-07-07T07:22:31.4213340Z Temporarily overriding HOME='D:\a\_temp\29331e22-4aee-4fca-8658-f0c4fd276597' before making global git config changes
+2026-07-07T07:22:31.4214148Z Adding repository directory to the temporary git global config as a safe directory
+2026-07-07T07:22:31.4224561Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\mica-music\mica-music
+2026-07-07T07:22:31.4800434Z Deleting the contents of 'D:\a\mica-music\mica-music'
+2026-07-07T07:22:31.4806316Z ##[group]Initializing the repository
+2026-07-07T07:22:31.4815392Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\mica-music\mica-music
+2026-07-07T07:22:31.5646494Z Initialized empty Git repository in D:/a/mica-music/mica-music/.git/
+2026-07-07T07:22:31.5696053Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/lecoix/mica-music
+2026-07-07T07:22:31.6170768Z ##[endgroup]
+2026-07-07T07:22:31.6171326Z ##[group]Disabling automatic garbage collection
+2026-07-07T07:22:31.6180141Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-07-07T07:22:31.6471038Z ##[endgroup]
+2026-07-07T07:22:31.6471520Z ##[group]Setting up auth
+2026-07-07T07:22:31.6482517Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-07-07T07:22:31.6783884Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-07-07T07:22:32.9409193Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-07-07T07:22:32.9719296Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-07-07T07:22:33.5198872Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-07-07T07:22:33.5506599Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-07-07T07:22:34.1081007Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-07-07T07:22:34.1404821Z ##[endgroup]
+2026-07-07T07:22:34.1407935Z ##[group]Fetching the repository
+2026-07-07T07:22:34.1419966Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9a2e8fe8e0ebae58948e1b6f6a20475b25670e66:refs/remotes/origin/exoplayer-only
+2026-07-07T07:22:35.1993736Z From https://github.com/lecoix/mica-music
+2026-07-07T07:22:35.1994593Z  * [new ref]         9a2e8fe8e0ebae58948e1b6f6a20475b25670e66 -> origin/exoplayer-only
+2026-07-07T07:22:35.2312475Z ##[endgroup]
+2026-07-07T07:22:35.2314615Z ##[group]Determining the checkout info
+2026-07-07T07:22:35.2317886Z ##[endgroup]
+2026-07-07T07:22:35.2329601Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-07-07T07:22:35.2821903Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-07-07T07:22:35.3202802Z ##[group]Checking out the ref
+2026-07-07T07:22:35.3217292Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B exoplayer-only refs/remotes/origin/exoplayer-only
+2026-07-07T07:22:35.5990641Z Switched to a new branch 'exoplayer-only'
+2026-07-07T07:22:35.6017850Z branch 'exoplayer-only' set up to track 'origin/exoplayer-only'.
+2026-07-07T07:22:35.6103646Z ##[endgroup]
+2026-07-07T07:22:35.6473487Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-07-07T07:22:35.6742120Z 9a2e8fe8e0ebae58948e1b6f6a20475b25670e66
+2026-07-07T07:22:35.7230986Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:22:35.7232997Z ##[group]Run actions/setup-java@v4
+2026-07-07T07:22:35.7233978Z with:
+2026-07-07T07:22:35.7234169Z   distribution: temurin
+2026-07-07T07:22:35.7234370Z   java-version: 17
+2026-07-07T07:22:35.7234553Z   java-package: jdk
+2026-07-07T07:22:35.7234743Z   check-latest: false
+2026-07-07T07:22:35.7234946Z   server-id: github
+2026-07-07T07:22:35.7235147Z   server-username: GITHUB_ACTOR
+2026-07-07T07:22:35.7235376Z   server-password: GITHUB_TOKEN
+2026-07-07T07:22:35.7235600Z   overwrite-settings: true
+2026-07-07T07:22:35.7235807Z   job-status: success
+2026-07-07T07:22:35.7238509Z   token: ***
+2026-07-07T07:22:35.7238693Z ##[endgroup]
+2026-07-07T07:22:35.9188973Z ##[group]Installed distributions
+2026-07-07T07:22:35.9473537Z Resolved Java 17.0.19+10 from tool-cache
+2026-07-07T07:22:35.9474071Z Setting Java 17.0.19+10 as the default
+2026-07-07T07:22:35.9497831Z (node:8708) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-07T07:22:35.9499059Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-07T07:22:35.9503162Z Creating toolchains.xml for JDK version 17 from temurin
+2026-07-07T07:22:35.9603377Z Writing to C:\Users\runneradmin\.m2\toolchains.xml
+2026-07-07T07:22:35.9608803Z 
+2026-07-07T07:22:35.9609083Z Java configuration:
+2026-07-07T07:22:35.9609515Z   Distribution: temurin
+2026-07-07T07:22:35.9609875Z   Version: 17.0.19+10
+2026-07-07T07:22:35.9610448Z   Path: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.19-10\x64
+2026-07-07T07:22:35.9611000Z 
+2026-07-07T07:22:35.9611470Z ##[endgroup]
+2026-07-07T07:22:35.9630561Z Creating settings.xml with server-id: github
+2026-07-07T07:22:35.9633682Z Writing to C:\Users\runneradmin\.m2\settings.xml
+2026-07-07T07:22:36.0027174Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:22:36.0028875Z ##[group]Run gradle/actions/setup-gradle@v4
+2026-07-07T07:22:36.0029181Z with:
+2026-07-07T07:22:36.0029385Z   cache-disabled: false
+2026-07-07T07:22:36.0029629Z   cache-read-only: false
+2026-07-07T07:22:36.0029871Z   cache-write-only: false
+2026-07-07T07:22:36.0030130Z   cache-overwrite-existing: false
+2026-07-07T07:22:36.0030412Z   cache-cleanup: on-success
+2026-07-07T07:22:36.0030733Z   gradle-home-cache-includes: caches
+notifications
+
+2026-07-07T07:22:36.0031083Z   add-job-summary: always
+2026-07-07T07:22:36.0031350Z   add-job-summary-as-pr-comment: never
+2026-07-07T07:22:36.0031686Z   dependency-graph: disabled
+2026-07-07T07:22:36.0032059Z   dependency-graph-report-dir: dependency-graph-reports
+2026-07-07T07:22:36.0032466Z   dependency-graph-continue-on-failure: true
+2026-07-07T07:22:36.0032797Z   build-scan-publish: false
+2026-07-07T07:22:36.0033051Z   validate-wrappers: true
+2026-07-07T07:22:36.0033308Z   allow-snapshot-wrappers: false
+2026-07-07T07:22:36.0033600Z   gradle-home-cache-strict-match: false
+2026-07-07T07:22:36.0033900Z   workflow-job-context: null
+2026-07-07T07:22:36.0037385Z   github-token: ***
+2026-07-07T07:22:36.0037622Z env:
+2026-07-07T07:22:36.0037965Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.19-10\x64
+2026-07-07T07:22:36.0038575Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.19-10\x64
+2026-07-07T07:22:36.0039244Z ##[endgroup]
+2026-07-07T07:22:37.6011995Z Setting GRADLE_USER_HOME to D:\a\.gradle to leverage (potentially) faster drive.
+2026-07-07T07:22:37.6072785Z Merged default JDK locations into C:\Users\runneradmin\.m2\toolchains.xml
+2026-07-07T07:22:37.6077564Z Preparing cache for cleanup.
+2026-07-07T07:22:37.6085213Z ##[group]Restore Gradle state from cache
+2026-07-07T07:22:37.8301272Z Cache hit for restore-key: gradle-home-v1|Windows-X64|screenshots[fac4a4ef294ecd9be4e3dedc36848af2]-6f2c7380bc1d8dae097fe23119c0496928e5c8ec
+2026-07-07T07:22:38.3825273Z Received 18977521 of 18977521 (100.0%), 40.3 MBs/sec
+2026-07-07T07:22:38.3828813Z Cache Size: ~18 MB (18977521 B)
+2026-07-07T07:22:38.3922330Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/1fb7ce17-02f3-4f48-a909-ecbfeec8b850/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:39.3830388Z Cache restored successfully
+2026-07-07T07:22:39.3846325Z Restored cache entry with key gradle-home-v1|Windows-X64|screenshots[fac4a4ef294ecd9be4e3dedc36848af2]-9a2e8fe8e0ebae58948e1b6f6a20475b25670e66 to D:\a\.gradle\caches,D:\a\.gradle\notifications,D:\a\.gradle\.setup-gradle in 1775ms
+2026-07-07T07:22:39.7435319Z Cache hit for: gradle-kotlin-dsl-v1-c06b3c2fe93f2df42d0c71e9a6e821aa
+2026-07-07T07:22:39.7445562Z Cache hit for: gradle-transforms-v1-5c8b3a237261e80f8e9d533fce773c03
+2026-07-07T07:22:39.7496752Z Cache hit for: gradle-dependencies-v1-dd6e05624f8d3cb7d174ca5ff7e05423
+2026-07-07T07:22:39.7505281Z Cache hit for: gradle-wrapper-zips-v1-df6ecc383658ce44d9cbac4d1bfd12bf
+2026-07-07T07:22:39.7514115Z Cache hit for: gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c
+2026-07-07T07:22:39.7575191Z Cache hit for: gradle-groovy-dsl-v1-d64978a2a5ed826191cf601cc5e1acda
+2026-07-07T07:22:39.7600630Z Cache hit for: gradle-instrumented-jars-v1-518ad605486949595214988f7279839a
+2026-07-07T07:22:39.7999744Z Received 194619 of 194619 (100.0%), 6.9 MBs/sec
+2026-07-07T07:22:39.8001313Z Cache Size: ~0 MB (194619 B)
+2026-07-07T07:22:39.8241529Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/476db90d-e67f-4afc-9199-24321f933c16/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:40.1029065Z Received 108187 of 108187 (100.0%), 0.6 MBs/sec
+2026-07-07T07:22:40.1030830Z Cache Size: ~0 MB (108187 B)
+2026-07-07T07:22:40.1343340Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/c8f72bd0-0229-459c-9fcb-b6a1041763bf/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:40.1490480Z Received 70767 of 70767 (100.0%), 0.4 MBs/sec
+2026-07-07T07:22:40.1492592Z Cache Size: ~0 MB (70767 B)
+2026-07-07T07:22:40.1530416Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/0f8713ce-8029-4014-9035-20d64627e2fa/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:40.3969525Z Cache restored successfully
+2026-07-07T07:22:40.3972748Z Cache restored successfully
+2026-07-07T07:22:40.4539360Z Restored cache entry with key gradle-groovy-dsl-v1-d64978a2a5ed826191cf601cc5e1acda to D:\a\.gradle\caches\*\groovy-dsl\*/ in 1066ms
+2026-07-07T07:22:40.4540640Z Restored cache entry with key gradle-instrumented-jars-v1-518ad605486949595214988f7279839a to D:\a\.gradle\caches\jars-*\*/ in 1067ms
+2026-07-07T07:22:40.5724246Z Cache restored successfully
+2026-07-07T07:22:40.6434930Z Restored cache entry with key gradle-kotlin-dsl-v1-c06b3c2fe93f2df42d0c71e9a6e821aa to D:\a\.gradle\caches\*\kotlin-dsl\accessors\*/,D:\a\.gradle\caches\*\kotlin-dsl\scripts\*/ in 1255ms
+2026-07-07T07:22:40.9114941Z Received 58720256 of 135016265 (43.5%), 56.0 MBs/sec
+2026-07-07T07:22:40.9779302Z Received 33554432 of 492189907 (6.8%), 30.7 MBs/sec
+2026-07-07T07:22:40.9780614Z Received 67108864 of 207475305 (32.3%), 62.3 MBs/sec
+2026-07-07T07:22:40.9781593Z Received 33554432 of 39619888 (84.7%), 31.4 MBs/sec
+2026-07-07T07:22:41.2285487Z Received 39619888 of 39619888 (100.0%), 29.8 MBs/sec
+2026-07-07T07:22:41.2289940Z Cache Size: ~38 MB (39619888 B)
+2026-07-07T07:22:41.4259058Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/d36c44d4-7eec-43ae-9757-04b0324d150f/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:41.8827041Z Cache restored successfully
+2026-07-07T07:22:41.9120992Z Received 130023424 of 135016265 (96.3%), 62.0 MBs/sec
+2026-07-07T07:22:41.9200028Z Restored cache entry with key gradle-generated-gradle-jars-v1-26cfecc158c44513d188405a5d2d0d9c to D:\a\.gradle\caches\8.9\generated-gradle-jars\gradle-api-8.9.jar in 2534ms
+2026-07-07T07:22:42.2069094Z Received 104857600 of 492189907 (21.3%), 44.0 MBs/sec
+2026-07-07T07:22:42.2069767Z Received 159383552 of 207475305 (76.8%), 67.3 MBs/sec
+2026-07-07T07:22:42.3179288Z Received 135016265 of 135016265 (100.0%), 53.5 MBs/sec
+2026-07-07T07:22:42.3182698Z Cache Size: ~129 MB (135016265 B)
+2026-07-07T07:22:42.4275072Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/e4807ccc-9512-4dd1-b993-feb277eb1a48/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:42.7204789Z Received 207475305 of 207475305 (100.0%), 71.4 MBs/sec
+2026-07-07T07:22:42.7205509Z Cache Size: ~198 MB (207475305 B)
+2026-07-07T07:22:42.7738740Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/4082b4e8-d021-412e-9f1c-cb7086d6cf51/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:42.9528284Z Cache restored successfully
+2026-07-07T07:22:42.9667563Z Restored cache entry with key gradle-wrapper-zips-v1-df6ecc383658ce44d9cbac4d1bfd12bf to D:\a\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a in 3579ms
+2026-07-07T07:22:43.2234656Z Received 243269632 of 492189907 (49.4%), 70.6 MBs/sec
+2026-07-07T07:22:44.4185327Z Received 402653184 of 492189907 (81.8%), 85.6 MBs/sec
+2026-07-07T07:22:45.0260682Z Received 492189907 of 492189907 (100.0%), 92.3 MBs/sec
+2026-07-07T07:22:45.0262313Z Cache Size: ~469 MB (492189907 B)
+2026-07-07T07:22:45.0266128Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/42cac024-8eeb-433b-bec9-1933c81f692b/cache.tzst -P -C D:/a/mica-music/mica-music --force-local --use-compress-program "zstd -d"
+2026-07-07T07:22:46.8172125Z Cache restored successfully
+2026-07-07T07:22:46.8552123Z Restored cache entry with key gradle-dependencies-v1-dd6e05624f8d3cb7d174ca5ff7e05423 to D:\a\.gradle\caches\modules-*\files-*\*\*\*\* in 7468ms
+2026-07-07T07:22:47.9189376Z Cache restored successfully
+2026-07-07T07:22:47.9320299Z Restored cache entry with key gradle-transforms-v1-5c8b3a237261e80f8e9d533fce773c03 to D:\a\.gradle\caches\transforms-4\*/,D:\a\.gradle\caches\*\transforms\*/ in 8543ms
+2026-07-07T07:22:47.9490344Z ##[endgroup]
+2026-07-07T07:22:47.9722134Z ##[group]All Gradle Wrapper jars are valid
+2026-07-07T07:22:47.9723701Z ✓ Found known Gradle Wrapper JAR files:
+2026-07-07T07:22:47.9724480Z   498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17 gradle\wrapper\gradle-wrapper.jar
+2026-07-07T07:22:47.9725345Z ##[endgroup]
+2026-07-07T07:22:48.0085209Z ##[group]Run .\gradlew.bat :app:micaScreenshotFull --no-configuration-cache
+2026-07-07T07:22:48.0085910Z [36;1m.\gradlew.bat :app:micaScreenshotFull --no-configuration-cache[0m
+2026-07-07T07:22:48.0877398Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-07-07T07:22:48.0877864Z env:
+2026-07-07T07:22:48.0878304Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.19-10\x64
+2026-07-07T07:22:48.0878988Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.19-10\x64
+2026-07-07T07:22:48.0879557Z   GRADLE_ACTION_ID: gradle/actions/setup-gradle
+2026-07-07T07:22:48.0879948Z   GRADLE_USER_HOME: D:\a\.gradle
+2026-07-07T07:22:48.0880291Z   GRADLE_BUILD_ACTION_SETUP_COMPLETED: true
+2026-07-07T07:22:48.0881090Z   GRADLE_BUILD_ACTION_CACHE_RESTORED: true
+2026-07-07T07:22:48.0881677Z   DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: gradle-actions.inject-develocity.init.gradle
+2026-07-07T07:22:48.0882328Z   DEVELOCITY_INJECTION_CUSTOM_VALUE: gradle-actions
+2026-07-07T07:22:48.0882736Z   GITHUB_DEPENDENCY_GRAPH_ENABLED: false
+2026-07-07T07:22:48.0883077Z ##[endgroup]
+2026-07-07T07:22:55.8402595Z Starting a Gradle Daemon (subsequent builds will be faster)
+2026-07-07T07:23:11.5441850Z 
+2026-07-07T07:23:11.5487280Z > Configure project :app
+2026-07-07T07:23:11.5534209Z We noticed you are using KSP1 which is deprecated and support for it will be removed soon - please migrate to KSP2 as soon as possible. KSP1 will no longer be compatible with Android Gradle Plugin 9.0.0 (and above) and Kotlin 2.3.0 (and above)
+2026-07-07T07:23:14.0557281Z 
+2026-07-07T07:23:14.0608208Z > Task :media3-ffmpeg-decoder-dsd:preBuild UP-TO-DATE
+2026-07-07T07:23:14.0678615Z > Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+2026-07-07T07:23:14.0697912Z > Task :media3-ffmpeg-decoder-dsd:preDebugBuild UP-TO-DATE
+2026-07-07T07:23:14.0706048Z > Task :app:preBuild
+2026-07-07T07:23:14.0708149Z > Task :app:preDebugBuild
+2026-07-07T07:23:14.2729565Z > Task :media3-ffmpeg-decoder-dsd:writeDebugAarMetadata
+2026-07-07T07:23:14.2759406Z > Task :app:generateDebugResValues FROM-CACHE
+2026-07-07T07:23:14.2787673Z > Task :media3-ffmpeg-decoder-dsd:generateDebugResValues FROM-CACHE
+2026-07-07T07:23:14.2789175Z > Task :media3-ffmpeg-decoder-dsd:generateDebugResources FROM-CACHE
+2026-07-07T07:23:14.3488576Z > Task :media3-ffmpeg-decoder-dsd:packageDebugResources FROM-CACHE
+2026-07-07T07:23:14.3515250Z > Task :media3-ffmpeg-decoder-dsd:extractDeepLinksDebug FROM-CACHE
+2026-07-07T07:23:14.3519696Z > Task :media3-ffmpeg-decoder-dsd:processDebugManifest FROM-CACHE
+2026-07-07T07:23:14.3520699Z > Task :media3-ffmpeg-decoder-dsd:compileDebugLibraryResources FROM-CACHE
+2026-07-07T07:23:17.4769843Z > Task :media3-ffmpeg-decoder-dsd:parseDebugLocalResources FROM-CACHE
+2026-07-07T07:23:17.5523790Z > Task :media3-ffmpeg-decoder-dsd:generateDebugRFile FROM-CACHE
+2026-07-07T07:23:17.5533417Z > Task :media3-ffmpeg-decoder-dsd:javaPreCompileDebug FROM-CACHE
+2026-07-07T07:23:17.9660826Z > Task :app:checkDebugAarMetadata
+2026-07-07T07:23:17.9676365Z > Task :app:mapDebugSourceSetPaths
+2026-07-07T07:23:17.9677874Z > Task :app:generateDebugResources FROM-CACHE
+2026-07-07T07:23:18.4955526Z > Task :app:mergeDebugResources FROM-CACHE
+2026-07-07T07:23:18.4967604Z > Task :app:packageDebugResources FROM-CACHE
+2026-07-07T07:23:18.4975851Z > Task :app:parseDebugLocalResources FROM-CACHE
+2026-07-07T07:23:18.5190229Z > Task :app:createDebugCompatibleScreenManifests
+2026-07-07T07:23:18.5331458Z > Task :app:extractDeepLinksDebug FROM-CACHE
+2026-07-07T07:23:18.6791665Z > Task :app:processDebugMainManifest FROM-CACHE
+2026-07-07T07:23:18.6792972Z > Task :app:processDebugManifest FROM-CACHE
+2026-07-07T07:23:18.6880261Z > Task :app:processDebugManifestForPackage FROM-CACHE
+2026-07-07T07:23:19.0489454Z > Task :app:processDebugResources FROM-CACHE
+2026-07-07T07:23:19.0494176Z > Task :app:javaPreCompileDebug FROM-CACHE
+2026-07-07T07:23:19.0495121Z > Task :app:preDebugUnitTestBuild
+2026-07-07T07:23:19.0499478Z > Task :app:javaPreCompileDebugUnitTest FROM-CACHE
+2026-07-07T07:23:19.1441247Z > Task :app:mergeDebugShaders
+2026-07-07T07:23:19.1446809Z > Task :app:compileDebugShaders NO-SOURCE
+2026-07-07T07:23:19.1447475Z > Task :app:generateDebugAssets UP-TO-DATE
+2026-07-07T07:23:19.4941477Z > Task :media3-ffmpeg-decoder-dsd:compileDebugJavaWithJavac FROM-CACHE
+2026-07-07T07:23:19.5403005Z > Task :media3-ffmpeg-decoder-dsd:mergeDebugShaders
+2026-07-07T07:23:19.5411295Z > Task :media3-ffmpeg-decoder-dsd:compileDebugShaders NO-SOURCE
+2026-07-07T07:23:19.5412197Z > Task :media3-ffmpeg-decoder-dsd:generateDebugAssets UP-TO-DATE
+2026-07-07T07:23:19.5412926Z > Task :media3-ffmpeg-decoder-dsd:packageDebugAssets
+2026-07-07T07:23:19.5414374Z > Task :media3-ffmpeg-decoder-dsd:processDebugJavaRes NO-SOURCE
+2026-07-07T07:23:19.5415162Z > Task :media3-ffmpeg-decoder-dsd:bundleLibRuntimeToJarDebug
+2026-07-07T07:23:19.5415868Z > Task :media3-ffmpeg-decoder-dsd:bundleLibCompileToJarDebug
+2026-07-07T07:23:19.6469782Z > Task :app:mergeDebugAssets
+2026-07-07T07:23:20.2567429Z > Task :app:kspDebugKotlin FROM-CACHE
+2026-07-07T07:23:21.0593728Z > Task :app:compileDebugKotlin FROM-CACHE
+2026-07-07T07:23:21.5855036Z > Task :app:compileDebugJavaWithJavac FROM-CACHE
+2026-07-07T07:23:21.9040057Z > Task :app:packageDebugUnitTestForUnitTest
+2026-07-07T07:23:21.9556329Z > Task :app:generateDebugUnitTestConfig
+2026-07-07T07:23:22.0467575Z > Task :app:bundleDebugClassesToRuntimeJar
+2026-07-07T07:23:22.0487534Z > Task :app:processDebugJavaRes
+2026-07-07T07:23:22.0495308Z > Task :app:bundleDebugClassesToCompileJar
+2026-07-07T07:23:29.0431974Z 
+2026-07-07T07:23:29.0438498Z > Task :app:kspDebugUnitTestKotlin
+2026-07-07T07:23:29.0439842Z w: Language version 1.9 is deprecated and its support will be removed in a future version of Kotlin
+2026-07-07T07:23:43.7370965Z 
+2026-07-07T07:23:43.7372178Z > Task :app:compileDebugUnitTestKotlin FAILED
+2026-07-07T07:23:43.7374091Z e: file:///D:/a/mica-music/mica-music/app/src/test/java/com/mica/music/ui/components/MiniPlayerScreenshotTest.kt:48:43 Argument type mismatch: actual type is 'Double', but 'Float' was expected.
+2026-07-07T07:23:43.7375239Z gradle/actions: Writing build results to D:\a\_temp\.gradle-actions\build-results\__run-1783408980962.json
+2026-07-07T07:23:43.8456935Z 
+2026-07-07T07:23:43.8494103Z FAILURE: Build failed with an exception.
+2026-07-07T07:23:43.8504592Z 
+2026-07-07T07:23:43.8515331Z * What went wrong:
+2026-07-07T07:23:43.8518512Z Execution failed for task ':app:compileDebugUnitTestKotlin'.
+2026-07-07T07:23:43.8614139Z > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+2026-07-07T07:23:43.8625376Z    > Compilation error. See log for more details
+2026-07-07T07:23:43.8657411Z 43 actionable tasks: 18 executed, 25 from cache
+2026-07-07T07:23:43.8658008Z 
+2026-07-07T07:23:43.8660214Z * Try:
+2026-07-07T07:23:43.8662397Z > Run with --stacktrace option to get the stack trace.
+2026-07-07T07:23:43.8664776Z > Run with --info or --debug option to get more log output.
+2026-07-07T07:23:43.8669578Z > Run with --scan to get full insights.
+2026-07-07T07:23:43.8672714Z > Get more help at https://help.gradle.org.
+2026-07-07T07:23:43.8681449Z 
+2026-07-07T07:23:43.8690164Z BUILD FAILED in 50s
+2026-07-07T07:23:44.4385104Z ##[error]Process completed with exit code 1.
+2026-07-07T07:23:44.4581387Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:23:44.4582840Z ##[group]Run actions/upload-artifact@v4
+2026-07-07T07:23:44.4583136Z with:
+2026-07-07T07:23:44.4583352Z   name: screenshot-differences
+2026-07-07T07:23:44.4583694Z   path: app/build/outputs/roborazzi/
+app/build/reports/
+
+2026-07-07T07:23:44.4584043Z   if-no-files-found: warn
+2026-07-07T07:23:44.4584298Z   compression-level: 6
+2026-07-07T07:23:44.4584542Z   overwrite: false
+2026-07-07T07:23:44.4584775Z   include-hidden-files: false
+2026-07-07T07:23:44.4585029Z env:
+2026-07-07T07:23:44.4585366Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.19-10\x64
+2026-07-07T07:23:44.4585995Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.19-10\x64
+2026-07-07T07:23:44.4586474Z   GRADLE_ACTION_ID: gradle/actions/setup-gradle
+2026-07-07T07:23:44.4597971Z   GRADLE_USER_HOME: D:\a\.gradle
+2026-07-07T07:23:44.4598540Z   GRADLE_BUILD_ACTION_SETUP_COMPLETED: true
+2026-07-07T07:23:44.4599001Z   GRADLE_BUILD_ACTION_CACHE_RESTORED: true
+2026-07-07T07:23:44.4599481Z   DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: gradle-actions.inject-develocity.init.gradle
+2026-07-07T07:23:44.4600130Z   DEVELOCITY_INJECTION_CUSTOM_VALUE: gradle-actions
+2026-07-07T07:23:44.4600480Z   GITHUB_DEPENDENCY_GRAPH_ENABLED: false
+2026-07-07T07:23:44.4600818Z ##[endgroup]
+2026-07-07T07:23:44.6596532Z (node:7924) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-07T07:23:44.6597295Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-07T07:23:44.6654201Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-07-07T07:23:44.6659625Z The least common ancestor is D:\a\mica-music\mica-music\app\build. This will be the root directory of the artifact
+2026-07-07T07:23:44.6670876Z ##[warning]No files were found with the provided path: app/build/outputs/roborazzi/
+app/build/reports/. No artifacts will be uploaded.
+2026-07-07T07:23:44.7032197Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:23:44.7033735Z Post job cleanup.
+2026-07-07T07:23:44.9818021Z In post-action step
+2026-07-07T07:23:44.9837139Z ##[group]Stopping Gradle daemons
+2026-07-07T07:23:44.9839256Z Stopping Gradle daemons for D:\a\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9
+2026-07-07T07:23:44.9883079Z [command]C:\Windows\system32\cmd.exe /D /S /C "D:\a\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9\bin\gradle.bat --stop"
+2026-07-07T07:23:46.0554964Z Stopping Daemon(s)
+2026-07-07T07:23:46.0556136Z 1 Daemon stopped
+2026-07-07T07:23:46.0863892Z ##[endgroup]
+2026-07-07T07:23:46.0864504Z Not performing cache-cleanup due to build failure
+2026-07-07T07:23:46.0865385Z ##[group]Caching Gradle state
+2026-07-07T07:23:50.5841737Z [command]"C:\Program Files\Git\usr\bin\tar.exe" --posix -cf cache.tzst --exclude cache.tzst -P -C D:/a/mica-music/mica-music --files-from manifest.txt --force-local --use-compress-program "zstd -T0"
+2026-07-07T07:23:52.0669225Z Sent 19129445 of 19129445 (100.0%), 30.3 MBs/sec
+2026-07-07T07:23:52.2526893Z Saved cache entry with key gradle-home-v1|Windows-X64|screenshots[fac4a4ef294ecd9be4e3dedc36848af2]-9a2e8fe8e0ebae58948e1b6f6a20475b25670e66 from D:\a\.gradle\caches,D:\a\.gradle\notifications,D:\a\.gradle\.setup-gradle in 1797ms
+2026-07-07T07:23:52.2528144Z ##[endgroup]
+2026-07-07T07:23:52.2534219Z Generating Job Summary
+2026-07-07T07:23:52.2553268Z Completed post-action step
+2026-07-07T07:23:52.2938150Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:23:52.2939501Z Post job cleanup.
+2026-07-07T07:23:52.4515493Z (node:2092) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-07-07T07:23:52.4516425Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-07-07T07:23:52.4880561Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-07-07T07:23:52.4883385Z Post job cleanup.
+2026-07-07T07:23:52.7057519Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-07-07T07:23:52.7333922Z git version 2.54.0.windows.1
+2026-07-07T07:23:52.7404393Z Temporarily overriding HOME='D:\a\_temp\063d6fb3-0448-4c0c-9410-990963c41af6' before making global git config changes
+2026-07-07T07:23:52.7406419Z Adding repository directory to the temporary git global config as a safe directory
+2026-07-07T07:23:52.7415911Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\mica-music\mica-music
+2026-07-07T07:23:52.7717516Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-07-07T07:23:52.8017660Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-07-07T07:23:53.3548475Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-07-07T07:23:53.3818143Z http.https://github.com/.extraheader
+2026-07-07T07:23:53.3868063Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2026-07-07T07:23:53.4171913Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-07-07T07:23:53.9720997Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-07-07T07:23:54.0031054Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-07-07T07:23:54.5883275Z Cleaning up orphan processes
+2026-07-07T07:23:54.6394687Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-java@v4, actions/upload-artifact@v4, gradle/actions/setup-gradle@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

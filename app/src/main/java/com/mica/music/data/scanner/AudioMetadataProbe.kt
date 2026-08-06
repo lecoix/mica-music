@@ -249,7 +249,12 @@ object AudioMetadataProbe {
             null
         }
         val tagLibResult = profiler.measureOptional("taglib") {
-            TagLibReader.read(appCtx, uri)
+            TagLibReader.read(
+                context = appCtx,
+                uri = uri,
+                displayName = draft.displayName,
+                mimeType = draft.mimeType,
+            )
         }
         if (tagLibResult != null) {
             val wavFallback = if (
@@ -512,6 +517,7 @@ object AudioMetadataProbe {
                 detectedContainer = detectedContainer,
                 mimeType = draft.mimeType,
                 displayName = draft.displayName,
+                prefetchedHead = tagLib.technicalHeadBytes,
             )
         }
         if (technicalResult is ProbeResult.Failed) {

@@ -33,14 +33,23 @@ internal object TagLibReader {
         val lyricsCandidates: List<EmbeddedLyricsTextCandidate>,
         val frontCoverBytes: ByteArray?,
         val replayGain: ReplayGainTags,
+        /** TagLib 同次 fd 预读的文件头，供 [AudioTechnicalProbe] 解析位深。 */
+        val technicalHeadBytes: ByteArray? = null,
     )
 
-    fun read(context: Context, uri: Uri): Result? = runCatching {
+    fun read(
+        context: Context,
+        uri: Uri,
+        displayName: String? = null,
+        mimeType: String = "",
+    ): Result? = runCatching {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
             val metadata = TagLib.getMetadata(pfd.dup().detachFd(), readPictures = true)
                 ?: return@use null
             val props = TagLib.getAudioProperties(pfd.dup().detachFd(), AudioPropertiesReadStyle.Average)
             if (props == null || props.sampleRate <= 0) return@use null
+            val technicalHeadBytes = technicalHeadByteLimit(displayName, mimeType)
+                ?.let { readHeadFromPfd(pfd, it) }
             val tags = metadata.propertyMap
             val rawDates = tags.valuesFor("DATE", "YEAR", "ORIGINALDATE", "ICRD")
             val releaseDate = rawDates.firstNotNullOfOrNull { raw ->
@@ -71,6 +80,7 @@ internal object TagLibReader {
                 lyricsCandidates = lyricsCandidates(tags),
                 frontCoverBytes = frontCover?.data?.takeIf { it.isNotEmpty() },
                 replayGain = ReplayGainTags.fromProperties(tags),
+                technicalHeadBytes = technicalHeadBytes,
             )
         }
     }.getOrNull()

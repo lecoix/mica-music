@@ -7,11 +7,12 @@ class LetterLyricsInkTimingTest {
     @Test
     fun `ink progress depends only on elapsed time from this glyph`() {
         val revealMs = 1_000
+        val syncTimeMs = revealMs
 
-        assertEquals(0f, letterInkSettleProgress(1_000, revealMs, true), 0.0001f)
-        assertEquals(0.5f, letterInkSettleProgress(1_230, revealMs, true), 0.0001f)
-        assertEquals(1f, letterInkSettleProgress(1_460, revealMs, true), 0.0001f)
-        assertEquals(1f, letterInkSettleProgress(2_000, revealMs, true), 0.0001f)
+        assertEquals(0f, letterInkSettleProgress(syncTimeMs, revealMs, true), 0.0001f)
+        assertEquals(0.5f, letterInkSettleProgress(syncTimeMs + 230, revealMs, true), 0.0001f)
+        assertEquals(1f, letterInkSettleProgress(syncTimeMs + 460, revealMs, true), 0.0001f)
+        assertEquals(1f, letterInkSettleProgress(syncTimeMs + 1_000, revealMs, true), 0.0001f)
     }
 
     @Test

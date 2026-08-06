@@ -35,7 +35,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -79,9 +78,6 @@ import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.LocalLyricReadingEnabled
 import coil.compose.AsyncImage
 import java.io.File
-import java.text.BreakIterator
-import java.util.Locale
-import kotlin.math.floor
 
 /**
  * PROTOTYPE — disposable portrait "letter paper" lyrics surface.
@@ -109,7 +105,7 @@ internal fun LetterLyricsPrototype(
     var overviewVisible by remember(renderState.document) { mutableStateOf(false) }
     var hintVisible by remember { mutableStateOf(false) }
     val shouldShowHint = remember { LetterPrototypeHintSession.claim() }
-    val framePositionMs = rememberLetterFramePosition(renderState.positionMs, isPlaying)
+    val framePositionMs = rememberLetterFramePositionMs(renderState.positionMs, isPlaying)
 
     BackHandler(enabled = overviewVisible) {
         overviewVisible = false
@@ -166,7 +162,7 @@ internal fun LetterLyricsPrototype(
                 pageCapacityColumnPitchPx = with(density) { 35.dp.toPx() },
             )
         }
-        val pages = remember(
+        val letterPagesBuild = remember(
             renderState.document,
             bilingualDisplayMode,
             metrics,
@@ -181,6 +177,8 @@ internal fun LetterLyricsPrototype(
                 fontSize = with(density) { metrics.translationFontPx.toSp() },
                 fontWeight = FontWeight.Normal,
             )
+            val mainInkStyle = mainLetterStyle.copy(color = LETTER_INK)
+            val translationInkStyle = translationLetterStyle.copy(color = LETTER_INK)
             buildLetterPages(
                 lines = renderState.document.lines,
                 bilingualDisplayMode = bilingualDisplayMode,
@@ -197,25 +195,37 @@ internal fun LetterLyricsPrototype(
                         softWrap = false,
                     ).size.width.toFloat()
                 },
+                measureGraphemeLayout = { text, isTranslation ->
+                    textMeasurer.measure(
+                        text = text,
+                        style = if (isTranslation) translationInkStyle else mainInkStyle,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                },
                 readingEnabled = readingEnabled,
             )
         }
+        val pages = letterPagesBuild.pages
+        val primaryRevealSchedules = letterPagesBuild.primaryRevealSchedules
         val activeLineIndex = letterActiveLineIndex(renderState)
         val activeLine = renderState.document.lines.getOrNull(activeLineIndex)
-        val activeLineReveal = activeLine?.let { line ->
-            letterRevealForLine(
-                line = line,
-                positionMs = framePositionMs,
-                fallbackEndMs = renderState.document.lines
-                    .getOrNull(activeLineIndex + 1)
-                    ?.startMs,
+        val activeLineFallbackEndMs = renderState.document.lines
+            .getOrNull(activeLineIndex + 1)
+            ?.startMs
+        val activeLineRevealProgress = activeLine?.let { line ->
+            letterLineRevealProgress(
+                primarySchedule = primaryRevealSchedules[activeLineIndex],
+                framePositionMs = framePositionMs,
+                lineStartMs = line.startMs,
+                lineEndMs = line.endMs ?: activeLineFallbackEndMs ?: (line.startMs + 4_000),
             )
-        } ?: LetterReveal.EMPTY
-        val currentPageIndex = remember(pages, activeLineIndex, activeLineReveal) {
+        } ?: 0f
+        val currentPageIndex = remember(pages, activeLineIndex, activeLineRevealProgress) {
             letterPageIndex(
                 pages = pages,
                 activeLineIndex = activeLineIndex,
-                activeLineProgress = activeLineReveal.progress,
+                activeLineProgress = activeLineRevealProgress,
             )
         }
         val visiblePageCount = (currentPageIndex + 1).coerceIn(1, pages.size.coerceAtLeast(1))
@@ -612,20 +622,10 @@ private fun LetterPaperCanvas(
             scale(canvasScale, canvasScale, pivot = Offset.Zero) {
                 page.columns.forEach { column ->
                     if (column.lineIndex > activeLineIndex) return@forEach
-                    val reveal = when {
-                        column.lineIndex < activeLineIndex -> LetterReveal.COMPLETE
-                        else -> letterRevealForLine(
-                            line = column.line,
-                            positionMs = framePositionMs,
-                            fallbackEndMs = column.fallbackEndMs,
-                        )
-                    }
                     drawLetterColumn(
                         column = column,
-                        reveal = reveal,
+                        activeLineIndex = activeLineIndex,
                         metrics = metrics,
-                        textMeasurer = textMeasurer,
-                        lyricStyle = lyricStyle,
                         framePositionMs = framePositionMs,
                         inkMotionEnabled = inkMotionEnabled,
                     )
@@ -637,90 +637,71 @@ private fun LetterPaperCanvas(
 
 private fun DrawScope.drawLetterColumn(
     column: LetterColumn,
-    reveal: LetterReveal,
+    activeLineIndex: Int,
     metrics: LetterPageMetrics,
-    textMeasurer: TextMeasurer,
-    lyricStyle: TextStyle,
     framePositionMs: Int,
     inkMotionEnabled: Boolean,
 ) {
     val x = metrics.widthPx - metrics.horizontalPaddingPx -
         (column.rightOffsetUnits + column.widthUnits / 2f) * metrics.columnPitchPx
-    val fontPx = if (column.isTranslation) metrics.translationFontPx else metrics.mainFontPx
     val characterStep = if (column.isTranslation) {
         metrics.translationCharacterStepPx
     } else {
         metrics.mainCharacterStepPx
     }
-    val style = lyricStyle.copy(
-        fontSize = with(this) { fontPx.toSp() },
-        fontWeight = FontWeight.Normal,
-    )
     val inkAlpha = if (column.isTranslation) 0.64f else 0.92f
-    val localScaledProgress = (
-        reveal.progress * column.revealTotalCount - column.revealStartIndex
-        ).coerceIn(0f, column.graphemes.size.toFloat())
-    val visibleCount = floor(localScaledProgress + 0.9999f).toInt()
-        .coerceAtMost(column.graphemes.size)
+    val syncTimeMs = letterSyncTimeMs(framePositionMs)
+    val visibleCount = letterColumnVisibleCount(
+        columnGraphemeCount = column.graphemes.size,
+        graphemeRevealMs = column.graphemeRevealMs,
+        lineIndex = column.lineIndex,
+        activeLineIndex = activeLineIndex,
+        framePositionMs = framePositionMs,
+    )
 
     if (column.rotateLatinPhrase) {
-        val visibleGraphemes = column.graphemes.take(visibleCount)
-        if (visibleGraphemes.isEmpty()) return
-        val progressByGlyph = visibleGraphemes.indices.map { index ->
+        if (visibleCount == 0) return
+        val visibleLayouts = column.graphemeLayouts.take(visibleCount)
+        val progressByGlyph = visibleLayouts.indices.map { index ->
             letterInkSettleProgress(
-                framePositionMs = framePositionMs,
-                glyphRevealMs = letterGlyphRevealMs(column = column, glyphIndex = index),
+                syncTimeMs = syncTimeMs,
+                glyphRevealMs = column.graphemeRevealMs[index],
                 motionEnabled = inkMotionEnabled,
             )
         }
-        val firstMaskedIndex = progressByGlyph.indexOfFirst { it < 0.999f }
-            .takeIf { it >= 0 } ?: visibleGraphemes.size
-        val stableText = visibleGraphemes.take(firstMaskedIndex).joinToString("")
-        val visibleLayout = textMeasurer.measure(
-            text = visibleGraphemes.joinToString(""),
-            style = style.copy(color = LETTER_INK),
-            maxLines = 1,
-            softWrap = false,
-        )
-        val stableLayout = textMeasurer.measure(
-            text = stableText,
-            style = style.copy(color = LETTER_INK),
-            maxLines = 1,
-            softWrap = false,
-        )
+        val firstMaskedIndex = when {
+            !inkMotionEnabled -> visibleCount
+            else -> progressByGlyph.indexOfFirst { it < 1f }.takeIf { it >= 0 } ?: visibleCount
+        }
         rotate(degrees = 90f, pivot = Offset(x, metrics.verticalPaddingPx)) {
+            val totalWidthPx = visibleLayouts.sumOf { it.size.width }
             val topLeft = letterRotatedLatinTopLeft(
                 columnCenterX = x,
                 verticalTopPx = metrics.verticalPaddingPx,
-                layoutHeightPx = visibleLayout.size.height,
+                layoutHeightPx = totalWidthPx,
             )
-            if (stableText.isNotEmpty()) {
-                drawText(
-                    textLayoutResult = stableLayout,
-                    topLeft = topLeft,
-                    alpha = inkAlpha,
-                )
-            }
-            var glyphLeft = topLeft.x + stableLayout.size.width
-            val maskedGlyphs = ArrayList<LetterInkGlyphDraw>(
-                visibleGraphemes.size - firstMaskedIndex,
-            )
-            for (index in firstMaskedIndex until visibleGraphemes.size) {
-                val grapheme = visibleGraphemes[index]
-                val layout = textMeasurer.measure(
-                    text = grapheme,
-                    style = style.copy(color = LETTER_INK),
-                    maxLines = 1,
-                    softWrap = false,
-                )
-                maskedGlyphs += LetterInkGlyphDraw(
-                    layout = layout,
-                    topLeft = Offset(glyphLeft, topLeft.y),
-                    targetAlpha = inkAlpha,
-                    progress = progressByGlyph[index],
-                    maskSeed = grapheme.hashCode() xor
-                        (column.lineIndex * 31 + column.revealStartIndex + index),
-                )
+            var glyphLeft = topLeft.x
+            val maskedGlyphs = ArrayList<LetterInkGlyphDraw>(visibleCount - firstMaskedIndex)
+            for (index in 0 until visibleCount) {
+                val layout = visibleLayouts[index]
+                val glyphTopLeft = Offset(glyphLeft, topLeft.y)
+                val progress = progressByGlyph[index]
+                if (index < firstMaskedIndex) {
+                    drawText(
+                        textLayoutResult = layout,
+                        topLeft = glyphTopLeft,
+                        alpha = inkAlpha,
+                    )
+                } else {
+                    maskedGlyphs += LetterInkGlyphDraw(
+                        layout = layout,
+                        topLeft = glyphTopLeft,
+                        targetAlpha = inkAlpha,
+                        progress = progress,
+                        maskSeed = column.graphemes[index].hashCode() xor
+                            (column.lineIndex * 31 + column.revealStartIndex + index),
+                    )
+                }
                 glyphLeft += layout.size.width
             }
             drawLetterInkGlyphs(maskedGlyphs)
@@ -730,25 +711,20 @@ private fun DrawScope.drawLetterColumn(
 
     val maskedGlyphs = ArrayList<LetterInkGlyphDraw>()
     column.graphemes.forEachIndexed { index, grapheme ->
-        val glyphRevealMs = letterGlyphRevealMs(column = column, glyphIndex = index)
-        if (framePositionMs < glyphRevealMs) return@forEachIndexed
+        if (index >= visibleCount) return@forEachIndexed
+        val glyphRevealMs = column.graphemeRevealMs[index]
         val topLeft = Offset(
             x = x,
             y = metrics.verticalPaddingPx + index * characterStep,
         )
-        val layout = textMeasurer.measure(
-            text = grapheme,
-            style = style.copy(color = LETTER_INK),
-            maxLines = 1,
-            softWrap = false,
-        )
+        val layout = column.graphemeLayouts[index]
         val centeredTopLeft = topLeft.copy(x = x - layout.size.width / 2f)
         val inkProgress = letterInkSettleProgress(
-            framePositionMs = framePositionMs,
+            syncTimeMs = syncTimeMs,
             glyphRevealMs = glyphRevealMs,
             motionEnabled = inkMotionEnabled,
         )
-        if (inkProgress >= 0.999f) {
+        if (!inkMotionEnabled || inkProgress >= 1f) {
             drawText(
                 textLayoutResult = layout,
                 topLeft = centeredTopLeft,
@@ -777,23 +753,13 @@ internal fun letterRotatedLatinTopLeft(
     y = verticalTopPx - layoutHeightPx / 2f,
 )
 
-private fun letterGlyphRevealMs(column: LetterColumn, glyphIndex: Int): Int {
-    val lineStartMs = column.line.startMs
-    val lineEndMs = column.line.endMs ?: column.fallbackEndMs ?: (lineStartMs + 4_000)
-    val lineDurationMs = (lineEndMs - lineStartMs).coerceAtLeast(1)
-    val glyphGlobalIndex = column.revealStartIndex + glyphIndex
-    return lineStartMs +
-        (lineDurationMs.toLong() * glyphGlobalIndex /
-            column.revealTotalCount.coerceAtLeast(1)).toInt()
-}
-
 internal fun letterInkSettleProgress(
-    framePositionMs: Int,
+    syncTimeMs: Int,
     glyphRevealMs: Int,
     motionEnabled: Boolean,
 ): Float {
     if (!motionEnabled) return 1f
-    return ((framePositionMs - glyphRevealMs) / LETTER_INK_SETTLE_MS.toFloat())
+    return ((syncTimeMs - glyphRevealMs) / LETTER_INK_SETTLE_MS.toFloat())
         .coerceIn(0f, 1f)
 }
 
@@ -924,14 +890,22 @@ private data class LetterInkGlyphDraw(
     )
 }
 
+private data class LetterPagesBuild(
+    val pages: List<LetterPage>,
+    val primaryRevealSchedules: Map<Int, IntArray>,
+)
+
 private fun buildLetterPages(
     lines: List<LyricLineNode>,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     metrics: LetterPageMetrics,
     measureLatinTextWidthPx: (text: String, isTranslation: Boolean) -> Float,
+    measureGraphemeLayout: (text: String, isTranslation: Boolean) -> TextLayoutResult,
     readingEnabled: Boolean = true,
-): List<LetterPage> {
-    if (lines.isEmpty()) return listOf(LetterPage.EMPTY)
+): LetterPagesBuild {
+    if (lines.isEmpty()) {
+        return LetterPagesBuild(pages = listOf(LetterPage.EMPTY), primaryRevealSchedules = emptyMap())
+    }
     val capacityUnits = (
         (metrics.widthPx - metrics.horizontalPaddingPx * 2f) /
             metrics.pageCapacityColumnPitchPx
@@ -947,6 +921,7 @@ private fun buildLetterPages(
         metrics.heightPx - metrics.verticalPaddingPx * 2f
         ).coerceAtLeast(1f)
     val pages = mutableListOf<MutableList<LetterColumn>>()
+    val primaryRevealSchedules = mutableMapOf<Int, IntArray>()
     var currentColumns = mutableListOf<LetterColumn>()
     var usedUnits = 0f
 
@@ -1000,9 +975,25 @@ private fun buildLetterPages(
             maxLatinWidthPx = latinColumnWidthPx,
             measureLatinTextWidthPx = { measureLatinTextWidthPx(it, true) },
         )
-        val primaryTotal = primaryText.graphemes().size.coerceAtLeast(1)
-        val readingTotal = readingText.graphemes().size.coerceAtLeast(1)
-        val secondaryTotal = secondaryText.graphemes().size.coerceAtLeast(1)
+        val primaryTotal = primaryText.letterGraphemes().size.coerceAtLeast(1)
+        val readingTotal = readingText.letterGraphemes().size.coerceAtLeast(1)
+        val secondaryTotal = secondaryText.letterGraphemes().size.coerceAtLeast(1)
+        val lineFallbackEndMs = lines.getOrNull(lineIndex + 1)?.startMs
+        val lineEndMs = line.endMs ?: lineFallbackEndMs ?: (line.startMs + 4_000)
+        val primaryWordSchedule = if (
+            bilingualDisplayMode != LyricsBilingualDisplayMode.TRANSLATION &&
+            originals.isNotEmpty()
+        ) {
+            buildLetterGraphemeRevealMs(
+                line = line,
+                displayText = originals,
+                tokens = letterOriginalWordTokens(line),
+                fallbackEndMs = lineFallbackEndMs,
+            )
+        } else {
+            null
+        }
+        primaryWordSchedule?.let { primaryRevealSchedules[lineIndex] = it }
         var readingStart = 0
         var primaryStart = 0
         var secondaryStart = 0
@@ -1012,36 +1003,39 @@ private fun buildLetterPages(
                     LetterColumnSpec(
                         text = segment,
                         isTranslation = true,
+                        usePrimaryWordSchedule = false,
                         widthUnits = TRANSLATION_COLUMN_UNITS,
                         revealStartIndex = readingStart,
                         revealTotalCount = readingTotal,
                     ),
                 )
-                readingStart += segment.graphemes().size
+                readingStart += segment.letterGraphemes().size
             }
             primarySegments.forEach { segment ->
                 add(
                     LetterColumnSpec(
                         text = segment,
                         isTranslation = false,
+                        usePrimaryWordSchedule = primaryWordSchedule != null,
                         widthUnits = MAIN_COLUMN_UNITS,
                         revealStartIndex = primaryStart,
                         revealTotalCount = primaryTotal,
                     ),
                 )
-                primaryStart += segment.graphemes().size
+                primaryStart += segment.letterGraphemes().size
             }
             secondarySegments.forEach { segment ->
                 add(
                     LetterColumnSpec(
                         text = segment,
                         isTranslation = true,
+                        usePrimaryWordSchedule = false,
                         widthUnits = TRANSLATION_COLUMN_UNITS,
                         revealStartIndex = secondaryStart,
                         revealTotalCount = secondaryTotal,
                     ),
                 )
-                secondaryStart += segment.graphemes().size
+                secondaryStart += segment.letterGraphemes().size
             }
         }
         val groupUnits = columnSpecs.sumOf { it.widthUnits.toDouble() }.toFloat() +
@@ -1057,17 +1051,32 @@ private fun buildLetterPages(
 
         fun appendColumn(spec: LetterColumnSpec) {
             val text = spec.text
-            val graphemes = text.graphemes()
+            val graphemes = text.letterGraphemes()
+            val graphemeRevealMs = if (spec.usePrimaryWordSchedule && primaryWordSchedule != null) {
+                val sliceStart = spec.revealStartIndex
+                val sliceEnd = (sliceStart + graphemes.size).coerceAtMost(primaryWordSchedule.size)
+                primaryWordSchedule.copyOfRange(sliceStart, sliceEnd)
+            } else {
+                buildUniformLetterGraphemeRevealMs(
+                    lineStartMs = line.startMs,
+                    lineEndMs = lineEndMs,
+                    graphemeCount = graphemes.size,
+                    revealStartIndex = spec.revealStartIndex,
+                    revealTotalCount = spec.revealTotalCount,
+                )
+            }
             currentColumns += LetterColumn(
                 lineIndex = lineIndex,
                 line = line,
                 text = text,
                 graphemes = graphemes,
+                graphemeLayouts = graphemes.map { measureGraphemeLayout(it, spec.isTranslation) },
+                graphemeRevealMs = graphemeRevealMs,
                 isTranslation = spec.isTranslation,
                 rotateLatinPhrase = text.isRotatedLatinPhrase(),
                 rightOffsetUnits = usedUnits,
                 widthUnits = spec.widthUnits,
-                fallbackEndMs = lines.getOrNull(lineIndex + 1)?.startMs,
+                fallbackEndMs = lineFallbackEndMs,
                 revealStartIndex = spec.revealStartIndex,
                 revealTotalCount = spec.revealTotalCount,
             )
@@ -1103,13 +1112,17 @@ private fun buildLetterPages(
         if (usedUnits >= capacityUnits - 0.25f) finishPage()
     }
     finishPage()
-    return pages.map { columns ->
+    val builtPages = pages.map { columns ->
         LetterPage(
             columns = columns,
             firstLineIndex = columns.minOf { it.lineIndex },
             lastLineIndex = columns.maxOf { it.lineIndex },
         )
     }.ifEmpty { listOf(LetterPage.EMPTY) }
+    return LetterPagesBuild(
+        pages = builtPages,
+        primaryRevealSchedules = primaryRevealSchedules,
+    )
 }
 
 private fun splitIntoVerticalSegments(
@@ -1126,7 +1139,7 @@ private fun splitIntoVerticalSegments(
             measureTextWidthPx = measureLatinTextWidthPx,
         )
     }
-    val graphemes = text.graphemes()
+    val graphemes = text.letterGraphemes()
     return graphemes.chunked(maxCharacters).map { it.joinToString("") }
 }
 
@@ -1136,7 +1149,7 @@ internal fun splitLatinPhraseIntoSegments(
     measureTextWidthPx: (String) -> Float,
 ): List<String> {
     if (text.isBlank()) return emptyList()
-    val graphemes = text.graphemes()
+    val graphemes = text.letterGraphemes()
     val segments = ArrayList<String>()
     var segmentStart = 0
 
@@ -1198,19 +1211,6 @@ private fun letterActiveLineIndex(renderState: LyricsRenderState): Int = when (
     LyricsTimelinePhase.AfterLastLine -> renderState.document.lines.lastIndex
 }
 
-private fun letterRevealForLine(
-    line: LyricLineNode,
-    positionMs: Int,
-    fallbackEndMs: Int?,
-): LetterReveal {
-    val endMs = line.endMs ?: fallbackEndMs ?: (line.startMs + 4_000)
-    if (positionMs <= line.startMs) return LetterReveal.EMPTY
-    if (positionMs >= endMs || endMs <= line.startMs) return LetterReveal.COMPLETE
-    val progress = ((positionMs - line.startMs).toFloat() / (endMs - line.startMs))
-        .coerceIn(0f, 1f)
-    return LetterReveal(progress)
-}
-
 private fun letterPageIndex(
     pages: List<LetterPage>,
     activeLineIndex: Int,
@@ -1229,37 +1229,6 @@ private fun letterPageIndex(
         if (activeLineProgress + 0.0001f >= startProgress) selected = pageIndex
     }
     return selected.coerceIn(0, pages.lastIndex)
-}
-
-@Composable
-private fun rememberLetterFramePosition(anchorPositionMs: Int, isPlaying: Boolean): Int {
-    var framePositionMs by remember { mutableIntStateOf(anchorPositionMs) }
-    LaunchedEffect(anchorPositionMs, isPlaying) {
-        framePositionMs = anchorPositionMs
-        if (!isPlaying) return@LaunchedEffect
-        val startNanos = withFrameNanos { it }
-        while (true) {
-            val frameNanos = withFrameNanos { it }
-            framePositionMs = anchorPositionMs +
-                ((frameNanos - startNanos) / 1_000_000L).toInt()
-        }
-    }
-    return framePositionMs
-}
-
-private fun String.graphemes(): List<String> {
-    if (isEmpty()) return emptyList()
-    val iterator = BreakIterator.getCharacterInstance(Locale.ROOT)
-    iterator.setText(this)
-    val result = ArrayList<String>(length)
-    var start = iterator.first()
-    var end = iterator.next()
-    while (end != BreakIterator.DONE) {
-        result += substring(start, end)
-        start = end
-        end = iterator.next()
-    }
-    return result
 }
 
 private fun String.isRotatedLatinPhrase(): Boolean {
@@ -1294,6 +1263,8 @@ private data class LetterColumn(
     val line: LyricLineNode,
     val text: String,
     val graphemes: List<String>,
+    val graphemeLayouts: List<TextLayoutResult>,
+    val graphemeRevealMs: IntArray,
     val isTranslation: Boolean,
     val rotateLatinPhrase: Boolean,
     val rightOffsetUnits: Float,
@@ -1306,6 +1277,7 @@ private data class LetterColumn(
 private data class LetterColumnSpec(
     val text: String,
     val isTranslation: Boolean,
+    val usePrimaryWordSchedule: Boolean,
     val widthUnits: Float,
     val revealStartIndex: Int,
     val revealTotalCount: Int,
@@ -1318,13 +1290,6 @@ private data class LetterPage(
 ) {
     companion object {
         val EMPTY = LetterPage(emptyList(), 0, 0)
-    }
-}
-
-private data class LetterReveal(val progress: Float) {
-    companion object {
-        val EMPTY = LetterReveal(0f)
-        val COMPLETE = LetterReveal(1f)
     }
 }
 

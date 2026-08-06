@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsSession
+import com.mica.music.data.LyricsSync
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricToken
@@ -671,15 +672,8 @@ private fun externalLyricsWordCues(
     tokens: List<LyricToken>,
     enabled: Boolean,
 ): List<com.mica.music.data.LyricCue> {
-    if (!enabled || !isWordTimedTokens(tokens)) return emptyList()
+    if (!enabled || !LyricsSync.isWordTimedTokens(tokens)) return emptyList()
     return tokens
         .filter { it.text.isNotBlank() }
         .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text) }
-}
-
-internal fun isWordTimedTokens(tokens: List<LyricToken>): Boolean {
-    val meaningfulTokens = tokens.filter { it.text.isNotBlank() }
-    return meaningfulTokens.size >= 2 &&
-        meaningfulTokens.map { it.startMs }.distinct().size >= 2 &&
-        meaningfulTokens.zipWithNext().all { (left, right) -> right.startMs >= left.startMs }
 }

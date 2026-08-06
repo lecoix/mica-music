@@ -3,6 +3,14 @@ package com.mica.music.data
 /** 歌词与播放进度对齐（播放页三行与全屏歌词页共用）。 */
 object LyricsSync {
 
+    /** True when [tokens] carry at least two distinct word-level timestamps. */
+    fun isWordTimedTokens(tokens: List<LyricToken>): Boolean {
+        val meaningfulTokens = tokens.filter { it.text.isNotBlank() }
+        return meaningfulTokens.size >= 2 &&
+            meaningfulTokens.map { it.startMs }.distinct().size >= 2 &&
+            meaningfulTokens.zipWithNext().all { (left, right) -> right.startMs >= left.startMs }
+    }
+
     /** 略提前切换当前行，抵消听感上的滞后。 */
     const val LEAD_MS = 150
 
