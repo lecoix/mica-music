@@ -30,7 +30,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlin.math.abs
 
 data class PlaybackSurfaceState(
     val currentSong: Song? = null,
@@ -117,7 +116,6 @@ class PlayerController internal constructor(
 
         const val QUEUE_MIRROR_DEBOUNCE_MS = 100L
 
-        private const val PLAYBACK_TUNING_EPSILON = 0.001f
     }
 
     private val appCtx = context.applicationContext
@@ -130,6 +128,7 @@ class PlayerController internal constructor(
         mirrorDebounceMs = QUEUE_MIRROR_DEBOUNCE_MS,
     )
     private val timelineCoordinator = PlaybackTimelineCoordinator(monotonicNowMs)
+    private val tuningCoordinator = PlaybackTuningCoordinator()
     private val playbackOrderState: PlaybackOrderState
         get() = queueCoordinator.order
 
@@ -346,7 +345,8 @@ class PlayerController internal constructor(
 
     private var playbackQueueMode by mutableStateOf(PlaybackQueueMode.OFF)
 
-    private var playbackTuning by mutableStateOf(PlaybackTuning())
+    private val playbackTuning: PlaybackTuning
+        get() = tuningCoordinator.requested
 
     private val currentSong: Song?
         get() = songQueue.getOrNull(currentIndex.coerceIn(0, (songQueue.size - 1).coerceAtLeast(0)))
@@ -429,9 +429,6 @@ class PlayerController internal constructor(
     private val pendingMediaSelection = PendingMediaSelection()
     private var pendingQueue: List<Song>? = null
     private var pendingSingleSongId: String? = null
-    private var pendingPlaybackTuning: PlaybackTuning? = null
-    private var effectivePlaybackTuning = PlaybackTuning()
-    private var pendingEffectivePlaybackTuning: PlaybackTuning? = null
     private val playbackStatistics = PlaybackStatisticsTracker(
         monotonicNowMs = monotonicNowMs,
         onListenSecondsAdded = { songId, seconds ->
@@ -681,18 +678,10 @@ class PlayerController internal constructor(
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
                 if (!isCurrentConnection()) return
                 val reported = PlaybackTuning.fromPlaybackParameters(playbackParameters)
-                effectivePlaybackTuning = reported
-                val pendingEffective = pendingEffectivePlaybackTuning
-                if (pendingEffective != null && playbackTuningsEqual(reported, pendingEffective)) {
-                    pendingEffectivePlaybackTuning = null
-                    pendingPlaybackTuning = null
-                    publishSurfaceState()
-                    return
-                }
-                if (playbackTuningAvailableFor(currentSong)) {
-                    playbackTuning = reported
-                    pendingPlaybackTuning = null
-                }
+                tuningCoordinator.onPlaybackParametersChanged(
+                    reported = reported,
+                    tuningAvailable = playbackTuningAvailableFor(currentSong),
+                )
                 publishSurfaceState()
             }
         }
@@ -709,16 +698,12 @@ class PlayerController internal constructor(
         }
         syncPlaybackQueueModeFromPlayer(c)
         syncIndexFromPlayer(c)
-        val pendingRequestedTuning = pendingPlaybackTuning
         val playerTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
-        playbackTuning = pendingRequestedTuning ?: playerTuning
-        val effectiveTuning = effectivePlaybackTuningFor(playbackTuning)
-        if (pendingRequestedTuning != null || !playbackTuningsEqual(effectiveTuning, playerTuning)) {
-            syncEffectivePlaybackTuning(reason = "connect", force = true)
-        } else {
-            effectivePlaybackTuning = effectiveTuning
-            pendingPlaybackTuning = null
-            pendingEffectivePlaybackTuning = null
+        tuningCoordinator.onConnected(
+            reported = playerTuning,
+            tuningAvailable = playbackTuningAvailableFor(currentSong),
+        )?.let { target ->
+            c.setPlaybackParameters(target.toPlaybackParameters())
         }
 
         playbackStatistics.reset(c.currentMediaItem?.mediaId)
@@ -1140,24 +1125,23 @@ class PlayerController internal constructor(
     }
 
     private fun applyPlaybackTuning(tuning: PlaybackTuning) {
-        playbackTuning = tuning
-        pendingPlaybackTuning = tuning
+        tuningCoordinator.request(tuning)
         syncEffectivePlaybackTuning(reason = "user-request", force = true)
         publishSurfaceState()
     }
 
     private fun syncEffectivePlaybackTuning(reason: String, force: Boolean = false) {
-        val effective = effectivePlaybackTuningFor(playbackTuning)
-        val changed = !playbackTuningsEqual(effective, effectivePlaybackTuning)
-        effectivePlaybackTuning = effective
-        if (!force && !changed) return
+        val effective = tuningCoordinator.targetForSync(
+            tuningAvailable = playbackTuningAvailableFor(currentSong),
+            force = force,
+        ) ?: return
         val c = controller ?: run {
             connectIfNeeded()
             return
         }
-        pendingEffectivePlaybackTuning = effective
+        tuningCoordinator.markApplyIssued(effective)
         c.setPlaybackParameters(effective.toPlaybackParameters())
-        if (!playbackTuningsEqual(effective, playbackTuning)) {
+        if (!tuningCoordinator.matchesRequested(effective)) {
             DiagnosticLog.event(
                 "PlaybackTuning",
                 "effective-default reason=$reason requestedSpeed=${playbackTuning.speed} " +
@@ -1166,15 +1150,8 @@ class PlayerController internal constructor(
         }
     }
 
-    private fun effectivePlaybackTuningFor(requested: PlaybackTuning): PlaybackTuning =
-        if (playbackTuningAvailableFor(currentSong)) requested else PlaybackTuning()
-
     private fun playbackTuningAvailableFor(song: Song?): Boolean =
         song?.let { !DsdSupport.isDsdSong(it) } ?: true
-
-    private fun playbackTuningsEqual(left: PlaybackTuning, right: PlaybackTuning): Boolean =
-        abs(left.speed - right.speed) < PLAYBACK_TUNING_EPSILON &&
-            abs(left.pitchSemitones - right.pitchSemitones) < PLAYBACK_TUNING_EPSILON
 
     fun togglePlay() {
         if (songQueue.isEmpty()) return
