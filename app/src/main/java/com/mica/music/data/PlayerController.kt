@@ -130,19 +130,21 @@ class PlayerController internal constructor(
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var deferredPlaybackPublish: Runnable? = null
-    private val queueMirrorCoordinator = PlaybackQueueMirrorCoordinator(
+    private val queueCoordinator = PlaybackQueueCoordinator(
         scope = scope,
         workerDispatcher = queueMirrorDispatcher,
-        debounceMs = QUEUE_MIRROR_DEBOUNCE_MS,
+        mirrorDebounceMs = QUEUE_MIRROR_DEBOUNCE_MS,
     )
-    private var playbackOrderState = PlaybackOrderState()
+    private val playbackOrderState: PlaybackOrderState
+        get() = queueCoordinator.order
 
     /** 开始播放某曲时回调（用于统计播放次数）。 */
     var onSongPlayStarted: ((songId: String) -> Unit)? = null
 
     var onSongListenSecondsAdded: ((songId: String, seconds: Long) -> Unit)? = null
 
-    private var currentIndex by mutableIntStateOf(0)
+    private val currentIndex: Int
+        get() = queueCoordinator.currentIndex
 
     /** 供播放页切歌擦除动画消费；在 [next]/[previous]/自动下一曲 时设置。 */
     private var trackSkipDirection by mutableStateOf<TrackSkipDirection?>(null)
@@ -254,20 +256,13 @@ class PlayerController internal constructor(
     }
 
     private fun commitSongQueue(queue: List<Song>) {
-        songQueue = queue
+        queueCoordinator.replaceQueue(queue)
     }
 
-    private fun queueModel(): PlaybackQueueModel =
-        PlaybackQueueModel(
-            queue = songQueue,
-            currentIndex = currentIndex,
-            order = playbackOrderState,
-        )
+    private fun queueModel(): PlaybackQueueModel = queueCoordinator.snapshot()
 
     private fun installQueueModel(model: PlaybackQueueModel) {
-        playbackOrderState = model.order
-        commitSongQueue(model.queue)
-        currentIndex = model.currentIndex
+        queueCoordinator.commit(model)
     }
 
     private fun reconcilePendingSeekAfterProgress(reportedMs: Int) {
@@ -330,13 +325,15 @@ class PlayerController internal constructor(
             sessionStorage.clear()
             return
         }
-        playbackOrderState = playbackOrderState
-            .withQueue(songQueue.map { it.id }, preserveId = session.songId)
-            .setShuffleEnabled(session.shuffleEnabled)
+        queueCoordinator.replaceOrder(
+            playbackOrderState
+                .withQueue(songQueue.map { it.id }, preserveId = session.songId)
+                .setShuffleEnabled(session.shuffleEnabled),
+        )
         if (session.shuffleEnabled) {
             applyPlaybackOrderState(playbackOrderState, songQueue)
         } else {
-            currentIndex = index
+            queueCoordinator.replaceCurrentIndex(index)
         }
         publishPlaybackStates()
         val pos = session.positionMs.coerceAtLeast(0)
@@ -376,7 +373,8 @@ class PlayerController internal constructor(
     var userMessage by mutableStateOf<UserMessage?>(null)
         private set
 
-    private var songQueue by mutableStateOf<List<Song>>(emptyList())
+    private val songQueue: List<Song>
+        get() = queueCoordinator.queue
 
     private var playbackQueueMode by mutableStateOf(PlaybackQueueMode.OFF)
 
@@ -393,7 +391,6 @@ class PlayerController internal constructor(
 
     var playbackQueueState by mutableStateOf(PlaybackQueueState())
         private set
-    private var playbackQueueRevision = 0L
 
     private fun publishPlaybackStates() {
         publishSurfaceState()
@@ -427,7 +424,6 @@ class PlayerController internal constructor(
             currentIndex = currentIndex,
         )
         if (nextState != playbackQueueState) {
-            playbackQueueRevision += 1
             playbackQueueState = nextState
         }
     }
@@ -525,8 +521,8 @@ class PlayerController internal constructor(
                     scheduleQueueMirrorFromPlayer(c)
                     return
                 }
-                val signature = queueMirrorCoordinator.orderSignature(c)
-                if (!queueMirrorCoordinator.hasSignature(signature)) {
+                val signature = queueCoordinator.orderSignature(c)
+                if (!queueCoordinator.hasSignature(signature)) {
                     scheduleQueueMirrorFromPlayer(c)
                 } else {
                     syncQueueIndexFromPlayer(c)
@@ -769,7 +765,7 @@ class PlayerController internal constructor(
 
     private fun onControllerDisconnected(disconnectedController: MediaController?) {
         playbackStatistics.observePlayback(disconnectedController?.currentMediaItem?.mediaId, false)
-        queueMirrorCoordinator.clear()
+        queueCoordinator.clearMirror()
         pendingMediaSelection.clear()
         playbackStatistics.reset(null)
         PendingPlaybackNavigation.clear()
@@ -804,7 +800,7 @@ class PlayerController internal constructor(
 
     private fun syncIndexFromPlayer(c: MediaController): Boolean {
         if (songQueue.isEmpty()) {
-            currentIndex = 0
+            queueCoordinator.replaceCurrentIndex(0)
             publishPlaybackStates()
             return true
         }
@@ -814,13 +810,14 @@ class PlayerController internal constructor(
             songQueue.indexOfFirst { it.id == id }.takeIf { it >= 0 }
         }
         val idx = c.currentMediaItemIndex
-        currentIndex = when {
+        val nextIndex = when {
             mediaIdIndex != null -> mediaIdIndex
             idx in songQueue.indices -> idx
             else -> currentIndex.coerceIn(0, songQueue.lastIndex)
         }
-        songQueue.getOrNull(currentIndex)?.id?.let { id ->
-            playbackOrderState = playbackOrderState.moveTo(id)
+        queueCoordinator.replaceCurrentIndex(nextIndex)
+        songQueue.getOrNull(nextIndex)?.id?.let { id ->
+            queueCoordinator.replaceOrder(playbackOrderState.moveTo(id))
         }
         publishPlaybackStates()
         return true
@@ -833,12 +830,11 @@ class PlayerController internal constructor(
     ) {
         if (c.mediaItemCount <= 0) return
         val mirrorStartedNs = SystemClock.elapsedRealtimeNanos()
-        val result = queueMirrorCoordinator.rebuildNow(
+        val result = queueCoordinator.rebuildMirrorNow(
             player = c,
             resolver = resolver,
-        ) { mirrored, playerIndex ->
-            installQueueModel(queueModel().mirrorFromPlayer(mirrored, playerIndex))
-        }
+            onApplied = ::publishPlaybackStates,
+        )
         if (result.applied && c is MediaController) {
             syncIndexFromPlayer(c)
         }
@@ -850,15 +846,11 @@ class PlayerController internal constructor(
     }
 
     private fun scheduleQueueMirrorFromPlayer(c: MediaController) {
-        queueMirrorCoordinator.schedule(
+        queueCoordinator.scheduleMirror(
             player = c,
             isCurrentPlayer = { controller === c },
-            localQueue = { songQueue },
-            localRevision = { playbackQueueRevision },
             fallbackResolver = { songResolver::resolve },
-            applyMirrored = { mirrored, playerIndex ->
-                installQueueModel(queueModel().mirrorFromPlayer(mirrored, playerIndex))
-            },
+            onApplied = ::publishPlaybackStates,
             syncIndex = { syncIndexFromPlayer(c) },
             log = ::logQueueSyncMs,
         )
@@ -904,16 +896,18 @@ class PlayerController internal constructor(
         val preserveId = snapshot.currentSongId.ifBlank {
             snapshot.queueSongIds.getOrNull(snapshot.currentIndex).orEmpty()
         }
-        playbackOrderState = PlaybackOrderState(
-            sourceIds = hydrated.map { it.id },
-            playbackIds = hydrated.map { it.id },
-            currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } },
-            shuffleEnabled = session?.shuffleEnabled == true,
+        queueCoordinator.replaceOrder(
+            PlaybackOrderState(
+                sourceIds = hydrated.map { it.id },
+                playbackIds = hydrated.map { it.id },
+                currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } },
+                shuffleEnabled = session?.shuffleEnabled == true,
+            ),
         )
         setQueue(hydrated)
         val index = songQueue.indexOfFirst { it.id == preserveId }.takeIf { it >= 0 }
             ?: snapshot.currentIndex.coerceIn(0, songQueue.lastIndex)
-        currentIndex = index
+        queueCoordinator.replaceCurrentIndex(index)
         if (snapshot.positionMs > 0) {
             pendingRestorePosition = PendingRestorePosition(
                 songId = songQueue[index].id,
@@ -971,7 +965,7 @@ class PlayerController internal constructor(
             val metadataDiff = summarizePlaybackUnchangedQueueDiff(songQueue, newQueue, currentIndex)
             if (songQueue != newQueue) {
                 commitSongQueue(newQueue)
-                preserveId?.let { playbackOrderState = playbackOrderState.moveTo(it) }
+                preserveId?.let { queueCoordinator.replaceOrder(playbackOrderState.moveTo(it)) }
                 publishPlaybackStates()
             }
             controller?.let { c ->
@@ -1013,7 +1007,7 @@ class PlayerController internal constructor(
         if (c == null) {
             pendingQueue = orderedQueue
             if (orderedQueue.isEmpty()) {
-                currentIndex = 0
+                queueCoordinator.replaceCurrentIndex(0)
             } else {
                 applyPreserveIndexForQueue(orderedQueue, preserveId, previousIndex)
             }
@@ -1067,7 +1061,7 @@ class PlayerController internal constructor(
         fallbackIndex: Int = currentIndex,
     ) {
         if (newQueue.isEmpty()) {
-            currentIndex = 0
+            queueCoordinator.replaceCurrentIndex(0)
             publishPlaybackStates()
             return
         }
@@ -1101,7 +1095,7 @@ class PlayerController internal constructor(
         val playingId = preserveSongId
         val keepIndex = playingId?.let { id -> newQueue.indexOfFirst { it.id == id } } ?: -1
         val foundOldSong = preservePlayback && keepIndex >= 0
-        currentIndex = if (foundOldSong) keepIndex else 0
+        queueCoordinator.replaceCurrentIndex(if (foundOldSong) keepIndex else 0)
         publishPlaybackStates()
         if (wasPlayingBeforeQueueChange(c) && !foundOldSong) {
             c.setMediaItems(
@@ -1341,8 +1335,7 @@ class PlayerController internal constructor(
         val updated = queueModel().removeAt(index)
         val list = updated.queue
         if (list.isEmpty()) {
-            commitSongQueue(emptyList())
-            currentIndex = 0
+            installQueueModel(updated)
             isPlaying = false
             playbackError = null
             controller?.clearMediaItems()
@@ -1355,7 +1348,7 @@ class PlayerController internal constructor(
             if (wasPlaying) {
                 playSong(newIndex, anchorPlaybackOrder = false)
             } else {
-                currentIndex = newIndex
+                queueCoordinator.replaceCurrentIndex(newIndex)
                 publishPlaybackStates()
             }
         }
@@ -1385,7 +1378,7 @@ class PlayerController internal constructor(
         val previousIndex = currentIndex
         playbackError = null
         var song = songQueue[safe]
-        playbackOrderState = playbackOrderState.moveTo(song.id)
+        queueCoordinator.replaceOrder(playbackOrderState.moveTo(song.id))
         PlaybackRouter.unsupportedMessage(song)?.let { message ->
             playbackError = message
             postUserMessage(message)
@@ -1409,7 +1402,7 @@ class PlayerController internal constructor(
             ?.takeIf { it >= 1_000 }
             ?: 0
         pendingRestorePosition = null
-        currentIndex = safe
+        queueCoordinator.replaceCurrentIndex(safe)
         clearPendingSeek()
         if (safe != previousIndex) {
             resetDurationForSongChange(song)
@@ -1622,7 +1615,7 @@ class PlayerController internal constructor(
                 preserveCurrentPlayback = true,
             )
         } else {
-            playbackOrderState = playbackOrderState.copy(shuffleEnabled = enabled)
+            queueCoordinator.replaceOrder(playbackOrderState.copy(shuffleEnabled = enabled))
         }
         if (enabled) {
             playbackQueueMode = PlaybackQueueMode.SHUFFLE
@@ -1762,14 +1755,13 @@ class PlayerController internal constructor(
 
     fun release() {
         playbackStatistics.observePlayback(controller?.currentMediaItem?.mediaId, false)
-        queueMirrorCoordinator.clear()
+        queueCoordinator.clearMirror()
         clearPendingMediaSelection()
         deferredPlaybackPublish?.let { mainHandler.removeCallbacks(it) }
         deferredPlaybackPublish = null
         scope.cancel()
         connectionSession.release()
-        commitSongQueue(emptyList())
-        currentIndex = 0
+        installQueueModel(queueModel().linearQueue(emptyList(), 0))
         isPlaying = false
         playbackError = null
         userMessage = null

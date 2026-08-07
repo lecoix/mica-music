@@ -291,18 +291,20 @@ class PlayerControllerQueueModelTest {
         const val SEED = 0x4D494341
 
         private fun playbackOrderState(controller: PlayerController): PlaybackOrderState {
-            val field = PlayerController::class.java.getDeclaredField("playbackOrderState")
-            field.isAccessible = true
-            return field.get(controller) as PlaybackOrderState
+            return queueCoordinator(controller).order
         }
 
         private fun setPlaybackOrderState(
             controller: PlayerController,
             state: PlaybackOrderState,
         ) {
-            val field = PlayerController::class.java.getDeclaredField("playbackOrderState")
+            queueCoordinator(controller).replaceOrder(state)
+        }
+
+        private fun queueCoordinator(controller: PlayerController): PlaybackQueueCoordinator {
+            val field = PlayerController::class.java.getDeclaredField("queueCoordinator")
             field.isAccessible = true
-            field.set(controller, state)
+            return field.get(controller) as PlaybackQueueCoordinator
         }
     }
 }
