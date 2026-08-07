@@ -109,7 +109,7 @@ class MicaMediaService : MediaSessionService() {
             } else {
                 AudioQualityMode.HIFI
             },
-            externalSongResolver = micaApp.transientPlaybackCatalog::songById,
+            externalSongResolver = micaApp.transientPlaybackCatalog::songForPersistence,
         ).also { coordinator ->
             coordinator.onRestoreCompleted = {
                 mainHandler.post {

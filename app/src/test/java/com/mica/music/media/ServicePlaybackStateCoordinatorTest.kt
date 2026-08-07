@@ -12,6 +12,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verifyOrder
+import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -95,5 +96,39 @@ class ServicePlaybackStateCoordinatorTest {
             listOf(ServiceExternalSongSnapshot.from(external)),
             queueSnapshot.captured.externalSongs,
         )
+    }
+
+    @Test
+    fun nonRestorableExternalQueueClearsCrossProcessSnapshot() {
+        val store = mockk<ServicePlaybackStateStore>(relaxed = true)
+        val handler = mockk<Handler>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val external = SongFixtures.song("external_unstable")
+            .copy(source = SongSource.TRANSIENT_EXTERNAL)
+        val item = ExternalMediaItemCodec.encode(
+            ApplicationProvider.getApplicationContext(),
+            external,
+        )
+
+        every { store.load() } returns null
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.mediaItemCount } returns 1
+        every { player.getMediaItemAt(0) } returns item
+        every { player.currentMediaItem } returns item
+
+        val coordinator = ServicePlaybackStateCoordinator(
+            player = player,
+            store = store,
+            handler = handler,
+            initialQualityMode = AudioQualityMode.HIFI,
+            externalSongResolver = { null },
+        )
+        coordinator.start()
+        listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
+        coordinator.release()
+
+        verify(atLeast = 1) { store.clear(any()) }
+        verify(exactly = 0) { store.saveQueue(any(), any()) }
     }
 }

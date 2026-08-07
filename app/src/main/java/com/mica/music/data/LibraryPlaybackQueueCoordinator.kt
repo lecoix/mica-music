@@ -32,10 +32,8 @@ internal class LibraryPlaybackQueueCoordinator(
     ) {
         val effectStartedMs = SystemClock.elapsedRealtime()
         val songs = library.songs
-        if (songs.isNotEmpty()) {
-            DiagnosticLog.event("LibraryQueue", "$reason connectIfNeeded start songs=${songs.size}")
-            player.connectIfNeeded()
-        }
+        DiagnosticLog.event("LibraryQueue", "$reason connectIfNeeded start songs=${songs.size}")
+        player.connectIfNeeded()
         val currentQueueIds = player.currentQueueIds
         when (
             val plan = policy.plan(
@@ -48,6 +46,18 @@ internal class LibraryPlaybackQueueCoordinator(
                 DiagnosticLog.event(
                     "LibraryQueue",
                     "$reason effect skipped empty hasScanned=${library.hasScanned}",
+                )
+            }
+            LibraryQueueSyncPlan.BootstrapOnly -> {
+                DiagnosticLog.event(
+                    "LibraryQueue",
+                    "$reason bootstrap-only start hasScanned=${library.hasScanned}",
+                )
+                val bootstrapped = player.bootstrapQueue(library.songById)
+                DiagnosticLog.event(
+                    "LibraryQueue",
+                    "$reason bootstrap-only result=$bootstrapped " +
+                        "durMs=${SystemClock.elapsedRealtime() - effectStartedMs}",
                 )
             }
             is LibraryQueueSyncPlan.BootstrapOrSetQueue -> {
@@ -130,6 +140,7 @@ internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQue
 private fun LibraryQueueSyncPlan.previousLibraryIdsSize(): Int =
     when (this) {
         LibraryQueueSyncPlan.SkipEmpty -> 0
+        LibraryQueueSyncPlan.BootstrapOnly -> 0
         is LibraryQueueSyncPlan.BootstrapOrSetQueue -> previousLibraryIdsSize
         is LibraryQueueSyncPlan.SetQueue -> previousLibraryIdsSize
         is LibraryQueueSyncPlan.RefreshMetadata -> previousLibraryIdsSize
@@ -138,6 +149,7 @@ private fun LibraryQueueSyncPlan.previousLibraryIdsSize(): Int =
 private fun LibraryQueueSyncPlan.currentQueueWasLibrary(): Boolean =
     when (this) {
         LibraryQueueSyncPlan.SkipEmpty -> false
+        LibraryQueueSyncPlan.BootstrapOnly -> false
         is LibraryQueueSyncPlan.BootstrapOrSetQueue -> currentQueueWasLibrary
         is LibraryQueueSyncPlan.SetQueue -> currentQueueWasLibrary
         is LibraryQueueSyncPlan.RefreshMetadata -> currentQueueWasLibrary

@@ -4,6 +4,7 @@ import com.mica.music.data.Song
 
 internal sealed class LibraryQueueSyncPlan {
     data object SkipEmpty : LibraryQueueSyncPlan()
+    data object BootstrapOnly : LibraryQueueSyncPlan()
     data class BootstrapOrSetQueue(
         val songs: List<Song>,
         val previousLibraryIdsSize: Int,
@@ -33,7 +34,13 @@ internal class LibraryQueueSyncPolicy {
         libraryIds: List<String>,
         currentQueueIds: List<String>,
     ): LibraryQueueSyncPlan {
-        if (songs.isEmpty()) return LibraryQueueSyncPlan.SkipEmpty
+        if (songs.isEmpty()) {
+            return if (currentQueueIds.isEmpty()) {
+                LibraryQueueSyncPlan.BootstrapOnly
+            } else {
+                LibraryQueueSyncPlan.SkipEmpty
+            }
+        }
         val previousIds = previousLibraryIds
         val currentQueueWasLibrary = previousIds.isNotEmpty() && currentQueueIds == previousIds
         val previousIdSet = previousIds.toSet()

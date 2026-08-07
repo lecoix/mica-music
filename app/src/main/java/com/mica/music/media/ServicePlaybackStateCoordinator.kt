@@ -137,6 +137,10 @@ internal class ServicePlaybackStateCoordinator(
         if (pendingRestore != null || player.mediaItemCount <= 0) return
         val songIds = currentSongIds()
         if (songIds.isEmpty()) return
+        if (!queueCanSurviveRestart(songIds)) {
+            submit(sync) { store.clear(sync) }
+            return
+        }
         submit(sync) {
             store.saveQueue(
                 ServiceQueueSnapshot(
@@ -152,6 +156,7 @@ internal class ServicePlaybackStateCoordinator(
     private fun persistCursor(force: Boolean = false, sync: Boolean = false) {
         if (pendingRestore != null || player.mediaItemCount <= 0) return
         val currentId = player.currentMediaItem?.mediaId?.takeIf(String::isNotBlank) ?: return
+        if (!songCanSurviveRestart(currentId)) return
         val position = player.currentPosition.coerceAtLeast(0L)
         if (!force && kotlin.math.abs(position - lastPersistedPositionMs) < MIN_POSITION_DELTA_MS) {
             return
@@ -184,13 +189,19 @@ internal class ServicePlaybackStateCoordinator(
         }
     }
 
+    private fun queueCanSurviveRestart(songIds: List<String>): Boolean =
+        songIds.all(::songCanSurviveRestart)
+
+    private fun songCanSurviveRestart(id: String): Boolean =
+        !com.mica.music.data.TransientPlaybackCatalog.isTransientId(id) ||
+            externalSongResolver(id) != null
+
     private fun currentExternalSongs(): List<ServiceExternalSongSnapshot> = buildList {
         for (index in 0 until player.mediaItemCount) {
             val item = player.getMediaItemAt(index)
             if (!com.mica.music.data.TransientPlaybackCatalog.isTransientId(item.mediaId)) continue
             val song = externalSongResolver(item.mediaId)
                 ?.takeIf(Song::isTransient)
-                ?: ExternalMediaItemCodec.decode(item)
             song?.let(ServiceExternalSongSnapshot::from)
                 ?.let(::add)
         }

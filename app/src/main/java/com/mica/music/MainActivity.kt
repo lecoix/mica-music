@@ -335,7 +335,8 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     private fun handleExternalAudioIntent(intent: Intent?) {
         val request = parseExternalAudioOpenRequest(intent) ?: return
-        persistExternalAudioUriPermission(this, intent, request)
+        val restorable = persistExternalAudioUriPermission(this, intent, request)
+        val transientCatalog = (application as MicaApp).transientPlaybackCatalog
         externalAudioOpenJob?.cancel()
         externalAudioOpenJob = lifecycleScope.launch {
             val song = withContext(Dispatchers.IO) {
@@ -343,7 +344,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                     context = this@MainActivity,
                     request = request,
                     librarySongs = viewModel.library.songs,
-                    transientCatalog = (application as MicaApp).transientPlaybackCatalog,
+                    transientCatalog = transientCatalog,
                 )
             }
             if (song == null) {
@@ -358,6 +359,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                 ).show()
                 return@launch
             }
+            transientCatalog.markRestorable(song.id, restorable)
             DiagnosticLog.event(
                 "ExternalOpen",
                 "play song=${song.id} uri=${request.uri} mime=${song.metadata.playbackMimeType} " +

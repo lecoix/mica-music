@@ -7,7 +7,7 @@ import org.junit.Test
 
 class LibraryQueueSyncPolicyTest {
     @Test
-    fun emptyLibraryIsSkippedWithoutChangingPreviousLibrary() {
+    fun emptyLibraryAndQueueUsesBootstrapOnlyWithoutChangingPreviousLibrary() {
         val policy = LibraryQueueSyncPolicy()
 
         assertTrue(
@@ -15,7 +15,7 @@ class LibraryQueueSyncPolicyTest {
                 songs = emptyList(),
                 libraryIds = emptyList(),
                 currentQueueIds = emptyList(),
-            ) is LibraryQueueSyncPlan.SkipEmpty,
+            ) is LibraryQueueSyncPlan.BootstrapOnly,
         )
 
         val songs = SongFixtures.queue(2)
@@ -27,6 +27,17 @@ class LibraryQueueSyncPolicyTest {
 
         assertTrue(plan is LibraryQueueSyncPlan.BootstrapOrSetQueue)
         assertEquals(0, (plan as LibraryQueueSyncPlan.BootstrapOrSetQueue).previousLibraryIdsSize)
+    }
+
+    @Test
+    fun emptyLibraryWithExistingQueueIsSkipped() {
+        val plan = LibraryQueueSyncPolicy().plan(
+            songs = emptyList(),
+            libraryIds = emptyList(),
+            currentQueueIds = listOf("external_existing"),
+        )
+
+        assertTrue(plan is LibraryQueueSyncPlan.SkipEmpty)
     }
 
     @Test

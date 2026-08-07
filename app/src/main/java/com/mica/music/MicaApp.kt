@@ -70,7 +70,7 @@ class MicaApp : Application() {
         MicaImageLoaders.init(this)
         ServicePlaybackStateStore(this).load()?.externalSongs
             ?.map { it.toSong() }
-            ?.let(transientPlaybackCatalog::replaceAll)
+            ?.let { transientPlaybackCatalog.replaceAll(it, restorable = true) }
         // Bind stats persistence before any MediaSession playback can publish sessions.
         playbackStatistics
     }

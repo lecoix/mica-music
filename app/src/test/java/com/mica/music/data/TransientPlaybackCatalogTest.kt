@@ -25,5 +25,18 @@ class TransientPlaybackCatalogTest {
         catalog.clear()
 
         assertNull(catalog.songById(song.id))
+        assertNull(catalog.songForPersistence(song.id))
+    }
+
+    @Test
+    fun onlyExplicitlyRestorableSongsAreExposedForPersistence() {
+        val catalog = TransientPlaybackCatalog()
+        val song = catalog.replace(SongFixtures.song("external"))
+
+        assertNull(catalog.songForPersistence(song.id))
+
+        catalog.markRestorable(song.id)
+
+        assertEquals(song, catalog.songForPersistence(song.id))
     }
 }

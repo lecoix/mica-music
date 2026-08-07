@@ -52,8 +52,8 @@ class LibraryPlaybackQueueCoordinatorTest {
     )
 
     @Test
-    fun emptyLibrarySkipsWithoutConnecting() {
-        val target = FakeTarget()
+    fun emptyLibraryConnectsAndAttemptsExternalQueueBootstrap() {
+        val target = FakeTarget().apply { bootstrapResult = true }
 
         LibraryPlaybackQueueCoordinator().sync(
             reason = "test",
@@ -61,8 +61,25 @@ class LibraryPlaybackQueueCoordinatorTest {
             player = target,
         )
 
-        assertEquals(0, target.connectCount)
+        assertEquals(1, target.connectCount)
+        assertTrue(target.bootstrapResolver != null)
         assertTrue(target.setQueueCalls.isEmpty())
+    }
+
+    @Test
+    fun emptyLibraryBootstrapFailureKeepsQueueEmpty() {
+        val target = FakeTarget().apply { bootstrapResult = false }
+
+        LibraryPlaybackQueueCoordinator().sync(
+            reason = "test",
+            library = libraryInput(emptyList(), hasScanned = true),
+            player = target,
+        )
+
+        assertEquals(1, target.connectCount)
+        assertTrue(target.bootstrapResolver != null)
+        assertTrue(target.setQueueCalls.isEmpty())
+        assertTrue(target.queuedSongs.isEmpty())
     }
 
     @Test

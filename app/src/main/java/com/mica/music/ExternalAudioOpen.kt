@@ -29,22 +29,25 @@ internal fun parseExternalAudioOpenRequest(intent: Intent?): ExternalAudioOpenRe
     return ExternalAudioOpenRequest(uri = uri, mimeType = mimeType)
 }
 
-/** Best-effort persistence of a provider grant so the external snapshot can survive a restart. */
+/** Persists a provider grant and reports whether this URI can survive a process restart. */
 internal fun persistExternalAudioUriPermission(
     context: Context,
     intent: Intent?,
     request: ExternalAudioOpenRequest,
-) {
-    if (request.uri.scheme != "content") return
+): Boolean {
+    if (request.uri.scheme != "content") return false
+    // MediaStore access is governed by the app's media permission, not a one-shot intent grant.
+    if (request.uri.authority == "media") return true
+    val resolver = context.contentResolver
+    if (resolver.persistedUriPermissions.any { it.uri == request.uri }) return true
     val flags = intent?.flags ?: 0
-    if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) return
-    val accessFlags = flags and (
-        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        )
-    if (accessFlags == 0) return
-    runCatching {
-        context.contentResolver.takePersistableUriPermission(request.uri, accessFlags)
-    }
+    if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) return false
+    val accessFlags = flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+    if (accessFlags == 0) return false
+    return runCatching {
+        resolver.takePersistableUriPermission(request.uri, accessFlags)
+        resolver.persistedUriPermissions.any { it.uri == request.uri }
+    }.getOrDefault(false)
 }
 
 internal fun mergeExternalAudioProbeResult(existing: Song?, probed: Song): Song {
