@@ -6,7 +6,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.C
@@ -78,11 +77,6 @@ internal class PendingMediaSelection {
     }
 }
 
-private data class PendingRestorePosition(
-    val songId: String,
-    val positionMs: Int,
-)
-
 /**
  * 把 MediaController 桥接成 Compose State，同时承载队列。
  */
@@ -135,6 +129,7 @@ class PlayerController internal constructor(
         workerDispatcher = queueMirrorDispatcher,
         mirrorDebounceMs = QUEUE_MIRROR_DEBOUNCE_MS,
     )
+    private val timelineCoordinator = PlaybackTimelineCoordinator(monotonicNowMs)
     private val playbackOrderState: PlaybackOrderState
         get() = queueCoordinator.order
 
@@ -159,42 +154,28 @@ class PlayerController internal constructor(
 
     private var isPlaying by mutableStateOf(false)
 
-    private var positionSec by mutableIntStateOf(0)
+    private val positionMs: Int
+        get() = timelineCoordinator.positionMs
 
-    /** 播放进度（毫秒），供歌词同步等需要 finer 粒度的 UI 使用。 */
-    private var positionMs by mutableIntStateOf(0)
+    private val durationSec: Int
+        get() = timelineCoordinator.durationSec
 
-    private var durationSec by mutableIntStateOf(0)
-
-    /** seek 后暂存目标直至进度接近。 */
-    private var pendingSeekMs by mutableIntStateOf(-1)
-
-    private var pendingSeekSetAtElapsedMs = 0L
-
-    /** 拖动进度条时钉住 UI，不向系统推送中间进度。 */
-    private var seekUiActive = false
+    private val pendingSeekMs: Int
+        get() = timelineCoordinator.pendingSeekMs
 
     fun setSeekUiActive(active: Boolean) {
-        seekUiActive = active
+        timelineCoordinator.setSeekUiActive(active)
     }
 
     @Deprecated("Use setSeekUiActive", ReplaceWith("setSeekUiActive(active)"))
     internal fun setAlacSeekUiActive(active: Boolean) = setSeekUiActive(active)
 
     internal fun uiPositionMs(): Int {
-        val maxMs = uiDurationMs()
-        val pos = if (maxMs > 0) positionMs.coerceIn(0, maxMs) else positionMs.coerceAtLeast(0)
-        pendingSeekMs.takeIf { it >= 0 }?.let { pending ->
-            return if (maxMs > 0) pending.coerceIn(0, maxMs) else pending.coerceAtLeast(0)
-        }
-        return pos
+        return timelineCoordinator.uiPositionMs(currentSong?.durationSec ?: 0)
     }
 
-    internal fun uiDurationMs(): Int {
-        val metaMs = (currentSong?.durationSec ?: 0) * 1000
-        val playerMs = durationSec * 1000
-        return maxOf(metaMs, playerMs).coerceAtLeast(0)
-    }
+    internal fun uiDurationMs(): Int =
+        timelineCoordinator.uiDurationMs(currentSong?.durationSec ?: 0)
 
     private fun maxDurationMs(): Int = uiDurationMs()
 
@@ -211,8 +192,7 @@ class PlayerController internal constructor(
 
     /** 切歌时丢弃上一首 Exo 上报的 [durationSec]，避免 max(meta, player) 把旧总长带进新曲。 */
     private fun resetDurationForSongChange(song: Song) {
-        val previousSec = durationSec
-        durationSec = song.durationSec.coerceAtLeast(0)
+        val previousSec = timelineCoordinator.resetDurationForSongChange(song.durationSec)
         DiagnosticLog.event(
             "Player",
             "duration-reset song=${song.id} prevPlayerSec=$previousSec metaSec=${song.durationSec} " +
@@ -243,10 +223,7 @@ class PlayerController internal constructor(
     }
 
     private fun setPositionMsClamped(rawMs: Int) {
-        val maxMs = maxDurationMs()
-        val clamped = if (maxMs > 0) rawMs.coerceIn(0, maxMs) else rawMs.coerceAtLeast(0)
-        positionMs = clamped
-        positionSec = clamped / 1000
+        timelineCoordinator.setPositionClamped(rawMs, currentSong?.durationSec ?: 0)
         publishProgressState()
     }
 
@@ -266,21 +243,12 @@ class PlayerController internal constructor(
     }
 
     private fun reconcilePendingSeekAfterProgress(reportedMs: Int) {
-        val pending = pendingSeekMs
-        if (pending < 0) return
-        val ageMs = if (pendingSeekSetAtElapsedMs > 0L) {
-            SystemClock.elapsedRealtime() - pendingSeekSetAtElapsedMs
-        } else {
-            0L
-        }
-        evaluatePendingSeekClear(pending, reportedMs, ageMs)?.let { reason ->
-            clearPendingSeek(reason)
-        }
+        timelineCoordinator.reconcilePendingSeek(reportedMs)?.let(::logPendingSeekCleared)
+        publishProgressState()
     }
 
     private fun armPendingSeek(targetMs: Int) {
-        pendingSeekMs = targetMs
-        pendingSeekSetAtElapsedMs = SystemClock.elapsedRealtime()
+        timelineCoordinator.armPendingSeek(targetMs)
     }
 
     private fun canAcceptSeek(controller: MediaController?): Boolean {
@@ -338,10 +306,10 @@ class PlayerController internal constructor(
         publishPlaybackStates()
         val pos = session.positionMs.coerceAtLeast(0)
         if (pos > 0) {
-            pendingRestorePosition = PendingRestorePosition(session.songId, pos)
+            timelineCoordinator.setPendingRestore(session.songId, pos)
             setPositionMsClamped(pos)
             val durSec = currentSong?.durationSec ?: 0
-            if (durSec > 0) durationSec = durSec
+            if (durSec > 0) timelineCoordinator.updatePlayerDuration(durSec * 1000L)
         }
     }
 
@@ -350,20 +318,20 @@ class PlayerController internal constructor(
     /** 曲库与 [restoreSession] 就绪后再次对齐索引，避免 [onConnected] 与恢复竞态。 */
     @Deprecated("Use bootstrapQueue instead")
     internal fun reconcileRestoredSessionIndex() {
-        pendingRestorePosition?.let { setPositionMsClamped(it.positionMs) }
+        timelineCoordinator.pendingRestorePosition()?.let(::setPositionMsClamped)
     }
 
     private fun clearPendingSeek(reason: String? = null) {
-        if (pendingSeekMs < 0) return
-        if (reason != null) {
-            DiagnosticLog.event(
-                "Player",
-                "pending-seek-clear reason=$reason pendingMs=$pendingSeekMs positionMs=$positionMs",
-            )
-        }
-        pendingSeekMs = -1
-        pendingSeekSetAtElapsedMs = 0L
+        timelineCoordinator.clearPendingSeek(reason)?.let(::logPendingSeekCleared)
         publishProgressState()
+    }
+
+    private fun logPendingSeekCleared(cleared: ClearedPendingSeek) {
+        DiagnosticLog.event(
+            "Player",
+            "pending-seek-clear reason=${cleared.reason} pendingMs=${cleared.pendingMs} " +
+                "positionMs=${cleared.positionMs}",
+        )
     }
 
     private var isBuffering by mutableStateOf(false)
@@ -464,7 +432,6 @@ class PlayerController internal constructor(
     private var pendingPlaybackTuning: PlaybackTuning? = null
     private var effectivePlaybackTuning = PlaybackTuning()
     private var pendingEffectivePlaybackTuning: PlaybackTuning? = null
-    private var pendingRestorePosition: PendingRestorePosition? = null
     private val playbackStatistics = PlaybackStatisticsTracker(
         monotonicNowMs = monotonicNowMs,
         onListenSecondsAdded = { songId, seconds ->
@@ -474,8 +441,7 @@ class PlayerController internal constructor(
     private var lastSessionPersistMs: Long = 0L
 
     private fun releasePendingRestorePosition(songId: String?) {
-        val pending = pendingRestorePosition ?: return
-        if (pending.songId == songId) pendingRestorePosition = null
+        timelineCoordinator.releasePendingRestore(songId)
     }
 
     fun connectIfNeeded() = connectionSession.connectIfNeeded()
@@ -584,7 +550,7 @@ class PlayerController internal constructor(
                         "pendingBefore=${pendingBefore.shortSongIdOrNone()} " +
                         "pendingAfter=${playbackStatistics.pendingSongId.shortSongIdOrNone()}",
                 )
-                if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
+                timelineCoordinator.updatePlayerDuration(c.duration)
                 syncEffectivePlaybackTuning(reason = "transition")
                 publishPlaybackStates()
             }
@@ -654,7 +620,7 @@ class PlayerController internal constructor(
                 }
                 isBuffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_READY && c.duration > 0) {
-                    durationSec = (c.duration / 1000).toInt()
+                    timelineCoordinator.updatePlayerDuration(c.duration)
                 }
                 if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
                     syncIndexFromPlayer(c)
@@ -758,7 +724,7 @@ class PlayerController internal constructor(
         playbackStatistics.reset(c.currentMediaItem?.mediaId)
         isPlaying = c.isPlaying
         playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
-        if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
+        timelineCoordinator.updatePlayerDuration(c.duration)
         syncPosition()
         publishPlaybackStates()
     }
@@ -909,7 +875,7 @@ class PlayerController internal constructor(
             ?: snapshot.currentIndex.coerceIn(0, songQueue.lastIndex)
         queueCoordinator.replaceCurrentIndex(index)
         if (snapshot.positionMs > 0) {
-            pendingRestorePosition = PendingRestorePosition(
+            timelineCoordinator.setPendingRestore(
                 songId = songQueue[index].id,
                 positionMs = snapshot.positionMs.toInt(),
             )
@@ -936,7 +902,7 @@ class PlayerController internal constructor(
         playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
         isPlaying = c.isPlaying
         isBuffering = c.playbackState == Player.STATE_BUFFERING
-        if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
+        timelineCoordinator.updatePlayerDuration(c.duration)
         publishPlaybackStates()
     }
 
@@ -1121,15 +1087,12 @@ class PlayerController internal constructor(
     private fun wasPlayingBeforeQueueChange(c: MediaController): Boolean = c.isPlaying
 
     fun syncPosition() {
-        pendingRestorePosition?.let { pending ->
-            if (pending.songId == currentSong?.id) {
-                setPositionMsClamped(pending.positionMs)
-                return
-            }
-            pendingRestorePosition = null
+        timelineCoordinator.restorePositionForSync(currentSong?.id)?.let { positionMs ->
+            setPositionMsClamped(positionMs)
+            return
         }
         val c = controller ?: return
-        if (c.duration > 0) durationSec = (c.duration / 1000).toInt()
+        timelineCoordinator.updatePlayerDuration(c.duration)
         val expectedSongId = currentSong?.id
         val controllerSongId = c.currentMediaItem?.mediaId
         if (expectedSongId != null &&
@@ -1396,12 +1359,7 @@ class PlayerController internal constructor(
             "playSong requested=$index resolved=$safe; song=${song.id} ${song.title}; " +
                 "format=${song.formatLabel}; path=${song.filePath}; ${playbackSnapshot()}",
         )
-        val requestedStartMs = pendingRestorePosition
-            ?.takeIf { it.songId == song.id }
-            ?.positionMs
-            ?.takeIf { it >= 1_000 }
-            ?: 0
-        pendingRestorePosition = null
+        val requestedStartMs = timelineCoordinator.consumeRestoreStartPosition(song.id)
         queueCoordinator.replaceCurrentIndex(safe)
         clearPendingSeek()
         if (safe != previousIndex) {
