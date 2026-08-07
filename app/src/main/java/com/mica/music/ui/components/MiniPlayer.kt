@@ -61,6 +61,7 @@ import com.mica.music.ui.theme.LocalCustomMicaBackground
 import com.mica.music.ui.theme.LocalCustomWallpaperPath
 import com.mica.music.ui.theme.LocalMicaBackgroundPreset
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.coverColor
 import com.mica.music.ui.theme.bottomThemeColor
 import com.mica.music.ui.theme.FloatingIslandShadowSpread
 import com.mica.music.ui.theme.FloatingIslandShadowVerticalExtra

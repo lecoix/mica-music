@@ -49,8 +49,8 @@ private fun buildSongShareText(song: Song): String = buildString {
     if (song.artist.isNotBlank()) append(" — ").append(song.artist)
     if (song.album.isNotBlank()) append("\n专辑：").append(song.album)
     append("\n")
-    append(song.formatLabel)
-    if (song.sampleRateLabel.isNotBlank()) append(" · ").append(song.sampleRateLabel)
+    append(song.metadata.formatLabel)
+    if (song.metadata.sampleRateLabel.isNotBlank()) append(" · ").append(song.metadata.sampleRateLabel)
     if (song.filePath.isNotBlank()) append("\n").append(song.filePath)
 }
 

@@ -51,7 +51,7 @@ object LibraryAnalyzer {
         }
 
         val totalSize = songs.sumOf { it.sizeBytes.coerceAtLeast(0L) }
-        val hiRes = songs.count { it.isHiRes }
+        val hiRes = songs.count { it.metadata.isHiRes }
         val playedSongs = songs.count { it.playCount > 0 }
         val totalPlays = songs.sumOf { it.playCount.coerceAtLeast(0) }
         val listenedSongs = songs.count { it.totalListenSeconds > 0L }

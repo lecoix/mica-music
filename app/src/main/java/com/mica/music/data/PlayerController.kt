@@ -1334,7 +1334,7 @@ class PlayerController internal constructor(
         DiagnosticLog.event(
             "Player",
             "playSong requested=$index resolved=$safe; song=${song.id} ${song.title}; " +
-                "format=${song.formatLabel}; path=${song.filePath}; ${playbackSnapshot()}",
+                "format=${song.metadata.formatLabel}; path=${song.filePath}; ${playbackSnapshot()}",
         )
         val requestedStartMs = timelineCoordinator.consumeRestoreStartPosition(song.id)
         queueCoordinator.replaceCurrentIndex(safe)

@@ -51,13 +51,13 @@ fun buildPlayerInfoSegments(
 ): List<String> {
     val segments = mutableListOf<String>()
     if (visibility.showFormat) {
-        segments += song.formatLabel
+        segments += song.metadata.formatLabel
     }
     if (visibility.showSampleRate) {
-        segments += song.sampleRateLabel
+        segments += song.metadata.sampleRateLabel
     }
     if (visibility.showBitrate) {
-        segments += song.bitrateLabel
+        segments += song.metadata.bitrateLabel
     }
     if (visibility.showPlaybackSpeed) {
         playbackTuning?.let { segments += formatPlayerInfoPlaybackSpeed(it.speed) }

@@ -76,6 +76,7 @@ import com.mica.music.ui.components.songListColumnsFor
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.coverColor
 import com.mica.music.ui.screens.home.BrowseDestination
 import com.mica.music.ui.screens.home.HomeSection
 import com.mica.music.ui.screens.home.browseDestinationDepth

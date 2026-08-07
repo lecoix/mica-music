@@ -58,6 +58,7 @@ import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.coverColor
 
 enum class SongMenuAction {
     AddToPlaylist,

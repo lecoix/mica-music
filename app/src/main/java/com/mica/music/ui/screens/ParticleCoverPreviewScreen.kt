@@ -59,6 +59,7 @@ import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.coverColor
 import com.mica.music.ui.theme.micaAppBackground
 import kotlinx.coroutines.delay
 

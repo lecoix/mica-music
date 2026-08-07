@@ -11,7 +11,7 @@ class SongRowTest {
     @Test
     fun trailingInfoSupportsPlayCountFormatDurationAndNone() {
         assertEquals("2", songTrailingLabel(song, SongTrailingInfo.PLAY_COUNT))
-        assertEquals(song.formatLabel, songTrailingLabel(song, SongTrailingInfo.FORMAT))
+        assertEquals(song.metadata.formatLabel, songTrailingLabel(song, SongTrailingInfo.FORMAT))
         assertEquals(song.durationLabel, songTrailingLabel(song, SongTrailingInfo.DURATION))
         assertEquals(null, songTrailingLabel(song, SongTrailingInfo.NONE))
     }

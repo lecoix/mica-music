@@ -68,10 +68,10 @@ class SongEntityTest {
         assertEquals("LRC", document.getString("format"))
         assertEquals("EXTERNAL", document.getString("origin"))
         assertEquals("LRC", document.getString("source"))
-        assertEquals("ORIGINAL", document.getJSONArray("lines").getJSONObject(0)
-            .getJSONArray("parts").getJSONObject(0).getString("role"))
-        assertEquals("translation", document.getJSONArray("lines").getJSONObject(0)
-            .getJSONArray("parts").getJSONObject(1).getString("text"))
+        val parts = document.getJSONArray("lines").getJSONObject(0).getJSONArray("parts")
+        assertEquals(1, parts.length())
+        assertEquals("ORIGINAL", parts.getJSONObject(0).getString("role"))
+        assertEquals("original\ntranslation", parts.getJSONObject(0).getString("text"))
 
         val legacy = entity.copy(lyricsJson = "[{\"t\":1000,\"x\":\"legacy\",\"e\":2000}]")
         assertEquals(

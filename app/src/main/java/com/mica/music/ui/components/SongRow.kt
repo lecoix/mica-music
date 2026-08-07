@@ -35,6 +35,7 @@ import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.coverColor
 
 /**
  * 列表行：
@@ -173,7 +174,7 @@ fun SongRow(
 
 internal fun songTrailingLabel(song: Song, mode: SongTrailingInfo): String? = when (mode) {
     SongTrailingInfo.PLAY_COUNT -> song.playCount.toString()
-    SongTrailingInfo.FORMAT -> song.formatLabel
+    SongTrailingInfo.FORMAT -> song.metadata.formatLabel
     SongTrailingInfo.DURATION -> song.durationLabel
     SongTrailingInfo.NONE -> null
 }

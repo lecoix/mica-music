@@ -69,7 +69,7 @@ internal fun HiFiBadgeSection(
     )
     if (segments.isEmpty()) return
     val infoRowHeight = rememberPlayerInfoRowHeight()
-    val usesOverflowBadge = song.isHiRes &&
+    val usesOverflowBadge = song.metadata.isHiRes &&
         hiResBadgeAppearance.style == HiResBadgeStyle.CUSTOM_IMAGE &&
         hiResBadgeAppearance.customImagePath != null
     Row(
@@ -91,7 +91,7 @@ internal fun HiFiBadgeSection(
             modifier = Modifier.weight(1f),
             textColor = resolvePlayerInfoRowTextColor(colors),
         )
-        if (song.isHiRes) {
+        if (song.metadata.isHiRes) {
             HiResIndicator(
                 appearance = hiResBadgeAppearance,
                 rowHeight = infoRowHeight,
