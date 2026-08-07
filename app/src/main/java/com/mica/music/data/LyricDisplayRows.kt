@@ -101,8 +101,7 @@ object LyricDisplayRows {
             .filter { it.role == LyricTextRole.TRANSLATION }
             .joinToString(" ") { it.text.trim() }
             .trim()
-        val structured = reading.isNotEmpty() || translation.isNotEmpty() ||
-            parts.any { it.role == LyricTextRole.ORIGINAL }
+        val structured = reading.isNotEmpty() || translation.isNotEmpty()
         if (!structured) return null
 
         fun row(role: LyricTextRole, text: String, splitIndex: Int): DisplayRow? {
@@ -143,26 +142,8 @@ object LyricDisplayRows {
     fun isBilingualLine(text: String, enabled: Boolean = true): Boolean =
         splitForDisplay(text, enabled).size > 1
 
-    /**
-     * 入库时将单行 LRC 内的细空格 / 显式分隔符拆成 ORIGINAL + TRANSLATION parts。
-     * 已有 TRANSLATION part（NetEase 多轨、TTML role 等）的行保持不变。
-     */
-    fun splitPartsAtIngest(parts: List<LyricTextPart>): List<LyricTextPart> {
-        if (parts.isEmpty() || parts.any { it.role == LyricTextRole.TRANSLATION }) return parts
-        val reading = parts.filter { it.role == LyricTextRole.READING }
-        val bodyText = parts
-            .filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
-            .joinToString(" ") { it.text.trim() }
-            .trim()
-        if (bodyText.isEmpty()) return parts
-        val split = splitForDisplay(bodyText, enabled = true)
-        if (split.size < 2) return parts
-        return buildList {
-            addAll(reading)
-            add(LyricTextPart(LyricTextRole.ORIGINAL, split[0]))
-            add(LyricTextPart(LyricTextRole.TRANSLATION, split[1]))
-        }
-    }
+    /** Text separators are display-only heuristics, never persistent translation metadata. */
+    fun splitPartsAtIngest(parts: List<LyricTextPart>): List<LyricTextPart> = parts
 
     /** 在最后一个细空格类字符处切成两行。 */
     private fun splitBySpecialSpaces(text: String): List<String>? {

@@ -12,7 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 private const val ScanPerfTag = "ScanPerf"
-internal const val CURRENT_EMBEDDED_LYRICS_PROBE_VERSION = 1
+/** Bumped when lyric ingestion semantics change; stale embedded lyric caches are re-probed. */
+internal const val CURRENT_EMBEDDED_LYRICS_PROBE_VERSION = 2
 
 private fun embeddedLyricsProbeRevision(
     songId: String,

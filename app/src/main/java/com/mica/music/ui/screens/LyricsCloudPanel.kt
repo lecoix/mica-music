@@ -45,7 +45,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricDisplayRows
-import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricLineNode
+import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
@@ -54,6 +55,7 @@ import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.LocalLyricReadingEnabled
+import com.mica.music.ui.theme.LocalLyricLineFillEnabled
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.PlayerContentColors
 import kotlin.math.abs
@@ -87,6 +89,7 @@ internal fun LyricsCloudPanel(
     val motionEnabled = rememberMicaMotionEnabled()
     val splitEnabled = LocalLyricSplitEnabled.current
     val readingEnabled = LocalLyricReadingEnabled.current
+    val forceWordEffectEnabled = LocalLyricLineFillEnabled.current
     val uniformStyle = rememberLyricUniformStyle()
     val lyrics = renderState.lyrics
     val currentIndex = remember(renderState.activeLineIndex, lyrics.size) {
@@ -246,7 +249,7 @@ internal fun LyricsCloudPanel(
                 )
                 CloudLyricLine(
                     rows = displayRows[index],
-                    line = line,
+                    lineNode = renderState.document.lines.getOrNull(index),
                     isCurrent = interlude == null && index == currentIndex,
                     pressEmphasis = pressEmphasis,
                     colors = colors,
@@ -254,6 +257,7 @@ internal fun LyricsCloudPanel(
                     translationTextStyle = translationStyles[index],
                     nextLineTimeMs = lyrics.getOrNull(index + 1)?.timeMs,
                     positionMs = framePositionMs,
+                    forceWordEffectEnabled = forceWordEffectEnabled,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .requiredWidth(with(density) { (node.width * unit).toDp() })
@@ -438,6 +442,8 @@ internal fun LyricsCloudNode.overlaps(other: LyricsCloudNode, gap: Float): Boole
 
 internal data class CloudCharacterState(val activeIndex: Int, val progress: Float)
 
+private const val CLOUD_FORCE_WORD_FALLBACK_DURATION_MS = 2_500
+
 internal fun lyricsCloudRevealProgress(
     globalProgress: Float,
     distanceFromCurrent: Float,
@@ -467,47 +473,99 @@ internal fun lyricsCloudPanOffset(
 }
 
 internal fun cloudCharacterState(
-    line: LyricLine,
+    line: LyricLineNode,
+    row: LyricDisplayRows.DisplayRow,
     positionMs: Int,
     nextLineTimeMs: Int?,
+    forceWordEffect: Boolean,
 ): CloudCharacterState? {
-    if (line.cues.isEmpty()) return null
-    val timeMs = positionMs + LyricsSync.LEAD_MS
-    val cueIndex = line.cues.indexOfLast { it.timeMs <= timeMs }
-    if (cueIndex < 0) return CloudCharacterState(-1, 0f)
-    val cue = line.cues[cueIndex]
-    val cueEndMs = line.cues.getOrNull(cueIndex + 1)?.timeMs
-        ?: line.endTimeMs
-        ?: nextLineTimeMs
-        ?: (cue.timeMs + 1_000)
-    val cueProgress = if (cueEndMs <= cue.timeMs) 1f else {
-        ((timeMs - cue.timeMs).toFloat() / (cueEndMs - cue.timeMs)).coerceIn(0f, 1f)
-    }
-    var searchFrom = 0
-    var cueStart = -1
-    line.cues.take(cueIndex + 1).forEach { part ->
-        val raw = part.text
-        val found = line.text.indexOf(raw, startIndex = searchFrom).takeIf { it >= 0 }
-            ?: line.text.indexOf(raw.trim(), startIndex = searchFrom)
-        if (found >= 0) {
-            cueStart = found
-            searchFrom = found + raw.trim().length
+    val rowTokens = line.tokens.filter { token ->
+        when (row.role) {
+            LyricTextRole.ORIGINAL -> token.partRole == LyricTextRole.ORIGINAL ||
+                token.partRole == LyricTextRole.EXTRA
+            LyricTextRole.EXTRA -> token.partRole == LyricTextRole.EXTRA
+            LyricTextRole.READING -> token.partRole == LyricTextRole.READING
+            LyricTextRole.TRANSLATION -> token.partRole == LyricTextRole.TRANSLATION
         }
     }
-    if (cueStart < 0) return null
-    val characterCount = cue.text.trim().length.coerceAtLeast(1)
-    val scaled = cueProgress * characterCount
-    val characterOffset = scaled.toInt().coerceIn(0, characterCount - 1)
-    return CloudCharacterState(
-        activeIndex = cueStart + characterOffset,
-        progress = (scaled - characterOffset).coerceIn(0f, 1f),
-    )
+    val timed = cloudTokenCharacterState(
+        text = row.text,
+        tokens = rowTokens,
+        positionMs = positionMs,
+        nextLineTimeMs = nextLineTimeMs,
+        lineEndMs = line.endMs,
+    )?.offsetBy(row.start)
+    return timed ?: if (forceWordEffect) {
+        cloudForcedCharacterState(
+            text = row.text,
+            lineStartMs = line.startMs,
+            lineEndMs = line.endMs ?: nextLineTimeMs,
+            positionMs = positionMs,
+        ).offsetBy(row.start)
+    } else {
+        null
+    }
+}
+
+private fun CloudCharacterState.offsetBy(rowStart: Int): CloudCharacterState =
+    if (activeIndex < 0) this else copy(activeIndex = activeIndex + rowStart)
+
+private fun cloudTokenCharacterState(
+    text: String,
+    tokens: List<LyricToken>,
+    positionMs: Int,
+    nextLineTimeMs: Int?,
+    lineEndMs: Int?,
+): CloudCharacterState? {
+    if (tokens.isEmpty()) return null
+    val timeMs = positionMs + LyricsSync.LEAD_MS
+    if (timeMs < tokens.first().startMs) return CloudCharacterState(-1, 0f)
+    var searchFrom = 0
+    val ranges = tokens.mapNotNull { token ->
+        val visible = token.text.trim()
+        if (visible.isEmpty()) return@mapNotNull null
+        val start = text.indexOf(visible, startIndex = searchFrom)
+        if (start < 0) return@mapNotNull null
+        searchFrom = start + visible.length
+        start to (start + visible.length)
+    }
+    if (ranges.size != tokens.size) return null
+    val tokenIndex = tokens.indexOfLast { it.startMs <= timeMs }
+    if (tokenIndex < 0) return CloudCharacterState(-1, 0f)
+    val token = tokens[tokenIndex]
+    val tokenEndMs = token.endMs
+        ?: tokens.getOrNull(tokenIndex + 1)?.startMs
+        ?: lineEndMs
+        ?: nextLineTimeMs
+        ?: (token.startMs + 1_000)
+    val progress = if (tokenEndMs <= token.startMs) 1f else {
+        ((timeMs - token.startMs).toFloat() / (tokenEndMs - token.startMs)).coerceIn(0f, 1f)
+    }
+    val range = ranges[tokenIndex]
+    val scaled = progress * (range.second - range.first)
+    val offset = scaled.toInt().coerceIn(0, (range.second - range.first - 1).coerceAtLeast(0))
+    return CloudCharacterState(range.first + offset, (scaled - offset).coerceIn(0f, 1f))
+}
+
+private fun cloudForcedCharacterState(
+    text: String,
+    lineStartMs: Int,
+    lineEndMs: Int?,
+    positionMs: Int,
+): CloudCharacterState {
+    val endMs = lineEndMs?.takeIf { it > lineStartMs }
+        ?: (lineStartMs + CLOUD_FORCE_WORD_FALLBACK_DURATION_MS)
+    val progress = ((positionMs + LyricsSync.LEAD_MS - lineStartMs).toFloat() /
+        (endMs - lineStartMs)).coerceIn(0f, 1f)
+    val scaled = progress * text.length.coerceAtLeast(1)
+    val offset = scaled.toInt().coerceIn(0, text.length.coerceAtLeast(1) - 1)
+    return CloudCharacterState(offset, (scaled - offset).coerceIn(0f, 1f))
 }
 
 @Composable
 private fun CloudLyricLine(
     rows: List<LyricDisplayRows.DisplayRow>,
-    line: LyricLine,
+    lineNode: LyricLineNode?,
     isCurrent: Boolean,
     pressEmphasis: Float,
     colors: PlayerContentColors,
@@ -515,15 +573,22 @@ private fun CloudLyricLine(
     translationTextStyle: TextStyle,
     nextLineTimeMs: Int?,
     positionMs: Int,
+    forceWordEffectEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val characterState = if (isCurrent) {
-        cloudCharacterState(line, positionMs, nextLineTimeMs)
-    } else {
-        null
-    }
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         rows.forEach { row ->
+            val characterState = if (isCurrent && lineNode != null) {
+                cloudCharacterState(
+                    line = lineNode,
+                    row = row,
+                    positionMs = positionMs,
+                    nextLineTimeMs = nextLineTimeMs,
+                    forceWordEffect = forceWordEffectEnabled,
+                )
+            } else {
+                null
+            }
             val style = when (row.role) {
                 LyricTextRole.READING, LyricTextRole.TRANSLATION -> translationTextStyle
                 LyricTextRole.ORIGINAL, LyricTextRole.EXTRA ->

@@ -719,11 +719,11 @@ private fun DrawScope.drawLetterColumn(
             else -> progressByGlyph.indexOfFirst { it < 1f }.takeIf { it >= 0 } ?: visibleCount
         }
         rotate(degrees = 90f, pivot = Offset(x, metrics.verticalPaddingPx)) {
-            val totalWidthPx = visibleLayouts.sumOf { it.size.width }
+            val layoutHeightPx = column.graphemeLayouts.maxOf { it.size.height }
             val topLeft = letterRotatedLatinTopLeft(
                 columnCenterX = x,
                 verticalTopPx = metrics.verticalPaddingPx,
-                layoutHeightPx = totalWidthPx,
+                layoutHeightPx = layoutHeightPx,
             )
             var glyphLeft = topLeft.x
             val maskedGlyphs = ArrayList<LetterInkGlyphDraw>(visibleCount - firstMaskedIndex)

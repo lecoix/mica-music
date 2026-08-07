@@ -33,7 +33,7 @@ class LyricsParsingTest {
     }
 
     @Test
-    fun lrcThinSpaceBilingualLineSplitsIntoPartsAtIngest() {
+    fun lrcThinSpaceBilingualLineSplitsOnlyForDisplay() {
         val thin = "\u2009"
         val document = LyricsSanitizer.parseFilteredDocument(
             """
@@ -45,16 +45,12 @@ class LyricsParsingTest {
 
         val first = document.lines.first { it.startMs == 1_360 }
         assertEquals(
-            listOf(
-                LyricTextRole.ORIGINAL to "未熟 無ジョウ されど",
-                LyricTextRole.TRANSLATION to "不成熟 无情（常） 但是",
-            ),
+            listOf(LyricTextRole.ORIGINAL to "未熟 無ジョウ されど${thin}不成熟 无情（常） 但是"),
             first.parts.map { it.role to it.text },
         )
-        val second = document.lines.first { it.startMs == 7_400 }
         assertEquals(
-            listOf(LyricTextRole.ORIGINAL to "美しくあれ", LyricTextRole.TRANSLATION to "如此美丽"),
-            second.parts.map { it.role to it.text },
+            listOf("未熟 無ジョウ されど", "不成熟 无情（常） 但是"),
+            com.mica.music.data.LyricDisplayRows.splitForDisplay(first.parts.single().text),
         )
     }
 

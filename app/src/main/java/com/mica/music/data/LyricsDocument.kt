@@ -111,12 +111,7 @@ fun List<LyricLine>.toLyricsDocumentCompat(
     format = format,
     origin = origin,
     lines = mapIndexed { index, line ->
-        val parts = LyricDisplayRows.splitForDisplay(line.text).mapIndexed { partIndex, text ->
-            LyricTextPart(
-                role = if (partIndex == 0) LyricTextRole.ORIGINAL else LyricTextRole.TRANSLATION,
-                text = text,
-            )
-        }
+        val parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, line.text))
         LyricLineNode(
             id = "$index-${line.timeMs}",
             startMs = line.timeMs,

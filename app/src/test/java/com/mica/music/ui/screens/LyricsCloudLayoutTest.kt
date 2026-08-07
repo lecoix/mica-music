@@ -1,9 +1,12 @@
 package com.mica.music.ui.screens
 
 import androidx.compose.ui.unit.sp
-import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricLineNode
+import com.mica.music.data.LyricTextPart
+import com.mica.music.data.LyricTextRole
+import com.mica.music.data.LyricToken
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.renderStateAt
 import org.junit.Assert.assertEquals
@@ -62,22 +65,82 @@ class LyricsCloudLayoutTest {
 
     @Test
     fun cueIsSplitIntoCharacterProgress() {
-        val line = LyricLine(
-            timeMs = 0,
-            text = "你好世界",
-            cues = listOf(
-                LyricCue(timeMs = 0, text = "你好"),
-                LyricCue(timeMs = 1_000, text = "世界"),
+        val line = LyricLineNode(
+            id = "line",
+            startMs = 0,
+            parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, "你好世界")),
+            tokens = listOf(
+                LyricToken("你好", 0, 1_000, LyricTextRole.ORIGINAL),
+                LyricToken("世界", 1_000, 2_000, LyricTextRole.ORIGINAL),
             ),
         )
+        val row = cloudRow("你好世界", LyricTextRole.ORIGINAL)
 
         assertEquals(
             CloudCharacterState(activeIndex = 0, progress = 0.5f),
-            cloudCharacterState(line, positionMs = 100, nextLineTimeMs = 2_000),
+            cloudCharacterState(line, row, 100, 2_000, false),
         )
         assertEquals(
             CloudCharacterState(activeIndex = 1, progress = 0f),
-            cloudCharacterState(line, positionMs = 350, nextLineTimeMs = 2_000),
+            cloudCharacterState(line, row, 350, 2_000, false),
+        )
+    }
+
+    @Test
+    fun originalTokensDoNotDriveTranslationWithoutForcedWordEffect() {
+        val line = bilingualCloudLine(
+            tokens = listOf(LyricToken("hello", 1_000, 3_000, LyricTextRole.ORIGINAL)),
+        )
+        val original = cloudRow("hello", LyricTextRole.ORIGINAL)
+        val translation = cloudRow("world", LyricTextRole.TRANSLATION)
+
+        assertTrue(cloudCharacterState(line, original, 1_500, 3_000, false) != null)
+        assertEquals(null, cloudCharacterState(line, translation, 1_500, 3_000, false))
+    }
+
+    @Test
+    fun forcedWordEffectSynthesizesProgressForRowWithoutTokens() {
+        val line = bilingualCloudLine(
+            tokens = listOf(LyricToken("hello", 1_000, 3_000, LyricTextRole.ORIGINAL)),
+        )
+        val translation = cloudRow("world", LyricTextRole.TRANSLATION)
+
+        assertEquals(
+            CloudCharacterState(activeIndex = 2, progress = 0.25f),
+            cloudCharacterState(line, translation, 1_750, 3_000, true),
+        )
+    }
+
+    @Test
+    fun forcedWordEffectKeepsLegacySplitRowSourceOffset() {
+        val line = bilingualCloudLine(emptyList())
+        val translation = LyricDisplayRows.DisplayRow(
+            text = "world",
+            start = 6,
+            endExclusive = 11,
+            splitIndex = 1,
+            role = LyricTextRole.TRANSLATION,
+        )
+
+        assertEquals(
+            CloudCharacterState(activeIndex = 8, progress = 0.25f),
+            cloudCharacterState(line, translation, 1_750, 3_000, true),
+        )
+    }
+
+    @Test
+    fun translationUsesItsOwnRealTokens() {
+        val line = bilingualCloudLine(
+            tokens = listOf(
+                LyricToken("hello", 1_000, 3_000, LyricTextRole.ORIGINAL),
+                LyricToken("world", 1_000, 3_000, LyricTextRole.TRANSLATION),
+            ),
+        )
+        val translation = cloudRow("world", LyricTextRole.TRANSLATION)
+
+        assertEquals(
+            CloudCharacterState(activeIndex = 1, progress = 0.625f),
+            cloudCharacterState(line, translation, 1_500, 3_000, false),
         )
     }
 
@@ -172,4 +235,23 @@ class LyricsCloudLayoutTest {
         assertFalse(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.CUSTOM_STANDARD, true))
         assertFalse(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.STANDARD, false))
     }
+
+    private fun bilingualCloudLine(tokens: List<LyricToken>) = LyricLineNode(
+        id = "bilingual",
+        startMs = 1_000,
+        endMs = 3_000,
+        parts = listOf(
+            LyricTextPart(LyricTextRole.ORIGINAL, "hello"),
+            LyricTextPart(LyricTextRole.TRANSLATION, "world"),
+        ),
+        tokens = tokens,
+    )
+
+    private fun cloudRow(text: String, role: LyricTextRole) = LyricDisplayRows.DisplayRow(
+        text = text,
+        start = 0,
+        endExclusive = text.length,
+        splitIndex = if (role == LyricTextRole.ORIGINAL) 0 else 1,
+        role = role,
+    )
 }

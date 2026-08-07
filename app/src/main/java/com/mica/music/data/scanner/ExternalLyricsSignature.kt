@@ -7,6 +7,8 @@ internal data class ExternalLyricsRef(
     val extension: String = "",
 )
 
+private const val CURRENT_EXTERNAL_LYRICS_PARSE_VERSION = 2
+
 internal fun List<ExternalLyricsRef>.externalLyricsUris(): List<String> =
     map { it.uri }.distinct()
 
@@ -15,12 +17,20 @@ internal fun List<ExternalLyricsRef>.externalLyricsUris(extension: String): List
 
 internal fun List<ExternalLyricsRef>.externalLyricsSignature(): String =
     sortedBy { it.uri }
-        .joinToString(separator = "\u0002") { ref ->
+        .takeIf { it.isNotEmpty() }
+        ?.let { refs ->
             buildString {
-                append(ref.uri)
-                append('\u0001')
-                append(ref.sizeBytes.coerceAtLeast(0L))
-                append('\u0001')
-                append(ref.dateModifiedMs.coerceAtLeast(0L))
+                append(CURRENT_EXTERNAL_LYRICS_PARSE_VERSION)
+                append('\u0003')
+                append(refs.joinToString(separator = "\u0002") { ref ->
+                    buildString {
+                        append(ref.uri)
+                        append('\u0001')
+                        append(ref.sizeBytes.coerceAtLeast(0L))
+                        append('\u0001')
+                        append(ref.dateModifiedMs.coerceAtLeast(0L))
+                    }
+                })
             }
         }
+        .orEmpty()

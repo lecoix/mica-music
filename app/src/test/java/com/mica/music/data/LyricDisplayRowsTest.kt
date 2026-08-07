@@ -6,20 +6,20 @@ import org.junit.Test
 class LyricDisplayRowsTest {
 
     @Test
-    fun splitPartsAtIngestSplitsThinSpaceIntoOriginalAndTranslation() {
-        val split = LyricDisplayRows.splitPartsAtIngest(
-            listOf(
-                LyricTextPart(LyricTextRole.ORIGINAL, "未熟 無ジョウ されど\u2009不成熟 无情（常） 但是"),
-            ),
+    fun splitPartsAtIngestDoesNotPersistTextHeuristicSplits() {
+        val samples = listOf(
+            "AC/DC",
+            "and/or",
+            "01/02/2026",
+            "original / translation",
+            "left|right",
+            "未熟 無ジョウ されど\u2009不成熟 无情（常） 但是",
         )
 
-        assertEquals(
-            listOf(
-                LyricTextRole.ORIGINAL to "未熟 無ジョウ されど",
-                LyricTextRole.TRANSLATION to "不成熟 无情（常） 但是",
-            ),
-            split.map { it.role to it.text },
-        )
+        samples.forEach { text ->
+            val parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, text))
+            assertEquals(parts, LyricDisplayRows.splitPartsAtIngest(parts))
+        }
     }
 
     @Test
@@ -31,6 +31,22 @@ class LyricDisplayRowsTest {
         )
 
         assertEquals(parts, LyricDisplayRows.splitPartsAtIngest(parts))
+    }
+
+    @Test
+    fun legacyLyricsConversionKeepsHeuristicSeparatorsInOriginalText() {
+        val document = listOf(LyricLine(timeMs = 1_000, text = "AC/DC / live"))
+            .toLyricsDocumentCompat(format = LyricsFormat.LRC)
+
+        assertEquals(
+            listOf(LyricTextPart(LyricTextRole.ORIGINAL, "AC/DC / live")),
+            document.lines.single().parts,
+        )
+        assertEquals(null, LyricDisplayRows.rowsFromParts(document.lines.single().parts))
+        assertEquals(
+            listOf("AC/DC", "live"),
+            LyricDisplayRows.splitForDisplay("AC/DC / live"),
+        )
     }
 
     @Test

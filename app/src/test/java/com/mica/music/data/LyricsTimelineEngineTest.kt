@@ -7,7 +7,7 @@ import org.junit.Test
 class LyricsTimelineEngineTest {
 
     @Test
-    fun compatibilityDocumentSeparatesBilingualPartsAndKeepsWordTokens() {
+    fun compatibilityDocumentKeepsFlatTextAndWordTokens() {
         val document = listOf(
             LyricLine(
                 timeMs = 1_000,
@@ -19,8 +19,8 @@ class LyricsTimelineEngineTest {
 
         val line = document.lines.single()
         assertEquals(LyricsFormat.TTML, document.format)
-        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION), line.parts.map { it.role })
-        assertEquals(listOf("original", "translation"), line.parts.map { it.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL), line.parts.map { it.role })
+        assertEquals(listOf("original\ntranslation"), line.parts.map { it.text })
         assertEquals(2_000, line.tokens.single().endMs)
     }
 
