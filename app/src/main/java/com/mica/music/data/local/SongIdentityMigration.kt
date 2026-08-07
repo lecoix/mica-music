@@ -40,7 +40,7 @@ object SongIdentityMigration {
 
             // Preferences are rewritten before the DB transaction so a retry after a crash is safe:
             // the mapping can still be reconstructed from the legacy DB rows.
-            PlaylistStore.migrateSongIds(context, mapping)
+            PlaylistStore.migrateSongIds(context, database, mapping)
             PlayHistoryStore.migrateSongIds(context, mapping)
             PlaybackSessionStore.migrateSongIds(context, mapping)
             LibraryBrowseSettings.migrateSongIds(context, mapping)

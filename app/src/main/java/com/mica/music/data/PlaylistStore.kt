@@ -5,8 +5,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.mica.music.data.local.MicaDatabase
+import com.mica.music.data.local.PlaylistRepository
+import com.mica.music.util.DiagnosticLog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicLong
 
 data class UserPlaylist(
     val id: String,
@@ -24,20 +33,19 @@ data class PlaylistImportResult(
     val skippedSongCount: Int,
 )
 
-/**
- * 用户歌单（轻量持久化）。侧栏歌单浏览等完整能力见 [docs/TODO.md]。
- */
+/** Process-scoped playlist facade backed by ordered Room rows. */
 class PlaylistStore(context: Context) {
 
     private val appContext = context.applicationContext
+    private val repository = PlaylistRepository(MicaDatabase.get(appContext))
 
-    var playlists by mutableStateOf(loadPlaylists())
+    var playlists by mutableStateOf(loadInitialPlaylists())
         private set
 
     var revision by mutableIntStateOf(0)
         private set
 
-    fun createPlaylist(name: String): UserPlaylist {
+    fun createPlaylist(name: String): UserPlaylist = mutate {
         val trimmed = name.trim()
         require(trimmed.isNotEmpty()) { "歌单名不能为空" }
         val playlist = UserPlaylist(
@@ -45,30 +53,48 @@ class PlaylistStore(context: Context) {
             name = trimmed,
             songIds = emptyList(),
         )
+        checkStorage("create") { insertPlaylist(playlist, playlists.size) }
         playlists = playlists + playlist
-        persist()
-        return playlist
+        playlist
     }
 
-    fun addSongToPlaylist(playlistId: String, songId: String): Boolean {
+    fun addSongToPlaylist(playlistId: String, songId: String): Boolean = mutate {
         val index = playlists.indexOfFirst { it.id == playlistId }
-        if (index < 0) return false
+        if (index < 0) return@mutate false
         val target = playlists[index]
-        if (songId in target.songIds) return true
+        if (songId in target.songIds) return@mutate true
         val updated = target.copy(songIds = target.songIds + songId)
+        if (!writeStorage("add-song") { addSong(playlistId, songId, target.songIds.size) }) return@mutate false
         playlists = playlists.toMutableList().also { it[index] = updated }
-        persist()
         revision++
-        return true
+        true
+    }
+
+    fun addSongsToPlaylist(playlistId: String, songIds: List<String>): Boolean = mutate {
+        val index = playlists.indexOfFirst { it.id == playlistId }
+        if (index < 0) return@mutate false
+        val target = playlists[index]
+        val existing = target.songIds.toHashSet()
+        val additions = songIds.asSequence()
+            .filter(String::isNotBlank)
+            .filter { it !in existing }
+            .distinct()
+            .toList()
+        if (additions.isEmpty()) return@mutate true
+        val updated = target.copy(songIds = target.songIds + additions)
+        if (!writeStorage("add-songs") { replacePlaylist(updated, index) }) return@mutate false
+        playlists = playlists.toMutableList().also { it[index] = updated }
+        revision++
+        true
     }
 
     fun appendSongsAsCustomOrder(
         playlistId: String,
         currentDisplayedSongIds: List<String>,
         appendedSongIds: List<String>,
-    ): Boolean {
+    ): Boolean = mutate {
         val index = playlists.indexOfFirst { it.id == playlistId }
-        if (index < 0) return false
+        if (index < 0) return@mutate false
         val target = playlists[index]
         val existingIds = target.songIds.toSet()
         val orderedExistingIds = currentDisplayedSongIds.filter { it in existingIds }.distinct()
@@ -79,26 +105,27 @@ class PlaylistStore(context: Context) {
             sortField = SongSortField.CUSTOM,
             sortDirection = SortDirection.ASC,
         )
-        if (updated == target) return true
+        if (updated == target) return@mutate true
+        if (!writeStorage("append-custom-order") { replacePlaylist(updated, index) }) return@mutate false
         playlists = playlists.toMutableList().also { it[index] = updated }
-        persist()
         revision++
-        return true
+        true
     }
 
     fun playlistById(id: String): UserPlaylist? = playlists.find { it.id == id }
 
-    fun renamePlaylist(playlistId: String, name: String): Boolean {
+    fun renamePlaylist(playlistId: String, name: String): Boolean = mutate {
         val trimmed = name.trim()
         require(trimmed.isNotEmpty()) { "歌单名不能为空" }
         val index = playlists.indexOfFirst { it.id == playlistId }
-        if (index < 0) return false
+        if (index < 0) return@mutate false
         val target = playlists[index]
-        if (target.name == trimmed) return true
-        playlists = playlists.toMutableList().also { it[index] = target.copy(name = trimmed) }
-        persist()
+        if (target.name == trimmed) return@mutate true
+        val updated = target.copy(name = trimmed)
+        if (!writeStorage("rename") { updatePlaylistMetadata(updated, index) }) return@mutate false
+        playlists = playlists.toMutableList().also { it[index] = updated }
         revision++
-        return true
+        true
     }
 
     fun setCoverSong(playlistId: String, songId: String?): Boolean = updatePlaylist(playlistId) {
@@ -147,7 +174,7 @@ class PlaylistStore(context: Context) {
             .toString(2)
     }
 
-    fun importPlaylistJson(raw: String, availableSongs: List<Song>): PlaylistImportResult {
+    fun importPlaylistJson(raw: String, availableSongs: List<Song>): PlaylistImportResult = mutate {
         val root = JSONObject(raw)
         val importedName = root.optString("name", "导入歌单").trim().ifBlank { "导入歌单" }
         val byId = availableSongs.associateBy { it.id }
@@ -183,46 +210,51 @@ class PlaylistStore(context: Context) {
             sortDirection = SortDirection.fromStorage(root.optString("sortDirection").takeIf(String::isNotBlank)),
             coverSongId = importedCoverSongId,
         )
+        checkStorage("import") { insertPlaylist(playlist, playlists.size) }
         playlists = playlists + playlist
-        persist()
         revision++
-        return PlaylistImportResult(playlist, resolvedIds.size, skipped)
+        PlaylistImportResult(playlist, resolvedIds.size, skipped)
     }
 
-    internal fun reloadFromStorage() {
-        val loaded = loadPlaylists()
-        if (loaded == playlists) return
-        playlists = loaded
-        revision++
+    internal suspend fun reloadFromStorage(beforePublish: suspend () -> Unit = {}) {
+        val requestGeneration = mutationMutex.withLock { mutationGeneration.incrementAndGet() }
+        val loaded = withContext(Dispatchers.IO) { repository.load() }
+        beforePublish()
+        mutationMutex.withLock {
+            if (mutationGeneration.get() != requestGeneration || loaded == playlists) return@withLock
+            playlists = loaded
+            revision++
+        }
     }
 
-    fun deletePlaylist(id: String): Boolean {
+    fun deletePlaylist(id: String): Boolean = mutate {
         val before = playlists.size
-        playlists = playlists.filterNot { it.id == id }
-        if (playlists.size == before) return false
+        val updated = playlists.filterNot { it.id == id }
+        if (updated.size == before) return@mutate false
+        if (!writeStorage("delete") { deletePlaylist(id) }) return@mutate false
+        playlists = updated
         PlaylistCoverImporter.clearCover(appContext, id)
-        persist()
         revision++
-        return true
+        true
     }
 
-    fun updateSort(playlistId: String, field: SongSortField, direction: SortDirection): Boolean {
+    fun updateSort(playlistId: String, field: SongSortField, direction: SortDirection): Boolean = mutate {
         val index = playlists.indexOfFirst { it.id == playlistId }
-        if (index < 0) return false
+        if (index < 0) return@mutate false
         val target = playlists[index]
-        if (target.sortField == field && target.sortDirection == direction) return true
+        if (target.sortField == field && target.sortDirection == direction) return@mutate true
         val updated = target.copy(sortField = field, sortDirection = direction)
+        if (!writeStorage("sort") { updatePlaylistMetadata(updated, index) }) return@mutate false
         playlists = playlists.toMutableList().also { it[index] = updated }
-        persist()
         revision++
-        return true
+        true
     }
 
-    fun moveSongInPlaylist(playlistId: String, fromIndex: Int, toIndex: Int): Boolean {
+    fun moveSongInPlaylist(playlistId: String, fromIndex: Int, toIndex: Int): Boolean = mutate {
         val index = playlists.indexOfFirst { it.id == playlistId }
-        if (index < 0) return false
+        if (index < 0) return@mutate false
         val ids = playlists[index].songIds.toMutableList()
-        if (fromIndex !in ids.indices || toIndex !in ids.indices || fromIndex == toIndex) return false
+        if (fromIndex !in ids.indices || toIndex !in ids.indices || fromIndex == toIndex) return@mutate false
         val moved = ids.removeAt(fromIndex)
         ids.add(toIndex, moved)
         val target = playlists[index]
@@ -230,10 +262,10 @@ class PlaylistStore(context: Context) {
             songIds = ids,
             sortField = SongSortField.CUSTOM,
         )
+        if (!writeStorage("move-song") { moveSong(updated, index, moved, fromIndex, toIndex) }) return@mutate false
         playlists = playlists.toMutableList().also { it[index] = updated }
-        persist()
         revision++
-        return true
+        true
     }
 
     fun songsForPlaylist(playlistId: String, resolveSong: (String) -> Song?): List<Song> {
@@ -246,24 +278,25 @@ class PlaylistStore(context: Context) {
         }
     }
 
-    fun removeSongFromPlaylist(playlistId: String, songId: String): Boolean {
+    fun removeSongFromPlaylist(playlistId: String, songId: String): Boolean = mutate {
         val index = playlists.indexOfFirst { it.id == playlistId }
-        if (index < 0) return false
+        if (index < 0) return@mutate false
         val target = playlists[index]
-        if (songId !in target.songIds) return false
+        if (songId !in target.songIds) return@mutate false
         val updated = target.copy(
             songIds = target.songIds.filterNot { it == songId },
             coverSongId = target.coverSongId.takeUnless { it == songId },
         )
+        val removedIndex = target.songIds.indexOf(songId)
+        if (!writeStorage("remove-song") { removeSong(updated, index, songId, removedIndex) }) return@mutate false
         playlists = playlists.toMutableList().also { it[index] = updated }
-        persist()
         revision++
-        return true
+        true
     }
 
-    fun removeSongFromAllPlaylists(songId: String) {
+    fun removeSongFromAllPlaylists(songId: String) = mutate {
         var changed = false
-        playlists = playlists.map { playlist ->
+        val updated = playlists.map { playlist ->
             if (songId !in playlist.songIds) playlist
             else {
                 changed = true
@@ -274,70 +307,63 @@ class PlaylistStore(context: Context) {
             }
         }
         if (changed) {
-            persist()
+            if (!writeStorage("remove-song-everywhere") { removeSongEverywhere(songId) }) {
+                return@mutate
+            }
+            playlists = updated
             revision++
         }
     }
 
-    private fun persist() {
-        val array = JSONArray()
-        playlists.forEach { playlist ->
-            array.put(
-                JSONObject()
-                    .put("id", playlist.id)
-                    .put("name", playlist.name)
-                    .put(
-                        "songs",
-                        JSONArray().apply { playlist.songIds.forEach { put(it) } },
-                    )
-                    .put("sortField", playlist.sortField.storageValue)
-                    .put("sortDirection", playlist.sortDirection.storageValue)
-                    .apply {
-                        playlist.coverSongId?.let { put("coverSongId", it) }
-                        playlist.customCoverPath?.let { put("customCoverPath", it) }
-                    },
-            )
-        }
-        prefs().edit().putString(KEY_PLAYLISTS_JSON, array.toString()).apply()
-    }
-
-    private fun loadPlaylists(): List<UserPlaylist> {
-        val raw = prefs().getString(KEY_PLAYLISTS_JSON, null) ?: return emptyList()
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList(array.length()) {
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    val songsArray = obj.getJSONArray("songs")
-                    val ids = buildList(songsArray.length()) {
-                        for (j in 0 until songsArray.length()) {
-                            add(songsArray.getString(j))
-                        }
+    private fun loadInitialPlaylists(): List<UserPlaylist> = runBlocking(Dispatchers.IO) {
+        mutationMutex.withLock {
+            mutationGeneration.incrementAndGet()
+            val preferences = prefs()
+            if (!preferences.getBoolean(KEY_ROOM_MIGRATION_COMPLETE, false)) {
+                val raw = preferences.getString(KEY_PLAYLISTS_JSON, null)
+                if (raw != null) {
+                    val legacy = runCatching { parseLegacyPlaylists(raw) }
+                    if (legacy.isSuccess) {
+                        repository.replaceAll(legacy.getOrThrow())
+                        preferences.edit().putBoolean(KEY_ROOM_MIGRATION_COMPLETE, true).commit()
+                    } else {
+                        DiagnosticLog.event(
+                            "PlaylistStore",
+                            "legacy-migration-failed error=${legacy.exceptionOrNull()?.javaClass?.simpleName}",
+                        )
                     }
-                    add(
-                        UserPlaylist(
-                            id = obj.getString("id"),
-                            name = obj.getString("name"),
-                            songIds = ids,
-                            sortField = if (obj.has("sortField")) {
-                                SongSortField.fromStorage(obj.getString("sortField"))
-                            } else {
-                                SongSortField.CUSTOM
-                            },
-                            sortDirection = if (obj.has("sortDirection")) {
-                                SortDirection.fromStorage(obj.getString("sortDirection"))
-                            } else {
-                                SortDirection.ASC
-                            },
-                            coverSongId = obj.optString("coverSongId")
-                                .takeIf(String::isNotBlank),
-                            customCoverPath = obj.optString("customCoverPath")
-                                .takeIf(String::isNotBlank),
-                        ),
-                    )
+                } else {
+                    preferences.edit().putBoolean(KEY_ROOM_MIGRATION_COMPLETE, true).commit()
                 }
             }
-        }.getOrDefault(emptyList())
+            repository.load()
+        }
+    }
+
+    private fun <T> mutate(block: () -> T): T = runBlocking {
+        mutationMutex.withLock {
+            mutationGeneration.incrementAndGet()
+            block()
+        }
+    }
+
+    private fun writeStorage(
+        operation: String,
+        block: suspend PlaylistRepository.() -> Unit,
+    ): Boolean = runCatching {
+        runBlocking(Dispatchers.IO) { repository.block() }
+    }.onFailure { error ->
+        DiagnosticLog.event(
+            "PlaylistStore",
+            "write-failed operation=$operation error=${error.javaClass.simpleName}",
+        )
+    }.isSuccess
+
+    private fun checkStorage(
+        operation: String,
+        block: suspend PlaylistRepository.() -> Unit,
+    ) {
+        check(writeStorage(operation, block)) { "歌单保存失败" }
     }
 
     private fun prefs() =
@@ -358,16 +384,19 @@ class PlaylistStore(context: Context) {
         return "$base ($suffix)"
     }
 
-    private fun updatePlaylist(playlistId: String, transform: (UserPlaylist) -> UserPlaylist): Boolean {
+    private fun updatePlaylist(
+        playlistId: String,
+        transform: (UserPlaylist) -> UserPlaylist,
+    ): Boolean = mutate {
         val index = playlists.indexOfFirst { it.id == playlistId }
-        if (index < 0) return false
+        if (index < 0) return@mutate false
         val target = playlists[index]
         val updated = transform(target)
-        if (updated == target) return true
+        if (updated == target) return@mutate true
+        if (!writeStorage("update") { updatePlaylistMetadata(updated, index) }) return@mutate false
         playlists = playlists.toMutableList().also { it[index] = updated }
-        persist()
         revision++
-        return true
+        true
     }
 
     private fun uniqueSongMap(songs: List<Song>, key: (Song) -> String): Map<String, Song> =
@@ -402,35 +431,78 @@ class PlaylistStore(context: Context) {
     companion object {
         private const val PREFS_NAME = "mica_playlists"
         private const val KEY_PLAYLISTS_JSON = "playlists_json"
+        private const val KEY_ROOM_MIGRATION_COMPLETE = "room_migration_complete_v1"
         private const val PLAYLIST_JSON_FORMAT = "mica-playlist"
         private const val PLAYLIST_JSON_VERSION = 1
+        private val mutationMutex = Mutex()
+        private val mutationGeneration = AtomicLong()
 
-        internal fun migrateSongIds(context: Context, mapping: Map<String, String>) {
+        internal suspend fun migrateSongIds(
+            context: Context,
+            database: MicaDatabase,
+            mapping: Map<String, String>,
+        ) {
             if (mapping.isEmpty()) return
-            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val raw = prefs.getString(KEY_PLAYLISTS_JSON, null) ?: return
-            val rewritten = runCatching {
-                val array = JSONArray(raw)
-                var changed = false
-                for (i in 0 until array.length()) {
-                    val playlist = array.getJSONObject(i)
-                    val songs = playlist.getJSONArray("songs")
-                    for (j in 0 until songs.length()) {
-                        val newId = mapping[songs.getString(j)] ?: continue
-                        songs.put(j, newId)
-                        changed = true
+            mutationMutex.withLock {
+                mutationGeneration.incrementAndGet()
+                val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val raw = prefs.getString(KEY_PLAYLISTS_JSON, null)
+                val rewritten = raw?.let { legacyRaw -> runCatching {
+                    val array = JSONArray(legacyRaw)
+                    var changed = false
+                    for (i in 0 until array.length()) {
+                        val playlist = array.getJSONObject(i)
+                        val songs = playlist.getJSONArray("songs")
+                        for (j in 0 until songs.length()) {
+                            val newId = mapping[songs.getString(j)] ?: continue
+                            songs.put(j, newId)
+                            changed = true
+                        }
+                        val oldCoverSongId = playlist.optString("coverSongId")
+                        val newCoverSongId = mapping[oldCoverSongId]
+                        if (!newCoverSongId.isNullOrBlank()) {
+                            playlist.put("coverSongId", newCoverSongId)
+                            changed = true
+                        }
                     }
-                    val oldCoverSongId = playlist.optString("coverSongId")
-                    val newCoverSongId = mapping[oldCoverSongId]
-                    if (!newCoverSongId.isNullOrBlank()) {
-                        playlist.put("coverSongId", newCoverSongId)
-                        changed = true
-                    }
+                    changed to array.toString()
+                }.getOrNull() }
+                if (rewritten?.first == true) {
+                    prefs.edit().putString(KEY_PLAYLISTS_JSON, rewritten.second).commit()
                 }
-                changed to array.toString()
-            }.getOrNull() ?: return
-            if (rewritten.first) {
-                prefs.edit().putString(KEY_PLAYLISTS_JSON, rewritten.second).commit()
+                withContext(Dispatchers.IO) {
+                    PlaylistRepository(database).migrateSongIds(mapping)
+                }
+            }
+        }
+
+        private fun parseLegacyPlaylists(raw: String): List<UserPlaylist> {
+            val array = JSONArray(raw)
+            return buildList(array.length()) {
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val songsArray = obj.getJSONArray("songs")
+                    val ids = buildList(songsArray.length()) {
+                        for (j in 0 until songsArray.length()) add(songsArray.getString(j))
+                    }
+                    add(
+                        UserPlaylist(
+                            id = obj.getString("id"),
+                            name = obj.getString("name"),
+                            songIds = ids.distinct(),
+                            sortField = obj.optString("sortField")
+                                .takeIf(String::isNotBlank)
+                                ?.let { SongSortField.fromStorage(it) }
+                                ?: SongSortField.CUSTOM,
+                            sortDirection = obj.optString("sortDirection")
+                                .takeIf(String::isNotBlank)
+                                ?.let { SortDirection.fromStorage(it) }
+                                ?: SortDirection.ASC,
+                            coverSongId = obj.optString("coverSongId").takeIf(String::isNotBlank),
+                            customCoverPath = obj.optString("customCoverPath").takeIf(String::isNotBlank),
+                        ),
+                    )
+                }
             }
         }
     }

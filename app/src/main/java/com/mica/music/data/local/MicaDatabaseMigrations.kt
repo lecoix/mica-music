@@ -213,3 +213,37 @@ val MIGRATION_15_16 = object : Migration(15, 16) {
         db.execSQL("ALTER TABLE songs ADD COLUMN embeddedLyricsProbeRevision TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_16_17 = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS playlists (
+                id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                sortField TEXT NOT NULL,
+                sortDirection TEXT NOT NULL,
+                coverSongId TEXT,
+                customCoverPath TEXT,
+                position INTEGER NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS playlist_songs (
+                playlistId TEXT NOT NULL,
+                songId TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY(playlistId, songId),
+                FOREIGN KEY(playlistId) REFERENCES playlists(id) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_playlist_songs_playlistId " +
+                "ON playlist_songs(playlistId)",
+        )
+    }
+}

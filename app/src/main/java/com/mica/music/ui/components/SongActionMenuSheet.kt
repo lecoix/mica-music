@@ -444,7 +444,7 @@ fun AddToPlaylistSheet(
             val displayedIds = playlistStore.songsForPlaylist(playlistId, resolveSong).map { it.id }
             playlistStore.appendSongsAsCustomOrder(playlistId, displayedIds, songIds)
         } else {
-            songIds.forEach { playlistStore.addSongToPlaylist(playlistId, it) }
+            playlistStore.addSongsToPlaylist(playlistId, songIds)
         }
         val message = if (songs.size == 1) {
             "已添加到「$playlistName」"

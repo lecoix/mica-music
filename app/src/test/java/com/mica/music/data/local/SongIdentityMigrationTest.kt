@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.ScanSource
 import com.mica.music.data.SongIdentity
+import com.mica.music.data.UserPlaylist
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -50,6 +51,16 @@ class SongIdentityMigrationTest {
         val legacyId = SongIdentity.legacyDocumentId(mediaUri)
         val song = SongFixtures.song(legacyId).copy(mediaUri = mediaUri)
         LibraryRepository(database).save(listOf(song), 100, ScanSource.DEVICE, 1)
+        PlaylistRepository(database).replaceAll(
+            listOf(
+                UserPlaylist(
+                    id = "playlist",
+                    name = "Migrated",
+                    songIds = listOf(legacyId),
+                    coverSongId = legacyId,
+                ),
+            ),
+        )
 
         SongIdentityMigration.migrate(context, database)
 
@@ -58,5 +69,8 @@ class SongIdentityMigrationTest {
         assertEquals(newId, database.songDao().getById(newId)?.id)
         assertEquals(1, database.songLyricsDao().getBySongId(newId).size)
         assertEquals(0, database.songLyricsDao().getBySongId(legacyId).size)
+        val playlist = PlaylistRepository(database).load().single()
+        assertEquals(listOf(newId), playlist.songIds)
+        assertEquals(newId, playlist.coverSongId)
     }
 }

@@ -2,6 +2,8 @@ package com.mica.music
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.local.MicaDatabase
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -17,6 +19,8 @@ class MicaAppTest {
     fun playlistStoreIsSharedAcrossConsumers() {
         val app = ApplicationProvider.getApplicationContext<MicaApp>()
         app.getSharedPreferences("mica_playlists", Context.MODE_PRIVATE).edit().clear().commit()
+        MicaDatabase.resetForTests()
+        runBlocking { MicaDatabase.get(app).playlistDao().deleteAll() }
 
         val homeStore = app.playlistStore
         val playerStore = app.playlistStore

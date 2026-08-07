@@ -31,7 +31,8 @@ class RoomMigrationContractTest {
     @After
     fun deleteDatabases() {
         context.deleteDatabase(FOUR_TO_FIVE_DB)
-        context.deleteDatabase(TWO_TO_EIGHT_DB)
+        context.deleteDatabase(TWO_TO_CURRENT_DB)
+        context.deleteDatabase(SIXTEEN_TO_SEVENTEEN_DB)
     }
 
     @Test
@@ -56,8 +57,8 @@ class RoomMigrationContractTest {
     }
 
     @Test
-    fun migrationTwoToEightValidatesExportedSchemaAndReadsThroughRealDaos() {
-        helper.createDatabase(TWO_TO_EIGHT_DB, 2).apply {
+    fun migrationTwoToCurrentValidatesExportedSchemaAndReadsThroughRealDaos() {
+        helper.createDatabase(TWO_TO_CURRENT_DB, 2).apply {
             insertLegacySong(version = 2)
             execSQL(
                 "INSERT INTO library_meta(" +
@@ -68,26 +69,14 @@ class RoomMigrationContractTest {
         }
 
         helper.runMigrationsAndValidate(
-            TWO_TO_EIGHT_DB,
-            8,
+            TWO_TO_CURRENT_DB,
+            17,
             true,
-            MIGRATION_2_3,
-            MIGRATION_3_4,
-            MIGRATION_4_5,
-            MIGRATION_5_6,
-            MIGRATION_6_7,
-            MIGRATION_7_8,
+            *MIGRATIONS_TWO_TO_CURRENT,
         ).close()
 
-        val database = Room.databaseBuilder(context, MicaDatabase::class.java, TWO_TO_EIGHT_DB)
-            .addMigrations(
-                MIGRATION_2_3,
-                MIGRATION_3_4,
-                MIGRATION_4_5,
-                MIGRATION_5_6,
-                MIGRATION_6_7,
-                MIGRATION_7_8,
-            )
+        val database = Room.databaseBuilder(context, MicaDatabase::class.java, TWO_TO_CURRENT_DB)
+            .addMigrations(*MIGRATIONS_TWO_TO_CURRENT)
             .build()
         try {
             runBlocking {
@@ -113,6 +102,33 @@ class RoomMigrationContractTest {
         }
     }
 
+    @Test
+    fun migrationSixteenToSeventeenAddsOrderedPlaylistTables() {
+        helper.createDatabase(SIXTEEN_TO_SEVENTEEN_DB, 16).close()
+
+        helper.runMigrationsAndValidate(
+            SIXTEEN_TO_SEVENTEEN_DB,
+            17,
+            true,
+            MIGRATION_16_17,
+        ).use { database ->
+            database.execSQL(
+                "INSERT INTO playlists(id, name, sortField, sortDirection, position) " +
+                    "VALUES ('playlist', 'Migrated', 'custom', 'asc', 0)",
+            )
+            database.execSQL(
+                "INSERT INTO playlist_songs(playlistId, songId, position) " +
+                    "VALUES ('playlist', 'song', 0)",
+            )
+            database.query(
+                "SELECT songId FROM playlist_songs WHERE playlistId = 'playlist'",
+            ).use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals("song", cursor.getString(0))
+            }
+        }
+    }
+
     private fun SupportSQLiteDatabase.insertLegacySong(version: Int) {
         val externalLyricsColumn = if (version >= 3) ", externalLyricsSignature" else ""
         val externalLyricsValue = if (version >= 3) ", 'legacy-signature'" else ""
@@ -135,6 +151,24 @@ class RoomMigrationContractTest {
 
     private companion object {
         const val FOUR_TO_FIVE_DB = "room-migration-4-5"
-        const val TWO_TO_EIGHT_DB = "room-migration-2-8"
+        const val TWO_TO_CURRENT_DB = "room-migration-2-current"
+        const val SIXTEEN_TO_SEVENTEEN_DB = "room-migration-16-17"
+        val MIGRATIONS_TWO_TO_CURRENT = arrayOf(
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+            MIGRATION_6_7,
+            MIGRATION_7_8,
+            MIGRATION_8_9,
+            MIGRATION_9_10,
+            MIGRATION_10_11,
+            MIGRATION_11_12,
+            MIGRATION_12_13,
+            MIGRATION_13_14,
+            MIGRATION_14_15,
+            MIGRATION_15_16,
+            MIGRATION_16_17,
+        )
     }
 }

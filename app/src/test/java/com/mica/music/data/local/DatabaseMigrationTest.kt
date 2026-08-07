@@ -615,6 +615,42 @@ class DatabaseMigrationTest {
         helper.close()
     }
 
+    @Test
+    fun migrationSixteenToSeventeenCreatesOrderedPlaylistTablesWithCascade() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(16) {
+                    override fun onConfigure(db: SupportSQLiteDatabase) {
+                        db.setForeignKeyConstraintsEnabled(true)
+                    }
+
+                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_16_17.migrate(db)
+        db.execSQL(
+            "INSERT INTO playlists(id, name, sortField, sortDirection, position) " +
+                "VALUES ('playlist', 'Migrated', 'custom', 'asc', 0)",
+        )
+        db.execSQL(
+            "INSERT INTO playlist_songs(playlistId, songId, position) VALUES ('playlist', 'song', 0)",
+        )
+        db.execSQL("DELETE FROM playlists WHERE id = 'playlist'")
+
+        assertEquals(setOf("playlistId", "songId", "position"), tableColumns(db, "playlist_songs"))
+        db.query("SELECT COUNT(*) FROM playlist_songs").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        helper.close()
+    }
+
     private fun tableColumns(
         db: SupportSQLiteDatabase,
         table: String,

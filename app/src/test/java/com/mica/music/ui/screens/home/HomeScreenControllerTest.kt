@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
+import com.mica.music.data.local.MicaDatabase
 import com.mica.music.testutil.SongFixtures
 import com.mica.music.ui.components.SongMenuAction
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -25,6 +27,9 @@ class HomeScreenControllerTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        context.getSharedPreferences("mica_playlists", Context.MODE_PRIVATE).edit().clear().commit()
+        MicaDatabase.resetForTests()
+        runBlocking { MicaDatabase.get(context).playlistDao().deleteAll() }
         playlistStore = PlaylistStore(context)
         library = MusicLibrary(context)
         controller = HomeScreenController(library, playlistStore)

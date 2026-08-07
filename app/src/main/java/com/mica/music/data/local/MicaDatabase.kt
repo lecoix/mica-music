@@ -14,8 +14,10 @@ import com.mica.music.util.DiagnosticLog
         PendingSongLyricsEntity::class,
         LibraryMetaEntity::class,
         BrowseGroupEntity::class,
+        PlaylistEntity::class,
+        PlaylistSongEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -27,6 +29,8 @@ abstract class MicaDatabase : RoomDatabase() {
     abstract fun libraryMetaDao(): LibraryMetaDao
 
     abstract fun browseGroupDao(): BrowseGroupDao
+
+    abstract fun playlistDao(): PlaylistDao
 
     companion object {
         internal const val DATABASE_NAME = "mica_library.db"
@@ -59,6 +63,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_13_14,
                             MIGRATION_14_15,
                             MIGRATION_15_16,
+                            MIGRATION_16_17,
                         )
                         .build()
                         .also {
@@ -70,5 +75,11 @@ abstract class MicaDatabase : RoomDatabase() {
                         }
                 }
             }
+
+        internal fun resetForTests() = synchronized(this) {
+            val staleInstance = instance
+            instance = null
+            runCatching { staleInstance?.close() }
+        }
     }
 }
