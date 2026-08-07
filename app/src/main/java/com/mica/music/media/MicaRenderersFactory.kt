@@ -67,7 +67,6 @@ internal class MicaRenderersFactory(
         return DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(false)
             .setEnableAudioOutputPlaybackParameters(false)
-            .setAudioOffloadSupportProvider(MicaMp3OffloadSupportProvider(context))
             .setAudioProcessorChain(processorChain)
             .build()
     }
@@ -286,7 +285,6 @@ internal class MicaRenderersFactory(
         return DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioOutputPlaybackParameters(false)
-            .setAudioOffloadSupportProvider(MicaMp3OffloadSupportProvider(context))
             .setAudioProcessorChain(chain)
             .build()
     }

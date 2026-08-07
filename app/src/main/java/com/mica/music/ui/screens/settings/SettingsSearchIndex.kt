@@ -159,6 +159,7 @@ internal object SettingsSearchIndex {
         setting("audio.focus", "独占音频焦点", "音频焦点", "暂停其他应用", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "下次开始播放或切歌时生效"),
 
         setting("diagnostics.metadata", "元数据调试", "ID3", "Vorbis", "解析器", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
+        setting("diagnostics.audio-offload", "音频硬件卸载（Offload）", "offload", "硬件解码", "DSP", "PCM", "省电", "失速", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.spatial-audio", "系统空间音频", "Spatializer", "输出", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.app-settings", "系统权限与应用信息", "权限", "通知", "应用信息", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
 

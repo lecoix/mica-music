@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +47,7 @@ import com.mica.music.data.ArtistNames
 import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.preferences.LibraryBrowseSettings
+import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -77,12 +79,20 @@ fun SettingsScreen(
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
     var settingsSearchOpen by remember { mutableStateOf(false) }
     var settingsSearchQuery by remember { mutableStateOf("") }
+    var audioOffloadState by remember { mutableStateOf(AudioOffloadPreferences.state(context)) }
     val settingsSubpageBackEnabled = canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
     val settingsSearchBackEnabled = selectedCategory == null && settingsSearchOpen
     val settingsBackEnabled = settingsSubpageBackEnabled || settingsSearchBackEnabled
     val settingsSearchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
+
+    DisposableEffect(context) {
+        val unregister = AudioOffloadPreferences.registerChangeListener(context) {
+            audioOffloadState = it
+        }
+        onDispose(unregister)
+    }
 
     LaunchedEffect(settingsSearchOpen) {
         if (settingsSearchOpen) {
@@ -351,6 +361,11 @@ fun SettingsScreen(
                     SettingsCategory.DIAGNOSTICS -> {
                         DiagnosticsSettingsPanel(
                             hasSongs = library.songs.isNotEmpty(),
+                            audioOffloadState = audioOffloadState,
+                            onAudioOffloadChanged = { enabled ->
+                                AudioOffloadPreferences.setEnabled(context, enabled)
+                                audioOffloadState = AudioOffloadPreferences.state(context)
+                            },
                             onOpenMetadataDebug = onOpenMetadataDebug,
                             onOpenSpatialAudio = onOpenSpatialAudio,
                             onOpenAppSettings = { openAppSettings(context) },

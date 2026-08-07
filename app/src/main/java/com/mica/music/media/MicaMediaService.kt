@@ -24,6 +24,7 @@ import com.google.common.util.concurrent.SettableFuture
 import com.mica.music.MainActivity
 import com.mica.music.MicaApp
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
@@ -55,7 +56,10 @@ class MicaMediaService : MediaSessionService() {
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
     private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
+    private var unregisterAudioOffloadPreferenceListener: (() -> Unit)? = null
     private var playbackRouteMonitor: PlaybackRouteMonitor? = null
+    private var audioOffloadCircuitBreaker: AudioOffloadCircuitBreaker? = null
+    private var lastConfiguredOffloadEnabled: Boolean? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -87,6 +91,7 @@ class MicaMediaService : MediaSessionService() {
         compositePlayer = stack.compositePlayer
         replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
 
+        installAudioOffloadCircuitBreaker(stack.exoPlayer)
         wireEqualizerAndSpectrumHandlers()
         installPlaybackRouteMonitor()
         configureQualityMode(
@@ -162,6 +167,22 @@ class MicaMediaService : MediaSessionService() {
             LyricsPreferences.registerNotificationLyricsChangeListener(this) {
                 mainHandler.post(::updateMediaButtonPreferences)
             }
+        unregisterAudioOffloadPreferenceListener =
+            AudioOffloadPreferences.registerChangeListener(this) { state ->
+                mainHandler.post {
+                    if (state.enabled) {
+                        audioOffloadCircuitBreaker?.resetForManualRetry()
+                    } else {
+                        audioOffloadCircuitBreaker?.invalidateExternalBoundary()
+                    }
+                    val changed = configureQualityMode(
+                        exoPlayer ?: return@post,
+                        dspEnabled = EqualizerPreferences.equalizerEnabled(this@MicaMediaService),
+                        spectrumTapEnabled = spectrumTapEnabled(),
+                    )
+                    if (changed) flushAudioPipeline("offload-user-enabled=${state.enabled}")
+                }
+            }
         playbackEngineCoordinator?.onPlaybackBoundary = { boundary ->
             mediaSession?.broadcastCustomCommand(
                 PlaybackBoundarySessionEvent.command,
@@ -191,6 +212,8 @@ class MicaMediaService : MediaSessionService() {
         playbackRouteMonitor = null
         unregisterLyricsPreferenceListener?.invoke()
         unregisterLyricsPreferenceListener = null
+        unregisterAudioOffloadPreferenceListener?.invoke()
+        unregisterAudioOffloadPreferenceListener = null
         sessionScope?.cancel()
         sessionScope = null
         trustedMediaItemResolver = null
@@ -209,6 +232,12 @@ class MicaMediaService : MediaSessionService() {
         carBluetoothLyricsSession = null
         playbackEngineCoordinator?.release()
         playbackEngineCoordinator = null
+        audioOffloadCircuitBreaker?.let { breaker ->
+            exoPlayer?.removeListener(breaker)
+            exoPlayer?.removeAudioOffloadListener(breaker)
+            breaker.release()
+        }
+        audioOffloadCircuitBreaker = null
         mediaSession?.release()
         mediaSession = null
         exoPlayer?.release()
@@ -443,6 +472,7 @@ class MicaMediaService : MediaSessionService() {
     private fun wireEqualizerAndSpectrumHandlers() {
         MicaEqualizerManager.onEnabledChanged = { enabled ->
             mainHandler.post {
+                audioOffloadCircuitBreaker?.invalidateExternalBoundary()
                 playbackStateCoordinator?.setQualityMode(
                     if (enabled) AudioQualityMode.DSP else AudioQualityMode.HIFI,
                 )
@@ -457,6 +487,7 @@ class MicaMediaService : MediaSessionService() {
 
         MicaSpectrumAnalyzer.onEnabledChanged = { enabled ->
             mainHandler.post {
+                audioOffloadCircuitBreaker?.invalidateExternalBoundary()
                 configureQualityMode(
                     exoPlayer ?: return@post,
                     dspEnabled = EqualizerPreferences.equalizerEnabled(this@MicaMediaService),
@@ -498,6 +529,7 @@ class MicaMediaService : MediaSessionService() {
             context = this,
             mainHandler = mainHandler,
         ) { previous, current, event ->
+            audioOffloadCircuitBreaker?.invalidateExternalBoundary()
             flushAudioPipeline(
                 reason = "route-change event=$event " +
                     "${previous.deviceName}->${current.deviceName}",
@@ -521,8 +553,13 @@ class MicaMediaService : MediaSessionService() {
         exoPlayer: ExoPlayer,
         dspEnabled: Boolean,
         spectrumTapEnabled: Boolean,
-    ) {
-        val offloadDisabled = dspEnabled || spectrumTapEnabled
+    ): Boolean {
+        val preferenceState = AudioOffloadPreferences.state(this)
+        val offloadDisabled = dspEnabled ||
+            spectrumTapEnabled ||
+            !preferenceState.enabled ||
+            audioOffloadCircuitBreaker?.sessionDisabled == true
+        val offloadEnabled = !offloadDisabled
         val offloadMode = if (offloadDisabled) {
             TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED
         } else {
@@ -537,7 +574,52 @@ class MicaMediaService : MediaSessionService() {
             .build()
         DiagnosticLog.event(
             "AudioQuality",
-            "mode=${if (dspEnabled) "DSP" else "HIFI"} dsp=$dspEnabled spectrum=$spectrumTapEnabled offload=${!offloadDisabled}",
+            "mode=${if (dspEnabled) "DSP" else "HIFI"} dsp=$dspEnabled " +
+                "spectrum=$spectrumTapEnabled offload=$offloadEnabled " +
+                "preference=${preferenceState.enabled} circuitOpen=${audioOffloadCircuitBreaker?.sessionDisabled == true}",
         )
+        val changed = lastConfiguredOffloadEnabled != offloadEnabled
+        lastConfiguredOffloadEnabled = offloadEnabled
+        return changed
+    }
+
+    private fun installAudioOffloadCircuitBreaker(exo: ExoPlayer) {
+        val breaker = AudioOffloadCircuitBreaker(
+            snapshot = {
+                AudioOffloadPlaybackSnapshot(
+                    mediaId = exo.currentMediaItem?.mediaId,
+                    uriScheme = exo.currentMediaItem?.localConfiguration?.uri?.scheme?.lowercase(),
+                    playbackState = exo.playbackState,
+                    playWhenReady = exo.playWhenReady,
+                    isPlaying = exo.isPlaying,
+                    playbackSuppressionReason = exo.playbackSuppressionReason,
+                    totalBufferedDurationMs = exo.totalBufferedDuration,
+                    currentPositionMs = exo.currentPosition,
+                )
+            },
+            scheduler = HandlerAudioOffloadWatchdogScheduler(mainHandler),
+            onFallbackToPcm = {
+                DiagnosticLog.event(
+                    "AudioOffload",
+                    "stall-detected fallback=pcm mediaId=${exo.currentMediaItem?.mediaId}",
+                )
+                configureQualityMode(
+                    exo,
+                    dspEnabled = EqualizerPreferences.equalizerEnabled(this),
+                    spectrumTapEnabled = spectrumTapEnabled(),
+                )
+                flushAudioPipeline("offload-stall-fallback")
+            },
+            onVerifiedFailure = {
+                DiagnosticLog.event(
+                    "AudioOffload",
+                    "pcm-recovery-verified disable-current-build=true",
+                )
+                AudioOffloadPreferences.recordVerifiedFailure(this)
+            },
+        )
+        audioOffloadCircuitBreaker = breaker
+        exo.addListener(breaker)
+        exo.addAudioOffloadListener(breaker)
     }
 }
