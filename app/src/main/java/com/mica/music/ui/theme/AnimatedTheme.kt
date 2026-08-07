@@ -1,5 +1,6 @@
 package com.mica.music.ui.theme
 
+import android.annotation.SuppressLint
 import android.graphics.BitmapFactory
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
@@ -217,6 +218,10 @@ internal sealed interface CustomWallpaperImageState {
     data class Ready(val image: ImageBitmap) : CustomWallpaperImageState
 }
 
+// ProduceStateDoesNotAssignValue 是 K2 UAST 下的已知误报：
+// producer lambda 已在所有分支对 value 赋值，但该 lint 无法解析 `value =` 的 setter 引用。
+// 见 https://issuetracker.google.com/issues/376491756
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 internal fun rememberCustomWallpaperImage(path: String?): CustomWallpaperImageState {
     val file = remember(path) {
