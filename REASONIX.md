@@ -14,8 +14,8 @@
 ## Layout
 
 - `app/src/main/java/com/mica/music/`
-  - `data/` — `Song`, Room, scanner, `PlayerController`, `AppUiSettings`, `PlaybackQueueMode`, `PlayerCoverFlowMode`, `PlayerLowerBackgroundMode`
-  - `media/` — Exo 播放管线、`MicaMediaService`、`MicaCompositePlayer`、`ServicePlaybackStateStore`、`ServicePlaybackEngineCoordinator`、DSF、EQ（`media/eq/`）
+  - `data/` — `Song`, Room（曲库 + `PlaylistStore` 歌单）, scanner, `PlayerController`, `PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator`, `PlaybackConnectionSession`, `AppUiSettings`, `PlaybackQueueMode`, `PlayerCoverFlowMode`, `PlayerLowerBackgroundMode`
+  - `media/` — Exo 播放管线、`MicaMediaService`、`AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、`MicaCompositePlayer`、`ServicePlaybackStateStore`、`ServicePlaybackEngineCoordinator`、DSF、EQ（`media/eq/`）
   - `ui/components/` — `PlayerSheetHost`, `MiniPlayer`, `SongRow`, `LyricsDisplay`, …
   - `ui/screens/` — `HomeScreen`, `NowPlayingScreen`, `SettingsScreen`, …
   - `ui/screens/player/` — `PlayerPageLayoutEngine`、封面流 View 岛（`CoverFlowRails`）、粒子封面（现网 `ParticleCoverHost` / `ParticleCoverRenderer` GLES；`ThreeParticleCoverHost` WebView 回退）、拍立得（`PhotoStackTransitionHost`）
@@ -30,6 +30,7 @@
 - **播放页：** `PlaybackSurfaceState` / `PlaybackProgressState` / `PlaybackQueueState` + `NowPlayingActions`（`PlayerSheetHost` / `NowPlayingScreen` 不得直接收 `PlayerController`）
 - **主页 / 列表：** `HomePlaybackState` + `HomePlaybackActions`（`HomeScreen`、搜索与列表组件同上）
 - **装配层例外：** `MainActivity` / `AppNavigation` 持有 `PlayerController` 并翻译 state/actions
+- **状态所有权：** 队列 / 时间轴 / 调音由 `Playback*Coordinator` 收口；`PlaybackConnectionSession` 用连接 generation 拒绝旧连接回调，陈旧队列镜像不会覆盖新状态
 - **冷启动恢复：** `ServicePlaybackStateStore` + `PlayerController.bootstrapQueue()`（service_wins）；`PlaybackSessionStore` 仅补 shuffle 等 App 偏好
 
 ## Docs (read order)

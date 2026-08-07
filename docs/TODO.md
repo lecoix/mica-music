@@ -1,6 +1,6 @@
 # Mica 功能清单
 
-> 最后整理：2026-08-02。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
+> 最后整理：2026-08-07。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
 
 ---
 
@@ -16,6 +16,7 @@
 - [x] 播放次数记录（`PlayHistoryStore`，供「最近播放」等）
 - [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（不自动续播）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
 - [x] 文件夹浏览模式：层级浏览与**扁平浏览**均已持久化；扁平模式只列出直接包含歌曲的目录，不把仅包含子目录的父目录重复列出
+- [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（schema v17）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
 
 
 
@@ -25,6 +26,7 @@
 - [x] LRC 时间轴解析；播放页 **三行歌词**（上句 / 当前 / 下句）
 - [x] **毫秒级**进度同步（约 50ms 轮询）
 - [x] **歌词聚焦**：播放页内点击歌词区，封面动画缩至左上角，展开大字歌词；无独立页面；底部控制条不变
+- [x] **歌词结构化角色与逐字时间保留**：入库不再把显示分隔符改写为 `TRANSLATION`；TTML/SPL/逐字 token 角色与行结束时间原样保留，文本分隔仅用于展示层
 
 
 
@@ -34,6 +36,8 @@
 - [x] **ExoPlayer 单链路播放**：普通格式、ALAC/DSF 等均由 ExoPlayer / Media3 扩展链路处理；不再走整首 `.pcm` 落盘 + `AudioTrack` 自建播放管线
 - [x] 播放队列、上一首 / 下一首、拖动进度条 seek、缓冲与错误提示
 - [x] 外部文件管理器打开音频：消费 `ACTION_VIEW` 的 `content://` 音频 URI，支持冷启动与 warm `onNewIntent()`；已知曲目复用曲库记录，否则使用不持久化的临时单曲替换当前队列
+- [x] **播放状态所有权收拢**：队列 / 时间轴 / 调音状态分别由 `PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator` 集中；`PlaybackConnectionSession` 拒绝旧连接回调，陈旧队列镜像结果按请求号 / revision / 当前连接丢弃
+- [x] **外部队列恢复边界**：只有 URI 权限可跨重启存续的外部歌曲进入 `ServicePlaybackStateStore` 快照；临时不可恢复队列不落盘
 - [x] **累计播放时长**统计（按曲 / 全库；切歌与暂停时落盘；音乐库分析或统计栏展示）
 - [x] **播放模式**：顺序 / 列表循环 / 单曲循环 / 随机（单按钮切换）
 - [x] 播放页 **播放列表** 底部弹层（查看队列、点击切歌）
@@ -203,6 +207,7 @@
 
 - [x] **EQ** 均衡器（10 段软件 EQ、系统/自定义预设、保存配置；界面已重做为横向推子布局）
 - [x] **均衡器全局增益（Preamp / Master Gain）**：EQ 页提供可调全局输出增益并持久化；与现有 EQ 限幅协调，避免削波
+- [x] **音频管线协调与 offload 熔断**：EQ / 频谱 tap / offload 偏好 / 路由事件统一由 `AudioPipelineCoordinator` 串行处理；offload 失速经 `AudioOffloadCircuitBreaker` 确认后按 build fingerprint 记录失败并回 PCM，设置可手动重试
 - [x] **横屏**播放页基础实现：播放页、队列侧栏及全局窗口横屏布局已接入；视觉、生命周期、音频连续性仍需真机验收
 - [ ] 车机模式
 - [ ] 多文件夹读取（扫描授权仍是单一根目录；这不是已实现的“扁平浏览”模式）
@@ -226,9 +231,7 @@
   - **治本**：View + Canvas 七轨（`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)`）——无 Compose 槽位重建、Coil 缓存位图直绘、`railOffset` 单轨末帧连续。
   - **仍保留的通用优化**：模糊背景 `.size(384)` 降采样；`SongCover` `stableMemoryCacheKey`；`[MicaImageLoaders](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt)` 预载。
   - **验收**：平行 / 复古 × 各播放页背景下连续切歌与拖动；无闪帧、无松手跳变。
-- [ ] **歌单功能正式化**
-  - **加入曲库栏**：获得单独列表页
-  - **正式功能**：编辑名称、导入导出、封面修改
+- [x] **歌单功能正式化**：歌单已有侧栏列表 / 新建 / 详情 / 播放 / 删除、重命名、导入导出 JSON、歌曲封面与自定义封面管理；2026-08-07 起持久化迁至 Room（schema v17）。尚未实现智能歌单条件
 - [ ] **歌曲年份信息**
   - **月日信息**
 ---

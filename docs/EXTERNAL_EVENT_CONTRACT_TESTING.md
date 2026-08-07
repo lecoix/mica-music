@@ -218,3 +218,15 @@ Mock 适合验证本模块如何响应输入，不适合证明外部系统会产
 对应测试同时观察原始 Player 回卷和最终播放 session，并覆盖连续三轮循环、通知歌词元数据替换、自然下一首、显式重播、暂停恢复、手动 seek 和 Controller 接入。
 
 这套实现解决的是当前播放统计问题；它不能证明所有 OEM、进程死亡和后台生命周期都已覆盖。未覆盖部分仍应在发布前设备矩阵中明确验收。
+
+## 9. 2026-08-07 落地案例
+
+近期改动继续沿用「权威源与观察层分离 + 显式代际拒绝」：
+
+1. **旧连接回调**：`PlaybackConnectionSession` 为每次连接维护独立 generation，`onConnected` / `onDisconnected` / `onFailure` / `onPlaybackBoundary` 只接受当前 generation；重试或释放会作废旧连接及其回调。覆盖：`PlayerControllerBoundaryTest`。
+2. **陈旧队列镜像**：`PlaybackQueueMirrorCoordinator` 在 debounce 结束、镜像构建完成后都会复检请求号、`isCurrentPlayer()` 与本地 `revision`；任一变化即丢弃结果，不发布到新队列之上。覆盖：`PlaybackQueueMirrorTest`、`MediaControllerQueueSyncTest`、`PlayerControllerQueueModelTest`。
+3. **外部 URI 可恢复性**：`persistExternalAudioUriPermission` 只对 `content://` 且带可持久化 grant（或 MediaStore authority）的 URI 返回成功；`TransientPlaybackCatalog` 仅标记可恢复歌曲，`ServicePlaybackStateCoordinator` 只把整队可恢复的临时队列写入恢复快照，否则清空。覆盖：`ExternalAudioOpenTest`、`TransientPlaybackCatalogTest`、`ServicePlaybackStateCoordinatorTest`。
+4. **offload 熔断的延迟任务**：`AudioOffloadCircuitBreaker` 的失速/确认任务携带 generation 与 mediaId，媒体切换、偏好或路由变化时作废；`AudioPipelineCoordinator` 保证旧熔断工作不会跨新配置落盘。覆盖：`AudioOffloadCircuitBreakerTest`、`AudioPipelineCoordinatorTest`。
+5. **歌单写库顺序**：`PlaylistStore` 的每次变更先经 Room 事务成功，再更新内存；写失败不发布内存变更。启动迁移失败不会把半迁移状态发布给 UI。覆盖：`PlaylistStoreTest`、`RoomMigrationContractTest`。
+
+这些案例不改变前文的测试纪律：真实组件契约测试仍只在设备/模拟器矩阵中覆盖，JVM 测试不能证明 OEM 派发行为。

@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-08-02
+> 最后整理：2026-08-07
 > 范围：本仓库 **Mica Android** 文档（不含 `.icey-ref/`、`.codex-push-*` 副本）。
 
 ---
@@ -39,6 +39,9 @@
 | 文档 | 用途 |
 |------|------|
 | [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md) | 外部事件源、框架回调与状态机之间的契约测试原则；防止 mock 输入模型与生产事件流脱节 |
+| [`TESTING.md`](TESTING.md) | 质量门、测试分层、播放/队列/数据库契约与真机验收清单 |
+| [`SETTINGS_AUDIT_MATRIX.md`](SETTINGS_AUDIT_MATRIX.md) | 设置入口 → 持久化 owner/key → 运行时消费点的静态审计矩阵 |
+| [`APP_UPDATE.md`](APP_UPDATE.md) | 更新清单、发布 workflow 与国内镜像接入说明 |
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库扫描架构、TagLib fork 接入、增量复用、性能实测与冷扫上界结论 |
@@ -124,4 +127,5 @@
 | 2026-08-01 | 新增 `ADDING_AUDIO_FORMAT_SUPPORT.md`：沉淀 APE 接入中的帧边界、seek、频谱时钟和 JNI 缓冲区扩容经验 |
 | 2026-08-02 | 更新 SDK、封面行为、Hi‑Res、DSD renderer split 与 TODO 状态；新增 `CURRENT_FEATURE_STATUS.md`，补录外部音频、扁平浏览、Letter、睡眠定时和 Room v15 |
 | 2026-08-07 | 新增 `LIBRARY_SCAN.md`：扫描流水线、性能 (9)(10)(11) 与暂缓优化方向 |
+| 2026-08-07 | 全量文档审计：同步歌单 Room（schema v17）、播放状态所有权收拢、offload 熔断、外部队列恢复边界、歌词结构化角色；补录 `TESTING` / `SETTINGS_AUDIT_MATRIX` / `APP_UPDATE` 到索引 |
 | 2026-08-06 | 新增 `SPECTRUM_STALL_BUG.md`：VORACITY 频谱停滞根因、解耦修复与输出设备参考调研 |

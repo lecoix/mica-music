@@ -4,7 +4,7 @@
 >
 > **基线**：`main`（three-dot：`git diff main...HEAD`）
 >
-> **审查日期**：2026-06-16（初版）· 2026-06-19（exoplayer-only 第三～四轮）
+> **审查日期**：2026-06-16（初版）· 2026-06-19（exoplayer-only 第三～四轮）· 2026-08-07（状态所有权收拢）
 >
 > **范围**：
 > - `refactor/playback-architecture`：约 150 文件，+11 166 / −1 438 行；Media3/软件双后端、Service 侧协调器、输入缓存
@@ -382,6 +382,32 @@ app/build.gradle.kts:L17-145: shrink: 三套 media3-ffmpeg 解析路径. 定一�
 
 ---
 
+## 2026-08-07 复核：状态所有权收拢与数据层边界
+
+本分支继续沿「服务权威、App 镜像」方向收口，重点是把 Controller 内散落的可变状态收成单一 owner，并用显式 generation/request/revision 拒绝旧回调与旧镜像：
+
+| 提交 | 内容 | 覆盖测试 |
+|------|------|----------|
+| `1e39fe64` | `PlaybackQueueCoordinator` 收口队列模型与镜像调度；陈旧镜像在请求号、本地 revision 或当前连接变化后丢弃 | `PlayerControllerQueueModelTest`、`PlaybackQueueMirrorTest`、`MediaControllerQueueSyncTest` |
+| `24d638d7` | `PlaybackTimelineCoordinator` 收口进度、时长、pending seek 与恢复钉点 | `PlaybackTimelineCoordinatorTest`、`PendingSeekClearTest` |
+| `ce406e47` | `PlaybackTuningCoordinator` 收口 speed/pitch 的 requested/effective 状态 | `PlaybackTuningCoordinatorTest` |
+| `406524ce` | `PlaybackConnectionSession` 用连接 generation 拒绝旧连接回调与播放边界 | `PlayerControllerBoundaryTest` |
+| `375ba818` | 陈旧队列镜像结果不可覆盖新本地队列 | 见上镜像测试 |
+| `dac84b0c` | 外部队列仅在有可存续 URI 权限时进入恢复快照 | `ExternalAudioOpenTest`、`TransientPlaybackCatalogTest`、`ServicePlaybackStateCoordinatorTest` |
+| `e22edeb7` | `AudioPipelineCoordinator` 集中 EQ / 频谱 tap / offload 偏好 / 路由事件 | `AudioPipelineCoordinatorTest` |
+| `83e324ba` | `AudioOffloadCircuitBreaker` 确认失速后按 build fingerprint 停用 offload | `AudioOffloadCircuitBreakerTest`、`AudioOffloadPreferencesRobolectricTest` |
+| `523bc418` | Song 模型与 UI 解耦：`coverColor` 移到 UI 主题扩展，格式标签经 `metadata`；`LyricLine` / `LyricCue` 收进数据层 | `SongEntityTest`、`SongRowTest` |
+| `20075b8e` | 歌单持久化迁到 Room（schema v17）；旧 `mica_playlists` JSON 一次性迁移 | `PlaylistStoreTest`、`RoomMigrationContractTest`、`DatabaseMigrationTest` |
+
+结论与残留风险：
+
+- 播放侧权威边界保持成立：Service 原始 Player 仍是出声真相源，Controller 内只保留派生镜像；本次改动把「旧连接/旧镜像写回」从依赖回调顺序改为显式 generation/request/revision 拒绝。
+- 歌单 Room 化不改变曲库 snapshot 的 `scanGeneration` / `storeRevision` 协议；歌单写入与曲库发布是两套 owner。
+- offload 熔断按 build fingerprint 记录失败，仍不能替代真机 ROM 矩阵验收。
+- 未解决项维持原状：DFF 机会性复验；`TrackSwitchPerformance` / 环境诊断等诊断层等性能调查结案后再评估。
+
+---
+
 ## 修订记录
 
 | 日期 | 说明 |
@@ -402,3 +428,4 @@ app/build.gradle.kts:L17-145: shrink: 三套 media3-ffmpeg 解析路径. 定一�
 | 2026-06-19 | **第四轮 Ponytail**（`main..exoplayer-only`）：20 项可删减发现归档；`net: -450` 行（现）/ `-1700` 行（诊断结案 + 持久化瘦身后）；见 §Ponytail |
 | 2026-06-20 | 第一组低风险清理完成：删除旧 FFmpeg CLI asset 与构建脚本、`DecodePerformance`、`SoftwareAudioRouteState`；保留 Media3 FFmpeg decoder 构建链、DSD 能力检测及未结案性能诊断。`SoftwareAudioRouteState` 已确认零残余引用，删除后的 DSF 真机播放与输出规格选择正常。重新评估后，不再默认建议删除测试 seam、缩减 `SongMediaItemCodec` 或弱化服务队列恢复。 |
 | 2026-06-20 | 播放请求状态收缩：删除 Exo-only 后失效的 `PlaybackEngineState`、`setUserPlayIntent`、`generation`、请求级 `qualityMode` 等；保留当前请求身份、source revision、失败去重、自动跳曲计数及稳定播放后的计数重置。 |
+| 2026-08-07 | 第五轮复核：状态所有权收拢、陈旧连接/镜像拒绝、外部队列恢复边界、音频管线协调与 offload 熔断、Song/UI 解耦、歌单 Room 化 |

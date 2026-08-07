@@ -8,6 +8,8 @@
 > **架构集成风险**：§15（审查清单）、§7.4–§7.5（Service 重建与互斥）、§4.6–§4.7（调用点与持久化）  
 > **拿去问人**：先看 **§0 一页摘要** → **§18 Gate 与验收**；细节再查 §4–§7、§15。  
 > **执行默认（2026-07-08）**：**候选 X（统一固定链）**；G3-1b 仅 debug/perf 探索交付格式；Y 不再主推；**候选 R 仅作为 R0→R4 gated spike**；**P1 不再追 bit-preserve**。
+>
+> **2026-08-07 更新**：EQ / 频谱 tap / offload 偏好 / offload 熔断 / 路由事件已收拢到 `AudioPipelineCoordinator`；新增 `AudioOffloadCircuitBreaker`（失速确认后按 build fingerprint 停用 offload，设置可手动重试）。实现细节见 `CONTEXT.md` → **Audio pipeline coordinator**；本文历史 Gate 结论不变。
 
 ---
 
@@ -2633,3 +2635,4 @@ R0 通过，R 才值得作为中期主线 spike；R0 不通过，立即停止，
 | 2026-07-08 | **R 推广 release**：`PcmDeliveryExperiment.rendererSplit` 去掉 debug/perf 门控，全 build type 走 renderer-split+R4；启动日志 `scope=all-builds`；单测 `rendererSplit_enabledOnAllBuildTypes` |
 | 2026-07-08 | **R 定为终选 + G3-1b 废弃 + DSD EQ 补线 + 文档同步**：`buildDsdAudioSink` 接入 `MicaEqualizerManager.createAudioProcessor()`（24-bit int EQ，纯增量，实机通过）；G3-1b per-song rebuild 代码已删除，AUTO race 作废；状态头/§0/§18.13/§18.14 候选表 + R1b 验收状态同步；提交 `codex/audio-renderer-split-r4` |
 | 2026-07-08 | **§18.14.10g R4 验收通过**（log 41）：变速变调进度正常（AudioTrack 硬件参数、时钟正确）；FLAC↔DSD 混切 0 rebuild/OUTPUT_FAILED（R2 不回归）；EQ 关&频谱关 bit-exact 直通；kill+restore 进度正常。float 路径同时兼容 频谱+EQ+硬件变速变调，debug/perf 生效、release 仍 X。遗留另立项（需 consent）：DSD 的 EQ/变速变调、release 启用 R4/R1b |
+| 2026-08-07 | 记录 `AudioPipelineCoordinator` 与 `AudioOffloadCircuitBreaker` 落地；状态/术语同步到 `CONTEXT.md` |

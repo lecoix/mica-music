@@ -64,9 +64,9 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 | **播放页主题** | 标准 / 自定义 / **粒子封面**（GLES）/ 平行封面带 / 复古立体 / **拍立得回忆** |
 | **播放页背景** | 主题色、封面渐变、封面模糊、流光溢彩 |
 | **播放页其他行为** | 沉浸模式、频谱条（可选）、封面底边进度、共享封面转场 |
-| **播放** | Media3 ExoPlayer 单链路；Jellyfin FFmpeg 扩展解码 ALAC/DSF/APE；顺序/循环/随机；10 段软件 EQ；通知歌词（可选） |
+| **播放** | Media3 ExoPlayer 单链路；Jellyfin FFmpeg 扩展解码 ALAC/DSF/APE；音频管线协调 + offload 失速熔断；顺序/循环/随机；10 段软件 EQ；通知歌词（可选） |
 | **曲库扫描** | MediaStore 或 SAF；深度元数据、封面缓存与取色、增量同步 |
-| **持久化** | Room 曲库；`ServicePlaybackStateStore` 冷启动恢复队列与进度 |
+| **持久化** | Room 曲库与歌单（schema v17）；`ServicePlaybackStateStore` 冷启动恢复队列与进度（外部队列仅在权限可存续时恢复） |
 | **歌词** | 内嵌 + 外挂 `.lrc` `逐字歌词` `TTML歌词`；三行歌词、展开歌词页、双语/逐字等设置 |
 | **浏览** | 歌曲 / 歌手 / 专辑 / 最近 / 歌单 / 音乐库分析 |
 | **迷你栏** | 浮岛毛玻璃（BlurView）/ 极简 Hi‑Fi 底栏 |
@@ -95,6 +95,8 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 `data/MockData.kt` 为早期占位，**主流程已不再使用**。
 
+`data/` 下另有 `PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator` 与 Room 后端的 `PlaylistStore`；`media/` 下为 `AudioPipelineCoordinator` 与 `AudioOffloadCircuitBreaker` 等协调模块。
+
 ---
 
 
@@ -105,6 +107,8 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 - 设计规范：[`DESIGN_SPEC.md`](./DESIGN_SPEC.md)
 - 动效与 Compose/View 分工：[`docs/MOTION.md`](./docs/MOTION.md)
 - 功能清单：[`docs/TODO.md`](./docs/TODO.md)
+- 近期功能与验收边界：[`docs/CURRENT_FEATURE_STATUS.md`](./docs/CURRENT_FEATURE_STATUS.md)
+- 设置矩阵：[`docs/SETTINGS_AUDIT_MATRIX.md`](./docs/SETTINGS_AUDIT_MATRIX.md)
 - 测试：[`docs/TESTING.md`](./docs/TESTING.md)
 
 ---

@@ -180,11 +180,21 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 ### P1 状态写入、迁移与系统事件契约
 
 - `NotificationLyricsMedia3ContractTest.realQueueWritesKeepPlayerAndMirrorAlignedWithoutFalsePlayCounts`：真实 ExoPlayer/MediaSession/MediaController/PlayerController 连续执行三次 metadata replacement、preserve-current 重排、移动、删除当前/非当前项及删空；同时断言 Player 队列、UI 镜像、当前曲、进度和播放计数回调。
-- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 v15，`DatabaseMigrationTest` 另覆盖包含 `14→15` 的最新迁移，迁移后通过真实 `SongDao`/`LibraryMetaDao` 读回代表数据。
+- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 v17，`DatabaseMigrationTest` 另覆盖 `14→15`（重建 album browse group 纳入专辑艺术家）、`15→16`（`songs.embeddedLyricsProbeRevision`）与 `16→17`（`playlists` / `playlist_songs`），迁移后通过真实 `SongDao`/`LibraryMetaDao` 读回代表数据，`16→17` 建表另有独立契约测试。
 - `SongIdentityMigrationTest`：验证旧 URI hash ID 到稳定文档 ID 的一次性迁移，以及播放列表、播放历史、播放会话和曲库浏览偏好的引用同步。
 - `MicaMediaServiceNoisyReceiverTest`：Robolectric 验证 Service 只保留 Media3 内置 noisy receiver，一次广播只暂停一次，销毁时完成注销。设备端普通 App/shell UID 不能伪造受保护的 `AUDIO_BECOMING_NOISY`；OEM 音频焦点、真实耳机拔出和连续系统事件仍属于设备矩阵。
 
 Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极简表代替 `runMigrationsAndValidate`。
+
+### 2026-08-07 播放状态、歌单与外部事件回归
+
+最近一批状态所有权与持久化边界改动，除既有的 `micaCheck` 全量门禁外，重点回归套件：
+
+- `PlaybackTimelineCoordinatorTest` / `PlaybackTuningCoordinatorTest` / `PlayerControllerQueueModelTest`：时间轴、调音与队列 UI 状态的单一 owner 语义；`PlaybackQueueMirrorTest` / `MediaControllerQueueSyncTest` / `PlayerControllerBoundaryTest` 覆盖陈旧队列镜像与旧连接回调被拒绝。
+- `AudioPipelineCoordinatorTest` / `AudioOffloadCircuitBreakerTest` / `AudioOffloadPreferencesRobolectricTest`：EQ / 频谱 / offload 偏好变化使旧熔断任务失效；确认失速后回 PCM、按 build fingerprint 记录失败、手动重试与系统更新后重试。
+- `ExternalAudioOpenTest` / `TransientPlaybackCatalogTest` / `ServicePlaybackStateCoordinatorTest`：只有 MediaStore authority 或已持久化 grant 的外部 URI 才进入恢复快照，不可存续临时队列不落盘。
+- `PlaylistStoreTest` / `RoomMigrationContractTest` / `DatabaseMigrationTest`：歌单写库成功后才更新内存；`mica_playlists` JSON 一次性迁移与 `16→17` 建表契约。
+- `LyricDisplayRowsTest` / `LyricsCloudLayoutTest` / `LyricsTimelineEngineTest`：入库不把显示分隔符改写成 `TRANSLATION`，歌词云逐字进度按 token 角色与行结束时间计算。
 
 ### a257a0f 架构重构：P1 真机验收清单
 
@@ -302,6 +312,8 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 **旧数据兼容（升级用户）**
 
 - 在已有 `mica_settings` 的设备上直接安装新包（不清数据）：上述各项应读出旧值，无需迁移步骤。
+- 已有旧 `mica_playlists` JSON 的设备首次启动后，歌单列表、歌曲顺序、排序、封面与自定义封面应一次性迁入 Room，后续增删改不再依赖 JSON；旧 key 可保留但不作为运行时事实来源。
+- 已有 Room v15/v16 数据库的设备升级后，`15→16` 只补 `embeddedLyricsProbeRevision` 列，`16→17` 建 `playlists` / `playlist_songs` 空表；不应丢失歌曲、歌词、浏览分组或播放历史。
 
 ### 并行真机 QA 包
 

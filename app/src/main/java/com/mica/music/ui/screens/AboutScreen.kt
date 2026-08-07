@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,16 +33,20 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mica.music.BuildConfig
 import com.mica.music.data.Song
 import com.mica.music.data.local.StorageDiagnostics
 import com.mica.music.data.scanner.AlbumArtCache
+import com.mica.music.media.PlaybackCapabilityDiagnostics
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.DiagnosticLog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AboutScreen(
@@ -91,7 +96,7 @@ fun AboutScreen(
             val versionName = remember(context) {
                 runCatching {
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                }.getOrNull() ?: "0.1.8-Exo-only"
+                }.getOrNull() ?: BuildConfig.VERSION_NAME
             }
 
             AboutHero()
@@ -127,6 +132,27 @@ fun AboutScreen(
             AboutParagraph(
                 "完整开源声明维护在仓库 docs/OPEN_SOURCE_NOTICES.md" ,
             )
+
+            Spacer(Modifier.height(HifiSpacing.lg))
+
+            var playbackReport by remember {
+                mutableStateOf<PlaybackCapabilityDiagnostics.Report?>(null)
+            }
+            LaunchedEffect(context) {
+                playbackReport = withContext(Dispatchers.Default) {
+                    PlaybackCapabilityDiagnostics.report(context)
+                }
+            }
+
+            SettingsSectionTitle("播放能力")
+            val report = playbackReport
+            if (report == null) {
+                AboutInfoRow(title = "探测中", subtitle = "正在读取 Exo / FFmpeg 扩展能力…")
+            } else {
+                report.lines.forEach { line ->
+                    AboutCapabilityRow(title = line.title, detail = line.detail)
+                }
+            }
 
             Spacer(Modifier.height(HifiSpacing.lg))
 
@@ -223,7 +249,7 @@ private fun AboutHero() {
             color = MicaTheme.colors.textPrimary,
         )
         Text(
-            text = "极简·直角",
+            text = "极简·直角·自定义",
             style = MicaTheme.typography.bodyMd,
             color = MicaTheme.colors.textSecondary,
             modifier = Modifier.padding(top = HifiSpacing.xxs),
@@ -294,6 +320,30 @@ private fun LicenseRow(
         HorizontalDivider(
             color = MicaTheme.colors.divider,
             modifier = Modifier.padding(top = HifiSpacing.sm),
+        )
+    }
+}
+
+@Composable
+private fun AboutCapabilityRow(
+    title: String,
+    detail: String,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
+    ) {
+        Text(
+            text = title,
+            style = MicaTheme.typography.bodyMd,
+            color = MicaTheme.colors.textPrimary,
+        )
+        Text(
+            text = detail,
+            style = MicaTheme.typography.monoSm,
+            color = MicaTheme.colors.textSecondary,
+            modifier = Modifier.padding(top = HifiSpacing.xxs),
         )
     }
 }

@@ -14,6 +14,7 @@ _Avoid_: caption、subtitle
 
 **LyricsDocument（歌词文档）**：
 渲染器无关的版本化歌词事实来源：格式（`LyricsFormat`）、来源位置（`LyricsOrigin`）、行、原文/读音/译文分段、逐字 token 与行结束时间。parser 只判定格式，reader 只判定来源位置，因此外挂 TTML、内嵌 LRC 等组合可以被准确表达。`LyricTextRole` 含 `ORIGINAL`、`READING`（文件自带罗马音/音译，如 TTML `x-roman` / `x-romanization`、Apple `iTunesMetadata/transliterations`，以及 LRC/SPL 同戳三行中的第 2 行 / 主行后紧邻无戳续行在三轨时的读音行）、`TRANSLATION`、`EXTRA`。LRC/SPL：同戳 2 行→原文+译文；同戳 3 行及以上→原文+读音+译文（对齐网易三轨合并）；主行后紧邻无时间戳行按 SPL 挂为续行（空行断开）。读音默认显示在原文上方，可由 `LyricsPreferences.lyricReadingEnabled` 关闭。LRC/SPL 逐行只丢空、`//`、纯音符、元数据/容器噪声（`LyricsSanitizer.isIgnorableLyricText`）；内嵌字节解码的乱码/可渲染性仍由 `LyricsEncoding` 负责。自数据库 v9 起，v2 对象 JSON 按 `EMBEDDED`、`EXTERNAL_LRC`、`EXTERNAL_TTML` 三槽持久化在 `song_lyrics.lyricsJson`，运行时先读取轻量槽位目录，再按用户优先级只读取并解码第一个有效载荷；损坏载荷回退到下一个已存在槽。`songs.lyricsJson` 仅作为 `MIGRATION_8_9` 的旧数据输入保留，不再是运行时事实来源，并应在后续显式 Room schema migration 中删除。`song_lyrics.revision` 为兼容字段，不作为读取可见性条件；读取失败时旧歌词按稳定 `songId` 保持可见。`lyricsDataVersion` 表示数据库已成功提交的 parser 代次，并参与 UI 与通知歌词的内存缓存键；parser 升级只有在完整扫描零歌词读取失败时才推进。v1 `source` 与历史 `[{t,x,c,e}]` 数组仅由 `LyricsDocumentCodec` 兼容读取。
+入库阶段不再用显示分隔符把普通文本改写成 `TRANSLATION`：`splitPartsAtIngest` 只保留源角色，文本分隔只是展示层启发式，结构化角色与逐字时间由源文档直接保留。
 _Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构；把 `songs.lyricsJson` 重新作为运行时歌词事实来源
 
 **Lyrics cache coordinator（歌词缓存协调器）**：
@@ -41,7 +42,7 @@ _Avoid_: 静态地按相邻歌词开始时间插入间奏
 _Avoid_: 从普通 LRC 的相邻开始时间推断歌词云间奏；让光团拦截歌词点击
 
 **Playlist（歌单）**：
-用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。
+用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v17）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。
 _Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`
 
 **Library scan settings（曲库扫描设置）**：
@@ -107,7 +108,7 @@ _Avoid_: 在多个 Composable 内复制 `deleteSongFile -> removeFromLibrary -> 
 _Avoid_: playlist、播放列表（指歌单时）
 
 **Library playback queue sync（曲库队列同步）**：
-曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / 整队替换 / 仅刷新元数据）。由 `MainActivity` 分别监听结构身份 `MusicLibrary.songIds` 与静态内容版本 `queueMetadataRevision`；后者排除播放次数、收听时长和最近播放时间，避免统计写回触发 MediaItem 刷新。同 ID 静态元数据通过 `replaceMediaItem` 增量写入服务，不重建权威队列。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。
+曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / bootstrap-only / 整队替换 / 仅刷新元数据）。由 `MainActivity` 分别监听结构身份 `MusicLibrary.songIds` 与静态内容版本 `queueMetadataRevision`；后者排除播放次数、收听时长和最近播放时间，避免统计写回触发 MediaItem 刷新。同 ID 静态元数据通过 `replaceMediaItem` 增量写入服务，不重建权威队列。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。外部单曲/临时队列只有在 URI 权限可跨进程重启存续（MediaStore authority 或已持久化 grant）时才进入恢复快照；不可存续的临时队列不写 `ServicePlaybackStateStore`。
 _Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `LaunchedEffect` 各调一次 sync、用 `library.songs` 作 sync 触发键
 
 **PlaybackQueueMode（播放模式）**：
@@ -119,7 +120,7 @@ _Avoid_: shuffle mode、repeat mode（拆开描述时仍用枚举名）
 _Avoid_: 在业务层手写 `index + 1`
 
 **PlayerController**：
-App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaController` 写入服务；`songQueue` / `PlaybackQueueState` 由服务队列镜像填充，**不是**出声权威源。
+App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaController` 写入服务；`songQueue` / `PlaybackQueueState` 由服务队列镜像填充，**不是**出声权威源。队列、时间轴与调音三块可变 UI 状态分别由 `PlaybackQueueCoordinator`、`PlaybackTimelineCoordinator`、`PlaybackTuningCoordinator` 收口；`PlaybackConnectionSession` 用连接 generation 拒绝旧连接回调，陈旧队列镜像结果在请求号、本地 revision 或当前连接变化时被丢弃。
 _Avoid_: player view model、media player（指底层引擎时）
 
 **SleepTimerController（睡眠定时器控制器）**：
@@ -143,7 +144,7 @@ _Avoid_: 把统计持久化绑到 `MainViewModel` / `MusicLibrary.ioScope`；仅
 _Avoid_: 在 `PlayerController` 内维护与服务等长的并行队列并驱动出声
 
 **ServicePlaybackStateStore（服务播放状态存储）**：
-服务侧权威持久化：完整队列 `songId` 顺序、当前曲 ID、索引、进度毫秒、repeat/shuffle、`playWhenReady`、音质模式等 JSON 快照；由 `ServicePlaybackStateCoordinator` 刷盘。冷启动 `PlayerController.bootstrapQueue()` 的**主数据源**（service_wins），恢复后**不**自动开始播放。
+服务侧权威持久化：完整队列 `songId` 顺序、当前曲 ID、索引、进度毫秒、repeat/shuffle、`playWhenReady`、音质模式等 JSON 快照；由 `ServicePlaybackStateCoordinator` 刷盘。只持久化重启后可恢复的队列：临时外部歌曲必须具有可存续的 URI 权限（MediaStore authority 或已持久化 grant），否则整条临时队列不落盘。冷启动 `PlayerController.bootstrapQueue()` 的**主数据源**（service_wins），恢复后**不**自动开始播放。
 _Avoid_: 在 App 侧另存一套与服务等长的队列并当作恢复真相源
 
 **PlaybackSession（播放会话）** / **PlaybackSessionStore**：
@@ -191,7 +192,7 @@ _Avoid_: playback service（无专名时）、background service
 _Avoid_: 由 `AppUiSettings` 直接调用 `MicaSpectrumAnalyzer.setEnabled`
 
 **Audio pipeline coordinator（音频管线协调器）**：
-媒体生命周期内 EQ、频谱 tap、offload 偏好、offload 熔断与输出路由变化的状态转换 owner。所有外部 callback 先投递到 `MicaMediaService.mainHandler`，再由 `AudioPipelineCoordinator` 串行使旧熔断工作失效、推导有效 offload、写入 Exo 配置、持久化音质模式并按事件规则 flush；`AudioOffloadCircuitBreaker` 仍拥有其延迟任务 generation。`MicaMediaService` 只装配这些 adapter 与生命周期。
+媒体生命周期内 EQ、频谱 tap、offload 偏好、offload 熔断与输出路由变化的状态转换 owner。所有外部 callback 先投递到 `MicaMediaService.mainHandler`，再由 `AudioPipelineCoordinator` 串行使旧熔断工作失效、推导有效 offload、写入 Exo 配置、持久化音质模式并按事件规则 flush；`AudioOffloadCircuitBreaker` 仍拥有其延迟任务 generation。确认 offload 失速后先回 PCM 并验证播放推进，再按 build fingerprint 记录失败并停用 offload；用户可在设置中手动重试，固件/策略更新会获得一次新尝试。`MicaMediaService` 只装配这些 adapter 与生命周期。
 _Avoid_: 在 `MicaMediaService` 的各 callback 中分别重写 offload 推导、熔断失效或 flush 顺序；把 route monitor、熔断器或 EQ 实现吞进协调器
 
 **Exo playback pipeline（Exo 播放管线）**：
