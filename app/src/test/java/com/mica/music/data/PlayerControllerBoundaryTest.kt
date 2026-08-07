@@ -24,6 +24,7 @@ import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -115,6 +116,52 @@ class PlayerControllerBoundaryTest {
         runCurrent()
 
         assertEquals(playerQueue.size, resolverCalls)
+        controller.release()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun pausedOldQueueMirrorCannotOverwriteNewLocalQueue() = runTest {
+        val mainDispatcher = StandardTestDispatcher(testScheduler)
+        val workerScheduler = TestCoroutineScheduler()
+        val workerDispatcher = StandardTestDispatcher(workerScheduler)
+        val connector = FakeConnector()
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val localQueue = List(2) { index -> SongFixtures.song("local-$index") }
+        val mirroredQueue = List(2) { index -> SongFixtures.song("mirrored-$index") }
+        val newQueue = List(2) { index -> SongFixtures.song("new-$index") }
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.getMediaItemAt(any()) } answers {
+            SongMediaItemCodec.encode(mirroredQueue[firstArg()])
+        }
+        every { mediaController.currentMediaItem } returns SongMediaItemCodec.encode(mirroredQueue[0])
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns mirroredQueue.size
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 60_000L
+        val controller = controller(
+            connector = connector,
+            dispatcher = mainDispatcher,
+            queueMirrorDispatcher = workerDispatcher,
+            songResolver = PlaybackSongResolver { id -> mirroredQueue.firstOrNull { it.id == id } },
+        )
+        controller.setQueue(localQueue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        listener.captured.onTimelineChanged(
+            Timeline.EMPTY,
+            Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED,
+        )
+        advanceTimeBy(PlayerController.QUEUE_MIRROR_DEBOUNCE_MS)
+        runCurrent()
+        controller.setQueue(newQueue)
+
+        workerScheduler.runCurrent()
+        runCurrent()
+
+        assertEquals(newQueue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
         controller.release()
     }
 
@@ -327,6 +374,85 @@ class PlayerControllerBoundaryTest {
 
         assertTrue(first.cancelled)
         assertEquals(2, connector.requests.size)
+        controller.release()
+    }
+
+    @Test
+    fun callbacksFromSupersededConnectionCannotReplaceActiveConnection() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val queue = listOf(SongFixtures.song("song-a"), SongFixtures.song("song-b"))
+        val oldMediaController = mockk<MediaController>(relaxed = true)
+        val activeMediaController = mockk<MediaController>(relaxed = true)
+        val activeItem = MediaItem.Builder().setMediaId(queue[1].id).build()
+        every { activeMediaController.currentMediaItem } returns activeItem
+        every { activeMediaController.currentMediaItemIndex } returns 1
+        every { activeMediaController.mediaItemCount } returns queue.size
+        every { activeMediaController.getMediaItemAt(0) } returns SongMediaItemCodec.encode(queue[0])
+        every { activeMediaController.getMediaItemAt(1) } returns activeItem
+        every { activeMediaController.duration } returns 60_000L
+        controller.setQueue(queue)
+
+        controller.connectIfNeeded()
+        val superseded = connector.requests.single()
+        controller.retryConnect()
+        val active = connector.requests.last()
+        active.onConnected(activeMediaController)
+
+        superseded.onConnected(oldMediaController)
+        superseded.onFailure(IllegalStateException("stale failure"))
+        superseded.onDisconnected()
+
+        assertTrue(controller.isConnected)
+        assertEquals("song-b", controller.playbackSurfaceState.currentSong?.id)
+        assertNull(controller.userMessage)
+        verify(exactly = 0) { oldMediaController.addListener(any()) }
+        controller.release()
+    }
+
+    @Test
+    fun listenerFromSupersededControllerCannotMutateActivePlaybackState() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val queue = listOf(SongFixtures.song("song-a"), SongFixtures.song("song-b"))
+        val oldMediaController = mockk<MediaController>(relaxed = true)
+        val activeMediaController = mockk<MediaController>(relaxed = true)
+        val oldListener = slot<Player.Listener>()
+        val oldItem = MediaItem.Builder().setMediaId(queue[0].id).build()
+        val activeItem = MediaItem.Builder().setMediaId(queue[1].id).build()
+        every { oldMediaController.addListener(capture(oldListener)) } returns Unit
+        every { oldMediaController.currentMediaItem } returns oldItem
+        every { oldMediaController.currentMediaItemIndex } returns 0
+        every { oldMediaController.mediaItemCount } returns queue.size
+        every { oldMediaController.getMediaItemAt(0) } returns oldItem
+        every { oldMediaController.getMediaItemAt(1) } returns activeItem
+        every { oldMediaController.duration } returns 60_000L
+        every { activeMediaController.currentMediaItem } returns activeItem
+        every { activeMediaController.currentMediaItemIndex } returns 1
+        every { activeMediaController.mediaItemCount } returns queue.size
+        every { activeMediaController.getMediaItemAt(0) } returns oldItem
+        every { activeMediaController.getMediaItemAt(1) } returns activeItem
+        every { activeMediaController.duration } returns 60_000L
+        controller.setQueue(queue)
+
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(oldMediaController)
+        controller.retryConnect()
+        connector.requests.last().onConnected(activeMediaController)
+
+        oldListener.captured.onIsPlayingChanged(true)
+        oldListener.captured.onPlayerError(
+            PlaybackException(
+                "stale controller failure",
+                null,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            ),
+        )
+
+        assertTrue(controller.isConnected)
+        assertEquals("song-b", controller.playbackSurfaceState.currentSong?.id)
+        assertFalse(controller.playbackSurfaceState.isPlaying)
+        assertNull(controller.playbackSurfaceState.playbackError)
         controller.release()
     }
 

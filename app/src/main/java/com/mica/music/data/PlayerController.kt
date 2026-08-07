@@ -371,9 +371,6 @@ class PlayerController internal constructor(
 
     private var isBuffering by mutableStateOf(false)
 
-    internal var isConnected by mutableStateOf(false)
-        private set
-
     private var playbackError by mutableStateOf<String?>(null)
 
     var userMessage by mutableStateOf<UserMessage?>(null)
@@ -396,6 +393,7 @@ class PlayerController internal constructor(
 
     var playbackQueueState by mutableStateOf(PlaybackQueueState())
         private set
+    private var playbackQueueRevision = 0L
 
     private fun publishPlaybackStates() {
         publishSurfaceState()
@@ -424,10 +422,14 @@ class PlayerController internal constructor(
     }
 
     private fun publishQueueState() {
-        playbackQueueState = PlaybackQueueState(
+        val nextState = PlaybackQueueState(
             queue = songQueue,
             currentIndex = currentIndex,
         )
+        if (nextState != playbackQueueState) {
+            playbackQueueRevision += 1
+            playbackQueueState = nextState
+        }
     }
 
     private fun applyPlaybackOrderState(
@@ -445,8 +447,20 @@ class PlayerController internal constructor(
         return songQueue
     }
 
-    private var controller: MediaController? = null
-    private var controllerConnection: MediaControllerConnection? = null
+    private val connectionSession = PlaybackConnectionSession(
+        connector = mediaControllerConnector,
+        listenerFactory = ::createPlayerListener,
+        onConnected = ::onConnected,
+        onDisconnected = ::onControllerDisconnected,
+        onFailure = { postUserMessage("无法连接播放服务，请稍后重试") },
+        onPlaybackBoundary = ::onConfirmedPlaybackBoundary,
+    )
+    private val controller: MediaController?
+        get() = connectionSession.controller
+
+    internal val isConnected: Boolean
+        get() = connectionSession.isConnected
+
     /** Prevents callbacks from the previously playing item from undoing an optimistic selection. */
     private val pendingMediaSelection = PendingMediaSelection()
     private var pendingQueue: List<Song>? = null
@@ -454,7 +468,6 @@ class PlayerController internal constructor(
     private var pendingPlaybackTuning: PlaybackTuning? = null
     private var effectivePlaybackTuning = PlaybackTuning()
     private var pendingEffectivePlaybackTuning: PlaybackTuning? = null
-    private var connectStarted = false
     private var pendingRestorePosition: PendingRestorePosition? = null
     private val playbackStatistics = PlaybackStatisticsTracker(
         monotonicNowMs = monotonicNowMs,
@@ -469,29 +482,9 @@ class PlayerController internal constructor(
         if (pending.songId == songId) pendingRestorePosition = null
     }
 
-    fun connectIfNeeded() {
-        if (connectStarted) return
-        connectStarted = true
-        connect()
-    }
+    fun connectIfNeeded() = connectionSession.connectIfNeeded()
 
-    fun retryConnect() {
-        releaseConnectionOnly()
-        connectStarted = true
-        connect()
-    }
-
-    private fun connect() {
-        controllerConnection = mediaControllerConnector.connect(
-            onConnected = ::onConnected,
-            onDisconnected = ::onControllerDisconnected,
-            onFailure = {
-                connectStarted = false
-                postUserMessage("无法连接播放服务，请稍后重试")
-            },
-            onPlaybackBoundary = ::onConfirmedPlaybackBoundary,
-        )
-    }
+    fun retryConnect() = connectionSession.retry()
 
     private fun onConfirmedPlaybackBoundary(boundary: ConfirmedPlaybackBoundary) {
         val armed = playbackStatistics.onConfirmedAutomaticBoundary(
@@ -511,11 +504,13 @@ class PlayerController internal constructor(
         controller?.let { publishPlayCountIfStarted(it, it.isPlaying) }
     }
 
-    private fun onConnected(c: MediaController) {
-        controller = c
-
-        c.addListener(object : Player.Listener {
+    private fun createPlayerListener(
+        c: MediaController,
+        isCurrentConnection: () -> Boolean,
+    ): Player.Listener =
+        object : Player.Listener {
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                if (!isCurrentConnection()) return
                 if (c.mediaItemCount <= 0) return
                 val mirrorAligned = isQueueMirrorAligned(c)
                 logPlayCountProbe(
@@ -539,6 +534,7 @@ class PlayerController internal constructor(
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (!isCurrentConnection()) return
                 val previousSongId = currentSong?.id
                 val previousStatsSongId = playbackStatistics.statisticsSongId
                 val transitionSongId = mediaItem?.mediaId
@@ -598,6 +594,7 @@ class PlayerController internal constructor(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (!isCurrentConnection()) return
                 if (!pendingMediaSelection.accepts(c.currentMediaItem?.mediaId)) return
                 playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, false)
                 playbackStatistics.clearRequestAndPending()
@@ -621,6 +618,7 @@ class PlayerController internal constructor(
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
+                if (!isCurrentConnection()) return
                 playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, playing)
                 isPlaying = playing
                 if (playbackStatistics.pendingSongId != null) {
@@ -639,6 +637,7 @@ class PlayerController internal constructor(
             }
 
             override fun onEvents(player: Player, events: Player.Events) {
+                if (!isCurrentConnection()) return
                 syncPlaybackState()
                 val armed = playbackStatistics.finishEventBatch()
                 if (armed || playbackStatistics.pendingSongId != null) {
@@ -653,6 +652,7 @@ class PlayerController internal constructor(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
+                if (!isCurrentConnection()) return
                 if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
                     playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, false)
                 }
@@ -672,6 +672,7 @@ class PlayerController internal constructor(
                 newPosition: Player.PositionInfo,
                 reason: Int,
             ) {
+                if (!isCurrentConnection()) return
                 val automatic = reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION
                 if (automatic ||
                     reason == Player.DISCONTINUITY_REASON_SEEK ||
@@ -706,14 +707,17 @@ class PlayerController internal constructor(
             }
 
             override fun onRepeatModeChanged(repeatMode: Int) {
+                if (!isCurrentConnection()) return
                 syncPlaybackQueueModeFromPlayer(c)
             }
 
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                if (!isCurrentConnection()) return
                 syncPlaybackQueueModeFromPlayer(c)
             }
 
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                if (!isCurrentConnection()) return
                 val reported = PlaybackTuning.fromPlaybackParameters(playbackParameters)
                 effectivePlaybackTuning = reported
                 val pendingEffective = pendingEffectivePlaybackTuning
@@ -729,9 +733,9 @@ class PlayerController internal constructor(
                 }
                 publishSurfaceState()
             }
-        })
+        }
 
-        isConnected = true
+    private fun onConnected(c: MediaController) {
 
         pendingQueue?.let {
             applyQueue(c, it, preservePlayback = true)
@@ -763,16 +767,12 @@ class PlayerController internal constructor(
         publishPlaybackStates()
     }
 
-    private fun onControllerDisconnected() {
-        playbackStatistics.observePlayback(controller?.currentMediaItem?.mediaId, false)
+    private fun onControllerDisconnected(disconnectedController: MediaController?) {
+        playbackStatistics.observePlayback(disconnectedController?.currentMediaItem?.mediaId, false)
         queueMirrorCoordinator.clear()
         pendingMediaSelection.clear()
         playbackStatistics.reset(null)
         PendingPlaybackNavigation.clear()
-        controller = null
-        controllerConnection = null
-        isConnected = false
-        connectStarted = false
         publishPlaybackStates()
     }
 
@@ -854,6 +854,7 @@ class PlayerController internal constructor(
             player = c,
             isCurrentPlayer = { controller === c },
             localQueue = { songQueue },
+            localRevision = { playbackQueueRevision },
             fallbackResolver = { songResolver::resolve },
             applyMirrored = { mirrored, playerIndex ->
                 installQueueModel(queueModel().mirrorFromPlayer(mirrored, playerIndex))
@@ -1766,18 +1767,13 @@ class PlayerController internal constructor(
         deferredPlaybackPublish?.let { mainHandler.removeCallbacks(it) }
         deferredPlaybackPublish = null
         scope.cancel()
-        releaseConnectionOnly()
+        connectionSession.release()
         commitSongQueue(emptyList())
         currentIndex = 0
         isPlaying = false
         playbackError = null
         userMessage = null
         publishPlaybackStates()
-    }
-
-    private fun releaseConnectionOnly() {
-        controllerConnection?.cancel()
-        controllerConnection = null
     }
 }
 

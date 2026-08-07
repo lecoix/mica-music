@@ -20,6 +20,7 @@ import com.mica.music.data.MediaControllerConnection
 import com.mica.music.data.MediaControllerConnector
 import com.mica.music.data.PlaybackSession
 import com.mica.music.data.PlaybackSessionStorage
+import com.mica.music.data.PlaybackSongResolver
 import com.mica.music.data.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
@@ -174,6 +175,7 @@ class NotificationLyricsMedia3ContractTest {
                             contract.boundaryDispatcher,
                         ),
                         sessionStorage = NoOpSessionStorage,
+                        songResolver = PlaybackSongResolver { id -> song.takeIf { it.id == id } },
                         dispatcher = Dispatchers.Main.immediate,
                     ).apply {
                         onSongPlayStarted = { reconnectCount.incrementAndGet() }
@@ -366,6 +368,7 @@ class NotificationLyricsMedia3ContractTest {
                     context = context,
                     mediaControllerConnector = ImmediateConnector(mediaController, boundaryDispatcher),
                     sessionStorage = NoOpSessionStorage,
+                    songResolver = PlaybackSongResolver { id -> songs.firstOrNull { it.id == id } },
                     dispatcher = Dispatchers.Main.immediate,
                 ).apply {
                     onSongPlayStarted = { playSessions += it }
