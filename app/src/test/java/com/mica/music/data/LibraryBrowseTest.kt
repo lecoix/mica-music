@@ -87,6 +87,68 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun albumGroupsUseFolderWhenAlbumArtistIsMissing() {
+        val songs = listOf(
+            SongFixtures.song("artist-a").copy(
+                album = "Compilation",
+                artist = "Artist A",
+                albumArtist = "",
+                folderPath = "Music/Compilation/",
+            ),
+            SongFixtures.song("artist-b").copy(
+                album = "Compilation",
+                artist = "Artist B",
+                albumArtist = "",
+                folderPath = "Music\\Compilation",
+            ),
+        )
+
+        val group = LibraryBrowse.groupByAlbum(songs).single()
+        val key = AlbumBrowseKey.fromStorageKey(group.key)!!
+
+        assertEquals(2, group.songCount)
+        assertEquals(setOf("artist-a", "artist-b"), LibraryBrowse.songsForAlbum(songs, key).map { it.id }.toSet())
+        assertEquals(key, AlbumBrowseKey.fromStorageKey(key.storageKey))
+    }
+
+    @Test
+    fun albumGroupsKeepMissingAlbumArtistSeparateAcrossFolders() {
+        val groups = LibraryBrowse.groupByAlbum(
+            listOf(
+                SongFixtures.song("first").copy(
+                    album = "Greatest Hits",
+                    artist = "Artist A",
+                    albumArtist = "",
+                    folderPath = "Music/Artist A/Greatest Hits",
+                ),
+                SongFixtures.song("second").copy(
+                    album = "Greatest Hits",
+                    artist = "Artist B",
+                    albumArtist = "",
+                    folderPath = "Music/Artist B/Greatest Hits",
+                ),
+            ),
+        )
+
+        assertEquals(2, groups.size)
+    }
+
+    @Test
+    fun albumGroupsFallBackToTrackArtistWithoutAlbumOrFolderIdentity() {
+        val sameTitle = listOf(
+            SongFixtures.song("first").copy(album = "Shared", artist = "Artist A", albumArtist = "", folderPath = ""),
+            SongFixtures.song("second").copy(album = "Shared", artist = "Artist B", albumArtist = "", folderPath = ""),
+        )
+        val unknownAlbum = listOf(
+            SongFixtures.song("unknown-a").copy(album = "", artist = "Artist A", albumArtist = "", folderPath = "Music/Mixed"),
+            SongFixtures.song("unknown-b").copy(album = "", artist = "Artist B", albumArtist = "", folderPath = "Music/Mixed"),
+        )
+
+        assertEquals(2, LibraryBrowse.groupByAlbum(sameTitle).size)
+        assertEquals(2, LibraryBrowse.groupByAlbum(unknownAlbum).size)
+    }
+
+    @Test
     fun albumBrowseKeyRoundTripsAndFiltersByTitleAndArtist() {
         val key = AlbumBrowseKey("A: B", "Artist / Guest")
         val songs = listOf(
@@ -96,6 +158,19 @@ class LibraryBrowseTest {
 
         assertEquals(key, AlbumBrowseKey.fromStorageKey(key.storageKey))
         assertEquals(listOf("match"), LibraryBrowse.songsForAlbum(songs, key).map { it.id })
+    }
+
+    @Test
+    fun legacyTrackArtistAlbumKeyStillMatchesAfterFolderFallbackMigration() {
+        val song = SongFixtures.song("legacy").copy(
+            album = "Compilation",
+            artist = "Artist A",
+            albumArtist = "",
+            folderPath = "Music/Compilation",
+        )
+        val oldKey = AlbumBrowseKey("Compilation", "Artist A")
+
+        assertEquals(listOf("legacy"), LibraryBrowse.songsForAlbum(listOf(song), oldKey).map { it.id })
     }
 
     @Test

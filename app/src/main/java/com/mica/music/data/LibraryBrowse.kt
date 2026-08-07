@@ -22,25 +22,49 @@ data class AlbumBrowseKey(
     val title: String,
     val albumArtist: String,
     val legacyTitleOnly: Boolean = false,
+    val fallbackFolderPath: String? = null,
 ) {
     val storageKey: String
-        get() = encodePart(title) + encodePart(albumArtist)
+        get() = encodePart(title) + encodePart(albumArtist) +
+            fallbackFolderPath?.let(::encodePart).orEmpty()
 
     fun matches(song: Song): Boolean =
         song.album.trim().ifBlank { UNKNOWN_ALBUM } == title &&
-            (legacyTitleOnly || fromSong(song).albumArtist == albumArtist)
+            (legacyTitleOnly || fromSong(song) == this || matchesLegacyArtistFallback(song))
+
+    private fun matchesLegacyArtistFallback(song: Song): Boolean =
+        fallbackFolderPath == null &&
+            albumArtist == song.albumArtist.trim().ifBlank { song.artist.trim() }
 
     companion object {
-        fun fromSong(song: Song): AlbumBrowseKey = AlbumBrowseKey(
-            title = song.album.trim().ifBlank { UNKNOWN_ALBUM },
-            albumArtist = song.albumArtist.trim().ifBlank { song.artist.trim() },
-        )
+        fun fromSong(song: Song): AlbumBrowseKey {
+            val album = song.album.trim()
+            val albumArtist = song.albumArtist.trim()
+            val folder = normalizeFolderPath(song.folderPath)
+            return AlbumBrowseKey(
+                title = album.ifBlank { UNKNOWN_ALBUM },
+                albumArtist = when {
+                    albumArtist.isNotEmpty() -> albumArtist
+                    album.isBlank() || folder.isEmpty() -> song.artist.trim()
+                    else -> ""
+                },
+                fallbackFolderPath = folder.takeIf {
+                    album.isNotEmpty() && albumArtist.isEmpty() && it.isNotEmpty()
+                },
+            )
+        }
 
         fun fromStorageKey(key: String): AlbumBrowseKey? {
             val first = decodePart(key, 0) ?: return null
             val second = decodePart(key, first.nextIndex) ?: return null
-            if (second.nextIndex != key.length) return null
-            return AlbumBrowseKey(first.value, second.value)
+            if (second.nextIndex == key.length) return AlbumBrowseKey(first.value, second.value)
+            val third = decodePart(key, second.nextIndex) ?: return null
+            if (third.nextIndex != key.length) return null
+            return AlbumBrowseKey(
+                title = first.value,
+                albumArtist = second.value,
+                fallbackFolderPath = third.value,
+            )
         }
 
         fun legacyTitleOnly(title: String): AlbumBrowseKey = AlbumBrowseKey(
@@ -50,6 +74,9 @@ data class AlbumBrowseKey(
         )
 
         private fun encodePart(value: String): String = "${value.length}:$value"
+
+        private fun normalizeFolderPath(value: String): String =
+            value.replace('\\', '/').trim().trim('/')
 
         private fun decodePart(value: String, start: Int): DecodedPart? {
             val separator = value.indexOf(':', startIndex = start)
