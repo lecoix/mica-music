@@ -30,6 +30,7 @@ ffmpeg/build/
 .lunabeat-ref/
 .pixelplayer-ref/
 .halcyon-ref/
+.tiebalite-ref/
 
 # Local media fixtures and prototypes
 .test-music/
@@ -45,3 +46,5 @@ site/
 # OS
 .DS_Store
 Thumbs.db
+
+.test-failure/
