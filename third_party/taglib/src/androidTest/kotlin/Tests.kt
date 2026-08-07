@@ -21,7 +21,42 @@ class Tests {
         read_flac_multiple_pictures()
         ensure_utf8()
         bad_encoding()
+        invalid_file_descriptors_are_rejected_without_crashing()
+        repeated_detached_fd_calls_do_not_leak_descriptors()
     }
+
+    private fun invalid_file_descriptors_are_rejected_without_crashing() {
+        Assert.assertNull(TagLib.getAudioProperties(-1))
+        Assert.assertNull(TagLib.getMetadata(-1, readPictures = false))
+        Assert.assertNull(TagLib.probeTrack(-1, readPictures = false))
+        Assert.assertNull(TagLib.getMetadataPropertyValues(-1, "TITLE"))
+        Assert.assertNull(TagLib.getPictures(-1))
+        Assert.assertFalse(TagLib.savePropertyMap(-1, hashMapOf()))
+        Assert.assertFalse(TagLib.savePictures(-1, emptyArray()))
+
+        getFdFromAssets(context, "bladeenc.mp3").use { fd ->
+            repeat(100) {
+                val detached = fd.dup().detachFd()
+                ParcelFileDescriptor.adoptFd(detached).close()
+                Assert.assertNull(TagLib.getMetadata(detached, readPictures = false))
+            }
+        }
+    }
+
+    private fun repeated_detached_fd_calls_do_not_leak_descriptors() {
+        getFdFromAssets(context, "bladeenc.mp3").use { fd ->
+            val before = fileDescriptorCount()
+            repeat(200) {
+                val detached = fd.dup().detachFd()
+                Assert.assertNotNull(TagLib.getMetadata(detached, readPictures = false))
+            }
+            val after = fileDescriptorCount()
+            Assert.assertTrue("fd count grew: before=$before after=$after", after <= before + 2)
+        }
+    }
+
+    private fun fileDescriptorCount(): Int =
+        File("/proc/self/fd").list()?.size ?: error("/proc/self/fd is unavailable")
 
     private fun read_and_write_m4a() {
         getFdFromAssets(context, "Sample_BeeMoved_48kHz16bit.m4a").use { fd ->

@@ -1,6 +1,15 @@
 #include "tfilestream.h"
 #include "utils.h"
 
+namespace {
+std::unique_ptr<TagLib::FileStream> openFileStream(ScopedFd &owner, const bool readOnly) {
+    auto stream = std::make_unique<TagLib::FileStream>(owner.get(), readOnly);
+    if (!stream->isOpen()) return nullptr;
+    owner.release();
+    return stream;
+}
+}
+
 extern "C" {
 JNIEXPORT jobject JNICALL
 Java_com_kyant_taglib_TagLib_getAudioProperties(
@@ -9,11 +18,16 @@ Java_com_kyant_taglib_TagLib_getAudioProperties(
         jint fd,
         jint read_style
 ) {
+    ScopedFd owner(fd);
     char *path = getRealPathFromFd(fd);
     if (path == nullptr) {
         return nullptr;
     }
-    const auto stream = std::make_unique<TagLib::FileStream>(fd, true);
+    const auto stream = openFileStream(owner, true);
+    if (stream == nullptr) {
+        free(path);
+        return nullptr;
+    }
     const auto style = static_cast<TagLib::AudioProperties::ReadStyle>(read_style);
     const TagLibExt::FileRef f(path, stream.get(), true, style);
 
@@ -34,11 +48,16 @@ Java_com_kyant_taglib_TagLib_getMetadata(
         jint fd,
         jboolean read_pictures
 ) {
+    ScopedFd owner(fd);
     char *path = getRealPathFromFd(fd);
     if (path == nullptr) {
         return nullptr;
     }
-    const auto stream = std::make_unique<TagLib::FileStream>(fd, true);
+    const auto stream = openFileStream(owner, true);
+    if (stream == nullptr) {
+        free(path);
+        return nullptr;
+    }
     const TagLibExt::FileRef f(path, stream.get(), false);
 
     if (f.isNull()) {
@@ -70,11 +89,16 @@ Java_com_kyant_taglib_TagLib_probeTrackNative(
         jboolean read_pictures,
         jint read_style
 ) {
+    ScopedFd owner(fd);
     char *path = getRealPathFromFd(fd);
     if (path == nullptr) {
         return nullptr;
     }
-    const auto stream = std::make_unique<TagLib::FileStream>(fd, true);
+    const auto stream = openFileStream(owner, true);
+    if (stream == nullptr) {
+        free(path);
+        return nullptr;
+    }
     const auto style = static_cast<TagLib::AudioProperties::ReadStyle>(read_style);
     const TagLibExt::FileRef f(path, stream.get(), true, style);
 
@@ -95,6 +119,7 @@ Java_com_kyant_taglib_TagLib_getMetadataPropertyValues(
         jint fd,
         jstring property_name
 ) {
+    ScopedFd owner(fd);
     const char *propertyName = env->GetStringUTFChars(property_name, nullptr);
     if (propertyName == nullptr) {
         return nullptr;
@@ -105,7 +130,12 @@ Java_com_kyant_taglib_TagLib_getMetadataPropertyValues(
         env->ReleaseStringUTFChars(property_name, propertyName);
         return nullptr;
     }
-    const auto stream = std::make_unique<TagLib::FileStream>(fd, true);
+    const auto stream = openFileStream(owner, true);
+    if (stream == nullptr) {
+        env->ReleaseStringUTFChars(property_name, propertyName);
+        free(path);
+        return nullptr;
+    }
     const TagLibExt::FileRef f(path, stream.get(), false);
 
     if (f.isNull()) {
@@ -142,11 +172,16 @@ Java_com_kyant_taglib_TagLib_getPictures(
         jclass,
         jint fd
 ) {
+    ScopedFd owner(fd);
     char *path = getRealPathFromFd(fd);
     if (path == nullptr) {
         return nullptr;
     }
-    const auto stream = std::make_unique<TagLib::FileStream>(fd, true);
+    const auto stream = openFileStream(owner, true);
+    if (stream == nullptr) {
+        free(path);
+        return nullptr;
+    }
     const TagLibExt::FileRef f(path, stream.get(), false);
 
     if (f.isNull()) {
@@ -166,11 +201,16 @@ Java_com_kyant_taglib_TagLib_savePropertyMap(
         jint fd,
         jobject property_map
 ) {
+    ScopedFd owner(fd);
     char *path = getRealPathFromFd(fd);
     if (path == nullptr) {
         return false;
     }
-    const auto stream = std::make_unique<TagLib::FileStream>(fd, false);
+    const auto stream = openFileStream(owner, false);
+    if (stream == nullptr) {
+        free(path);
+        return false;
+    }
     TagLibExt::FileRef f(path, stream.get(), false);
 
     if (f.isNull()) {
@@ -192,11 +232,16 @@ Java_com_kyant_taglib_TagLib_savePictures(
         jint fd,
         jobjectArray pictures
 ) {
+    ScopedFd owner(fd);
     char *path = getRealPathFromFd(fd);
     if (path == nullptr) {
         return false;
     }
-    const auto stream = std::make_unique<TagLib::FileStream>(fd, false);
+    const auto stream = openFileStream(owner, false);
+    if (stream == nullptr) {
+        free(path);
+        return false;
+    }
     TagLibExt::FileRef f(path, stream.get(), false);
 
     if (f.isNull()) {

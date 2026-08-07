@@ -41,6 +41,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify submodules
+        run: git submodule status --recursive
 
       - uses: actions/setup-java@v4
         with:
@@ -132,6 +136,8 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
+          ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug \
+            --no-configuration-cache
           ./gradlew :app:assembleRelease \
             --no-configuration-cache \
             -Pmica.update.domesticUrl="$UPDATE_DOMESTIC_MANIFEST_URL"

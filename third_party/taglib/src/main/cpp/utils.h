@@ -2,6 +2,11 @@
 #define TAGLIB_UTILS_H
 
 #include <jni.h>
+#include <cerrno>
+#include <cstddef>
+#include <cstdlib>
+#include <limits>
+#include <utility>
 #include <unistd.h>
 
 #include "fileref_ext.h"
@@ -40,6 +45,26 @@ jmethodID pictureGetData = nullptr;
 jmethodID pictureGetDescription = nullptr;
 jmethodID pictureGetPictureType = nullptr;
 jmethodID pictureGetMimeType = nullptr;
+
+class ScopedFd {
+public:
+    explicit ScopedFd(const int fd) : fd_(fd) {}
+    ~ScopedFd() {
+        if (fd_ >= 0) close(fd_);
+    }
+
+    ScopedFd(const ScopedFd &) = delete;
+    ScopedFd &operator=(const ScopedFd &) = delete;
+
+    int get() const { return fd_; }
+
+    int release() {
+        return std::exchange(fd_, -1);
+    }
+
+private:
+    int fd_;
+};
 
 jclass entrySetClass = nullptr;
 jmethodID iteratorMethod = nullptr;
@@ -415,16 +440,24 @@ jobject buildTrackProbe(
 }
 
 char *getRealPathFromFd(const int fd) {
-    char path[22];
-    if (snprintf(path, sizeof(path), "/proc/self/fd/%d", fd) < 0) {
+    char path[64];
+    const int pathLength = snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
+    if (pathLength < 0 || static_cast<size_t>(pathLength) >= sizeof(path)) {
         return nullptr;
     }
 
     size_t size = 128;
     char *link = reinterpret_cast<char *>(malloc(size));
+    if (link == nullptr) {
+        return nullptr;
+    }
 
     ssize_t bytesRead;
     while ((bytesRead = readlink(path, link, size)) == static_cast<ssize_t>(size)) {
+        if (size > std::numeric_limits<size_t>::max() / 2) {
+            free(link);
+            return nullptr;
+        }
         size *= 2;
         char *temp = reinterpret_cast<char *>(realloc(link, size));
         if (temp == nullptr) {
@@ -434,6 +467,10 @@ char *getRealPathFromFd(const int fd) {
         link = temp;
     }
 
+    if (bytesRead < 0) {
+        free(link);
+        return nullptr;
+    }
     link[bytesRead] = '\0';
 
     return link;
