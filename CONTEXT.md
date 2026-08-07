@@ -190,6 +190,10 @@ _Avoid_: playback service（无专名时）、background service
 媒体生命周期内将 `PlaybackUiPreferences.spectrumTapEnabled` 的派生资格应用到 `MicaSpectrumAnalyzer`：启动恢复不通知管线，三个资格偏好在运行时变化时沿既有 callback 重配 offload 并按需 flush；UI 只写偏好。
 _Avoid_: 由 `AppUiSettings` 直接调用 `MicaSpectrumAnalyzer.setEnabled`
 
+**Audio pipeline coordinator（音频管线协调器）**：
+媒体生命周期内 EQ、频谱 tap、offload 偏好、offload 熔断与输出路由变化的状态转换 owner。所有外部 callback 先投递到 `MicaMediaService.mainHandler`，再由 `AudioPipelineCoordinator` 串行使旧熔断工作失效、推导有效 offload、写入 Exo 配置、持久化音质模式并按事件规则 flush；`AudioOffloadCircuitBreaker` 仍拥有其延迟任务 generation。`MicaMediaService` 只装配这些 adapter 与生命周期。
+_Avoid_: 在 `MicaMediaService` 的各 callback 中分别重写 offload 推导、熔断失效或 flush 顺序；把 route monitor、熔断器或 EQ 实现吞进协调器
+
 **Exo playback pipeline（Exo 播放管线）**：
 唯一出声路径：`ExoPlayer` → `MicaExtractorsFactory` / `MicaRenderersFactory` → `libffmpegJNI.so`（ALAC、DSD 等扩展）→ `MicaAudioProcessorChain`（DSD 降采样 / 频谱 / EQ）→ `AudioTrack`。
 _Avoid_: 软件播、双后端、libmica_ffmpeg
