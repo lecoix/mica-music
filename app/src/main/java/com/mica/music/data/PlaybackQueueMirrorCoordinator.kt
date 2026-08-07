@@ -51,6 +51,7 @@ internal class PlaybackQueueMirrorCoordinator(
         player: MediaController,
         isCurrentPlayer: () -> Boolean,
         localQueue: () -> List<Song>,
+        localRevision: () -> Long,
         fallbackResolver: () -> ((String) -> Song?)?,
         applyMirrored: (songs: List<Song>, playerIndex: Int) -> Unit,
         syncIndex: () -> Unit,
@@ -69,8 +70,14 @@ internal class PlaybackQueueMirrorCoordinator(
                 return@launch
             }
             val previousSignature = lastOrderSignature
+            val revisionBeforeBuild = localRevision()
             val build = buildMirror(items, previousSignature, localQueue(), fallbackResolver())
-            if (requestId != refreshRequestId || !isCurrentPlayer()) return@launch
+            if (requestId != refreshRequestId ||
+                !isCurrentPlayer() ||
+                revisionBeforeBuild != localRevision()
+            ) {
+                return@launch
+            }
 
             val mirrored = build.songs
             if (mirrored == null || build.signature == lastOrderSignature) {
