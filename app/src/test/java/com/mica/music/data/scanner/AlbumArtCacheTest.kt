@@ -76,6 +76,26 @@ class AlbumArtCacheTest {
     }
 
     @Test
+    fun managedArtworkRejectsSameLengthCorruptionAndCanBeRewritten() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val bytes = ByteArray(4096) { index -> (index * 7).toByte() }
+        val uri = AlbumArtCache.storeManagedArtwork(context, "corruptible", bytes)
+        val file = AlbumArtCache.fileForManagedArtwork(context, uri)!!
+
+        try {
+            file.writeBytes(bytes.copyOf().also { it[0] = (it[0] + 1).toByte() })
+            assertFalse(AlbumArtCache.managedArtworkFileIsValid(context, uri))
+            assertFalse(AlbumArtCache.isCachedArtReadable(context, uri))
+
+            AlbumArtCache.storeManagedArtwork(context, "corruptible", bytes)
+            assertTrue(AlbumArtCache.managedArtworkFileIsValid(context, uri))
+            assertArrayEquals(bytes, file.readBytes())
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
     fun intentionallyEvictedManagedArtworkDoesNotForceWholeLibraryRepair() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val contentKey = "content_v1_${"0".repeat(64)}"

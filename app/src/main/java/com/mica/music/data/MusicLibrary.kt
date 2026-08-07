@@ -542,7 +542,7 @@ class MusicLibrary internal constructor(
             "AlbumArtCache",
             "maintenance scheduled reason=$reason songs=${backing.songs.size}",
         )
-        backing.launchAlbumArtCacheMaintenance(backing.songs)
+        backing.launchAlbumArtCacheMaintenance()
     }
 
     suspend fun rescan() = backing.scanOrchestrator.rescan()

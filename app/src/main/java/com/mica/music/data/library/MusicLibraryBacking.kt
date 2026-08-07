@@ -45,6 +45,7 @@ internal class MusicLibraryBacking(
     var released = false
     val scanExecutionMutex = Mutex()
     val storeSyncMutex = Mutex()
+    private val lifecycleLock = Any()
     private val latestStoreRevision = AtomicLong(0L)
 
     private val songsById = HashMap<String, Song>()
@@ -100,12 +101,13 @@ internal class MusicLibraryBacking(
     fun isLatestStoreRevision(revision: Long): Boolean =
         revision == latestStoreRevision.get()
 
-    /** Runs maintenance after any in-flight scan has settled, using the committed snapshot. */
-    fun launchAlbumArtCacheMaintenance(fallbackSongs: List<Song>) {
-        val fallback = fallbackSongs.toList()
+    /** Runs maintenance after any in-flight scan has settled, using the snapshot at lock time. */
+    fun launchAlbumArtCacheMaintenance() {
         ioScope.launch {
             scanExecutionMutex.withLock {
-                if (!released) scanEnvironment.pruneAlbumArtCache(fallback)
+                synchronized(lifecycleLock) {
+                    if (!released) scanEnvironment.pruneAlbumArtCache(songs.toList())
+                }
             }
         }
     }
@@ -168,14 +170,16 @@ internal class MusicLibraryBacking(
     }
 
     fun release() {
-        released = true
-        scanGeneration++
-        scanJob?.cancel()
-        scanJob = null
-        isScanning = false
-        isLoadingCachedLibrary = false
-        scanProgressLabel = null
-        scanScope.cancel()
-        ioScope.cancel()
+        synchronized(lifecycleLock) {
+            released = true
+            scanGeneration++
+            scanJob?.cancel()
+            scanJob = null
+            isScanning = false
+            isLoadingCachedLibrary = false
+            scanProgressLabel = null
+            scanScope.cancel()
+            ioScope.cancel()
+        }
     }
 }

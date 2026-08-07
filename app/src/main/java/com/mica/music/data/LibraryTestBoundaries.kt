@@ -369,8 +369,10 @@ internal class AndroidScanEnvironment(
     override fun playStatsSnapshot(songIds: Collection<String>): PlayStatsSnapshot =
         PlayHistoryStore.snapshotStats(context, songIds)
 
-    override fun clearTransientCache() =
+    override fun clearTransientCache() {
+        VideoCoverPosterPrefetcher.cancel()
         ScanCacheManager.clearTransientScanCache(context)
+    }
 
     override fun pruneAlbumArtCache(songs: List<Song>) =
         ScanCacheManager.pruneAlbumArtCache(context, songs)

@@ -396,7 +396,7 @@ internal class LibraryScanOrchestrator(
             backing.lastScanError = null
             backing.scanEnvironment.persistLastScanSource(source)
             backing.lastScanSyncSummary = sync.toSummary()
-            backing.launchAlbumArtCacheMaintenance(prepared.visible)
+            backing.launchAlbumArtCacheMaintenance()
         }
         return sync
     }

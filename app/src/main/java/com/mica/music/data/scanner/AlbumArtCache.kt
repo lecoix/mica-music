@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.mica.music.data.Song
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.locks.ReentrantReadWriteLock
@@ -68,7 +69,11 @@ internal object AlbumArtCache {
 
         return withArtworkReadAccess {
             synchronized(writeLocks[lockIndex]) {
-                if (target.isFile && target.length() == bytes.size.toLong()) {
+                if (
+                    target.isFile &&
+                        target.length() == bytes.size.toLong() &&
+                        sha256Hex(target) == contentDigest
+                ) {
                     target.setLastModified(System.currentTimeMillis())
                     return@withArtworkReadAccess target
                 }
@@ -215,6 +220,19 @@ internal object AlbumArtCache {
             .digest(bytes)
             .joinToString("") { "%02x".format(it) }
 
+    private fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(64 * 1024)
+        FileInputStream(file).use { input ->
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     fun isCachedArtUri(context: Context, uriString: String?): Boolean {
         if (uriString.isNullOrBlank()) return false
         if (parseManagedArtworkUri(context, uriString) != null) return true
@@ -240,9 +258,21 @@ internal object AlbumArtCache {
     fun isCachedArtReadable(context: Context, uriString: String?): Boolean {
         val uri = uriString ?: return true
         if (!isCachedArtUri(context, uri)) return true
-        if (parseManagedArtworkUri(context, uri) != null) return true
+        if (parseManagedArtworkUri(context, uri) != null) {
+            val file = fileForManagedArtwork(context, uri) ?: return true
+            return !file.exists() || managedArtworkFileIsValid(context, uri)
+        }
         val file = albumArtFileFromUri(uri) ?: return false
         return file.isFile && file.length() > 0L
+    }
+
+    fun managedArtworkFileIsValid(context: Context, uriString: String?): Boolean {
+        val managed = parseManagedArtworkUri(context, uriString) ?: return false
+        val file = fileForManagedArtwork(context, uriString) ?: return false
+        if (!file.isFile || file.length() <= 0L) return false
+        return runCatching {
+            sha256Hex(file) == managed.contentKey.removePrefix(CONTENT_PREFIX)
+        }.getOrDefault(false)
     }
 
     fun hasReadableCachedArt(context: Context, song: Song): Boolean =
@@ -287,6 +317,7 @@ internal object AlbumArtCache {
     ): ParcelFileDescriptor? = withArtworkReadAccess {
         val file = fileForManagedArtwork(context, uriString)
             ?.takeIf { it.isFile && it.length() > 0L }
+            ?.takeIf { managedArtworkFileIsValid(context, uriString) }
             ?: return@withArtworkReadAccess null
         file.setLastModified(System.currentTimeMillis())
         ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -327,6 +358,9 @@ internal object AlbumArtCache {
                     }
                 }
             }
+            val directory = currentAlbumArtDir(context)
+            val files = residentFiles(directory)
+            resetTrackedState(directory, files, files.sumOf(File::length))
         }
     }
 

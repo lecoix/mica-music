@@ -28,6 +28,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.sync.withLock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -284,6 +285,34 @@ class LibraryScanOrchestratorTest {
         assertTrue(environment.prunedSongIds.isNotEmpty())
         assertEquals(listOf("invalidated"), harness.backing.songs.map(Song::id))
         assertTrue(harness.backing.hasScanned)
+        harness.backing.release()
+    }
+
+    @Test
+    fun artworkMaintenanceReadsCatalogOnlyAfterScanLockIsReleased() = runTest {
+        val scanner = ControlledScanner()
+        val environment = FakeScanEnvironment()
+        val harness = scanHarness(scanner, environment = environment)
+        val oldSnapshot = SongFixtures.song("old-art")
+        val newSnapshot = SongFixtures.song("new-art")
+        harness.backing.replaceSongs(listOf(oldSnapshot))
+
+        val releaseScan = CompletableDeferred<Unit>()
+        val scanLock = async {
+            harness.backing.scanExecutionMutex.withLock {
+                releaseScan.await()
+            }
+        }
+        runCurrent()
+
+        harness.backing.launchAlbumArtCacheMaintenance()
+        runCurrent()
+        harness.backing.replaceSongs(listOf(newSnapshot))
+        releaseScan.complete(Unit)
+        scanLock.await()
+        runCurrent()
+
+        assertEquals(listOf("new-art"), environment.prunedSongIds)
         harness.backing.release()
     }
 
