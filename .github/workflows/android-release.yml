@@ -97,10 +97,10 @@ jobs:
             # actions/checkout 会把 tag 事件中的本地注解标签覆写成指向 commit 的轻量标签
             # （testRef 比较注解对象与 GITHUB_SHA 不一致后重新 fetch +<sha>:refs/tags/<tag>），
             # 因此不能依赖本地 tag；改从 GitHub API 读取远端标签对象的消息。
-            TAG_OBJECT_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --jq -r '.object.sha')"
-            TAG_OBJECT_TYPE="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --jq -r '.object.type')"
+            TAG_OBJECT_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --jq '.object.sha')"
+            TAG_OBJECT_TYPE="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --jq '.object.type')"
             if [[ "$TAG_OBJECT_TYPE" == "tag" ]]; then
-              TAG_MESSAGE="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT_SHA}" --jq -r '.message')"
+              TAG_MESSAGE="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT_SHA}" --jq '.message')"
             else
               TAG_MESSAGE="$(git log -1 --format='%B' "$TAG_OBJECT_SHA")"
             fi
