@@ -88,14 +88,17 @@ import com.mica.music.ui.components.rememberPlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
+import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.screens.player.landscapeCoverFlowCloudExitActive
+import com.mica.music.ui.screens.player.landscapeCoverFlowImmersiveEligible
 import com.mica.music.ui.screens.player.landscapeCoverFlowStageActive
 import com.mica.music.ui.screens.player.landscapeCoverModeForPage
 import com.mica.music.ui.screens.player.landscapeChromeHeight
 import com.mica.music.ui.screens.player.landscapePlayerLayoutPlan
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
+import com.mica.music.ui.system.ImmersiveSystemBarsEffect
 import com.mica.music.ui.system.StatusBarEffect
 import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.ui.theme.NowPlayingBackground
@@ -238,6 +241,7 @@ fun NowPlayingContent(
     var sleepTimerSheetOpen by remember { mutableStateOf(false) }
     var playbackTuningSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by rememberSaveable { mutableStateOf(false) }
+    var landscapeCoverFlowImmersive by remember { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
     val isLandscapeWindow = configuration.screenWidthDp > configuration.screenHeightDp
     val queueListState = rememberSaveable(saver = LazyListState.Saver) {
@@ -273,6 +277,22 @@ fun NowPlayingContent(
     }
 
     LaunchedEffect(
+        isLandscapeWindow,
+        uiSettings.playerCoverFlowMode,
+        lyricsExpanded,
+    ) {
+        if (
+            !landscapeCoverFlowImmersiveEligible(
+                landscapeMode = isLandscapeWindow,
+                mode = uiSettings.playerCoverFlowMode,
+                lyricsExpanded = lyricsExpanded,
+            )
+        ) {
+            landscapeCoverFlowImmersive = false
+        }
+    }
+
+    LaunchedEffect(
         song.id,
         handleBackToClose,
         lyricsExpanded,
@@ -282,11 +302,13 @@ fun NowPlayingContent(
         actionMenuSong,
         addToPlaylistSong,
         pendingDeleteSong,
+        landscapeCoverFlowImmersive,
     ) {
         logBackFlow(
             "page now-playing song=${song.id} handleBackToClose=$handleBackToClose " +
                 "lyricsExpanded=$lyricsExpanded queueSheet=$queueSheetOpen " +
                 "sleepTimerSheet=$sleepTimerSheetOpen playbackTuningSheet=$playbackTuningSheetOpen " +
+                "landscapeCoverFlowImmersive=$landscapeCoverFlowImmersive " +
                 "actionMenu=${actionMenuSong?.id ?: "none"} " +
                 "addToPlaylist=${addToPlaylistSong?.id ?: "none"} delete=${pendingDeleteSong?.id ?: "none"}",
         )
@@ -427,11 +449,15 @@ fun NowPlayingContent(
     val coverFlowNavigation = remember { CoverFlowCarouselNavigationBridge() }
     val photoStackNavigation = remember { PhotoStackCarouselNavigationBridge() }
 
+    BackHandler(enabled = landscapeCoverFlowImmersive && !playerOverlayOpen) {
+        logBackFlow("back-consume source=now-playing-landscape-cover-flow-immersive song=${song.id}")
+        landscapeCoverFlowImmersive = false
+    }
     BackHandler(enabled = lyricsExpanded) {
         logBackFlow("back-consume source=now-playing-lyrics song=${song.id}")
         lyricsExpanded = false
     }
-    BackHandler(enabled = handleBackToClose && !lyricsExpanded) {
+    BackHandler(enabled = handleBackToClose && !lyricsExpanded && !landscapeCoverFlowImmersive) {
         logBackFlow("back-consume source=now-playing-close song=${song.id}")
         onClose()
     }
@@ -462,6 +488,25 @@ fun NowPlayingContent(
             } else {
                 uiSettings.playerCoverFlowMode
             }
+            val landscapeCoverFlowImmersiveActive =
+                landscapeCoverFlowImmersive &&
+                    landscapeCoverFlowImmersiveEligible(
+                        landscapeMode = landscapeMode,
+                        mode = effectiveCoverFlowMode,
+                        lyricsExpanded = lyricsExpanded,
+                    )
+            val landscapeCoverFlowImmersiveProgress by animateFloatAsState(
+                targetValue = if (landscapeCoverFlowImmersiveActive) 1f else 0f,
+                animationSpec = MicaMotion.tweenFloat(
+                    motionEnabled,
+                    MicaMotion.DurationLongMs,
+                ),
+                label = "landscapeCoverFlowImmersiveProgress",
+            )
+            ImmersiveSystemBarsEffect(
+                enabled = landscapeCoverFlowImmersiveActive,
+                restoreStatusBarHidden = uiSettings.hideStatusBar,
+            )
             // Landscape STANDARD: keep the pre–full-page-wipe feel (fade), not directional clip.
             val effectiveTrackWipeDirection = when {
                 landscapeMode -> null
@@ -504,7 +549,9 @@ fun NowPlayingContent(
                     hasTimedPageLyrics
             val letterLyricsRequested = lyricsExpanded && letterLyricsAvailable
             StatusBarEffect(
-                hideStatusBar = uiSettings.hideStatusBar || letterLyricsRequested,
+                hideStatusBar = uiSettings.hideStatusBar ||
+                    letterLyricsRequested ||
+                    landscapeCoverFlowImmersiveActive,
                 darkStatusBarIcons = letterLyricsRequested ||
                     playerStatusBarUsesDarkIcons(
                         coverColor = Color(song.coverColorArgb),
@@ -1033,6 +1080,12 @@ fun NowPlayingContent(
                         // CoverFlow stays mounted; side covers fold with progress.
                         LandscapeCoverFlowCoverLayer(
                             progress = landscapeCoverFlowLyricsProgress,
+                            immersiveActive = landscapeCoverFlowImmersiveActive,
+                            immersiveProgress = landscapeCoverFlowImmersiveProgress,
+                            immersiveReferenceCenterScale = CoverFlowMath.centerScale(
+                                PlayerCoverFlowMode.PAUSE_FOLD,
+                                foldProgress = 1f,
+                            ),
                             edgePadding = landscapeEdgePadding,
                             coverHeight = previewFrame.cover.height,
                             contentPadding = contentPadding,
@@ -1184,7 +1237,7 @@ fun NowPlayingContent(
                                             }
                                         }
                                     }
-                                } else {
+                                } else if (landscapeCoverFlowImmersiveProgress < 0.999f) {
                                     LandscapeCoverFlowPlayerBar(
                                         edgePadding = landscapeEdgePadding,
                                         contentPadding = contentPadding,
@@ -1212,7 +1265,10 @@ fun NowPlayingContent(
                                                     showAlbum = false,
                                                     contentScale = 0.84f,
                                                     onClick = { lyricsExpanded = true },
-                                                    onLongPress = { openSongActionMenu(song) },
+                                                    onLongPress = {
+                                                        landscapeCoverFlowImmersive = true
+                                                    },
+                                                    onLongPressLabel = "进入封面流沉浸模式",
                                                 )
                                             }
                                         },
@@ -1251,7 +1307,18 @@ fun NowPlayingContent(
                                                 visualScale = 0.88f,
                                             )
                                         },
-                                        modifier = Modifier.fillMaxSize(),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                alpha = 1f - landscapeCoverFlowImmersiveProgress
+                                            }
+                                            .then(
+                                                if (landscapeCoverFlowImmersiveActive) {
+                                                    Modifier.clearAndSetSemantics { }
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ),
                                     )
                                 }
                             }

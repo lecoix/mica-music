@@ -7,6 +7,37 @@ import org.junit.Test
 
 class LandscapeCoverFlowCoverPoseTest {
     @Test
+    fun immersivePoseMakesParallelCoverFullHeightAndCentersCoverItself() {
+        val pose = landscapeCoverFlowImmersivePose(
+            stageHeight = 400.dp,
+            coverHeight = 280.dp,
+            referenceCenterScale = 0.76f,
+        )
+        val transformedCoverCenter = 280f * (0.45f + 0.05f * pose.scale)
+        val visibleCoverCenter = transformedCoverCenter + pose.translationY.value
+        val parallelVisibleHeight = 280f * 0.76f * pose.scale
+
+        assertEquals(400f, parallelVisibleHeight, 0.01f)
+        assertEquals(200f, visibleCoverCenter, 0.01f)
+    }
+
+    @Test
+    fun immersivePoseGivesParallelAndRetroTheSameOuterScaleNumber() {
+        val parallel = landscapeCoverFlowImmersivePose(
+            stageHeight = 400.dp,
+            coverHeight = 280.dp,
+            referenceCenterScale = 0.76f,
+        )
+        val retro = landscapeCoverFlowImmersivePose(
+            stageHeight = 400.dp,
+            coverHeight = 280.dp,
+            referenceCenterScale = 0.76f,
+        )
+
+        assertEquals(parallel.scale, retro.scale, 0.001f)
+    }
+
+    @Test
     fun lyricsLaneKeepsFullAlphaAndMovesTowardLeftLane() {
         val pose = landscapeCoverFlowCoverPose(
             progress = 1f,

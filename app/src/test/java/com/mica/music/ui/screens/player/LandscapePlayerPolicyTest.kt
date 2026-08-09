@@ -80,6 +80,44 @@ class LandscapePlayerPolicyTest {
     }
 
     @Test
+    fun immersiveStageOnlyAcceptsSettledLandscapeCoverFlowPlayer() {
+        listOf(
+            PlayerCoverFlowMode.PAUSE_FOLD,
+            PlayerCoverFlowMode.RETRO_3D,
+        ).forEach { mode ->
+            assertTrue(
+                landscapeCoverFlowImmersiveEligible(
+                    landscapeMode = true,
+                    mode = mode,
+                    lyricsExpanded = false,
+                ),
+            )
+            assertFalse(
+                landscapeCoverFlowImmersiveEligible(
+                    landscapeMode = false,
+                    mode = mode,
+                    lyricsExpanded = false,
+                ),
+            )
+            assertFalse(
+                landscapeCoverFlowImmersiveEligible(
+                    landscapeMode = true,
+                    mode = mode,
+                    lyricsExpanded = true,
+                ),
+            )
+        }
+
+        assertFalse(
+            landscapeCoverFlowImmersiveEligible(
+                landscapeMode = true,
+                mode = PlayerCoverFlowMode.STANDARD,
+                lyricsExpanded = false,
+            ),
+        )
+    }
+
+    @Test
     fun availableLyricsCloudDoesNotReplaceCoverFlowStageUntilRequested() {
         val lyricsCloudAvailable = true
         fun lyricsCloudRequested(lyricsExpanded: Boolean): Boolean =

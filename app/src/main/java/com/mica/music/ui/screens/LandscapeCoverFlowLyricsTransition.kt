@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
@@ -40,6 +43,9 @@ internal enum class LandscapeCoverFlowCoverExit {
 @Composable
 internal fun LandscapeCoverFlowCoverLayer(
     progress: Float,
+    immersiveActive: Boolean = false,
+    immersiveProgress: Float = 0f,
+    immersiveReferenceCenterScale: Float = 0.76f,
     edgePadding: Dp,
     coverHeight: Dp,
     contentPadding: PaddingValues,
@@ -68,6 +74,36 @@ internal fun LandscapeCoverFlowCoverLayer(
         val playerCoverTranslationY = barTop -
             safeCoverHeight / 2 -
             safeCoverHeight * (0.38f * playerCoverScale)
+        val currentPlayerPose = LandscapeCoverFlowImmersivePose(
+            scale = playerCoverScale,
+            translationY = playerCoverTranslationY,
+        )
+        val settledPlayerPose = remember { mutableStateOf(currentPlayerPose) }
+        val immersiveTransitionRunning = immersiveActive || immersiveProgress > 0.001f
+        SideEffect {
+            if (!immersiveTransitionRunning) {
+                settledPlayerPose.value = currentPlayerPose
+            }
+        }
+        val immersiveStartPose = if (immersiveTransitionRunning) {
+            settledPlayerPose.value
+        } else {
+            currentPlayerPose
+        }
+        val immersivePose = landscapeCoverFlowImmersivePose(
+            stageHeight = maxHeight,
+            coverHeight = safeCoverHeight,
+            referenceCenterScale = immersiveReferenceCenterScale,
+        )
+        val immersiveT = immersiveProgress.coerceIn(0f, 1f)
+        val effectivePlayerScale =
+            immersiveStartPose.scale +
+                (immersivePose.scale - immersiveStartPose.scale) * immersiveT
+        val effectivePlayerTranslationY = lerp(
+            immersiveStartPose.translationY,
+            immersivePose.translationY,
+            immersiveT,
+        )
 
         val lyricsCoverScale = (
             lyricsCoverSize.value / safeCoverHeight.value.coerceAtLeast(0.01f)
@@ -82,8 +118,8 @@ internal fun LandscapeCoverFlowCoverLayer(
         val pose = landscapeCoverFlowCoverPose(
             progress = t,
             exit = exit,
-            playerCoverScale = playerCoverScale,
-            playerCoverTranslationY = playerCoverTranslationY,
+            playerCoverScale = effectivePlayerScale,
+            playerCoverTranslationY = effectivePlayerTranslationY,
             lyricsCoverScale = lyricsCoverScale,
             lyricsCoverTranslationY = lyricsCoverTranslationY,
             coverTranslationXTarget = lyricsCenterX - playerCenterX,
@@ -106,6 +142,35 @@ internal fun LandscapeCoverFlowCoverLayer(
             foldProgress,
         )
     }
+}
+
+internal data class LandscapeCoverFlowImmersivePose(
+    val scale: Float,
+    val translationY: Dp,
+)
+
+/**
+ * Scales the parallel theme's center cover to the full stage height and vertically centers the
+ * cover itself. Retro reuses the same outer scale value. Reflection height is deliberately
+ * excluded from both calculations.
+ */
+internal fun landscapeCoverFlowImmersivePose(
+    stageHeight: Dp,
+    coverHeight: Dp,
+    referenceCenterScale: Float,
+): LandscapeCoverFlowImmersivePose {
+    val safeStageHeight = stageHeight.coerceAtLeast(1.dp)
+    val safeCoverHeight = coverHeight.coerceAtLeast(1.dp)
+    val safeReferenceCenterScale = referenceCenterScale.coerceAtLeast(0.01f)
+    val targetScale =
+        safeStageHeight.value / (safeCoverHeight.value * safeReferenceCenterScale)
+    // LandscapeCoverFlowCoverLayer uses TransformOrigin(0.5, 0.45). Map the local cover center
+    // through that transform so the visible center cover is centered, not its slot box.
+    val transformedCoverCenter = safeCoverHeight * (0.45f + 0.05f * targetScale)
+    return LandscapeCoverFlowImmersivePose(
+        scale = targetScale,
+        translationY = safeStageHeight / 2 - transformedCoverCenter,
+    )
 }
 
 internal data class LandscapeCoverFlowCoverPose(

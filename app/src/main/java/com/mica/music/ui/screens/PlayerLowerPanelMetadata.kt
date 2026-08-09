@@ -114,6 +114,7 @@ internal fun SongTitleSection(
     modifier: Modifier = Modifier,
     contentScale: Float = 1f,
     onLongPress: (() -> Unit)? = null,
+    onLongPressLabel: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     val titleStyle = MicaTheme.typography.titleLg.let { style ->
@@ -147,6 +148,7 @@ internal fun SongTitleSection(
                 if (onLongPress != null) {
                     Modifier.combinedClickable(
                         onClick = onClick ?: {},
+                        onLongClickLabel = onLongPressLabel,
                         onLongClick = onLongPress,
                     )
                 } else if (onClick != null) {

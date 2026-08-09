@@ -86,6 +86,15 @@ internal fun landscapeCoverModeForPage(
     else -> PlayerCoverFlowMode.STANDARD
 }
 
+internal fun landscapeCoverFlowImmersiveEligible(
+    landscapeMode: Boolean,
+    mode: PlayerCoverFlowMode,
+    lyricsExpanded: Boolean,
+): Boolean =
+    landscapeMode &&
+        !lyricsExpanded &&
+        (mode == PlayerCoverFlowMode.PAUSE_FOLD || mode == PlayerCoverFlowMode.RETRO_3D)
+
 internal fun landscapeCoverFlowStageActive(
     landscapeMode: Boolean,
     mode: PlayerCoverFlowMode,
