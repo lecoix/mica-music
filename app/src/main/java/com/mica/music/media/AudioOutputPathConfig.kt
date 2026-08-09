@@ -1,6 +1,7 @@
 package com.mica.music.media
 
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.media.usb.UsbOutputRequest
 
 /**
  * Output-path configuration fixed at ExoPlayer build time (§7.1 / §7.4 full-mode rebuild).
@@ -9,18 +10,17 @@ import com.mica.music.util.DiagnosticLog
  * (DSD int vs float delivery). Renderer-split sink selection in [MicaRenderersFactory] reads
  * this object; changing it requires rebuilding Exo.
  */
-data class AudioOutputPathConfig(
+internal data class AudioOutputPathConfig(
     val outputMode: PlaybackOutputMode = PlaybackOutputMode.SharedPcm,
     val dsdDecimationMode: DsdDecimationOutputMode = DsdDecimationOutputMode.IntPcm,
-    /** Reserved for P6 USB device binding; unused while [outputMode] is [PlaybackOutputMode.SharedPcm]. */
-    val usbAudioDeviceId: Int? = null,
-    /** Explicit throwaway gate; never set by [PRODUCTION]. */
-    val prototypeUsbHost: Boolean = false,
+    /** Typed Host request; never uses framework AudioDeviceInfo.id as USB identity. */
+    val usbOutputRequest: UsbOutputRequest? = null,
 ) {
     fun logForDiagnostics() {
         DiagnosticLog.event(
             "AudioOutputPath",
-            "mode=$outputMode dsdDecimation=$dsdDecimationMode usbDeviceId=$usbAudioDeviceId",
+            "mode=$outputMode dsdDecimation=$dsdDecimationMode " +
+                "usbDevice=${usbOutputRequest?.device}",
         )
     }
 
@@ -31,9 +31,12 @@ data class AudioOutputPathConfig(
     fun requireSupportedForPlayback() {
         require(
             outputMode == PlaybackOutputMode.SharedPcm ||
-                (outputMode == PlaybackOutputMode.UsbDirectPcm && prototypeUsbHost),
+                (outputMode == PlaybackOutputMode.UsbDirectPcm && usbOutputRequest != null),
         ) {
             "Output mode $outputMode is reserved (P6 USB); only SharedPcm is active today."
+        }
+        require(outputMode != PlaybackOutputMode.SharedPcm || usbOutputRequest == null) {
+            "SharedPcm cannot carry a USB Host request"
         }
         require(dsdDecimationMode == DsdDecimationOutputMode.IntPcm) {
             "DSD FloatPcm delivery is reserved (P4); only IntPcm is active today."

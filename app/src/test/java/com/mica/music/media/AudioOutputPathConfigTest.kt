@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.mica.music.media.usb.Sk02UsbContract
+import com.mica.music.media.usb.UsbOutputRequest
 
 class AudioOutputPathConfigTest {
 
@@ -33,10 +35,10 @@ class AudioOutputPathConfigTest {
     fun explicitDebugPrototype_allowsUsbDirectPcmWithoutChangingProductionDefault() {
         AudioOutputPathConfig(
             outputMode = PlaybackOutputMode.UsbDirectPcm,
-            prototypeUsbHost = true,
+            usbOutputRequest = UsbOutputRequest(device = Sk02UsbContract.identity),
         ).requireSupportedForPlayback()
         assertEquals(PlaybackOutputMode.SharedPcm, AudioOutputPathConfig.PRODUCTION.outputMode)
-        assertFalse(AudioOutputPathConfig.PRODUCTION.prototypeUsbHost)
+        assertEquals(null, AudioOutputPathConfig.PRODUCTION.usbOutputRequest)
     }
 
     @Test(expected = IllegalArgumentException::class)

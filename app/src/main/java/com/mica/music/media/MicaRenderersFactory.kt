@@ -144,7 +144,7 @@ internal class MicaRenderersFactory(
                 buildPcmAudioSink(context),
                 "PcmOnly",
                 MicaRendererSupportPolicies.pcmOnly,
-                outputPath.prototypeUsbHost,
+                outputPath.usbOutputRequest != null,
             ),
         )
         super.buildAudioRenderers(
@@ -283,12 +283,12 @@ internal class MicaRenderersFactory(
             enableAudioOutputPlaybackParameters = false,
             processorNames = chain.processorNamesForDiagnostics(),
         )
-        val provider = UsbHostPrototypeOutput.createProvider(context, outputPath)
+        val provider = UsbHostOutputAdapter.createProvider(context, outputPath)
         return DefaultAudioSink.Builder(context)
             // Keep high-resolution integer decoder output as float. The SK02 prototype provider
             // accepts it only when every float maps exactly to signed PCM24; it fails closed
             // instead of silently truncating to PCM16.
-            .setEnableFloatOutput(enableFloatOutput || outputPath.prototypeUsbHost)
+            .setEnableFloatOutput(enableFloatOutput || outputPath.usbOutputRequest != null)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessorChain(chain)
             .setAudioOutputProvider(provider)

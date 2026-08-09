@@ -13,6 +13,17 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioOutput
 import androidx.media3.exoplayer.audio.AudioOutputProvider
+import com.mica.music.media.usb.PlaybackOutputFacts
+import com.mica.music.media.usb.Sk02UsbContract
+import com.mica.music.media.usb.UsbAudioRuntimeHandle
+import com.mica.music.media.usb.UsbOutputCleanupLease
+import com.mica.music.media.usb.UsbOutputRequest
+import com.mica.music.media.usb.UsbOutputRequestLease
+import com.mica.music.media.usb.UsbOutputRequestToken
+import com.mica.music.media.usb.UsbOutputRuntime
+import com.mica.music.media.usb.UsbOutputSession
+import com.mica.music.media.usb.UsbPcmEncoding
+import com.mica.music.media.usb.UsbPcmFormat
 import com.mica.music.util.DiagnosticLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -101,12 +112,13 @@ class UsbSk02AudioOutputProvider(context: Context) : AudioOutputProvider {
             .build()
     }
 
-    override fun getAudioOutput(
-        config: AudioOutputProvider.OutputConfig,
-    ): AudioOutput = try {
-        UsbSk02Media3SessionOwner.open(appContext, config)
-    } catch (error: Exception) {
-        throw AudioOutputProvider.InitializationException(error)
+    override fun getAudioOutput(config: AudioOutputProvider.OutputConfig): AudioOutput {
+        return try {
+            UsbOutputRuntime.installGenerationPublisher(UsbSk02NativePrototype::publishGeneration)
+            UsbSk02Media3SessionOwner.open(appContext, config)
+        } catch (error: Exception) {
+            throw AudioOutputProvider.InitializationException(error)
+        }
     }
 
     override fun addListener(listener: AudioOutputProvider.Listener) {
@@ -128,36 +140,37 @@ class UsbSk02AudioOutputProvider(context: Context) : AudioOutputProvider {
 
 @UnstableApi
 private object UsbSk02Media3SessionOwner {
-    private val lock = Any()
-    private var active: UsbSk02AudioOutput? = null
-
     fun open(
         context: Context,
         config: AudioOutputProvider.OutputConfig,
-    ): UsbSk02AudioOutput = synchronized(lock) {
-        val token = nextGeneration()
-        active?.releaseLocked("replaced")
-        UsbSk02AudioOutput.open(context, config, token).also { active = it }
-    }
-
-    fun restart(output: UsbSk02AudioOutput) = synchronized(lock) {
-        check(active === output) { "Cannot restart a stale SK02 output" }
-        val token = nextGeneration()
-        output.restartNativeLocked(token)
-    }
-
-    fun release(output: UsbSk02AudioOutput) = synchronized(lock) {
-        if (active === output) {
-            nextGeneration()
-            active = null
+    ): UsbSk02AudioOutput {
+        val sourceFormat = config.toUsbPcmFormat()
+        return UsbOutputRuntime.owner.replace(
+            request = UsbOutputRequest(
+                device = Sk02UsbContract.identity,
+                sourceFormat = sourceFormat,
+            ),
+        ) { lease ->
+            UsbSk02AudioOutput.open(context, config, sourceFormat, lease)
         }
-        output.releaseLocked("release")
     }
 
-    private fun nextGeneration(): UsbPrototypeGenerationGate.Token =
-        UsbPrototypeGenerationOwner.gate.beginRequest().also {
-            UsbSk02NativePrototype.publishGeneration(it.value)
-        }
+    fun restart(output: UsbSk02AudioOutput) = UsbOutputRuntime.owner.restart(output)
+
+    fun release(output: UsbSk02AudioOutput) {
+        UsbOutputRuntime.owner.release(output)
+    }
+
+    private fun AudioOutputProvider.OutputConfig.toUsbPcmFormat(): UsbPcmFormat =
+        UsbPcmFormat(
+            sampleRateHz = sampleRate,
+            channelCount = 2,
+            encoding = when (encoding) {
+                C.ENCODING_PCM_16BIT -> UsbPcmEncoding.PCM_16
+                C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_32BIT -> UsbPcmEncoding.PCM_32
+                else -> error("Unsupported SK02 input encoding $encoding")
+            },
+        )
 }
 
 @UnstableApi
@@ -171,10 +184,12 @@ private class UsbSk02AudioOutput private constructor(
     private val usbBytesPerFrame: Int,
     private val maxPacketBytes: Int,
     private val originalClockHz: Int?,
-    generation: UsbPrototypeGenerationGate.Token,
-) : AudioOutput {
+    private val runtimeHandle: UsbAudioRuntimeHandle,
+    private val negotiatedFormat: UsbPcmFormat,
+    initialLease: UsbOutputRequestLease,
+) : AudioOutput, UsbOutputSession {
     private val listeners = CopyOnWriteArraySet<AudioOutput.Listener>()
-    private var generation = generation
+    private var generation = initialLease.token
     private var nativeHandle = 0L
     private var requestedPlaying = false
     private var volume = 1f
@@ -187,50 +202,69 @@ private class UsbSk02AudioOutput private constructor(
     private var lastAppliedConsuming = false
     private var floatScratch = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
 
+    override val activeFacts: PlaybackOutputFacts
+        get() = PlaybackOutputFacts(
+            runtimeHandle = runtimeHandle,
+            negotiatedFormat = negotiatedFormat,
+            permissionGranted = true,
+            claimed = true,
+            exclusive = true,
+            signalExact = true,
+        )
+
     init {
-        nativeHandle = createNative(generation)
+        nativeHandle = initialLease.io { createNative(generation) }
     }
 
     override fun play() {
-        requestedPlaying = true
-        resumeSequence++
-        resumeRequestedAtNs = SystemClock.elapsedRealtimeNanos()
-        firstWriteLoggedForResume = false
-        DiagnosticLog.event(
-            "UsbResumeTiming",
-            "resume=$resumeSequence event=playRequested bufferedFrames=" +
-                UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle),
-        )
-        applyPlayingState()
-        if (!positionNotified) {
-            positionNotified = true
-            listeners.forEach { it.onPositionAdvancing(System.currentTimeMillis()) }
+        UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            requestedPlaying = true
+            resumeSequence++
+            resumeRequestedAtNs = SystemClock.elapsedRealtimeNanos()
+            firstWriteLoggedForResume = false
+            DiagnosticLog.event(
+                "UsbResumeTiming",
+                "resume=$resumeSequence event=playRequested bufferedFrames=" +
+                    lease.io { UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle) },
+            )
+            applyPlayingState(lease)
+            if (!positionNotified) {
+                lease.ensureCurrent()
+                positionNotified = true
+                listeners.forEach {
+                    lease.ensureCurrent()
+                    it.onPositionAdvancing(System.currentTimeMillis())
+                }
+            }
         }
     }
 
     override fun pause() {
-        requestedPlaying = false
-        DiagnosticLog.event(
-            "UsbResumeTiming",
-            "resume=$resumeSequence event=pause bufferedFrames=" +
-                UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle),
-        )
-        applyPlayingState()
+        UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            requestedPlaying = false
+            DiagnosticLog.event(
+                "UsbResumeTiming",
+                "resume=$resumeSequence event=pause bufferedFrames=" +
+                    lease.io { UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle) },
+            )
+            applyPlayingState(lease)
+        }
     }
 
     override fun write(
         buffer: ByteBuffer,
         encodedAccessUnitCount: Int,
         presentationTimeUs: Long,
-    ): Boolean {
-        checkNativeError()
-        if (!buffer.hasRemaining()) return true
+    ): Boolean = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+        checkNativeError(lease)
+        if (!buffer.hasRemaining()) return@withActiveSession true
         val writtenInputBytes = when (inputEncoding) {
-            C.ENCODING_PCM_16BIT -> writePcm16(buffer)
-            C.ENCODING_PCM_FLOAT -> writeExactFloatAsPcm32(buffer)
-            C.ENCODING_PCM_32BIT -> writePcm32(buffer)
+            C.ENCODING_PCM_16BIT -> writePcm16(buffer, lease)
+            C.ENCODING_PCM_FLOAT -> writeExactFloatAsPcm32(buffer, lease)
+            C.ENCODING_PCM_32BIT -> writePcm32(buffer, lease)
             else -> throw AudioOutput.WriteException(ERROR_UNSUPPORTED_ENCODING, false)
         }
+        lease.ensureCurrent()
         buffer.position(buffer.position() + writtenInputBytes)
         if (writtenInputBytes > 0 && !firstWriteLoggedForResume) {
             firstWriteLoggedForResume = true
@@ -238,20 +272,22 @@ private class UsbSk02AudioOutput private constructor(
                 "UsbResumeTiming",
                 "resume=$resumeSequence event=firstWrite elapsedUs=${resumeElapsedUs()} " +
                     "acceptedInputBytes=$writtenInputBytes bufferedFrames=" +
-                    UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle),
+                    lease.io { UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle) },
             )
         }
-        if (writtenInputBytes > 0) applyPlayingState()
-        reportUnderrunIfChanged()
-        checkNativeError()
-        return !buffer.hasRemaining()
-    }
+        if (writtenInputBytes > 0) applyPlayingState(lease)
+        reportUnderrunIfChanged(lease)
+        checkNativeError(lease)
+        !buffer.hasRemaining()
+    } ?: throw AudioOutput.WriteException(ERROR_RELEASED, true)
 
     override fun flush() {
         UsbSk02Media3SessionOwner.restart(this)
-        positionNotified = false
-        lastUnderrunBytes = 0
-        applyPlayingState()
+        UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            positionNotified = false
+            lastUnderrunBytes = 0
+            applyPlayingState(lease)
+        }
     }
 
     override fun stop() = Unit
@@ -261,12 +297,13 @@ private class UsbSk02AudioOutput private constructor(
     }
 
     override fun setVolume(volume: Float) {
-        this.volume = volume
-        // The exclusive prototype never applies digital gain. Non-unity Media3 volume (including
-        // audio-focus ducking) mutes transport source consumption instead of playing too loudly.
-        applyPlayingState()
-        if (volume != 1f) {
-            DiagnosticLog.event("UsbExclusivePrototype", "nonUnityVolume=$volume action=mute")
+        UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            this.volume = volume
+            // Never apply digital gain. Non-unity volume stops source consumption.
+            applyPlayingState(lease)
+            if (volume != 1f) {
+                DiagnosticLog.event("UsbExclusivePrototype", "nonUnityVolume=$volume action=mute")
+            }
         }
     }
 
@@ -274,13 +311,16 @@ private class UsbSk02AudioOutput private constructor(
     override fun getAudioSessionId(): Int = C.AUDIO_SESSION_ID_UNSET
     override fun getSampleRate(): Int = sampleRate
     override fun getBufferSizeInFrames(): Long = sampleRate.toLong() * 2L
-    override fun getPositionUs(): Long =
-        UsbSk02NativePrototype.getMedia3CompletedFrames(nativeHandle) * C.MICROS_PER_SECOND /
-            sampleRate
+    override fun getPositionUs(): Long = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+        lease.io { UsbSk02NativePrototype.getMedia3CompletedFrames(nativeHandle) } *
+            C.MICROS_PER_SECOND / sampleRate
+    } ?: 0L
 
     override fun getPlaybackParameters(): PlaybackParameters = PlaybackParameters.DEFAULT
-    override fun isStalled(): Boolean =
-        nativeHandle == 0L || UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) != 0
+    override fun isStalled(): Boolean = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+        nativeHandle == 0L ||
+            lease.io { UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) } != 0
+    } ?: true
 
     override fun addListener(listener: AudioOutput.Listener) {
         listeners += listener
@@ -297,40 +337,56 @@ private class UsbSk02AudioOutput private constructor(
     override fun setAuxEffectSendLevel(level: Float) = Unit
     override fun setPreferredDevice(preferredDevice: AudioDeviceInfo?) = Unit
 
-    fun restartNativeLocked(token: UsbPrototypeGenerationGate.Token) {
-        if (nativeHandle != 0L) UsbSk02NativePrototype.destroyMedia3Stream(nativeHandle)
-        generation = token
-        nativeHandle = createNative(token)
+    override fun restart(lease: UsbOutputRequestLease) {
+        if (nativeHandle != 0L) {
+            lease.io { UsbSk02NativePrototype.destroyMedia3Stream(nativeHandle) }
+            nativeHandle = 0L
+        }
+        generation = lease.token
+        nativeHandle = lease.io { createNative(lease.token) }
     }
 
-    fun releaseLocked(reason: String) {
+    override fun release(lease: UsbOutputCleanupLease, reason: String) {
         if (released) return
         released = true
         requestedPlaying = false
         if (nativeHandle != 0L) {
-            UsbSk02NativePrototype.destroyMedia3Stream(nativeHandle)
+            lease.io { UsbSk02NativePrototype.destroyMedia3Stream(nativeHandle) }
             nativeHandle = 0L
         }
-        val alt0Restored = runCatching { connection.setInterface(streamingAlt0) }.getOrDefault(false)
-        val clockRestoreBytes = originalClockHz?.let { setClockFrequency(connection, it) }
-        val restoredClockHz = originalClockHz?.let { readClockCurrentHz(connection) }
-        val streamingReleased = runCatching { connection.releaseInterface(streamingAlt0) }
+        val alt0Restored = runCatching {
+            lease.io { connection.setInterface(streamingAlt0) }
+        }.getOrDefault(false)
+        val clockRestoreBytes = originalClockHz?.let { original ->
+            lease.io { setClockFrequency(connection, original) }
+        }
+        val restoredClockHz = originalClockHz?.let {
+            lease.io { readClockCurrentHz(connection) }
+        }
+        val streamingReleased = runCatching {
+            lease.io { connection.releaseInterface(streamingAlt0) }
+        }
             .getOrDefault(false)
-        val controlReleased = runCatching { connection.releaseInterface(audioControl) }
+        val controlReleased = runCatching {
+            lease.io { connection.releaseInterface(audioControl) }
+        }
             .getOrDefault(false)
-        val reconnectErrno = UsbSk02NativePrototype.reconnectKernelDrivers(connection.fileDescriptor)
-        connection.close()
+        val reconnectErrno = lease.io {
+            UsbSk02NativePrototype.reconnectKernelDrivers(connection.fileDescriptor)
+        }
+        lease.io { connection.close() }
         DiagnosticLog.event(
             "UsbExclusivePrototype",
             "closed reason=$reason alt0=$alt0Restored clockBytes=$clockRestoreBytes " +
                 "clockHz=$restoredClockHz streamingReleased=$streamingReleased " +
                 "controlReleased=$controlReleased reconnectErrno=$reconnectErrno",
         )
+        lease.ensureSerialized()
         listeners.forEach(AudioOutput.Listener::onReleased)
         listeners.clear()
     }
 
-    private fun createNative(token: UsbPrototypeGenerationGate.Token): Long {
+    private fun createNative(token: UsbOutputRequestToken): Long {
         val handle = UsbSk02NativePrototype.createMedia3Stream(
             connection.fileDescriptor,
             sampleRate,
@@ -342,29 +398,36 @@ private class UsbSk02AudioOutput private constructor(
         return handle
     }
 
-    private fun writePcm16(buffer: ByteBuffer): Int {
+    private fun writePcm16(buffer: ByteBuffer, lease: UsbOutputRequestLease): Int {
         val length = buffer.remaining() - buffer.remaining() % PCM16_INPUT_FRAME_BYTES
         if (length == 0) return 0
-        return UsbSk02NativePrototype.writeMedia3Stream(
-            nativeHandle,
-            buffer,
-            buffer.position(),
-            length,
-        )
+        return lease.io {
+            UsbSk02NativePrototype.writeMedia3Stream(
+                nativeHandle,
+                buffer,
+                buffer.position(),
+                length,
+            )
+        }
     }
 
-    private fun writePcm32(buffer: ByteBuffer): Int {
+    private fun writePcm32(buffer: ByteBuffer, lease: UsbOutputRequestLease): Int {
         val length = buffer.remaining() - buffer.remaining() % PCM32_INPUT_FRAME_BYTES
         if (length == 0) return 0
-        return UsbSk02NativePrototype.writeMedia3Stream(
-            nativeHandle,
-            buffer,
-            buffer.position(),
-            length,
-        )
+        return lease.io {
+            UsbSk02NativePrototype.writeMedia3Stream(
+                nativeHandle,
+                buffer,
+                buffer.position(),
+                length,
+            )
+        }
     }
 
-    private fun writeExactFloatAsPcm32(buffer: ByteBuffer): Int {
+    private fun writeExactFloatAsPcm32(
+        buffer: ByteBuffer,
+        lease: UsbOutputRequestLease,
+    ): Int {
         val availableFrames = buffer.remaining() / FLOAT_INPUT_FRAME_BYTES
         if (availableFrames == 0) return 0
         val frames = minOf(availableFrames, FLOAT_CONVERSION_FRAMES)
@@ -375,7 +438,7 @@ private class UsbSk02AudioOutput private constructor(
             floatScratch.clear()
         }
         try {
-            ExactPcm32PrototypePacking.pack(buffer, frames, floatScratch)
+            ExactPcm32Packing.pack(buffer, frames, floatScratch)
         } catch (error: IllegalArgumentException) {
             DiagnosticLog.event(
                 "UsbExclusivePrototype",
@@ -384,19 +447,23 @@ private class UsbSk02AudioOutput private constructor(
             throw AudioOutput.WriteException(ERROR_NON_EXACT_PCM24, false)
         }
         floatScratch.flip()
-        val acceptedOutput = UsbSk02NativePrototype.writeMedia3Stream(
-            nativeHandle,
-            floatScratch,
-            0,
-            outputBytes,
-        )
+        val acceptedOutput = lease.io {
+            UsbSk02NativePrototype.writeMedia3Stream(
+                nativeHandle,
+                floatScratch,
+                0,
+                outputBytes,
+            )
+        }
         val acceptedFrames = acceptedOutput / PCM32_OUTPUT_FRAME_BYTES
         return acceptedFrames * FLOAT_INPUT_FRAME_BYTES
     }
 
-    private fun applyPlayingState() {
+    private fun applyPlayingState(lease: UsbOutputRequestLease) {
         if (nativeHandle != 0L) {
-            val bufferedFrames = UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
+            val bufferedFrames = lease.io {
+                UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
+            }
             val consuming = shouldConsumeUsbSource(
                 requestedPlaying = requestedPlaying,
                 volume = volume,
@@ -412,10 +479,12 @@ private class UsbSk02AudioOutput private constructor(
                 )
                 lastAppliedConsuming = consuming
             }
-            UsbSk02NativePrototype.setMedia3StreamPlaying(
-                nativeHandle,
-                consuming,
-            )
+            lease.io {
+                UsbSk02NativePrototype.setMedia3StreamPlaying(
+                    nativeHandle,
+                    consuming,
+                )
+            }
         }
     }
 
@@ -425,22 +494,28 @@ private class UsbSk02AudioOutput private constructor(
         (SystemClock.elapsedRealtimeNanos() - resumeRequestedAtNs) / 1_000L
     }
 
-    private fun reportUnderrunIfChanged() {
-        val current = UsbSk02NativePrototype.getMedia3UnderrunBytes(nativeHandle)
+    private fun reportUnderrunIfChanged(lease: UsbOutputRequestLease) {
+        val current = lease.io { UsbSk02NativePrototype.getMedia3UnderrunBytes(nativeHandle) }
         if (current > lastUnderrunBytes) {
+            lease.ensureCurrent()
             lastUnderrunBytes = current
-            listeners.forEach(AudioOutput.Listener::onUnderrun)
+            listeners.forEach {
+                lease.ensureCurrent()
+                it.onUnderrun()
+            }
             DiagnosticLog.event(
                 "UsbExclusivePrototype",
                 "underrunBytes=$current resume=$resumeSequence elapsedUs=${resumeElapsedUs()} " +
-                    "bufferedFrames=${UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)}",
+                    "bufferedFrames=${lease.io {
+                        UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
+                    }}",
             )
         }
     }
 
-    private fun checkNativeError() {
+    private fun checkNativeError(lease: UsbOutputRequestLease) {
         val error = if (nativeHandle == 0L) ERROR_RELEASED else {
-            UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle)
+            lease.io { UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) }
         }
         if (error != 0) throw AudioOutput.WriteException(error, true)
     }
@@ -469,7 +544,8 @@ private class UsbSk02AudioOutput private constructor(
         fun open(
             context: Context,
             config: AudioOutputProvider.OutputConfig,
-            token: UsbPrototypeGenerationGate.Token,
+            sourceFormat: UsbPcmFormat,
+            lease: UsbOutputRequestLease,
         ): UsbSk02AudioOutput {
             val profile = when (config.encoding) {
                 C.ENCODING_PCM_16BIT -> Profile(1, 4, 200)
@@ -481,6 +557,7 @@ private class UsbSk02AudioOutput private constructor(
             val target = manager.deviceList.values.firstOrNull {
                 it.vendorId == TARGET_VENDOR_ID && it.productId == TARGET_PRODUCT_ID
             } ?: error("Fosi Audio SK02 is not attached")
+            lease.ensureCurrent()
             check(manager.hasPermission(target)) { "USB permission for SK02 is missing" }
             val interfaces = (0 until target.interfaceCount).map(target::getInterface)
             val audioControl = interfaces.firstOrNull {
@@ -492,29 +569,25 @@ private class UsbSk02AudioOutput private constructor(
             val streamingTarget = interfaces.firstOrNull {
                 it.id == AUDIO_STREAMING_INTERFACE_ID && it.alternateSetting == profile.alt
             } ?: error("SK02 AudioStreaming alt ${profile.alt} is missing")
-            val connection = manager.openDevice(target) ?: error("Unable to open SK02")
+            val connection = lease.io { manager.openDevice(target) } ?: error("Unable to open SK02")
             var controlClaimed = false
             var streamingClaimed = false
             var altSelected = false
             var originalClockHz: Int? = null
             try {
-                check(UsbPrototypeGenerationOwner.gate.isCurrent(token)) { "Stale USB generation" }
-                controlClaimed = connection.claimInterface(audioControl, true)
-                check(UsbPrototypeGenerationOwner.gate.isCurrent(token)) { "Stale after control claim" }
-                streamingClaimed = connection.claimInterface(streamingAlt0, true)
+                lease.ensureCurrent()
+                controlClaimed = lease.io { connection.claimInterface(audioControl, true) }
+                streamingClaimed = lease.io { connection.claimInterface(streamingAlt0, true) }
                 check(controlClaimed && streamingClaimed) { "Unable to force-claim SK02 interfaces" }
-                check(UsbPrototypeGenerationOwner.gate.isCurrent(token)) { "Stale after stream claim" }
-                originalClockHz = readClockCurrentHz(connection)
-                check(setClockFrequency(connection, config.sampleRate) == 4) {
+                originalClockHz = lease.io { readClockCurrentHz(connection) }
+                check(lease.io { setClockFrequency(connection, config.sampleRate) } == 4) {
                     "Unable to set SK02 clock to ${config.sampleRate} Hz"
                 }
-                check(readClockCurrentHz(connection) == config.sampleRate) {
+                check(lease.io { readClockCurrentHz(connection) } == config.sampleRate) {
                     "SK02 clock did not settle at ${config.sampleRate} Hz"
                 }
-                check(UsbPrototypeGenerationOwner.gate.isCurrent(token)) { "Stale after clock write" }
-                altSelected = connection.setInterface(streamingTarget)
+                altSelected = lease.io { connection.setInterface(streamingTarget) }
                 check(altSelected) { "Unable to select SK02 alt ${profile.alt}" }
-                check(UsbPrototypeGenerationOwner.gate.isCurrent(token)) { "Stale after alt select" }
                 return UsbSk02AudioOutput(
                     connection = connection,
                     audioControl = audioControl,
@@ -525,20 +598,29 @@ private class UsbSk02AudioOutput private constructor(
                     usbBytesPerFrame = profile.usbBytesPerFrame,
                     maxPacketBytes = profile.maxPacketBytes,
                     originalClockHz = originalClockHz,
-                    generation = token,
+                    runtimeHandle = UsbAudioRuntimeHandle(target.deviceId),
+                    negotiatedFormat = sourceFormat,
+                    initialLease = lease,
                 ).also {
                     DiagnosticLog.event(
                         "UsbExclusivePrototype",
                         "opened sr=${config.sampleRate} inputEncoding=${config.encoding} " +
-                            "alt=${profile.alt} generation=${token.value}",
+                            "alt=${profile.alt} generation=${lease.token.value}",
                     )
                 }
             } catch (error: Exception) {
-                if (altSelected) runCatching { connection.setInterface(streamingAlt0) }
-                originalClockHz?.let { runCatching { setClockFrequency(connection, it) } }
-                if (streamingClaimed) runCatching { connection.releaseInterface(streamingAlt0) }
-                if (controlClaimed) runCatching { connection.releaseInterface(audioControl) }
-                connection.close()
+                val cleanup = lease.cleanupLease()
+                if (altSelected) runCatching { cleanup.io { connection.setInterface(streamingAlt0) } }
+                originalClockHz?.let { original ->
+                    runCatching { cleanup.io { setClockFrequency(connection, original) } }
+                }
+                if (streamingClaimed) {
+                    runCatching { cleanup.io { connection.releaseInterface(streamingAlt0) } }
+                }
+                if (controlClaimed) {
+                    runCatching { cleanup.io { connection.releaseInterface(audioControl) } }
+                }
+                cleanup.io { connection.close() }
                 throw error
             }
         }
@@ -585,7 +667,7 @@ private class UsbSk02AudioOutput private constructor(
 }
 
 /** Fail-closed conversion used only for exact signed PCM32 carried in Media3 float buffers. */
-internal object ExactPcm32PrototypePacking {
+internal object ExactPcm32Packing {
     private const val CHANNEL_COUNT = 2
     private const val SCALE = 2_147_483_648.0
     private const val MIN = -2_147_483_648.0

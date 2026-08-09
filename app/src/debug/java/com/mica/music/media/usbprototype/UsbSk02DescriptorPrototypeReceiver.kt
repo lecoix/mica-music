@@ -24,6 +24,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.mica.music.media.MicaMediaService
 import com.mica.music.media.UsbHostPrototypeOutput
+import com.mica.music.media.usb.UsbOutputRequestLease
+import com.mica.music.media.usb.UsbOutputRequestToken
+import com.mica.music.media.usb.UsbOutputRuntime
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.io.ByteArrayOutputStream
@@ -69,6 +72,21 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         val media3RepeatOneAction = "${context.packageName}.debug.USB_SK02_MEDIA3_REPEAT_ONE"
         val media3RepeatOffAction = "${context.packageName}.debug.USB_SK02_MEDIA3_REPEAT_OFF"
         val permissionAction = "${context.packageName}.debug.USB_SK02_PERMISSION"
+        val retiredRawTransportActions = setOf(
+            claimProbeAction,
+            forceClaimProbeAction,
+            isoFeedbackProbeAction,
+            silentPcm16ProbeAction,
+            sustainedPcm16ProbeAction,
+            generationPcm16ProbeAction,
+            bufferedPcm16ProbeAction,
+            mediaUsbProbeAction,
+            ffmpeg24UsbProbeAction,
+        )
+        if (intent.action in retiredRawTransportActions) {
+            state("rawTransportProbe=retired useMedia3ProductionContract=true")
+            return
+        }
         when (intent.action) {
             probeAction -> beginProbe(context, permissionAction)
             claimProbeAction -> beginClaimProbe(context)
@@ -97,7 +115,12 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                 val appContext = context.applicationContext
                 val durationMs = intent.getIntExtra("durationMs", 5_000).coerceIn(1_000, 60_000)
                 val supersedeAfterMs = intent.getIntExtra("supersedeAfterMs", -1)
-                val token = UsbPrototypeGenerationOwner.gate.beginRequest()
+                val token = UsbPrototypeGenerationOwner.gate.beginHarnessRequest()
+                if (token == null) {
+                    state("generationPcm16Probe=busy activeProductionSession=true")
+                    pendingResult.finish()
+                    return
+                }
                 UsbSk02NativePrototype.publishGeneration(token.value)
                 state("generationPcm16Probe=queued generation=${token.value} durationMs=$durationMs")
                 Thread(
@@ -112,7 +135,8 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                                 )
                                 oldThread.start()
                                 Thread.sleep(supersedeAfterMs.toLong())
-                                val newer = UsbPrototypeGenerationOwner.gate.beginRequest()
+                                val newer = UsbPrototypeGenerationOwner.gate.beginHarnessRequest()
+                                    ?: error("Production session became active during harness probe")
                                 UsbSk02NativePrototype.publishGeneration(newer.value)
                                 state(
                                     "generationPcm16Probe=queued generation=${newer.value} " +
@@ -835,7 +859,7 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
     private fun runGenerationPcm16Probe(
         context: Context,
         durationMs: Int,
-        token: UsbPrototypeGenerationGate.Token,
+        token: UsbOutputRequestToken,
     ) {
         val ran = UsbPrototypeGenerationOwner.gate.withTransport(token) { lease ->
             beginGenerationPcm16Probe(context, durationMs, token.value, lease)
@@ -849,7 +873,7 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         context: Context,
         durationMs: Int,
         generation: Long,
-        lease: UsbPrototypeGenerationGate.Lease,
+        lease: UsbOutputRequestLease,
     ) {
         val probeName = "generationPcm16Probe"
         val manager = context.getSystemService(UsbManager::class.java)
@@ -1558,7 +1582,7 @@ internal object UsbSk02NativePrototype {
 }
 
 internal object UsbPrototypeGenerationOwner {
-    val gate = UsbPrototypeGenerationGate()
+    val gate = UsbOutputRuntime.owner
 }
 
 private object DescriptorProbe {

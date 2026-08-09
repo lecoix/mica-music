@@ -3,8 +3,8 @@
 > 性质：动态工程状态册，不替代架构决策记录。
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)。
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。
-> 最后更新：2026-08-09。
-> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已于 2026-08-09 工程收口；可发布的通用 USB 独占子系统尚未完成。**
+> 最后更新：2026-08-10。
+> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，但尚未完成迁移后的真机复验，可发布的通用 USB 独占子系统仍未完成。**
 
 ---
 
@@ -136,16 +136,20 @@ Media3 仍负责 decoder、renderer、timestamp、buffering、flush、play/pause
 | Native USBFS | `prototypes/usb-sk02-native/src/main/cpp/usb_sk02_prototype.cpp` |
 | Debug receiver | `app/src/debug/.../usbprototype/UsbSk02DescriptorPrototypeReceiver.kt` |
 | Media3 provider/output | `app/src/debug/.../usbprototype/UsbSk02AudioOutputProvider.kt` |
-| Generation gate | `app/src/debug/.../usbprototype/UsbPrototypeGenerationGate.kt` |
+| Production contract | `app/src/main/.../media/usb/UsbAudioContracts.kt`、`PlaybackOutputFacts.kt` |
+| SK02 capability/format | `app/src/main/.../media/usb/Sk02UsbContract.kt` |
+| Generation/session owner | `app/src/main/.../media/usb/UsbOutputSessionOwner.kt` |
+| Output adapter seam | `app/src/main/.../media/UsbHostOutputAdapter.kt` |
 | Release-safe gate | `app/src/main/.../media/UsbHostPrototypeOutput.kt` |
 | 输出模式 | `app/src/main/.../media/AudioOutputPathConfig.kt` |
 | Renderer/Sink 接线 | `app/src/main/.../media/MicaRenderersFactory.kt` |
 | FFmpeg S32 选择 | `third_party/media3-ffmpeg-decoder/.../FfmpegAudioRenderer.java`、`ffmpeg_jni.cc` |
-| Interleaving tests | `app/src/test/.../usbprototype/` |
+| Production interleaving tests | `app/src/test/.../media/usb/UsbOutputSessionOwnerTest.kt` |
+| Prototype/packing tests | `app/src/test/.../usbprototype/` |
 | Soak / endurance / notify | `scripts/run-usb-sk02-media3-soak.ps1`、`run-usb-sk02-endurance.ps1`、`watch-usb-sk02-endurance.ps1` |
 
-命名债务：`ExactPcm24PrototypePackingTest` 的历史文件名与当前 Media3 主路径的 signed
-PCM32 exact packing 不完全一致，生产吸收前应拆清 PCM24/PCM32 合同并改名。
+历史的 `ExactPcm24PrototypePackingTest` 已更名为 `ExactPcm32PackingTest`；Media3 当前路径
+验证的是 signed PCM32 exact packing，不能把该测试外推成任意 float 或 PCM24 合同。
 
 ---
 
@@ -211,15 +215,22 @@ SK02 硬件。这是保真优先但体验不完整的策略。
 
 ### 8.1 Owner 与 generation
 
-- 当前 owner：`UsbPrototypeGenerationOwner.gate`；`beginRequest()` 是 mint point。
-- token 同时发布给 Native `active_generation`。
-- disable、替换、release、新请求都会推进 generation。
-- 取消旧任务只是优化；正确性依赖 stale token 在副作用前自检。
+- 当前正式 owner：`UsbOutputRuntime.owner`（`UsbOutputSessionOwner`）。
+- `replace()` 在等待 transport seam 前 mint generation，并通过惰性 bridge 发布给 Native
+  `active_generation`；旧 worker 可立即停止，新 session 仍须等待旧 session cleanup。
+- restart、active release、disable、替换和新请求都会推进 generation；stale session 的
+  `release()` 不得推进 generation 或打断 winner。
+- debug raw transport actions 已 retired；只读诊断、Media3 harness 和 owner-serialized
+  reconnect 保留。active production session 存在时 harness request 不 mint generation。
+- 取消旧任务只是优化；正确性依赖 request lease 在每个后续 IO/副作用前自检。
 
 ### 8.2 唯一串行 seam
 
-`withTransport` 的 `ReentrantLock` 串行化影响同一 transport 的 USB 副作用。新 generation
-可以先发布让旧 worker 停止，但新 session 必须等旧 session 恢复/释放完成才可 claim。
+`UsbOutputSessionOwner` 的 `ReentrantLock` 同时串行化 open/claim、active Media3 callback、
+restart、release/reconnect 与 facts 发布。新 generation 可以先发布让旧 worker 停止，但新
+session 必须等旧 session 恢复 alt/clock、release/reconnect/close 完成才可 claim。
+cleanup 使用独立 cleanup lease：即使发起 cleanup 的 request 又被 supersede，已经持锁的
+恢复与释放仍必须完成。
 
 ### 8.3 等待点与副作用审计
 
@@ -231,13 +242,13 @@ resubmit/discard URB、恢复 alt 0/clock、release、`USBDEVFS_CONNECT`、close
 
 ### 8.4 交错测试
 
-`UsbPrototypeGenerationGateTest.oldRequestPausedAtUsbSideEffectCannotWriteAfterNewRequestWins`
-让旧请求停在副作用边界，发布并完成新请求，再释放旧请求，断言旧请求不能写回。真机
-supersede 也证明旧队列 `cancelled=true`、drain 为零、恢复/释放后新请求才进入 seam。
+`UsbOutputSessionOwnerTest` 确定性覆盖：旧 open 停在 claim/submit 边界后被新请求淘汰；
+替换请求再次被第三个请求淘汰时旧 session cleanup 仍完成；active write 停在 Native submit
+边界后不能在 replacement generation 发布后写入；active session 存在时 debug harness 不能
+mint generation 或进入 transport。既有 Native underrun TOCTOU 交错测试继续保留。
 
-正式版仍需把 prototype singleton 换成 `UsbOutputSessionOwner`，统一持有 device identity、
-permission request、generation、negotiated format、active/fallback fact、retry budget、播放
-意图与前后台策略。BroadcastReceiver callback 不得绕过 owner fire-and-forget 改共享输出。
+P2 才会把 permission request、attach/detach、retry budget、播放意图、前后台策略和
+full-mode rebuild 纳入 owner；P1 不提前实现这些产品行为。
 
 ---
 
@@ -569,6 +580,12 @@ throwaway harness 上补齐的边际价值低，因此迁移到 P1/P2 的真实�
 正式 session owner、device/capability/format/session/transport interface、generation seam、
 requested/active/fallback facts；debug receiver 退为 harness，release 仍默认关闭。
 
+2026-08-10 代码状态：contract、immutable SK02 capability、exact-only negotiator、typed Host
+request、`PlaybackOutputFacts`、正式 owner/output adapter 已接入；active Media3 Native 调用与
+open/restart/release/reconnect 已进入统一 seam，legacy raw transport probes 已 retired。
+USB 定向单测与 debug/release Kotlin 编译通过。**迁移后的 SK02 真机 smoke、90 分钟长测、
+SharedPcm baseline 和人工听感尚未执行，因此 P1 不能记为完成。**
+
 **4–7 工程日**。
 
 ### P2：SK02 developer beta
@@ -620,7 +637,9 @@ DSF/DFF handoff 与 DAC matrix。
 
 ### 16.2 Production PCM
 
-- [ ] 产品 contract、release owner、通用 parser、显式 format/fallback；
+- [x] P1 device/capability/format/session/transport contract、release owner、typed request、
+  requested/active/failure facts与 exact-only SK02 negotiator；
+- [ ] P3 通用 UAC1/UAC2 parser、通用 format/fallback 与多 DAC identity/reconnect；
 - [ ] permission/attach/detach UX、process death durable recovery、后台策略；
 - [ ] UAC1 + 多个 UAC2 DAC；
 - [ ] PCM16/24/32 与 44.1/48 系/高采样率矩阵；

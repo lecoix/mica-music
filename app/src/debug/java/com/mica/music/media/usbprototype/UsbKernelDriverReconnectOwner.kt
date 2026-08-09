@@ -4,6 +4,8 @@ import android.content.Context
 import android.hardware.usb.UsbManager
 import android.os.SystemClock
 import android.util.Log
+import com.mica.music.media.usb.UsbOutputRequestLease
+import com.mica.music.media.usb.UsbOutputRequestToken
 import java.util.concurrent.Executors
 
 /** Process-local single owner for debug-only kernel-driver reconnect side effects. */
@@ -20,7 +22,11 @@ internal object UsbKernelDriverReconnectOwner {
 
     fun submit(context: Context, publishState: (String) -> Unit) {
         val appContext = context.applicationContext
-        val token = UsbPrototypeGenerationOwner.gate.beginRequest()
+        val token = UsbPrototypeGenerationOwner.gate.beginHarnessRequest()
+        if (token == null) {
+            publishState("reconnect=busy activeProductionSession=true")
+            return
+        }
         executor.execute {
             UsbPrototypeGenerationOwner.gate.withTransport(token) { lease ->
                 reconnectLocked(appContext, token, lease, publishState)
@@ -30,8 +36,8 @@ internal object UsbKernelDriverReconnectOwner {
 
     private fun reconnectLocked(
         context: Context,
-        token: UsbPrototypeGenerationGate.Token,
-        lease: UsbPrototypeGenerationGate.Lease,
+        token: UsbOutputRequestToken,
+        lease: UsbOutputRequestLease,
         publishState: (String) -> Unit,
     ) {
         if (!lease.isCurrent()) return
@@ -47,7 +53,7 @@ internal object UsbKernelDriverReconnectOwner {
             return
         }
         if (!lease.isCurrent()) return
-        val connection = manager.openDevice(target)
+        val connection = lease.io { manager.openDevice(target) }
         if (!lease.isCurrent()) {
             connection?.close()
             return
@@ -104,7 +110,7 @@ internal object UsbKernelDriverReconnectOwner {
                 )
             }
         } finally {
-            connection.close()
+            lease.cleanupLease().io { connection.close() }
         }
     }
 

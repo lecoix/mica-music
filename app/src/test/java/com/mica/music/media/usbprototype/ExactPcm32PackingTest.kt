@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
-class ExactPcm24PrototypePackingTest {
+class ExactPcm32PackingTest {
     @Test
     fun floatIsDirectAtMedia3BoundarySoFfmpegDoesNotFallBackToPcm16() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -45,7 +45,7 @@ class ExactPcm24PrototypePackingTest {
             .flip() as ByteBuffer
         val output = ByteBuffer.allocate(16)
 
-        ExactPcm32PrototypePacking.pack(input, frames = 2, output = output)
+        ExactPcm32Packing.pack(input, frames = 2, output = output)
 
         assertEquals(0, input.position())
         assertArrayEquals(
@@ -66,6 +66,6 @@ class ExactPcm24PrototypePackingTest {
             .putFloat(0f)
             .flip() as ByteBuffer
 
-        ExactPcm32PrototypePacking.pack(input, frames = 1, output = ByteBuffer.allocate(8))
+        ExactPcm32Packing.pack(input, frames = 1, output = ByteBuffer.allocate(8))
     }
 }

@@ -199,7 +199,7 @@
 - [ ] **P2：Android Auto / 车机 MediaSession 验收**：补充真实车机或 Android Auto DHU 的连接、元数据、播放控制与重连验证。
 - [ ] **P2：OEM 车机兼容性验收**：覆盖不同厂商车机/系统控制器的媒体按键、元数据、封面与进程重启行为。
 - [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变
-- [ ] **USB Host 真独占 production path**：单 SK02 debug/QA 可行性原型已工程收口；下一步按 [`ADR-0001`](adr/0001-usb-host-exclusive-output.md) 和 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md) P1 新增正式 output adapter/session。当前不得解除 P6 fail-fast 或把最小 `DefaultAudioSink` 称为 USB 独占
+- [ ] **USB Host 真独占 production path**：单 SK02 原型已收口；P1 production contract、正式 owner、typed request/output adapter 与并发回归已接入，待迁移后的 SK02 真机 smoke、长测、SharedPcm baseline 和人工听感。release 继续默认关闭；详见 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)
 
 
 
