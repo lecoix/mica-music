@@ -4,7 +4,7 @@
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)。
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。
 > 最后更新：2026-08-10。
-> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 已通过；可发布的通用 USB 独占子系统仍未完成。**
+> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；可发布的通用 USB 独占子系统仍未完成。**
 
 ---
 
@@ -590,7 +590,11 @@ interface/alt、data endpoint `0x03`（max packet 200/300/400、interval 1）和
 USB 定向单测与
 debug/release Kotlin 编译通过。2026-08-10 更新后的 Lifecycle smoke 完成 2 个循环，覆盖
 48/96 kHz、pause/resume、seek/跨曲、独占断言与 cleanup 后 `snd-usb-audio` 恢复。
-**90 分钟长测、SharedPcm baseline 和人工听感尚未执行，因此 P1 仍不能记为完成。**
+同日 Continuous 长测完成请求的 90 分钟（83 个分钟样本）：48/96 kHz 被观察到，无
+`PlaybackException`、`WriteException`、underrun、崩溃或独占丢失；PSS 191112–211371 KB，
+首尾增加 7571 KB 且测试中多次回落，FD 175–180、首尾增加 3，最高 34.8°C，结束后
+`snd-usb-audio` 恢复。**90 分钟 Lifecycle、SharedPcm baseline 和人工听感尚未执行，
+因此 P1 仍不能记为完成。**
 
 **4–7 工程日**。
 
@@ -637,7 +641,8 @@ DSF/DFF handoff 与 DAC matrix。
 - [x] physical detach bounded exit、reconnect/reacquire；
 - [x] 强杀后显式 reconnect；
 - [x] 两模式自动化与完成通知；
-- [ ] 两个完整 90 分钟长测通过（迁移到 P1/P2 真实接入路径）；
+- [x] 一个完整 90 分钟 Continuous 长测通过（P1 真实接入路径）；
+- [ ] 一个完整 90 分钟 Lifecycle 长测通过；
 - [ ] 人工听感无明显 click/dropout（迁移到 P1/P2）；
 - [ ] SharedPcm baseline 与正式包无影响复核（必须在生产接入后完成）。
 
