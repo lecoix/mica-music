@@ -193,6 +193,28 @@ class UsbOutputSessionOwnerTest {
         assertEquals("new-facts", owner.facts.request?.device?.descriptorFingerprint)
     }
 
+    @Test
+    fun failedReplacementInvalidatesAndReleasesOldSessionWithoutNewSideEffects() {
+        val effects = mutableListOf<String>()
+        val owner = UsbOutputSessionOwner()
+        owner.replace(request("old")) { FakeSession("old", effects) }
+        val oldGeneration = owner.facts.generation
+
+        val failure = runCatching {
+            owner.replace(request("unsupported")) {
+                error("format rejected before USB open")
+            }
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(owner.facts.generation > oldGeneration)
+        assertEquals(UsbOutputPhase.FAILED, owner.facts.phase)
+        assertEquals("unsupported", owner.facts.request?.device?.descriptorFingerprint)
+        assertEquals("open", owner.facts.failure?.stage)
+        assertTrue(effects.contains("old-close"))
+        assertFalse(effects.contains("unsupported-claim"))
+    }
+
     private fun request(name: String) = UsbOutputRequest(
         device = UsbAudioDeviceIdentity(
             vendorId = 0x262a,

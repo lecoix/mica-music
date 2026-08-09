@@ -15,7 +15,10 @@ import androidx.media3.exoplayer.audio.AudioOutput
 import androidx.media3.exoplayer.audio.AudioOutputProvider
 import com.mica.music.media.usb.PlaybackOutputFacts
 import com.mica.music.media.usb.Sk02UsbContract
+import com.mica.music.media.usb.UsbAudioEndpointShape
+import com.mica.music.media.usb.UsbAudioStreamingProfile
 import com.mica.music.media.usb.UsbAudioRuntimeHandle
+import com.mica.music.media.usb.UsbFormatDecision
 import com.mica.music.media.usb.UsbOutputCleanupLease
 import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputRequestLease
@@ -24,6 +27,8 @@ import com.mica.music.media.usb.UsbOutputRuntime
 import com.mica.music.media.usb.UsbOutputSession
 import com.mica.music.media.usb.UsbPcmEncoding
 import com.mica.music.media.usb.UsbPcmFormat
+import com.mica.music.media.usb.UsbSignalPolicy
+import com.mica.music.media.usb.UsbStreamingProfileValidation
 import com.mica.music.util.DiagnosticLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -151,7 +156,18 @@ private object UsbSk02Media3SessionOwner {
                 sourceFormat = sourceFormat,
             ),
         ) { lease ->
-            UsbSk02AudioOutput.open(context, config, sourceFormat, lease)
+            val decision = when (
+                val result = Sk02UsbContract.negotiate(
+                    source = sourceFormat,
+                    capability = Sk02UsbContract.capability,
+                    signalPolicy = UsbSignalPolicy.EXACT_ONLY,
+                )
+            ) {
+                is UsbFormatDecision.Accepted -> result
+                is UsbFormatDecision.Rejected -> error(result.reason)
+            }
+            lease.ensureCurrent()
+            UsbSk02AudioOutput.open(context, config, decision, lease)
         }
     }
 
@@ -521,11 +537,6 @@ private class UsbSk02AudioOutput private constructor(
     }
 
     companion object {
-        private const val TARGET_VENDOR_ID = 0x262a
-        private const val TARGET_PRODUCT_ID = 0x0001
-        private const val AUDIO_CONTROL_INTERFACE_ID = 1
-        private const val AUDIO_STREAMING_INTERFACE_ID = 2
-        private const val CLOCK_ID = 1
         private const val CONTROL_TIMEOUT_MS = 1_000
         private const val USB_CLASS_INTERFACE_IN = 0xa1
         private const val USB_CLASS_INTERFACE_OUT = 0x21
@@ -544,31 +555,36 @@ private class UsbSk02AudioOutput private constructor(
         fun open(
             context: Context,
             config: AudioOutputProvider.OutputConfig,
-            sourceFormat: UsbPcmFormat,
+            decision: UsbFormatDecision.Accepted,
             lease: UsbOutputRequestLease,
         ): UsbSk02AudioOutput {
-            val profile = when (config.encoding) {
-                C.ENCODING_PCM_16BIT -> Profile(1, 4, 200)
-                C.ENCODING_PCM_FLOAT -> Profile(3, 8, 400)
-                C.ENCODING_PCM_32BIT -> Profile(3, 8, 400)
-                else -> error("Unsupported SK02 input encoding ${config.encoding}")
-            }
+            val profile = decision.streamingProfile
+            check(config.sampleRate == decision.deviceFormat.sampleRateHz)
+            check(profile.channelCount == decision.deviceFormat.channelCount)
             val manager = context.getSystemService(UsbManager::class.java)
-            val target = manager.deviceList.values.firstOrNull {
-                it.vendorId == TARGET_VENDOR_ID && it.productId == TARGET_PRODUCT_ID
-            } ?: error("Fosi Audio SK02 is not attached")
+            val targets = manager.deviceList.values.filter {
+                it.vendorId == Sk02UsbContract.identity.vendorId &&
+                    it.productId == Sk02UsbContract.identity.productId
+            }
+            check(targets.size == 1) {
+                "Expected exactly one Fosi Audio SK02; found ${targets.size}"
+            }
+            val target = targets.single()
             lease.ensureCurrent()
             check(manager.hasPermission(target)) { "USB permission for SK02 is missing" }
             val interfaces = (0 until target.interfaceCount).map(target::getInterface)
             val audioControl = interfaces.firstOrNull {
-                it.id == AUDIO_CONTROL_INTERFACE_ID && it.alternateSetting == 0
+                it.id == Sk02UsbContract.capability.audioControlInterface &&
+                    it.alternateSetting == 0
             } ?: error("SK02 AudioControl interface is missing")
             val streamingAlt0 = interfaces.firstOrNull {
-                it.id == AUDIO_STREAMING_INTERFACE_ID && it.alternateSetting == 0
+                it.id == profile.interfaceNumber && it.alternateSetting == 0
             } ?: error("SK02 AudioStreaming alt 0 is missing")
             val streamingTarget = interfaces.firstOrNull {
-                it.id == AUDIO_STREAMING_INTERFACE_ID && it.alternateSetting == profile.alt
-            } ?: error("SK02 AudioStreaming alt ${profile.alt} is missing")
+                it.id == profile.interfaceNumber &&
+                    it.alternateSetting == profile.alternateSetting
+            } ?: error("SK02 AudioStreaming alt ${profile.alternateSetting} is missing")
+            validateStreamingEndpoints(streamingTarget, profile)
             val connection = lease.io { manager.openDevice(target) } ?: error("Unable to open SK02")
             var controlClaimed = false
             var streamingClaimed = false
@@ -587,7 +603,9 @@ private class UsbSk02AudioOutput private constructor(
                     "SK02 clock did not settle at ${config.sampleRate} Hz"
                 }
                 altSelected = lease.io { connection.setInterface(streamingTarget) }
-                check(altSelected) { "Unable to select SK02 alt ${profile.alt}" }
+                check(altSelected) {
+                    "Unable to select SK02 alt ${profile.alternateSetting}"
+                }
                 return UsbSk02AudioOutput(
                     connection = connection,
                     audioControl = audioControl,
@@ -595,17 +613,17 @@ private class UsbSk02AudioOutput private constructor(
                     streamingTarget = streamingTarget,
                     sampleRate = config.sampleRate,
                     inputEncoding = config.encoding,
-                    usbBytesPerFrame = profile.usbBytesPerFrame,
+                    usbBytesPerFrame = profile.subslotBytes * profile.channelCount,
                     maxPacketBytes = profile.maxPacketBytes,
                     originalClockHz = originalClockHz,
                     runtimeHandle = UsbAudioRuntimeHandle(target.deviceId),
-                    negotiatedFormat = sourceFormat,
+                    negotiatedFormat = decision.deviceFormat,
                     initialLease = lease,
                 ).also {
                     DiagnosticLog.event(
                         "UsbExclusivePrototype",
                         "opened sr=${config.sampleRate} inputEncoding=${config.encoding} " +
-                            "alt=${profile.alt} generation=${lease.token.value}",
+                            "alt=${profile.alternateSetting} generation=${lease.token.value}",
                     )
                 }
             } catch (error: Exception) {
@@ -625,13 +643,36 @@ private class UsbSk02AudioOutput private constructor(
             }
         }
 
+        private fun validateStreamingEndpoints(
+            streamingInterface: UsbInterface,
+            profile: UsbAudioStreamingProfile,
+        ) {
+            val endpoints = (0 until streamingInterface.endpointCount)
+                .map(streamingInterface::getEndpoint)
+                .map {
+                    UsbAudioEndpointShape(
+                        address = it.address,
+                        transferType = it.type,
+                        maxPacketBytes = it.maxPacketSize,
+                        interval = it.interval,
+                    )
+                }
+            when (val result = Sk02UsbContract.validateRuntimeEndpoints(profile, endpoints)) {
+                UsbStreamingProfileValidation.Valid -> Unit
+                is UsbStreamingProfileValidation.Rejected -> error(
+                    "SK02 runtime topology rejected: ${result.reason}",
+                )
+            }
+        }
+
         private fun readClockCurrentHz(connection: UsbDeviceConnection): Int? {
+            val clockId = checkNotNull(Sk02UsbContract.capability.clockSourceId)
             val bytes = ByteArray(4)
             val transferred = connection.controlTransfer(
                 USB_CLASS_INTERFACE_IN,
                 UAC2_REQUEST_CUR,
                 UAC2_SAMPLING_FREQUENCY_CONTROL,
-                (CLOCK_ID shl 8) or AUDIO_CONTROL_INTERFACE_ID,
+                (clockId shl 8) or Sk02UsbContract.capability.audioControlInterface,
                 bytes,
                 bytes.size,
                 CONTROL_TIMEOUT_MS,
@@ -644,6 +685,7 @@ private class UsbSk02AudioOutput private constructor(
         }
 
         private fun setClockFrequency(connection: UsbDeviceConnection, sampleRate: Int): Int {
+            val clockId = checkNotNull(Sk02UsbContract.capability.clockSourceId)
             val bytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
                 .putInt(sampleRate)
                 .array()
@@ -651,18 +693,13 @@ private class UsbSk02AudioOutput private constructor(
                 USB_CLASS_INTERFACE_OUT,
                 UAC2_REQUEST_CUR,
                 UAC2_SAMPLING_FREQUENCY_CONTROL,
-                (CLOCK_ID shl 8) or AUDIO_CONTROL_INTERFACE_ID,
+                (clockId shl 8) or Sk02UsbContract.capability.audioControlInterface,
                 bytes,
                 bytes.size,
                 CONTROL_TIMEOUT_MS,
             )
         }
 
-        private data class Profile(
-            val alt: Int,
-            val usbBytesPerFrame: Int,
-            val maxPacketBytes: Int,
-        )
     }
 }
 

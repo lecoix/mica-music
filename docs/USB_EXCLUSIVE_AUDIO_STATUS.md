@@ -4,7 +4,7 @@
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)。
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。
 > 最后更新：2026-08-10。
-> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，但尚未完成迁移后的真机复验，可发布的通用 USB 独占子系统仍未完成。**
+> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 已通过；可发布的通用 USB 独占子系统仍未完成。**
 
 ---
 
@@ -583,8 +583,14 @@ requested/active/fallback facts；debug receiver 退为 harness，release 仍默
 2026-08-10 代码状态：contract、immutable SK02 capability、exact-only negotiator、typed Host
 request、`PlaybackOutputFacts`、正式 owner/output adapter 已接入；active Media3 Native 调用与
 open/restart/release/reconnect 已进入统一 seam，legacy raw transport probes 已 retired。
-USB 定向单测与 debug/release Kotlin 编译通过。**迁移后的 SK02 真机 smoke、90 分钟长测、
-SharedPcm baseline 和人工听感尚未执行，因此 P1 不能记为完成。**
+真机 open 已实际消费 negotiator 返回的 streaming profile，并在 `openDevice`/claim 前验证
+interface/alt、data endpoint `0x03`（max packet 200/300/400、interval 1）和 feedback endpoint
+`0x84`（max packet 4、interval 4）；不再维护第二套 alt/packet 映射。协商位于 owner request
+内部，因此拒绝格式同样推进 generation、释放旧 session、发布 FAILED facts，且不执行新 claim。
+USB 定向单测与
+debug/release Kotlin 编译通过。2026-08-10 更新后的 Lifecycle smoke 完成 2 个循环，覆盖
+48/96 kHz、pause/resume、seek/跨曲、独占断言与 cleanup 后 `snd-usb-audio` 恢复。
+**90 分钟长测、SharedPcm baseline 和人工听感尚未执行，因此 P1 仍不能记为完成。**
 
 **4–7 工程日**。
 
@@ -639,6 +645,8 @@ DSF/DFF handoff 与 DAC matrix。
 
 - [x] P1 device/capability/format/session/transport contract、release owner、typed request、
   requested/active/failure facts与 exact-only SK02 negotiator；
+- [x] P1 真机 open 消费 negotiated profile、claim 前 endpoint topology fail-closed 与短时
+  Lifecycle smoke；
 - [ ] P3 通用 UAC1/UAC2 parser、通用 format/fallback 与多 DAC identity/reconnect；
 - [ ] permission/attach/detach UX、process death durable recovery、后台策略；
 - [ ] UAC1 + 多个 UAC2 DAC；

@@ -46,6 +46,7 @@ internal object Sk02UsbContract : UsbFormatNegotiator {
                 channelCount = profile.channelCount,
                 encoding = profile.encoding,
             ),
+            streamingProfile = profile,
             signalExact = true,
         )
     }
@@ -57,19 +58,67 @@ internal object Sk02UsbContract : UsbFormatNegotiator {
                 format.sampleRateHz in it.sampleRateRangeHz
         }
 
+    fun validateRuntimeEndpoints(
+        profile: UsbAudioStreamingProfile,
+        endpoints: List<UsbAudioEndpointShape>,
+    ): UsbStreamingProfileValidation {
+        val data = endpoints.singleOrNull { it.address == profile.endpointAddress }
+            ?: return rejected("data endpoint 0x${profile.endpointAddress.toString(16)} is missing")
+        if (data.transferType != ISOCHRONOUS_TRANSFER_TYPE) {
+            return rejected("data endpoint is not isochronous")
+        }
+        if (data.maxPacketBytes != profile.maxPacketBytes || data.interval != profile.interval) {
+            return rejected(
+                "data endpoint shape ${data.maxPacketBytes}/${data.interval} != " +
+                    "${profile.maxPacketBytes}/${profile.interval}",
+            )
+        }
+        val feedbackAddress = profile.feedbackEndpointAddress
+            ?: return UsbStreamingProfileValidation.Valid
+        val feedback = endpoints.singleOrNull { it.address == feedbackAddress }
+            ?: return rejected("feedback endpoint 0x${feedbackAddress.toString(16)} is missing")
+        if (feedback.transferType != ISOCHRONOUS_TRANSFER_TYPE) {
+            return rejected("feedback endpoint is not isochronous")
+        }
+        if (feedback.maxPacketBytes != profile.feedbackMaxPacketBytes ||
+            feedback.interval != profile.feedbackInterval
+        ) {
+            return rejected(
+                "feedback endpoint shape ${feedback.maxPacketBytes}/${feedback.interval} != " +
+                    "${profile.feedbackMaxPacketBytes}/${profile.feedbackInterval}",
+            )
+        }
+        return UsbStreamingProfileValidation.Valid
+    }
+
     private fun profile(
         alt: Int,
         encoding: UsbPcmEncoding,
         maxPacketBytes: Int,
-    ) = UsbAudioStreamingProfile(
-        interfaceNumber = 2,
-        alternateSetting = alt,
-        endpointAddress = 0x03,
-        feedbackEndpointAddress = 0x84,
-        channelCount = 2,
-        encoding = encoding,
-        sampleRateRangeHz = 8_000..384_000,
-        maxPacketBytes = maxPacketBytes,
-        interval = 1,
-    )
+    ): UsbAudioStreamingProfile {
+        val subslotBytes = when (encoding) {
+            UsbPcmEncoding.PCM_16 -> 2
+            UsbPcmEncoding.PCM_24_PACKED -> 3
+            UsbPcmEncoding.PCM_32 -> 4
+        }
+        return UsbAudioStreamingProfile(
+            interfaceNumber = 2,
+            alternateSetting = alt,
+            endpointAddress = 0x03,
+            feedbackEndpointAddress = 0x84,
+            feedbackMaxPacketBytes = 4,
+            feedbackInterval = 4,
+            channelCount = 2,
+            encoding = encoding,
+            subslotBytes = subslotBytes,
+            bitResolution = subslotBytes * 8,
+            sampleRateRangeHz = 8_000..384_000,
+            maxPacketBytes = maxPacketBytes,
+            interval = 1,
+        )
+    }
+
+    private fun rejected(reason: String) = UsbStreamingProfileValidation.Rejected(reason)
+
+    private const val ISOCHRONOUS_TRANSFER_TYPE = 1
 }

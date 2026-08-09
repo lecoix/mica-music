@@ -33,12 +33,29 @@ internal data class UsbAudioStreamingProfile(
     val alternateSetting: Int,
     val endpointAddress: Int,
     val feedbackEndpointAddress: Int?,
+    val feedbackMaxPacketBytes: Int?,
+    val feedbackInterval: Int?,
     val channelCount: Int,
     val encoding: UsbPcmEncoding,
+    val subslotBytes: Int,
+    val bitResolution: Int,
     val sampleRateRangeHz: IntRange,
     val maxPacketBytes: Int,
     val interval: Int,
 )
+
+internal data class UsbAudioEndpointShape(
+    val address: Int,
+    val transferType: Int,
+    val maxPacketBytes: Int,
+    val interval: Int,
+)
+
+internal sealed interface UsbStreamingProfileValidation {
+    data object Valid : UsbStreamingProfileValidation
+
+    data class Rejected(val reason: String) : UsbStreamingProfileValidation
+}
 
 internal data class UsbAudioCapability(
     val identity: UsbAudioDeviceIdentity,
@@ -64,6 +81,7 @@ internal sealed interface UsbFormatDecision {
     data class Accepted(
         val requestedFormat: UsbPcmFormat,
         val deviceFormat: UsbPcmFormat,
+        val streamingProfile: UsbAudioStreamingProfile,
         val signalExact: Boolean,
     ) : UsbFormatDecision
 
