@@ -14,6 +14,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -21,9 +22,11 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.decoder.ffmpeg.UsbExclusiveFfmpegPrototype
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.mica.music.media.MicaMediaService
 import com.mica.music.media.UsbHostPrototypeOutput
+import com.mica.music.media.UsbOutputRebuildSessionCommand
 import com.mica.music.media.usb.Sk02UsbContract
 import com.mica.music.media.usb.UsbOutputDeviceLifecycle
 import com.mica.music.media.usb.UsbOutputRequest
@@ -260,8 +263,10 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                     "UsbSk02Ffmpeg24UsbPrototype",
                 ).start()
             }
-            media3EnableAction -> setMedia3PrototypeEnabled(context, enabled = true)
-            media3DisableAction -> setMedia3PrototypeEnabled(context, enabled = false)
+            media3EnableAction ->
+                beginSetMedia3PrototypeEnabled(context, goAsync(), enabled = true)
+            media3DisableAction ->
+                beginSetMedia3PrototypeEnabled(context, goAsync(), enabled = false)
             media3PlayAction -> beginMedia3Control(context, goAsync(), Media3Control.PLAY)
             media3PauseAction -> beginMedia3Control(context, goAsync(), Media3Control.PAUSE)
             media3NextAction -> beginMedia3Control(context, goAsync(), Media3Control.NEXT)
@@ -287,7 +292,11 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun setMedia3PrototypeEnabled(context: Context, enabled: Boolean) {
+    private fun beginSetMedia3PrototypeEnabled(
+        context: Context,
+        pendingResult: PendingResult,
+        enabled: Boolean,
+    ) {
         if (enabled) {
             val manager = context.getSystemService(UsbManager::class.java)
             val target = manager.deviceList.values.firstOrNull {
@@ -297,6 +306,7 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                 state(
                     "media3Prototype=enable_rejected targetFound=false permission=false",
                 )
+                pendingResult.finish()
                 return
             }
             if (!manager.hasPermission(target)) {
@@ -308,13 +318,62 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                     "media3Prototype=permission_requested generation=${token.value} " +
                         "restartRequired=true repeatEnableAfterGrant=true",
                 )
+                pendingResult.finish()
                 return
             }
         }
+        val previousEnabled = UsbHostPrototypeOutput.isEnabled(context)
         UsbHostPrototypeOutput.setEnabled(context, enabled)
-        val generation = UsbPrototypeGenerationOwner.gate.invalidate()
-        UsbSk02NativePrototype.publishGeneration(generation)
-        state("media3Prototype=${if (enabled) "enabled" else "disabled"} restartRequired=true")
+        val future = MediaController.Builder(
+            context.applicationContext,
+            SessionToken(context, ComponentName(context, MicaMediaService::class.java)),
+        ).buildAsync()
+        future.addListener(
+            {
+                try {
+                    val controller = future.get()
+                    val rebuildFuture = controller.sendCustomCommand(
+                        UsbOutputRebuildSessionCommand.command,
+                        Bundle.EMPTY,
+                    )
+                    rebuildFuture.addListener(
+                        {
+                            try {
+                                val result = rebuildFuture.get()
+                                if (result.resultCode != SessionResult.RESULT_SUCCESS) {
+                                    UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
+                                }
+                                state(
+                                    "media3Prototype=${if (enabled) "enabled" else "disabled"} " +
+                                        "fullModeRebuild=" +
+                                        "${result.resultCode == SessionResult.RESULT_SUCCESS} " +
+                                        "resultCode=${result.resultCode}",
+                                )
+                            } catch (error: Throwable) {
+                                UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
+                                state(
+                                    "media3Prototype=rebuild_failed enabled=$enabled " +
+                                        "error=${error.javaClass.simpleName}:${error.message}",
+                                )
+                            } finally {
+                                MediaController.releaseFuture(future)
+                                pendingResult.finish()
+                            }
+                        },
+                        ContextCompat.getMainExecutor(context),
+                    )
+                } catch (error: Throwable) {
+                    UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
+                    state(
+                        "media3Prototype=rebuild_failed enabled=$enabled " +
+                            "error=${error.javaClass.simpleName}:${error.message}",
+                    )
+                    MediaController.releaseFuture(future)
+                    pendingResult.finish()
+                }
+            },
+            ContextCompat.getMainExecutor(context),
+        )
     }
 
     private fun beginMedia3Control(

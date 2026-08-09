@@ -199,7 +199,7 @@
 - [ ] **P2：Android Auto / 车机 MediaSession 验收**：补充真实车机或 Android Auto DHU 的连接、元数据、播放控制与重连验证。
 - [ ] **P2：OEM 车机兼容性验收**：覆盖不同厂商车机/系统控制器的媒体按键、元数据、封面与进程重启行为。
 - [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变
-- [ ] **USB Host 真独占 production path**：单 SK02 原型已收口；P1 production contract、正式 owner、typed request/output adapter、真机 exact-only 协商/topology 校验与并发回归已接入，短时 lifecycle smoke 和完整 90 分钟 Continuous 长测已通过。P2 已完成只读 SK02 snapshot、代际化 permission request/result、physical detach 失效/释放和确定性交错测试；待 full-mode rebuild、队列/位置/播放意图恢复、durable process recovery、前后台策略、明确 fallback、设置/UI，以及 90 分钟 Lifecycle、SharedPcm baseline 和人工听感。release 继续默认关闭；详见 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)
+- [ ] **USB Host 真独占 production path**：单 SK02 原型已收口；P1 production contract、正式 owner、typed request/output adapter、真机 exact-only 协商/topology 校验与并发回归已接入，短时 lifecycle smoke 和完整 90 分钟 Continuous 长测已通过。P2 已完成只读 SK02 snapshot、代际化 permission request/result、physical detach 失效/释放，以及 debug gate 的 full-mode rebuild 和队列/位置/播放意图内存迁移；过期候选发布与重建中 generation 交错均有确定性测试。待实体机 rebuild smoke、durable process recovery、前后台策略、明确 fallback、设置/UI，以及 90 分钟 Lifecycle、SharedPcm baseline 和人工听感。release 继续默认关闭；详见 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)
 
 
 

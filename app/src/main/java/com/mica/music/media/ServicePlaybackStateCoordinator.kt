@@ -17,8 +17,9 @@ internal class ServicePlaybackStateCoordinator(
     private val handler: Handler,
     initialQualityMode: AudioQualityMode,
     private val externalSongResolver: (String) -> Song? = { null },
+    restorePersistedState: Boolean = true,
 ) {
-    private var pendingRestore = store.load()
+    private var pendingRestore = if (restorePersistedState) store.load() else null
     private var qualityMode = initialQualityMode
     private var released = false
     private var queueRevision = pendingRestore?.queueRevision ?: 0L

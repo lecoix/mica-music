@@ -23,11 +23,13 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.mica.music.MainActivity
 import com.mica.music.MicaApp
+import com.mica.music.BuildConfig
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.media.usb.UsbOutputRuntime
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +62,11 @@ class MicaMediaService : MediaSessionService() {
     private var playbackRouteMonitor: PlaybackRouteMonitor? = null
     private var audioOffloadCircuitBreaker: AudioOffloadCircuitBreaker? = null
     private var audioPipelineCoordinator: AudioPipelineCoordinator? = null
+    private lateinit var outputRebuildCoordinator: PlaybackOutputRebuildCoordinator<
+        AudioOutputPathConfig,
+        PlaybackStackSnapshot,
+        ExoPlaybackStack,
+    >
 
     override fun onCreate() {
         super.onCreate()
@@ -177,6 +184,18 @@ class MicaMediaService : MediaSessionService() {
             )
         }
 
+        outputRebuildCoordinator = PlaybackOutputRebuildCoordinator(
+            onGenerationPublished = { UsbOutputRuntime.owner.invalidate() },
+            capture = {
+                PlaybackStackSnapshot.capture(
+                    checkNotNull(compositePlayer) { "Playback stack is not active" },
+                )
+            },
+            buildCandidate = { target, _ -> ExoPlaybackStackFactory.build(this, target) },
+            publishCandidate = ::publishRebuiltPlaybackStack,
+            releaseCandidate = { candidate, _ -> candidate.exoPlayer.release() },
+        )
+
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -265,6 +284,11 @@ class MicaMediaService : MediaSessionService() {
                 val availableSessionCommands = defaultResult.availableSessionCommands
                     .buildUpon()
                     .add(ExternalLyricsSessionCommands.toggleDesktopLock)
+                    .apply {
+                        if (BuildConfig.DEBUG && controller.packageName == packageName) {
+                            add(UsbOutputRebuildSessionCommand.command)
+                        }
+                    }
                     .build()
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                     .setAvailablePlayerCommands(defaultResult.availablePlayerCommands)
@@ -304,6 +328,12 @@ class MicaMediaService : MediaSessionService() {
                         }
                     }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                if (customCommand.customAction == UsbOutputRebuildSessionCommand.ACTION &&
+                    BuildConfig.DEBUG &&
+                    controller.packageName == packageName
+                ) {
+                    return rebuildOutputPathFromDebugGate()
                 }
                 if (!ControllerCapabilityPolicy.allowsIncomingCustomAction(
                         identity = identity,
@@ -391,6 +421,165 @@ class MicaMediaService : MediaSessionService() {
                 }
             }
         }
+
+    private fun rebuildOutputPathFromDebugGate(): ListenableFuture<SessionResult> {
+        val future = SettableFuture.create<SessionResult>()
+        mainHandler.post {
+            val target = UsbHostPrototypeOutput.selectedPath(this)
+            if (target == activeOutputPath) {
+                future.set(SessionResult(SessionResult.RESULT_SUCCESS))
+                return@post
+            }
+            val previousMode = activeOutputPath.outputMode
+            val result = outputRebuildCoordinator.rebuild(target)
+            DiagnosticLog.event(
+                "UsbOutputRebuild",
+                "result=${result.javaClass.simpleName} generation=${result.generation} " +
+                    "from=$previousMode target=${target.outputMode}",
+            )
+            future.set(
+                SessionResult(
+                    if (result is PlaybackOutputRebuildResult.Published) {
+                        SessionResult.RESULT_SUCCESS
+                    } else {
+                        SessionError.ERROR_UNKNOWN
+                    },
+                ),
+            )
+        }
+        return future
+    }
+
+    /** Main-thread publication seam for every player-scoped service reference and observer. */
+    private fun publishRebuiltPlaybackStack(
+        target: AudioOutputPathConfig,
+        snapshot: PlaybackStackSnapshot,
+        candidate: ExoPlaybackStack,
+    ) {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "Playback stack publication must run on the main looper"
+        }
+        val previousExo = checkNotNull(exoPlayer)
+        val previousComposite = checkNotNull(compositePlayer)
+        previousComposite.playWhenReady = false
+        try {
+            snapshot.restoreInto(candidate.compositePlayer, resumePlayback = false)
+        } catch (error: Throwable) {
+            previousComposite.playWhenReady = snapshot.playWhenReady
+            throw error
+        }
+
+        try {
+            checkNotNull(mediaSession) { "MediaSession is not active" }
+                .setPlayer(candidate.compositePlayer)
+            candidate.compositePlayer.playWhenReady = snapshot.playWhenReady
+        } catch (error: Throwable) {
+            runCatching { mediaSession?.setPlayer(previousComposite) }
+            previousComposite.playWhenReady = snapshot.playWhenReady
+            throw error
+        }
+        exoPlayer = candidate.exoPlayer
+        compositePlayer = candidate.compositePlayer
+        activeOutputPath = target
+        releasePlayerScopedBindings(previousExo)
+        installPlayerScopedBindings(candidate)
+        runCatching { previousExo.release() }
+            .onFailure { error ->
+                DiagnosticLog.event(
+                    "UsbOutputRebuild",
+                    "old-player-release-failed error=${error.javaClass.simpleName}:${error.message}",
+                )
+            }
+    }
+
+    private fun releasePlayerScopedBindings(previousExo: ExoPlayer) {
+        bindingStep("old-replay-gain-release") { replayGainStateOwner?.release() }
+        replayGainStateOwner = null
+        bindingStep("old-state-release") { playbackStateCoordinator?.release() }
+        playbackStateCoordinator = null
+        bindingStep("old-notification-release") { notificationLyricsCoordinator?.release() }
+        notificationLyricsCoordinator = null
+        bindingStep("old-car-bluetooth-release") { carBluetoothLyricsSession?.release() }
+        carBluetoothLyricsSession = null
+        bindingStep("old-engine-release") { playbackEngineCoordinator?.release() }
+        playbackEngineCoordinator = null
+        bindingStep("old-offload-release") {
+            audioOffloadCircuitBreaker?.let { breaker ->
+                previousExo.removeListener(breaker)
+                previousExo.removeAudioOffloadListener(breaker)
+                breaker.release()
+            }
+        }
+        audioOffloadCircuitBreaker = null
+        audioPipelineCoordinator = null
+    }
+
+    private fun installPlayerScopedBindings(stack: ExoPlaybackStack) {
+        val micaApp = application as MicaApp
+        bindingStep("new-replay-gain-install") {
+            replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer)
+                .also { it.start() }
+        }
+        bindingStep("new-offload-install") { installAudioOffloadCircuitBreaker(stack.exoPlayer) }
+        bindingStep("new-pipeline-install") { installAudioPipelineCoordinator(stack.exoPlayer) }
+        bindingStep("new-equalizer-session-install") {
+            attachEqualizerSessionListener(stack.exoPlayer)
+        }
+        bindingStep("new-engine-install") {
+            playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
+                player = stack.compositePlayer,
+                context = this,
+            ).also { coordinator ->
+                coordinator.start()
+                coordinator.onPlaybackBoundary = { boundary ->
+                    mediaSession?.broadcastCustomCommand(
+                        PlaybackBoundarySessionEvent.command,
+                        PlaybackBoundarySessionEvent.encode(boundary),
+                    )
+                }
+            }
+        }
+        bindingStep("new-state-install") {
+            playbackStateCoordinator = ServicePlaybackStateCoordinator(
+                player = stack.compositePlayer,
+                store = ServicePlaybackStateStore(this),
+                handler = mainHandler,
+                initialQualityMode = if (EqualizerPreferences.equalizerEnabled(this)) {
+                    AudioQualityMode.DSP
+                } else {
+                    AudioQualityMode.HIFI
+                },
+                externalSongResolver = micaApp.transientPlaybackCatalog::songForPersistence,
+                restorePersistedState = false,
+            ).also { it.start() }
+        }
+        bindingStep("new-car-bluetooth-install") {
+            carBluetoothLyricsSession = CarBluetoothLyricsSession(
+                context = this,
+                player = stack.compositePlayer,
+                sessionActivity = createSessionActivityPendingIntent(),
+            )
+        }
+        bindingStep("new-notification-install") {
+            notificationLyricsCoordinator = NotificationLyricsCoordinator(
+                context = this,
+                player = stack.compositePlayer,
+                handler = mainHandler,
+                carBluetoothLyrics = carBluetoothLyricsSession,
+                desktopLyrics = micaApp.desktopLyricsOverlayStateStore,
+                transientSongResolver = micaApp.transientPlaybackCatalog::songById,
+            ).also { it.start() }
+        }
+    }
+
+    private inline fun bindingStep(stage: String, block: () -> Unit) {
+        runCatching(block).onFailure { error ->
+            DiagnosticLog.event(
+                "UsbOutputRebuild",
+                "$stage failed error=${error.javaClass.simpleName}:${error.message}",
+            )
+        }
+    }
 
     private fun grantArtworkUriPermissions(targetPackage: String, mediaItems: List<MediaItem>) {
         if (targetPackage.isBlank()) return

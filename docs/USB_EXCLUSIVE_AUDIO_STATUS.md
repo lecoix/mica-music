@@ -4,7 +4,7 @@
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)。
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。
 > 最后更新：2026-08-10。
-> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；P2 已接入权限与拔出生命周期基础，但自动重建、播放恢复、后台策略与产品 UI 尚未完成；可发布的通用 USB 独占子系统仍未完成。**
+> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；P2 已接入权限/拔出生命周期基础和 debug gate full-mode rebuild/播放意图迁移，但新路径尚待实体机 smoke，durable recovery、后台策略与产品 UI 尚未完成；可发布的通用 USB 独占子系统仍未完成。**
 
 ---
 
@@ -617,9 +617,27 @@ background、明确 fallback、diagnostics、SharedPcm 回归。
   当前 session；完整 Debug 单测与 Release Kotlin 编译通过；
 - 权限成功只发布事实，不自动启用 USB、重建播放器或回退 SharedPcm。release 默认路径仍关闭。
 
-尚未完成：attach 自动策略、full-mode rebuild、队列/位置/播放意图恢复、process-death durable
-recovery、foreground/background、retry/backoff、明确 fallback、设置/UI，以及实体机权限弹窗与
-物理拔插验收。因此当前不能称为完整 SK02 developer beta。
+第二个离线 slice 已完成：
+
+- `PlaybackOutputRebuildCoordinator` 独立拥有 playback-stack generation 与发布锁；新请求先使旧
+  候选失效并调用 USB owner `invalidate()`，候选构建完成后在同一发布 seam 内再次校验。重建
+  generation 管理 MediaSession/player-scoped 共享状态，USB generation 管理 transport/session
+  事实，两者不交叉持有锁，避免 `ExoPlayer.release()` 与 USB cleanup 反向等待；
+- `PlaybackStackSnapshot` 内存捕获并恢复完整 MediaItem 队列、当前索引、位置、`playWhenReady`、
+  repeat、shuffle 与 playback parameters；重建不读取磁盘旧 snapshot 覆盖本次实时意图；
+- 候选 stack 先构建并 prepare，失败时恢复旧 player 的播放意图；成功后切换 MediaSession player、
+  发布新的 Exo/composite 引用、重绑 ReplayGain/状态持久化/通知歌词/车机蓝牙/playback engine/
+  offload/pipeline/equalizer listeners，再 best-effort 释放旧 Exo；
+- debug enable/disable 通过仅授予同包 controller 的 MediaSession custom command 执行原地重建，
+  不再要求重启服务；命令异步等待，不阻塞主线程，失败会回滚 debug gate；release 不暴露命令且
+  默认仍为 SharedPcm；
+- 确定性交错测试覆盖旧候选停在构建边界、新候选完成发布后旧候选只能释放，以及新 generation
+  不能切开正在执行的共享状态发布；构建失败不能触碰已发布 stack。完整 Debug 单测和 Release
+  Kotlin 编译通过。
+
+尚未完成：attach 自动策略、process-death durable recovery、foreground/background、
+retry/backoff、明确 fallback、设置/UI，以及实体机权限弹窗、物理拔插和 full-mode rebuild
+验收。因此当前不能称为完整 SK02 developer beta。
 
 **5–8 工程日**；累计到可供开发者日用的 SK02-only beta 约 **2–3 周**。
 
@@ -672,6 +690,8 @@ DSF/DFF handoff 与 DAC matrix。
   Lifecycle smoke；
 - [x] P2 SK02 snapshot、代际化 permission request/result、physical detach 失效/释放基础与
   stale callback/side-effect boundary 确定性交错测试；
+- [x] P2 debug gate full-mode rebuild、MediaSession player 切换、队列/位置/播放意图迁移与
+  stale candidate/serialized publication 确定性交错测试（实体机 smoke 待完成）；
 - [ ] P3 通用 UAC1/UAC2 parser、通用 format/fallback 与多 DAC identity/reconnect；
 - [ ] attach 自动策略、permission/detach UX、process death durable recovery、后台策略；
 - [ ] UAC1 + 多个 UAC2 DAC；
