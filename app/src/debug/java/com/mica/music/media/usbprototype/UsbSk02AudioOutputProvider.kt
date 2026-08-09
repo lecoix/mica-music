@@ -27,6 +27,7 @@ import com.mica.music.media.usb.UsbOutputRuntime
 import com.mica.music.media.usb.UsbOutputSession
 import com.mica.music.media.usb.UsbPcmEncoding
 import com.mica.music.media.usb.UsbPcmFormat
+import com.mica.music.media.usb.UsbPermissionState
 import com.mica.music.media.usb.UsbSignalPolicy
 import com.mica.music.media.usb.UsbStreamingProfileValidation
 import com.mica.music.util.DiagnosticLog
@@ -222,7 +223,8 @@ private class UsbSk02AudioOutput private constructor(
         get() = PlaybackOutputFacts(
             runtimeHandle = runtimeHandle,
             negotiatedFormat = negotiatedFormat,
-            permissionGranted = true,
+            attached = true,
+            permission = UsbPermissionState.GRANTED,
             claimed = true,
             exclusive = true,
             signalExact = true,

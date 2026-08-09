@@ -4,7 +4,7 @@
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)。
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。
 > 最后更新：2026-08-10。
-> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；可发布的通用 USB 独占子系统仍未完成。**
+> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；P2 已接入权限与拔出生命周期基础，但自动重建、播放恢复、后台策略与产品 UI 尚未完成；可发布的通用 USB 独占子系统仍未完成。**
 
 ---
 
@@ -603,6 +603,24 @@ debug/release Kotlin 编译通过。2026-08-10 更新后的 Lifecycle smoke 完�
 设置 gate、permission/attach/detach、full-mode rebuild 与队列/位置/播放意图恢复、foreground/
 background、明确 fallback、diagnostics、SharedPcm 回归。
 
+当前已完成的首个离线 slice：
+
+- `AndroidUsbAudioDeviceRepository` 提供仅识别已验证 SK02 的只读 snapshot，稳定 identity 与本次
+  Android 枚举的 runtime handle 分离；
+- permission request/result 与 physical detach 进入 `UsbOutputSessionOwner` 的同一 generation 和
+  transport seam。新请求先发布 generation；Android `requestPermission` 只可经有效 lease 发出；
+  result 必须同时匹配 generation、runtime handle 和 `REQUESTED` 状态；
+- detach 在等待 transport lock 前先使当前 generation 失效，随后在同一 seam 中 release session
+  并发布 detached failure；旧 runtime detach 不生成新 generation；
+- 确定性交错测试覆盖：旧权限回调不能覆盖新授权、错误 runtime 回调被拒绝、权限请求先释放
+  active session、detach 在写入副作用边界使旧写入失效并释放 session、旧 runtime detach 不影响
+  当前 session；完整 Debug 单测与 Release Kotlin 编译通过；
+- 权限成功只发布事实，不自动启用 USB、重建播放器或回退 SharedPcm。release 默认路径仍关闭。
+
+尚未完成：attach 自动策略、full-mode rebuild、队列/位置/播放意图恢复、process-death durable
+recovery、foreground/background、retry/backoff、明确 fallback、设置/UI，以及实体机权限弹窗与
+物理拔插验收。因此当前不能称为完整 SK02 developer beta。
+
 **5–8 工程日**；累计到可供开发者日用的 SK02-only beta 约 **2–3 周**。
 
 ### P3：通用 UAC1/UAC2 Type-I PCM
@@ -652,8 +670,10 @@ DSF/DFF handoff 与 DAC matrix。
   requested/active/failure facts与 exact-only SK02 negotiator；
 - [x] P1 真机 open 消费 negotiated profile、claim 前 endpoint topology fail-closed 与短时
   Lifecycle smoke；
+- [x] P2 SK02 snapshot、代际化 permission request/result、physical detach 失效/释放基础与
+  stale callback/side-effect boundary 确定性交错测试；
 - [ ] P3 通用 UAC1/UAC2 parser、通用 format/fallback 与多 DAC identity/reconnect；
-- [ ] permission/attach/detach UX、process death durable recovery、后台策略；
+- [ ] attach 自动策略、permission/detach UX、process death durable recovery、后台策略；
 - [ ] UAC1 + 多个 UAC2 DAC；
 - [ ] PCM16/24/32 与 44.1/48 系/高采样率矩阵；
 - [ ] 资源上界、厂商矩阵、音质行为确认；

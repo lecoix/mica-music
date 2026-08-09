@@ -24,6 +24,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.mica.music.media.MicaMediaService
 import com.mica.music.media.UsbHostPrototypeOutput
+import com.mica.music.media.usb.Sk02UsbContract
+import com.mica.music.media.usb.UsbOutputDeviceLifecycle
+import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputRequestLease
 import com.mica.music.media.usb.UsbOutputRequestToken
 import com.mica.music.media.usb.UsbOutputRuntime
@@ -290,10 +293,20 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
             val target = manager.deviceList.values.firstOrNull {
                 it.vendorId == TARGET_VENDOR_ID && it.productId == TARGET_PRODUCT_ID
             }
-            if (target == null || !manager.hasPermission(target)) {
+            if (target == null) {
                 state(
-                    "media3Prototype=enable_rejected targetFound=${target != null} " +
-                        "permission=${target != null && manager.hasPermission(target)}",
+                    "media3Prototype=enable_rejected targetFound=false permission=false",
+                )
+                return
+            }
+            if (!manager.hasPermission(target)) {
+                val token = UsbOutputDeviceLifecycle.requestPermission(
+                    context,
+                    UsbOutputRequest(device = Sk02UsbContract.identity),
+                )
+                state(
+                    "media3Prototype=permission_requested generation=${token.value} " +
+                        "restartRequired=true repeatEnableAfterGrant=true",
                 )
                 return
             }

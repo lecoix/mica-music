@@ -215,6 +215,139 @@ class UsbOutputSessionOwnerTest {
         assertFalse(effects.contains("unsupported-claim"))
     }
 
+    @Test
+    fun stalePermissionCallbackCannotOverwriteNewerGrantedRequest() {
+        val owner = UsbOutputSessionOwner()
+        val effects = mutableListOf<String>()
+        val oldToken = owner.beginPermissionRequest(
+            request("old-permission"),
+            UsbAudioRuntimeHandle(10),
+        )
+        val newToken = owner.beginPermissionRequest(
+            request("new-permission"),
+            UsbAudioRuntimeHandle(11),
+        )
+
+        val oldSideEffect = owner.withTransport(oldToken) { lease ->
+            lease.io { effects += "old-permission-dialog" }
+        }
+        val newSideEffect = owner.withTransport(newToken) { lease ->
+            lease.io { effects += "new-permission-dialog" }
+        }
+
+        assertEquals(null, oldSideEffect)
+        assertEquals(Unit, newSideEffect)
+        assertFalse(
+            owner.completePermissionRequest(
+                newToken,
+                UsbAudioRuntimeHandle(999),
+                granted = false,
+            ),
+        )
+        assertTrue(
+            owner.completePermissionRequest(
+                newToken,
+                UsbAudioRuntimeHandle(11),
+                granted = true,
+            ),
+        )
+        assertFalse(
+            owner.completePermissionRequest(
+                oldToken,
+                UsbAudioRuntimeHandle(10),
+                granted = false,
+            ),
+        )
+        assertEquals(listOf("new-permission-dialog"), effects)
+        assertEquals(UsbPermissionState.GRANTED, owner.facts.permission)
+        assertEquals(11, owner.facts.runtimeHandle?.runtimeDeviceId)
+        assertEquals("new-permission", owner.facts.request?.device?.descriptorFingerprint)
+    }
+
+    @Test
+    fun permissionRequestReleasesActiveSessionBeforePublishingRequestedFacts() {
+        val effects = mutableListOf<String>()
+        val owner = UsbOutputSessionOwner()
+        owner.replace(request("active")) {
+            FakeSession("active", effects, runtimeHandle = UsbAudioRuntimeHandle(20))
+        }
+
+        val token = owner.beginPermissionRequest(
+            request("replacement"),
+            UsbAudioRuntimeHandle(21),
+        )
+
+        assertTrue(effects.contains("active-close"))
+        assertEquals(UsbOutputPhase.REQUESTED, owner.facts.phase)
+        assertEquals(UsbPermissionState.REQUESTED, owner.facts.permission)
+        assertEquals(21, owner.facts.runtimeHandle?.runtimeDeviceId)
+        assertTrue(
+            owner.completePermissionRequest(
+                token,
+                UsbAudioRuntimeHandle(21),
+                granted = false,
+            ),
+        )
+        assertEquals(UsbOutputPhase.FAILED, owner.facts.phase)
+        assertEquals(UsbPermissionState.DENIED, owner.facts.permission)
+        assertEquals("permission", owner.facts.failure?.stage)
+    }
+
+    @Test
+    fun detachPublishedDuringActiveWritePreventsNativeSubmitAndReleasesSession() {
+        val detachGenerationPublished = CountDownLatch(1)
+        val owner = UsbOutputSessionOwner(
+            onGenerationPublished = { generation ->
+                if (generation == 2L) detachGenerationPublished.countDown()
+            },
+        )
+        val effects = Collections.synchronizedList(mutableListOf<String>())
+        val runtimeHandle = UsbAudioRuntimeHandle(30)
+        val session = owner.replace(request("active")) {
+            FakeSession("active", effects, runtimeHandle = runtimeHandle)
+        }
+        val writeAtBoundary = CountDownLatch(1)
+        val releaseWrite = CountDownLatch(1)
+
+        val writer = thread(name = "active-write-before-detach") {
+            owner.withActiveSession(session) { lease ->
+                writeAtBoundary.countDown()
+                assertTrue(releaseWrite.await(5, TimeUnit.SECONDS))
+                runCatching { lease.io { effects += "detached-native-submit" } }
+            }
+        }
+        assertTrue(writeAtBoundary.await(5, TimeUnit.SECONDS))
+        val detached = thread(name = "usb-device-detached") {
+            assertTrue(owner.deviceDetached(runtimeHandle))
+        }
+        assertTrue(detachGenerationPublished.await(5, TimeUnit.SECONDS))
+        releaseWrite.countDown()
+
+        writer.join(5_000)
+        detached.join(5_000)
+        assertFalse(effects.contains("detached-native-submit"))
+        assertTrue(effects.contains("active-close"))
+        assertEquals(UsbOutputPhase.FAILED, owner.facts.phase)
+        assertFalse(owner.facts.attached)
+        assertEquals(null, owner.facts.runtimeHandle)
+        assertEquals("detach", owner.facts.failure?.stage)
+    }
+
+    @Test
+    fun detachForOldRuntimeHandleDoesNotInvalidateCurrentSession() {
+        val effects = mutableListOf<String>()
+        val owner = UsbOutputSessionOwner()
+        owner.replace(request("current")) {
+            FakeSession("current", effects, runtimeHandle = UsbAudioRuntimeHandle(41))
+        }
+        val generation = owner.facts.generation
+
+        assertFalse(owner.deviceDetached(UsbAudioRuntimeHandle(40)))
+        assertEquals(generation, owner.facts.generation)
+        assertEquals(UsbOutputPhase.ACTIVE, owner.facts.phase)
+        assertFalse(effects.contains("current-close"))
+    }
+
     private fun request(name: String) = UsbOutputRequest(
         device = UsbAudioDeviceIdentity(
             vendorId = 0x262a,
@@ -227,9 +360,13 @@ class UsbOutputSessionOwnerTest {
         private val name: String,
         private val effects: MutableList<String>,
         private val onRelease: (UsbOutputCleanupLease) -> Unit = {},
+        private val runtimeHandle: UsbAudioRuntimeHandle? = null,
     ) : UsbOutputSession {
         override val activeFacts: PlaybackOutputFacts
             get() = PlaybackOutputFacts(
+                attached = true,
+                permission = UsbPermissionState.GRANTED,
+                runtimeHandle = runtimeHandle,
                 claimed = true,
                 exclusive = true,
                 signalExact = true,

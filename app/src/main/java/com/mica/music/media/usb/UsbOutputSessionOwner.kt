@@ -71,6 +71,136 @@ internal class UsbOutputSessionOwner(
         }
     }
 
+    /**
+     * Starts one permission request in the same generation and seam as transport ownership.
+     * The caller must perform Android's requestPermission side effect through [withTransport].
+     */
+    fun beginPermissionRequest(
+        request: UsbOutputRequest,
+        runtimeHandle: UsbAudioRuntimeHandle,
+    ): UsbOutputRequestToken {
+        val token = publishNextGeneration()
+        transportLock.lock()
+        try {
+            val lease = UsbOutputRequestLease(token, this)
+            lease.ensureCurrent()
+            activeSession?.let { session ->
+                publishFor(
+                    token,
+                    facts.copy(
+                        generation = token.value,
+                        phase = UsbOutputPhase.RELEASING,
+                        request = request,
+                    ),
+                )
+                session.release(cleanupLease(), "permission-request")
+                activeSession = null
+                activeRequest = null
+            }
+            lease.ensureCurrent()
+            publishFor(
+                token,
+                PlaybackOutputFacts(
+                    generation = token.value,
+                    phase = UsbOutputPhase.REQUESTED,
+                    request = request,
+                    runtimeHandle = runtimeHandle,
+                    attached = true,
+                    permission = UsbPermissionState.REQUESTED,
+                ),
+            )
+            return token
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    /** Returns false when a callback belongs to an older permission request. */
+    fun completePermissionRequest(
+        token: UsbOutputRequestToken,
+        runtimeHandle: UsbAudioRuntimeHandle,
+        granted: Boolean,
+    ): Boolean {
+        transportLock.lock()
+        return try {
+            if (!isCurrent(token) ||
+                facts.runtimeHandle != runtimeHandle ||
+                facts.permission != UsbPermissionState.REQUESTED
+            ) {
+                return false
+            }
+            if (granted) {
+                publishFor(
+                    token,
+                    facts.copy(
+                        permission = UsbPermissionState.GRANTED,
+                        failure = null,
+                    ),
+                )
+            } else {
+                publishFor(
+                    token,
+                    facts.copy(
+                        phase = UsbOutputPhase.FAILED,
+                        permission = UsbPermissionState.DENIED,
+                        failure = UsbOutputFailure(
+                            stage = "permission",
+                            message = "USB permission denied",
+                        ),
+                    ),
+                )
+            }
+            true
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    /**
+     * Invalidates and releases only the active enumeration that detached. An old detach callback
+     * for a previous runtime device id is ignored without minting a generation.
+     */
+    fun deviceDetached(runtimeHandle: UsbAudioRuntimeHandle): Boolean {
+        val observed = facts
+        if (observed.runtimeHandle != runtimeHandle || !observed.attached) return false
+        val token = publishNextGeneration()
+        transportLock.lock()
+        return try {
+            if (!isCurrent(token)) return false
+            val previous = facts
+            if (previous.runtimeHandle != runtimeHandle || !previous.attached) return false
+            activeSession?.let { session ->
+                publishFor(
+                    token,
+                    previous.copy(
+                        generation = token.value,
+                        phase = UsbOutputPhase.RELEASING,
+                    ),
+                )
+                session.release(cleanupLease(), "device-detached")
+            }
+            activeSession = null
+            activeRequest = null
+            publishFor(
+                token,
+                PlaybackOutputFacts(
+                    generation = token.value,
+                    phase = UsbOutputPhase.FAILED,
+                    request = previous.request,
+                    attached = false,
+                    permission = UsbPermissionState.UNKNOWN,
+                    failure = UsbOutputFailure(
+                        stage = "detach",
+                        message = "USB device detached",
+                    ),
+                ),
+            )
+            true
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
     fun <T : UsbOutputSession> replace(
         request: UsbOutputRequest,
         open: (UsbOutputRequestLease) -> T,

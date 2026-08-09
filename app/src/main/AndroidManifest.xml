@@ -16,6 +16,10 @@
 
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <queries>
         <package android:name="com.lonx.lyrico" />
         <intent>
@@ -74,6 +78,14 @@
         <service
             android:name=".media.DesktopLyricsOverlayService"
             android:exported="false" />
+
+        <receiver
+            android:name=".media.usb.UsbOutputLifecycleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_DETACHED" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name=".data.scanner.AlbumArtContentProvider"

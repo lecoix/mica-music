@@ -16,6 +16,19 @@ internal data class UsbAudioRuntimeHandle(
     val runtimeDeviceId: Int,
 )
 
+internal enum class UsbPermissionState {
+    UNKNOWN,
+    REQUESTED,
+    GRANTED,
+    DENIED,
+}
+
+internal data class UsbAudioDeviceSnapshot(
+    val identity: UsbAudioDeviceIdentity,
+    val runtimeHandle: UsbAudioRuntimeHandle,
+    val permission: UsbPermissionState,
+)
+
 internal enum class UsbPcmEncoding {
     PCM_16,
     PCM_24_PACKED,
@@ -89,7 +102,7 @@ internal sealed interface UsbFormatDecision {
 }
 
 internal interface UsbAudioDeviceRepository {
-    fun snapshot(): List<Pair<UsbAudioDeviceIdentity, UsbAudioRuntimeHandle>>
+    fun snapshot(): List<UsbAudioDeviceSnapshot>
 }
 
 internal interface UsbAudioCapabilityParser<in Descriptor> {
