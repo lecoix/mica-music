@@ -265,6 +265,11 @@ function Start-Qa {
     Start-Sleep -Seconds 4
 }
 
+function Start-PlaybackThroughSystemSession {
+    Invoke-Adb -Arguments @("shell", "input", "keyevent", "126") | Out-Null
+    Start-Sleep -Seconds 2
+}
+
 function Click-PermissionButtonIfPresent {
     Invoke-Adb -Arguments @("shell", "uiautomator", "dump", "/sdcard/mica-soak-window.xml") `
         -AllowFailure | Out-Null
@@ -290,6 +295,7 @@ function Ensure-UsbPermission {
     Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
     Send-PrototypeAction -Suffix "USB_SK02_PROBE"
     $limit = (Get-Date).AddSeconds(45)
+    $permissionApproved = $false
     do {
         Start-Sleep -Seconds 1
         $logs = Get-PrototypeLog
@@ -297,8 +303,11 @@ function Ensure-UsbPermission {
         if ($logs -match "permission_denied|target_not_found|open_failed") {
             throw "USB permission/probe failed.`n$logs"
         }
-        if ($logs -match "permission=requested") {
-            [void](Click-PermissionButtonIfPresent)
+        if (-not $permissionApproved -and $logs -match "permission=requested") {
+            $permissionApproved = Click-PermissionButtonIfPresent
+            if ($permissionApproved) {
+                $limit = (Get-Date).AddSeconds(15)
+            }
         }
     } while ((Get-Date) -lt $limit)
     throw "Timed out waiting for SK02 USB permission."
@@ -356,6 +365,52 @@ function Assert-ExclusiveDrivers {
         $logs -notmatch "streaming=\{driver=usbfs") {
         throw "SK02 was not exclusively owned by usbfs while playing.`n$logs"
     }
+}
+
+function Assert-KernelDriversBound {
+    Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
+    Send-PrototypeAction -Suffix "USB_SK02_NATIVE_FD_PROBE"
+    $logs = Wait-PrototypeResult -Pattern "nativeFdProbe=complete"
+    if ($logs -notmatch "control=\{driver=snd-usb-audio" -or
+        $logs -notmatch "streaming=\{driver=snd-usb-audio") {
+        throw "SK02 kernel drivers were not bound in SharedPcm mode.`n$logs"
+    }
+}
+
+function Set-InPlaceUsbPrototype {
+    param([bool]$Enabled)
+    $suffix = if ($Enabled) { "USB_SK02_MEDIA3_ENABLE" } else { "USB_SK02_MEDIA3_DISABLE" }
+    $state = if ($Enabled) { "enabled" } else { "disabled" }
+    $target = if ($Enabled) { "UsbDirectPcm" } else { "SharedPcm" }
+    $beforeDiagnostics = Get-Diagnostics
+    $beforeCount = ([regex]::Matches($beforeDiagnostics, "UsbOutputRebuild: result=")).Count
+    Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
+    Send-PrototypeAction -Suffix $suffix
+    $limit = (Get-Date).AddSeconds(20)
+    do {
+        Start-Sleep -Milliseconds 500
+        $prototypeLogs = Get-PrototypeLog
+        if ($prototypeLogs -match "media3Prototype=(rebuild_failed|enable_rejected)") {
+            throw "In-place output rebuild was rejected for target=$state.`n$prototypeLogs"
+        }
+        $diagnostics = Get-Diagnostics
+        $matches = [regex]::Matches(
+            $diagnostics,
+            "UsbOutputRebuild: result=(?<result>\S+) generation=(?<generation>\d+) " +
+                "from=(?<from>\S+) target=(?<target>\S+)"
+        )
+        if ($matches.Count -gt $beforeCount) {
+            $result = $matches[$matches.Count - 1]
+            $resultLine = $result.Value
+            Add-Content -LiteralPath $eventLog -Value $resultLine -Encoding utf8
+            if ($result.Groups["result"].Value -ne "Published" -or
+                $result.Groups["target"].Value -ne $target) {
+                throw "In-place output rebuild failed for target=$state. $resultLine"
+            }
+            return
+        }
+    } while ((Get-Date) -lt $limit)
+    throw "Timed out waiting for output rebuild diagnostics target=$target"
 }
 
 function Recover-KernelDrivers {
@@ -595,14 +650,38 @@ try {
         Invoke-Adb -Arguments @("install", "-r", $apk) | Out-Host
     }
 
+    # A previous QA run may have persisted the debug USB gate. Reset it before explicitly
+    # starting the service so a fresh install never tries to open USB ahead of permission.
+    Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
+    Send-PrototypeAction -Suffix "USB_SK02_MEDIA3_DISABLE" -Extras @("--ez", "gateOnly", "true")
+    [void](Wait-PrototypeResult -Pattern "media3Prototype=(disabled|rebuild_failed)")
     Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null
     Start-Qa
     Ensure-UsbPermission
-    Send-PrototypeAction -Suffix "USB_SK02_MEDIA3_ENABLE"
-    $enableLogs = Wait-PrototypeResult -Pattern "media3Prototype=(enabled|enable_rejected)"
-    if ($enableLogs -match "enable_rejected") { throw "USB prototype enable was rejected.`n$enableLogs" }
-    Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null
-    Start-Qa
+
+    Write-Event "Full-mode smoke: establish SharedPcm baseline"
+    Set-InPlaceUsbPrototype -Enabled $false
+    Start-PlaybackThroughSystemSession
+    Assert-PlayingAdvances -Label "full-mode-shared-before"
+    Assert-KernelDriversBound
+
+    Write-Event "Full-mode smoke: SharedPcm -> UsbDirectPcm"
+    Set-InPlaceUsbPrototype -Enabled $true
+    Assert-PlayingAdvances -Label "full-mode-usb-first"
+    Assert-NoPlaybackFailure -Label "full-mode-usb-first"
+    Assert-ExclusiveDrivers
+
+    Write-Event "Full-mode smoke: UsbDirectPcm -> SharedPcm"
+    Set-InPlaceUsbPrototype -Enabled $false
+    Assert-PlayingAdvances -Label "full-mode-shared-after"
+    Assert-NoPlaybackFailure -Label "full-mode-shared-after"
+    Assert-KernelDriversBound
+
+    Write-Event "Full-mode smoke: SharedPcm -> UsbDirectPcm for soak"
+    Set-InPlaceUsbPrototype -Enabled $true
+    Assert-PlayingAdvances -Label "full-mode-usb-final"
+    Assert-NoPlaybackFailure -Label "full-mode-usb-final"
+    Assert-ExclusiveDrivers
 
     $testStartedAt = Get-Date
     $deadline = $testStartedAt.AddMinutes($DurationMinutes)

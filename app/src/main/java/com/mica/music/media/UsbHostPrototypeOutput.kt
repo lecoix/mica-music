@@ -14,8 +14,11 @@ internal object UsbHostPrototypeOutput {
     private const val ENABLED = "sk02_media3_enabled"
 
     fun selectedPath(context: Context): AudioOutputPathConfig {
-        val enabled = isEnabled(context)
-        return if (enabled) {
+        return pathForEnabled(isEnabled(context))
+    }
+
+    fun pathForEnabled(enabled: Boolean): AudioOutputPathConfig =
+        if (BuildConfig.DEBUG && enabled) {
             AudioOutputPathConfig(
                 outputMode = PlaybackOutputMode.UsbDirectPcm,
                 usbOutputRequest = UsbOutputRequest(device = Sk02UsbContract.identity),
@@ -23,7 +26,6 @@ internal object UsbHostPrototypeOutput {
         } else {
             AudioOutputPathConfig.PRODUCTION
         }
-    }
 
     fun isEnabled(context: Context): Boolean =
         BuildConfig.DEBUG && context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

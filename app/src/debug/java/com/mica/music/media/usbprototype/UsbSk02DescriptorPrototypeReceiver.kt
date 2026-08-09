@@ -2,7 +2,6 @@ package com.mica.music.media.usbprototype
 
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.hardware.usb.UsbConstants
@@ -14,18 +13,18 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Build
-import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.decoder.ffmpeg.UsbExclusiveFfmpegPrototype
-import androidx.media3.session.MediaController
 import androidx.media3.session.SessionResult
-import androidx.media3.session.SessionToken
+import com.mica.music.media.DebugPlaybackControl
+import com.mica.music.media.DebugPlaybackControlRuntime
 import com.mica.music.media.MicaMediaService
 import com.mica.music.media.UsbHostPrototypeOutput
+import com.mica.music.media.UsbOutputRebuildRuntime
 import com.mica.music.media.UsbOutputRebuildSessionCommand
 import com.mica.music.media.usb.Sk02UsbContract
 import com.mica.music.media.usb.UsbOutputDeviceLifecycle
@@ -77,6 +76,9 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         val media3SeekNearEndAction = "${context.packageName}.debug.USB_SK02_MEDIA3_SEEK_NEAR_END"
         val media3RepeatOneAction = "${context.packageName}.debug.USB_SK02_MEDIA3_REPEAT_ONE"
         val media3RepeatOffAction = "${context.packageName}.debug.USB_SK02_MEDIA3_REPEAT_OFF"
+        val media3RebuildResultAction = UsbOutputRebuildSessionCommand.resultAction(
+            context.packageName,
+        )
         val permissionAction = "${context.packageName}.debug.USB_SK02_PERMISSION"
         val retiredRawTransportActions = setOf(
             claimProbeAction,
@@ -263,25 +265,45 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                     "UsbSk02Ffmpeg24UsbPrototype",
                 ).start()
             }
-            media3EnableAction ->
-                beginSetMedia3PrototypeEnabled(context, goAsync(), enabled = true)
-            media3DisableAction ->
-                beginSetMedia3PrototypeEnabled(context, goAsync(), enabled = false)
-            media3PlayAction -> beginMedia3Control(context, goAsync(), Media3Control.PLAY)
-            media3PauseAction -> beginMedia3Control(context, goAsync(), Media3Control.PAUSE)
-            media3NextAction -> beginMedia3Control(context, goAsync(), Media3Control.NEXT)
-            media3SelectIndexAction -> beginMedia3Control(
+            media3EnableAction -> setMedia3PrototypeEnabled(
                 context,
-                goAsync(),
+                enabled = true,
+                gateOnly = intent.getBooleanExtra("gateOnly", false),
+            )
+            media3DisableAction -> setMedia3PrototypeEnabled(
+                context,
+                enabled = false,
+                gateOnly = intent.getBooleanExtra("gateOnly", false),
+            )
+            media3PlayAction -> runMedia3Control(Media3Control.PLAY)
+            media3PauseAction -> runMedia3Control(Media3Control.PAUSE)
+            media3NextAction -> runMedia3Control(Media3Control.NEXT)
+            media3SelectIndexAction -> runMedia3Control(
                 Media3Control.SELECT_INDEX,
                 intent.getIntExtra("mediaIndex", -1),
             )
-            media3SeekNearEndAction ->
-                beginMedia3Control(context, goAsync(), Media3Control.SEEK_NEAR_END)
-            media3RepeatOneAction ->
-                beginMedia3Control(context, goAsync(), Media3Control.REPEAT_ONE)
-            media3RepeatOffAction ->
-                beginMedia3Control(context, goAsync(), Media3Control.REPEAT_OFF)
+            media3SeekNearEndAction -> runMedia3Control(Media3Control.SEEK_NEAR_END)
+            media3RepeatOneAction -> runMedia3Control(Media3Control.REPEAT_ONE)
+            media3RepeatOffAction -> runMedia3Control(Media3Control.REPEAT_OFF)
+            media3RebuildResultAction -> {
+                val enabled = intent.getBooleanExtra(
+                    UsbOutputRebuildSessionCommand.EXTRA_REQUESTED_ENABLED,
+                    false,
+                )
+                val resultCode = intent.getIntExtra(
+                    UsbOutputRebuildSessionCommand.EXTRA_RESULT_CODE,
+                    Int.MIN_VALUE,
+                )
+                val generation = intent.getLongExtra(
+                    UsbOutputRebuildSessionCommand.EXTRA_GENERATION,
+                    -1L,
+                )
+                state(
+                    "media3Prototype=${if (enabled) "enabled" else "disabled"} " +
+                        "fullModeRebuild=${resultCode == SessionResult.RESULT_SUCCESS} " +
+                        "resultCode=$resultCode generation=$generation",
+                )
+            }
             permissionAction -> {
                 val device = intent.usbDeviceExtra()
                 val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
@@ -292,10 +314,10 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun beginSetMedia3PrototypeEnabled(
+    private fun setMedia3PrototypeEnabled(
         context: Context,
-        pendingResult: PendingResult,
         enabled: Boolean,
+        gateOnly: Boolean,
     ) {
         if (enabled) {
             val manager = context.getSystemService(UsbManager::class.java)
@@ -306,7 +328,6 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                 state(
                     "media3Prototype=enable_rejected targetFound=false permission=false",
                 )
-                pendingResult.finish()
                 return
             }
             if (!manager.hasPermission(target)) {
@@ -318,125 +339,46 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                     "media3Prototype=permission_requested generation=${token.value} " +
                         "restartRequired=true repeatEnableAfterGrant=true",
                 )
-                pendingResult.finish()
                 return
             }
         }
         val previousEnabled = UsbHostPrototypeOutput.isEnabled(context)
         UsbHostPrototypeOutput.setEnabled(context, enabled)
-        val future = MediaController.Builder(
-            context.applicationContext,
-            SessionToken(context, ComponentName(context, MicaMediaService::class.java)),
-        ).buildAsync()
-        future.addListener(
-            {
-                try {
-                    val controller = future.get()
-                    val rebuildFuture = controller.sendCustomCommand(
-                        UsbOutputRebuildSessionCommand.command,
-                        Bundle.EMPTY,
-                    )
-                    rebuildFuture.addListener(
-                        {
-                            try {
-                                val result = rebuildFuture.get()
-                                if (result.resultCode != SessionResult.RESULT_SUCCESS) {
-                                    UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
-                                }
-                                state(
-                                    "media3Prototype=${if (enabled) "enabled" else "disabled"} " +
-                                        "fullModeRebuild=" +
-                                        "${result.resultCode == SessionResult.RESULT_SUCCESS} " +
-                                        "resultCode=${result.resultCode}",
-                                )
-                            } catch (error: Throwable) {
-                                UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
-                                state(
-                                    "media3Prototype=rebuild_failed enabled=$enabled " +
-                                        "error=${error.javaClass.simpleName}:${error.message}",
-                                )
-                            } finally {
-                                MediaController.releaseFuture(future)
-                                pendingResult.finish()
-                            }
-                        },
-                        ContextCompat.getMainExecutor(context),
-                    )
-                } catch (error: Throwable) {
-                    UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
-                    state(
-                        "media3Prototype=rebuild_failed enabled=$enabled " +
-                            "error=${error.javaClass.simpleName}:${error.message}",
-                    )
-                    MediaController.releaseFuture(future)
-                    pendingResult.finish()
-                }
-            },
-            ContextCompat.getMainExecutor(context),
-        )
+        if (gateOnly) {
+            state(
+                "media3Prototype=${if (enabled) "enabled" else "disabled"} " +
+                    "fullModeRebuild=true resultCode=0 generation=0 gateOnly=true",
+            )
+            return
+        }
+        if (!UsbOutputRebuildRuntime.request(enabled, previousEnabled)) {
+            UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
+            state("media3Prototype=rebuild_failed enabled=$enabled error=service_not_active")
+            return
+        }
+        state("media3PrototypeRequest=accepted enabled=$enabled")
     }
 
-    private fun beginMedia3Control(
-        context: Context,
-        pendingResult: PendingResult,
+    private fun runMedia3Control(
         command: Media3Control,
         mediaIndex: Int = -1,
     ) {
-        val future = MediaController.Builder(
-            context.applicationContext,
-            SessionToken(context, ComponentName(context, MicaMediaService::class.java)),
-        ).buildAsync()
-        future.addListener(
-            {
-                try {
-                    val controller = future.get()
-                    when (command) {
-                        Media3Control.PLAY -> {
-                            controller.prepare()
-                            controller.play()
-                        }
-                        Media3Control.PAUSE -> controller.pause()
-                        Media3Control.NEXT -> {
-                            controller.seekToNextMediaItem()
-                            controller.play()
-                        }
-                        Media3Control.SELECT_INDEX -> {
-                            check(mediaIndex in 0 until controller.mediaItemCount) {
-                                "mediaIndex=$mediaIndex itemCount=${controller.mediaItemCount}"
-                            }
-                            controller.seekToDefaultPosition(mediaIndex)
-                            controller.play()
-                        }
-                        Media3Control.SEEK_NEAR_END -> {
-                            val duration = controller.duration
-                            check(duration != C.TIME_UNSET && duration > 0) {
-                                "Current media duration is unavailable"
-                            }
-                            controller.seekTo((duration - 5_000L).coerceAtLeast(0L))
-                            controller.play()
-                        }
-                        Media3Control.REPEAT_ONE ->
-                            controller.repeatMode = Player.REPEAT_MODE_ONE
-                        Media3Control.REPEAT_OFF ->
-                            controller.repeatMode = Player.REPEAT_MODE_OFF
-                    }
-                    state(
-                        "media3Control=${command.name.lowercase()} complete=true " +
-                            "index=${controller.currentMediaItemIndex} " +
-                            "positionMs=${controller.currentPosition} durationMs=${controller.duration}",
-                    )
-                } catch (error: Throwable) {
-                    state(
-                        "media3Control=${command.name.lowercase()} complete=false " +
-                            "error=${error.javaClass.simpleName}:${error.message}",
-                    )
-                } finally {
-                    MediaController.releaseFuture(future)
-                    pendingResult.finish()
-                }
-            },
-            ContextCompat.getMainExecutor(context),
-        )
+        try {
+            val result = DebugPlaybackControlRuntime.request(
+                DebugPlaybackControl.valueOf(command.name),
+                mediaIndex,
+            ) ?: error("service_not_active")
+            state(
+                "media3Control=${command.name.lowercase()} complete=true " +
+                    "index=${result.currentIndex} positionMs=${result.currentPositionMs} " +
+                    "durationMs=${result.durationMs}",
+            )
+        } catch (error: Throwable) {
+            state(
+                "media3Control=${command.name.lowercase()} complete=false " +
+                    "error=${error.javaClass.simpleName}:${error.message}",
+            )
+        }
     }
 
     private enum class Media3Control {

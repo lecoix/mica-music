@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -195,6 +196,8 @@ class MicaMediaService : MediaSessionService() {
             publishCandidate = ::publishRebuiltPlaybackStack,
             releaseCandidate = { candidate, _ -> candidate.exoPlayer.release() },
         )
+        UsbOutputRebuildRuntime.install(::scheduleOutputPathRebuildFromDebugGate)
+        DebugPlaybackControlRuntime.install(::handleDebugPlaybackControl)
 
     }
 
@@ -214,6 +217,8 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        UsbOutputRebuildRuntime.clear()
+        DebugPlaybackControlRuntime.clear()
         playbackRouteMonitor?.release()
         playbackRouteMonitor = null
         unregisterLyricsPreferenceListener?.invoke()
@@ -333,7 +338,8 @@ class MicaMediaService : MediaSessionService() {
                     BuildConfig.DEBUG &&
                     controller.packageName == packageName
                 ) {
-                    return rebuildOutputPathFromDebugGate()
+                    scheduleOutputPathRebuildFromDebugGate(args)
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 if (!ControllerCapabilityPolicy.allowsIncomingCustomAction(
                         identity = identity,
@@ -422,32 +428,99 @@ class MicaMediaService : MediaSessionService() {
             }
         }
 
-    private fun rebuildOutputPathFromDebugGate(): ListenableFuture<SessionResult> {
-        val future = SettableFuture.create<SessionResult>()
+    private fun scheduleOutputPathRebuildFromDebugGate(args: Bundle) {
+        scheduleOutputPathRebuildFromDebugGate(
+            requestedEnabled = args.getBoolean(
+                UsbOutputRebuildSessionCommand.EXTRA_REQUESTED_ENABLED,
+            ),
+            previousEnabled = args.getBoolean(
+                UsbOutputRebuildSessionCommand.EXTRA_PREVIOUS_ENABLED,
+            ),
+        )
+    }
+
+    private fun scheduleOutputPathRebuildFromDebugGate(
+        requestedEnabled: Boolean,
+        previousEnabled: Boolean,
+    ) {
         mainHandler.post {
-            val target = UsbHostPrototypeOutput.selectedPath(this)
-            if (target == activeOutputPath) {
-                future.set(SessionResult(SessionResult.RESULT_SUCCESS))
-                return@post
-            }
+            val target = UsbHostPrototypeOutput.pathForEnabled(requestedEnabled)
             val previousMode = activeOutputPath.outputMode
-            val result = outputRebuildCoordinator.rebuild(target)
+            val result = if (target == activeOutputPath) {
+                PlaybackOutputRebuildResult.Published(0L)
+            } else {
+                outputRebuildCoordinator.rebuild(target)
+            }
             DiagnosticLog.event(
                 "UsbOutputRebuild",
                 "result=${result.javaClass.simpleName} generation=${result.generation} " +
                     "from=$previousMode target=${target.outputMode}",
             )
-            future.set(
-                SessionResult(
-                    if (result is PlaybackOutputRebuildResult.Published) {
-                        SessionResult.RESULT_SUCCESS
-                    } else {
-                        SessionError.ERROR_UNKNOWN
-                    },
-                ),
+            val resultCode = if (result is PlaybackOutputRebuildResult.Published) {
+                SessionResult.RESULT_SUCCESS
+            } else {
+                SessionError.ERROR_UNKNOWN
+            }
+            if (resultCode != SessionResult.RESULT_SUCCESS) {
+                UsbHostPrototypeOutput.setEnabled(this, previousEnabled)
+            }
+            sendBroadcast(
+                Intent(UsbOutputRebuildSessionCommand.resultAction(packageName))
+                    .setPackage(packageName)
+                    .putExtra(
+                        UsbOutputRebuildSessionCommand.EXTRA_REQUESTED_ENABLED,
+                        requestedEnabled,
+                    )
+                    .putExtra(UsbOutputRebuildSessionCommand.EXTRA_RESULT_CODE, resultCode)
+                    .putExtra(
+                        UsbOutputRebuildSessionCommand.EXTRA_GENERATION,
+                        result.generation,
+                    ),
             )
         }
-        return future
+    }
+
+    private fun handleDebugPlaybackControl(
+        control: DebugPlaybackControl,
+        mediaIndex: Int,
+    ): DebugPlaybackControlResult {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "Debug playback control must run on the main looper"
+        }
+        val player = checkNotNull(compositePlayer) { "Playback stack is not active" }
+        when (control) {
+            DebugPlaybackControl.PLAY -> {
+                player.prepare()
+                player.play()
+            }
+            DebugPlaybackControl.PAUSE -> player.pause()
+            DebugPlaybackControl.NEXT -> {
+                player.seekToNextMediaItem()
+                player.play()
+            }
+            DebugPlaybackControl.SELECT_INDEX -> {
+                check(mediaIndex in 0 until player.mediaItemCount) {
+                    "mediaIndex=$mediaIndex itemCount=${player.mediaItemCount}"
+                }
+                player.seekToDefaultPosition(mediaIndex)
+                player.play()
+            }
+            DebugPlaybackControl.SEEK_NEAR_END -> {
+                val duration = player.duration
+                check(duration != C.TIME_UNSET && duration > 0L) {
+                    "Current media duration is unavailable"
+                }
+                player.seekTo((duration - 5_000L).coerceAtLeast(0L))
+                player.play()
+            }
+            DebugPlaybackControl.REPEAT_ONE -> player.repeatMode = Player.REPEAT_MODE_ONE
+            DebugPlaybackControl.REPEAT_OFF -> player.repeatMode = Player.REPEAT_MODE_OFF
+        }
+        return DebugPlaybackControlResult(
+            currentIndex = player.currentMediaItemIndex,
+            currentPositionMs = player.currentPosition,
+            durationMs = player.duration,
+        )
     }
 
     /** Main-thread publication seam for every player-scoped service reference and observer. */

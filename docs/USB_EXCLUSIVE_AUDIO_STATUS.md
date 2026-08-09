@@ -4,7 +4,7 @@
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)。
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。
 > 最后更新：2026-08-10。
-> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；P2 已接入权限/拔出生命周期基础和 debug gate full-mode rebuild/播放意图迁移，但新路径尚待实体机 smoke，durable recovery、后台策略与产品 UI 尚未完成；可发布的通用 USB 独占子系统仍未完成。**
+> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；P2 已接入权限/拔出生命周期基础和 debug gate full-mode rebuild/播放意图迁移，新路径的实体机双向 rebuild smoke 已通过，但 durable recovery、后台策略与产品 UI 尚未完成；可发布的通用 USB 独占子系统仍未完成。**
 
 ---
 
@@ -387,7 +387,14 @@ prototype、stop QA、reconnect driver、保存 summary。
 
 ## 12. 长测状态
 
-截至 2026-08-09 本次更新：
+截至 2026-08-10 本次更新：
+
+- P2 full-mode rebuild 实体机 smoke 已通过：SharedPcm 基线 → UsbDirectPcm → SharedPcm →
+  UsbDirectPcm 的四段发布结果依次为 generation 0/1/2/3，播放进度与每段 driver 归属均通过；
+  随后完成 4 个 Lifecycle 循环，覆盖 48/96 kHz，PSS 198,111–201,743 KB、FD 179–180、
+  最高 33.2°C，最终 `cleanupDriversBound=true`。证据目录为
+  `.scratch/usb-sk02-soak/20260810-053648/`。本轮结束时电量 55%，不足以按既有耗电数据完成
+  90 分钟 Lifecycle，因此未启动长测，不能据此宣称 90 分钟通过；
 
 - 1 分钟 `Continuous` 通过；
 - 1 分钟 `Lifecycle` 通过，含一次强杀恢复；
