@@ -52,6 +52,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
   // stock behaviour used by R1a and release builds.
   @Nullable private final String micaRole;
   @Nullable private final FfmpegFormatPolicy micaPolicy;
+  private final boolean preferPcm32ForHighResolution;
 
   public FfmpegAudioRenderer() {
     this(/* eventHandler= */ null, /* eventListener= */ null);
@@ -87,7 +88,13 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       @Nullable Handler eventHandler,
       @Nullable AudioRendererEventListener eventListener,
       AudioSink audioSink) {
-    this(eventHandler, eventListener, audioSink, /* micaRole= */ null, /* micaPolicy= */ null);
+    this(
+        eventHandler,
+        eventListener,
+        audioSink,
+        /* micaRole= */ null,
+        /* micaPolicy= */ null,
+        /* preferPcm32ForHighResolution= */ false);
   }
 
   /**
@@ -104,9 +111,27 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       AudioSink audioSink,
       @Nullable String micaRole,
       @Nullable FfmpegFormatPolicy micaPolicy) {
+    this(
+        eventHandler,
+        eventListener,
+        audioSink,
+        micaRole,
+        micaPolicy,
+        /* preferPcm32ForHighResolution= */ false);
+  }
+
+  /** Mica USB prototype constructor: keeps high-resolution integer PCM out of float conversion. */
+  public FfmpegAudioRenderer(
+      @Nullable Handler eventHandler,
+      @Nullable AudioRendererEventListener eventListener,
+      AudioSink audioSink,
+      @Nullable String micaRole,
+      @Nullable FfmpegFormatPolicy micaPolicy,
+      boolean preferPcm32ForHighResolution) {
     super(eventHandler, eventListener, audioSink);
     this.micaRole = micaRole;
     this.micaPolicy = micaPolicy;
+    this.preferPcm32ForHighResolution = preferPcm32ForHighResolution;
   }
 
   @Override
@@ -134,7 +159,9 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       return C.FORMAT_UNSUPPORTED_TYPE;
     } else if (!FfmpegLibrary.supportsFormat(mimeType)
         || (!sinkSupportsFormat(format, C.ENCODING_PCM_16BIT)
-            && !sinkSupportsFormat(format, C.ENCODING_PCM_FLOAT))) {
+            && !sinkSupportsFormat(format, C.ENCODING_PCM_FLOAT)
+            && !(preferPcm32ForHighResolution
+                && sinkSupportsFormat(format, C.ENCODING_PCM_32BIT)))) {
       return C.FORMAT_UNSUPPORTED_SUBTYPE;
     } else if (format.cryptoType != C.CRYPTO_TYPE_NONE) {
       return C.FORMAT_UNSUPPORTED_DRM;
@@ -156,7 +183,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
         format.maxInputSize != Format.NO_VALUE ? format.maxInputSize : DEFAULT_INPUT_BUFFER_SIZE;
     FfmpegAudioDecoder decoder =
         new FfmpegAudioDecoder(
-            format, NUM_BUFFERS, NUM_BUFFERS, initialInputBufferSize, shouldOutputFloat(format));
+            format, NUM_BUFFERS, NUM_BUFFERS, initialInputBufferSize, chooseOutputEncoding(format));
     TraceUtil.endSection();
     return decoder;
   }
@@ -208,5 +235,16 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
         // Always prefer 16-bit PCM if the sink does not provide direct support for floating point.
         return false;
     }
+  }
+
+  private @C.PcmEncoding int chooseOutputEncoding(Format inputFormat) {
+    if (preferPcm32ForHighResolution
+        && getSinkFormatSupport(
+                Util.getPcmFormat(
+                    C.ENCODING_PCM_32BIT, inputFormat.channelCount, inputFormat.sampleRate))
+            == SINK_FORMAT_SUPPORTED_DIRECTLY) {
+      return C.ENCODING_PCM_32BIT;
+    }
+    return shouldOutputFloat(inputFormat) ? C.ENCODING_PCM_FLOAT : C.ENCODING_PCM_16BIT;
   }
 }

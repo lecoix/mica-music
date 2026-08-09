@@ -61,6 +61,12 @@ extern "C" {
 
 static const AVSampleFormat OUTPUT_FORMAT_PCM_16BIT = AV_SAMPLE_FMT_S16;
 static const AVSampleFormat OUTPUT_FORMAT_PCM_FLOAT = AV_SAMPLE_FMT_FLT;
+static const AVSampleFormat OUTPUT_FORMAT_PCM_32BIT = AV_SAMPLE_FMT_S32;
+
+static const jint MEDIA3_ENCODING_PCM_16BIT = 2;
+static const jint MEDIA3_ENCODING_PCM_FLOAT = 4;
+// android.media.AudioFormat.ENCODING_PCM_32BIT (API 31+), which Media3 C aliases.
+static const jint MEDIA3_ENCODING_PCM_32BIT = 22;
 
 static const int AUDIO_DECODER_ERROR_INVALID_DATA = -1;
 static const int AUDIO_DECODER_ERROR_OTHER = -2;
@@ -71,7 +77,7 @@ static thread_local std::string lastInitializationError;
 const AVCodec* getCodecByName(JNIEnv* env, jstring codecName);
 
 AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
-                             jbyteArray extraData, jboolean outputFloat,
+                             jbyteArray extraData, jint outputEncoding,
                              jint rawSampleRate, jint rawChannelCount,
                              jint rawBitsPerSample);
 
@@ -129,7 +135,7 @@ LIBRARY_FUNC(jboolean, ffmpegHasDecoder, jstring codecName) {
 }
 
 AUDIO_DECODER_FUNC(jlong, ffmpegInitialize, jstring codecName,
-                   jbyteArray extraData, jboolean outputFloat,
+                   jbyteArray extraData, jint outputEncoding,
                    jint rawSampleRate, jint rawChannelCount,
                    jint rawBitsPerSample) {
   lastInitializationError.clear();
@@ -140,10 +146,10 @@ AUDIO_DECODER_FUNC(jlong, ffmpegInitialize, jstring codecName,
     return 0L;
   }
   LOGD("[DEBUG-dsd-init] initialize codec=%s sampleRate=%d channelCount=%d "
-       "outputFloat=%d extraDataBytes=%d",
-       codec->name, rawSampleRate, rawChannelCount, outputFloat,
+       "outputEncoding=%d extraDataBytes=%d",
+       codec->name, rawSampleRate, rawChannelCount, outputEncoding,
        extraData ? env->GetArrayLength(extraData) : 0);
-  return (jlong)createContext(env, codec, extraData, outputFloat, rawSampleRate,
+  return (jlong)createContext(env, codec, extraData, outputEncoding, rawSampleRate,
                             rawChannelCount, rawBitsPerSample);
 }
 
@@ -224,15 +230,19 @@ AUDIO_DECODER_FUNC(jlong, ffmpegReset, jlong jContext, jbyteArray extraData) {
 
   AVCodecID codecId = context->codec_id;
   if (codecId == AV_CODEC_ID_TRUEHD) {
-    jboolean outputFloat =
-        (jboolean)(context->request_sample_fmt == OUTPUT_FORMAT_PCM_FLOAT);
+    jint outputEncoding = MEDIA3_ENCODING_PCM_16BIT;
+    if (context->request_sample_fmt == OUTPUT_FORMAT_PCM_FLOAT) {
+      outputEncoding = MEDIA3_ENCODING_PCM_FLOAT;
+    } else if (context->request_sample_fmt == OUTPUT_FORMAT_PCM_32BIT) {
+      outputEncoding = MEDIA3_ENCODING_PCM_32BIT;
+    }
     releaseContext(context);
     const AVCodec* codec = avcodec_find_decoder(codecId);
     if (!codec) {
       LOGE("Unexpected error finding codec %d.", codecId);
       return 0L;
     }
-    return (jlong)createContext(env, codec, extraData, outputFloat,
+    return (jlong)createContext(env, codec, extraData, outputEncoding,
                                 /* rawSampleRate= */ -1,
                                 /* rawChannelCount= */ -1,
                                 /* rawBitsPerSample= */ -1);
@@ -259,7 +269,7 @@ const AVCodec* getCodecByName(JNIEnv* env, jstring codecName) {
 }
 
 AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
-                              jbyteArray extraData, jboolean outputFloat,
+                              jbyteArray extraData, jint outputEncoding,
                               jint rawSampleRate, jint rawChannelCount,
                               jint rawBitsPerSample) {
   AVCodecContext* context = avcodec_alloc_context3(codec);
@@ -268,8 +278,22 @@ AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
     lastInitializationError = "avcodec_alloc_context3 failed";
     return NULL;
   }
-  context->request_sample_fmt =
-      outputFloat ? OUTPUT_FORMAT_PCM_FLOAT : OUTPUT_FORMAT_PCM_16BIT;
+  switch (outputEncoding) {
+    case MEDIA3_ENCODING_PCM_FLOAT:
+      context->request_sample_fmt = OUTPUT_FORMAT_PCM_FLOAT;
+      break;
+    case MEDIA3_ENCODING_PCM_32BIT:
+      context->request_sample_fmt = OUTPUT_FORMAT_PCM_32BIT;
+      break;
+    case MEDIA3_ENCODING_PCM_16BIT:
+      context->request_sample_fmt = OUTPUT_FORMAT_PCM_16BIT;
+      break;
+    default:
+      LOGE("Unsupported Media3 PCM output encoding: %d", outputEncoding);
+      lastInitializationError = "unsupported Media3 PCM output encoding";
+      releaseContext(context);
+      return NULL;
+  }
   if (extraData) {
     jsize size = env->GetArrayLength(extraData);
     context->extradata_size = size;

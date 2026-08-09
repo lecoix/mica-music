@@ -200,7 +200,7 @@ _Avoid_: 在 `MicaMediaService` 的各 callback 中分别重写 offload 推导�
 _Avoid_: 软件播、双后端、libmica_ffmpeg
 
 **USB-exclusive output（USB Host 真独占输出）**：
-远期独立输出路径：App 通过 Android USB Host 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。当前仅有输出模式兼容骨架，生产环境尚未实现；决策见 `docs/adr/0001-usb-host-exclusive-output.md`。
+远期独立输出路径：App 通过 Android USB Host 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。Fosi SK02 的 debug/QA USBFS + Media3 可行性原型已工程收口，但生产环境仍只有输出模式兼容骨架；决策见 `docs/adr/0001-usb-host-exclusive-output.md`，证据与交接点见 `docs/USB_EXCLUSIVE_AUDIO_STATUS.md`。
 _Avoid_: 把 `AudioTrack.setPreferredDevice`、framework direct support 或现有 `UsbDirectPcm` 最小链称为 USB 独占
 
 **Applied ReplayGain（实际 ReplayGain）**：

@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-08-07
+> 最后整理：2026-08-09
 > 范围：本仓库 **Mica Android** 文档（不含 `.icey-ref/`、`.codex-push-*` 副本）。
 
 ---
@@ -51,6 +51,7 @@
 | [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md) | Exo PCM **改造计划**（**§0 摘要、§18 Gate/验收**；P1 过渡态；P2–P6） |
 | [`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md) | Exo PCM 链路**讨论记录**（背景与机制分析；结论已并入 REFACTOR） |
 | [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) | 当前音频实施范围：实际 ReplayGain 系数的事实来源、兼容契约与测试计划 |
+| [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md) | USB Host 真独占动态状态册：SK02 原型证据、格式与生命周期合同、问题、许可证边界、自动化、完成度与生产化计划 |
 | [`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md) | 远期 USB 独占采用 USB Host 独立 output adapter 的架构决策 |
 | [`adr/0002-library-snapshot-publication.md`](adr/0002-library-snapshot-publication.md) | 完整曲库 snapshot 的 generation / revision / Room 发布顺序契约 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
@@ -129,3 +130,4 @@
 | 2026-08-07 | 新增 `LIBRARY_SCAN.md`：扫描流水线、性能 (9)(10)(11) 与暂缓优化方向 |
 | 2026-08-07 | 全量文档审计：同步歌单 Room（schema v17）、播放状态所有权收拢、offload 熔断、外部队列恢复边界、歌词结构化角色；补录 `TESTING` / `SETTINGS_AUDIT_MATRIX` / `APP_UPDATE` 到索引 |
 | 2026-08-06 | 新增 `SPECTRUM_STALL_BUG.md`：VORACITY 频谱停滞根因、解耦修复与输出设备参考调研 |
+| 2026-08-09 | 新增 `USB_EXCLUSIVE_AUDIO_STATUS.md`：记录 SK02 USBFS/Media3 原型证据、长测、故障、合规边界与生产化分期 |

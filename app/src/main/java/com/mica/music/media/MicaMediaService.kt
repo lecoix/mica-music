@@ -63,6 +63,7 @@ class MicaMediaService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        activeOutputPath = UsbHostPrototypeOutput.selectedPath(this)
         val micaApp = application as MicaApp
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val libraryRepository = LibraryRepository(this)

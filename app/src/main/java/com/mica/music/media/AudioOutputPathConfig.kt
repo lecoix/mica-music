@@ -14,6 +14,8 @@ data class AudioOutputPathConfig(
     val dsdDecimationMode: DsdDecimationOutputMode = DsdDecimationOutputMode.IntPcm,
     /** Reserved for P6 USB device binding; unused while [outputMode] is [PlaybackOutputMode.SharedPcm]. */
     val usbAudioDeviceId: Int? = null,
+    /** Explicit throwaway gate; never set by [PRODUCTION]. */
+    val prototypeUsbHost: Boolean = false,
 ) {
     fun logForDiagnostics() {
         DiagnosticLog.event(
@@ -27,7 +29,10 @@ data class AudioOutputPathConfig(
      * Call at Exo stack build so misconfiguration surfaces at startup, not mid-playback.
      */
     fun requireSupportedForPlayback() {
-        require(outputMode == PlaybackOutputMode.SharedPcm) {
+        require(
+            outputMode == PlaybackOutputMode.SharedPcm ||
+                (outputMode == PlaybackOutputMode.UsbDirectPcm && prototypeUsbHost),
+        ) {
             "Output mode $outputMode is reserved (P6 USB); only SharedPcm is active today."
         }
         require(dsdDecimationMode == DsdDecimationOutputMode.IntPcm) {
