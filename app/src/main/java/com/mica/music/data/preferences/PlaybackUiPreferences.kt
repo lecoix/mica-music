@@ -11,6 +11,7 @@ import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerComponent
+import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.SongListInfoVisibility
@@ -36,6 +37,8 @@ object PlaybackUiPreferences {
     private const val KEY_CUSTOM_PLAYER_LOWER_TOP_PADDING = "custom_player_lower_top_padding"
     private const val KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING = "custom_player_lower_bottom_padding"
     private const val KEY_CUSTOM_PLAYER_LOWER_LYRICS_LINES = "custom_player_lower_lyrics_lines"
+    private const val KEY_CUSTOM_PLAYER_LOWER_OFFSETS = "custom_player_lower_offsets"
+    private const val KEY_CUSTOM_PLAYER_LOWER_FREEFORM = "custom_player_lower_freeform"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -218,6 +221,21 @@ object PlaybackUiPreferences {
             }
             ?.toMap()
             .orEmpty()
+        val elementOffsets = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_OFFSETS, null)
+            ?.split(',')
+            ?.mapNotNull { encoded ->
+                val parts = encoded.split(':', limit = 3)
+                val component = parts.getOrNull(0)?.let(PlayerLowerComponent::fromStorage)
+                val x = parts.getOrNull(1)?.toIntOrNull()
+                val y = parts.getOrNull(2)?.toIntOrNull()
+                if (component != null && x != null && y != null) {
+                    component to PlayerLowerElementOffset(x, y)
+                } else {
+                    null
+                }
+            }
+            ?.toMap()
+            .orEmpty()
         return PlayerLowerLayoutConfig(
             order = order,
             hidden = hidden,
@@ -238,6 +256,8 @@ object PlaybackUiPreferences {
                 KEY_CUSTOM_PLAYER_LOWER_LYRICS_LINES,
                 PlayerLowerLayoutConfig.DEFAULT_LYRICS_LINE_COUNT,
             ),
+            elementOffsets = elementOffsets,
+            freeformEnabled = prefs.getBoolean(KEY_CUSTOM_PLAYER_LOWER_FREEFORM, false),
         ).normalized()
     }
 
@@ -262,6 +282,13 @@ object PlaybackUiPreferences {
             .putInt(KEY_CUSTOM_PLAYER_LOWER_TOP_PADDING, normalized.topPaddingDp)
             .putInt(KEY_CUSTOM_PLAYER_LOWER_BOTTOM_PADDING, normalized.bottomPaddingDp)
             .putInt(KEY_CUSTOM_PLAYER_LOWER_LYRICS_LINES, normalized.lyricsLineCount)
+            .putString(
+                KEY_CUSTOM_PLAYER_LOWER_OFFSETS,
+                normalized.elementOffsets.entries.joinToString(",") { (component, offset) ->
+                    "${component.storageValue}:${offset.xPermille}:${offset.yPermille}"
+                },
+            )
+            .putBoolean(KEY_CUSTOM_PLAYER_LOWER_FREEFORM, normalized.freeformEnabled)
             .apply()
     }
 

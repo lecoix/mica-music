@@ -62,6 +62,7 @@ import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerComponent
+import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SleepTimerController
 import com.mica.music.data.Song
@@ -171,6 +172,8 @@ fun NowPlayingScreen(
     onOpenSongDetail: (String) -> Unit = {},
     onBrowseArtist: (String) -> Unit = {},
     onBrowseAlbum: (AlbumBrowseKey) -> Unit = {},
+    customLayoutEditRequested: Boolean = false,
+    onCustomLayoutEditRequestConsumed: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
@@ -190,6 +193,8 @@ fun NowPlayingScreen(
         onOpenSongDetail = onOpenSongDetail,
         onBrowseArtist = onBrowseArtist,
         onBrowseAlbum = onBrowseAlbum,
+        customLayoutEditRequested = customLayoutEditRequested,
+        onCustomLayoutEditRequestConsumed = onCustomLayoutEditRequestConsumed,
         contentPadding = contentPadding,
         coverContentAlpha = coverContentAlpha,
         onCoverBoundsChanged = onCoverBoundsChanged,
@@ -213,6 +218,8 @@ fun NowPlayingContent(
     onOpenSongDetail: (String) -> Unit = {},
     onBrowseArtist: (String) -> Unit = {},
     onBrowseAlbum: (AlbumBrowseKey) -> Unit = {},
+    customLayoutEditRequested: Boolean = false,
+    onCustomLayoutEditRequestConsumed: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     coverContentAlpha: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit = {},
@@ -242,6 +249,9 @@ fun NowPlayingContent(
     var playbackTuningSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by rememberSaveable { mutableStateOf(false) }
     var landscapeCoverFlowImmersive by remember { mutableStateOf(false) }
+    var customLayoutEditing by rememberSaveable { mutableStateOf(false) }
+    var customLayoutDraft by remember { mutableStateOf(uiSettings.customPlayerLowerLayout.normalized()) }
+    var customLayoutSelectedComponent by remember { mutableStateOf(PlayerLowerComponent.COVER) }
     val configuration = LocalConfiguration.current
     val isLandscapeWindow = configuration.screenWidthDp > configuration.screenHeightDp
     val queueListState = rememberSaveable(saver = LazyListState.Saver) {
@@ -254,7 +264,8 @@ fun NowPlayingContent(
         actionMenuSong != null ||
         addToPlaylistSong != null ||
         sleepTimerSheetOpen ||
-        playbackTuningSheetOpen
+        playbackTuningSheetOpen ||
+        customLayoutEditing
     val motionEnabled = rememberMicaMotionEnabled()
     val photoStackLyricsEnabled = uiSettings.playerCoverFlowMode.usesPhotoStack &&
         !isLandscapeWindow
@@ -274,6 +285,35 @@ fun NowPlayingContent(
             playbackTuningSheetOpen = false
         }
         previousLandscapeWindow = isLandscapeWindow
+    }
+
+    LaunchedEffect(uiSettings.customPlayerLowerLayout, customLayoutEditing) {
+        if (!customLayoutEditing) {
+            customLayoutDraft = uiSettings.customPlayerLowerLayout.normalized()
+        }
+    }
+
+    LaunchedEffect(isLandscapeWindow, uiSettings.playerCoverFlowMode) {
+        if (isLandscapeWindow || uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD) {
+            customLayoutEditing = false
+            customLayoutDraft = uiSettings.customPlayerLowerLayout.normalized()
+        }
+    }
+
+    LaunchedEffect(
+        customLayoutEditRequested,
+        isLandscapeWindow,
+        uiSettings.playerCoverFlowMode,
+    ) {
+        if (!customLayoutEditRequested) return@LaunchedEffect
+        if (!isLandscapeWindow && uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
+            customLayoutDraft = uiSettings.customPlayerLowerLayout
+                .copy(freeformEnabled = true)
+                .normalized()
+            customLayoutSelectedComponent = PlayerLowerComponent.COVER
+            customLayoutEditing = true
+        }
+        onCustomLayoutEditRequestConsumed()
     }
 
     LaunchedEffect(
@@ -457,9 +497,18 @@ fun NowPlayingContent(
         logBackFlow("back-consume source=now-playing-lyrics song=${song.id}")
         lyricsExpanded = false
     }
-    BackHandler(enabled = handleBackToClose && !lyricsExpanded && !landscapeCoverFlowImmersive) {
+    BackHandler(
+        enabled = handleBackToClose &&
+            !lyricsExpanded &&
+            !landscapeCoverFlowImmersive &&
+            !customLayoutEditing,
+    ) {
         logBackFlow("back-consume source=now-playing-close song=${song.id}")
         onClose()
+    }
+    BackHandler(enabled = customLayoutEditing) {
+        customLayoutEditing = false
+        customLayoutDraft = uiSettings.customPlayerLowerLayout.normalized()
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -684,7 +733,11 @@ fun NowPlayingContent(
                 !lyricsCloudAvailable &&
                 !letterLyricsAvailable &&
                 !customHorizontalClassicRequested
-            val customLayout = uiSettings.customPlayerLowerLayout.normalized()
+            val customLayout = if (customLayoutEditing) {
+                customLayoutDraft.normalized()
+            } else {
+                uiSettings.customPlayerLowerLayout.normalized()
+            }
             val customPanelHeight = (
                 fullHeight - contentPadding.calculateTopPadding() - contentPadding.calculateBottomPadding()
             ).coerceAtLeast(0.dp)
@@ -700,7 +753,11 @@ fun NowPlayingContent(
                 previewFrame.cover.copy(
                     width = previewFrame.cover.width * scale,
                     height = previewFrame.cover.height * scale,
-                    startPadding = fullWidth * (1f - scale) / 2f + previewFrame.cover.startPadding * scale,
+                    startPadding = fullWidth * (1f - scale) / 2f +
+                        previewFrame.cover.startPadding * scale +
+                        fullWidth * effectiveCustomPlayerOffset(
+                            customLayout.offsetOf(PlayerLowerComponent.COVER),
+                        ).xPermille / 1_000f,
                     topPadding = customMetrics.coverTopDp.dp + previewFrame.cover.topPadding * scale,
                     blockHeight = previewFrame.cover.blockHeight * scale,
                     zoneStop = ((customMetrics.coverTopDp + previewFrame.cover.blockHeight.value * scale) /
@@ -1687,6 +1744,33 @@ fun NowPlayingContent(
                     onNext = onPlayerNext,
                     onOpenLyrics = { lyricsExpanded = true },
                     onOpenQueue = { queueSheetOpen = true },
+                    isEditing = customLayoutEditing,
+                    selectedComponent = customLayoutSelectedComponent,
+                    onEnterEditMode = {
+                        if (!landscapeMode) {
+                            customLayoutDraft = uiSettings.customPlayerLowerLayout
+                                .copy(freeformEnabled = true)
+                                .normalized()
+                            customLayoutSelectedComponent = PlayerLowerComponent.COVER
+                            customLayoutEditing = true
+                        }
+                    },
+                    onSelectComponent = { customLayoutSelectedComponent = it },
+                    onEditConfigChange = { transform ->
+                        customLayoutDraft = transform(customLayoutDraft).normalized()
+                    },
+                    onSaveEdit = {
+                        customLayoutDraft = snapCustomPlayerLayoutOffsets(customLayoutDraft)
+                        uiSettings.updateCustomPlayerLowerLayout(customLayoutDraft)
+                        customLayoutEditing = false
+                    },
+                    onCancelEdit = {
+                        customLayoutDraft = uiSettings.customPlayerLowerLayout.normalized()
+                        customLayoutEditing = false
+                    },
+                    onResetEdit = {
+                        customLayoutDraft = PlayerLowerLayoutConfig.Default.copy(freeformEnabled = true)
+                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(contentPadding),

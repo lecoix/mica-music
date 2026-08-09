@@ -234,6 +234,12 @@ fun AppNavigationMain(
             SettingsScreen(
                 library = library,
                 uiSettings = uiSettings,
+                canOpenCustomPlayerLayoutEditor = playerController.playbackSurfaceState.currentSong != null,
+                onOpenCustomPlayerLayoutEditor = {
+                    logBackFlow("player-overlay open source=settings-custom-layout-editor")
+                    coordinator.customLayoutEditRequested = true
+                    coordinator.playerExpanded = true
+                },
                 onBack = {
                     logBackFlow("back-consume source=settings-topbar")
                     navController.popBackStack()
@@ -419,6 +425,10 @@ fun PlayerSheetOverlay(
         sleepTimer = sleepTimer,
         actions = actions,
         uiSettings = uiSettings,
+        customLayoutEditRequested = coordinator.customLayoutEditRequested,
+        onCustomLayoutEditRequestConsumed = {
+            coordinator.customLayoutEditRequested = false
+        },
         expanded = coordinator.playerExpanded,
         predictiveBackProgress = coordinator.playerBackProgress,
         onExpandedChange = {

@@ -44,7 +44,9 @@
 - `PlayerPageLayoutEngine.computeFrame()` — 单帧原子布局
 - `PlayerPageFrame` — 封面区 + 下半屏 chrome 的全部几何与 alpha
 
-`CUSTOM_STANDARD` 仅维护稳定播放态，不消费 `lyricsProgress` / `immersiveProgress` 做布局变形。其六组件顺序、`50%..200%` 大小、显隐、统一间距及顶部/底部留白只来自规范化后的 `PlayerLowerLayoutConfig`；总配置高度超过屏幕安全区域时统一收敛到屏内。封面作为普通布局项参与排序和缩放，但继续复用标准封面的点击、长按与滑动切歌链路。该主题独有的“点击封面暂停/播放”默认关闭，仅改变普通轻点。进度组件是唯一普通进度来源，因此该主题不启用封面底边进度。进入歌词云或经典歌词页均复用粒子封面歌词云的横向整页滑动：目标页先挂载，播放页整体向左退出，返回时反向滑回。
+`CUSTOM_STANDARD` 仅维护稳定播放态，不消费 `lyricsProgress` / `immersiveProgress` 做布局变形。其六组件顺序、`50%..200%` 大小、显隐、统一间距、顶部/底部留白及自由布局偏移只来自规范化后的 `PlayerLowerLayoutConfig`；总配置高度超过屏幕安全区域时统一收敛到屏内。封面作为普通布局项参与排序和缩放，但继续复用标准封面的点击、长按与滑动切歌链路。该主题独有的“点击封面暂停/播放”默认关闭，仅改变普通轻点。进度组件是唯一普通进度来源，因此该主题不启用封面底边进度。进入歌词云或经典歌词页均复用粒子封面歌词云的横向整页滑动：目标页先挂载，播放页整体向左退出，返回时反向滑回。
+
+竖屏播放页可在组件之外的空白区域长按进入自由布局编辑；设置 → 播放与界面 → 自定义标准主题中的“进入播放页布局编辑”是唯一设置入口，设置页不再提供布局预览、边界、间距、顺序、大小或显隐控制；有当前歌曲时入口直接展开播放页并发出一次性编辑请求。编辑以封面、信息行、标题、歌词、进度和控制六个现有组件为最小单位；拖动改变二维位置，双指改变大小，底部元素栏负责选择与显隐，编辑工具栏、元素选框及标签统一使用 0dp 直角。拖动的原始增量必须跨指针事件连续累计；只有显示和保存时，距离原始横轴或纵轴不超过画布对应尺寸 5‰ 的轴才吸附为零并显示辅助线，组件中心必须保持在可编辑画布内。编辑态必须覆盖并消费组件手势，禁止触发切歌、seek、歌词页、播放按钮或队列；所有连续手势只更新页面局部草稿，点击“保存”后才通过 `AppUiSettings.updateCustomPlayerLowerLayout` 持久化。取消、系统返回、旋转为横屏或切离 `CUSTOM_STANDARD` 都丢弃草稿；“恢复”只恢复草稿，仍需保存。横屏不提供自由布局编辑入口。
 
 ### 组件优先级
 
@@ -91,7 +93,7 @@
 | `player/PlayerPageLayoutEngine.kt` | 单帧布局；`PlayerLowerPanelSpacing` |
 | `player/PlayerPageState.kt` | 沉浸/歌词聚焦等动画 progress 与冻结状态 |
 | `player/PlayerPageTypes.kt` | `PlayerPageFrame` 等布局数据类型 |
-| `data/PlayerLowerLayoutConfig.kt` | 自定义下半屏顺序、大小、显隐、间距与规范化 |
+| `data/PlayerLowerLayoutConfig.kt` | 自定义播放页顺序、大小、显隐、间距、自由布局偏移与规范化 |
 | `player/view/CoverFlowCarousel*.kt` | 封面流 View 岛（[`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) §1–§12） |
 | `player/CoverGestureCoordinator.kt` | 标准封面横向轻扫 |
 | `player/ParticleCoverThemePolicy.kt` | 粒子 vs 封面流 stage 互斥、强制裁切填充 |
@@ -156,6 +158,7 @@
 - [ ] 粒子 / 拍立得：确认沉浸模式入口不可用或无效
 - [ ] 手势导航条设备：背景铺满底边，控件避让 `navigationBars`
 - [ ] 迷你栏 → 播放页共享封面（含搜索/键盘场景，见共享元素文档）
+- [ ] 自定义标准竖屏：空白长按进入编辑；六组件拖动/缩放/显隐；中心吸附线；编辑时所有播放手势无效；保存后重进仍保持；取消/返回/旋转/切主题不落盘
 
 纯布局/歌词 helper 可补 JVM 单测：`CoverFlowRailsTest`、`PlayerPageLayoutEngineTest`、`PhotoStackLyricsTransitionTest` 等。
 

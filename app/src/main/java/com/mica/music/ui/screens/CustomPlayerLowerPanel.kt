@@ -1,19 +1,44 @@
 package com.mica.music.ui.screens
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
@@ -24,6 +49,7 @@ import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.HiResBadgeAppearance
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerLowerComponent
+import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
@@ -34,8 +60,11 @@ import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
 import com.mica.music.ui.theme.CustomPlayerInfoRowHeightDp
 import com.mica.music.ui.theme.HifiSpacing
+import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.rememberLyricsContentColors
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 
 private data class CustomLyricsVisual(
     val song: Song,
@@ -72,6 +101,14 @@ internal fun CustomPlayerPagePanel(
     onNext: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenQueue: () -> Unit,
+    isEditing: Boolean = false,
+    selectedComponent: PlayerLowerComponent = PlayerLowerComponent.COVER,
+    onEnterEditMode: () -> Unit = {},
+    onSelectComponent: (PlayerLowerComponent) -> Unit = {},
+    onEditConfigChange: ((PlayerLowerLayoutConfig) -> PlayerLowerLayoutConfig) -> Unit = {},
+    onSaveEdit: () -> Unit = {},
+    onCancelEdit: () -> Unit = {},
+    onResetEdit: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val normalized = config.normalized()
@@ -84,7 +121,42 @@ internal fun CustomPlayerPagePanel(
         else -> colors
     }
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
+    val currentOnEnterEditMode = rememberUpdatedState(onEnterEditMode)
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .then(
+                if (!isEditing) {
+                    Modifier.pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Final,
+                            )
+                            if (down.isConsumed) return@awaitEachGesture
+                            val endedBeforeLongPress = withTimeoutOrNull(
+                                viewConfiguration.longPressTimeoutMillis,
+                            ) {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Final)
+                                    if (event.changes.any { it.isConsumed || !it.pressed }) return@withTimeoutOrNull true
+                                }
+                                @Suppress("UNREACHABLE_CODE")
+                                false
+                            }
+                            if (endedBeforeLongPress == null) currentOnEnterEditMode.value()
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        val density = LocalDensity.current
+        val panelWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
+        val panelHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
+        val panelHeightDp = maxHeight.value.coerceAtLeast(1f)
         val metrics = customPlayerLayoutMetrics(
             panelHeightDp = maxHeight.value,
             coverBaseHeightDp = coverBaseHeightDp,
@@ -92,21 +164,22 @@ internal fun CustomPlayerPagePanel(
             visible = visible,
         )
         val fitScale = metrics.fitScale
-        Column(Modifier.fillMaxSize()) {
-            Spacer(Modifier.height(normalized.topPaddingDp.dp * fitScale))
-            Column(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(
-                    space = normalized.spacingDp.dp * fitScale,
-                    alignment = if (hasLyrics || PlayerLowerComponent.COVER in visible) {
-                        Alignment.Top
-                    } else {
-                        Alignment.CenterVertically
-                    },
-                ),
-            ) {
+        Layout(
+            modifier = Modifier.fillMaxSize(),
+            content = {
                 visible.forEach { component ->
                     val scale = normalized.scalePercentOf(component) / 100f * fitScale
+                    val baselineCenterDp = customPlayerFreeformBaselineCenterDp(
+                        component = component,
+                        visible = visible,
+                        config = normalized,
+                        coverBaseHeightDp = coverBaseHeightDp,
+                        fitScale = fitScale,
+                    )
+                    val minYPermille = (-baselineCenterDp / panelHeightDp * 1_000f).toInt()
+                    val maxYPermille = (
+                        (panelHeightDp - baselineCenterDp) / panelHeightDp * 1_000f
+                        ).toInt()
                     val itemHeightDp = customPlayerBaseHeightDp(
                         component = component,
                         lyricsLineCount = normalized.lyricsLineCount,
@@ -214,13 +287,298 @@ internal fun CustomPlayerPagePanel(
                                 modifier = Modifier.padding(horizontal = HifiSpacing.lg),
                             )
                         }
+                        if (isEditing) {
+                            CustomPlayerElementEditTarget(
+                                component = component,
+                                selected = selectedComponent == component,
+                                onSelect = { onSelectComponent(component) },
+                                onTransform = { pan, zoom ->
+                                    onEditConfigChange { currentConfig ->
+                                        updateCustomPlayerElementTransform(
+                                            config = currentConfig,
+                                            component = component,
+                                            pan = pan,
+                                            zoom = zoom,
+                                            panelWidthPx = panelWidthPx,
+                                            panelHeightPx = panelHeightPx,
+                                            minYPermille = minYPermille,
+                                            maxYPermille = maxYPermille,
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            },
+        ) { measurables, constraints ->
+            val childConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+            val placeables = measurables.map { it.measure(childConstraints) }
+            val widthPx = constraints.maxWidth
+            val heightPx = constraints.maxHeight
+            val spacingPx = with(density) { (normalized.spacingDp.dp * fitScale).roundToPx() }
+            val topPaddingPx = with(density) { (normalized.topPaddingDp.dp * fitScale).roundToPx() }
+            val bottomPaddingPx = with(density) { (normalized.bottomPaddingDp.dp * fitScale).roundToPx() }
+            val legacyContentHeight = placeables.sumOf { it.height } +
+                spacingPx * (placeables.size - 1).coerceAtLeast(0)
+            val legacyAvailableHeight = (heightPx - topPaddingPx - bottomPaddingPx).coerceAtLeast(0)
+            val legacyStartY = topPaddingPx + if (
+                !hasLyrics && PlayerLowerComponent.COVER !in visible
+            ) {
+                ((legacyAvailableHeight - legacyContentHeight) / 2).coerceAtLeast(0)
+            } else {
+                0
+            }
+
+            layout(widthPx, heightPx) {
+                var legacyY = legacyStartY
+                visible.zip(placeables).forEach { (component, placeable) ->
+                    if (normalized.freeformEnabled) {
+                        val baselineCenterPx = with(density) {
+                            customPlayerFreeformBaselineCenterDp(
+                                component = component,
+                                visible = visible,
+                                config = normalized,
+                                coverBaseHeightDp = coverBaseHeightDp,
+                                fitScale = fitScale,
+                            ).dp.toPx()
+                        }
+                        val offset = effectiveCustomPlayerOffset(normalized.offsetOf(component))
+                        val x = offset.xPermille / 1_000f * widthPx
+                        val y = baselineCenterPx - placeable.height / 2f +
+                            offset.yPermille / 1_000f * heightPx
+                        placeable.placeRelative(x.roundToInt(), y.roundToInt())
+                    } else {
+                        placeable.placeRelative(0, legacyY)
+                        legacyY += placeable.height + spacingPx
                     }
                 }
             }
-            Spacer(Modifier.height(normalized.bottomPaddingDp.dp * fitScale))
+        }
+        if (isEditing) {
+            CustomPlayerEditChrome(
+                config = normalized,
+                selectedComponent = selectedComponent,
+                onSelectComponent = onSelectComponent,
+                onVisibilityChange = { component, visible ->
+                    onEditConfigChange { current -> current.withVisibility(component, visible) }
+                },
+                onSave = onSaveEdit,
+                onCancel = onCancelEdit,
+                onReset = onResetEdit,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }
+
+@Composable
+private fun CustomPlayerElementEditTarget(
+    component: PlayerLowerComponent,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onTransform: (Offset, Float) -> Unit,
+) {
+    val accent = MicaTheme.colors.accent
+    val currentOnSelect = rememberUpdatedState(onSelect)
+    val currentOnTransform = rememberUpdatedState(onTransform)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (selected) {
+                    Modifier
+                        .background(accent.copy(alpha = 0.08f))
+                        .border(1.dp, accent)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onSelect)
+            .pointerInput(component) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    currentOnSelect.value()
+                    currentOnTransform.value(pan, zoom)
+                }
+            },
+    ) {
+        if (selected) {
+            Text(
+                text = component.settingsLabel,
+                style = MicaTheme.typography.monoSm,
+                color = accent,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .background(MicaTheme.colors.surfaceCard.copy(alpha = 0.92f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CustomPlayerEditChrome(
+    config: PlayerLowerLayoutConfig,
+    selectedComponent: PlayerLowerComponent,
+    onSelectComponent: (PlayerLowerComponent) -> Unit,
+    onVisibilityChange: (PlayerLowerComponent, Boolean) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MicaTheme.colors
+    Box(modifier) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .background(colors.surfaceCard.copy(alpha = 0.96f))
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onCancel) {
+                Icon(Icons.Outlined.Close, contentDescription = null)
+                Text("取消")
+            }
+            TextButton(onClick = onReset) {
+                Icon(Icons.Outlined.RestartAlt, contentDescription = null)
+                Text("恢复")
+            }
+            TextButton(onClick = onSave) {
+                Icon(Icons.Outlined.Check, contentDescription = null)
+                Text("保存")
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .background(colors.surfaceCard.copy(alpha = 0.96f))
+                .padding(6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                "拖动定位 · 双指缩放 · 靠近原位中心会吸附",
+                style = MicaTheme.typography.caption,
+                color = colors.textSecondary,
+            )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PlayerLowerComponent.entries.forEach { component ->
+                    val visible = config.isVisible(component)
+                    TextButton(
+                        onClick = {
+                            onSelectComponent(component)
+                            if (!visible) onVisibilityChange(component, true)
+                        },
+                    ) {
+                        Text(
+                            component.settingsLabel,
+                            color = when {
+                                component == selectedComponent -> colors.accent
+                                visible -> colors.textPrimary
+                                else -> colors.textTertiary
+                            },
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = {
+                        onVisibilityChange(
+                            selectedComponent,
+                            !config.isVisible(selectedComponent),
+                        )
+                    },
+                ) {
+                    val visible = config.isVisible(selectedComponent)
+                    Icon(
+                        imageVector = if (visible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        contentDescription = if (visible) "隐藏所选元素" else "显示所选元素",
+                        tint = colors.accent,
+                    )
+                }
+            }
+        }
+
+        val selectedOffset = effectiveCustomPlayerOffset(config.offsetOf(selectedComponent))
+        if (selectedOffset.xPermille == 0) {
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .fillMaxHeight()
+                    .width(1.dp)
+                    .background(colors.accent.copy(alpha = 0.55f)),
+            )
+        }
+        if (selectedOffset.yPermille == 0) {
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(colors.accent.copy(alpha = 0.55f)),
+            )
+        }
+    }
+}
+
+internal fun updateCustomPlayerElementTransform(
+    config: PlayerLowerLayoutConfig,
+    component: PlayerLowerComponent,
+    pan: Offset,
+    zoom: Float,
+    panelWidthPx: Float,
+    panelHeightPx: Float,
+    minYPermille: Int = PlayerLowerElementOffset.MIN_OFFSET_PERMILLE,
+    maxYPermille: Int = PlayerLowerElementOffset.MAX_OFFSET_PERMILLE,
+): PlayerLowerLayoutConfig {
+    val currentOffset = config.offsetOf(component)
+    val x = (
+        currentOffset.xPermille +
+            (pan.x / panelWidthPx.coerceAtLeast(1f) * 1_000f).toInt()
+        ).coerceIn(-500, 500)
+    val y = (
+        currentOffset.yPermille +
+            (pan.y / panelHeightPx.coerceAtLeast(1f) * 1_000f).toInt()
+        ).coerceIn(minYPermille, maxYPermille)
+    val currentScale = config.scalePercentOf(component)
+    val scaled = kotlin.math.round(currentScale * zoom).toInt().coerceIn(
+        PlayerLowerLayoutConfig.MIN_SCALE_PERCENT,
+        PlayerLowerLayoutConfig.MAX_SCALE_PERCENT,
+    )
+    return config
+        .withElementOffset(
+            component,
+            PlayerLowerElementOffset(
+                xPermille = x,
+                yPermille = y,
+            ),
+        )
+        .withScalePercent(component, scaled)
+        .normalized()
+}
+
+internal fun effectiveCustomPlayerOffset(offset: PlayerLowerElementOffset): PlayerLowerElementOffset =
+    PlayerLowerElementOffset(
+        xPermille = snapCustomPlayerAxis(offset.xPermille),
+        yPermille = snapCustomPlayerAxis(offset.yPermille),
+    )
+
+internal fun snapCustomPlayerLayoutOffsets(config: PlayerLowerLayoutConfig): PlayerLowerLayoutConfig =
+    config.copy(
+        elementOffsets = config.elementOffsets.mapValues { (_, offset) ->
+            effectiveCustomPlayerOffset(offset)
+        },
+    ).normalized()
+
+internal fun snapCustomPlayerAxis(value: Int): Int =
+    if (kotlin.math.abs(value) <= CustomPlayerSnapThresholdPermille) 0 else value
+
+private const val CustomPlayerSnapThresholdPermille = 5
 
 internal data class CustomPlayerLayoutMetrics(
     val fitScale: Float,
@@ -239,8 +597,13 @@ internal fun customPlayerLayoutMetrics(
     }
     val normalized = config.normalized()
     val componentsHeight = visible.sumOf { component ->
-        customPlayerBaseHeightDp(component, normalized.lyricsLineCount, coverBaseHeightDp).toDouble() *
+        val componentScale = if (normalized.freeformEnabled) {
+            1.0
+        } else {
             normalized.scalePercentOf(component) / 100.0
+        }
+        customPlayerBaseHeightDp(component, normalized.lyricsLineCount, coverBaseHeightDp).toDouble() *
+            componentScale
     }.toFloat()
     val gapsHeight = normalized.spacingDp * (visible.size - 1).coerceAtLeast(0)
     val desiredHeight = componentsHeight + gapsHeight + normalized.topPaddingDp + normalized.bottomPaddingDp
@@ -252,9 +615,23 @@ internal fun customPlayerLayoutMetrics(
     var topDp = normalized.topPaddingDp * fitScale
     var coverTopDp: Float? = null
     visible.forEachIndexed { index, component ->
-        if (component == PlayerLowerComponent.COVER) coverTopDp = topDp
-        topDp += customPlayerBaseHeightDp(component, normalized.lyricsLineCount, coverBaseHeightDp) *
-            normalized.scalePercentOf(component) / 100f * fitScale
+        val baseHeight = customPlayerBaseHeightDp(
+            component,
+            normalized.lyricsLineCount,
+            coverBaseHeightDp,
+        )
+        val componentScale = normalized.scalePercentOf(component) / 100f
+        if (component == PlayerLowerComponent.COVER) {
+            coverTopDp = if (normalized.freeformEnabled) {
+                topDp + baseHeight * (1f - componentScale) * fitScale / 2f +
+                    effectiveCustomPlayerOffset(normalized.offsetOf(component)).yPermille /
+                        1_000f * panelHeightDp
+            } else {
+                topDp
+            }
+        }
+        topDp += baseHeight *
+            (if (normalized.freeformEnabled) 1f else componentScale) * fitScale
         if (index < visible.lastIndex) topDp += normalized.spacingDp * fitScale
     }
     return CustomPlayerLayoutMetrics(
@@ -262,6 +639,57 @@ internal fun customPlayerLayoutMetrics(
         coverVisualScale = normalized.scalePercentOf(PlayerLowerComponent.COVER) / 100f * fitScale,
         coverTopDp = coverTopDp,
     )
+}
+
+internal fun customPlayerFreeformFlowCompensationDp(
+    component: PlayerLowerComponent,
+    visible: List<PlayerLowerComponent>,
+    config: PlayerLowerLayoutConfig,
+    coverBaseHeightDp: Float,
+    fitScale: Float,
+): Float {
+    var baseTop = config.topPaddingDp * fitScale
+    var flowTop = baseTop
+    visible.forEachIndexed { index, current ->
+        val baseHeight = customPlayerBaseHeightDp(
+            current,
+            config.lyricsLineCount,
+            coverBaseHeightDp,
+        ) * fitScale
+        val scaledHeight = baseHeight * config.scalePercentOf(current) / 100f
+        if (current == component) {
+            return baseTop + (baseHeight - scaledHeight) / 2f - flowTop
+        }
+        baseTop += baseHeight
+        flowTop += scaledHeight
+        if (index < visible.lastIndex) {
+            val gap = config.spacingDp * fitScale
+            baseTop += gap
+            flowTop += gap
+        }
+    }
+    return 0f
+}
+
+internal fun customPlayerFreeformBaselineCenterDp(
+    component: PlayerLowerComponent,
+    visible: List<PlayerLowerComponent>,
+    config: PlayerLowerLayoutConfig,
+    coverBaseHeightDp: Float,
+    fitScale: Float,
+): Float {
+    var top = config.topPaddingDp * fitScale
+    visible.forEachIndexed { index, current ->
+        val baseHeight = customPlayerBaseHeightDp(
+            current,
+            config.lyricsLineCount,
+            coverBaseHeightDp,
+        ) * fitScale
+        if (current == component) return top + baseHeight / 2f
+        top += baseHeight
+        if (index < visible.lastIndex) top += config.spacingDp * fitScale
+    }
+    return 0f
 }
 
 internal fun customPlayerBaseHeightDp(

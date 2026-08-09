@@ -18,6 +18,22 @@ enum class PlayerLowerComponent(
     }
 }
 
+data class PlayerLowerElementOffset(
+    val xPermille: Int = 0,
+    val yPermille: Int = 0,
+) {
+    fun normalized(): PlayerLowerElementOffset = copy(
+        xPermille = xPermille.coerceIn(MIN_OFFSET_PERMILLE, MAX_OFFSET_PERMILLE),
+        yPermille = yPermille.coerceIn(MIN_OFFSET_PERMILLE, MAX_OFFSET_PERMILLE),
+    )
+
+    companion object {
+        const val MIN_OFFSET_PERMILLE = -1_000
+        const val MAX_OFFSET_PERMILLE = 1_000
+        val Zero = PlayerLowerElementOffset()
+    }
+}
+
 data class PlayerLowerLayoutConfig(
     val order: List<PlayerLowerComponent> = PlayerLowerComponent.entries,
     val hidden: Set<PlayerLowerComponent> = emptySet(),
@@ -26,6 +42,8 @@ data class PlayerLowerLayoutConfig(
     val topPaddingDp: Int = DEFAULT_BOUNDARY_PADDING_DP,
     val bottomPaddingDp: Int = DEFAULT_BOUNDARY_PADDING_DP,
     val lyricsLineCount: Int = DEFAULT_LYRICS_LINE_COUNT,
+    val elementOffsets: Map<PlayerLowerComponent, PlayerLowerElementOffset> = emptyMap(),
+    val freeformEnabled: Boolean = false,
 ) {
     fun normalized(): PlayerLowerLayoutConfig {
         val normalizedOrder = order.distinct() + PlayerLowerComponent.entries.filterNot(order::contains)
@@ -39,6 +57,10 @@ data class PlayerLowerLayoutConfig(
             topPaddingDp = topPaddingDp.coerceIn(MIN_BOUNDARY_PADDING_DP, MAX_BOUNDARY_PADDING_DP),
             bottomPaddingDp = bottomPaddingDp.coerceIn(MIN_BOUNDARY_PADDING_DP, MAX_BOUNDARY_PADDING_DP),
             lyricsLineCount = normalizeLyricsLineCount(lyricsLineCount),
+            elementOffsets = elementOffsets
+                .filterKeys(PlayerLowerComponent.entries::contains)
+                .mapValues { (_, offset) -> offset.normalized() }
+                .filterValues { it != PlayerLowerElementOffset.Zero },
         )
     }
 
@@ -57,6 +79,23 @@ data class PlayerLowerLayoutConfig(
         scalePercents = scalePercents +
             (component to percent.coerceIn(MIN_SCALE_PERCENT, MAX_SCALE_PERCENT)),
     )
+
+    fun withElementOffset(
+        component: PlayerLowerComponent,
+        offset: PlayerLowerElementOffset,
+    ): PlayerLowerLayoutConfig {
+        val normalizedOffset = offset.normalized()
+        return copy(
+            elementOffsets = if (normalizedOffset == PlayerLowerElementOffset.Zero) {
+                elementOffsets - component
+            } else {
+                elementOffsets + (component to normalizedOffset)
+            },
+        )
+    }
+
+    fun offsetOf(component: PlayerLowerComponent): PlayerLowerElementOffset =
+        elementOffsets[component] ?: PlayerLowerElementOffset.Zero
 
     fun move(component: PlayerLowerComponent, delta: Int): PlayerLowerLayoutConfig {
         val current = order.indexOf(component)

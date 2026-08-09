@@ -66,6 +66,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
     onOpenSpatialAudio: () -> Unit,
+    canOpenCustomPlayerLayoutEditor: Boolean = true,
+    onOpenCustomPlayerLayoutEditor: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
     playerOverlayOpen: Boolean = false,
@@ -322,7 +324,11 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.PLAYBACK -> {
-                        PlaybackSettingsPanel(uiSettings = uiSettings)
+                        PlaybackSettingsPanel(
+                            uiSettings = uiSettings,
+                            canOpenCustomPlayerLayoutEditor = canOpenCustomPlayerLayoutEditor,
+                            onOpenCustomPlayerLayoutEditor = onOpenCustomPlayerLayoutEditor,
+                        )
                     }
 
                     SettingsCategory.LYRICS -> {

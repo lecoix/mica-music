@@ -33,6 +33,9 @@ class AppNavigationCoordinator internal constructor(
 
     var playerBackProgress by mutableStateOf<Float?>(null)
 
+    /** 设置页发起、播放页消费的一次性自定义布局编辑请求。 */
+    var customLayoutEditRequested by mutableStateOf(false)
+
     private var navController: NavHostController? = null
 
     fun attachNavController(controller: NavHostController) {

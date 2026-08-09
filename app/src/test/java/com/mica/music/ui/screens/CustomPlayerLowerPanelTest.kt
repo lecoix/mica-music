@@ -1,6 +1,8 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.ui.geometry.Offset
 import com.mica.music.data.PlayerLowerComponent
+import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.ui.theme.CustomPlayerInfoRowHeightDp
 import org.junit.Assert.assertEquals
@@ -110,5 +112,133 @@ class CustomPlayerLowerPanelTest {
 
         assertEquals(0.5f, metrics.fitScale, 0.0001f)
         assertEquals(1f, metrics.coverVisualScale, 0.0001f)
+    }
+
+    @Test
+    fun transformStoresNormalizedOffsetAndScale() {
+        val updated = updateCustomPlayerElementTransform(
+            config = PlayerLowerLayoutConfig.Default,
+            component = PlayerLowerComponent.TITLE,
+            pan = Offset(100f, -50f),
+            zoom = 1.25f,
+            panelWidthPx = 1_000f,
+            panelHeightPx = 500f,
+        )
+
+        assertEquals(100, updated.offsetOf(PlayerLowerComponent.TITLE).xPermille)
+        assertEquals(-100, updated.offsetOf(PlayerLowerComponent.TITLE).yPermille)
+        assertEquals(125, updated.scalePercentOf(PlayerLowerComponent.TITLE))
+    }
+
+    @Test
+    fun repeatedSmallPanAccumulatesAcrossWeakenedSnapZone() {
+        var config = PlayerLowerLayoutConfig.Default
+        repeat(20) {
+            config = updateCustomPlayerElementTransform(
+                config = config,
+                component = PlayerLowerComponent.LYRICS,
+                pan = Offset(2f, 0f),
+                zoom = 1f,
+                panelWidthPx = 1_000f,
+                panelHeightPx = 1_000f,
+            )
+        }
+
+        assertEquals(40, config.offsetOf(PlayerLowerComponent.LYRICS).xPermille)
+        assertEquals(40, effectiveCustomPlayerOffset(config.offsetOf(PlayerLowerComponent.LYRICS)).xPermille)
+    }
+
+    @Test
+    fun originalPositionSnapIsFivePermille() {
+        assertEquals(0, snapCustomPlayerAxis(5))
+        assertEquals(6, snapCustomPlayerAxis(6))
+        assertEquals(0, snapCustomPlayerAxis(-5))
+        assertEquals(-6, snapCustomPlayerAxis(-6))
+    }
+
+    @Test
+    fun saveSnapOnlyClearsAxesInsideFivePermille() {
+        val config = PlayerLowerLayoutConfig.Default.copy(
+            elementOffsets = mapOf(
+                PlayerLowerComponent.TITLE to PlayerLowerElementOffset(5, -6),
+            ),
+        )
+
+        val snapped = snapCustomPlayerLayoutOffsets(config)
+
+        assertEquals(0, snapped.offsetOf(PlayerLowerComponent.TITLE).xPermille)
+        assertEquals(-6, snapped.offsetOf(PlayerLowerComponent.TITLE).yPermille)
+    }
+
+    @Test
+    fun freeformScaleKeepsFollowingComponentsOnStableBaseline() {
+        val config = PlayerLowerLayoutConfig.Default.copy(
+            freeformEnabled = true,
+            scalePercents = mapOf(PlayerLowerComponent.COVER to 150),
+        )
+        val visible = config.order.filter(config::isVisible)
+
+        val coverCompensation = customPlayerFreeformFlowCompensationDp(
+            PlayerLowerComponent.COVER,
+            visible,
+            config,
+            coverBaseHeightDp = 300f,
+            fitScale = 1f,
+        )
+        val infoCompensation = customPlayerFreeformFlowCompensationDp(
+            PlayerLowerComponent.INFO,
+            visible,
+            config,
+            coverBaseHeightDp = 300f,
+            fitScale = 1f,
+        )
+
+        assertEquals(-75f, coverCompensation, 0.0001f)
+        assertEquals(-150f, infoCompensation, 0.0001f)
+    }
+
+    @Test
+    fun transformKeepsElementCenterInsideEditableCanvas() {
+        val updated = updateCustomPlayerElementTransform(
+            config = PlayerLowerLayoutConfig.Default.copy(freeformEnabled = true),
+            component = PlayerLowerComponent.CONTROLS,
+            pan = Offset(5_000f, 5_000f),
+            zoom = 1f,
+            panelWidthPx = 1_000f,
+            panelHeightPx = 1_000f,
+            minYPermille = -850,
+            maxYPermille = 100,
+        )
+
+        assertEquals(500, updated.offsetOf(PlayerLowerComponent.CONTROLS).xPermille)
+        assertEquals(100, updated.offsetOf(PlayerLowerComponent.CONTROLS).yPermille)
+    }
+
+    @Test
+    fun freeformScaleChangesSizeWithoutMovingBaselineCenter() {
+        val base = PlayerLowerLayoutConfig.Default.copy(
+            freeformEnabled = true,
+            topPaddingDp = 10,
+        )
+        val scaled = base.withScalePercent(PlayerLowerComponent.COVER, 150)
+        val visible = base.order.filter(base::isVisible)
+
+        val baseCenter = customPlayerFreeformBaselineCenterDp(
+            PlayerLowerComponent.COVER,
+            visible,
+            base,
+            coverBaseHeightDp = 300f,
+            fitScale = 1f,
+        )
+        val scaledCenter = customPlayerFreeformBaselineCenterDp(
+            PlayerLowerComponent.COVER,
+            visible,
+            scaled,
+            coverBaseHeightDp = 300f,
+            fitScale = 1f,
+        )
+
+        assertEquals(160f, baseCenter, 0.0001f)
+        assertEquals(baseCenter, scaledCenter, 0.0001f)
     }
 }

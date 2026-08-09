@@ -33,7 +33,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
+internal fun PlaybackSettingsPanel(
+    uiSettings: AppUiSettings,
+    canOpenCustomPlayerLayoutEditor: Boolean = true,
+    onOpenCustomPlayerLayoutEditor: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val badgeImagePicker = rememberLauncherForActivityResult(
@@ -110,15 +114,21 @@ internal fun PlaybackSettingsPanel(uiSettings: AppUiSettings) {
     }
 
     if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
+        SettingsActionRow(
+            title = "进入播放页布局编辑",
+            subtitle = if (canOpenCustomPlayerLayoutEditor) {
+                "打开播放页，直接拖动、双指缩放或设置六个元素的显隐"
+            } else {
+                "请先播放一首歌曲"
+            },
+            enabled = canOpenCustomPlayerLayoutEditor,
+            onClick = onOpenCustomPlayerLayoutEditor,
+        )
         SettingsToggleRow(
             title = "点击封面暂停/播放",
             subtitle = "仅在自定义标准主题生效；不影响左右滑动切歌与长按菜单",
             checked = uiSettings.customStandardCoverTapPlayPause,
             onCheckedChange = uiSettings::updateCustomStandardCoverTapPlayPause,
-        )
-        CustomPlayerLayoutEditor(
-            config = uiSettings.customPlayerLowerLayout,
-            onChange = uiSettings::updateCustomPlayerLowerLayout,
         )
     }
 

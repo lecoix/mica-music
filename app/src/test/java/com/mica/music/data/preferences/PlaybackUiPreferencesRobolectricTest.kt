@@ -8,6 +8,7 @@ import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerComponent
+import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
@@ -164,6 +165,11 @@ class PlaybackUiPreferencesRobolectricTest {
                 topPaddingDp = 32,
                 bottomPaddingDp = 48,
                 lyricsLineCount = PlayerLowerLayoutConfig.SINGLE_LYRICS_LINE_COUNT,
+                freeformEnabled = true,
+                elementOffsets = mapOf(
+                    PlayerLowerComponent.TITLE to PlayerLowerElementOffset(125, -80),
+                    PlayerLowerComponent.COVER to PlayerLowerElementOffset(-50, 40),
+                ),
             )
 
         PlaybackUiPreferences.setCustomPlayerLowerLayout(context, config)

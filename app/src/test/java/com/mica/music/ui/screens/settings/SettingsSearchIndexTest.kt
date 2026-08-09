@@ -31,6 +31,7 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("迷你 播放").any { it.id == "appearance.mini-player-style" })
         assertTrue(SettingsSearchIndex.search("睡眠", SettingsIndexSurface.PLAYER_MENU)
             .any { it.id == "player-menu.sleep-timer" })
+        assertTrue(SettingsSearchIndex.search("布局编辑").any { it.id == "playback.custom-layout" })
     }
 
     @Test

@@ -61,4 +61,19 @@ class PlayerLowerLayoutConfigTest {
         assertEquals(false, PlayerCoverFlowMode.CUSTOM_STANDARD.supportsImmersiveLower)
         assertEquals(true, PlayerCoverFlowMode.CUSTOM_STANDARD.usesHorizontalLyricsPage)
     }
+
+    @Test
+    fun elementOffsetsAreClampedAndZeroOffsetsAreNotStored() {
+        val config = PlayerLowerLayoutConfig.Default
+            .withElementOffset(PlayerLowerComponent.TITLE, PlayerLowerElementOffset(5_000, -5_000))
+            .withElementOffset(PlayerLowerComponent.INFO, PlayerLowerElementOffset.Zero)
+            .normalized()
+
+        assertEquals(
+            PlayerLowerElementOffset(1_000, -1_000),
+            config.offsetOf(PlayerLowerComponent.TITLE),
+        )
+        assertEquals(PlayerLowerElementOffset.Zero, config.offsetOf(PlayerLowerComponent.INFO))
+        assertFalse(config.elementOffsets.containsKey(PlayerLowerComponent.INFO))
+    }
 }
