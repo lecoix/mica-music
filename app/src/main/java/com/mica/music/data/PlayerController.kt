@@ -1557,6 +1557,7 @@ class PlayerController internal constructor(
         } else if (playbackQueueMode == PlaybackQueueMode.SHUFFLE) {
             playbackQueueMode = PlaybackQueueMode.OFF
         }
+        maybePersistPlaybackSession(force = true)
         publishPlaybackStates()
     }
 

@@ -1280,7 +1280,8 @@ class PlayerControllerBoundaryTest {
     @Test
     fun shuffleModeBuildsAppPlaybackOrderWithoutEnablingMedia3Shuffle() {
         val connector = FakeConnector()
-        val controller = controller(connector = connector)
+        val storage = FakeSessionStorage()
+        val controller = controller(connector = connector, storage = storage)
         val mediaController = mockk<MediaController>(relaxed = true)
         val listener = slot<Player.Listener>()
         val queue = SongFixtures.queue(6)
@@ -1315,6 +1316,7 @@ class PlayerControllerBoundaryTest {
         verify { mediaController.shuffleModeEnabled = false }
         verify { mediaController.repeatMode = Player.REPEAT_MODE_OFF }
         assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
+        assertEquals(true, storage.saved?.shuffleEnabled)
         assertEquals(queue[2].id, controller.playbackSurfaceState.currentSong?.id)
         assertEquals(queue.map { it.id }.toSet(), controller.playbackQueueState.queue.map { it.id }.toSet())
         assertEquals(queue.size, controller.playbackQueueState.queue.distinctBy { it.id }.size)
@@ -1360,7 +1362,8 @@ class PlayerControllerBoundaryTest {
     @Test
     fun shuffleModeCanBeTurnedOffWithoutWaitingForPlayerCallback() {
         val connector = FakeConnector()
-        val controller = controller(connector = connector)
+        val storage = FakeSessionStorage()
+        val controller = controller(connector = connector, storage = storage)
         val mediaController = mockk<MediaController>(relaxed = true)
         val listener = slot<Player.Listener>()
         val queue = SongFixtures.queue(4)
@@ -1390,10 +1393,12 @@ class PlayerControllerBoundaryTest {
         listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ONE)
         controller.cyclePlaybackQueueMode()
         assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
+        assertEquals(true, storage.saved?.shuffleEnabled)
 
         controller.cyclePlaybackQueueMode()
 
         assertEquals(PlaybackQueueMode.OFF, controller.playbackSurfaceState.playbackQueueMode)
+        assertEquals(false, storage.saved?.shuffleEnabled)
         verify(atLeast = 1) { mediaController.shuffleModeEnabled = false }
         controller.release()
     }

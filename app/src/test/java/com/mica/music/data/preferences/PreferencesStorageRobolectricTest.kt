@@ -37,8 +37,15 @@ class PreferencesStorageRobolectricTest {
         assertTrue(EqCustomProfileStore.listProfiles(context).isEmpty())
         assertEquals(EqSelection.System(0), EqCustomProfileStore.getSelection(context))
 
-        PlaybackSessionStore.save(context, PlaybackSession("song", -5), sync = true)
-        assertEquals(PlaybackSession("song", 0), PlaybackSessionStore.load(context))
+        PlaybackSessionStore.save(
+            context,
+            PlaybackSession("song", -5, shuffleEnabled = true),
+            sync = true,
+        )
+        assertEquals(
+            PlaybackSession("song", 0, shuffleEnabled = true),
+            PlaybackSessionStore.load(context),
+        )
         PlaybackSessionStore.save(context, PlaybackSession("", 100), sync = true)
         assertNull(PlaybackSessionStore.load(context))
 
