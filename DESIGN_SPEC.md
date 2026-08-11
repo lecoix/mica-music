@@ -122,12 +122,13 @@
 | 设置标签 | 枚举 | 要点 |
 | --- | --- | --- |
 | 标准 | `STANDARD` | 大封面 + 横向轻扫切歌 |
+| 自定义标准 | `CUSTOM_STANDARD` | 标准封面手势 + 六组件自定义布局；竖屏可在播放页进入自由布局编辑，二维拖动/双指缩放/显隐以草稿编辑后保存；不支持下半屏沉浸 |
 | 粒子封面 | `PARTICLE_COVER` | 边缘粒子化 + 切歌分解；现网 **GLES**（`ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 回退见 `ThreeParticleCoverHost` |
-| 平行封面带 | `PAUSE_FOLD` | 七轨 View 岛封面流 |
-| 复古立体封面 | `RETRO_3D` | 透视封面流 + 倒影 |
+| 平行封面带 | `PAUSE_FOLD` | 七轨 View 岛封面流；横屏稳定态可长按标题进入封面流沉浸 |
+| 复古立体封面 | `RETRO_3D` | 透视封面流 + 倒影；横屏复用平行封面带的沉浸缩放契约 |
 | 拍立得回忆 | `PHOTO_STACK` | 拍立得叠放转场（**局部圆角**，见 §十五） |
 
-非 `STANDARD` 模式强制裁切填充；`PARTICLE_COVER` / `PHOTO_STACK` 不支持下半屏沉浸。
+`PARTICLE_COVER`、`PAUSE_FOLD`、`RETRO_3D`、`PHOTO_STACK` 强制裁切填充；`CUSTOM_STANDARD` 保留标准封面显示策略。`CUSTOM_STANDARD` / `PARTICLE_COVER` / `PHOTO_STACK` 不支持下半屏沉浸。自由布局编辑仅提供竖屏入口，详细交互与保存/取消契约见 `docs/PLAYER_PAGE_CONTRACT.md`。
 
 
 ---
@@ -974,7 +975,7 @@ fun MinimalTabRow(
 
 ## 十三、依赖（版本真相源）
 
-> **以 `gradle/libs.versions.toml` + version catalog 为准**；下列为 2026-07 快照，升级后请同步本文。
+> **以 `gradle/libs.versions.toml` + version catalog 为准**；下列为 2026-08 快照，升级后请同步本文。
 
 | 类别 | 坐标 / 插件 | 版本 |
 | --- | --- | --- |
@@ -993,7 +994,7 @@ fun MinimalTabRow(
 | Palette | `palette-ktx` | 1.0.0 |
 | BlurView | `com.github.Dimezis:BlurView` (JitPack) | 3.2.0 |
 | Reorderable | `sh.calvin.reorderable` | 2.4.3 |
-| Taglib / jAudiotagger | 元数据 | 1.0.5 / 3.0.1 |
+| Mica TagLib fork / jAudiotagger | 元数据 | vendored（基于 Kyant0 1.0.6；TagLib C++ 2.2.1）/ 3.0.1 |
 | 测试 | JUnit / Robolectric / MockK / Roborazzi | 4.13.2 / 4.13 / 1.13.13 / 1.34.0 |
 
 **平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 35`，**仅 arm64-v8a**。
@@ -1020,13 +1021,13 @@ dependencies {
 
 | 页面 / 模块 | 状态 | 说明 |
 | --- | --- | --- |
-| 设置 · 外观与主题 | ✅ | `SettingsCategory.APPEARANCE`：主题、强调色、云母背景（含 CUSTOM）、隐藏状态栏、迷你播放栏 |
-| 设置 · 播放与界面 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、沉浸、频谱、封面底边进度、通知歌词等 |
-| 设置 · 歌词 | ✅ | `LYRICS`：对齐、字号、双语、逐字/沉浸等 |
-| 设置 · 列表与信息 | ✅ | `LIST_INFO`：列表统计栏、Hi‑Fi 信息行显示 |
-| 设置 · 曲库与扫描 | ✅ | `LIBRARY`：文件夹、重扫、排除目录、最短时长（**非** spec 原「音频」分类） |
-| 设置 · 高级 | ✅ | `ADVANCED`：深度扫描、元数据调试、权限 |
-| 设置 · 音频（输出 / 独占 / Hi‑Res 直通） | ❌ | spec 原 §14 待办；**未**实现独立分类 |
+| 设置 · 外观 | ✅ | `SettingsCategory.APPEARANCE`：主题、强调色、云母背景（含 CUSTOM）、自定义壁纸、状态栏、迷你播放栏 |
+| 设置 · 播放页 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、信息行、频谱、能力相关的沉浸/封面底边进度；`CUSTOM_STANDARD` 详情提供“进入播放页布局编辑”入口 |
+| 设置 · 歌词 | ✅ | `LYRICS`：歌词主题、对齐/字号/双语/逐字、歌词优先级、通知/信息行等歌词输出 |
+| 列表 / 专辑 / 艺术家显示设置 | ✅ | 不再是 `SettingsCategory`；歌曲排序 Sheet、专辑/艺术家浏览 Sheet 等上下文入口各自持久化显示选项 |
+| 设置 · 曲库与扫描 | ✅ | `LIBRARY`：曲库文件夹、重扫、排除目录、最短时长、深度分析、艺术家分割 |
+| 设置 · 音频与设备 | ✅ | `AUDIO`：ReplayGain、音频焦点等播放/设备相关偏好 |
+| 设置 · 诊断与系统 | ✅ | `DIAGNOSTICS`：offload 状态与重试、元数据调试、系统空间音频、系统权限与应用信息 |
 | 歌单管理 | ⚠️ | 创建 / 详情 / 删除已有；**无**智能歌单条件 |
 | 专辑 / 歌手聚合 | ⚠️ | 列表 + 九宫格已有；视觉规范未单独成文 |
 | 首次启动 / 空状态 | ✅ | `EmptyState` + 文字链接 CTA |
@@ -1037,7 +1038,7 @@ dependencies {
 
 ## 十五、规范与现网实现对照
 
-> 2026-07 对照 `app/src/main/java/com/mica/music/`。  
+> 2026-08-12 对照 `app/src/main/java/com/mica/music/`。  
 > **已对齐**：不必改代码即可视为达标。**有意偏离**：产品/性能取舍，规范已更新或标注。**缺口**：规范仍有效但代码未做到。
 
 ### 15.1 已对齐
@@ -1081,7 +1082,6 @@ dependencies {
 | Hi‑Res 直通设置 | 设置项 | 无 | 低（产品未做） |
 | 进度条播放头 | 矩形 thumb | 无 | 中（seek 仍可用） |
 | 横向 100 点滑杆 C | C 方形 thumb 与窄屏断点 | 尚无独立通用组件；B 已由 `SettingsSliderRow` 实现，限制范围左、当前值右 | 中（C 代码待实现） |
-| 设置 · 音频 | 输出/独占/直通 | 无独立分类 | 产品待定 |
 | 歌词切句动效 | §九待做 | 无 `AnimatedContent` | 低 |
 | 列表→播放共享元素 | §九待做 | 无 | 中 |
 
@@ -1092,7 +1092,7 @@ dependencies {
 | 播放页背景 5 模式 | §2.7、`PlayerLowerBackgroundMode.kt` |
 | 封面行为 6 模式 | §2.7、`PlayerCoverFlowMode.kt`（含 `CUSTOM_STANDARD`） |
 | 设置 6 大类 | `SettingsScreen.kt` → `SettingsCategory` |
-| 通知歌词 | 设置 → 播放与界面 |
+| 通知歌词 | 设置 → 歌词 → 歌词输出 |
 | 粒子封面 GLES 现网 / WebView 回退 | `ParticleCoverHost`、`ThreeParticleCoverHost`（回退路径待退役） |
 | Hi‑Res 标志三种样式 | `HiResBadgeStyle.kt`、播放页设置 |
 | 深色云母每预设双端点 | `Color.kt` `*DarkStart/*DarkEnd` |
@@ -1101,5 +1101,5 @@ dependencies {
 ---
 
 **版本**：v1.3  
-**最后更新**：2026-08-03
+**最后更新**：2026-08-12
 **适用平台**：Android 8.0+（minSdk 26）/ Jetpack Compose BOM 2024.10+

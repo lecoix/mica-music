@@ -1,7 +1,7 @@
 # 设置审计矩阵
 
-> 审计日期：2026-08-07
-> 分支：`exoplayer-only`
+> 审计日期：2026-08-12
+> 基线：当前主工作树（非 USB 独占工作树）；静态追踪设置入口、持久化与运行时消费点
 > 方法：静态追踪“设置入口 → 持久化 owner/key → 运行时消费点 → 生效条件”。本文件不把编译或 JVM 测试当作真实设备、音频质量或视觉验收。
 
 ## 状态定义
@@ -47,10 +47,10 @@
 | 播放页特殊主题 | `PlaybackUiPreferences` / `player_cover_flow_mode` | `PlayerCoverFlowMode` 决定标准、粒子、折叠、复古、拍立得等页面路径 | `ACTIVE` | 作为主题选择入口；专属选项进入主题详情 |
 | 视频专辑封面 | `PlaybackUiPreferences` / `video_album_cover_enabled` | 扫描预取和播放页视频封面；播放页说明限定标准主题/特定页面条件 | `CONDITIONAL` | 仅在支持视频封面的主题下显示；需设备和文件样本验收 |
 | 点击封面暂停/播放 | `PlaybackUiPreferences` / `custom_standard_cover_tap_play_pause` | 仅 `CUSTOM_STANDARD` 生效 | `CONDITIONAL` | 留在“自定义标准主题”详情，不放公共播放页 |
-| 自定义播放页下半区布局 | `PlaybackUiPreferences` / `custom_player_lower_*` | 仅 `CUSTOM_STANDARD`；组件顺序、显隐、缩放、间距、边界和歌词行数 | `CONDITIONAL` | 保留独立编辑器入口，不展开成普通设置行 |
-| 封面底边进度 | `PlaybackUiPreferences` / `cover_edge_progress` | 标准主题只在主题色/封面模糊等背景下有效；特殊主题有自己的覆盖规则；拍立得模式强制使用 | `MISLEADING` | 建立统一 capability 判断；无效组合隐藏或显示只读说明 |
+| 自定义播放页下半区布局 | `PlaybackUiPreferences` / `custom_player_lower_*` | 仅 `CUSTOM_STANDARD`；`PlayerLowerLayoutConfig` 保存顺序、显隐、缩放、间距、边界、歌词行数以及 `freeformEnabled` / 每组件二维 offset。设置页只保留“进入播放页布局编辑”入口；竖屏播放页空白处长按也可进入编辑，连续手势先写局部草稿，保存后才持久化 | `CONDITIONAL` | 保留播放页内自由布局编辑器；横屏不提供编辑入口，不再把旧的顺序/边界/大小控制散落为普通设置行 |
+| 封面底边进度 | `PlaybackUiPreferences` / `cover_edge_progress` | `SettingsPlaybackPanel` 先按主题/背景 capability 判断；`CUSTOM_STANDARD`、拍立得及标准主题无效背景组合不显示该入口，支持的特殊主题继续使用各自覆盖规则 | `CONDITIONAL` | capability 隐藏已落地；后续只需保持主题契约与 UI 条件同步 |
 | 播放时屏幕常亮 | `PlaybackUiPreferences` / `keep_screen_on_when_playing` | 播放页打开且正在播放时生效 | `ACTIVE` | 保留 |
-| 下半屏沉浸 | `PlaybackUiPreferences` / `player_immersive_lower` | `PlayerPageState` 同时检查 `supportsImmersiveLower` | `MISLEADING` | 粒子封面、拍立得等不支持时当前 UI 仍显示但点击被拦截；应直接禁用/隐藏 |
+| 下半屏沉浸 | `PlaybackUiPreferences` / `player_immersive_lower` | 设置入口直接按 `playerCoverFlowMode.supportsImmersiveLower` 条件显示，运行时 `PlayerPageState` 继续做 capability 防线 | `CONDITIONAL` | 无效主题入口已隐藏；继续保持 UI capability 与运行时判断双重一致 |
 | 折叠歌词行数 | `PlaybackUiPreferences` / `compact_lyrics_line_mode` | 标准、粒子、折叠、复古主题有效；自定义标准和拍立得不消费该值 | `CONDITIONAL` | 跟随播放页主题详情显示 |
 | 隐藏歌名括号内容 | `PlaybackUiPreferences` / `strip_song_title_parentheses` | 播放页和歌词页共享标题显示 helper | `ACTIVE` | 保留在“标题显示”或播放页详情 |
 | 频谱条 | `PlaybackUiPreferences` / `spectrum_enabled` | 播放页进度/封面区域；部分样式仍会因频谱 tap 资格取样 | `CONDITIONAL` | 显示“可能影响渲染/功耗”；真机验收后再决定默认值 |
@@ -118,7 +118,7 @@
 | `player_info_show_duration` | `playerInfoVisibility()` 只在新 `showCurrentTime` 不存在时读取 | `LEGACY` | 保留兼容读取；新写入只写 `showCurrentTime` |
 | `immersive_player_status_bar` | `AppearancePreferences` 对旧 key 做兼容读取 | `LEGACY` | 保留读取，不再新增写入 |
 | SettingsScreen 的粒子/拍立得预览回调 | `SettingsScreen` 接收，但当前页面没有消费；路由仍存在 | `LEGACY` | 清理无用参数和导航接线；不要因此删除预览页面 |
-| 设计文档中的“设置 6 大类/LIST_INFO” | `DESIGN_SPEC.md` 与当前 `SettingsCategory` 不一致 | `LEGACY` | 后续整理设置时同步修正文档，避免继续把不存在的分类当作实现事实 |
+| 设计文档中的旧设置分类 | 2026-08-12 已同步 `DESIGN_SPEC.md`：稳定分类为 `APPEARANCE / PLAYBACK / LYRICS / LIBRARY / AUDIO / DIAGNOSTICS`，列表/专辑/艺术家显示设置保留上下文入口 | `ACTIVE` | 后续调整 `SettingsCategory` 时同时更新本矩阵与 `DESIGN_SPEC.md` |
 
 ## 当前优先级
 
@@ -132,22 +132,22 @@
 - 移除“纳入非‘音乐’标记的音频”入口；MediaStore 兼容筛选固定开启，旧 preference key 保留但不再提供用户控制。
 - 新增统一 `SettingsSearchIndex`：为设置页和上下文入口提供稳定 ID、关键词、分类、目标区段、生效条件和实验标记；设置根页已接入搜索。
 - 搜索结果当前进入对应设置分类；未改动现有 preference key、EQ/睡眠定时等独立入口。
-- 音频硬件卸载（Offload）熔断已落地：`AudioOffloadCircuitBreaker` 检测真实 offload AudioTrack 缓冲但未起播，确认回 PCM 且播放推进后按 build fingerprint 记录失败；设置高级面板展示禁用原因，用户可手动重试，系统/固件更新会给一次新尝试。
+- 音频硬件卸载（Offload）熔断已落地：`AudioOffloadCircuitBreaker` 检测真实 offload AudioTrack 缓冲但未起播，确认回 PCM 且播放推进后按 build fingerprint 记录失败；“诊断与系统”面板展示禁用原因，用户可手动重试，系统/固件更新会给一次新尝试。
 
-### P0：先修正误导性入口
+### P0：误导性入口（已完成）
 
-1. `playerImmersiveLower` 按 `supportsImmersiveLower` 隐藏或禁用。
-2. `coverEdgeProgress` 按实际生效条件显示，避免存储值和视觉效果脱节。
-3. 迷你播放栏左右动作跟随总开关折叠。
-4. 合并两个歌词字体选择入口。
-5. 清理 SettingsScreen 未使用的预览回调。
+1. `playerImmersiveLower` 已按 `supportsImmersiveLower` 条件显示，运行时仍保留 capability 防线。
+2. `coverEdgeProgress` 已按主题/背景 capability 条件显示。
+3. 迷你播放栏左右动作已跟随总开关折叠。
+4. 歌词字体重复入口已合并。
+5. SettingsScreen 未消费的预览回调已清理。
 
-### P1：按矩阵重新整理入口
+### P1：设置入口重组（已完成）
 
-1. 把“高级”拆成“扫描”“歌词来源”“音频与设备”“诊断与系统”。
-2. 把 Letter 朱印和自定义播放页布局收进主题详情。
-3. 保留歌曲排序、浏览显示、睡眠定时和 EQ 的上下文/独立入口。
-4. 只移动 UI 入口，不改现有 preference key 和运行时 owner。
+1. 稳定分类已调整为“外观 / 播放页 / 歌词 / 曲库与扫描 / 音频与设备 / 诊断与系统”。
+2. Letter 朱印进入主题详情；`CUSTOM_STANDARD` 只保留“进入播放页布局编辑”入口，实际二维编辑在竖屏播放页完成。
+3. 歌曲排序、浏览显示、睡眠定时和 EQ 保持上下文/独立入口。
+4. UI 重组未迁移既有 preference key 和运行时 owner。
 
 ### P2：为搜索准备统一索引（已完成）
 

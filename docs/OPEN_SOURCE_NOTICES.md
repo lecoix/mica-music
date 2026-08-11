@@ -4,7 +4,7 @@ Mica Music uses the following major open source components. This file is a
 release checklist seed; before a public release, include the full license text
 and copyright notice required by each dependency.
 
-Last reviewed: **2026-07**
+Last reviewed: **2026-08-12**
 
 ## Runtime Dependencies
 
@@ -20,7 +20,9 @@ Last reviewed: **2026-07**
 | Guava | Apache License 2.0 |
 | Calvin Reorderable | Apache License 2.0 |
 | BlurView 3.x (`com.github.Dimezis:BlurView`, JitPack **version-3.2.0**) | Apache License 2.0 |
-| Kyant Taglib (metadata) | Apache License 2.0 |
+| Mica vendored TagLib Android wrapper（基于 Kyant0/taglib 1.0.6，`third_party/taglib/`） | Apache License 2.0（仓库根 `third_party/taglib/LICENSE`） |
+| TagLib C++ 2.2.1（vendored 于 `third_party/taglib/src/main/cpp/taglib/`） | LGPL 2.1 或 MPL 1.1（上游同时附带 `COPYING.LGPL` / `COPYING.MPL`） |
+| utfcpp（TagLib submodule，`3rdparty/utfcpp`） | Boost Software License 1.0 |
 | jAudiotagger | LGPL 2.1 |
 | FFmpeg (linked inside `libffmpegJNI.so` for DSF / extended codec decode) | LGPL 2.1+ by default; current build script does not enable GPL or nonfree components |
 

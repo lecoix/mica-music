@@ -1,7 +1,7 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-08-07
-> 范围：本仓库 **Mica Android** 文档（不含 `.icey-ref/`、`.codex-push-*` 副本）。
+> 最后整理：2026-08-12
+> 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
 
@@ -94,15 +94,21 @@
 
 ---
 
-## 可执行规约（非 Markdown）
+## Agent / 可执行规约
 
 | 位置 | 说明 |
 |------|------|
+| [`AGENTS.md`](../AGENTS.md) | 仓库级 Agent 硬规则、Issue/Domain 文档入口、UI 前置阅读、音质同意与 10k/8GB 容量基线 |
+| [`agents/domain.md`](agents/domain.md) | `CONTEXT.md` / ADR 的消费规则与领域词汇约束 |
+| [`agents/issue-tracker.md`](agents/issue-tracker.md) | `.scratch/<feature-slug>/` issue / PRD 记录规范 |
+| [`agents/triage-labels.md`](agents/triage-labels.md) | canonical triage labels |
+| `.cursor/rules/async-shared-state-consistency.mdc` | 异步共享状态：generation/requestId、统一同步 seam、每个副作用前复验 token 与确定性交错测试 |
 | `.cursor/rules/audio-quality-consent.mdc` | **音质改动须事先说明并获明确允许**（Agent 始终生效） |
 | `CONTEXT.md` → **Audio quality consent** | 同上，领域词汇 |
 | `app/src/test/.../CoverFlowRailsTest.kt` | 封面流 `railOffset` 连续性 |
 | `app/src/test/.../PlayerPageLayoutEngineTest.kt` | 播放页布局 |
 | `gradle/libs.versions.toml` | 依赖版本真相源 |
+| [`../third_party/taglib/README-MICA.md`](../third_party/taglib/README-MICA.md) | Mica vendored TagLib fork 的扩展、依赖与构建说明 |
 
 ---
 

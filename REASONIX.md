@@ -7,7 +7,7 @@
 - **Language:** Kotlin 2.2.21 + Jetpack Compose (Material3 BOM 2024.10.00)
 - **Android SDK:** minSdk 26, targetSdk 34, compileSdk 35; **arm64-v8a only**
 - **Build:** AGP 8.7.0, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
-- **Key deps:** Media3 **1.9.0**, Jellyfin `media3-ffmpeg-decoder` **1.9.0+1**, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, reorderable 2.4.3, **BlurView 3.2.0** (JitPack), Kyant Taglib, jAudiotagger
+- **Key deps:** Media3 **1.9.0**, Jellyfin `media3-ffmpeg-decoder` **1.9.0+1**, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, reorderable 2.4.3, **BlurView 3.2.0** (JitPack), **Mica vendored TagLib fork**（基于 Kyant0 1.0.6 / TagLib C++ 2.2.1）, jAudiotagger
 - **Test:** JUnit 4, Robolectric 4.13, MockK, Roborazzi 1.34
 - **FFmpeg native** — `libffmpegJNI.so` 作为 Media3 decoder 扩展（`third_party/media3-ffmpeg-decoder`）随工程分发；无独立 FFmpeg CLI / `libmica_ffmpeg.so` 软件播放路径
 
@@ -17,7 +17,7 @@
   - `data/` — `Song`, Room（曲库 + `PlaylistStore` 歌单）, scanner, `PlayerController`, `PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator`, `PlaybackConnectionSession`, `AppUiSettings`, `PlaybackQueueMode`, `PlayerCoverFlowMode`, `PlayerLowerBackgroundMode`
   - `media/` — Exo 播放管线、`MicaMediaService`、`AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、`MicaCompositePlayer`、`ServicePlaybackStateStore`、`ServicePlaybackEngineCoordinator`、DSF、EQ（`media/eq/`）
   - `ui/components/` — `PlayerSheetHost`, `MiniPlayer`, `SongRow`, `LyricsDisplay`, …
-  - `ui/screens/` — `HomeScreen`, `NowPlayingScreen`, `SettingsScreen`, …
+  - `ui/screens/` — `HomeScreen`, `NowPlayingScreen`, `CustomPlayerLowerPanel`（`CUSTOM_STANDARD` 竖屏自由布局编辑/渲染）, `SettingsScreen`, …
   - `ui/screens/player/` — `PlayerPageLayoutEngine`、封面流 View 岛（`CoverFlowRails`）、粒子封面（现网 `ParticleCoverHost` / `ParticleCoverRenderer` GLES；`ThreeParticleCoverHost` WebView 回退）、拍立得（`PhotoStackTransitionHost`）
   - `ui/theme/` — `MicaTheme`, 云母渐变, `MicaMaterialBackdrop` (BlurView)
   - `ui/navigation/` — `AppNavigation`, `AppNavigationMain`, `PlayerSheetOverlay`, `AppNavigationCoordinator`

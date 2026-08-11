@@ -21,7 +21,7 @@ Issues 和 PRDs 以 markdown 文件存放在 `.scratch/<feature-slug>/` 下。�
 
 ### Domain docs
 
-Single-context 布局：根目录 `CONTEXT.md` + `docs/adr/`（尚未创建，skills 会在需要时懒创建）。详见 `docs/agents/domain.md`。
+Single-context 布局：根目录 `CONTEXT.md` + `docs/adr/`。`docs/adr/` 已用于保存已接受或待讨论的架构决策；处理相关领域前必须读取对应 ADR，不得假设该目录为空。详见 `docs/agents/domain.md`。
 
 ### UI 设计文档前置阅读（硬性）
 
