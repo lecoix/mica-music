@@ -1317,6 +1317,8 @@ class PlayerControllerBoundaryTest {
         verify { mediaController.repeatMode = Player.REPEAT_MODE_OFF }
         assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
         assertEquals(true, storage.saved?.shuffleEnabled)
+        assertEquals(true, storage.savedSynchronously)
+        assertEquals(queue.map { it.id }, storage.saved?.shuffleSourceIds)
         assertEquals(queue[2].id, controller.playbackSurfaceState.currentSong?.id)
         assertEquals(queue.map { it.id }.toSet(), controller.playbackQueueState.queue.map { it.id }.toSet())
         assertEquals(queue.size, controller.playbackQueueState.queue.distinctBy { it.id }.size)
@@ -1394,13 +1396,149 @@ class PlayerControllerBoundaryTest {
         controller.cyclePlaybackQueueMode()
         assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
         assertEquals(true, storage.saved?.shuffleEnabled)
+        assertEquals(true, storage.savedSynchronously)
+        assertEquals(queue.map { it.id }, storage.saved?.shuffleSourceIds)
 
         controller.cyclePlaybackQueueMode()
 
         assertEquals(PlaybackQueueMode.OFF, controller.playbackSurfaceState.playbackQueueMode)
         assertEquals(false, storage.saved?.shuffleEnabled)
+        assertTrue(storage.saved?.shuffleSourceIds.isNullOrEmpty())
+        assertEquals(queue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
         verify(atLeast = 1) { mediaController.shuffleModeEnabled = false }
         controller.release()
+    }
+
+    @Test
+    fun connectedServiceQueueRestoresShuffleModeEvenWithoutBootstrap() {
+        val sourceQueue = SongFixtures.queue(5)
+        val storage = FakeSessionStorage().apply {
+            saved = PlaybackSession(
+                songId = sourceQueue[2].id,
+                positionMs = 12_000,
+                shuffleEnabled = true,
+                shuffleSourceIds = sourceQueue.map { it.id },
+            )
+        }
+        val connector = FakeConnector()
+        val controller = controller(connector = connector, storage = storage)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(sourceQueue[2].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 2
+        every { mediaController.mediaItemCount } returns sourceQueue.size
+        every { mediaController.repeatMode } returns Player.REPEAT_MODE_OFF
+        every { mediaController.shuffleModeEnabled } returns false
+        every { mediaController.duration } returns 60_000L
+
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
+        controller.release()
+    }
+
+    @Test
+    fun serviceWinsColdStartRestoresShuffleModeWithoutChangingPersistedPlaybackOrder() {
+        val sourceQueue = SongFixtures.queue(5)
+        val playbackQueue = listOf(
+            sourceQueue[2],
+            sourceQueue[4],
+            sourceQueue[0],
+            sourceQueue[3],
+            sourceQueue[1],
+        )
+        val storage = FakeSessionStorage().apply {
+            saved = PlaybackSession(
+                songId = playbackQueue[2].id,
+                positionMs = 12_000,
+                shuffleEnabled = true,
+                shuffleSourceIds = sourceQueue.map { it.id },
+            )
+        }
+        val connector = FakeConnector()
+        val controller = controller(
+            connector = connector,
+            storage = storage,
+            songResolver = PlaybackSongResolver { id -> sourceQueue.firstOrNull { it.id == id } },
+        )
+        val mediaController = mockk<MediaController>(relaxed = true)
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(playbackQueue[2].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 2
+        every { mediaController.mediaItemCount } returns playbackQueue.size
+        every { mediaController.currentPosition } returns 12_000L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.repeatMode } returns Player.REPEAT_MODE_OFF
+        every { mediaController.shuffleModeEnabled } returns false
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(playbackQueue[firstArg()].id).build()
+        }
+
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        assertTrue(controller.bootstrapQueue { id -> sourceQueue.firstOrNull { it.id == id } })
+        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
+        assertEquals(playbackQueue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
+
+        controller.cyclePlaybackQueueMode()
+
+        assertEquals(PlaybackQueueMode.OFF, controller.playbackSurfaceState.playbackQueueMode)
+        assertEquals(sourceQueue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
+        assertEquals(false, storage.saved?.shuffleEnabled)
+        controller.release()
+    }
+
+    @Test
+    fun snapshotColdStartRestoresShufflePlaybackOrderWithoutReshuffling() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = ServicePlaybackStateStore(context)
+        val sourceQueue = SongFixtures.queue(5)
+        val playbackQueue = listOf(
+            sourceQueue[3],
+            sourceQueue[1],
+            sourceQueue[4],
+            sourceQueue[0],
+            sourceQueue[2],
+        )
+        val storage = FakeSessionStorage().apply {
+            saved = PlaybackSession(
+                songId = playbackQueue[1].id,
+                positionMs = 7_000,
+                shuffleEnabled = true,
+                shuffleSourceIds = sourceQueue.map { it.id },
+            )
+        }
+        val controller = controller(
+            storage = storage,
+            songResolver = PlaybackSongResolver { id -> sourceQueue.firstOrNull { it.id == id } },
+        )
+        store.clear(sync = true)
+        store.save(
+            ServicePlaybackSnapshot(
+                queueSongIds = playbackQueue.map { it.id },
+                currentIndex = 1,
+                positionMs = 7_000L,
+                repeatMode = Player.REPEAT_MODE_OFF,
+                shuffleEnabled = false,
+                playWhenReady = false,
+                qualityMode = AudioQualityMode.HIFI,
+            ),
+            sync = true,
+        )
+
+        try {
+            assertTrue(controller.bootstrapQueue { id -> sourceQueue.firstOrNull { it.id == id } })
+            assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
+            assertEquals(playbackQueue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
+            assertEquals(playbackQueue[1].id, controller.playbackSurfaceState.currentSong?.id)
+        } finally {
+            controller.release()
+            store.clear(sync = true)
+        }
     }
 
     @Test

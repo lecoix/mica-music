@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     override fun onStop() {
         MicaSpectrumAnalyzer.setAnalysisActive(false)
         (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(false)
+        (application as MicaApp).playerController.persistPlaybackSessionNow()
         super.onStop()
     }
 

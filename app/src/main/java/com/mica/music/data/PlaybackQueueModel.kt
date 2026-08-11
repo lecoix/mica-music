@@ -67,12 +67,20 @@ internal data class PlaybackQueueModel(
         preserveShuffleEnabled: Boolean = order.shuffleEnabled,
     ): PlaybackQueueModel {
         val safeIndex = playerIndex.coerceIn(0, (mirrored.size - 1).coerceAtLeast(0))
+        val mirroredIds = mirrored.map { it.id }
+        val sourceIds = if (preserveShuffleEnabled && order.sourceIds.isNotEmpty()) {
+            val mirroredSet = mirroredIds.toHashSet()
+            val preserved = order.sourceIds.filter { it in mirroredSet }.distinct()
+            preserved + mirroredIds.filterNot(preserved.toHashSet()::contains)
+        } else {
+            mirroredIds
+        }
         return copy(
             queue = mirrored,
             currentIndex = if (mirrored.isEmpty()) 0 else safeIndex,
             order = PlaybackOrderState(
-                sourceIds = mirrored.map { it.id },
-                playbackIds = mirrored.map { it.id },
+                sourceIds = sourceIds,
+                playbackIds = mirroredIds,
                 currentId = mirrored.getOrNull(safeIndex)?.id,
                 shuffleEnabled = preserveShuffleEnabled,
             ),

@@ -67,17 +67,23 @@ class PlaybackQueueModelTest {
     }
 
     @Test
-    fun mirrorFromPlayerBuildsLinearOrderAndPreservesShuffleFlag() {
+    fun mirrorFromPlayerPreservesShuffleSourceOrder() {
         val queue = SongFixtures.queue(3)
+        val mirroredQueue = listOf(queue[1], queue[2], queue[0])
         val model = PlaybackQueueModel(
-            order = PlaybackOrderState(shuffleEnabled = true),
+            order = PlaybackOrderState(
+                sourceIds = queue.map { it.id },
+                playbackIds = mirroredQueue.map { it.id },
+                currentId = mirroredQueue[0].id,
+                shuffleEnabled = true,
+            ),
         )
 
-        val mirrored = model.mirrorFromPlayer(queue, playerIndex = 2)
+        val mirrored = model.mirrorFromPlayer(mirroredQueue, playerIndex = 2)
 
         assertEquals(queue.map { it.id }, mirrored.order.sourceIds)
-        assertEquals(queue.map { it.id }, mirrored.order.playbackIds)
-        assertEquals(queue[2].id, mirrored.order.currentId)
+        assertEquals(mirroredQueue.map { it.id }, mirrored.order.playbackIds)
+        assertEquals(mirroredQueue[2].id, mirrored.order.currentId)
         assertEquals(true, mirrored.order.shuffleEnabled)
         assertEquals(2, mirrored.currentIndex)
     }

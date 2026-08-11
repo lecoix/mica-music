@@ -268,18 +268,57 @@ class PlayerController internal constructor(
         val now = System.currentTimeMillis()
         if (!force && now - lastSessionPersistMs < 3_000L) return
         lastSessionPersistMs = now
-        savePlaybackSession(sync = false)
+        savePlaybackSession(sync = force)
     }
 
     private fun savePlaybackSession(sync: Boolean) {
         val song = currentSong ?: return
+        val shuffleEnabled = playbackOrderState.shuffleEnabled
         sessionStorage.save(
             PlaybackSession(
                 songId = song.id,
                 positionMs = uiPositionMs(),
-                shuffleEnabled = playbackOrderState.shuffleEnabled,
+                shuffleEnabled = shuffleEnabled,
+                shuffleSourceIds = if (shuffleEnabled) playbackOrderState.sourceIds else emptyList(),
             ),
             sync = sync,
+        )
+    }
+
+    private fun restoredShuffleSourceIds(
+        session: PlaybackSession?,
+        playbackIds: List<String>,
+    ): List<String>? {
+        if (session?.shuffleEnabled != true || session.shuffleSourceIds.isEmpty()) return null
+        val playbackSet = playbackIds.toHashSet()
+        val restored = session.shuffleSourceIds
+            .filter { it in playbackSet }
+            .distinct()
+        if (restored.isEmpty()) return null
+        val restoredSet = restored.toHashSet()
+        return restored + playbackIds.filterNot(restoredSet::contains)
+    }
+
+    private fun restorePersistedShuffleStateOnConnect(c: Player) {
+        if (c.mediaItemCount <= 0) return
+        val session = sessionStorage.load() ?: return
+        if (!session.shuffleEnabled || session.shuffleSourceIds.isEmpty()) return
+
+        val playbackIds = songQueue.map { it.id }
+        val sourceIds = if (playbackIds.isEmpty()) {
+            session.shuffleSourceIds.filter { it.isNotBlank() }.distinct()
+        } else {
+            restoredShuffleSourceIds(session, playbackIds) ?: return
+        }
+        if (sourceIds.isEmpty()) return
+
+        queueCoordinator.replaceOrder(
+            PlaybackOrderState(
+                sourceIds = sourceIds,
+                playbackIds = playbackIds.ifEmpty { playbackOrderState.playbackIds },
+                currentId = c.currentMediaItem?.mediaId ?: session.songId,
+                shuffleEnabled = true,
+            ),
         )
     }
 
@@ -696,6 +735,7 @@ class PlayerController internal constructor(
             pendingSingleSongId = null
             playSongById(songId)
         }
+        restorePersistedShuffleStateOnConnect(c)
         syncPlaybackQueueModeFromPlayer(c)
         syncIndexFromPlayer(c)
         val playerTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
@@ -834,7 +874,21 @@ class PlayerController internal constructor(
     fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
         val c = controller
         if (c != null && c.mediaItemCount > 0) {
+            val session = sessionStorage.load()
             syncQueueMirrorFromPlayer(c, resolver = resolveSong)
+            val playbackIds = songQueue.map { it.id }
+            restoredShuffleSourceIds(session, playbackIds)?.let { sourceIds ->
+                queueCoordinator.replaceOrder(
+                    PlaybackOrderState(
+                        sourceIds = sourceIds,
+                        playbackIds = playbackIds,
+                        currentId = currentSong?.id,
+                        shuffleEnabled = true,
+                    ),
+                )
+                syncPlaybackQueueModeFromPlayer(c)
+                publishPlaybackStates()
+            }
             return true
         }
         val snapshot = ServicePlaybackStateStore(appCtx).load() ?: return false
@@ -847,15 +901,32 @@ class PlayerController internal constructor(
         val preserveId = snapshot.currentSongId.ifBlank {
             snapshot.queueSongIds.getOrNull(snapshot.currentIndex).orEmpty()
         }
-        queueCoordinator.replaceOrder(
-            PlaybackOrderState(
-                sourceIds = hydrated.map { it.id },
-                playbackIds = hydrated.map { it.id },
-                currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } },
-                shuffleEnabled = session?.shuffleEnabled == true,
-            ),
-        )
-        setQueue(hydrated)
+        val playbackIds = hydrated.map { it.id }
+        val restoredSourceIds = restoredShuffleSourceIds(session, playbackIds)
+        if (restoredSourceIds != null) {
+            applyPlaybackOrderState(
+                PlaybackOrderState(
+                    sourceIds = restoredSourceIds,
+                    playbackIds = playbackIds,
+                    currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } },
+                    shuffleEnabled = true,
+                ),
+                hydrated,
+            )
+            if (c == null) pendingQueue = songQueue
+            playbackQueueMode = PlaybackQueueMode.SHUFFLE
+            publishPlaybackStates()
+        } else {
+            queueCoordinator.replaceOrder(
+                PlaybackOrderState(
+                    sourceIds = playbackIds,
+                    playbackIds = playbackIds,
+                    currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } },
+                    shuffleEnabled = false,
+                ),
+            )
+            setQueue(hydrated)
+        }
         val index = songQueue.indexOfFirst { it.id == preserveId }.takeIf { it >= 0 }
             ?: snapshot.currentIndex.coerceIn(0, songQueue.lastIndex)
         queueCoordinator.replaceCurrentIndex(index)
@@ -1539,9 +1610,13 @@ class PlayerController internal constructor(
 
     private fun setAppShuffleEnabled(enabled: Boolean, c: MediaController) {
         if (songQueue.isNotEmpty() && playbackOrderState.shuffleEnabled != enabled) {
-            val order = playbackOrderState
-                .withQueue(songQueue.map { it.id }, preserveSongIdForQueue())
-                .setShuffleEnabled(enabled)
+            val order = if (enabled) {
+                playbackOrderState
+                    .withQueue(songQueue.map { it.id }, preserveSongIdForQueue())
+                    .setShuffleEnabled(true)
+            } else {
+                playbackOrderState.setShuffleEnabled(false)
+            }
             applyPlaybackOrderState(order, songQueue)
             syncQueueToService(
                 c = c,

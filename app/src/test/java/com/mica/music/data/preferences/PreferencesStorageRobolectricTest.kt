@@ -39,11 +39,21 @@ class PreferencesStorageRobolectricTest {
 
         PlaybackSessionStore.save(
             context,
-            PlaybackSession("song", -5, shuffleEnabled = true),
+            PlaybackSession(
+                "song",
+                -5,
+                shuffleEnabled = true,
+                shuffleSourceIds = listOf("song-a", "song-b", "song-c"),
+            ),
             sync = true,
         )
         assertEquals(
-            PlaybackSession("song", 0, shuffleEnabled = true),
+            PlaybackSession(
+                "song",
+                0,
+                shuffleEnabled = true,
+                shuffleSourceIds = listOf("song-a", "song-b", "song-c"),
+            ),
             PlaybackSessionStore.load(context),
         )
         PlaybackSessionStore.save(context, PlaybackSession("", 100), sync = true)
