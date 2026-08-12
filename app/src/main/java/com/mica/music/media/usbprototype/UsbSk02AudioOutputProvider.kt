@@ -31,6 +31,9 @@ import com.mica.music.media.usb.UsbPermissionState
 import com.mica.music.media.usb.UsbRuntimeHealth
 import com.mica.music.media.usb.UsbSignalPolicy
 import com.mica.music.media.usb.UsbStreamingProfileValidation
+import com.mica.music.media.usb.UsbTransportConfig
+import com.mica.music.media.usb.UsbTransportConfigBuilder
+import com.mica.music.media.usb.UsbTransportConfigResult
 import com.mica.music.util.DiagnosticLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -170,7 +173,16 @@ private object UsbSk02Media3SessionOwner {
                 is UsbFormatDecision.Rejected -> error(result.reason)
             }
             lease.ensureCurrent()
-            UsbSk02AudioOutput.open(context, config, decision, lease)
+            val transportConfig = when (
+                val result = UsbTransportConfigBuilder.build(
+                    decision = decision,
+                    busSpeed = Sk02UsbContract.capability.busSpeed,
+                )
+            ) {
+                is UsbTransportConfigResult.Ready -> result.config
+                is UsbTransportConfigResult.Rejected -> error(result.rejection.detail)
+            }
+            UsbSk02AudioOutput.open(context, config, decision, transportConfig, lease)
         }
     }
 
@@ -200,8 +212,7 @@ private class UsbSk02AudioOutput private constructor(
     private val streamingTarget: UsbInterface,
     private val sampleRate: Int,
     private val inputEncoding: Int,
-    private val usbBytesPerFrame: Int,
-    private val maxPacketBytes: Int,
+    private val transportConfig: UsbTransportConfig,
     private val originalClockHz: Int?,
     private val runtimeHandle: UsbAudioRuntimeHandle,
     private val negotiatedFormat: UsbPcmFormat,
@@ -412,9 +423,7 @@ private class UsbSk02AudioOutput private constructor(
     private fun createNative(token: UsbOutputRequestToken): Long {
         val handle = UsbSk02NativePrototype.createMedia3Stream(
             connection.fileDescriptor,
-            sampleRate,
-            usbBytesPerFrame,
-            maxPacketBytes,
+            transportConfig,
             token.value,
         )
         check(handle != 0L) { "Unable to create native SK02 Media3 stream" }
@@ -755,6 +764,7 @@ private class UsbSk02AudioOutput private constructor(
             context: Context,
             config: AudioOutputProvider.OutputConfig,
             decision: UsbFormatDecision.Accepted,
+            transportConfig: UsbTransportConfig,
             lease: UsbOutputRequestLease,
         ): UsbSk02AudioOutput {
             val profile = decision.streamingProfile
@@ -812,8 +822,7 @@ private class UsbSk02AudioOutput private constructor(
                     streamingTarget = streamingTarget,
                     sampleRate = config.sampleRate,
                     inputEncoding = config.encoding,
-                    usbBytesPerFrame = profile.subslotBytes * profile.channelCount,
-                    maxPacketBytes = profile.maxPacketBytes,
+                    transportConfig = transportConfig,
                     originalClockHz = originalClockHz,
                     runtimeHandle = UsbAudioRuntimeHandle(target.deviceId),
                     negotiatedFormat = decision.deviceFormat,

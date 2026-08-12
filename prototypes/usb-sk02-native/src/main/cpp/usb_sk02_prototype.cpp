@@ -9,14 +9,17 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <climits>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <linux/usbdevice_fs.h>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <poll.h>
 #include <string>
+#include <stdexcept>
 #include <sys/ioctl.h>
 #include <thread>
 #include <vector>
@@ -218,17 +221,54 @@ struct IsoRequest {
     bool submitted = false;
     size_t source_bytes = 0;
 
-    IsoRequest(const int packets, const int buffer_bytes, const bool is_feedback)
+    IsoRequest(
+        const int packets,
+        const int buffer_bytes,
+        const unsigned char endpoint_address,
+        const bool is_feedback)
         : storage(sizeof(usbdevfs_urb) + packets * sizeof(usbdevfs_iso_packet_desc), 0),
           buffer(buffer_bytes, 0),
           urb(reinterpret_cast<usbdevfs_urb*>(storage.data())),
           feedback(is_feedback) {
         urb->type = USBDEVFS_URB_TYPE_ISO;
-        urb->endpoint = feedback ? 0x84 : 0x03;
+        urb->endpoint = endpoint_address;
         urb->flags = USBDEVFS_URB_ISO_ASAP;
         urb->buffer = buffer.data();
         urb->buffer_length = buffer_bytes;
         urb->number_of_packets = packets;
+    }
+};
+
+struct NativeFeedbackConfig {
+    bool enabled = false;
+    unsigned char endpoint_address = 0;
+    std::uint32_t endpoint_capacity_bytes_per_service_interval = 0;
+    mica::usb::feedback::DecodeNormalizationProfile decode_profile{};
+
+    bool valid() const {
+        if (!enabled) return endpoint_address == 0;
+        return endpoint_address != 0 && (endpoint_address & 0x80U) != 0 &&
+            endpoint_capacity_bytes_per_service_interval >= decode_profile.fixed_point.byte_count &&
+            decode_profile.valid();
+    }
+};
+
+struct NativeTransportConfig {
+    std::uint64_t nominal_runtime_frame_rate_hz = 0;
+    unsigned char data_endpoint_address = 0;
+    std::uint32_t bytes_per_runtime_frame = 0;
+    std::uint32_t max_bytes_per_data_service_interval = 0;
+    mica::usb::iso::ServicePeriod data_service_period{};
+    std::uint32_t packets_per_transfer = 0;
+    std::uint32_t data_queue_depth = 0;
+    NativeFeedbackConfig feedback{};
+
+    bool valid() const {
+        return nominal_runtime_frame_rate_hz > 0 && data_endpoint_address != 0 &&
+            (data_endpoint_address & 0x80U) == 0 && bytes_per_runtime_frame > 0 &&
+            max_bytes_per_data_service_interval >= bytes_per_runtime_frame &&
+            data_service_period.valid() && packets_per_transfer > 0 && data_queue_depth > 0 &&
+            feedback.valid();
     }
 };
 
@@ -243,16 +283,16 @@ class Media3StreamSession {
 public:
     Media3StreamSession(
         const int descriptor,
-        const int rate,
-        const int frame_bytes,
-        const int packet_bytes,
+        const NativeTransportConfig transport_config,
         const long long generation)
         : fd(descriptor),
-          sample_rate_hz(rate),
-          bytes_per_frame(frame_bytes),
-          max_packet_bytes(packet_bytes),
+          transport(transport_config),
           expected_generation(generation),
-          ring(static_cast<size_t>(rate) * static_cast<size_t>(frame_bytes) * 2U, 0) {
+          ring(
+              static_cast<size_t>(transport_config.nominal_runtime_frame_rate_hz) *
+                  static_cast<size_t>(transport_config.bytes_per_runtime_frame) * 2U,
+              0) {
+        if (!transport.valid()) throw std::invalid_argument("invalid USB transport config");
         worker = std::thread(&Media3StreamSession::run, this);
     }
 
@@ -264,14 +304,14 @@ public:
     Media3StreamSession& operator=(const Media3StreamSession&) = delete;
 
     int write(const unsigned char* source, const int length) {
-        if (source == nullptr || length <= 0 || length % bytes_per_frame != 0) return 0;
+        if (source == nullptr || length <= 0 || length % transport.bytes_per_runtime_frame != 0) return 0;
         std::lock_guard<std::mutex> guard(mutex);
         if (stop_requested.load(std::memory_order_acquire) || error_code.load() != 0) return 0;
         const size_t buffered_before_write = ring_size + in_flight_source_bytes;
         const size_t writable = ring.size() - ring_size;
         const size_t aligned = std::min(
             static_cast<size_t>(length),
-            writable - writable % static_cast<size_t>(bytes_per_frame));
+            writable - writable % static_cast<size_t>(transport.bytes_per_runtime_frame));
         for (size_t index = 0; index < aligned; ++index) {
             ring[ring_tail] = source[index];
             ring_tail = (ring_tail + 1U) % ring.size();
@@ -294,12 +334,12 @@ public:
                         "minimumBufferedFrames=%zu queuedBytes=%llu completedBytes=%llu",
                         expected_generation,
                         gap_us,
-                        buffered_before_write / static_cast<size_t>(bytes_per_frame),
+                        buffered_before_write / static_cast<size_t>(transport.bytes_per_runtime_frame),
                         (ring_size + in_flight_source_bytes) /
-                            static_cast<size_t>(bytes_per_frame),
+                            static_cast<size_t>(transport.bytes_per_runtime_frame),
                         aligned,
                         minimum_buffered_source_bytes.load(std::memory_order_acquire) /
-                            static_cast<size_t>(bytes_per_frame),
+                            static_cast<size_t>(transport.bytes_per_runtime_frame),
                         queued_bytes.load(std::memory_order_acquire),
                         completed_source_bytes.load(std::memory_order_acquire));
                 }
@@ -347,22 +387,22 @@ public:
     long long completed_frames_value() const {
         return static_cast<long long>(
             completed_source_bytes.load(std::memory_order_acquire) /
-            static_cast<unsigned long long>(bytes_per_frame));
+            static_cast<unsigned long long>(transport.bytes_per_runtime_frame));
     }
 
     long long buffered_frames_value() const {
         std::lock_guard<std::mutex> guard(mutex);
         return static_cast<long long>(
-            (ring_size + in_flight_source_bytes) / static_cast<size_t>(bytes_per_frame));
+            (ring_size + in_flight_source_bytes) / static_cast<size_t>(transport.bytes_per_runtime_frame));
     }
 
     long long buffer_capacity_frames_value() const {
-        return static_cast<long long>(ring.size() / static_cast<size_t>(bytes_per_frame));
+        return static_cast<long long>(ring.size() / static_cast<size_t>(transport.bytes_per_runtime_frame));
     }
 
     long long minimum_buffered_frames_value() const {
         const auto minimum = minimum_buffered_source_bytes.load(std::memory_order_acquire);
-        return static_cast<long long>(minimum / static_cast<size_t>(bytes_per_frame));
+        return static_cast<long long>(minimum / static_cast<size_t>(transport.bytes_per_runtime_frame));
     }
 
     long long accepted_pcm_bytes_value() const {
@@ -532,7 +572,7 @@ private:
         const bool playing_when_taken = playing.load(std::memory_order_acquire);
         if (!playing_when_taken) return {0, false};
         const size_t available = std::min(requested, ring_size);
-        const size_t aligned = available - available % static_cast<size_t>(bytes_per_frame);
+        const size_t aligned = available - available % static_cast<size_t>(transport.bytes_per_runtime_frame);
         for (size_t index = 0; index < aligned; ++index) {
             target[index] = ring[ring_head];
             ring_head = (ring_head + 1U) % ring.size();
@@ -557,30 +597,46 @@ private:
     }
 
     void run() {
-        constexpr int kDataQueueDepth = static_cast<int>(sk02::iso::kDataQueueDepth);
         constexpr int kFeedbackQueueDepth = 4;
-        constexpr int kDataPackets = static_cast<int>(sk02::iso::kDataPacketsPerTransfer);
-        const unsigned long initial_feedback =
-            static_cast<unsigned long>(sample_rate_hz) * 65'536UL / 8'000UL;
+        const int data_queue_depth = static_cast<int>(transport.data_queue_depth);
+        const int data_packets = static_cast<int>(transport.packets_per_transfer);
+        const bool has_feedback = transport.feedback.enabled;
+        const auto data_request_bytes64 =
+            static_cast<std::uint64_t>(transport.packets_per_transfer) *
+            transport.max_bytes_per_data_service_interval;
+        if (data_request_bytes64 == 0 || data_request_bytes64 > static_cast<std::uint64_t>(INT_MAX)) {
+            error_code.store(EOVERFLOW, std::memory_order_release);
+            return;
+        }
+        const int data_request_bytes = static_cast<int>(data_request_bytes64);
 
         std::vector<std::unique_ptr<IsoRequest>> requests;
-        requests.reserve(kDataQueueDepth + kFeedbackQueueDepth);
-        for (int index = 0; index < kDataQueueDepth; ++index) {
+        requests.reserve(data_queue_depth + (has_feedback ? kFeedbackQueueDepth : 0));
+        for (int index = 0; index < data_queue_depth; ++index) {
             requests.push_back(std::make_unique<IsoRequest>(
-                kDataPackets,
-                kDataPackets * max_packet_bytes,
+                data_packets,
+                data_request_bytes,
+                transport.data_endpoint_address,
                 false));
         }
-        for (int index = 0; index < kFeedbackQueueDepth; ++index) {
-            auto request = std::make_unique<IsoRequest>(1, 4, true);
-            request->urb->iso_frame_desc[0].length = 4;
-            requests.push_back(std::move(request));
+        if (has_feedback) {
+            const int feedback_capacity = static_cast<int>(
+                transport.feedback.endpoint_capacity_bytes_per_service_interval);
+            for (int index = 0; index < kFeedbackQueueDepth; ++index) {
+                auto request = std::make_unique<IsoRequest>(
+                    1,
+                    feedback_capacity,
+                    transport.feedback.endpoint_address,
+                    true);
+                request->urb->iso_frame_desc[0].length = feedback_capacity;
+                requests.push_back(std::move(request));
+            }
         }
 
         {
             std::unique_lock<std::mutex> guard(mutex);
-            const size_t prebuffer = static_cast<size_t>(sample_rate_hz) *
-                static_cast<size_t>(bytes_per_frame) / 20U;
+            const size_t prebuffer = static_cast<size_t>(transport.nominal_runtime_frame_rate_hz) *
+                static_cast<size_t>(transport.bytes_per_runtime_frame) / 20U;
             condition.wait_for(guard, std::chrono::seconds(2), [&]() {
                 return stop_requested.load(std::memory_order_acquire) ||
                     !is_current() || ring_size >= prebuffer;
@@ -588,19 +644,76 @@ private:
         }
         if (stop_requested.load(std::memory_order_acquire) || !is_current()) return;
 
+        unsigned long initial_feedback = 0;
+        if (has_feedback) {
+            // Bootstrap only: explicit device feedback becomes authoritative as soon as the first
+            // valid packet arrives. A floored Q16 seed is therefore allowed here, but it is never
+            // used as the scheduling authority for no-feedback modes (which use the exact rational
+            // scheduler below). This preserves 44.1 kHz devices whose nominal frames/interval is
+            // not exactly representable in Q16.
+            std::uint64_t nominal_rate_numerator = 0;
+            std::uint64_t bootstrap_q16_numerator = 0;
+            if (!mica::usb::iso::checked_multiply_u64(
+                    transport.nominal_runtime_frame_rate_hz,
+                    transport.data_service_period.numerator,
+                    &nominal_rate_numerator) ||
+                !mica::usb::iso::checked_multiply_u64(
+                    nominal_rate_numerator,
+                    65'536ULL,
+                    &bootstrap_q16_numerator) ||
+                transport.data_service_period.denominator == 0) {
+                error_code.store(EOVERFLOW, std::memory_order_release);
+                return;
+            }
+            const auto bootstrap_q16 =
+                bootstrap_q16_numerator / transport.data_service_period.denominator;
+            if (bootstrap_q16 == 0 ||
+                bootstrap_q16 > std::numeric_limits<unsigned long>::max()) {
+                error_code.store(EINVAL, std::memory_order_release);
+                return;
+            }
+            initial_feedback = static_cast<unsigned long>(bootstrap_q16);
+        }
         unsigned long feedback = initial_feedback;
         unsigned long previous_raw_feedback = initial_feedback;
-        Sk02FeedbackRateFilter feedback_filter(initial_feedback);
+        std::optional<Sk02FeedbackRateFilter> feedback_filter;
+        std::optional<mica::usb::iso::PacketScheduler> feedback_scheduler;
+        if (has_feedback) {
+            if (transport.data_service_period.numerator == 0 ||
+                transport.data_service_period.denominator % transport.data_service_period.numerator != 0) {
+                error_code.store(EINVAL, std::memory_order_release);
+                return;
+            }
+            const auto intervals_per_second =
+                transport.data_service_period.denominator / transport.data_service_period.numerator;
+            if (intervals_per_second == 0 ||
+                intervals_per_second > std::numeric_limits<std::uint32_t>::max()) {
+                error_code.store(EOVERFLOW, std::memory_order_release);
+                return;
+            }
+            feedback_filter.emplace(initial_feedback);
+            feedback_scheduler.emplace(
+                mica::usb::iso::SchedulerConfig{
+                    static_cast<std::uint32_t>(intervals_per_second),
+                    transport.bytes_per_runtime_frame,
+                    transport.max_bytes_per_data_service_interval,
+                });
+        }
+        mica::usb::iso::ExactNominalPacketScheduler nominal_scheduler(
+            mica::usb::iso::ExactNominalSchedulerConfig{
+                transport.data_service_period,
+                transport.bytes_per_runtime_frame,
+                transport.max_bytes_per_data_service_interval,
+            },
+            transport.nominal_runtime_frame_rate_hz);
+        if (!has_feedback && !nominal_scheduler.valid()) {
+            error_code.store(EINVAL, std::memory_order_release);
+            return;
+        }
         current_feedback_q16.store(initial_feedback, std::memory_order_release);
         minimum_feedback_q16.store(initial_feedback, std::memory_order_release);
         maximum_feedback_q16.store(initial_feedback, std::memory_order_release);
         trusted_feedback_q16.store(initial_feedback, std::memory_order_release);
-        mica::usb::iso::PacketScheduler packet_scheduler(
-            mica::usb::iso::SchedulerConfig{
-                sk02::iso::kUsbIntervalsPerSecond,
-                static_cast<std::uint32_t>(bytes_per_frame),
-                static_cast<std::uint32_t>(max_packet_bytes),
-            });
         long long last_data_completion_ns = 0;
         long long previous_data_completion_gap_us = 0;
         long long max_data_completion_gap_us = 0;
@@ -612,19 +725,32 @@ private:
         Sk02PcmContinuityMetrics pcm_metrics;
         const auto fill_data = [&](IsoRequest& request) {
             int total = 0;
-            std::array<std::uint32_t, kDataPackets> scheduled_frames{};
-            for (int packet = 0; packet < kDataPackets; ++packet) {
-                const auto schedule = packet_scheduler.next(feedback);
-                if (!schedule.valid) {
-                    error_code.store(EOVERFLOW, std::memory_order_release);
-                    return false;
+            std::vector<std::uint32_t> scheduled_frames(static_cast<size_t>(data_packets), 0);
+            for (int packet = 0; packet < data_packets; ++packet) {
+                unsigned int bytes = 0;
+                std::uint32_t frames = 0;
+                if (has_feedback) {
+                    const auto schedule = feedback_scheduler->next(feedback);
+                    if (!schedule.valid || schedule.capacity_limited) {
+                        error_code.store(EOVERFLOW, std::memory_order_release);
+                        return false;
+                    }
+                    bytes = schedule.scheduled_bytes;
+                    frames = schedule.scheduled_frames;
+                } else {
+                    const auto schedule = nominal_scheduler.next();
+                    if (!schedule.valid || schedule.capacity_limited) {
+                        error_code.store(EOVERFLOW, std::memory_order_release);
+                        return false;
+                    }
+                    bytes = schedule.scheduled_bytes;
+                    frames = schedule.scheduled_runtime_frames;
                 }
-                const unsigned int bytes = schedule.scheduled_bytes;
                 request.urb->iso_frame_desc[packet].length = bytes;
                 request.urb->iso_frame_desc[packet].actual_length = 0;
                 request.urb->iso_frame_desc[packet].status = 0;
                 total += static_cast<int>(bytes);
-                scheduled_frames[packet] = schedule.scheduled_frames;
+                scheduled_frames[packet] = frames;
             }
             request.urb->buffer_length = total;
             request.urb->status = 0;
@@ -636,7 +762,7 @@ private:
                 schedule_metrics.observe_request(
                     scheduled_frames.data(),
                     scheduled_frames.size(),
-                    static_cast<std::uint32_t>(sample_rate_hz));
+                    static_cast<std::uint32_t>(transport.nominal_runtime_frame_rate_hz));
                 scheduled_packet_count.store(
                     schedule_metrics.total_packets,
                     std::memory_order_release);
@@ -666,7 +792,7 @@ private:
                 pcm_metrics.observe_request(
                     request.buffer.data(),
                     request.source_bytes,
-                    bytes_per_frame);
+                    transport.bytes_per_runtime_frame);
                 observed_pcm_frames.store(pcm_metrics.observed_frames, std::memory_order_release);
                 zero_pcm_frame_count.store(pcm_metrics.zero_frame_count, std::memory_order_release);
                 max_consecutive_zero_pcm_frames.store(
@@ -814,34 +940,30 @@ private:
                     mica::usb::feedback::decode_and_normalize_unsigned_le(
                         completed->buffer.data(),
                         static_cast<std::size_t>(packet.actual_length),
-                        sk02::feedback::kProfile) :
+                        transport.feedback.decode_profile) :
                     mica::usb::feedback::NormalizedFeedbackRate{};
                 const auto normalized_q16 =
                     mica::usb::feedback::to_fixed_point_exact(normalized, 16);
-                if (normalized_q16.valid) {
-                    const auto value64 = normalized_q16.value;
-                    if (value64 >= 1ULL * 65'536ULL && value64 <= 64ULL * 65'536ULL) {
-                        const auto value = static_cast<unsigned long>(value64);
-                        current_feedback_q16.store(value, std::memory_order_release);
-                        update_min(minimum_feedback_q16, value);
-                        update_max(maximum_feedback_q16, value);
-                        const unsigned long step = value >= previous_raw_feedback ?
-                            value - previous_raw_feedback : previous_raw_feedback - value;
-                        previous_raw_feedback = value;
-                        update_max(maximum_feedback_step_q16, step);
-                        const unsigned long trusted = feedback_filter.ingest(value);
-                        if (trusted != value) {
-                            feedback_filter_intervention_count.fetch_add(
-                                1,
-                                std::memory_order_acq_rel);
-                        }
-                        // The estimator is counterfactual diagnostics only. The listening A/B did
-                        // not remove the stutter, so raw device feedback remains authoritative.
-                        feedback = value;
-                        trusted_feedback_q16.store(trusted, std::memory_order_release);
-                    } else {
-                        invalid_feedback_packet_count.fetch_add(1, std::memory_order_acq_rel);
+                if (normalized_q16.valid && normalized_q16.value > 0 &&
+                    normalized_q16.value <= std::numeric_limits<unsigned long>::max()) {
+                    const auto value = static_cast<unsigned long>(normalized_q16.value);
+                    current_feedback_q16.store(value, std::memory_order_release);
+                    update_min(minimum_feedback_q16, value);
+                    update_max(maximum_feedback_q16, value);
+                    const unsigned long step = value >= previous_raw_feedback ?
+                        value - previous_raw_feedback : previous_raw_feedback - value;
+                    previous_raw_feedback = value;
+                    update_max(maximum_feedback_step_q16, step);
+                    const unsigned long trusted = feedback_filter->ingest(value);
+                    if (trusted != value) {
+                        feedback_filter_intervention_count.fetch_add(
+                            1,
+                            std::memory_order_acq_rel);
                     }
+                    // The estimator is counterfactual diagnostics only. Raw normalized device
+                    // feedback remains authoritative for the explicit-feedback scheduler.
+                    feedback = value;
+                    trusted_feedback_q16.store(trusted, std::memory_order_release);
                 } else {
                     invalid_feedback_packet_count.fetch_add(1, std::memory_order_acq_rel);
                 }
@@ -858,7 +980,7 @@ private:
                     update_max(this->max_data_completion_gap_us, max_data_completion_gap_us);
                 }
                 last_data_completion_ns = completed_ns;
-                for (int packet = 0; packet < kDataPackets; ++packet) {
+                for (int packet = 0; packet < data_packets; ++packet) {
                     if (completed->urb->iso_frame_desc[packet].status != 0) {
                         data_packet_error_count.fetch_add(1, std::memory_order_acq_rel);
                     }
@@ -895,9 +1017,7 @@ private:
     }
 
     const int fd;
-    const int sample_rate_hz;
-    const int bytes_per_frame;
-    const int max_packet_bytes;
+    const NativeTransportConfig transport;
     const long long expected_generation;
     mutable std::mutex mutex;
     std::condition_variable condition;
@@ -973,10 +1093,11 @@ std::string run_pcm16_queue(
         requests.push_back(std::make_unique<IsoRequest>(
             kDataPackets,
             kDataPackets * max_packet_bytes,
+            0x03,
             false));
     }
     for (int index = 0; index < kFeedbackQueueDepth; ++index) {
-        auto request = std::make_unique<IsoRequest>(1, 4, true);
+        auto request = std::make_unique<IsoRequest>(1, 4, 0x84, true);
         request->urb->iso_frame_desc[0].length = 4;
         requests.push_back(std::move(request));
     }
@@ -1327,24 +1448,99 @@ Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_runPcm24Queue(
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_createMedia3Stream(
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_createMedia3StreamNative(
     JNIEnv* /* env */,
     jobject /* this */,
     jint fd,
-    jint sample_rate_hz,
-    jint bytes_per_frame,
-    jint max_packet_bytes,
+    jlong nominal_runtime_frame_rate_hz,
+    jint data_endpoint_address,
+    jint bytes_per_runtime_frame,
+    jint data_max_bytes_per_service_interval,
+    jlong data_service_period_numerator,
+    jlong data_service_period_denominator,
+    jint packets_per_transfer,
+    jint data_queue_depth,
+    jint feedback_endpoint_address,
+    jint feedback_endpoint_capacity_bytes_per_service_interval,
+    jint feedback_expected_payload_bytes,
+    jint feedback_fractional_bits,
+    jint feedback_raw_time_unit,
+    jlong feedback_raw_to_data_scale_numerator,
+    jlong feedback_raw_to_data_scale_denominator,
+    jlong feedback_poll_period_numerator,
+    jlong feedback_poll_period_denominator,
+    jlong feedback_required_zero_mask,
     jlong generation) {
-    if (fd < 0 || sample_rate_hz <= 0 || bytes_per_frame <= 0 || max_packet_bytes <= 0 ||
-        generation <= 0) {
+    if (fd < 0 || nominal_runtime_frame_rate_hz <= 0 ||
+        data_endpoint_address <= 0 || data_endpoint_address > 0xff ||
+        bytes_per_runtime_frame <= 0 || data_max_bytes_per_service_interval <= 0 ||
+        data_service_period_numerator <= 0 || data_service_period_denominator <= 0 ||
+        packets_per_transfer <= 0 || data_queue_depth <= 0 || generation <= 0) {
         return 0;
     }
+
+    NativeTransportConfig config{};
+    config.nominal_runtime_frame_rate_hz =
+        static_cast<std::uint64_t>(nominal_runtime_frame_rate_hz);
+    config.data_endpoint_address = static_cast<unsigned char>(data_endpoint_address);
+    config.bytes_per_runtime_frame = static_cast<std::uint32_t>(bytes_per_runtime_frame);
+    config.max_bytes_per_data_service_interval =
+        static_cast<std::uint32_t>(data_max_bytes_per_service_interval);
+    config.data_service_period = {
+        static_cast<std::uint64_t>(data_service_period_numerator),
+        static_cast<std::uint64_t>(data_service_period_denominator),
+    };
+    config.packets_per_transfer = static_cast<std::uint32_t>(packets_per_transfer);
+    config.data_queue_depth = static_cast<std::uint32_t>(data_queue_depth);
+
+    if (feedback_endpoint_address == 0) {
+        if (feedback_endpoint_capacity_bytes_per_service_interval != 0 ||
+            feedback_expected_payload_bytes != 0 || feedback_fractional_bits != 0 ||
+            feedback_raw_time_unit != -1 || feedback_raw_to_data_scale_numerator != 0 ||
+            feedback_raw_to_data_scale_denominator != 0 || feedback_poll_period_numerator != 0 ||
+            feedback_poll_period_denominator != 0 || feedback_required_zero_mask != 0) {
+            return 0;
+        }
+    } else {
+        if (feedback_endpoint_address < 0 || feedback_endpoint_address > 0xff ||
+            feedback_endpoint_capacity_bytes_per_service_interval <= 0 ||
+            feedback_expected_payload_bytes <= 0 || feedback_expected_payload_bytes > 8 ||
+            feedback_fractional_bits <= 0 || feedback_fractional_bits >= 64 ||
+            (feedback_raw_time_unit != 0 && feedback_raw_time_unit != 1) ||
+            feedback_raw_to_data_scale_numerator <= 0 ||
+            feedback_raw_to_data_scale_denominator <= 0 ||
+            feedback_poll_period_numerator <= 0 || feedback_poll_period_denominator <= 0 ||
+            feedback_required_zero_mask < 0) {
+            return 0;
+        }
+        config.feedback.enabled = true;
+        config.feedback.endpoint_address = static_cast<unsigned char>(feedback_endpoint_address);
+        config.feedback.endpoint_capacity_bytes_per_service_interval =
+            static_cast<std::uint32_t>(feedback_endpoint_capacity_bytes_per_service_interval);
+        config.feedback.decode_profile.fixed_point = {
+            static_cast<std::uint8_t>(feedback_expected_payload_bytes),
+            static_cast<std::uint8_t>(feedback_fractional_bits),
+        };
+        config.feedback.decode_profile.raw_time_unit = feedback_raw_time_unit == 0 ?
+            mica::usb::feedback::RawTimeUnit::FramesPerBusFrame :
+            mica::usb::feedback::RawTimeUnit::FramesPerMicroframe;
+        config.feedback.decode_profile.raw_to_data_interval_numerator =
+            static_cast<std::uint64_t>(feedback_raw_to_data_scale_numerator);
+        config.feedback.decode_profile.raw_to_data_interval_denominator =
+            static_cast<std::uint64_t>(feedback_raw_to_data_scale_denominator);
+        config.feedback.decode_profile.feedback_poll_period = {
+            static_cast<std::uint64_t>(feedback_poll_period_numerator),
+            static_cast<std::uint64_t>(feedback_poll_period_denominator),
+        };
+        config.feedback.decode_profile.required_zero_mask =
+            static_cast<std::uint64_t>(feedback_required_zero_mask);
+    }
+
+    if (!config.valid()) return 0;
     try {
         auto* session = new Media3StreamSession(
             fd,
-            sample_rate_hz,
-            bytes_per_frame,
-            max_packet_bytes,
+            config,
             static_cast<long long>(generation));
         return reinterpret_cast<jlong>(session);
     } catch (...) {
