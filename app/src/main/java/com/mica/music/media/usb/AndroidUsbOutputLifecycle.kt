@@ -80,12 +80,77 @@ internal object UsbOutputDeviceLifecycle {
         (value xor (value ushr Int.SIZE_BITS)).toInt()
 }
 
+internal sealed interface UsbOutputLifecycleEvent {
+    data class Attached(val runtimeHandle: UsbAudioRuntimeHandle, val generation: Long) : UsbOutputLifecycleEvent
+    data class Detached(val runtimeHandle: UsbAudioRuntimeHandle, val generation: Long) : UsbOutputLifecycleEvent
+    data class Permission(
+        val runtimeHandle: UsbAudioRuntimeHandle,
+        val generation: Long,
+        val granted: Boolean,
+    ) : UsbOutputLifecycleEvent
+}
+
+/** Process-local event seam; playback policy remains owned by the media service. */
+internal object UsbOutputLifecycleRuntime {
+    private val listener = java.util.concurrent.atomic.AtomicReference<((UsbOutputLifecycleEvent) -> Unit)?>(null)
+    private val recovery = UsbLifecycleRecoveryCoordinator()
+
+    fun install(onEvent: (UsbOutputLifecycleEvent) -> Unit) {
+        listener.set(onEvent)
+    }
+
+    fun clear() {
+        listener.set(null)
+    }
+
+    fun dispatch(event: UsbOutputLifecycleEvent) {
+        listener.get()?.invoke(event)
+    }
+
+    fun beginDetach(runtimeHandle: UsbAudioRuntimeHandle): UsbLifecycleToken = recovery.beginDetach(runtimeHandle)
+
+    fun beginAttach(runtimeHandle: UsbAudioRuntimeHandle): UsbLifecycleToken = recovery.beginAttach(runtimeHandle)
+
+    fun bindPermissionRequest(token: UsbLifecycleToken, permissionGeneration: Long): Boolean =
+        recovery.bindPermissionRequest(token, permissionGeneration)
+
+    fun rejectPermission(runtimeHandle: UsbAudioRuntimeHandle, permissionGeneration: Long): Boolean =
+        recovery.rejectPermission(runtimeHandle, permissionGeneration)
+
+    fun rememberInterruptedPlayback(
+        token: UsbLifecycleToken,
+        resumePlaybackRequested: Boolean,
+        reason: String,
+    ): Boolean = recovery.rememberInterruptedPlayback(token, resumePlaybackRequested, reason)
+
+    fun hasInterruptedPlayback(token: UsbLifecycleToken): Boolean =
+        recovery.hasInterruptedPlayback(token)
+
+    fun isCurrent(token: UsbLifecycleToken): Boolean = recovery.isCurrent(token)
+
+    fun clearIfCurrent(token: UsbLifecycleToken): Boolean = recovery.clearIfCurrent(token)
+
+    fun publishIfCurrent(token: UsbLifecycleToken, effect: () -> Unit): Boolean =
+        recovery.publishIfCurrent(token, effect)
+
+    fun clearRecovery() = recovery.clear()
+
+    fun hasInterruptedUsbIntent(): Boolean = recovery.hasInterruptedUsbIntent
+
+    fun publishGrantedPermission(
+        runtimeHandle: UsbAudioRuntimeHandle,
+        permissionGeneration: Long,
+        effect: (UsbInterruptedPlaybackIntent) -> Boolean,
+    ): Boolean = recovery.publishGrantedPermission(runtimeHandle, permissionGeneration, effect)
+}
+
 /** Manifest receiver for Android permission results and physical detach events. */
 class UsbOutputLifecycleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             permissionAction(context) -> handlePermissionResult(intent)
             UsbManager.ACTION_USB_DEVICE_DETACHED -> handleDetach(intent)
+            UsbManager.ACTION_USB_DEVICE_ATTACHED -> handleAttach(intent)
         }
     }
 
@@ -102,6 +167,11 @@ class UsbOutputLifecycleReceiver : BroadcastReceiver() {
                 runtimeHandle,
                 intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false),
             )
+        if (accepted) {
+            UsbOutputLifecycleRuntime.dispatch(
+                UsbOutputLifecycleEvent.Permission(runtimeHandle, generation, intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)),
+            )
+        }
         DiagnosticLog.event(
             "UsbOutputLifecycle",
             "permissionResult accepted=$accepted generation=$generation " +
@@ -111,12 +181,33 @@ class UsbOutputLifecycleReceiver : BroadcastReceiver() {
 
     private fun handleDetach(intent: Intent) {
         val device = intent.usbDeviceExtra() ?: return
-        val released = UsbOutputRuntime.owner.deviceDetached(
-            UsbAudioRuntimeHandle(device.deviceId),
+        if (!isSk02(device)) return
+        val runtimeHandle = UsbAudioRuntimeHandle(device.deviceId)
+        val disposition = UsbOutputRuntime.owner.deviceDetached(runtimeHandle)
+        if (disposition == UsbDeviceDetachDisposition.STALE_RUNTIME) {
+            DiagnosticLog.event(
+                "UsbOutputLifecycle",
+                "detached ignored=stale-runtime runtimeDeviceId=${device.deviceId}",
+            )
+            return
+        }
+        val lifecycleToken = UsbOutputLifecycleRuntime.beginDetach(runtimeHandle)
+        UsbOutputLifecycleRuntime.dispatch(
+            UsbOutputLifecycleEvent.Detached(runtimeHandle, lifecycleToken.generation),
         )
         DiagnosticLog.event(
             "UsbOutputLifecycle",
-            "detached released=$released runtimeDeviceId=${device.deviceId}",
+            "detached disposition=$disposition runtimeDeviceId=${device.deviceId}",
+        )
+    }
+
+    private fun handleAttach(intent: Intent) {
+        val device = intent.usbDeviceExtra() ?: return
+        if (!isSk02(device)) return
+        val runtimeHandle = UsbAudioRuntimeHandle(device.deviceId)
+        val lifecycleToken = UsbOutputLifecycleRuntime.beginAttach(runtimeHandle)
+        UsbOutputLifecycleRuntime.dispatch(
+            UsbOutputLifecycleEvent.Attached(runtimeHandle, lifecycleToken.generation),
         )
     }
 

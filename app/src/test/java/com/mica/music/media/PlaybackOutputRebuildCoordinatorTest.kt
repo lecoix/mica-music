@@ -81,9 +81,67 @@ class PlaybackOutputRebuildCoordinatorTest {
     }
 
     @Test
-    fun `new generation cannot split an in-progress publication side effect`() {
-        val publicationStarted = CountDownLatch(1)
-        val finishPublication = CountDownLatch(1)
+    fun `candidate cannot activate until current output release completes`() {
+        val releaseStarted = CountDownLatch(1)
+        val finishRelease = CountDownLatch(1)
+        val effects = mutableListOf<String>()
+        val coordinator = PlaybackOutputRebuildCoordinator<String, IntentSnapshot, String>(
+            capture = { IntentSnapshot("song-3", 91_234L, playWhenReady = true) },
+            buildCandidate = { target, _ -> "candidate-$target" },
+            stageCandidate = { _, _, candidate -> effects += "stage-$candidate" },
+            retirePublished = { target, _ ->
+                effects += "retire-$target-start"
+                releaseStarted.countDown()
+                assertTrue(finishRelease.await(5, TimeUnit.SECONDS))
+                effects += "retire-$target-complete"
+            },
+            publishCandidate = { _, _, candidate -> effects += "activate-$candidate" },
+            releaseCandidate = { candidate, reason -> effects += "release-$candidate:$reason" },
+        )
+
+        val rebuild = thread { coordinator.rebuild("shared") }
+        assertTrue(releaseStarted.await(5, TimeUnit.SECONDS))
+        assertEquals(
+            listOf("stage-candidate-shared", "retire-shared-start"),
+            effects,
+        )
+
+        finishRelease.countDown()
+        rebuild.join(5_000L)
+
+        assertEquals(
+            listOf(
+                "stage-candidate-shared",
+                "retire-shared-start",
+                "retire-shared-complete",
+                "activate-candidate-shared",
+            ),
+            effects,
+        )
+    }
+
+    @Test
+    fun `snapshot transform supplies interrupted playback intent to publication`() {
+        var published: IntentSnapshot? = null
+        val coordinator = PlaybackOutputRebuildCoordinator<String, IntentSnapshot, String>(
+            capture = { IntentSnapshot("song-3", 91_234L, playWhenReady = false) },
+            buildCandidate = { _, _ -> "candidate" },
+            publishCandidate = { _, snapshot, _ -> published = snapshot },
+            releaseCandidate = { _, _ -> },
+        )
+
+        val result = coordinator.rebuild("usb") { snapshot ->
+            snapshot.copy(playWhenReady = true)
+        }
+
+        assertEquals(PlaybackOutputRebuildResult.Published(1L), result)
+        assertEquals(true, published?.playWhenReady)
+    }
+
+    @Test
+    fun `new generation cannot overtake an in-progress output retirement`() {
+        val retirementStarted = CountDownLatch(1)
+        val finishRetirement = CountDownLatch(1)
         val secondGenerationPublished = CountDownLatch(1)
         val effects = mutableListOf<String>()
         val coordinator = PlaybackOutputRebuildCoordinator<String, IntentSnapshot, String>(
@@ -92,28 +150,39 @@ class PlaybackOutputRebuildCoordinatorTest {
             },
             capture = { IntentSnapshot("song", 1L, playWhenReady = true) },
             buildCandidate = { target, _ -> target },
-            publishCandidate = { target, _, _ ->
-                effects += "$target-before"
+            retirePublished = { target, _ ->
+                effects += "$target-retire-before"
                 if (target == "first") {
-                    publicationStarted.countDown()
-                    assertTrue(finishPublication.await(5, TimeUnit.SECONDS))
+                    retirementStarted.countDown()
+                    assertTrue(finishRetirement.await(5, TimeUnit.SECONDS))
                 }
-                effects += "$target-after"
+                effects += "$target-retire-after"
             },
+            publishCandidate = { target, _, _ -> effects += "$target-publish" },
             releaseCandidate = { _, _ -> Unit },
         )
 
         val first = thread { coordinator.rebuild("first") }
-        assertTrue(publicationStarted.await(5, TimeUnit.SECONDS))
+        assertTrue(retirementStarted.await(5, TimeUnit.SECONDS))
         val second = thread { coordinator.rebuild("second") }
         assertTrue(!secondGenerationPublished.await(100, TimeUnit.MILLISECONDS))
 
-        finishPublication.countDown()
+        finishRetirement.countDown()
         first.join(5_000L)
         second.join(5_000L)
 
         assertTrue(secondGenerationPublished.await(5, TimeUnit.SECONDS))
-        assertEquals(listOf("first-before", "first-after", "second-before", "second-after"), effects)
+        assertEquals(
+            listOf(
+                "first-retire-before",
+                "first-retire-after",
+                "first-publish",
+                "second-retire-before",
+                "second-retire-after",
+                "second-publish",
+            ),
+            effects,
+        )
     }
 
     private data class IntentSnapshot(

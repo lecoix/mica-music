@@ -28,6 +28,7 @@ import com.mica.music.media.usb.UsbOutputSession
 import com.mica.music.media.usb.UsbPcmEncoding
 import com.mica.music.media.usb.UsbPcmFormat
 import com.mica.music.media.usb.UsbPermissionState
+import com.mica.music.media.usb.UsbRuntimeHealth
 import com.mica.music.media.usb.UsbSignalPolicy
 import com.mica.music.media.usb.UsbStreamingProfileValidation
 import com.mica.music.util.DiagnosticLog
@@ -55,6 +56,7 @@ private const val USB_START_PREFILL_MILLIS = 20L
  * buffers that are provably exact signed PCM32, and no AudioTrack fallback while selected.
  */
 @UnstableApi
+/** SK02-only production provider. Availability is build-time; user intent remains default-off. */
 class UsbSk02AudioOutputProvider(context: Context) : AudioOutputProvider {
     private val appContext = context.applicationContext
     private val listeners = CopyOnWriteArraySet<AudioOutputProvider.Listener>()
@@ -217,6 +219,7 @@ private class UsbSk02AudioOutput private constructor(
     private var resumeRequestedAtNs = 0L
     private var firstWriteLoggedForResume = true
     private var lastAppliedConsuming = false
+    private var nextHealthSampleAtMs = 0L
     private var floatScratch = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
 
     override val activeFacts: PlaybackOutputFacts
@@ -296,6 +299,7 @@ private class UsbSk02AudioOutput private constructor(
         if (writtenInputBytes > 0) applyPlayingState(lease)
         reportUnderrunIfChanged(lease)
         checkNativeError(lease)
+        maybePublishRuntimeHealth(lease)
         !buffer.hasRemaining()
     } ?: throw AudioOutput.WriteException(ERROR_RELEASED, true)
 
@@ -362,6 +366,7 @@ private class UsbSk02AudioOutput private constructor(
         }
         generation = lease.token
         nativeHandle = lease.io { createNative(lease.token) }
+        nextHealthSampleAtMs = 0L
     }
 
     override fun release(lease: UsbOutputCleanupLease, reason: String) {
@@ -538,6 +543,197 @@ private class UsbSk02AudioOutput private constructor(
         if (error != 0) throw AudioOutput.WriteException(error, true)
     }
 
+    private fun maybePublishRuntimeHealth(lease: UsbOutputRequestLease) {
+        val sampledAtMs = SystemClock.elapsedRealtime()
+        if (sampledAtMs < nextHealthSampleAtMs || nativeHandle == 0L) return
+        val completedFrames = lease.io {
+            UsbSk02NativePrototype.getMedia3CompletedFrames(nativeHandle)
+        }
+        val bufferedFrames = lease.io {
+            UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
+        }
+        val bufferCapacityFrames = lease.io {
+            UsbSk02NativePrototype.getMedia3BufferCapacityFrames(nativeHandle)
+        }
+        val minimumBufferedFrames = lease.io {
+            UsbSk02NativePrototype.getMedia3MinimumBufferedFrames(nativeHandle)
+        }
+        val acceptedPcmBytes = lease.io {
+            UsbSk02NativePrototype.getMedia3AcceptedPcmBytes(nativeHandle)
+        }
+        val previousSuccessfulWriteGapUs = lease.io {
+            UsbSk02NativePrototype.getMedia3PreviousSuccessfulWriteGapUs(nativeHandle)
+        }
+        val maximumSuccessfulWriteGapUs = lease.io {
+            UsbSk02NativePrototype.getMedia3MaximumSuccessfulWriteGapUs(nativeHandle)
+        }
+        val previousDataCompletionGapUs = lease.io {
+            UsbSk02NativePrototype.getMedia3PreviousDataCompletionGapUs(nativeHandle)
+        }
+        val maximumDataCompletionGapUs = lease.io {
+            UsbSk02NativePrototype.getMedia3MaximumDataCompletionGapUs(nativeHandle)
+        }
+        val previousFeedbackCompletionGapUs = lease.io {
+            UsbSk02NativePrototype.getMedia3PreviousFeedbackCompletionGapUs(nativeHandle)
+        }
+        val maximumFeedbackCompletionGapUs = lease.io {
+            UsbSk02NativePrototype.getMedia3MaximumFeedbackCompletionGapUs(nativeHandle)
+        }
+        val totalPollTimeouts = lease.io {
+            UsbSk02NativePrototype.getMedia3TotalPollTimeouts(nativeHandle)
+        }
+        val maximumConsecutivePollTimeouts = lease.io {
+            UsbSk02NativePrototype.getMedia3MaximumConsecutivePollTimeouts(nativeHandle)
+        }
+        val invalidFeedbackPacketCount = lease.io {
+            UsbSk02NativePrototype.getMedia3InvalidFeedbackPacketCount(nativeHandle)
+        }
+        val dataPacketErrorCount = lease.io {
+            UsbSk02NativePrototype.getMedia3DataPacketErrorCount(nativeHandle)
+        }
+        val currentFeedbackQ16 = lease.io {
+            UsbSk02NativePrototype.getMedia3CurrentFeedbackQ16(nativeHandle)
+        }
+        val minimumFeedbackQ16 = lease.io {
+            UsbSk02NativePrototype.getMedia3MinimumFeedbackQ16(nativeHandle)
+        }
+        val maximumFeedbackQ16 = lease.io {
+            UsbSk02NativePrototype.getMedia3MaximumFeedbackQ16(nativeHandle)
+        }
+        val maximumFeedbackStepQ16 = lease.io {
+            UsbSk02NativePrototype.getMedia3MaximumFeedbackStepQ16(nativeHandle)
+        }
+        val trustedFeedbackQ16 = lease.io {
+            UsbSk02NativePrototype.getMedia3TrustedFeedbackQ16(nativeHandle)
+        }
+        val feedbackFilterInterventionCount = lease.io {
+            UsbSk02NativePrototype.getMedia3FeedbackFilterInterventionCount(nativeHandle)
+        }
+        val diagnosticMetrics = lease.io {
+            UsbSk02NativePrototype.getMedia3DiagnosticMetrics(nativeHandle)
+        }
+        fun diagnostic(index: Int): Long = diagnosticMetrics.getOrElse(index) { 0L }
+        val scheduledPacketCount = diagnostic(0)
+        val scheduledFrameCount = diagnostic(1)
+        val outOfNominalRequestCount = diagnostic(2)
+        val maximumConsecutiveOutOfNominalRequests = diagnostic(3)
+        val minimumFramesPerPacket = diagnostic(4)
+        val maximumFramesPerPacket = diagnostic(5)
+        val maximumPacketFrameStep = diagnostic(6)
+        val scheduleDeviationFrames = diagnostic(7)
+        val observedPcmFrames = diagnostic(8)
+        val zeroPcmFrameCount = diagnostic(9)
+        val maximumConsecutiveZeroPcmFrames = diagnostic(10)
+        val repeatedPcmFrameCount = diagnostic(11)
+        val maximumConsecutiveRepeatedPcmFrames = diagnostic(12)
+        val duplicatePcmRequestCount = diagnostic(13)
+        val maximumConsecutiveDuplicatePcmRequests = diagnostic(14)
+        val maximumAdjacentSampleDelta = diagnostic(15)
+        val maximumRequestBoundarySampleDelta = diagnostic(16)
+        val underrunBytes = lease.io {
+            UsbSk02NativePrototype.getMedia3UnderrunBytes(nativeHandle)
+        }
+        val errorCode = lease.io {
+            UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle)
+        }
+        lease.ensureCurrent()
+        val published = UsbOutputRuntime.owner.publishRuntimeHealth(
+            session = this,
+            lease = lease,
+            health = UsbRuntimeHealth(
+                sampledAtElapsedRealtimeMs = sampledAtMs,
+                completedFrames = completedFrames,
+                bufferedFrames = bufferedFrames,
+                underrunBytes = underrunBytes,
+                transportErrorCode = errorCode,
+                playbackRequested = requestedPlaying,
+                sourceConsumptionActive = lastAppliedConsuming,
+                bufferCapacityFrames = bufferCapacityFrames,
+                minimumBufferedFrames = minimumBufferedFrames,
+                acceptedPcmBytes = acceptedPcmBytes,
+                previousSuccessfulWriteGapUs = previousSuccessfulWriteGapUs,
+                maximumSuccessfulWriteGapUs = maximumSuccessfulWriteGapUs,
+                previousDataCompletionGapUs = previousDataCompletionGapUs,
+                maximumDataCompletionGapUs = maximumDataCompletionGapUs,
+                previousFeedbackCompletionGapUs = previousFeedbackCompletionGapUs,
+                maximumFeedbackCompletionGapUs = maximumFeedbackCompletionGapUs,
+                totalPollTimeouts = totalPollTimeouts,
+                maximumConsecutivePollTimeouts = maximumConsecutivePollTimeouts,
+                invalidFeedbackPacketCount = invalidFeedbackPacketCount,
+                dataPacketErrorCount = dataPacketErrorCount,
+                currentFeedbackQ16 = currentFeedbackQ16,
+                minimumFeedbackQ16 = minimumFeedbackQ16,
+                maximumFeedbackQ16 = maximumFeedbackQ16,
+                maximumFeedbackStepQ16 = maximumFeedbackStepQ16,
+                trustedFeedbackQ16 = trustedFeedbackQ16,
+                feedbackFilterInterventionCount = feedbackFilterInterventionCount,
+                scheduledPacketCount = scheduledPacketCount,
+                scheduledFrameCount = scheduledFrameCount,
+                outOfNominalRequestCount = outOfNominalRequestCount,
+                maximumConsecutiveOutOfNominalRequests =
+                    maximumConsecutiveOutOfNominalRequests,
+                minimumFramesPerPacket = minimumFramesPerPacket,
+                maximumFramesPerPacket = maximumFramesPerPacket,
+                maximumPacketFrameStep = maximumPacketFrameStep,
+                scheduleDeviationFrames = scheduleDeviationFrames,
+                observedPcmFrames = observedPcmFrames,
+                zeroPcmFrameCount = zeroPcmFrameCount,
+                maximumConsecutiveZeroPcmFrames = maximumConsecutiveZeroPcmFrames,
+                repeatedPcmFrameCount = repeatedPcmFrameCount,
+                maximumConsecutiveRepeatedPcmFrames = maximumConsecutiveRepeatedPcmFrames,
+                duplicatePcmRequestCount = duplicatePcmRequestCount,
+                maximumConsecutiveDuplicatePcmRequests =
+                    maximumConsecutiveDuplicatePcmRequests,
+                maximumAdjacentSampleDelta = maximumAdjacentSampleDelta,
+                maximumRequestBoundarySampleDelta = maximumRequestBoundarySampleDelta,
+            ),
+        )
+        if (published) {
+            DiagnosticLog.event(
+                "UsbPcmQueueHealth",
+                "generation=${lease.token.value} sampledAtMs=$sampledAtMs " +
+                    "levelFrames=$bufferedFrames capacityFrames=$bufferCapacityFrames " +
+                    "minimumFrames=$minimumBufferedFrames acceptedPcmBytes=$acceptedPcmBytes " +
+                    "completedFrames=$completedFrames " +
+                    "previousWriteGapUs=$previousSuccessfulWriteGapUs " +
+                    "maximumWriteGapUs=$maximumSuccessfulWriteGapUs " +
+                    "previousDataCompletionGapUs=$previousDataCompletionGapUs " +
+                    "maximumDataCompletionGapUs=$maximumDataCompletionGapUs " +
+                    "previousFeedbackCompletionGapUs=$previousFeedbackCompletionGapUs " +
+                    "maximumFeedbackCompletionGapUs=$maximumFeedbackCompletionGapUs " +
+                    "totalPollTimeouts=$totalPollTimeouts " +
+                    "maximumConsecutivePollTimeouts=$maximumConsecutivePollTimeouts " +
+                    "invalidFeedbackPacketCount=$invalidFeedbackPacketCount " +
+                    "dataPacketErrorCount=$dataPacketErrorCount " +
+                    "feedbackQ16=$currentFeedbackQ16 " +
+                    "minimumFeedbackQ16=$minimumFeedbackQ16 " +
+                    "maximumFeedbackQ16=$maximumFeedbackQ16 " +
+                    "maximumFeedbackStepQ16=$maximumFeedbackStepQ16 " +
+                    "trustedFeedbackQ16=$trustedFeedbackQ16 " +
+                    "feedbackFilterInterventionCount=$feedbackFilterInterventionCount " +
+                    "scheduledPackets=$scheduledPacketCount scheduledFrames=$scheduledFrameCount " +
+                    "outOfNominalRequests=$outOfNominalRequestCount " +
+                    "maxConsecutiveOutOfNominalRequests=" +
+                    "$maximumConsecutiveOutOfNominalRequests " +
+                    "packetFramesMin=$minimumFramesPerPacket " +
+                    "packetFramesMax=$maximumFramesPerPacket " +
+                    "packetFrameMaxStep=$maximumPacketFrameStep " +
+                    "scheduleDeviationFrames=$scheduleDeviationFrames " +
+                    "observedPcmFrames=$observedPcmFrames zeroPcmFrames=$zeroPcmFrameCount " +
+                    "maxZeroPcmRun=$maximumConsecutiveZeroPcmFrames " +
+                    "repeatedPcmFrames=$repeatedPcmFrameCount " +
+                    "maxRepeatedPcmRun=$maximumConsecutiveRepeatedPcmFrames " +
+                    "duplicatePcmRequests=$duplicatePcmRequestCount " +
+                    "maxDuplicatePcmRequests=$maximumConsecutiveDuplicatePcmRequests " +
+                    "maxAdjacentSampleDelta=$maximumAdjacentSampleDelta " +
+                    "maxRequestBoundarySampleDelta=$maximumRequestBoundarySampleDelta " +
+                    "underrunBytes=$underrunBytes transportErrorCode=$errorCode " +
+                    "playbackRequested=$requestedPlaying consuming=$lastAppliedConsuming",
+            )
+            nextHealthSampleAtMs = sampledAtMs + HEALTH_SAMPLE_INTERVAL_MS
+        }
+    }
+
     companion object {
         private const val CONTROL_TIMEOUT_MS = 1_000
         private const val USB_CLASS_INTERFACE_IN = 0xa1
@@ -553,6 +749,7 @@ private class UsbSk02AudioOutput private constructor(
         private const val ERROR_RELEASED = 10_001
         private const val ERROR_UNSUPPORTED_ENCODING = 10_002
         private const val ERROR_NON_EXACT_PCM24 = 10_003
+        private const val HEALTH_SAMPLE_INTERVAL_MS = 1_000L
 
         fun open(
             context: Context,

@@ -23,15 +23,19 @@ import androidx.media3.session.SessionResult
 import com.mica.music.media.DebugPlaybackControl
 import com.mica.music.media.DebugPlaybackControlRuntime
 import com.mica.music.media.MicaMediaService
-import com.mica.music.media.UsbHostPrototypeOutput
+import com.mica.music.media.UsbHostOutputPreferences
 import com.mica.music.media.UsbOutputRebuildRuntime
 import com.mica.music.media.UsbOutputRebuildSessionCommand
+import com.mica.music.media.UsbRecoveryDebugCommand
+import com.mica.music.media.UsbRecoveryDebugRuntime
+import com.mica.music.media.UsbRecoveryFailureInjectionRuntime
 import com.mica.music.media.usb.Sk02UsbContract
 import com.mica.music.media.usb.UsbOutputDeviceLifecycle
 import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputRequestLease
 import com.mica.music.media.usb.UsbOutputRequestToken
 import com.mica.music.media.usb.UsbOutputRuntime
+import com.mica.music.media.usb.UsbRecoveryTrigger
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.io.ByteArrayOutputStream
@@ -76,9 +80,13 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         val media3SeekNearEndAction = "${context.packageName}.debug.USB_SK02_MEDIA3_SEEK_NEAR_END"
         val media3RepeatOneAction = "${context.packageName}.debug.USB_SK02_MEDIA3_REPEAT_ONE"
         val media3RepeatOffAction = "${context.packageName}.debug.USB_SK02_MEDIA3_REPEAT_OFF"
+        val media3RecoverAction = "${context.packageName}.debug.USB_SK02_MEDIA3_RECOVER"
+        val media3InjectRecoveryFailuresAction =
+            "${context.packageName}.debug.USB_SK02_MEDIA3_INJECT_RECOVERY_FAILURES"
         val media3RebuildResultAction = UsbOutputRebuildSessionCommand.resultAction(
             context.packageName,
         )
+        val media3RecoveryResultAction = UsbRecoveryDebugCommand.resultAction(context.packageName)
         val permissionAction = "${context.packageName}.debug.USB_SK02_PERMISSION"
         val retiredRawTransportActions = setOf(
             claimProbeAction,
@@ -285,6 +293,46 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
             media3SeekNearEndAction -> runMedia3Control(Media3Control.SEEK_NEAR_END)
             media3RepeatOneAction -> runMedia3Control(Media3Control.REPEAT_ONE)
             media3RepeatOffAction -> runMedia3Control(Media3Control.REPEAT_OFF)
+            media3RecoverAction -> {
+                val trigger = runCatching {
+                    UsbRecoveryTrigger.valueOf(
+                        intent.getStringExtra(UsbRecoveryDebugCommand.EXTRA_TRIGGER)
+                            ?: UsbRecoveryTrigger.STALLED_PROGRESS.name,
+                    )
+                }.getOrDefault(UsbRecoveryTrigger.STALLED_PROGRESS)
+                if (UsbRecoveryDebugRuntime.request(trigger)) {
+                    state("media3RecoveryRequest=accepted trigger=$trigger")
+                } else {
+                    state("media3RecoveryRequest=rejected error=service_not_active")
+                }
+            }
+            media3InjectRecoveryFailuresAction -> {
+                val failures = intent.getIntExtra("failures", 3)
+                val trigger = runCatching {
+                    UsbRecoveryTrigger.valueOf(
+                        intent.getStringExtra(UsbRecoveryDebugCommand.EXTRA_TRIGGER)
+                            ?: UsbRecoveryTrigger.TRANSPORT_ERROR.name,
+                    )
+                }.getOrDefault(UsbRecoveryTrigger.TRANSPORT_ERROR)
+                val generation = runCatching {
+                    UsbRecoveryFailureInjectionRuntime.arm(failures)
+                }.getOrElse { error ->
+                    state(
+                        "media3RecoveryInjection=rejected failures=$failures " +
+                            "error=${error.javaClass.simpleName}:${error.message}",
+                    )
+                    return
+                }
+                if (UsbRecoveryDebugRuntime.request(trigger)) {
+                    state(
+                        "media3RecoveryInjection=accepted generation=$generation " +
+                            "failures=$failures trigger=$trigger",
+                    )
+                } else {
+                    UsbRecoveryFailureInjectionRuntime.clear()
+                    state("media3RecoveryInjection=rejected error=service_not_active")
+                }
+            }
             media3RebuildResultAction -> {
                 val enabled = intent.getBooleanExtra(
                     UsbOutputRebuildSessionCommand.EXTRA_REQUESTED_ENABLED,
@@ -304,6 +352,17 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                         "resultCode=$resultCode generation=$generation",
                 )
             }
+            media3RecoveryResultAction -> state(
+                "media3Recovery=${intent.getStringExtra(UsbRecoveryDebugCommand.EXTRA_RESULT)} " +
+                    "trigger=${intent.getStringExtra(UsbRecoveryDebugCommand.EXTRA_TRIGGER)} " +
+                    "actionId=${intent.getLongExtra(
+                        UsbRecoveryDebugCommand.EXTRA_ACTION_ID,
+                        -1L,
+                    )} attempt=${intent.getIntExtra(
+                        UsbRecoveryDebugCommand.EXTRA_ATTEMPT,
+                        0,
+                    )}",
+            )
             permissionAction -> {
                 val device = intent.usbDeviceExtra()
                 val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
@@ -342,8 +401,8 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
                 return
             }
         }
-        val previousEnabled = UsbHostPrototypeOutput.isEnabled(context)
-        UsbHostPrototypeOutput.setEnabled(context, enabled)
+        val previousEnabled = UsbHostOutputPreferences.isEnabled(context)
+        UsbHostOutputPreferences.setEnabled(context, enabled)
         if (gateOnly) {
             state(
                 "media3Prototype=${if (enabled) "enabled" else "disabled"} " +
@@ -352,7 +411,7 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
             return
         }
         if (!UsbOutputRebuildRuntime.request(enabled, previousEnabled)) {
-            UsbHostPrototypeOutput.setEnabled(context, previousEnabled)
+            UsbHostOutputPreferences.setEnabled(context, previousEnabled)
             state("media3Prototype=rebuild_failed enabled=$enabled error=service_not_active")
             return
         }
@@ -1557,46 +1616,6 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         const val MEDIA_CODEC_TIMEOUT_US = 10_000L
         const val MEDIA_DECODE_PROBE_TIMEOUT_NANOS = 10_000_000_000L
     }
-}
-
-internal object UsbSk02NativePrototype {
-    init {
-        System.loadLibrary("usb_sk02_prototype")
-    }
-
-    external fun queryInterfaceDriver(fd: Int, interfaceNumber: Int): String
-    external fun connectKernelDriver(fd: Int, interfaceNumber: Int): Int
-    external fun reconnectKernelDrivers(fd: Int): Int
-    external fun readFeedbackOnce(fd: Int): String
-    external fun writeSilentPcm16Once(fd: Int): String
-    external fun runSilentPcm16Queue(fd: Int, durationMs: Int): String
-    external fun publishGeneration(generation: Long)
-    external fun runSilentPcm16QueueGeneration(fd: Int, durationMs: Int, generation: Long): String
-    external fun runPcm16Queue(fd: Int, durationMs: Int, pcm: ByteArray): String
-    external fun runPcm24Queue(fd: Int, durationMs: Int, pcm: ByteArray, sampleRateHz: Int): String
-    external fun createMedia3Stream(
-        fd: Int,
-        sampleRateHz: Int,
-        bytesPerFrame: Int,
-        maxPacketBytes: Int,
-        generation: Long,
-    ): Long
-    external fun writeMedia3Stream(
-        handle: Long,
-        buffer: ByteBuffer,
-        offset: Int,
-        length: Int,
-    ): Int
-    external fun setMedia3StreamPlaying(handle: Long, playing: Boolean)
-    external fun getMedia3CompletedFrames(handle: Long): Long
-    external fun getMedia3BufferedFrames(handle: Long): Long
-    external fun getMedia3UnderrunBytes(handle: Long): Long
-    external fun getMedia3ErrorCode(handle: Long): Int
-    external fun destroyMedia3Stream(handle: Long)
-}
-
-internal object UsbPrototypeGenerationOwner {
-    val gate = UsbOutputRuntime.owner
 }
 
 private object DescriptorProbe {

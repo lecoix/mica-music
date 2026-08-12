@@ -199,7 +199,7 @@
 - [ ] **P2：Android Auto / 车机 MediaSession 验收**：补充真实车机或 Android Auto DHU 的连接、元数据、播放控制与重连验证。
 - [ ] **P2：OEM 车机兼容性验收**：覆盖不同厂商车机/系统控制器的媒体按键、元数据、封面与进程重启行为。
 - [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变
-- [ ] **USB Host 真独占 production path**：单 SK02 原型已收口；P1 production contract、正式 owner、typed request/output adapter、真机 exact-only 协商/topology 校验与并发回归已接入，短时 lifecycle smoke 和完整 90 分钟 Continuous 长测已通过。P2 已完成只读 SK02 snapshot、代际化 permission request/result、physical detach 失效/释放，以及 debug gate 的 full-mode rebuild 和队列/位置/播放意图内存迁移；过期候选发布与重建中 generation 交错均有确定性测试；实体机 SharedPcm→USB→SharedPcm→USB rebuild smoke 与 4 个 Lifecycle 循环已通过。待 durable process recovery、前后台策略、明确 fallback、设置/UI，以及 90 分钟 Lifecycle 和人工听感。release 继续默认关闭；详见 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)
+- [x] **USB Host 真独占 production path（SK02-only P2）**：已完成 permission/attach/detach、播放意图迁移、full-mode rebuild、runtime health、bounded recovery/SharedPcm fallback、process-restart durable intent、wake policy、正式权限 UX/UI，以及 Release/Perf provider/JNI 晋级；升级安装使用新的正式 preference，默认保持 SharedPcm，必须由用户显式开启。Debug 全量单测、Perf/Release 编译与 APK 组装通过，两个 APK 均包含 native provider 且不包含导出的 Debug ADB receiver。SK02 真机已通过权限拒绝重试、播放/暂停物理拔插、强杀恢复、三连失败注入、`10001` release barrier 复验、90 分钟 Continuous/Lifecycle/OemBackground/SharedPcmBaseline，以及 2026-08-12 Perf 人工听感矩阵。已知 96 kHz seek/输出切换恢复偏慢与一次 16.811 ms 后台 completion gap 已显式记录，未发生 underrun 或可重复听感异常。P3 通用 DAC/格式矩阵另列。详见 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md) 与 [`USB_EXCLUSIVE_LISTENING_ACCEPTANCE.md`](USB_EXCLUSIVE_LISTENING_ACCEPTANCE.md)。
 
 
 

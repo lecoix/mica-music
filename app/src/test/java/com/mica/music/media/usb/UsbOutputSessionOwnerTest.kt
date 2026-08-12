@@ -194,6 +194,61 @@ class UsbOutputSessionOwnerTest {
     }
 
     @Test
+    fun staleHealthPausedAtPublicationBoundaryCannotOverwriteReplacement() {
+        val oldHealthAtBoundary = CountDownLatch(1)
+        val releaseOldHealth = CountDownLatch(1)
+        val replacementGenerationPublished = CountDownLatch(1)
+        val oldHealth = health(sampledAtMs = 100L, completedFrames = 1_000L)
+        val owner = UsbOutputSessionOwner(
+            onGenerationPublished = { generation ->
+                if (generation == 2L) replacementGenerationPublished.countDown()
+            },
+            beforeFactsPublication = { facts ->
+                if (facts.runtimeHealth == oldHealth) {
+                    oldHealthAtBoundary.countDown()
+                    assertTrue(releaseOldHealth.await(5, TimeUnit.SECONDS))
+                }
+            },
+        )
+        val oldSession = owner.replace(request("old-health")) {
+            FakeSession("old", mutableListOf())
+        }
+
+        val sampler = thread(name = "old-health-publication") {
+            owner.withActiveSession(oldSession) { lease ->
+                owner.publishRuntimeHealth(oldSession, lease, oldHealth)
+            }
+        }
+        assertTrue(oldHealthAtBoundary.await(5, TimeUnit.SECONDS))
+
+        val replacement = thread(name = "replacement-after-health") {
+            owner.replace(request("replacement")) { FakeSession("new", mutableListOf()) }
+        }
+        assertTrue(replacementGenerationPublished.await(5, TimeUnit.SECONDS))
+        releaseOldHealth.countDown()
+
+        sampler.join(5_000)
+        replacement.join(5_000)
+        assertEquals(UsbOutputPhase.ACTIVE, owner.facts.phase)
+        assertEquals("replacement", owner.facts.request?.device?.descriptorFingerprint)
+        assertEquals(null, owner.facts.runtimeHealth)
+    }
+
+    @Test
+    fun currentHealthPublishesInsideActiveSessionSeam() {
+        val owner = UsbOutputSessionOwner()
+        val session = owner.replace(request("health")) { FakeSession("health", mutableListOf()) }
+        val snapshot = health(sampledAtMs = 200L, completedFrames = 2_000L)
+
+        val published = owner.withActiveSession(session) { lease ->
+            owner.publishRuntimeHealth(session, lease, snapshot)
+        }
+
+        assertEquals(true, published)
+        assertEquals(snapshot, owner.facts.runtimeHealth)
+    }
+
+    @Test
     fun failedReplacementInvalidatesAndReleasesOldSessionWithoutNewSideEffects() {
         val effects = mutableListOf<String>()
         val owner = UsbOutputSessionOwner()
@@ -318,7 +373,10 @@ class UsbOutputSessionOwnerTest {
         }
         assertTrue(writeAtBoundary.await(5, TimeUnit.SECONDS))
         val detached = thread(name = "usb-device-detached") {
-            assertTrue(owner.deviceDetached(runtimeHandle))
+            assertEquals(
+                UsbDeviceDetachDisposition.RELEASED_CURRENT,
+                owner.deviceDetached(runtimeHandle),
+            )
         }
         assertTrue(detachGenerationPublished.await(5, TimeUnit.SECONDS))
         releaseWrite.countDown()
@@ -342,10 +400,147 @@ class UsbOutputSessionOwnerTest {
         }
         val generation = owner.facts.generation
 
-        assertFalse(owner.deviceDetached(UsbAudioRuntimeHandle(40)))
+        assertEquals(
+            UsbDeviceDetachDisposition.STALE_RUNTIME,
+            owner.deviceDetached(UsbAudioRuntimeHandle(40)),
+        )
         assertEquals(generation, owner.facts.generation)
         assertEquals(UsbOutputPhase.ACTIVE, owner.facts.phase)
         assertFalse(effects.contains("current-close"))
+    }
+
+    @Test
+    fun detachAfterCurrentTransportAlreadyClosedRemainsLifecycleRelevant() {
+        val effects = mutableListOf<String>()
+        val owner = UsbOutputSessionOwner()
+        val runtimeHandle = UsbAudioRuntimeHandle(42)
+        val session = owner.replace(request("current")) {
+            FakeSession("current", effects, runtimeHandle = runtimeHandle)
+        }
+        owner.release(session)
+        val generation = owner.facts.generation
+
+        assertEquals(
+            UsbDeviceDetachDisposition.ORPHANED_CURRENT,
+            owner.deviceDetached(runtimeHandle),
+        )
+        assertEquals(generation, owner.facts.generation)
+        assertEquals(UsbOutputPhase.IDLE, owner.facts.phase)
+    }
+
+    @Test
+    fun detachWaitingBehindTransportCannotSupersedeNewerReplacementGeneration() {
+        val effects = Collections.synchronizedList(mutableListOf<String>())
+        val replacementGenerationPublished = CountDownLatch(1)
+        val owner = UsbOutputSessionOwner(
+            onGenerationPublished = { generation ->
+                if (generation == 2L) replacementGenerationPublished.countDown()
+            },
+        )
+        val oldRuntime = UsbAudioRuntimeHandle(50)
+        val oldSession = owner.replace(request("old")) {
+            FakeSession("old", effects, runtimeHandle = oldRuntime)
+        }
+        val transportHeld = CountDownLatch(1)
+        val releaseTransport = CountDownLatch(1)
+        val holder = thread(name = "hold-old-usb-transport") {
+            owner.withActiveSession(oldSession) {
+                transportHeld.countDown()
+                assertTrue(releaseTransport.await(5, TimeUnit.SECONDS))
+            }
+        }
+        assertTrue(transportHeld.await(5, TimeUnit.SECONDS))
+
+        val replacement = thread(name = "replacement-wins-generation") {
+            owner.replace(request("replacement")) {
+                FakeSession(
+                    "replacement",
+                    effects,
+                    runtimeHandle = UsbAudioRuntimeHandle(51),
+                )
+            }
+        }
+        assertTrue(replacementGenerationPublished.await(5, TimeUnit.SECONDS))
+
+        var detachDisposition: UsbDeviceDetachDisposition? = null
+        val detach = thread(name = "late-old-runtime-detach") {
+            detachDisposition = owner.deviceDetached(oldRuntime)
+        }
+        detach.join(5_000L)
+        assertEquals(UsbDeviceDetachDisposition.STALE_RUNTIME, detachDisposition)
+        releaseTransport.countDown()
+
+        holder.join(5_000L)
+        replacement.join(5_000L)
+
+        assertEquals(UsbDeviceDetachDisposition.STALE_RUNTIME, detachDisposition)
+        assertEquals(UsbOutputPhase.ACTIVE, owner.facts.phase)
+        assertEquals(UsbAudioRuntimeHandle(51), owner.facts.runtimeHandle)
+        assertFalse(effects.contains("replacement-close"))
+    }
+
+    @Test
+    fun staleFallbackPausedAtFactsBoundaryCannotOverwriteReplacement() {
+        val fallbackAtBoundary = CountDownLatch(1)
+        val releaseFallback = CountDownLatch(1)
+        val replacementGenerationPublished = CountDownLatch(1)
+        val owner = UsbOutputSessionOwner(
+            onGenerationPublished = { generation ->
+                if (generation == 3L) replacementGenerationPublished.countDown()
+            },
+            beforeFactsPublication = { facts ->
+                if (facts.failure?.fallbackToSharedPcm == true) {
+                    fallbackAtBoundary.countDown()
+                    assertTrue(releaseFallback.await(5, TimeUnit.SECONDS))
+                }
+            },
+        )
+        owner.replace(request("failed-usb")) { FakeSession("failed", mutableListOf()) }
+
+        var fallbackPublished = true
+        val fallback = thread(name = "stale-shared-pcm-fallback") {
+            fallbackPublished = owner.publishFallbackToSharedPcm(
+                request = request("failed-usb"),
+                stage = "recovery-exhausted",
+                message = "USB recovery exhausted",
+            )
+        }
+        assertTrue(fallbackAtBoundary.await(5, TimeUnit.SECONDS))
+        val replacement = thread(name = "replacement-after-fallback") {
+            owner.replace(request("replacement")) { FakeSession("replacement", mutableListOf()) }
+        }
+        assertTrue(replacementGenerationPublished.await(5, TimeUnit.SECONDS))
+        releaseFallback.countDown()
+
+        fallback.join(5_000L)
+        replacement.join(5_000L)
+        assertFalse(fallbackPublished)
+        assertEquals(UsbOutputPhase.ACTIVE, owner.facts.phase)
+        assertEquals("replacement", owner.facts.request?.device?.descriptorFingerprint)
+        assertEquals(null, owner.facts.failure)
+    }
+
+    @Test
+    fun sharedPcmFallbackPublishesExplicitNonExactFailureFacts() {
+        val effects = mutableListOf<String>()
+        val owner = UsbOutputSessionOwner()
+        owner.replace(request("failed-usb")) { FakeSession("failed", effects) }
+
+        assertTrue(
+            owner.publishFallbackToSharedPcm(
+                request = request("failed-usb"),
+                stage = "recovery-exhausted",
+                message = "USB recovery exhausted after 3 attempts",
+            ),
+        )
+
+        assertTrue(effects.contains("failed-close"))
+        assertEquals(UsbOutputPhase.FAILED, owner.facts.phase)
+        assertEquals("failed-usb", owner.facts.request?.device?.descriptorFingerprint)
+        assertFalse(owner.facts.exclusive)
+        assertFalse(owner.facts.signalExact)
+        assertEquals(true, owner.facts.failure?.fallbackToSharedPcm)
+        assertEquals("recovery-exhausted", owner.facts.failure?.stage)
     }
 
     private fun request(name: String) = UsbOutputRequest(
@@ -354,6 +549,35 @@ class UsbOutputSessionOwnerTest {
             productId = 0x0001,
             descriptorFingerprint = name,
         ),
+    )
+
+    private fun health(sampledAtMs: Long, completedFrames: Long) = UsbRuntimeHealth(
+        sampledAtElapsedRealtimeMs = sampledAtMs,
+        completedFrames = completedFrames,
+        bufferedFrames = 480L,
+        underrunBytes = 0L,
+        transportErrorCode = 0,
+        playbackRequested = true,
+        sourceConsumptionActive = true,
+        bufferCapacityFrames = 96_000L,
+        minimumBufferedFrames = 9_600L,
+        acceptedPcmBytes = 16_384L,
+        previousSuccessfulWriteGapUs = 20_000L,
+        maximumSuccessfulWriteGapUs = 150_729L,
+        previousDataCompletionGapUs = 1_010L,
+        maximumDataCompletionGapUs = 42_000L,
+        previousFeedbackCompletionGapUs = 4_020L,
+        maximumFeedbackCompletionGapUs = 44_000L,
+        totalPollTimeouts = 2L,
+        maximumConsecutivePollTimeouts = 1L,
+        invalidFeedbackPacketCount = 3L,
+        dataPacketErrorCount = 4L,
+        currentFeedbackQ16 = 393_216L,
+        minimumFeedbackQ16 = 393_200L,
+        maximumFeedbackQ16 = 393_232L,
+        maximumFeedbackStepQ16 = 16L,
+        trustedFeedbackQ16 = 393_216L,
+        feedbackFilterInterventionCount = 2L,
     )
 
     private class FakeSession(

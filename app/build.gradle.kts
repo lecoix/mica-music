@@ -66,6 +66,8 @@ android {
             "UPDATE_INTERNATIONAL_MANIFEST_URL",
             buildConfigString(updateInternationalManifestUrl),
         )
+        // SK02-only beta backend is packaged in every build type, but user intent defaults off.
+        buildConfigField("boolean", "USB_EXCLUSIVE_SK02_AVAILABLE", "true")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
@@ -115,6 +117,7 @@ android {
         }
         create("perf") {
             initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
             isDebuggable = qaSideBySide
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")
@@ -219,7 +222,7 @@ dependencies {
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    debugImplementation(project(":usb-sk02-native-prototype"))
+    implementation(project(":usb-sk02-native-prototype"))
 
     testImplementation(libs.junit)
     testImplementation(libs.androidx.test.core)

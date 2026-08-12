@@ -43,7 +43,10 @@
                 <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_SEEK_NEAR_END" />
                 <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_REPEAT_ONE" />
                 <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_REPEAT_OFF" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_RECOVER" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_INJECT_RECOVERY_FAILURES" />
                 <action android:name="${applicationId}.debug.USB_OUTPUT_REBUILD_RESULT" />
+                <action android:name="${applicationId}.debug.USB_RECOVERY_RESULT" />
             </intent-filter>
         </receiver>
     </application>

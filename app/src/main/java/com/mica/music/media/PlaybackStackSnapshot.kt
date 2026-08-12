@@ -14,7 +14,8 @@ internal data class PlaybackStackSnapshot(
     val shuffleModeEnabled: Boolean,
     val playbackParameters: PlaybackParameters,
 ) {
-    fun restoreInto(player: Player, resumePlayback: Boolean = playWhenReady) {
+    /** Restores inert state only. The candidate must not prepare a renderer before handoff. */
+    fun stageInto(player: Player) {
         player.playWhenReady = false
         player.repeatMode = repeatMode
         player.shuffleModeEnabled = shuffleModeEnabled
@@ -22,6 +23,11 @@ internal data class PlaybackStackSnapshot(
         if (mediaItems.isEmpty()) return
         val safeIndex = currentIndex.coerceIn(0, mediaItems.lastIndex)
         player.setMediaItems(mediaItems, safeIndex, positionMs.coerceAtLeast(0L))
+    }
+
+    /** Activates a staged candidate after the previous output has completed release. */
+    fun activate(player: Player, resumePlayback: Boolean = playWhenReady) {
+        if (mediaItems.isEmpty()) return
         player.prepare()
         player.playWhenReady = resumePlayback
     }

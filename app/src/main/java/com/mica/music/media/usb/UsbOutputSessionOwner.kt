@@ -7,6 +7,18 @@ import java.util.concurrent.locks.ReentrantLock
 internal class StaleUsbOutputRequestException(generation: Long) :
     IllegalStateException("USB output request $generation is stale")
 
+internal enum class UsbDeviceDetachDisposition {
+    RELEASED_CURRENT,
+    ORPHANED_CURRENT,
+    STALE_RUNTIME,
+}
+
+private sealed interface UsbDeviceDetachClaim {
+    data class Current(val token: UsbOutputRequestToken) : UsbDeviceDetachClaim
+    data object Orphaned : UsbDeviceDetachClaim
+    data object Stale : UsbDeviceDetachClaim
+}
+
 /**
  * Sole generation owner and sole serialized seam for USB output side effects.
  *
@@ -68,6 +80,28 @@ internal class UsbOutputSessionOwner(
             block(UsbOutputRequestLease(token, this))
         } finally {
             transportLock.unlock()
+        }
+    }
+
+    /**
+     * Publishes observations collected through the current active-session lease. The caller must
+     * already own the transport seam so sampling cannot race native restart or destruction.
+     */
+    fun publishRuntimeHealth(
+        session: UsbOutputSession,
+        lease: UsbOutputRequestLease,
+        health: UsbRuntimeHealth,
+    ): Boolean {
+        check(transportLock.isHeldByCurrentThread) {
+            "USB runtime health must publish inside the active-session seam"
+        }
+        if (activeSession !== session || facts.phase != UsbOutputPhase.ACTIVE) return false
+        if (!lease.isCurrent() || facts.generation != lease.token.value) return false
+        return try {
+            publishFor(lease.token, facts.copy(runtimeHealth = health))
+            true
+        } catch (_: StaleUsbOutputRequestException) {
+            false
         }
     }
 
@@ -157,18 +191,39 @@ internal class UsbOutputSessionOwner(
     }
 
     /**
-     * Invalidates and releases only the active enumeration that detached. An old detach callback
-     * for a previous runtime device id is ignored without minting a generation.
+     * Atomically classifies the enumerated runtime and claims a newer generation before waiting for
+     * the transport seam. This preserves the detach guarantee that in-flight leases become stale
+     * immediately, while preventing an old runtime callback from invalidating a newer replacement.
+     * An already-closed current transport stays lifecycle-relevant as ORPHANED_CURRENT.
      */
-    fun deviceDetached(runtimeHandle: UsbAudioRuntimeHandle): Boolean {
-        val observed = facts
-        if (observed.runtimeHandle != runtimeHandle || !observed.attached) return false
-        val token = publishNextGeneration()
+    fun deviceDetached(runtimeHandle: UsbAudioRuntimeHandle): UsbDeviceDetachDisposition {
+        val claim = synchronized(generationPublicationLock) {
+            val observed = factsRef.get()
+            when {
+                generation.get() != observed.generation -> UsbDeviceDetachClaim.Stale
+                observed.attached && observed.runtimeHandle != null &&
+                    observed.runtimeHandle != runtimeHandle -> UsbDeviceDetachClaim.Stale
+                !observed.attached || observed.runtimeHandle != runtimeHandle ->
+                    UsbDeviceDetachClaim.Orphaned
+                else -> UsbDeviceDetachClaim.Current(
+                    UsbOutputRequestToken(generation.incrementAndGet()),
+                )
+            }
+        }
+        when (claim) {
+            UsbDeviceDetachClaim.Stale -> return UsbDeviceDetachDisposition.STALE_RUNTIME
+            UsbDeviceDetachClaim.Orphaned -> return UsbDeviceDetachDisposition.ORPHANED_CURRENT
+            is UsbDeviceDetachClaim.Current -> onGenerationPublished(claim.token.value)
+        }
+
+        val token = (claim as UsbDeviceDetachClaim.Current).token
         transportLock.lock()
         return try {
-            if (!isCurrent(token)) return false
+            if (!isCurrent(token)) return UsbDeviceDetachDisposition.STALE_RUNTIME
             val previous = facts
-            if (previous.runtimeHandle != runtimeHandle || !previous.attached) return false
+            if (previous.runtimeHandle != runtimeHandle || !previous.attached) {
+                return UsbDeviceDetachDisposition.STALE_RUNTIME
+            }
             activeSession?.let { session ->
                 publishFor(
                     token,
@@ -195,7 +250,48 @@ internal class UsbOutputSessionOwner(
                     ),
                 ),
             )
+            UsbDeviceDetachDisposition.RELEASED_CURRENT
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    /** Publishes that playback continued through SharedPcm after USB recovery was exhausted. */
+    fun publishFallbackToSharedPcm(
+        request: UsbOutputRequest?,
+        stage: String,
+        message: String,
+    ): Boolean {
+        val previous = facts
+        val token = publishNextGeneration()
+        transportLock.lock()
+        return try {
+            if (!isCurrent(token)) return false
+            activeSession?.let { session ->
+                publishFor(
+                    token,
+                    previous.copy(generation = token.value, phase = UsbOutputPhase.RELEASING),
+                )
+                session.release(cleanupLease(), "shared-pcm-fallback")
+                activeSession = null
+                activeRequest = null
+            }
+            publishFor(
+                token,
+                PlaybackOutputFacts(
+                    generation = token.value,
+                    phase = UsbOutputPhase.FAILED,
+                    request = request ?: previous.request,
+                    failure = UsbOutputFailure(
+                        stage = stage,
+                        message = message,
+                        fallbackToSharedPcm = true,
+                    ),
+                ),
+            )
             true
+        } catch (_: StaleUsbOutputRequestException) {
+            false
         } finally {
             transportLock.unlock()
         }

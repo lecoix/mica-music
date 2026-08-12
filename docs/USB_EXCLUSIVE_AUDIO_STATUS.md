@@ -3,8 +3,8 @@
 > 性质：动态工程状态册，不替代架构决策记录。
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)。
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。
-> 最后更新：2026-08-10。
-> 当前结论：**单台 Fosi Audio SK02 的 USBFS + Media3 可行性原型已工程收口；P1 已建立 production contract、正式 owner 与 SK02 adapter seam，迁移后的短时生命周期 smoke 和一个完整 90 分钟 Continuous 长测已通过；P2 已接入权限/拔出生命周期基础和 debug gate full-mode rebuild/播放意图迁移，新路径的实体机双向 rebuild smoke 已通过，但 durable recovery、后台策略与产品 UI 尚未完成；可发布的通用 USB 独占子系统仍未完成。**
+> 最后更新：2026-08-12。
+> 当前结论：**单台 Fosi Audio SK02 的 P2 production path 已完成 Release/Perf 晋级，完整 90 分钟 Continuous、Lifecycle、OemBackground 与 SharedPcmBaseline 均已通过，2026-08-12 Perf 真机人工听感矩阵也已完成。权限/拔出生命周期、播放意图迁移、durable recovery、1/2 秒 backoff、三连失败 SharedPcm fallback、wake policy 和正式权限 UX/UI 已接入。Release/Perf 默认关闭且沿用 exact-only/fail-closed 音质合同。已知 96 kHz seek/输出切换恢复偏慢与一次 16.811 ms 后台 completion gap 作为显式观察项保留，未产生 underrun 或可重复听感异常。通用 UAC1/UAC2、多 DAC 与格式矩阵属于 P3，不能由单 SK02 结果代替。**
 
 ---
 
@@ -54,7 +54,7 @@ float 量化、dither、channel mixing 都会改变第二个事实。项目的�
 
 - DAC：Fosi Audio SK02，VID/PID `262a:0001`。
 - 手机：Xiaomi `22081212C`，Android 12 / API 31。
-- 构建：debug/QA only；side-by-side id `com.mica.music.qa`。
+- 构建：provider/JNI 已进入 Debug/Perf/Release；验收使用 side-by-side id `com.mica.music.qa`，正式入口默认关闭。
 - 双声道 PCM16、PCM32，以及可证明精确映射到 signed PCM32 的 float。
 - 入口允许 8–384 kHz；真实 Media3 重点验证 48/96 kHz。
 - Media3 播放、pause/resume、seek、自动跨轨、rate reconfigure、强杀恢复。
@@ -64,10 +64,10 @@ float 量化、dither、channel mixing 都会改变第二个事实。项目的�
 
 - 任意 UAC1/UAC2 DAC、多声道、隐式反馈、多 DAC/hub；
 - Native DSD / DoP；
-- release UI、设备选择、默认接管和完整权限 UX；
+- 多设备选择、未验证 DAC 的默认接管与通用权限 UX；
 - 所有厂商后台策略下长期存活；
-- 进程死亡后无人干预立即恢复；
-- 多小时稳定性（长测完成前）；
+- 未经 OEM 豁免时的厂商杀进程自动恢复；
+- 过夜/多小时稳定性；
 - 仅凭 exclusive 状态宣称所有格式 bit-perfect。
 
 当前策略是 fail closed：格式不能被证明精确时失败，不静默 fallback 到低位深。
@@ -110,11 +110,11 @@ AudioStreaming 使用 force claim 成功，driver 从 `snd-usb-audio` 变为 `us
 flowchart LR
     A["Media file"] --> B["Media3 decoder / FFmpeg"]
     B --> C["DefaultAudioSink lifecycle and clock"]
-    C --> D["UsbSk02AudioOutputProvider (debug only)"]
+    C --> D["UsbSk02AudioOutputProvider (SK02 production provider)"]
     D --> E["Exact format gate / packing"]
     E --> F["JNI Media3StreamSession"]
     F --> G["Bounded 2-second ring"]
-    G --> H["8 OUT URBs -> endpoint 0x03"]
+    G --> H["16 OUT URBs -> endpoint 0x03"]
     I["4 feedback URBs <- endpoint 0x84"] --> F
     H --> J["SK02 DAC"]
     K["Generation owner + transport seam"] --> D
@@ -135,12 +135,12 @@ Media3 仍负责 decoder、renderer、timestamp、buffering、flush、play/pause
 | 原始证据 | `prototypes/usb-sk02-native/NOTES.md` |
 | Native USBFS | `prototypes/usb-sk02-native/src/main/cpp/usb_sk02_prototype.cpp` |
 | Debug receiver | `app/src/debug/.../usbprototype/UsbSk02DescriptorPrototypeReceiver.kt` |
-| Media3 provider/output | `app/src/debug/.../usbprototype/UsbSk02AudioOutputProvider.kt` |
+| Media3 provider/output | `app/src/main/.../usbprototype/UsbSk02AudioOutputProvider.kt` |
 | Production contract | `app/src/main/.../media/usb/UsbAudioContracts.kt`、`PlaybackOutputFacts.kt` |
 | SK02 capability/format | `app/src/main/.../media/usb/Sk02UsbContract.kt` |
 | Generation/session owner | `app/src/main/.../media/usb/UsbOutputSessionOwner.kt` |
 | Output adapter seam | `app/src/main/.../media/UsbHostOutputAdapter.kt` |
-| Release-safe gate | `app/src/main/.../media/UsbHostPrototypeOutput.kt` |
+| Release-safe gate | `app/src/main/.../media/UsbHostOutputPreferences.kt` |
 | 输出模式 | `app/src/main/.../media/AudioOutputPathConfig.kt` |
 | Renderer/Sink 接线 | `app/src/main/.../media/MicaRenderersFactory.kt` |
 | FFmpeg S32 选择 | `third_party/media3-ffmpeg-decoder/.../FfmpegAudioRenderer.java`、`ffmpeg_jni.cc` |
@@ -157,7 +157,7 @@ Media3 仍负责 decoder、renderer、timestamp、buffering、flush、play/pause
 
 ### 6.1 队列形状
 
-- 8 个 data URB，每个 8 个 isochronous packet；
+- 16 个 data URB，每个 8 个 isochronous packet，名义 ahead window 约 16 ms；
 - 4 个 feedback URB；
 - Native source ring 上限约 2 秒 PCM；
 - 非阻塞、有界 write；
@@ -387,7 +387,7 @@ prototype、stop QA、reconnect driver、保存 summary。
 
 ## 12. 长测状态
 
-截至 2026-08-10 本次更新：
+截至 2026-08-11 本次更新：
 
 - P2 full-mode rebuild 实体机 smoke 已通过：SharedPcm 基线 → UsbDirectPcm → SharedPcm →
   UsbDirectPcm 的四段发布结果依次为 generation 0/1/2/3，播放进度与每段 driver 归属均通过；
@@ -395,6 +395,34 @@ prototype、stop QA、reconnect driver、保存 summary。
   最高 33.2°C，最终 `cleanupDriversBound=true`。证据目录为
   `.scratch/usb-sk02-soak/20260810-053648/`。本轮结束时电量 55%，不足以按既有耗电数据完成
   90 分钟 Lifecycle，因此未启动长测，不能据此宣称 90 分钟通过；
+
+- 2026-08-11 在 `172.17.57.10:38897` 上安装带 recovery executor 的 QA APK；1 分钟 `Continuous`
+  通过，包含 SharedPcm → UsbDirectPcm → SharedPcm → UsbDirectPcm 四段 rebuild，覆盖 48/96 kHz，
+  5 个采样点，PSS 240,235–248,963 KB、FD 175–177、最高 30.0°C，结束 cleanup 成功；随后显式
+  `TRANSPORT_ERROR` recovery 返回 `actionId=1 attempt=1 result=succeeded`，新 USB session fresh-open
+  后播放位置由 129,288 ms 推进至 137,736 ms，MediaSession `state=3/error=null`，native probe 确认
+  control/streaming 均为 `usbfs`；最终 disable/reconnect 后两 interface 均恢复 `snd-usb-audio`，
+  电量 84%、温度 30.7°C。本次是显式 recovery smoke，不是自动 health→recovery 或 90 分钟长测。
+
+- 同日修正 soak runner 的 service readiness 与瞬时 BUFFERING 判定后，最新 QA APK 的 1 分钟
+  `CrashRecovery` 通过：完成 SharedPcm → UsbDirectPcm → SharedPcm → UsbDirectPcm 四段 rebuild，
+  随后连续 3 次强杀并 cold-start fresh-open；每轮 `play` 后位置推进、control/streaming 均为 `usbfs`，
+  观测 48 kHz，PSS 163,850–175,165 KB、FD 175–177、最高 31.0°C、电量 64%；最终 cleanup
+  确认两个 interface 均恢复 `snd-usb-audio`。artifact：
+  `.scratch/usb-sk02-soak/20260811-035057/`。本轮没有命中“显式 PLAY 先于延迟 restore 完成”的竞态
+  窗口，因此该交错仍由确定性 JVM 测试证明，不能单凭本轮真机 PASS 宣称所有 OEM 时序已覆盖。
+
+- 2026-08-11 首次 90 分钟 `Lifecycle` 尝试在约 20 分钟、18 个循环后暴露真实竞态：独占中强杀后
+  debug PLAY 已接受，但它发生在队列 timeline 发布前，没有触发底层 `playWhenReady` listener；随后
+  restore 以 `resumed=false` 覆盖该意图并停在 `PAUSED`。修复后 composite 的显式 PLAY/PAUSE intent
+  直接进入 `ServicePlaybackStateCoordinator`，与既有 pending restore 在主线程串行消费；确定性交错
+  测试覆盖 PLAY 先到及 PLAY 后 PAUSE。1 分钟 `CrashRecovery` 连续两次强杀通过，artifact：
+  `.scratch/usb-sk02-soak/20260811-182057/`。
+
+- 修复后的完整 90 分钟 `Lifecycle` 通过：80 个循环与 80 个指标采样，周期性独占中强杀/冷启动、
+  pause/resume、末尾 seek、跨曲和 0/1 索引切换均通过；观察到 48/96 kHz。PSS
+  178,473–198,297 KB，FD 172–177，最高 39.7°C，结束电量 30%；最终 cleanup 确认 control/streaming
+  两个 interface 均恢复 `snd-usb-audio`。artifact：`.scratch/usb-sk02-soak/20260811-182638/`。
 
 - 1 分钟 `Continuous` 通过；
 - 1 分钟 `Lifecycle` 通过，含一次强杀恢复；
@@ -502,8 +530,9 @@ prototype、stop QA、reconnect driver、保存 summary。
 结论边界：当前可记为“约 48 分钟 Continuous 有效观测；强杀 direct fresh-open 通过 11 次
 连续恢复专项；三个 resume 专项均通过；384/768 B telemetry TOCTOU 已由确定性红绿测试关闭，
 修后混合 Lifecycle 有 13 轮/6 次强杀的干净 pass，另有 18 轮/9 次强杀的有效前缀”。这证明
-旧报警不应靠扩大 20 ms prefill 处理，但尚无人工听感证明 resume 边界绝对无 click/dropout。
-现有结果仍不构成 90 分钟 Continuous、带强杀的 90 分钟 Lifecycle 或三小时 endurance pass。
+旧报警不应靠扩大 20 ms prefill 处理。后续 production path 已取得 90 分钟
+Continuous/Lifecycle 与 2026-08-12 人工听感证据；这些后续结果不改写本节原型
+历史，也不等同于三小时/过夜 endurance pass。
 
 ---
 
@@ -578,8 +607,8 @@ kernel 意外。机器长测 wall-clock 单列。
 已完成可行性所需的 descriptor、claim、feedback、真实 PCM、Media3 接入、格式切换、生命周期、
 进程死亡恢复、物理断开和确定性交错验证。原型代码保持 debug/QA 隔离，不直接提升为 production。
 
-原计划中的两个完整 90 分钟长测、SharedPcm baseline 和人工听感仍是**未取得的证据**，但继续在
-throwaway harness 上补齐的边际价值低，因此迁移到 P1/P2 的真实接入路径执行。P0 不再追加功能，
+原计划中的两个完整 90 分钟长测、SharedPcm baseline 和人工听感已迁移到
+P1/P2 真实接入路径并取得证据。P0 不再追加功能，
 估计完成度冻结为 **85–90%**；这不是 100% 验收或发布声明。
 
 ### P1：抽 production contract，仍只支持 SK02
@@ -600,8 +629,8 @@ debug/release Kotlin 编译通过。2026-08-10 更新后的 Lifecycle smoke 完�
 同日 Continuous 长测完成请求的 90 分钟（83 个分钟样本）：48/96 kHz 被观察到，无
 `PlaybackException`、`WriteException`、underrun、崩溃或独占丢失；PSS 191112–211371 KB，
 首尾增加 7571 KB 且测试中多次回落，FD 175–180、首尾增加 3，最高 34.8°C，结束后
-`snd-usb-audio` 恢复。**90 分钟 Lifecycle、SharedPcm baseline 和人工听感尚未执行，
-因此 P1 仍不能记为完成。**
+`snd-usb-audio` 恢复。**90 分钟 Lifecycle 已于 2026-08-11 通过；SharedPcmBaseline 与
+Perf 真机人工听感已于 2026-08-12 完成。**
 
 **4–7 工程日**。
 
@@ -642,9 +671,202 @@ background、明确 fallback、diagnostics、SharedPcm 回归。
   不能切开正在执行的共享状态发布；构建失败不能触碰已发布 stack。完整 Debug 单测和 Release
   Kotlin 编译通过。
 
-尚未完成：attach 自动策略、process-death durable recovery、foreground/background、
-retry/backoff、明确 fallback、设置/UI，以及实体机权限弹窗、物理拔插和 full-mode rebuild
-验收。因此当前不能称为完整 SK02 developer beta。
+第三个离线 slice 已完成最小 runtime health snapshot（观测与自动恢复判定）：
+
+- `PlaybackOutputFacts.runtimeHealth` 每秒最多发布一次当前 SK02 session 的单调时钟采样时间、
+  completed/buffered frames、累计 underrun bytes、transport error code、播放请求与实际消费状态；
+  当前 Native 没有可证明的 feedback-lock getter，因此 snapshot 不虚构 feedback lock 状态；
+- generation owner 仍是 `UsbOutputSessionOwner`。Native getter 只在 active-session transport seam 内
+  读取，`get*` 是不可取消 JNI/Native IO；每次后续 getter 会先校验 lease，最后一次 getter 后在
+  facts 实际写入前再次校验 generation/session/phase；facts 写入继续只经 `publishFor` 串行发布；
+- 实际副作用是 `factsRef` 发布和 session-local 下一采样时刻更新。后者只在 facts 成功发布后更新；
+  restart 会清空已发布 health 并强制新 session 尽快重采样；
+- 确定性交错测试把旧 health 停在 `factsRef` 写入边界，先发布 replacement generation，再释放旧
+  发布，断言旧 snapshot 被拒绝且最终 facts 属于 replacement。此 slice 不重开 transport、不回退
+  SharedPcm、不改变 PCM、prefill、packet、格式或音质策略。
+
+第四个离线 slice 已完成 bounded recovery protocol（只发 action，不自动执行）：
+
+- `UsbRecoveryCoordinator` 为每次 incident 建立绑定 USB session generation 的 recovery epoch；
+  fresh-open action 带独立单调 action generation、actionId、canonical trigger 和 epoch 内 attempt；
+- 同一 epoch 同时只允许一个 pending action，执行方必须 ACK 完整 action；成功 ACK 关闭 epoch，失败
+  ACK 才允许下一次 fresh-open，每个 epoch 最多 3 次，耗尽后明确返回 `BudgetExhausted`；
+- epoch 状态、action 发布、ACK 与 budget 统一经 coordinator lock 串行；ACK 异步返回后在任何状态
+  副作用前重新比对 epoch 和完整 pending action。确定性交错测试让旧 ACK 停在发布边界，完成新
+  session epoch/action 后再释放旧 ACK，断言旧结果被拒绝且当前 action 未被清除；
+- 当前 recovery action 已由 service policy owner 调用，并接入 full-mode rebuild、backoff 与预算耗尽后的
+  明确 SharedPcm fallback；仍不能据此宣称 transport 已在真机故障下自动恢复。
+
+第五个离线 slice 已把 recovery action 接到 debug-only full-mode rebuild executor：
+
+- debug receiver 的 `USB_SK02_MEDIA3_RECOVER` 显式命令经 process-local bridge 交给 service；release
+  manifest 不暴露该 receiver。service 主线程签发 action，并对当前 `UsbDirectPcm` path 执行既有
+  `PlaybackOutputRebuildCoordinator.rebuild()`，不另建 executor、线程或 publication seam；
+- `PlaybackOutputRebuildResult.Published` 现在只表示 replacement Exo stack 已发布，不再直接当作 USB
+  recovery 成功 ACK。fresh-open action 会保持 pending，直到 replacement transport 的 runtime facts 证明
+  `ACTIVE + permission=GRANTED + claimed + exclusive + signalExact` 且 request 与 incident 一致；若中断前
+  正在播放，还必须观察到新 session 的真实 `completedFrames > 0`。暂停恢复只要求 transport ACTIVE；
+  `FAILED/open` 或 5 秒 activation timeout 记为失败 ACK，继续既有 backoff/budget。不同 request/session
+  抢占则把旧 recovery 判为 stale 而不污染新 session；普通 enable/disable rebuild 成功仍会清旧 epoch；
+- action 执行中的 candidate generation、不可取消 stack build、MediaSession/player 发布及旧 candidate
+  释放继续由 `PlaybackOutputRebuildCoordinator` 及其既有交错测试保护；异步 ACK 在 recovery 状态写入
+  前再次比对 epoch 与完整 pending action。结果通过 debug broadcast 和 `UsbRecovery` diagnostics 发布；
+- `UsbHealthRecoveryController` 已接入 service 主线程轮询：`transportErrorCode != 0` 立即分类为
+  `TRANSPORT_ERROR`；在 playback requested 且 source consumption active 时，要求 `completedFrames`
+  连续 3 个 >=750 ms 的采样间隔不变，才分类为 `STALLED_PROGRESS`。此外新增保守的
+  `DEGRADED_TRANSPORT`：只有连续两个有效采样周期出现互相印证的 transport 症状才触发，例如
+  `dataPacketErrorCount` 持续增长且当次 data completion gap >=50 ms，或 feedback/poll-timeout 与异常
+  completion gap 同时出现。单次错包、underrun 增长、zero/repeated PCM/source starvation 都不会单独
+  reopen；暂停、消费停止、generation 变化和重复/过期采样会清除或抑制证据。
+- 决策在 recovery side-effect seam 前后都重新校验 generation 与精确采样时间；确定性交错测试覆盖
+  旧决策停在边界、新 generation 发布后旧决策不得触发 rebuild。自动路径复用已有 bounded coordinator
+  与 debug full-mode rebuild；当前未把 underrun 增长作为触发条件。
+- 当前 JVM 定向单测与 Debug 编译通过；2026-08-11 已通过 debug-only recovery failure budget 在
+  真机触发真实 recovery executor，详见下方“三连失败注入”记录。该注入验证 service/rebuild/backoff/
+  fallback 链路，不等同于伪造 native transport health getter 的原始故障。
+
+第六个 slice 完成 process-restart 的最小 durable intent 与恢复交错保护：
+
+- debug USB gate 改为同一进程锁内同步 `SharedPreferences.commit()`；commit 失败 fail closed，冷启动只读取
+  已提交意图。Robolectric 覆盖已提交 USB 意图可恢复，以及最新提交覆盖旧值；
+- `ServicePlaybackStateCoordinator` 保持普通冷启动恢复默认暂停，但 pending restore 期间记录最新显式
+  PLAY/PAUSE 意图，并在实际 restore 副作用阶段应用；确定性测试覆盖 PLAY 先于延迟 timeline/restore 时
+  最终继续播放，以及 PLAY 后 PAUSE 时最终仍暂停；
+- 参考 NeriPlayer 的行为模型是把 manual resume request 与 persisted restore state 分开拥有、恢复后消费
+  最新明确意图。Mica 只采用该模型，没有复制 GPL-3.0 源码；
+- 最新 QA APK 的 1 分钟 `CrashRecovery` 连续 3 次强杀恢复通过，详见 §12。该轮 restore 均先于 runner
+  的 PLAY，因此不能替代上述交错测试；也不等同于真机故障注入或 SharedPcm fallback 验收。
+
+第七个 slice 完成 recovery backoff 与明确 SharedPcm fallback：
+
+- fresh-open 仍以每个 epoch 最多 3 次为上限；第 1、2 次失败后分别等待 1、2 秒，第 3 次失败后立即
+  尝试 full-mode rebuild 到现有 `AudioOutputPathConfig.PRODUCTION`。延迟任务绑定 recovery epoch，手动
+  rebuild、新 epoch 和 service destroy 都会使旧任务失效；每次 rebuild 前重新校验 epoch 与当前输出模式；
+- fallback 成功后同步关闭 durable debug USB gate，避免进程重启后立即重入已失败的 USB 路径；USB facts
+  发布 `stage=recovery-exhausted`、`fallbackToSharedPcm=true`，并明确 `exclusive=false`、
+  `signalExact=false`。发布仍经过 `UsbOutputSessionOwner` 的 generation 与 transport seam；
+- 用户已明确批准“连续播放”策略：只回现有 SharedPcm，不强制 PCM16、不新增降采样/重采样、不新增或
+  默认开启 DSP。SharedPcm 继续遵循既有用户设置与系统路由，因此 fallback 后不再承诺 bit-perfect；
+- 确定性交错测试覆盖旧 fallback 停在实际 facts 写入边界、新请求发布后旧 facts 不得覆盖 replacement；
+  可控单调时钟测试覆盖 1/2 秒 backoff 与三次预算。扩展 USB 定向单测及 Debug Kotlin/Java 编译通过。
+  2026-08-11 已在 `172.17.57.10:38897` 注入连续 3 次 fresh-open 失败：attempt 1/2/3 均被消费，
+  前两次分别记录约 997 ms/1998 ms backoff，第三次后发布 `budget-exhausted` 和
+  `fallback-succeeded`。MediaSession 保持 `PLAYING`，位置 52,176→55,186 ms；最终 control/
+  streaming 都由 `snd-usb-audio` 驱动。注入只存在于 debug manifest/runtime，不进入 release。
+- 2026-08-11 更新 QA APK 后首次 smoke 因物理拔插后的 USB permission 等待超时，未进入测试；重新拔插后
+  同一 APK 的 1 分钟 `Continuous` 完整通过，覆盖 SharedPcm → UsbDirectPcm → SharedPcm →
+  UsbDirectPcm，3 个播放采样均推进且未误触发 recovery，PSS 190,750–194,966 KB、FD 175–178、
+  最高 31.0°C、电量 52%→51%，最终 `cleanupDriversBound=true`。证据目录为
+  `.scratch/usb-sk02-soak/20260811-050500/`。这证明正常路径无误触发，不等同于三连失败 fallback 注入验收。
+
+2026-08-11 attach/detach 更新：
+
+- 参考 NeriPlayer 的行为结构，将中断前 `resumePlaybackRequested` 与当前 player 的瞬时
+  `playWhenReady` 分开拥有；detach 重建到 SharedPcm、permission 后重建回 UsbDirectPcm 时均使用
+  保存意图，player swap 内部暂停不会覆盖用户意图；
+- 实体机完成播放中物理拔插与暂停中物理拔插：两者均成功 SharedPcm fallback、重插授权后恢复
+  UsbDirectPcm 与 `usbfs` 独占；播放场景无需额外 PLAY 即继续推进，暂停场景两次采样位置不变；
+- permission denial 会使本次 permission generation 失效但保留 interrupted intent；拒绝后的再次 detach
+  继续携带该 intent，下一次物理 attach 可绑定新 generation 重试，旧授权不得恢复。确定性交错测试覆盖
+  旧拒绝停在状态写入边界时不得清除新 attach，并回归拒绝→再次 detach→attach 的完整序列。实体机验证
+  permission generation 10 拒绝后 SharedPcm 继续推进，第二次 attach 以 lifecycle generation 4、permission
+  generation 12 重新弹窗并恢复 UsbDirectPcm，无额外 PLAY，最终重新取得 `usbfs` 独占；设置页复用正式
+  facts 显示等待、拒绝、detach 与 fallback 状态；
+- 尚未完成高频连续插拔、process-death durable recovery、
+  长期 OEM foreground/background，以及自动 health/backoff/fallback 故障注入验收。
+
+2026-08-12 P1/P2 参考实现复核后的 hardening：
+
+- detach owner 新增 `RELEASED_CURRENT / ORPHANED_CURRENT / STALE_RUNTIME` 分类。runtime 与 generation
+  判定在 generation publication lock 内原子完成；只有仍代表当前枚举的 detach 才先抢新 generation，
+  因而既保持“正在 native write 的旧 lease 立即失效”，又防止旧 runtime 的迟到广播给 replacement
+  session 再 mint generation。receiver 对 `STALE_RUNTIME` 不再创建 lifecycle token 或 dispatch detach；
+  transport 已先关闭时返回 `ORPHANED_CURRENT`，仍允许 lifecycle 保存中断播放意图；
+- recovery ACK 与 transport degraded classifier 同步按上文新规则收紧。新增确定性单测覆盖 replacement
+  generation 已发布而 transport lock 仍被旧 write 持有时，迟到 detach 必须被拒绝且新 session 最终
+  ACTIVE；同时覆盖 stack publication 不能直接 ACK、播放态必须等真实 completion、暂停态 ACTIVE 即可、
+  open failure/timeout 失败，以及持续 correlated transport degradation 与 source-starvation 反例。
+
+2026-08-12 hardening 后 SK02 真机复验：
+
+- 在 `172.17.57.10:40569` 上用最新 side-by-side QA build 跑 1 分钟 `Continuous`，先完整覆盖
+  SharedPcm → UsbDirectPcm → SharedPcm → UsbDirectPcm，再进入 4 个稳态采样；播放位置持续推进，
+  `usbfs` 独占保持，未出现 `UsbRecovery` 误触发，最终 cleanup 成功恢复 `snd-usb-audio`。artifact：
+  `.scratch/usb-sk02-soak/20260812-210128/`；
+- 播放态显式 `TRANSPORT_ERROR` recovery：21:04:47.978 先发布 `activation-waiting`，21:04:48.015
+  replacement USB transport 才真正 `opened`，21:04:49.487 才发布 `succeeded`，MediaSession 继续 PLAYING。
+  证明 `PlaybackOutputRebuildResult.Published` 已不再被误当成 fresh-open 成功 ACK；
+- 暂停态显式 recovery：21:05:17.247 `activation-waiting`，21:05:17.620 `succeeded`，MediaSession 最终
+  仍为 PAUSED，符合暂停恢复只要求 transport ACTIVE、不要求 frame progress 的新规则；
+- 连续 3 次 debug fresh-open failure 注入仍严格执行既有预算：attempt 1 后约 998 ms backoff，attempt 2
+  后约 1998 ms backoff，attempt 3 后 `budget-exhausted`，随后 `fallback-succeeded`。fallback 后
+  MediaSession 仍为 PLAYING，SK02 control/streaming 两接口均重新绑定 `snd-usb-audio`，未观察到第四次尝试
+  或残留 USB ownership；
+- 本轮仍缺物理 detach/re-enumeration 对新 `STALE_RUNTIME` 分支的真机复验；软件注入不能等价替代
+  Android USB detach 广播的真实枚举时序。
+
+2026-08-11 foreground/background 更新：
+
+- 正式 `ExoPlaybackStackFactory` 为初始 stack 和每次 full-mode rebuild 的 replacement stack 统一设置
+  Media3 `C.WAKE_MODE_LOCAL`。播放请求有效时由 Media3 持有 partial wake lock，暂停时自动释放；该改动
+  不改变 PCM 格式、采样率、位深、DSP、prefill 或 USB transport 参数；
+- service 继续独立于 Activity，由 manifest 中的 `MediaSessionService`、`mediaPlayback` foreground service
+  type 与 `WAKE_LOCK` 权限承载。现有 `MediaServiceLifecyclePolicy` 保证有效播放在 task removal 后不主动
+  `stopSelf()`，暂停、空队列或播放结束时才停止；对应 JVM policy 测试通过；
+- `172.17.57.10:38897` 的 QA smoke 中，按 HOME 后 25 秒仍为 `PLAYING`，位置由 13,177 ms 推进至
+  42,114 ms，进程保持；熄屏 35 秒时系统为 `Dozing`，`ExoPlayer:WakeLockManager` partial wake lock
+  持续存在，播放跨曲后仍为 `PLAYING`，两个 SK02 interface 均保持 `usbfs`，未观察到 underrun、fallback
+  或 recovery failure；暂停后位置在 42,585 ms 保持 12 秒不变，wake lock 已释放但 interface 仍为
+  `usbfs`，恢复播放后 wake lock 重新获得。最终 disable cleanup 后两个 interface 均恢复
+  `snd-usb-audio`；
+- 以上只是当时的短时 smoke。后续已在 MIUI 系统豁免条件下完成 90 分钟
+  OemBackground 与受控进程回收；默认 OEM 策略曾在第 7 分钟 `AutoPowerKill`，历史失败
+  证据仍保留。过夜稳定性和其他厂商矩阵仍不在 SK02-only P2 承诺内。
+
+2026-08-11 产品权限 UX/UI 与剩余验收工具更新：
+
+- USB 独占从“诊断”迁入“音频与设备”，按正式设置规范使用方形状态标记、留白分组和文字操作，
+  不使用独立圆角卡片。UI 不从开关推断运行态，而是把 durable intent、SK02 snapshot 与正式
+  `PlaybackOutputFacts` 映射为关闭/待接入/待系统确认/拒绝/连接中/ACTIVE/自动回退/错误状态；状态
+  标题与说明支持可访问性礼貌播报，不依赖颜色传意。拒绝后提供“授权并重试”，并明确 Android 系统
+  弹窗不能静默绕过；同时说明已验证设备、exact-only 处理边界、硬件音量和 SharedPcm fallback。
+  fallback 清除 gate 后 UI 会同步为关闭。2026-08-12 provider/JNI 已晋级 Main source set，入口由
+  `USB_EXCLUSIVE_SK02_AVAILABLE` 控制并进入 Debug/Perf/Release；新正式 preference 确保升级安装仍默认关闭。
+- soak runner 新增 `SharedPcmBaseline`：同一 QA build、同一曲目与采样周期，不申请 USB 权限，
+  通过 sysfs 验证 `snd-usb-audio`，采集同样的 PSS/FD/CPU/电量/温度。1 分钟 smoke 通过，4 个
+  指标样本，PSS 174,636–191,466 KB、FD 174–177、电量 33%→32%、最高 32.9°C；artifact：
+  `.scratch/usb-sk02-soak/20260811-203508/`。这只证明 runner 与短时 SharedPcm 稳定，不能替代
+  请求的 90 分钟 baseline。
+- runner 新增 `OemBackground`：HOME + 熄屏、每样本校验 Exo partial wake lock、播放推进与
+  `usbfs`，并按有界周期用同 UID `kill -9` 模拟非 force-stop 进程回收，随后验证新 PID、恢复播放和
+  重新独占；finally 恢复初始屏幕状态和 kernel driver。当前电量降至约 22–23%，未完成该模式 smoke
+  或长期运行，不能标记为验收通过。
+- 2026-08-11 电量 92% 时启动 90 分钟 `OemBackground`。先修复 runner 对包装后的 ADB
+  `dumpsys power` 输出未扁平化的问题，并用 Pester 合约测试覆盖 `Dozing` 与 Exo wake lock 解析。
+  真正计时后前 6 个一分钟样本全部通过：持续 `Dozing`、播放推进、wake lock 存在、两个 interface
+  保持 `usbfs`，观察到 48 kHz；PSS 125,099–136,178 KB、FD 恒为 143、最高 31.0°C。约第 7 分钟，
+  MIUI `PowerSaveService` 以 `AutoPowerKill` 对仍处于 importance 125 的 QA 前台播放进程发送
+  SIGKILL；`ApplicationExitInfo` 同样记录 `description=stop com.mica.music.qa due to AutoPowerKill`。
+  系统没有自动恢复 MediaSession，runner 在计划的第 30 分钟模拟回收之前即失败；最终 cleanup
+  `cleanupDriversBound=true`，电量 89%。artifact：`.scratch/usb-sk02-soak/20260811-223931/`。
+  这是真实 OEM 后台策略失败，不是 USB transport、内存、温度或 runner 解析失败；在默认设备策略下
+  该轮长期 OEM 后台/系统回收验收明确未通过，后续修复与通过记录不能抹掉这份历史失败证据。
+- 用户将 MIUI 后台/电池策略改为系统豁免后（standby bucket 由 10 变为 5），使用同一 APK、队列和
+  参数复验。进程成功越过上次第 7 分钟的 `AutoPowerKill` 窗口，前 10 个一分钟样本均保持
+  `Dozing`、wake lock、播放推进与 `usbfs`；PSS 126,947–133,086 KB、FD 恒为 143，最高 30.7°C。
+  但约第 12 分钟 native USB 输出记录真实 `underrunBytes=16344 resume=1 elapsedUs=739916776
+  bufferedFrames=4096`，发生在任何计划模拟回收之前；MediaSession 随后仍为 PLAYING，但严格无丢流
+  验收立即失败并完成 driver cleanup，电量 83%。artifact：
+  `.scratch/usb-sk02-soak/20260811-225227/`。该记录不是 runner 对零值的误判；豁免策略解决了早期
+  `AutoPowerKill`，但长期熄屏 USB 调度仍存在至少一次可恢复 underrun，不能标记为通过。
+- OEM smoke 的 full-mode 前置切换暴露一次可恢复的 `AudioTrack write failed: 10001`：
+  `UsbDirectPcm → SharedPcm` candidate 在旧 USB session 释放前开始向系统 USB route 写入，Media3
+  随后自愈且位置继续推进。证据：`.scratch/usb-sk02-soak/20260811-203640/`。现已参考
+  NeriPlayer 的 release barrier 改为 break-before-make：candidate 只 stage 队列，旧 player 与同步 USB
+  cleanup 完成后才允许 prepare/activate；并补充确定性交错测试，证明 release 完成前 candidate 不会
+  激活、新 generation 不能越过 retirement。Debug 全量单测与 Release Kotlin 编译通过，但尚未在
+  SK02 真机复验，因此当前只能标记为“实现完成、待验证”，不能声称 `10001` 已消失。长期 OEM
+  测试与自动 fallback 的最终验收仍受设备电量条件约束。
 
 **5–8 工程日**；累计到可供开发者日用的 SK02-only beta 约 **2–3 周**。
 
@@ -685,9 +907,9 @@ DSF/DFF handoff 与 DAC matrix。
 - [x] 强杀后显式 reconnect；
 - [x] 两模式自动化与完成通知；
 - [x] 一个完整 90 分钟 Continuous 长测通过（P1 真实接入路径）；
-- [ ] 一个完整 90 分钟 Lifecycle 长测通过；
-- [ ] 人工听感无明显 click/dropout（迁移到 P1/P2）；
-- [ ] SharedPcm baseline 与正式包无影响复核（必须在生产接入后完成）。
+- [x] 一个完整 90 分钟 Lifecycle 长测通过；
+- [x] Perf 真机人工听感矩阵完成，无可重复 click/dropout（2026-08-12，详见 `USB_EXCLUSIVE_LISTENING_ACCEPTANCE.md`）；
+- [x] SharedPcm 90 分钟 baseline 与默认路径复核通过（2026-08-12，73 个样本）。
 
 ### 16.2 Production PCM
 
@@ -698,9 +920,13 @@ DSF/DFF handoff 与 DAC matrix。
 - [x] P2 SK02 snapshot、代际化 permission request/result、physical detach 失效/释放基础与
   stale callback/side-effect boundary 确定性交错测试；
 - [x] P2 debug gate full-mode rebuild、MediaSession player 切换、队列/位置/播放意图迁移与
-  stale candidate/serialized publication 确定性交错测试（实体机 smoke 待完成）；
+  stale candidate/serialized publication 确定性交错测试（实体机 smoke 已完成）；
+- [x] P2 自动 health 分类、1/2 秒 bounded recovery backoff、三次失败后显式 SharedPcm fallback 与
+  stale health/fallback side-effect boundary 确定性交错测试（真机三连失败注入已完成）；
+- [x] P2 本地播放 wake policy、Activity 切后台与锁屏/暂停 smoke，以及 MIUI 豁免条件下 90 分钟 OEM 后台/受控系统回收；
 - [ ] P3 通用 UAC1/UAC2 parser、通用 format/fallback 与多 DAC identity/reconnect；
-- [ ] attach 自动策略、permission/detach UX、process death durable recovery、后台策略；
+- [x] attach/permission/detach 正式产品 UX/UI，已进入 Debug/Perf/Release，默认关闭；
+- [x] 单台 MIUI/SK02、系统豁免条件下 90 分钟 OEM 后台与两次受控进程死亡恢复通过；真实 OEM 低内存/厂商矩阵仍属发布矩阵边界；
 - [ ] UAC1 + 多个 UAC2 DAC；
 - [ ] PCM16/24/32 与 44.1/48 系/高采样率矩阵；
 - [ ] 资源上界、厂商矩阵、音质行为确认；
@@ -727,23 +953,12 @@ DSF/DFF handoff 与 DAC matrix。
 
 ## 18. 下一步
 
-1. 冻结 P0 throwaway prototype：不再以补两个 90 分钟为进入 P1 的前置条件，也不继续堆 UI；
-   保留现有 runner、failure artifacts、约 48 分钟 Continuous 和全部专项回归作为基线；
-2. 进入 P1，先抽取 production contract：正式 session owner、device/capability/format/session/
-   transport interface、generation seam 与 requested/active/fallback facts；release 继续 fail-fast；
-3. 把 generation 与 Native telemetry 两类确定性交错测试迁移为 production 回归门槛，保持
-   underrun fail-fast、20 ms prefill 和 20% 电量安全线；
-4. P1 开始实现前确定 bit-perfect、DSP、音量与 fallback contract；任何可能降低音质的默认
-   行为仍需另行取得明确许可；
-5. 待 SK02 production path 可运行后，再分别执行完整 90 分钟 `Lifecycle` 与 `Continuous`。
-   两轮需独立满电启动，并由后台 runner + summary 监控，不由外层调用超时控制生命周期；
-6. 在同一 production build 上运行同媒体、同采样周期的 SharedPcm baseline，比较 PSS、FD、
-   CPU、耗电和温度，并复核正式包默认路径未受影响；
-7. 在 production path 完成人工听感，重点记录 click、dropout、切歌、seek、暂停恢复和强杀恢复；
-8. 有源 OTG/hub 或第二 DAC 若以后可用，作为新拓扑/新设备单独验证，不能把结果默认为与当前
-   手机直连 SK02 等价。
+1. 冻结 SK02-only P2 基线：Release/Perf 默认关闭，exact-only/fail-closed 和 generation/副作用串行协议不得退化。
+2. 将 96 kHz 冷 seek 延迟、BUFFERING 期间暂停图标、USB↔SharedPcm 恢复延迟作为产品体验后续项；修复不得以降低位深、重采样或默认开 DSP 换取速度。
+3. 保留 `maximumDataCompletionGapUs=16811` 的后台峰值作为 P4/过夜稳定性观测基线；当前无 underrun，不伪造成已证明所有 OEM 调度安全。
+4. P3 只能从通用 UAC1/UAC2 parser、format/fallback contract、identity/reconnect 和真实 DAC 矩阵向前推进；没有新硬件时不得把 SK02 结果复制为通用结论。
 
-当前交接点：**P0 原型工程收口，下一项是 P1 production contract；release fail-fast 不得移除。**
+当前交接点：**SK02-only P2 完成；下一阶段是 P3 通用 DAC，P4 继续承接过夜/OEM 稳定性与体验优化。**
 
 ---
 

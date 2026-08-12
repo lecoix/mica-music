@@ -22,6 +22,7 @@ internal class ServicePlaybackStateCoordinator(
     private var pendingRestore = if (restorePersistedState) store.load() else null
     private var qualityMode = initialQualityMode
     private var released = false
+    private var explicitPlayRequestedDuringRestore = false
     private var queueRevision = pendingRestore?.queueRevision ?: 0L
     private var lastPersistedPositionMs = Long.MIN_VALUE
     private var lastPersistedQueueIds: List<String>? = null
@@ -55,6 +56,7 @@ internal class ServicePlaybackStateCoordinator(
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            onExplicitPlaybackIntent(playWhenReady)
             persistCursor(force = true)
         }
 
@@ -91,6 +93,12 @@ internal class ServicePlaybackStateCoordinator(
         persistCursor(force = true)
     }
 
+    fun onExplicitPlaybackIntent(playWhenReady: Boolean) {
+        if (pendingRestore != null) {
+            explicitPlayRequestedDuringRestore = playWhenReady
+        }
+    }
+
     fun release() {
         released = true
         handler.removeCallbacks(periodicPersist)
@@ -114,14 +122,15 @@ internal class ServicePlaybackStateCoordinator(
         }
         player.repeatMode = restore.repeatMode
         player.shuffleModeEnabled = false
-        player.playWhenReady = false
+        player.playWhenReady = explicitPlayRequestedDuringRestore
         player.playbackParameters = restore.playbackTuning.toPlaybackParameters()
         player.seekTo(restore.currentIndex, restore.positionMs)
         player.prepare()
         DiagnosticLog.event(
             "PlaybackRestore",
             "service restored index=${restore.currentIndex} positionMs=${restore.positionMs} " +
-                "savedPlayWhenReady=${snapshot.playWhenReady} resumed=false",
+                "savedPlayWhenReady=${snapshot.playWhenReady} " +
+                "resumed=$explicitPlayRequestedDuringRestore",
         )
         persistQueue(externalSongs = currentExternalSongs())
         persistCursor(force = true)

@@ -44,6 +44,7 @@ class MicaCompositePlayer(
     }
 
     internal var playbackCoordinator: ServicePlaybackEngineCoordinator? = null
+    internal var onPlaybackIntentChanged: ((Boolean) -> Unit)? = null
 
     private var queueRevision: Long = 0L
 
@@ -183,6 +184,7 @@ class MicaCompositePlayer(
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
+        onPlaybackIntentChanged?.invoke(playWhenReady)
         if (playWhenReady) {
             playbackCoordinator?.playCurrent() ?: super.setPlayWhenReady(true)
         } else {
@@ -191,10 +193,12 @@ class MicaCompositePlayer(
     }
 
     override fun play() {
+        onPlaybackIntentChanged?.invoke(true)
         playbackCoordinator?.playCurrent() ?: super.play()
     }
 
     override fun pause() {
+        onPlaybackIntentChanged?.invoke(false)
         super.pause()
     }
 

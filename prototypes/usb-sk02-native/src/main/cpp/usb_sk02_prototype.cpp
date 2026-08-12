@@ -6,6 +6,7 @@
 #include <android/log.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -21,6 +22,9 @@
 #include <vector>
 
 #include "usb_underrun_accounting.h"
+#include "sk02_feedback_rate_filter.h"
+#include "sk02_iso_ahead_window.h"
+#include "sk02_stream_metrics.h"
 
 namespace {
 
@@ -261,6 +265,7 @@ public:
         if (source == nullptr || length <= 0 || length % bytes_per_frame != 0) return 0;
         std::lock_guard<std::mutex> guard(mutex);
         if (stop_requested.load(std::memory_order_acquire) || error_code.load() != 0) return 0;
+        const size_t buffered_before_write = ring_size + in_flight_source_bytes;
         const size_t writable = ring.size() - ring_size;
         const size_t aligned = std::min(
             static_cast<size_t>(length),
@@ -270,6 +275,34 @@ public:
             ring_tail = (ring_tail + 1U) % ring.size();
         }
         ring_size += aligned;
+        if (aligned > 0) {
+            const long long written_ns = now_ns();
+            const long long previous_ns =
+                last_successful_write_ns.exchange(written_ns, std::memory_order_acq_rel);
+            if (previous_ns > 0) {
+                const long long gap_us = (written_ns - previous_ns) / 1'000;
+                previous_successful_write_gap_us.store(gap_us, std::memory_order_release);
+                update_max(max_successful_write_gap_us, gap_us);
+                if (gap_us >= 200'000) {
+                    __android_log_print(
+                        ANDROID_LOG_WARN,
+                        kLogTag,
+                        "[DEBUG-pcm-write-gap-71c2] generation=%lld gapUs=%lld "
+                        "bufferedBeforeFrames=%zu bufferedAfterFrames=%zu acceptedBytes=%zu "
+                        "minimumBufferedFrames=%zu queuedBytes=%llu completedBytes=%llu",
+                        expected_generation,
+                        gap_us,
+                        buffered_before_write / static_cast<size_t>(bytes_per_frame),
+                        (ring_size + in_flight_source_bytes) /
+                            static_cast<size_t>(bytes_per_frame),
+                        aligned,
+                        minimum_buffered_source_bytes.load(std::memory_order_acquire) /
+                            static_cast<size_t>(bytes_per_frame),
+                        queued_bytes.load(std::memory_order_acquire),
+                        completed_source_bytes.load(std::memory_order_acquire));
+                }
+            }
+        }
         queued_bytes.fetch_add(static_cast<unsigned long long>(aligned));
         condition.notify_all();
         return static_cast<int>(aligned);
@@ -278,8 +311,18 @@ public:
     void set_playing(const bool value) {
         const bool previous = playing.exchange(value, std::memory_order_acq_rel);
         if (value && !previous) {
-            resume_started_ns.store(now_ns(), std::memory_order_release);
+            {
+                std::lock_guard<std::mutex> guard(mutex);
+                minimum_buffered_source_bytes.store(
+                    ring_size + in_flight_source_bytes,
+                    std::memory_order_release);
+            }
+            const long long started_ns = now_ns();
+            resume_started_ns.store(started_ns, std::memory_order_release);
             underrun_logged_for_resume.store(false, std::memory_order_release);
+            last_successful_write_ns.store(0, std::memory_order_release);
+            previous_successful_write_gap_us.store(0, std::memory_order_release);
+            max_successful_write_gap_us.store(0, std::memory_order_release);
         }
         condition.notify_all();
     }
@@ -311,6 +354,109 @@ public:
             (ring_size + in_flight_source_bytes) / static_cast<size_t>(bytes_per_frame));
     }
 
+    long long buffer_capacity_frames_value() const {
+        return static_cast<long long>(ring.size() / static_cast<size_t>(bytes_per_frame));
+    }
+
+    long long minimum_buffered_frames_value() const {
+        const auto minimum = minimum_buffered_source_bytes.load(std::memory_order_acquire);
+        return static_cast<long long>(minimum / static_cast<size_t>(bytes_per_frame));
+    }
+
+    long long accepted_pcm_bytes_value() const {
+        return static_cast<long long>(queued_bytes.load(std::memory_order_acquire));
+    }
+
+    long long previous_successful_write_gap_us_value() const {
+        return previous_successful_write_gap_us.load(std::memory_order_acquire);
+    }
+
+    long long maximum_successful_write_gap_us_value() const {
+        return max_successful_write_gap_us.load(std::memory_order_acquire);
+    }
+
+    long long previous_data_completion_gap_us_value() const {
+        return previous_data_completion_gap_us.load(std::memory_order_acquire);
+    }
+
+    long long maximum_data_completion_gap_us_value() const {
+        return max_data_completion_gap_us.load(std::memory_order_acquire);
+    }
+
+    long long previous_feedback_completion_gap_us_value() const {
+        return previous_feedback_completion_gap_us.load(std::memory_order_acquire);
+    }
+
+    long long maximum_feedback_completion_gap_us_value() const {
+        return max_feedback_completion_gap_us.load(std::memory_order_acquire);
+    }
+
+    long long total_poll_timeouts_value() const {
+        return total_poll_timeouts.load(std::memory_order_acquire);
+    }
+
+    long long maximum_consecutive_poll_timeouts_value() const {
+        return max_consecutive_poll_timeouts.load(std::memory_order_acquire);
+    }
+
+    long long invalid_feedback_packet_count_value() const {
+        return invalid_feedback_packet_count.load(std::memory_order_acquire);
+    }
+
+    long long data_packet_error_count_value() const {
+        return data_packet_error_count.load(std::memory_order_acquire);
+    }
+
+    long long current_feedback_q16_value() const {
+        return static_cast<long long>(current_feedback_q16.load(std::memory_order_acquire));
+    }
+
+    long long minimum_feedback_q16_value() const {
+        return static_cast<long long>(minimum_feedback_q16.load(std::memory_order_acquire));
+    }
+
+    long long maximum_feedback_q16_value() const {
+        return static_cast<long long>(maximum_feedback_q16.load(std::memory_order_acquire));
+    }
+
+    long long maximum_feedback_step_q16_value() const {
+        return static_cast<long long>(maximum_feedback_step_q16.load(std::memory_order_acquire));
+    }
+
+    long long trusted_feedback_q16_value() const {
+        return static_cast<long long>(trusted_feedback_q16.load(std::memory_order_acquire));
+    }
+
+    long long feedback_filter_intervention_count_value() const {
+        return static_cast<long long>(
+            feedback_filter_intervention_count.load(std::memory_order_acquire));
+    }
+
+    std::array<long long, 17> diagnostic_metrics_value() const {
+        return {
+            static_cast<long long>(scheduled_packet_count.load(std::memory_order_acquire)),
+            static_cast<long long>(scheduled_frame_count.load(std::memory_order_acquire)),
+            static_cast<long long>(out_of_nominal_request_count.load(std::memory_order_acquire)),
+            static_cast<long long>(
+                max_consecutive_out_of_nominal_requests.load(std::memory_order_acquire)),
+            static_cast<long long>(minimum_frames_per_packet.load(std::memory_order_acquire)),
+            static_cast<long long>(maximum_frames_per_packet.load(std::memory_order_acquire)),
+            static_cast<long long>(maximum_packet_frame_step.load(std::memory_order_acquire)),
+            schedule_deviation_frames.load(std::memory_order_acquire),
+            static_cast<long long>(observed_pcm_frames.load(std::memory_order_acquire)),
+            static_cast<long long>(zero_pcm_frame_count.load(std::memory_order_acquire)),
+            static_cast<long long>(max_consecutive_zero_pcm_frames.load(std::memory_order_acquire)),
+            static_cast<long long>(repeated_pcm_frame_count.load(std::memory_order_acquire)),
+            static_cast<long long>(
+                max_consecutive_repeated_pcm_frames.load(std::memory_order_acquire)),
+            static_cast<long long>(duplicate_pcm_request_count.load(std::memory_order_acquire)),
+            static_cast<long long>(
+                max_consecutive_duplicate_pcm_requests.load(std::memory_order_acquire)),
+            static_cast<long long>(max_adjacent_sample_delta.load(std::memory_order_acquire)),
+            static_cast<long long>(max_request_boundary_sample_delta.load(std::memory_order_acquire)),
+        };
+    }
+
     long long underrun_bytes_value() const {
         return static_cast<long long>(underrun_bytes.load(std::memory_order_acquire));
     }
@@ -323,6 +469,56 @@ private:
     static long long now_ns() {
         return std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
+    static void update_max(std::atomic<long long>& maximum, const long long candidate) {
+        long long observed = maximum.load(std::memory_order_acquire);
+        while (candidate > observed &&
+               !maximum.compare_exchange_weak(
+                   observed,
+                   candidate,
+                   std::memory_order_acq_rel,
+                   std::memory_order_acquire)) {
+        }
+    }
+
+    static void update_max(
+        std::atomic<unsigned long>& maximum,
+        const unsigned long candidate) {
+        unsigned long observed = maximum.load(std::memory_order_acquire);
+        while (candidate > observed &&
+               !maximum.compare_exchange_weak(
+                   observed,
+                   candidate,
+                   std::memory_order_acq_rel,
+                   std::memory_order_acquire)) {
+        }
+    }
+
+    static void update_min(
+        std::atomic<unsigned long>& minimum,
+        const unsigned long candidate) {
+        unsigned long observed = minimum.load(std::memory_order_acquire);
+        while (candidate < observed &&
+               !minimum.compare_exchange_weak(
+                   observed,
+                   candidate,
+                   std::memory_order_acq_rel,
+                   std::memory_order_acquire)) {
+        }
+    }
+
+    void update_minimum_buffered_source_bytes_locked() {
+        if (!playing.load(std::memory_order_acquire)) return;
+        const size_t candidate = ring_size + in_flight_source_bytes;
+        size_t observed = minimum_buffered_source_bytes.load(std::memory_order_acquire);
+        while (candidate < observed &&
+               !minimum_buffered_source_bytes.compare_exchange_weak(
+                   observed,
+                   candidate,
+                   std::memory_order_acq_rel,
+                   std::memory_order_acquire)) {
+        }
     }
 
     bool is_current() const {
@@ -349,17 +545,19 @@ private:
         const size_t accounted = std::min(bytes, in_flight_source_bytes);
         in_flight_source_bytes -= accounted;
         completed_source_bytes.fetch_add(static_cast<unsigned long long>(accounted));
+        update_minimum_buffered_source_bytes_locked();
     }
 
     void abandon_source(const size_t bytes) {
         std::lock_guard<std::mutex> guard(mutex);
         in_flight_source_bytes -= std::min(bytes, in_flight_source_bytes);
+        update_minimum_buffered_source_bytes_locked();
     }
 
     void run() {
-        constexpr int kDataQueueDepth = 8;
+        constexpr int kDataQueueDepth = static_cast<int>(sk02::iso::kDataQueueDepth);
         constexpr int kFeedbackQueueDepth = 4;
-        constexpr int kDataPackets = 8;
+        constexpr int kDataPackets = static_cast<int>(sk02::iso::kDataPacketsPerTransfer);
         const unsigned long initial_feedback =
             static_cast<unsigned long>(sample_rate_hz) * 65'536UL / 8'000UL;
 
@@ -389,9 +587,25 @@ private:
         if (stop_requested.load(std::memory_order_acquire) || !is_current()) return;
 
         unsigned long feedback = initial_feedback;
+        unsigned long previous_raw_feedback = initial_feedback;
+        Sk02FeedbackRateFilter feedback_filter(initial_feedback);
+        current_feedback_q16.store(initial_feedback, std::memory_order_release);
+        minimum_feedback_q16.store(initial_feedback, std::memory_order_release);
+        maximum_feedback_q16.store(initial_feedback, std::memory_order_release);
+        trusted_feedback_q16.store(initial_feedback, std::memory_order_release);
         unsigned long long phase = 0;
+        long long last_data_completion_ns = 0;
+        long long previous_data_completion_gap_us = 0;
+        long long max_data_completion_gap_us = 0;
+        long long last_feedback_completion_ns = 0;
+        long long previous_feedback_completion_gap_us = 0;
+        long long max_feedback_completion_gap_us = 0;
+        unsigned long long consecutive_poll_timeouts = 0;
+        Sk02PacketScheduleMetrics schedule_metrics;
+        Sk02PcmContinuityMetrics pcm_metrics;
         const auto fill_data = [&](IsoRequest& request) {
             int total = 0;
+            std::array<std::uint32_t, kDataPackets> scheduled_frames{};
             for (int packet = 0; packet < kDataPackets; ++packet) {
                 phase += feedback;
                 const unsigned long frames = static_cast<unsigned long>(phase >> 16);
@@ -405,6 +619,7 @@ private:
                 request.urb->iso_frame_desc[packet].actual_length = 0;
                 request.urb->iso_frame_desc[packet].status = 0;
                 total += static_cast<int>(bytes);
+                scheduled_frames[packet] = bytes / static_cast<unsigned int>(bytes_per_frame);
             }
             request.urb->buffer_length = total;
             request.urb->status = 0;
@@ -412,6 +627,65 @@ private:
             const SourceTakeResult take =
                 take_source(request.buffer.data(), static_cast<size_t>(total));
             request.source_bytes = take.bytes;
+            if (take.playing_when_taken) {
+                schedule_metrics.observe_request(
+                    scheduled_frames.data(),
+                    scheduled_frames.size(),
+                    static_cast<std::uint32_t>(sample_rate_hz));
+                scheduled_packet_count.store(
+                    schedule_metrics.total_packets,
+                    std::memory_order_release);
+                scheduled_frame_count.store(
+                    schedule_metrics.total_frames,
+                    std::memory_order_release);
+                out_of_nominal_request_count.store(
+                    schedule_metrics.out_of_nominal_request_count,
+                    std::memory_order_release);
+                max_consecutive_out_of_nominal_requests.store(
+                    schedule_metrics.maximum_consecutive_out_of_nominal_requests,
+                    std::memory_order_release);
+                minimum_frames_per_packet.store(
+                    schedule_metrics.published_minimum_frames_per_packet(),
+                    std::memory_order_release);
+                maximum_frames_per_packet.store(
+                    schedule_metrics.maximum_frames_per_packet,
+                    std::memory_order_release);
+                maximum_packet_frame_step.store(
+                    schedule_metrics.maximum_packet_frame_step,
+                    std::memory_order_release);
+                schedule_deviation_frames.store(
+                    schedule_metrics.schedule_deviation_frames,
+                    std::memory_order_release);
+            }
+            if (request.source_bytes > 0) {
+                pcm_metrics.observe_request(
+                    request.buffer.data(),
+                    request.source_bytes,
+                    bytes_per_frame);
+                observed_pcm_frames.store(pcm_metrics.observed_frames, std::memory_order_release);
+                zero_pcm_frame_count.store(pcm_metrics.zero_frame_count, std::memory_order_release);
+                max_consecutive_zero_pcm_frames.store(
+                    pcm_metrics.maximum_consecutive_zero_frames,
+                    std::memory_order_release);
+                repeated_pcm_frame_count.store(
+                    pcm_metrics.repeated_frame_count,
+                    std::memory_order_release);
+                max_consecutive_repeated_pcm_frames.store(
+                    pcm_metrics.maximum_consecutive_repeated_frames,
+                    std::memory_order_release);
+                duplicate_pcm_request_count.store(
+                    pcm_metrics.duplicate_request_count,
+                    std::memory_order_release);
+                max_consecutive_duplicate_pcm_requests.store(
+                    pcm_metrics.maximum_consecutive_duplicate_requests,
+                    std::memory_order_release);
+                max_adjacent_sample_delta.store(
+                    pcm_metrics.maximum_adjacent_sample_delta,
+                    std::memory_order_release);
+                max_request_boundary_sample_delta.store(
+                    pcm_metrics.maximum_request_boundary_sample_delta,
+                    std::memory_order_release);
+            }
             if (request.source_bytes < static_cast<size_t>(total)) {
                 std::fill(
                     request.buffer.begin() + static_cast<std::ptrdiff_t>(request.source_bytes),
@@ -425,17 +699,32 @@ private:
                     bool expected = false;
                     if (underrun_logged_for_resume.compare_exchange_strong(expected, true)) {
                         const long long started = resume_started_ns.load(std::memory_order_acquire);
-                        const long long elapsed_us = started == 0 ? -1 : (now_ns() - started) / 1'000;
+                        const long long observed_ns = now_ns();
+                        const long long elapsed_us =
+                            started == 0 ? -1 : (observed_ns - started) / 1'000;
+                        const long long last_write_ns =
+                            last_successful_write_ns.load(std::memory_order_acquire);
+                        const long long since_last_write_us =
+                            last_write_ns == 0 ? -1 : (observed_ns - last_write_ns) / 1'000;
                         __android_log_print(
                             ANDROID_LOG_ERROR,
                             kLogTag,
-                            "[DEBUG-resume-timing] underrun elapsedUs=%lld requestedBytes=%d sourceBytes=%zu missingBytes=%llu queuedBytes=%llu completedBytes=%llu",
+                            "[DEBUG-underrun-cause-a81f] elapsedUs=%lld requestedBytes=%d sourceBytes=%zu missingBytes=%llu queuedBytes=%llu completedBytes=%llu sinceLastWriteUs=%lld previousWriteGapUs=%lld maxWriteGapUs=%lld previousDataCompletionGapUs=%lld maxDataCompletionGapUs=%lld previousFeedbackCompletionGapUs=%lld maxFeedbackCompletionGapUs=%lld consecutivePollTimeouts=%llu feedback=%lu",
                             elapsed_us,
                             total,
                             request.source_bytes,
                             missing,
                             queued_bytes.load(std::memory_order_acquire),
-                            completed_source_bytes.load(std::memory_order_acquire));
+                            completed_source_bytes.load(std::memory_order_acquire),
+                            since_last_write_us,
+                            previous_successful_write_gap_us.load(std::memory_order_acquire),
+                            max_successful_write_gap_us.load(std::memory_order_acquire),
+                            previous_data_completion_gap_us,
+                            max_data_completion_gap_us,
+                            previous_feedback_completion_gap_us,
+                            max_feedback_completion_gap_us,
+                            consecutive_poll_timeouts,
+                            feedback);
                     }
                 }
             }
@@ -460,7 +749,14 @@ private:
                !stop_requested.load(std::memory_order_acquire) && is_current()) {
             pollfd poll_descriptor{fd, POLLOUT, 0};
             const int poll_result = poll(&poll_descriptor, 1, 100);
-            if (poll_result == 0) continue;
+            if (poll_result == 0) {
+                ++consecutive_poll_timeouts;
+                total_poll_timeouts.fetch_add(1, std::memory_order_acq_rel);
+                update_max(
+                    max_consecutive_poll_timeouts,
+                    static_cast<long long>(consecutive_poll_timeouts));
+                continue;
+            }
             if (poll_result < 0) {
                 if (errno == EINTR) continue;
                 error_code.store(errno == 0 ? EIO : errno, std::memory_order_release);
@@ -472,6 +768,7 @@ private:
                 error_code.store(errno == 0 ? EIO : errno, std::memory_order_release);
                 break;
             }
+            consecutive_poll_timeouts = 0;
             IsoRequest* completed = nullptr;
             for (const auto& request : requests) {
                 if (request->urb == completed_pointer) {
@@ -490,16 +787,70 @@ private:
                 error_code.store(EIO, std::memory_order_release);
                 break;
             }
+            const long long completed_ns = now_ns();
             if (completed->feedback) {
+                if (last_feedback_completion_ns > 0) {
+                    previous_feedback_completion_gap_us =
+                        (completed_ns - last_feedback_completion_ns) / 1'000;
+                    max_feedback_completion_gap_us = std::max(
+                        max_feedback_completion_gap_us,
+                        previous_feedback_completion_gap_us);
+                    this->previous_feedback_completion_gap_us.store(
+                        previous_feedback_completion_gap_us,
+                        std::memory_order_release);
+                    update_max(
+                        this->max_feedback_completion_gap_us,
+                        max_feedback_completion_gap_us);
+                }
+                last_feedback_completion_ns = completed_ns;
                 const auto& packet = completed->urb->iso_frame_desc[0];
                 if (packet.status == 0 && packet.actual_length == 4) {
                     unsigned long value = 0;
                     for (int index = 0; index < 4; ++index) {
                         value |= static_cast<unsigned long>(completed->buffer[index]) << (index * 8);
                     }
-                    if (value >= 1UL * 65'536UL && value <= 64UL * 65'536UL) feedback = value;
+                    if (value >= 1UL * 65'536UL && value <= 64UL * 65'536UL) {
+                        current_feedback_q16.store(value, std::memory_order_release);
+                        update_min(minimum_feedback_q16, value);
+                        update_max(maximum_feedback_q16, value);
+                        const unsigned long step = value >= previous_raw_feedback ?
+                            value - previous_raw_feedback : previous_raw_feedback - value;
+                        previous_raw_feedback = value;
+                        update_max(maximum_feedback_step_q16, step);
+                        const unsigned long trusted = feedback_filter.ingest(value);
+                        if (trusted != value) {
+                            feedback_filter_intervention_count.fetch_add(
+                                1,
+                                std::memory_order_acq_rel);
+                        }
+                        // The estimator is counterfactual diagnostics only. The listening A/B did
+                        // not remove the stutter, so raw device feedback remains authoritative.
+                        feedback = value;
+                        trusted_feedback_q16.store(trusted, std::memory_order_release);
+                    } else {
+                        invalid_feedback_packet_count.fetch_add(1, std::memory_order_acq_rel);
+                    }
+                } else {
+                    invalid_feedback_packet_count.fetch_add(1, std::memory_order_acq_rel);
                 }
             } else {
+                if (last_data_completion_ns > 0) {
+                    previous_data_completion_gap_us =
+                        (completed_ns - last_data_completion_ns) / 1'000;
+                    max_data_completion_gap_us = std::max(
+                        max_data_completion_gap_us,
+                        previous_data_completion_gap_us);
+                    this->previous_data_completion_gap_us.store(
+                        previous_data_completion_gap_us,
+                        std::memory_order_release);
+                    update_max(this->max_data_completion_gap_us, max_data_completion_gap_us);
+                }
+                last_data_completion_ns = completed_ns;
+                for (int packet = 0; packet < kDataPackets; ++packet) {
+                    if (completed->urb->iso_frame_desc[packet].status != 0) {
+                        data_packet_error_count.fetch_add(1, std::memory_order_acq_rel);
+                    }
+                }
                 complete_source(completed->source_bytes);
                 completed->source_bytes = 0;
             }
@@ -550,7 +901,42 @@ private:
     std::atomic<unsigned long long> queued_bytes{0};
     std::atomic<unsigned long long> completed_source_bytes{0};
     std::atomic<unsigned long long> underrun_bytes{0};
+    std::atomic<size_t> minimum_buffered_source_bytes{0};
     std::atomic<long long> resume_started_ns{0};
+    std::atomic<long long> last_successful_write_ns{0};
+    std::atomic<long long> previous_successful_write_gap_us{0};
+    std::atomic<long long> max_successful_write_gap_us{0};
+    std::atomic<long long> previous_data_completion_gap_us{0};
+    std::atomic<long long> max_data_completion_gap_us{0};
+    std::atomic<long long> previous_feedback_completion_gap_us{0};
+    std::atomic<long long> max_feedback_completion_gap_us{0};
+    std::atomic<long long> total_poll_timeouts{0};
+    std::atomic<long long> max_consecutive_poll_timeouts{0};
+    std::atomic<long long> invalid_feedback_packet_count{0};
+    std::atomic<long long> data_packet_error_count{0};
+    std::atomic<unsigned long> current_feedback_q16{0};
+    std::atomic<unsigned long> minimum_feedback_q16{0};
+    std::atomic<unsigned long> maximum_feedback_q16{0};
+    std::atomic<unsigned long> maximum_feedback_step_q16{0};
+    std::atomic<unsigned long> trusted_feedback_q16{0};
+    std::atomic<unsigned long long> feedback_filter_intervention_count{0};
+    std::atomic<unsigned long long> scheduled_packet_count{0};
+    std::atomic<unsigned long long> scheduled_frame_count{0};
+    std::atomic<unsigned long long> out_of_nominal_request_count{0};
+    std::atomic<unsigned long long> max_consecutive_out_of_nominal_requests{0};
+    std::atomic<unsigned long> minimum_frames_per_packet{0};
+    std::atomic<unsigned long> maximum_frames_per_packet{0};
+    std::atomic<unsigned long> maximum_packet_frame_step{0};
+    std::atomic<long long> schedule_deviation_frames{0};
+    std::atomic<unsigned long long> observed_pcm_frames{0};
+    std::atomic<unsigned long long> zero_pcm_frame_count{0};
+    std::atomic<unsigned long long> max_consecutive_zero_pcm_frames{0};
+    std::atomic<unsigned long long> repeated_pcm_frame_count{0};
+    std::atomic<unsigned long long> max_consecutive_repeated_pcm_frames{0};
+    std::atomic<unsigned long long> duplicate_pcm_request_count{0};
+    std::atomic<unsigned long long> max_consecutive_duplicate_pcm_requests{0};
+    std::atomic<unsigned long long> max_adjacent_sample_delta{0};
+    std::atomic<unsigned long long> max_request_boundary_sample_delta{0};
     std::atomic<bool> underrun_logged_for_resume{false};
     std::thread worker;
 };
@@ -998,6 +1384,195 @@ Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3BufferedF
     jlong handle) {
     auto* session = reinterpret_cast<Media3StreamSession*>(handle);
     return session == nullptr ? 0 : session->buffered_frames_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3BufferCapacityFrames(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->buffer_capacity_frames_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MinimumBufferedFrames(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->minimum_buffered_frames_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3AcceptedPcmBytes(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->accepted_pcm_bytes_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3PreviousSuccessfulWriteGapUs(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->previous_successful_write_gap_us_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MaximumSuccessfulWriteGapUs(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->maximum_successful_write_gap_us_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3PreviousDataCompletionGapUs(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->previous_data_completion_gap_us_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MaximumDataCompletionGapUs(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->maximum_data_completion_gap_us_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3PreviousFeedbackCompletionGapUs(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->previous_feedback_completion_gap_us_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MaximumFeedbackCompletionGapUs(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->maximum_feedback_completion_gap_us_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3TotalPollTimeouts(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->total_poll_timeouts_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MaximumConsecutivePollTimeouts(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->maximum_consecutive_poll_timeouts_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3InvalidFeedbackPacketCount(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->invalid_feedback_packet_count_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3DataPacketErrorCount(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->data_packet_error_count_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3CurrentFeedbackQ16(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->current_feedback_q16_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MinimumFeedbackQ16(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->minimum_feedback_q16_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MaximumFeedbackQ16(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->maximum_feedback_q16_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3MaximumFeedbackStepQ16(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->maximum_feedback_step_q16_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3TrustedFeedbackQ16(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->trusted_feedback_q16_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3FeedbackFilterInterventionCount(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? 0 : session->feedback_filter_intervention_count_value();
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getMedia3DiagnosticMetrics(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    if (session == nullptr) return env->NewLongArray(0);
+    const auto metrics = session->diagnostic_metrics_value();
+    jlongArray result = env->NewLongArray(static_cast<jsize>(metrics.size()));
+    if (result == nullptr) return nullptr;
+    env->SetLongArrayRegion(
+        result,
+        0,
+        static_cast<jsize>(metrics.size()),
+        reinterpret_cast<const jlong*>(metrics.data()));
+    return result;
 }
 
 extern "C" JNIEXPORT jlong JNICALL

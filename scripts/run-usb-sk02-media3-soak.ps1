@@ -1,6 +1,6 @@
 param(
     [string]$Serial,
-    [ValidateSet("Continuous", "Lifecycle", "CrashRecovery", "ResumeStress", "RebuildResumeStress", "BoundaryResumeStress")]
+    [ValidateSet("SharedPcmBaseline", "Continuous", "Lifecycle", "CrashRecovery", "OemBackground", "ResumeStress", "RebuildResumeStress", "BoundaryResumeStress")]
     [string]$Mode = "Lifecycle",
     [ValidateRange(1, 1440)]
     [int]$DurationMinutes = 10,
@@ -16,6 +16,8 @@ param(
     [int]$SampleIntervalSeconds = 60,
     [ValidateRange(1, 1000)]
     [int]$EvidenceEverySamples = 30,
+    [ValidateRange(0, 1000)]
+    [int]$ReclaimEverySamples = 30,
     [ValidateRange(5, 100)]
     [int]$MinimumBatteryLevel = 20,
     [ValidateRange(30, 60)]
@@ -30,6 +32,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "usb-sk02-media3-soak-contract.ps1")
 $adb = Join-Path $root ".codex-android-sdk\platform-tools\adb.exe"
 $gradle = Join-Path $root "gradlew.bat"
 $apk = Join-Path $root "app\build\outputs\apk\debug\app-debug.apk"
@@ -59,6 +62,7 @@ $maxPssKb = $null
 $minFdCount = $null
 $maxFdCount = $null
 $maxBatteryTempC = $null
+$initialWakefulness = $null
 
 New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
 
@@ -208,6 +212,11 @@ function Write-MetricSample {
     if ($null -eq $script:maxBatteryTempC -or $batteryTempC -gt $script:maxBatteryTempC) {
         $script:maxBatteryTempC = $batteryTempC
     }
+    $power = if ($Mode -eq "OemBackground") {
+        Get-PowerSnapshot
+    } else {
+        [pscustomobject]@{ Wakefulness = "not-sampled"; PlaybackWakeLockHeld = $false }
+    }
 
     [pscustomobject]@{
         timestamp = (Get-Date).ToString("o")
@@ -222,13 +231,54 @@ function Write-MetricSample {
         cpuPercent = $cpuPercent
         batteryLevel = $batteryLevel
         batteryTempC = $batteryTempC
+        wakefulness = $power.Wakefulness
+        playbackWakeLockHeld = $power.PlaybackWakeLockHeld
     } | Export-Csv -LiteralPath $metricsPath -NoTypeInformation -Append -Encoding utf8
 
     Write-Event (
         "Metric sample=$script:sample phase=$Phase positionMs=$($state.PositionMs) " +
             "pssKb=$pssKb fdCount=$fdCount cpu=$cpuPercent% " +
-            "battery=$batteryLevel% tempC=$batteryTempC"
+            "battery=$batteryLevel% tempC=$batteryTempC " +
+            "wakefulness=$($power.Wakefulness) playbackWakeLock=$($power.PlaybackWakeLockHeld)"
     )
+}
+
+function Get-PowerSnapshot {
+    $snapshot = $null
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $lines = @(Invoke-Adb -Arguments @("shell", "dumpsys", "power") -AllowFailure)
+        $snapshot = ConvertFrom-PowerDump -Lines $lines
+        if ($null -ne $snapshot) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($null -eq $snapshot) { throw "Could not parse device power snapshot after 3 attempts." }
+    return $snapshot
+}
+
+function Enter-OemBackgroundWindow {
+    Invoke-Adb -Arguments @("shell", "input", "keyevent", "3") | Out-Null
+    Start-Sleep -Seconds 1
+    $power = Get-PowerSnapshot
+    if ($power.Wakefulness -eq "Awake") {
+        Invoke-Adb -Arguments @("shell", "input", "keyevent", "26") | Out-Null
+        Start-Sleep -Seconds 2
+        $power = Get-PowerSnapshot
+    }
+    if ($power.Wakefulness -eq "Awake") {
+        throw "Unable to enter screen-off background window."
+    }
+    Write-Event "OEM background window entered wakefulness=$($power.Wakefulness)"
+}
+
+function Restore-InitialScreenState {
+    if ($null -eq $script:initialWakefulness) { return }
+    $current = (Get-PowerSnapshot).Wakefulness
+    $initialAwake = $script:initialWakefulness -eq "Awake"
+    $currentAwake = $current -eq "Awake"
+    if ($initialAwake -ne $currentAwake) {
+        Invoke-Adb -Arguments @("shell", "input", "keyevent", "26") -AllowFailure | Out-Null
+        Start-Sleep -Seconds 1
+    }
 }
 
 function Wait-PrototypeResult {
@@ -251,13 +301,52 @@ function Invoke-Control {
         [string]$LogName,
         [string[]]$Extras = @()
     )
-    Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
-    Send-PrototypeAction -Suffix $Suffix -Extras $Extras
-    $logs = Wait-PrototypeResult -Pattern "media3Control=$LogName complete=(true|false)"
-    Add-Content -LiteralPath $eventLog -Value $logs -Encoding utf8
-    if ($logs -match "media3Control=$LogName complete=false") {
-        throw "Media3 control failed: $LogName"
-    }
+    $limit = (Get-Date).AddSeconds(30)
+    do {
+        Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
+        Send-PrototypeAction -Suffix $Suffix -Extras $Extras
+        $attemptLimit = (Get-Date).AddSeconds(5)
+        do {
+            Start-Sleep -Milliseconds 500
+            $logs = Get-PrototypeLog
+            $outcome = Get-ControlOutcome -Logs $logs -LogName $LogName
+            if ($outcome -eq "Succeeded") {
+                Add-Content -LiteralPath $eventLog -Value $logs -Encoding utf8
+                return
+            }
+            if ($outcome -eq "Failed") {
+                Add-Content -LiteralPath $eventLog -Value $logs -Encoding utf8
+                throw "Media3 control failed: $LogName"
+            }
+            if ($outcome -eq "Retry") { break }
+        } while ((Get-Date) -lt $attemptLimit)
+        Start-Qa
+    } while ((Get-Date) -lt $limit)
+    throw "Timed out waiting for Media3 control readiness: $LogName"
+}
+
+function Reset-PersistedUsbGate {
+    $limit = (Get-Date).AddSeconds(60)
+    $startedQaFallback = $false
+    do {
+        Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
+        Send-PrototypeAction -Suffix "USB_SK02_MEDIA3_DISABLE" -Extras @("--ez", "gateOnly", "true")
+        $attemptLimit = (Get-Date).AddSeconds(5)
+        do {
+            Start-Sleep -Milliseconds 500
+            $logs = Get-PrototypeLog
+            if ($logs -match "media3Prototype=disabled") { return }
+            if ($logs -match "media3Prototype=rebuild_failed") {
+                throw "Failed to reset persisted USB gate.`n$logs"
+            }
+        } while ((Get-Date) -lt $attemptLimit)
+        if (-not $startedQaFallback) {
+            Write-Event "Gate receiver was inactive; launch QA once, then retry the gate-only reset"
+            Start-Qa
+            $startedQaFallback = $true
+        }
+    } while ((Get-Date) -lt $limit)
+    throw "Timed out resetting persisted USB gate before service startup."
 }
 
 function Start-Qa {
@@ -339,9 +428,22 @@ function Assert-NoPlaybackFailure {
 function Assert-PlayingAdvances {
     param([string]$Label)
     $positions = [System.Collections.Generic.List[long]]::new()
+    $readyLimit = (Get-Date).AddSeconds(10)
+    do {
+        $state = Get-QaPlaybackState
+        $readiness = Get-PlaybackReadiness -State $state -AllowTransientBuffering
+        if ($readiness -eq "Ready") { break }
+        if ($readiness -eq "Failed") {
+            throw "$Label entered a non-retryable playback state: $($state | ConvertTo-Json -Compress)"
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $readyLimit)
+    if ($readiness -ne "Ready") {
+        throw "$Label did not reach clean PLAYING state: $($state | ConvertTo-Json -Compress)"
+    }
     for ($attempt = 0; $attempt -lt 4; $attempt++) {
         $state = Get-QaPlaybackState
-        if ($state.State -ne 3 -or $state.HasError) {
+        if ((Get-PlaybackReadiness -State $state) -ne "Ready") {
             throw "$Label did not remain in clean PLAYING state: $($state | ConvertTo-Json -Compress)"
         }
         $positions.Add($state.PositionMs)
@@ -375,6 +477,27 @@ function Assert-KernelDriversBound {
         $logs -notmatch "streaming=\{driver=snd-usb-audio") {
         throw "SK02 kernel drivers were not bound in SharedPcm mode.`n$logs"
     }
+}
+
+function Assert-KernelDriversBoundWithoutUsbPermission {
+    $links = (Invoke-Adb -Arguments @(
+        "shell", "ls", "-l", "/sys/bus/usb/drivers/snd-usb-audio"
+    )) -join "`n"
+    $interfacesByDevice = @{}
+    foreach ($match in [regex]::Matches($links, '(?<device>\d+-[\d.]+):1\.(?<interface>[12])')) {
+        $device = $match.Groups["device"].Value
+        if (-not $interfacesByDevice.ContainsKey($device)) {
+            $interfacesByDevice[$device] = [System.Collections.Generic.HashSet[int]]::new()
+        }
+        [void]$interfacesByDevice[$device].Add([int]$match.Groups["interface"].Value)
+    }
+    $bound = @($interfacesByDevice.Values | Where-Object {
+        $_.Contains(1) -and $_.Contains(2)
+    }).Count -gt 0
+    if (-not $bound) {
+        throw "Could not find one USB audio device with kernel-bound control and streaming interfaces.`n$links"
+    }
+    return $true
 }
 
 function Set-InPlaceUsbPrototype {
@@ -441,6 +564,37 @@ function Restart-ExclusiveAfterCrash {
     Assert-PlayingAdvances -Label "post-crash-restart"
 }
 
+function Restart-ExclusiveAfterSimulatedReclaim {
+    $oldPid = ((Invoke-Adb -Arguments @("shell", "pidof", $packageName)) -join "").Trim()
+    if (-not $oldPid) { throw "Cannot simulate reclaim because QA process is absent." }
+    Write-Event "Simulated process death: ActivityManager crash pid=$oldPid without force-stop"
+    # On this OEM build, run-as uses a SELinux context that cannot resolve even the same UID's
+    # app PID (`kill: unknown pid`). ActivityManager owns the cross-context kill and, unlike
+    # force-stop, still permits the explicit cold restart that exercises durable recovery.
+    Invoke-Adb -Arguments @("shell", "am", "crash", $packageName) | Out-Null
+    Start-Sleep -Seconds 3
+    $survivingPid = ((Invoke-Adb -Arguments @(
+        "shell", "pidof", $packageName
+    ) -AllowFailure) -join "").Trim()
+    if (($survivingPid -split '\s+') -contains ($oldPid -split '\s+')[0]) {
+        throw "Simulated process death did not terminate QA: old=$oldPid surviving=$survivingPid"
+    }
+    if ($survivingPid) {
+        Write-Event "System restarted QA after process death: old=$oldPid replacement=$survivingPid"
+    }
+    Start-Qa
+    Invoke-Control -Suffix "USB_SK02_MEDIA3_PLAY" -LogName "play"
+    Start-Sleep -Seconds $HoldSeconds
+    $newPid = ((Invoke-Adb -Arguments @("shell", "pidof", $packageName)) -join "").Trim()
+    if (-not $newPid -or $newPid -eq $oldPid) {
+        throw "Simulated reclaim did not produce a replacement QA process: old=$oldPid new=$newPid"
+    }
+    Assert-PlayingAdvances -Label "post-simulated-reclaim"
+    Assert-NoPlaybackFailure -Label "post-simulated-reclaim"
+    Assert-ExclusiveDrivers
+    Enter-OemBackgroundWindow
+}
+
 function Save-PeriodicEvidence {
     param([string]$Label)
     if ($script:sample -eq 1 -or ($script:sample % $EvidenceEverySamples) -eq 0) {
@@ -466,6 +620,30 @@ function Run-ContinuousSoak {
         Assert-NoPlaybackFailure -Label "continuous-sample-$($script:sample + 1)"
         if (($script:sample % 5) -eq 0) { Assert-ExclusiveDrivers }
         Write-MetricSample -Phase "steady"
+        Save-PeriodicEvidence -Label "sample-$script:sample"
+    }
+}
+
+function Run-SharedPcmBaseline {
+    Write-Event "SharedPcm baseline: repeat index $FirstMediaIndex without USB ownership or lifecycle mutations"
+    Invoke-Control -Suffix "USB_SK02_MEDIA3_REPEAT_ONE" -LogName "repeat_one"
+    Invoke-Control -Suffix "USB_SK02_MEDIA3_SELECT_INDEX" -LogName "select_index" `
+        -Extras @("--ei", "mediaIndex", "$FirstMediaIndex")
+    Start-Sleep -Seconds $HoldSeconds
+    Assert-PlayingAdvances -Label "shared-baseline-start"
+    Assert-NoPlaybackFailure -Label "shared-baseline-start"
+    Assert-KernelDriversBoundWithoutUsbPermission | Out-Null
+    Write-MetricSample -Phase "shared-steady"
+    Save-PeriodicEvidence -Label "sample-$script:sample"
+
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds $SampleIntervalSeconds
+        Assert-PlayingAdvances -Label "shared-baseline-sample-$($script:sample + 1)"
+        Assert-NoPlaybackFailure -Label "shared-baseline-sample-$($script:sample + 1)"
+        if (($script:sample % 5) -eq 0) {
+            Assert-KernelDriversBoundWithoutUsbPermission | Out-Null
+        }
+        Write-MetricSample -Phase "shared-steady"
         Save-PeriodicEvidence -Label "sample-$script:sample"
     }
 }
@@ -527,6 +705,38 @@ function Run-CrashRecoverySoak {
         Assert-NoPlaybackFailure -Label "crash-cycle-$cycle-after-restart"
         Write-MetricSample -Phase "crash-recovery-complete"
         Save-PeriodicEvidence -Label "sample-$script:sample-crash-cycle-$cycle"
+    } while ((Get-Date) -lt $deadline)
+}
+
+function Run-OemBackgroundSoak {
+    Write-Event "OEM background mode: screen off, active playback wake lock, periodic simulated process reclaim"
+    Invoke-Control -Suffix "USB_SK02_MEDIA3_REPEAT_ONE" -LogName "repeat_one"
+    Invoke-Control -Suffix "USB_SK02_MEDIA3_SELECT_INDEX" -LogName "select_index" `
+        -Extras @("--ei", "mediaIndex", "$FirstMediaIndex")
+    Start-Sleep -Seconds $HoldSeconds
+    Assert-PlayingAdvances -Label "oem-background-start"
+    Assert-NoPlaybackFailure -Label "oem-background-start"
+    Assert-ExclusiveDrivers
+    $script:initialWakefulness = (Get-PowerSnapshot).Wakefulness
+    Enter-OemBackgroundWindow
+
+    do {
+        Start-Sleep -Seconds $SampleIntervalSeconds
+        $script:cycle++
+        Assert-PlayingAdvances -Label "oem-background-sample-$($script:sample + 1)"
+        Assert-NoPlaybackFailure -Label "oem-background-sample-$($script:sample + 1)"
+        Assert-ExclusiveDrivers
+        $power = Get-PowerSnapshot
+        if (-not $power.PlaybackWakeLockHeld) {
+            throw "ExoPlayer playback wake lock is absent during background playback."
+        }
+        Write-MetricSample -Phase "background-screen-off"
+        Save-PeriodicEvidence -Label "sample-$script:sample-oem-background"
+        if ($ReclaimEverySamples -gt 0 -and
+            ($script:sample % $ReclaimEverySamples) -eq 0 -and
+            (Get-Date) -lt $deadline) {
+            Restart-ExclusiveAfterSimulatedReclaim
+        }
     } while ((Get-Date) -lt $deadline)
 }
 
@@ -652,43 +862,55 @@ try {
 
     # A previous QA run may have persisted the debug USB gate. Reset it before explicitly
     # starting the service so a fresh install never tries to open USB ahead of permission.
-    Invoke-Adb -Arguments @("logcat", "-c") | Out-Null
-    Send-PrototypeAction -Suffix "USB_SK02_MEDIA3_DISABLE" -Extras @("--ez", "gateOnly", "true")
-    [void](Wait-PrototypeResult -Pattern "media3Prototype=(disabled|rebuild_failed)")
+    Reset-PersistedUsbGate
     Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null
     Start-Qa
-    Ensure-UsbPermission
+    if ((Get-SoakOutputPath -Mode $Mode) -eq "SharedPcm") {
+        Write-Event "Baseline setup: keep production SharedPcm and kernel USB audio drivers"
+        Set-InPlaceUsbPrototype -Enabled $false
+        Invoke-Control -Suffix "USB_SK02_MEDIA3_PLAY" -LogName "play"
+        Assert-PlayingAdvances -Label "baseline-shared-before"
+        Assert-KernelDriversBoundWithoutUsbPermission | Out-Null
+    } else {
+        Ensure-UsbPermission
 
-    Write-Event "Full-mode smoke: establish SharedPcm baseline"
-    Set-InPlaceUsbPrototype -Enabled $false
-    Start-PlaybackThroughSystemSession
-    Assert-PlayingAdvances -Label "full-mode-shared-before"
-    Assert-KernelDriversBound
+        Write-Event "Full-mode smoke: establish SharedPcm baseline"
+        Set-InPlaceUsbPrototype -Enabled $false
+        Start-PlaybackThroughSystemSession
+        Assert-PlayingAdvances -Label "full-mode-shared-before"
+        Assert-KernelDriversBound
 
-    Write-Event "Full-mode smoke: SharedPcm -> UsbDirectPcm"
-    Set-InPlaceUsbPrototype -Enabled $true
-    Assert-PlayingAdvances -Label "full-mode-usb-first"
-    Assert-NoPlaybackFailure -Label "full-mode-usb-first"
-    Assert-ExclusiveDrivers
+        Write-Event "Full-mode smoke: SharedPcm -> UsbDirectPcm"
+        Set-InPlaceUsbPrototype -Enabled $true
+        Assert-PlayingAdvances -Label "full-mode-usb-first"
+        Assert-NoPlaybackFailure -Label "full-mode-usb-first"
+        Assert-ExclusiveDrivers
 
-    Write-Event "Full-mode smoke: UsbDirectPcm -> SharedPcm"
-    Set-InPlaceUsbPrototype -Enabled $false
-    Assert-PlayingAdvances -Label "full-mode-shared-after"
-    Assert-NoPlaybackFailure -Label "full-mode-shared-after"
-    Assert-KernelDriversBound
+        if ($Mode -ne "OemBackground") {
+            Write-Event "Full-mode smoke: UsbDirectPcm -> SharedPcm"
+            Set-InPlaceUsbPrototype -Enabled $false
+            Assert-PlayingAdvances -Label "full-mode-shared-after"
+            Assert-NoPlaybackFailure -Label "full-mode-shared-after"
+            Assert-KernelDriversBound
 
-    Write-Event "Full-mode smoke: SharedPcm -> UsbDirectPcm for soak"
-    Set-InPlaceUsbPrototype -Enabled $true
-    Assert-PlayingAdvances -Label "full-mode-usb-final"
-    Assert-NoPlaybackFailure -Label "full-mode-usb-final"
-    Assert-ExclusiveDrivers
+            Write-Event "Full-mode smoke: SharedPcm -> UsbDirectPcm for soak"
+            Set-InPlaceUsbPrototype -Enabled $true
+            Assert-PlayingAdvances -Label "full-mode-usb-final"
+            Assert-NoPlaybackFailure -Label "full-mode-usb-final"
+            Assert-ExclusiveDrivers
+        } else {
+            Write-Event "OEM background setup: keep first UsbDirectPcm cutover active for soak"
+        }
+    }
 
     $testStartedAt = Get-Date
     $deadline = $testStartedAt.AddMinutes($DurationMinutes)
     switch ($Mode) {
+        "SharedPcmBaseline" { Run-SharedPcmBaseline }
         "Continuous" { Run-ContinuousSoak }
         "Lifecycle" { Run-LifecycleSoak }
         "CrashRecovery" { Run-CrashRecoverySoak }
+        "OemBackground" { Run-OemBackgroundSoak }
         "ResumeStress" { Run-ResumeStressSoak }
         "RebuildResumeStress" { Run-RebuildResumeStressSoak }
         "BoundaryResumeStress" { Run-BoundaryResumeStressSoak }
@@ -704,6 +926,9 @@ try {
     if ($Mode -eq "CrashRecovery" -and $observedRates.Count -eq 0) {
         throw "CrashRecovery mode did not observe an opened USB sample rate."
     }
+    if ($Mode -eq "OemBackground" -and $observedRates.Count -eq 0) {
+        throw "OemBackground mode did not observe an opened USB sample rate."
+    }
     if ($Mode -eq "ResumeStress" -and $observedRates.Count -eq 0) {
         throw "ResumeStress mode did not observe an opened USB sample rate."
     }
@@ -715,18 +940,26 @@ try {
         throw "BoundaryResumeStress mode did not observe an opened USB sample rate."
     }
     Write-Event "Soak assertions passed; observed sample rates: $($observedRates -join ', ')"
+    Save-Evidence -Label "final-success"
 } catch {
     $failure = $_.Exception.ToString()
     Write-Event "FAILED: $failure"
     Save-Evidence -Label "final-failure"
 } finally {
+    try { Restore-InitialScreenState } catch {
+        Write-Event "Cleanup screen-state restoration failed: $($_.Exception.Message)"
+    }
     Write-Event "Cleanup: disable prototype, stop QA, reconnect kernel drivers"
     try { Invoke-Control -Suffix "USB_SK02_MEDIA3_REPEAT_OFF" -LogName "repeat_off" } catch {}
     try { Send-PrototypeAction -Suffix "USB_SK02_MEDIA3_DISABLE" } catch {}
     try { Invoke-Adb -Arguments @("shell", "am", "force-stop", $packageName) | Out-Null } catch {}
     try {
-        Start-Qa
-        $cleanupDriversBound = Recover-KernelDrivers
+        if ((Get-SoakOutputPath -Mode $Mode) -eq "SharedPcm") {
+            $cleanupDriversBound = Assert-KernelDriversBoundWithoutUsbPermission
+        } else {
+            Start-Qa
+            $cleanupDriversBound = Recover-KernelDrivers
+        }
     } catch {
         Write-Event "Cleanup driver verification failed: $($_.Exception.Message)"
     }
@@ -742,6 +975,7 @@ try {
         finishedAt = (Get-Date).ToString("o")
         requestedDurationMinutes = $DurationMinutes
         mode = $Mode
+        outputPath = Get-SoakOutputPath -Mode $Mode
         completedCycles = $cycle
         metricSamples = $sample
         observedSampleRates = @($observedRates)
@@ -749,6 +983,7 @@ try {
         fdCount = @{ min = $minFdCount; max = $maxFdCount; delta = if ($null -ne $minFdCount) { $maxFdCount - $minFdCount } else { $null } }
         maxBatteryTempC = $maxBatteryTempC
         safetyThresholds = @{ minimumBatteryLevel = $MinimumBatteryLevel; maximumBatteryTempC = $MaximumBatteryTempC }
+        reclaimEverySamples = $ReclaimEverySamples
         cleanupDriversBound = $cleanupDriversBound
         artifactDirectory = $artifactDir
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $summaryPath -Encoding utf8

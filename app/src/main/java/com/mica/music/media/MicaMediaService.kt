@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
@@ -31,6 +32,22 @@ import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.usb.UsbOutputRuntime
+import com.mica.music.media.usb.UsbOutputRequest
+import com.mica.music.media.usb.UsbOutputPhase
+import com.mica.music.media.usb.UsbOutputLifecycleEvent
+import com.mica.music.media.usb.UsbOutputLifecycleRuntime
+import com.mica.music.media.usb.UsbLifecycleToken
+import com.mica.music.media.usb.UsbHealthRecoveryController
+import com.mica.music.media.usb.UsbHealthRecoveryDecision
+import com.mica.music.media.usb.UsbRecoveryAckOutcome
+import com.mica.music.media.usb.UsbRecoveryAction
+import com.mica.music.media.usb.UsbRecoveryActivationExpectation
+import com.mica.music.media.usb.UsbRecoveryActivationPolicy
+import com.mica.music.media.usb.UsbRecoveryActivationState
+import com.mica.music.media.usb.UsbRecoveryCoordinator
+import com.mica.music.media.usb.UsbRecoveryEpoch
+import com.mica.music.media.usb.UsbRecoveryRequestResult
+import com.mica.music.media.usb.UsbRecoveryTrigger
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +72,7 @@ class MicaMediaService : MediaSessionService() {
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
     private var carBluetoothLyricsSession: CarBluetoothLyricsSession? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
+    private var usbResumePlaybackRequested = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
@@ -68,10 +86,27 @@ class MicaMediaService : MediaSessionService() {
         PlaybackStackSnapshot,
         ExoPlaybackStack,
     >
+    private val usbRecoveryCoordinator = UsbRecoveryCoordinator()
+    private val usbHealthRecoveryController = UsbHealthRecoveryController()
+    private var usbRecoveryEpoch: UsbRecoveryEpoch? = null
+    private var usbRecoveryRequest: UsbOutputRequest? = null
+    private var usbRecoveryActivationExpectation: UsbRecoveryActivationExpectation? = null
+    private var usbRecoveryRetry: Runnable? = null
+    private var usbRecoveryFallbackAttempted = false
+    private val usbHealthRecoveryPoll = object : Runnable {
+        override fun run() {
+            reconcilePendingUsbRecoveryActivation()
+            usbHealthRecoveryController.poll(
+                facts = { UsbOutputRuntime.owner.facts },
+                recover = ::executeAutomaticUsbRecovery,
+            )
+            mainHandler.postDelayed(this, USB_HEALTH_POLL_INTERVAL_MS)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
-        activeOutputPath = UsbHostPrototypeOutput.selectedPath(this)
+        activeOutputPath = UsbHostOutputPreferences.selectedPath(this)
         val micaApp = application as MicaApp
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val libraryRepository = LibraryRepository(this)
@@ -98,6 +133,8 @@ class MicaMediaService : MediaSessionService() {
         val stack = ExoPlaybackStackFactory.build(this, activeOutputPath)
         exoPlayer = stack.exoPlayer
         compositePlayer = stack.compositePlayer
+        usbResumePlaybackRequested = stack.compositePlayer.playWhenReady
+        installUsbPlaybackIntentObserver(stack.compositePlayer)
         replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
 
         installAudioOffloadCircuitBreaker(stack.exoPlayer)
@@ -193,12 +230,18 @@ class MicaMediaService : MediaSessionService() {
                 )
             },
             buildCandidate = { target, _ -> ExoPlaybackStackFactory.build(this, target) },
+            stageCandidate = { _, snapshot, candidate ->
+                snapshot.stageInto(candidate.compositePlayer)
+            },
+            retirePublished = { _, _ -> retirePublishedPlaybackStack() },
             publishCandidate = ::publishRebuiltPlaybackStack,
             releaseCandidate = { candidate, _ -> candidate.exoPlayer.release() },
         )
-        UsbOutputRebuildRuntime.install(::scheduleOutputPathRebuildFromDebugGate)
+        UsbOutputRebuildRuntime.install(::scheduleOutputPathRebuild)
+        UsbOutputLifecycleRuntime.install(::handleUsbLifecycleEvent)
+        UsbRecoveryDebugRuntime.install(::scheduleUsbRecoveryFromDebug)
         DebugPlaybackControlRuntime.install(::handleDebugPlaybackControl)
-
+        mainHandler.postDelayed(usbHealthRecoveryPoll, USB_HEALTH_POLL_INTERVAL_MS)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -217,7 +260,12 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(usbHealthRecoveryPoll)
+        cancelUsbRecovery()
         UsbOutputRebuildRuntime.clear()
+        UsbOutputLifecycleRuntime.clear()
+        UsbOutputLifecycleRuntime.clearRecovery()
+        UsbRecoveryDebugRuntime.clear()
         DebugPlaybackControlRuntime.clear()
         playbackRouteMonitor?.release()
         playbackRouteMonitor = null
@@ -338,7 +386,7 @@ class MicaMediaService : MediaSessionService() {
                     BuildConfig.DEBUG &&
                     controller.packageName == packageName
                 ) {
-                    scheduleOutputPathRebuildFromDebugGate(args)
+                    scheduleOutputPathRebuild(args)
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 if (!ControllerCapabilityPolicy.allowsIncomingCustomAction(
@@ -428,8 +476,8 @@ class MicaMediaService : MediaSessionService() {
             }
         }
 
-    private fun scheduleOutputPathRebuildFromDebugGate(args: Bundle) {
-        scheduleOutputPathRebuildFromDebugGate(
+    private fun scheduleOutputPathRebuild(args: Bundle) {
+        scheduleOutputPathRebuild(
             requestedEnabled = args.getBoolean(
                 UsbOutputRebuildSessionCommand.EXTRA_REQUESTED_ENABLED,
             ),
@@ -439,12 +487,109 @@ class MicaMediaService : MediaSessionService() {
         )
     }
 
-    private fun scheduleOutputPathRebuildFromDebugGate(
+    private fun handleUsbLifecycleEvent(event: UsbOutputLifecycleEvent) {
+        if (!BuildConfig.USB_EXCLUSIVE_SK02_AVAILABLE) return
+        mainHandler.post {
+            when (event) {
+                is UsbOutputLifecycleEvent.Detached -> {
+                    val token = UsbLifecycleToken(event.generation, event.runtimeHandle)
+                    if (!UsbHostOutputPreferences.isEnabled(this)) {
+                        UsbOutputLifecycleRuntime.clearIfCurrent(token)
+                        return@post
+                    }
+                    if (activeOutputPath.outputMode != PlaybackOutputMode.UsbDirectPcm) {
+                        if (!UsbOutputLifecycleRuntime.hasInterruptedPlayback(token)) {
+                            UsbOutputLifecycleRuntime.clearIfCurrent(token)
+                        }
+                        return@post
+                    }
+                    val resumePlaybackRequested = usbResumePlaybackRequested
+                    if (!UsbOutputLifecycleRuntime.rememberInterruptedPlayback(
+                            token,
+                            resumePlaybackRequested,
+                            "usb_device_detached",
+                        )
+                    ) return@post
+                    UsbOutputLifecycleRuntime.publishIfCurrent(token) {
+                        val result = outputRebuildCoordinator.rebuild(AudioOutputPathConfig.PRODUCTION) {
+                            it.copy(playWhenReady = resumePlaybackRequested)
+                        }
+                        DiagnosticLog.event(
+                            "UsbOutputLifecycle",
+                            "detach fallback=${result.javaClass.simpleName} generation=${event.generation} " +
+                                "device=${event.runtimeHandle.runtimeDeviceId}",
+                        )
+                    }
+                }
+                is UsbOutputLifecycleEvent.Attached -> {
+                    val lifecycleToken = UsbLifecycleToken(event.generation, event.runtimeHandle)
+                    if (!UsbHostOutputPreferences.isEnabled(this) ||
+                        !UsbOutputLifecycleRuntime.isCurrent(lifecycleToken)
+                    ) return@post
+                    var permissionToken: com.mica.music.media.usb.UsbOutputRequestToken? = null
+                    val requested = UsbOutputLifecycleRuntime.publishIfCurrent(lifecycleToken) {
+                        if (activeOutputPath.outputMode == PlaybackOutputMode.UsbDirectPcm) {
+                            val fallback = outputRebuildCoordinator.rebuild(AudioOutputPathConfig.PRODUCTION)
+                            if (fallback !is PlaybackOutputRebuildResult.Published) return@publishIfCurrent
+                        }
+                        permissionToken = runCatching {
+                            com.mica.music.media.usb.UsbOutputDeviceLifecycle.requestPermission(
+                                this,
+                                com.mica.music.media.usb.UsbOutputRequest(
+                                    device = com.mica.music.media.usb.Sk02UsbContract.identity,
+                                ),
+                            )
+                        }.getOrNull()
+                    }
+                    val token = permissionToken
+                    if (!requested || token == null ||
+                        !UsbOutputLifecycleRuntime.bindPermissionRequest(lifecycleToken, token.value)
+                    ) return@post
+                    DiagnosticLog.event("UsbOutputLifecycle", "attach permission-requested lifecycleGeneration=${event.generation} permissionGeneration=${token.value} device=${event.runtimeHandle.runtimeDeviceId}")
+                    val facts = UsbOutputRuntime.owner.facts
+                    if (facts.generation == token.value &&
+                        facts.runtimeHandle == event.runtimeHandle &&
+                        facts.permission == com.mica.music.media.usb.UsbPermissionState.GRANTED
+                    ) {
+                        restoreUsbAfterGrantedPermission(event.runtimeHandle, token.value)
+                    }
+                }
+                is UsbOutputLifecycleEvent.Permission -> {
+                    if (!UsbHostOutputPreferences.isEnabled(this)) return@post
+                    if (!event.granted) {
+                        val rejected = UsbOutputLifecycleRuntime.rejectPermission(
+                            event.runtimeHandle,
+                            event.generation,
+                        )
+                        DiagnosticLog.event(
+                            "UsbOutputLifecycle",
+                            "permission denied accepted=$rejected generation=${event.generation} " +
+                                "device=${event.runtimeHandle.runtimeDeviceId}",
+                        )
+                        return@post
+                    }
+                    val facts = UsbOutputRuntime.owner.facts
+                    if (facts.generation != event.generation || facts.runtimeHandle != event.runtimeHandle) return@post
+                    if (UsbOutputLifecycleRuntime.hasInterruptedUsbIntent()) {
+                        restoreUsbAfterGrantedPermission(event.runtimeHandle, event.generation)
+                    } else {
+                        scheduleOutputPathRebuild(
+                            requestedEnabled = true,
+                            previousEnabled = false,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun scheduleOutputPathRebuild(
         requestedEnabled: Boolean,
         previousEnabled: Boolean,
     ) {
         mainHandler.post {
-            val target = UsbHostPrototypeOutput.pathForEnabled(requestedEnabled)
+            if (!requestedEnabled) UsbOutputLifecycleRuntime.clearRecovery()
+            val target = UsbHostOutputPreferences.pathForEnabled(requestedEnabled)
             val previousMode = activeOutputPath.outputMode
             val result = if (target == activeOutputPath) {
                 PlaybackOutputRebuildResult.Published(0L)
@@ -462,7 +607,9 @@ class MicaMediaService : MediaSessionService() {
                 SessionError.ERROR_UNKNOWN
             }
             if (resultCode != SessionResult.RESULT_SUCCESS) {
-                UsbHostPrototypeOutput.setEnabled(this, previousEnabled)
+                UsbHostOutputPreferences.setEnabled(this, previousEnabled)
+            } else {
+                cancelUsbRecovery()
             }
             sendBroadcast(
                 Intent(UsbOutputRebuildSessionCommand.resultAction(packageName))
@@ -478,6 +625,302 @@ class MicaMediaService : MediaSessionService() {
                     ),
             )
         }
+    }
+
+    private fun restoreUsbAfterGrantedPermission(
+        runtimeHandle: com.mica.music.media.usb.UsbAudioRuntimeHandle,
+        permissionGeneration: Long,
+    ) {
+        UsbOutputLifecycleRuntime.publishGrantedPermission(runtimeHandle, permissionGeneration) { intent ->
+            val result = outputRebuildCoordinator.rebuild(
+                UsbHostOutputPreferences.pathForEnabled(true),
+            ) { snapshot ->
+                snapshot.copy(playWhenReady = intent.resumePlaybackRequested)
+            }
+            DiagnosticLog.event(
+                "UsbOutputLifecycle",
+                "attach restore=${result.javaClass.simpleName} permissionGeneration=$permissionGeneration " +
+                    "device=${runtimeHandle.runtimeDeviceId}",
+            )
+            result is PlaybackOutputRebuildResult.Published
+        }
+    }
+
+    private fun scheduleUsbRecoveryFromDebug(trigger: UsbRecoveryTrigger) {
+        mainHandler.post { executeUsbRecovery(trigger) }
+    }
+
+    private fun executeAutomaticUsbRecovery(decision: UsbHealthRecoveryDecision) {
+        executeUsbRecovery(decision.trigger, decision)
+    }
+
+    private fun executeUsbRecovery(
+        trigger: UsbRecoveryTrigger,
+        expectedHealth: UsbHealthRecoveryDecision? = null,
+    ) {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "USB recovery must execute on the main looper"
+        }
+        val facts = UsbOutputRuntime.owner.facts
+        if ((expectedHealth != null && !expectedHealth.matches(facts)) ||
+            facts.phase != UsbOutputPhase.ACTIVE ||
+            activeOutputPath.outputMode != PlaybackOutputMode.UsbDirectPcm
+        ) {
+            publishUsbRecoveryResult(trigger, "not-active-or-stale")
+            return
+        }
+        val epoch = usbRecoveryEpoch ?: usbRecoveryCoordinator
+            .beginEpoch(facts.generation)
+            .also {
+                usbRecoveryEpoch = it
+                usbRecoveryRequest = facts.request
+                usbRecoveryFallbackAttempted = false
+            }
+        continueUsbRecovery(epoch, trigger)
+    }
+
+    private fun continueUsbRecovery(
+        epoch: UsbRecoveryEpoch,
+        trigger: UsbRecoveryTrigger,
+    ) {
+        if (usbRecoveryEpoch != epoch ||
+            activeOutputPath.outputMode != PlaybackOutputMode.UsbDirectPcm
+        ) {
+            publishUsbRecoveryResult(trigger, "stale-epoch")
+            return
+        }
+        when (val request = usbRecoveryCoordinator.requestFreshOpen(epoch, trigger)) {
+            is UsbRecoveryRequestResult.Issued -> {
+                val injectedFailure = if (BuildConfig.DEBUG) {
+                    UsbRecoveryFailureInjectionRuntime.consume()
+                } else {
+                    null
+                }
+                if (injectedFailure != null) {
+                    DiagnosticLog.event(
+                        "UsbRecovery",
+                        "injected-fresh-open-failure generation=${injectedFailure.generation} " +
+                            "attempt=${injectedFailure.attempt} " +
+                            "remaining=${injectedFailure.remainingFailures}",
+                    )
+                    acknowledgeUsbRecoveryFailure(epoch, request.action, "injected-failure")
+                    return
+                }
+
+                val rebuild = outputRebuildCoordinator.rebuild(activeOutputPath)
+                if (rebuild !is PlaybackOutputRebuildResult.Published) {
+                    acknowledgeUsbRecoveryFailure(epoch, request.action, "rebuild-failed")
+                    return
+                }
+
+                usbRecoveryActivationExpectation = UsbRecoveryActivationExpectation(
+                    action = request.action,
+                    expectedRequest = usbRecoveryRequest,
+                    requireFrameProgress = usbResumePlaybackRequested,
+                    deadlineElapsedRealtimeMs =
+                        SystemClock.elapsedRealtime() + USB_RECOVERY_ACTIVATION_TIMEOUT_MS,
+                )
+                publishUsbRecoveryResult(
+                    trigger = trigger,
+                    result = "activation-waiting",
+                    actionId = request.action.actionId,
+                    attempt = request.action.attempt,
+                )
+                reconcilePendingUsbRecoveryActivation()
+            }
+            is UsbRecoveryRequestResult.AwaitingAck -> publishUsbRecoveryResult(
+                trigger,
+                "awaiting-ack",
+                request.action.actionId,
+                request.action.attempt,
+            )
+            is UsbRecoveryRequestResult.BackingOff -> scheduleUsbRecoveryRetry(
+                epoch,
+                trigger,
+                request.retryAfterMs,
+            )
+            is UsbRecoveryRequestResult.BudgetExhausted -> {
+                publishUsbRecoveryResult(
+                    trigger,
+                    "budget-exhausted",
+                    attempt = request.attempts,
+                )
+                if (!usbRecoveryFallbackAttempted) {
+                    usbRecoveryFallbackAttempted = true
+                    fallbackToSharedPcm(epoch, trigger, request.attempts)
+                }
+            }
+            UsbRecoveryRequestResult.Resolved -> publishUsbRecoveryResult(trigger, "resolved")
+            UsbRecoveryRequestResult.StaleEpoch -> publishUsbRecoveryResult(
+                trigger,
+                "stale-epoch",
+            )
+        }
+    }
+
+    private fun reconcilePendingUsbRecoveryActivation() {
+        val expectation = usbRecoveryActivationExpectation ?: return
+        val epoch = usbRecoveryEpoch
+        if (epoch == null || epoch != expectation.action.epoch) {
+            usbRecoveryActivationExpectation = null
+            return
+        }
+        if (activeOutputPath.outputMode != PlaybackOutputMode.UsbDirectPcm) {
+            usbRecoveryActivationExpectation = null
+            publishUsbRecoveryResult(
+                expectation.action.trigger,
+                "activation-stale-output-path",
+                expectation.action.actionId,
+                expectation.action.attempt,
+            )
+            cancelUsbRecovery()
+            return
+        }
+
+        when (
+            UsbRecoveryActivationPolicy.evaluate(
+                expectation = expectation,
+                facts = UsbOutputRuntime.owner.facts,
+                elapsedRealtimeMs = SystemClock.elapsedRealtime(),
+            )
+        ) {
+            UsbRecoveryActivationState.WAITING -> Unit
+            UsbRecoveryActivationState.STALE -> {
+                usbRecoveryActivationExpectation = null
+                publishUsbRecoveryResult(
+                    expectation.action.trigger,
+                    "activation-stale-session",
+                    expectation.action.actionId,
+                    expectation.action.attempt,
+                )
+                cancelUsbRecovery()
+            }
+            UsbRecoveryActivationState.FAILED -> {
+                acknowledgeUsbRecoveryFailure(epoch, expectation.action, "activation-failed")
+            }
+            UsbRecoveryActivationState.SUCCEEDED -> {
+                usbRecoveryActivationExpectation = null
+                val acknowledged = usbRecoveryCoordinator.acknowledge(
+                    expectation.action,
+                    UsbRecoveryAckOutcome.SUCCEEDED,
+                )
+                publishUsbRecoveryResult(
+                    trigger = expectation.action.trigger,
+                    result = if (acknowledged) "succeeded" else "stale-ack",
+                    actionId = expectation.action.actionId,
+                    attempt = expectation.action.attempt,
+                )
+                if (acknowledged) cancelUsbRecovery()
+            }
+        }
+    }
+
+    private fun acknowledgeUsbRecoveryFailure(
+        epoch: UsbRecoveryEpoch,
+        action: UsbRecoveryAction,
+        result: String,
+    ) {
+        usbRecoveryActivationExpectation = null
+        val acknowledged = usbRecoveryCoordinator.acknowledge(
+            action,
+            UsbRecoveryAckOutcome.FAILED,
+        )
+        publishUsbRecoveryResult(
+            trigger = action.trigger,
+            result = if (acknowledged) result else "stale-ack",
+            actionId = action.actionId,
+            attempt = action.attempt,
+        )
+        if (acknowledged && usbRecoveryEpoch == epoch) {
+            continueUsbRecovery(epoch, action.trigger)
+        }
+    }
+
+    private fun scheduleUsbRecoveryRetry(
+        epoch: UsbRecoveryEpoch,
+        trigger: UsbRecoveryTrigger,
+        delayMs: Long,
+    ) {
+        usbRecoveryRetry?.let(mainHandler::removeCallbacks)
+        val retry = Runnable {
+            usbRecoveryRetry = null
+            continueUsbRecovery(epoch, trigger)
+        }
+        usbRecoveryRetry = retry
+        mainHandler.postDelayed(retry, delayMs)
+        publishUsbRecoveryResult(trigger, "backing-off-${delayMs}ms")
+    }
+
+    private fun fallbackToSharedPcm(
+        epoch: UsbRecoveryEpoch,
+        trigger: UsbRecoveryTrigger,
+        attempts: Int,
+    ) {
+        if (usbRecoveryEpoch != epoch ||
+            activeOutputPath.outputMode != PlaybackOutputMode.UsbDirectPcm
+        ) {
+            publishUsbRecoveryResult(trigger, "fallback-stale", attempt = attempts)
+            return
+        }
+        val rebuild = outputRebuildCoordinator.rebuild(AudioOutputPathConfig.PRODUCTION)
+        if (rebuild !is PlaybackOutputRebuildResult.Published ||
+            usbRecoveryEpoch != epoch ||
+            activeOutputPath.outputMode != PlaybackOutputMode.SharedPcm
+        ) {
+            publishUsbRecoveryResult(trigger, "fallback-failed", attempt = attempts)
+            return
+        }
+        val gateCommitted = runCatching { UsbHostOutputPreferences.setEnabled(this, false) }.isSuccess
+        val factsPublished = UsbOutputRuntime.owner.publishFallbackToSharedPcm(
+            request = usbRecoveryRequest,
+            stage = "recovery-exhausted",
+            message = "USB recovery exhausted after $attempts attempts",
+        )
+        cancelUsbRecovery()
+        publishUsbRecoveryResult(
+            trigger,
+            when {
+                !gateCommitted -> "fallback-succeeded-gate-commit-failed"
+                !factsPublished -> "fallback-succeeded-facts-stale"
+                else -> "fallback-succeeded"
+            },
+            attempt = attempts,
+        )
+    }
+
+    private fun cancelUsbRecovery() {
+        usbRecoveryRetry?.let(mainHandler::removeCallbacks)
+        usbRecoveryRetry = null
+        usbRecoveryEpoch = null
+        usbRecoveryRequest = null
+        usbRecoveryActivationExpectation = null
+        usbRecoveryFallbackAttempted = false
+        UsbRecoveryFailureInjectionRuntime.clear()
+    }
+
+    private fun publishUsbRecoveryResult(
+        trigger: UsbRecoveryTrigger,
+        result: String,
+        actionId: Long = -1L,
+        attempt: Int = 0,
+    ) {
+        DiagnosticLog.event(
+            "UsbRecovery",
+            "trigger=$trigger result=$result actionId=$actionId attempt=$attempt",
+        )
+        sendBroadcast(
+            Intent(UsbRecoveryDebugCommand.resultAction(packageName))
+                .setPackage(packageName)
+                .putExtra(UsbRecoveryDebugCommand.EXTRA_TRIGGER, trigger.name)
+                .putExtra(UsbRecoveryDebugCommand.EXTRA_RESULT, result)
+                .putExtra(UsbRecoveryDebugCommand.EXTRA_ACTION_ID, actionId)
+                .putExtra(UsbRecoveryDebugCommand.EXTRA_ATTEMPT, attempt),
+        )
+    }
+
+    private companion object {
+        const val USB_HEALTH_POLL_INTERVAL_MS = 1_000L
+        const val USB_RECOVERY_ACTIVATION_TIMEOUT_MS = 5_000L
     }
 
     private fun handleDebugPlaybackControl(
@@ -532,37 +975,59 @@ class MicaMediaService : MediaSessionService() {
         check(Looper.myLooper() == Looper.getMainLooper()) {
             "Playback stack publication must run on the main looper"
         }
-        val previousExo = checkNotNull(exoPlayer)
-        val previousComposite = checkNotNull(compositePlayer)
-        previousComposite.playWhenReady = false
-        try {
-            snapshot.restoreInto(candidate.compositePlayer, resumePlayback = false)
-        } catch (error: Throwable) {
-            previousComposite.playWhenReady = snapshot.playWhenReady
-            throw error
-        }
-
-        try {
-            checkNotNull(mediaSession) { "MediaSession is not active" }
-                .setPlayer(candidate.compositePlayer)
-            candidate.compositePlayer.playWhenReady = snapshot.playWhenReady
-        } catch (error: Throwable) {
-            runCatching { mediaSession?.setPlayer(previousComposite) }
-            previousComposite.playWhenReady = snapshot.playWhenReady
-            throw error
-        }
+        DiagnosticLog.event(
+            "UsbOutputRebuild",
+            "barrier=activate target=${target.outputMode}",
+        )
+        snapshot.activate(candidate.compositePlayer, resumePlayback = false)
+        checkNotNull(mediaSession) { "MediaSession is not active" }
+            .setPlayer(candidate.compositePlayer)
+        candidate.compositePlayer.playWhenReady = snapshot.playWhenReady
         exoPlayer = candidate.exoPlayer
         compositePlayer = candidate.compositePlayer
         activeOutputPath = target
-        releasePlayerScopedBindings(previousExo)
         installPlayerScopedBindings(candidate)
-        runCatching { previousExo.release() }
-            .onFailure { error ->
-                DiagnosticLog.event(
-                    "UsbOutputRebuild",
-                    "old-player-release-failed error=${error.javaClass.simpleName}:${error.message}",
-                )
-            }
+        installUsbPlaybackIntentObserver(candidate.compositePlayer)
+    }
+
+    /** Break-before-make barrier: no candidate renderer may activate before this returns. */
+    private fun retirePublishedPlaybackStack() {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "Playback stack retirement must run on the main looper"
+        }
+        val previousExo = checkNotNull(exoPlayer)
+        val previousComposite = checkNotNull(compositePlayer)
+        val previousMode = activeOutputPath.outputMode
+        DiagnosticLog.event(
+            "UsbOutputRebuild",
+            "barrier=retire-start from=$previousMode",
+        )
+        previousComposite.onPlaybackIntentChanged = null
+        previousComposite.playWhenReady = false
+        releasePlayerScopedBindings(previousExo)
+        try {
+            previousExo.release()
+        } catch (error: Throwable) {
+            DiagnosticLog.event(
+                "UsbOutputRebuild",
+                "old-player-release-failed error=${error.javaClass.simpleName}:${error.message}",
+            )
+            throw error
+        }
+        exoPlayer = null
+        compositePlayer = null
+        DiagnosticLog.event(
+            "UsbOutputRebuild",
+            "barrier=retire-complete from=$previousMode usbPhase=${UsbOutputRuntime.owner.facts.phase}",
+        )
+    }
+
+    private fun installUsbPlaybackIntentObserver(player: MicaCompositePlayer) {
+        player.onPlaybackIntentChanged = { resumePlaybackRequested ->
+            usbResumePlaybackRequested = resumePlaybackRequested
+            playbackStateCoordinator?.onExplicitPlaybackIntent(resumePlaybackRequested)
+            if (!resumePlaybackRequested) UsbOutputLifecycleRuntime.clearRecovery()
+        }
     }
 
     private fun releasePlayerScopedBindings(previousExo: ExoPlayer) {

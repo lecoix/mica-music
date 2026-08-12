@@ -19,3 +19,33 @@ target_include_directories(
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+add_executable(
+    sk02_feedback_rate_filter_test
+    sk02_feedback_rate_filter_test.cpp
+)
+target_include_directories(
+    sk02_feedback_rate_filter_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_executable(
+    sk02_stream_metrics_test
+    sk02_stream_metrics_test.cpp
+)
+target_include_directories(
+    sk02_stream_metrics_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_executable(
+    sk02_iso_ahead_window_test
+    sk02_iso_ahead_window_test.cpp
+)
+target_include_directories(
+    sk02_iso_ahead_window_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)

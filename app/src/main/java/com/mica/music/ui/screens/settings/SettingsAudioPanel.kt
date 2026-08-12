@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import com.mica.music.BuildConfig
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.preferences.ReplayGainPreferences
@@ -17,6 +18,10 @@ import com.mica.music.ui.components.SettingsToggleRow
 internal fun AudioSettingsPanel(uiSettings: AppUiSettings) {
     val context = LocalContext.current
     var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
+
+    if (BuildConfig.USB_EXCLUSIVE_SK02_AVAILABLE) {
+        UsbExclusiveSettingsSection(context)
+    }
 
     SettingsSectionTitle("音频标准化")
     SettingsChoiceRow(

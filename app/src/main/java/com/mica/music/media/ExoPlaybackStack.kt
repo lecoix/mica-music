@@ -50,10 +50,12 @@ internal object ExoPlaybackStackFactory {
             .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
+            .setLoadControl(buildAudioLoadControl())
             .setAudioAttributes(
                 playbackAudioAttributes,
                 PlaybackUiPreferences.audioFocusEnabled(context),
             )
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .setHandleAudioBecomingNoisy(true)
             .build()
         val applyAudioFocusSetting = {
