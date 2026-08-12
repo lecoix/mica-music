@@ -14,13 +14,14 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioOutput
 import androidx.media3.exoplayer.audio.AudioOutputProvider
 import com.mica.music.media.usb.AndroidUsbAudioControlIo
+import com.mica.music.media.usb.AndroidUsbAudioDiscovery
 import com.mica.music.media.usb.AndroidUsbRuntimeFactsProvider
 import com.mica.music.media.usb.PlaybackOutputFacts
-import com.mica.music.media.usb.Sk02UsbContract
 import com.mica.music.media.usb.StandardUacDescriptorParser
 import com.mica.music.media.usb.Uac2RuntimeClockEvidenceReadResult
 import com.mica.music.media.usb.Uac2RuntimeClockEvidenceReader
 import com.mica.music.media.usb.UsbAudioDescriptorParseResult
+import com.mica.music.media.usb.UsbAudioDeviceIdentity
 import com.mica.music.media.usb.UsbAudioEndpointShape
 import com.mica.music.media.usb.UsbAudioRuntimeHandle
 import com.mica.music.media.usb.UsbAudioStreamingProfile
@@ -36,6 +37,8 @@ import com.mica.music.media.usb.UsbOutputSession
 import com.mica.music.media.usb.UsbPcmEncoding
 import com.mica.music.media.usb.UsbPcmFormat
 import com.mica.music.media.usb.UsbPermissionState
+import com.mica.music.media.usb.UsbPotentialAudioDevice
+import com.mica.music.media.usb.UsbPotentialAudioDiscoveryResult
 import com.mica.music.media.usb.UsbRuntimeFactsResult
 import com.mica.music.media.usb.UsbRuntimeHealth
 import com.mica.music.media.usb.UsbRuntimeStreamingProfileValidator
@@ -163,13 +166,53 @@ private object UsbSk02Media3SessionOwner {
         config: AudioOutputProvider.OutputConfig,
     ): UsbSk02AudioOutput {
         val sourceFormat = config.toUsbPcmFormat()
+        val manager = context.getSystemService(UsbManager::class.java)
+        val candidate = when (val discovery = AndroidUsbAudioDiscovery.discover(manager)) {
+            UsbPotentialAudioDiscoveryResult.NoPotentialDevice ->
+                error("No potential USB Audio device is attached")
+            is UsbPotentialAudioDiscoveryResult.PermissionNeeded ->
+                error("USB Audio permission is required for ${discovery.candidates.size} potential device(s)")
+            is UsbPotentialAudioDiscoveryResult.Ambiguous ->
+                error("Multiple potential USB Audio devices are attached; explicit DAC selection is required")
+            is UsbPotentialAudioDiscoveryResult.OnePermittedCandidate -> discovery.candidate
+        }
+        val identity = preflightIdentity(manager, candidate)
         return UsbOutputRuntime.owner.replace(
             request = UsbOutputRequest(
-                device = Sk02UsbContract.identity,
+                device = identity,
                 sourceFormat = sourceFormat,
             ),
         ) { lease ->
-            UsbSk02AudioOutput.open(context, config, sourceFormat, lease)
+            UsbSk02AudioOutput.open(
+                context = context,
+                config = config,
+                sourceFormat = sourceFormat,
+                candidate = candidate,
+                expectedIdentity = identity,
+                lease = lease,
+            )
+        }
+    }
+
+    private fun preflightIdentity(
+        manager: UsbManager,
+        candidate: UsbPotentialAudioDevice,
+    ): UsbAudioDeviceIdentity {
+        val device = AndroidUsbAudioDiscovery.resolve(manager, candidate)
+            ?: error("Discovered USB Audio device disappeared before identity preflight")
+        check(manager.hasPermission(device)) { "USB Audio permission disappeared before identity preflight" }
+        val connection = manager.openDevice(device)
+            ?: error("Unable to open discovered USB Audio device for identity preflight")
+        return try {
+            when (val result = AndroidUsbRuntimeFactsProvider.acquire(device, connection)) {
+                is UsbRuntimeFactsResult.Ready -> result.facts.identity
+                is UsbRuntimeFactsResult.Rejected -> error(
+                    "USB runtime facts rejected during identity preflight: " +
+                        "${result.rejection.code}: ${result.rejection.detail}",
+                )
+            }
+        } finally {
+            connection.close()
         }
     }
 
@@ -754,20 +797,17 @@ private class UsbSk02AudioOutput private constructor(
             context: Context,
             config: AudioOutputProvider.OutputConfig,
             sourceFormat: UsbPcmFormat,
+            candidate: UsbPotentialAudioDevice,
+            expectedIdentity: UsbAudioDeviceIdentity,
             lease: UsbOutputRequestLease,
         ): UsbSk02AudioOutput {
             val manager = context.getSystemService(UsbManager::class.java)
-            val targets = manager.deviceList.values.filter {
-                it.vendorId == Sk02UsbContract.identity.vendorId &&
-                    it.productId == Sk02UsbContract.identity.productId
-            }
-            check(targets.size == 1) {
-                "Expected exactly one Fosi Audio SK02; found ${targets.size}"
-            }
-            val target = targets.single()
+            val target = AndroidUsbAudioDiscovery.resolve(manager, candidate)
+                ?: error("Discovered USB Audio device disappeared before production open")
             lease.ensureCurrent()
-            check(manager.hasPermission(target)) { "USB permission for SK02 is missing" }
-            val connection = lease.io { manager.openDevice(target) } ?: error("Unable to open SK02")
+            check(manager.hasPermission(target)) { "USB Audio permission disappeared before production open" }
+            val connection = lease.io { manager.openDevice(target) }
+                ?: error("Unable to open discovered USB Audio device")
             val interfaces = (0 until target.interfaceCount).map(target::getInterface)
             var audioControl: UsbInterface? = null
             var streamingAlt0: UsbInterface? = null
@@ -782,6 +822,12 @@ private class UsbSk02AudioOutput private constructor(
                     is UsbRuntimeFactsResult.Rejected -> error(
                         "USB runtime facts rejected: ${result.rejection.code}: ${result.rejection.detail}",
                     )
+                }
+                check(runtime.runtimeHandle == candidate.runtimeHandle) {
+                    "USB runtime handle changed between discovery and production open"
+                }
+                check(runtime.identity == expectedIdentity) {
+                    "USB stable identity changed between identity preflight and production open"
                 }
                 val parsed = when (val result = StandardUacDescriptorParser.parse(runtime.descriptorSet)) {
                     is UsbAudioDescriptorParseResult.Parsed -> result.facts
