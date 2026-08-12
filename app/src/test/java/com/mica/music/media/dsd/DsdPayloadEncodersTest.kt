@@ -10,6 +10,48 @@ import org.junit.Test
 class DsdPayloadEncodersTest {
 
     @Test
+    fun dopThreeChannelGoldenVectorKeepsOneMarkerPhasePerCarrierFrame() {
+        val source = byteArrayOf(
+            0x10, 0x20, 0x30,
+            0x11, 0x21, 0x31,
+            0x12, 0x22, 0x32,
+            0x13, 0x23, 0x33,
+        )
+        val encoder = DoPEncoder(channelCount = 3)
+        val words = IntArray(6)
+
+        assertEquals(2, encoder.encodeFrames(source, frameCount = 4, destinationWords = words))
+        assertArrayEquals(
+            intArrayOf(
+                0x051011, 0x052021, 0x053031,
+                0xFA1213, 0xFA2223, 0xFA3233,
+            ),
+            words,
+        )
+    }
+
+    @Test
+    fun nativeThreeChannelU16LeGroupsChronologicalDsdBytesPerChannel() {
+        val source = byteArrayOf(
+            0x10, 0x20, 0x30,
+            0x11, 0x21, 0x31,
+            0x12, 0x22, 0x32,
+            0x13, 0x23, 0x33,
+        )
+        val encoder = NativeDsdEncoder(channelCount = 3, framing = NativeDsdFraming.U16_LE)
+        val output = ByteArray(source.size)
+
+        assertEquals(2, encoder.encodeFrames(source, frameCount = 4, destination = output))
+        assertArrayEquals(
+            byteArrayOf(
+                0x11, 0x10, 0x21, 0x20, 0x31, 0x30,
+                0x13, 0x12, 0x23, 0x22, 0x33, 0x32,
+            ),
+            output,
+        )
+    }
+
+    @Test
     fun dopGoldenVectorAlternatesMarkerOncePerCarrierFrameAcrossChannels() {
         val source = byteArrayOf(
             0x80.toByte(), 0x40,

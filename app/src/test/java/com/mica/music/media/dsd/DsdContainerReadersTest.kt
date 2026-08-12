@@ -9,6 +9,66 @@ import org.junit.Test
 class DsdContainerReadersTest {
 
     @Test
+    fun readerRetriesShortRandomAccessReadsAndClosesSourceOnNormalClose() {
+        val canonical = byteArrayOf(
+            0x10, 0x20,
+            0x11, 0x21,
+            0x12, 0x22,
+            0x13, 0x23,
+        )
+        val source = TrackingByteArraySource(
+            bytes = buildDsf(canonical, bitsPerSample = 8, blockSize = 2),
+            maxBytesPerRead = 1,
+        )
+
+        DsdContainerReaders.open(source).use { reader ->
+            val output = ByteArray(canonical.size)
+            assertEquals(4, reader.readFrames(output, maxFrames = 4))
+            assertArrayEquals(canonical, output)
+            assertTrue(source.readCalls > canonical.size)
+            assertTrue(!source.closed)
+        }
+
+        assertTrue(source.closed)
+    }
+
+    @Test
+    fun failedOpenClosesOwnedSource() {
+        val source = TrackingByteArraySource("NOPE".toByteArray())
+
+        val error = expectDsdFailure { DsdContainerReaders.open(source) }
+
+        assertEquals(DsdContainerFailure.UNSUPPORTED, error.failure)
+        assertTrue(source.closed)
+    }
+
+    @Test
+    fun dsfThreeChannelReadCrossesPlanarBlockBoundariesWithoutChangingCanonicalOrder() {
+        val canonical = byteArrayOf(
+            0x10, 0x20, 0x30,
+            0x11, 0x21, 0x31,
+            0x12, 0x22, 0x32,
+            0x13, 0x23, 0x33,
+            0x14, 0x24, 0x34,
+        )
+        val reader = DsdContainerReaders.open(
+            ByteArraySource(
+                buildDsf(
+                    canonical = canonical,
+                    bitsPerSample = 1,
+                    blockSize = 2,
+                    channels = 3,
+                ),
+            ),
+        )
+        val output = ByteArray(canonical.size)
+
+        assertEquals(3, reader.info.channelCount)
+        assertEquals(5, reader.readFrames(output, maxFrames = 5))
+        assertArrayEquals(canonical, output)
+    }
+
+    @Test
     fun trackedTagLibDsfAndDffFixturesOpenThroughLocalFileAdapter() {
         val dsf = trackedFixture("empty10ms.dsf")
         val dff = trackedFixture("empty10ms.dff")
@@ -151,6 +211,31 @@ private class ByteArraySource(
     }
 
     override fun close() = Unit
+}
+
+private class TrackingByteArraySource(
+    private val bytes: ByteArray,
+    private val maxBytesPerRead: Int = Int.MAX_VALUE,
+) : SeekableByteSource {
+    override val length: Long = bytes.size.toLong()
+    override val identity: ByteSourceIdentity = ByteSourceIdentity("tracking-test-bytes")
+    var closed: Boolean = false
+        private set
+    var readCalls: Int = 0
+        private set
+
+    override fun readAt(position: Long, destination: ByteArray, destinationOffset: Int, byteCount: Int): Int {
+        check(!closed) { "read after close" }
+        readCalls++
+        if (position >= bytes.size) return -1
+        val count = minOf(byteCount, maxBytesPerRead, bytes.size - position.toInt())
+        bytes.copyInto(destination, destinationOffset, position.toInt(), position.toInt() + count)
+        return count
+    }
+
+    override fun close() {
+        closed = true
+    }
 }
 
 private fun buildDsf(
