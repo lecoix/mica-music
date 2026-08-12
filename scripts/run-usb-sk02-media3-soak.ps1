@@ -407,8 +407,8 @@ function Ensure-UsbPermission {
 function Assert-NoPlaybackFailure {
     param([string]$Label)
     $diagnostics = Get-Diagnostics
-    foreach ($match in [regex]::Matches($diagnostics, 'opened sr=(\d+)')) {
-        [void]$observedRates.Add([int]$match.Groups[1].Value)
+    foreach ($rate in Get-UsbOpenedSampleRates -Diagnostics $diagnostics) {
+        [void]$observedRates.Add($rate)
     }
     $logcat = (Invoke-Adb -Arguments @("logcat", "-d", "-v", "brief") -AllowFailure) -join "`n"
     $bad = @(

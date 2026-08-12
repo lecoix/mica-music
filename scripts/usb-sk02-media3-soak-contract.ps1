@@ -37,6 +37,19 @@ function Get-ControlOutcome {
     return "Pending"
 }
 
+function Get-UsbOpenedSampleRates {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Diagnostics)
+
+    $rates = New-Object System.Collections.Generic.List[int]
+    foreach ($match in [regex]::Matches(
+        $Diagnostics,
+        '(?<![A-Za-z0-9_-])opened(?: selection=generic-descriptor)? sr=(\d+)'
+    )) {
+        $rates.Add([int]$match.Groups[1].Value)
+    }
+    return @($rates)
+}
+
 function ConvertFrom-PowerDump {
     param([Parameter(Mandatory)][object[]]$Lines)
 
