@@ -126,6 +126,29 @@ bool exact_service_period_does_not_require_integer_intervals_per_second() {
         projection.final_phase_numerator == 0;
 }
 
+bool explicit_feedback_scheduler_accepts_fractional_service_frequency() {
+    // 16 ms is 2/125 s: 62.5 data service intervals per second. Explicit feedback is already
+    // normalized to runtime frames per data service interval, so scheduler setup must not invert
+    // this exact period into an integer frequency.
+    constexpr mica::usb::iso::FixedPointPacketSchedulerConfig config{
+        {2, 125},
+        4,
+        4'096,
+    };
+    mica::usb::iso::PacketScheduler scheduler(config);
+    constexpr std::uint64_t feedback_rate_q16 = 768ULL * mica::usb::iso::kQ16One;
+    std::uint64_t frames = 0;
+    for (std::uint32_t interval = 0; interval < 125; ++interval) {
+        const auto packet = scheduler.next(feedback_rate_q16);
+        if (!packet.valid || packet.capacity_limited || packet.scheduled_frames != 768 ||
+            packet.scheduled_bytes != 3'072) {
+            return false;
+        }
+        frames += packet.scheduled_frames;
+    }
+    return frames == 96'000 && scheduler.phase_q16() == 0;
+}
+
 bool insufficient_capacity_fails_projection_gate() {
     constexpr mica::usb::iso::SchedulerConfig too_small{8'000, 8, 300};
     const auto projection = mica::usb::iso::project_sample_rate(
@@ -158,6 +181,7 @@ int main() {
     const bool quantization = fractional_q16_quantization_is_visible_not_hidden();
     const bool exact_nominal = exact_nominal_runtime_scheduler_conserves_44k1_for_72h();
     const bool non_integer_interval_rate = exact_service_period_does_not_require_integer_intervals_per_second();
+    const bool fractional_feedback = explicit_feedback_scheduler_accepts_fractional_service_frequency();
     const bool capacity = insufficient_capacity_fails_projection_gate();
     const bool overflow = counter_overflow_fails_closed();
     std::cout << "rational72h=" << (rational ? "pass" : "fail") << '\n'
@@ -165,8 +189,9 @@ int main() {
               << "q16Quantization=" << (quantization ? "pass" : "fail") << '\n'
               << "exactNominal72h=" << (exact_nominal ? "pass" : "fail") << '\n'
               << "nonIntegerIntervalRate=" << (non_integer_interval_rate ? "pass" : "fail") << '\n'
+              << "fractionalExplicitFeedback=" << (fractional_feedback ? "pass" : "fail") << '\n'
               << "capacityGate=" << (capacity ? "pass" : "fail") << '\n'
               << "overflowGate=" << (overflow ? "pass" : "fail") << '\n';
     return rational && q16 && quantization && exact_nominal && non_integer_interval_rate &&
-        capacity && overflow ? 0 : 1;
+        fractional_feedback && capacity && overflow ? 0 : 1;
 }

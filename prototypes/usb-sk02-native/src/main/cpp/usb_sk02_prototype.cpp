@@ -679,22 +679,10 @@ private:
         std::optional<Sk02FeedbackRateFilter> feedback_filter;
         std::optional<mica::usb::iso::PacketScheduler> feedback_scheduler;
         if (has_feedback) {
-            if (transport.data_service_period.numerator == 0 ||
-                transport.data_service_period.denominator % transport.data_service_period.numerator != 0) {
-                error_code.store(EINVAL, std::memory_order_release);
-                return;
-            }
-            const auto intervals_per_second =
-                transport.data_service_period.denominator / transport.data_service_period.numerator;
-            if (intervals_per_second == 0 ||
-                intervals_per_second > std::numeric_limits<std::uint32_t>::max()) {
-                error_code.store(EOVERFLOW, std::memory_order_release);
-                return;
-            }
             feedback_filter.emplace(initial_feedback);
             feedback_scheduler.emplace(
-                mica::usb::iso::SchedulerConfig{
-                    static_cast<std::uint32_t>(intervals_per_second),
+                mica::usb::iso::FixedPointPacketSchedulerConfig{
+                    transport.data_service_period,
                     transport.bytes_per_runtime_frame,
                     transport.max_bytes_per_data_service_interval,
                 });

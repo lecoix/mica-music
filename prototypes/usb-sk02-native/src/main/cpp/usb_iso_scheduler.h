@@ -27,6 +27,38 @@ struct SchedulerConfig {
     }
 };
 
+/**
+ * Exact transport geometry for a fixed-point rate that is already normalized to runtime frames
+ * per data service interval. The scheduler does not need the inverse service frequency; retaining
+ * the exact period here prevents callers from manufacturing an integer intervals/second value.
+ */
+struct FixedPointPacketSchedulerConfig {
+    ServicePeriod data_service_period{};
+    std::uint32_t bytes_per_runtime_frame = 0;
+    std::uint32_t max_bytes_per_data_service_interval = 0;
+
+    constexpr bool valid() const {
+        return data_service_period.valid() &&
+            bytes_per_runtime_frame > 0 &&
+            max_bytes_per_data_service_interval >= bytes_per_runtime_frame;
+    }
+
+    constexpr std::uint32_t max_runtime_frames_per_interval() const {
+        return bytes_per_runtime_frame == 0 ? 0 :
+            max_bytes_per_data_service_interval / bytes_per_runtime_frame;
+    }
+};
+
+constexpr FixedPointPacketSchedulerConfig fixed_point_config_from_legacy(
+    const SchedulerConfig config) {
+    if (!config.valid()) return {};
+    return {
+        {1, config.service_intervals_per_second},
+        config.bytes_per_frame,
+        config.max_packet_bytes,
+    };
+}
+
 struct PacketScheduleResult {
     bool valid = false;
     bool capacity_limited = false;
@@ -45,8 +77,15 @@ struct PacketScheduleResult {
  */
 class PacketScheduler {
 public:
-    explicit PacketScheduler(const SchedulerConfig config, const std::uint32_t initial_phase_q16 = 0)
+    explicit PacketScheduler(
+        const FixedPointPacketSchedulerConfig config,
+        const std::uint32_t initial_phase_q16 = 0)
         : config_(config), phase_q16_(initial_phase_q16 & 0xffffU) {}
+
+    explicit PacketScheduler(
+        const SchedulerConfig config,
+        const std::uint32_t initial_phase_q16 = 0)
+        : PacketScheduler(fixed_point_config_from_legacy(config), initial_phase_q16) {}
 
     PacketScheduleResult next(const std::uint64_t rate_q16) {
         PacketScheduleResult result{};
@@ -62,9 +101,9 @@ public:
         result.requested_frames = static_cast<std::uint32_t>(requested_frames64);
         result.scheduled_frames = std::min(
             result.requested_frames,
-            config_.max_frames_per_packet());
+            config_.max_runtime_frames_per_interval());
         result.capacity_limited = result.scheduled_frames != result.requested_frames;
-        result.scheduled_bytes = result.scheduled_frames * config_.bytes_per_frame;
+        result.scheduled_bytes = result.scheduled_frames * config_.bytes_per_runtime_frame;
         phase_q16_ = static_cast<std::uint32_t>(accumulated & 0xffffULL);
         result.phase_q16 = phase_q16_;
 
@@ -82,7 +121,7 @@ public:
     std::uint64_t capacity_limited_packets() const { return capacity_limited_packets_; }
 
 private:
-    SchedulerConfig config_;
+    FixedPointPacketSchedulerConfig config_;
     std::uint32_t phase_q16_ = 0;
     std::uint64_t scheduled_packets_ = 0;
     std::uint64_t requested_frames_ = 0;
