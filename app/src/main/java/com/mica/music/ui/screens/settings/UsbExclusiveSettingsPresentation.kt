@@ -87,7 +87,8 @@ internal fun presentUsbExclusiveSettings(
                 "${it.sampleRateHz / 1_000} kHz",
                 when (it.encoding) {
                     UsbPcmEncoding.PCM_16 -> "16-bit"
-                    UsbPcmEncoding.PCM_24_PACKED -> "24-bit"
+                    UsbPcmEncoding.PCM_24_PACKED -> "24-bit packed"
+                    UsbPcmEncoding.PCM_24_IN_32 -> "24-bit / 32-bit container"
                     UsbPcmEncoding.PCM_32 -> "32-bit"
                 },
                 "${it.channelCount} 声道",

@@ -18,6 +18,12 @@ internal object Sk02UsbContract : UsbFormatNegotiator {
             profile(alt = 2, encoding = UsbPcmEncoding.PCM_24_PACKED, maxPacketBytes = 300),
             profile(alt = 3, encoding = UsbPcmEncoding.PCM_32, maxPacketBytes = 400),
         ),
+        audioFunction = UsbAudioFunction(
+            protocol = UsbAudioProtocol.UAC2,
+            controlInterfaceNumber = 1,
+            streamingInterfaceNumbers = setOf(2),
+        ),
+        busSpeed = UsbBusSpeed.HIGH,
     )
 
     override fun negotiate(
@@ -26,18 +32,31 @@ internal object Sk02UsbContract : UsbFormatNegotiator {
         signalPolicy: UsbSignalPolicy,
     ): UsbFormatDecision {
         if (capability.identity != identity) {
-            return UsbFormatDecision.Rejected("P1 supports only the proven Fosi Audio SK02")
+            return UsbFormatDecision.Rejected(
+                UsbAudioRejection(
+                    UsbAudioRejectionCode.DEVICE_IDENTITY_MISMATCH,
+                    "SK02 golden contract received a different device identity",
+                ),
+            )
         }
         if (signalPolicy != UsbSignalPolicy.EXACT_ONLY) {
-            return UsbFormatDecision.Rejected("P1 exposes no processed USB signal policy")
+            return UsbFormatDecision.Rejected(
+                UsbAudioRejection(
+                    UsbAudioRejectionCode.UNSUPPORTED_SIGNAL_POLICY,
+                    "SK02 golden contract exposes exact-only output",
+                ),
+            )
         }
         val profile = capability.streamingProfiles.firstOrNull {
             it.channelCount == source.channelCount &&
                 it.encoding == source.encoding &&
-                source.sampleRateHz in it.sampleRateRangeHz
+                it.sampleRates.supports(source.sampleRateHz)
         } ?: return UsbFormatDecision.Rejected(
-            "SK02 has no exact profile for ${source.sampleRateHz}Hz/" +
-                "${source.channelCount}ch/${source.encoding}",
+            UsbAudioRejection(
+                UsbAudioRejectionCode.UNSUPPORTED_FORMAT,
+                "SK02 has no exact profile for ${source.sampleRateHz}Hz/" +
+                    "${source.channelCount}ch/${source.encoding}",
+            ),
         )
         return UsbFormatDecision.Accepted(
             requestedFormat = source,
@@ -55,7 +74,7 @@ internal object Sk02UsbContract : UsbFormatNegotiator {
         capability.streamingProfiles.firstOrNull {
             it.channelCount == format.channelCount &&
                 it.encoding == format.encoding &&
-                format.sampleRateHz in it.sampleRateRangeHz
+                it.sampleRates.supports(format.sampleRateHz)
         }
 
     fun validateRuntimeEndpoints(
@@ -99,6 +118,7 @@ internal object Sk02UsbContract : UsbFormatNegotiator {
         val subslotBytes = when (encoding) {
             UsbPcmEncoding.PCM_16 -> 2
             UsbPcmEncoding.PCM_24_PACKED -> 3
+            UsbPcmEncoding.PCM_24_IN_32 -> 4
             UsbPcmEncoding.PCM_32 -> 4
         }
         return UsbAudioStreamingProfile(
@@ -111,14 +131,37 @@ internal object Sk02UsbContract : UsbFormatNegotiator {
             channelCount = 2,
             encoding = encoding,
             subslotBytes = subslotBytes,
-            bitResolution = subslotBytes * 8,
-            sampleRateRangeHz = 8_000..384_000,
+            bitResolution = if (encoding == UsbPcmEncoding.PCM_24_IN_32) 24 else subslotBytes * 8,
+            sampleRates = UsbSampleRateSupport.Ranges(
+                listOf(UsbSampleRateRange(minHz = 8_000, maxHz = 384_000, resolutionHz = 1)),
+            ),
             maxPacketBytes = maxPacketBytes,
             interval = 1,
+            syncMode = UsbEndpointSyncMode.ASYNCHRONOUS,
+            feedbackPlan = UsbFeedbackPlan(
+                mode = UsbFeedbackMode.EXPLICIT,
+                endpointAddress = 0x84,
+                maxPacketBytes = 4,
+                interval = 4,
+                encoding = UsbFeedbackEncoding.UAC2_16_16,
+            ),
+            clockPlan = UsbClockPlan.Uac2Entity(sourceEntityId = 1),
+            capacityEvidence = UsbEndpointCapacityEvidence(
+                maxPacketBytes = maxPacketBytes,
+                bytesPerAudioFrame = subslotBytes * 2,
+                maxFramesPerServiceInterval = maxPacketBytes / (subslotBytes * 2),
+            ),
+            claimPlan = UsbInterfaceClaimPlan(
+                controlInterfaceNumber = 1,
+                streamingInterfaceNumber = 2,
+                alternateSetting = alt,
+            ),
         )
     }
 
-    private fun rejected(reason: String) = UsbStreamingProfileValidation.Rejected(reason)
+    private fun rejected(reason: String) = UsbStreamingProfileValidation.Rejected(
+        UsbAudioRejection(UsbAudioRejectionCode.ENDPOINT_SHAPE_MISMATCH, reason),
+    )
 
     private const val ISOCHRONOUS_TRANSFER_TYPE = 1
 }

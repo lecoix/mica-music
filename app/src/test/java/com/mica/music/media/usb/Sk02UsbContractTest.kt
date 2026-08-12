@@ -6,6 +6,35 @@ import org.junit.Test
 
 class Sk02UsbContractTest {
     @Test
+    fun p3GoldenCapabilityPreservesTheProvenSk02Topology() {
+        val capability = Sk02UsbContract.capability
+
+        assertEquals(2, capability.uacVersion)
+        assertEquals(UsbBusSpeed.HIGH, capability.busSpeed)
+        assertEquals(
+            UsbAudioFunction(
+                protocol = UsbAudioProtocol.UAC2,
+                controlInterfaceNumber = 1,
+                streamingInterfaceNumbers = setOf(2),
+            ),
+            capability.audioFunction,
+        )
+        assertEquals(3, capability.streamingProfiles.size)
+
+        capability.streamingProfiles.forEach { profile ->
+            assertEquals(UsbEndpointSyncMode.ASYNCHRONOUS, profile.syncMode)
+            assertEquals(UsbFeedbackMode.EXPLICIT, profile.feedbackPlan.mode)
+            assertEquals(0x84, profile.feedbackPlan.endpointAddress)
+            assertEquals(UsbFeedbackEncoding.UAC2_16_16, profile.feedbackPlan.encoding)
+            assertEquals(UsbClockPlan.Uac2Entity(sourceEntityId = 1), profile.clockPlan)
+            assertEquals(1, profile.claimPlan?.controlInterfaceNumber)
+            assertEquals(2, profile.claimPlan?.streamingInterfaceNumber)
+            assertTrue(profile.sampleRates.supports(48_000))
+            assertTrue(profile.sampleRates.supports(384_000))
+        }
+    }
+
+    @Test
     fun exactPcm16AndPcm32AreAcceptedWithoutSignalChange() {
         listOf(UsbPcmEncoding.PCM_16, UsbPcmEncoding.PCM_32).forEach { encoding ->
             val source = UsbPcmFormat(

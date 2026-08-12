@@ -9,7 +9,12 @@ internal data class UsbAudioDeviceIdentity(
     val descriptorFingerprint: String,
     val serialNumber: String? = null,
     val topologyHint: String? = null,
-)
+    val bcdDevice: Int? = null,
+) {
+    init {
+        require(bcdDevice == null || bcdDevice in 0..0xffff)
+    }
+}
 
 /** Handle valid only for one Android USB enumeration. */
 internal data class UsbAudioRuntimeHandle(
@@ -32,7 +37,152 @@ internal data class UsbAudioDeviceSnapshot(
 internal enum class UsbPcmEncoding {
     PCM_16,
     PCM_24_PACKED,
+    PCM_24_IN_32,
     PCM_32,
+}
+
+internal data class UsbSampleRateRange(
+    val minHz: Int,
+    val maxHz: Int,
+    val resolutionHz: Int,
+) {
+    init {
+        require(minHz > 0)
+        require(maxHz >= minHz)
+        require(resolutionHz > 0)
+    }
+
+    fun supports(sampleRateHz: Int): Boolean =
+        sampleRateHz in minHz..maxHz && (sampleRateHz - minHz) % resolutionHz == 0
+}
+
+internal sealed interface UsbSampleRateSupport {
+    fun supports(sampleRateHz: Int): Boolean
+
+    data object Unverified : UsbSampleRateSupport {
+        override fun supports(sampleRateHz: Int): Boolean = false
+    }
+
+    data class Fixed(val sampleRateHz: Int) : UsbSampleRateSupport {
+        init {
+            require(sampleRateHz > 0)
+        }
+
+        override fun supports(sampleRateHz: Int): Boolean = sampleRateHz == this.sampleRateHz
+    }
+
+    data class Discrete(val sampleRatesHz: Set<Int>) : UsbSampleRateSupport {
+        init {
+            require(sampleRatesHz.isNotEmpty())
+            require(sampleRatesHz.all { it > 0 })
+        }
+
+        override fun supports(sampleRateHz: Int): Boolean = sampleRateHz in sampleRatesHz
+    }
+
+    data class Ranges(val ranges: List<UsbSampleRateRange>) : UsbSampleRateSupport {
+        init {
+            require(ranges.isNotEmpty())
+        }
+
+        override fun supports(sampleRateHz: Int): Boolean = ranges.any { it.supports(sampleRateHz) }
+    }
+}
+
+internal enum class UsbAudioProtocol {
+    UAC1,
+    UAC2,
+}
+
+internal enum class UsbBusSpeed {
+    FULL,
+    HIGH,
+    SUPER,
+    UNKNOWN,
+}
+
+internal enum class UsbEndpointSyncMode {
+    ASYNCHRONOUS,
+    ADAPTIVE,
+    SYNCHRONOUS,
+}
+
+internal enum class UsbFeedbackMode {
+    NONE,
+    EXPLICIT,
+    IMPLICIT,
+}
+
+internal enum class UsbFeedbackEncoding {
+    UAC1_10_14,
+    UAC2_16_16,
+}
+
+internal data class UsbFeedbackPlan(
+    val mode: UsbFeedbackMode,
+    val endpointAddress: Int? = null,
+    val maxPacketBytes: Int? = null,
+    val interval: Int? = null,
+    val encoding: UsbFeedbackEncoding? = null,
+)
+
+internal sealed interface UsbClockPlan {
+    data class Uac1Endpoint(
+        val endpointAddress: Int,
+        val samplingFrequencyControl: Boolean,
+    ) : UsbClockPlan
+
+    data class Uac2Entity(
+        val sourceEntityId: Int,
+        val entityPath: List<Int> = listOf(sourceEntityId),
+        val rateMultiplierNumerator: Long = 1,
+        val rateMultiplierDenominator: Long = 1,
+    ) : UsbClockPlan
+}
+
+internal data class UsbEndpointCapacityEvidence(
+    val maxPacketBytes: Int,
+    val bytesPerAudioFrame: Int,
+    val maxFramesPerServiceInterval: Int,
+)
+
+internal data class UsbInterfaceClaimPlan(
+    val controlInterfaceNumber: Int,
+    val streamingInterfaceNumber: Int,
+    val alternateSetting: Int,
+)
+
+internal data class UsbAudioFunction(
+    val protocol: UsbAudioProtocol,
+    val controlInterfaceNumber: Int,
+    val streamingInterfaceNumbers: Set<Int>,
+)
+
+internal enum class UsbAudioRejectionCode {
+    UNSUPPORTED_PROTOCOL,
+    UNSUPPORTED_FORMAT,
+    UNSUPPORTED_SAMPLE_RATE,
+    UNSUPPORTED_CHANNEL_COUNT,
+    UNSUPPORTED_SIGNAL_POLICY,
+    UNPROVEN_CLOCK_PATH,
+    CLOCK_INVALID,
+    RATE_CONTROL_FAILED,
+    RATE_READBACK_MISMATCH,
+    ENDPOINT_CAPACITY_INSUFFICIENT,
+    UNSUPPORTED_FEEDBACK_TOPOLOGY,
+    IMPLICIT_FEEDBACK_UNSUPPORTED,
+    INTERFACE_CLAIM_UNPROVEN,
+    AMBIGUOUS_TOPOLOGY,
+    ENDPOINT_SHAPE_MISMATCH,
+    DEVICE_IDENTITY_MISMATCH,
+    MALFORMED_DESCRIPTOR,
+}
+
+internal data class UsbAudioRejection(
+    val code: UsbAudioRejectionCode,
+    val detail: String,
+) {
+    override fun toString(): String = "${code.name}: $detail"
 }
 
 internal data class UsbPcmFormat(
@@ -52,9 +202,14 @@ internal data class UsbAudioStreamingProfile(
     val encoding: UsbPcmEncoding,
     val subslotBytes: Int,
     val bitResolution: Int,
-    val sampleRateRangeHz: IntRange,
+    val sampleRates: UsbSampleRateSupport,
     val maxPacketBytes: Int,
     val interval: Int,
+    val syncMode: UsbEndpointSyncMode = UsbEndpointSyncMode.ASYNCHRONOUS,
+    val feedbackPlan: UsbFeedbackPlan = UsbFeedbackPlan(UsbFeedbackMode.NONE),
+    val clockPlan: UsbClockPlan? = null,
+    val capacityEvidence: UsbEndpointCapacityEvidence? = null,
+    val claimPlan: UsbInterfaceClaimPlan? = null,
 )
 
 internal data class UsbAudioEndpointShape(
@@ -67,7 +222,9 @@ internal data class UsbAudioEndpointShape(
 internal sealed interface UsbStreamingProfileValidation {
     data object Valid : UsbStreamingProfileValidation
 
-    data class Rejected(val reason: String) : UsbStreamingProfileValidation
+    data class Rejected(val rejection: UsbAudioRejection) : UsbStreamingProfileValidation {
+        val reason: String get() = rejection.toString()
+    }
 }
 
 internal data class UsbAudioCapability(
@@ -76,7 +233,9 @@ internal data class UsbAudioCapability(
     val audioControlInterface: Int,
     val clockSourceId: Int?,
     val streamingProfiles: List<UsbAudioStreamingProfile>,
-    val rejectReason: String? = null,
+    val audioFunction: UsbAudioFunction? = null,
+    val busSpeed: UsbBusSpeed = UsbBusSpeed.UNKNOWN,
+    val rejectReason: UsbAudioRejection? = null,
 )
 
 internal enum class UsbSignalPolicy {
@@ -98,7 +257,9 @@ internal sealed interface UsbFormatDecision {
         val signalExact: Boolean,
     ) : UsbFormatDecision
 
-    data class Rejected(val reason: String) : UsbFormatDecision
+    data class Rejected(val rejection: UsbAudioRejection) : UsbFormatDecision {
+        val reason: String get() = rejection.toString()
+    }
 }
 
 internal interface UsbAudioDeviceRepository {
