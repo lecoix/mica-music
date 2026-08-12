@@ -100,45 +100,52 @@ internal fun PlayerLowerPanelSection(
     val showPlayerInfoRow = playerInfoVisibility.hasAnyEnabledSegment()
 
     if (hideInfoAndLyrics) {
-        Column(modifier.fillMaxSize()) {
-            DirectionalTrackWipe(
-                targetState = activeSong,
-                contentKey = Song::id,
-                direction = trackSkipDirection,
-                motionEnabled = trackWipeMotionEnabled,
-            ) { visualSong ->
-                SongTitleSection(
-                    title = SongTitleDisplay.displayTitle(visualSong.title, stripSongTitleParentheses),
-                    artist = visualSong.artist,
-                    album = visualSong.album,
-                    isBuffering = surfaceState.isBuffering,
-                    playbackError = surfaceState.playbackError,
+        val photoStackChromeAlpha = (1f - lower.immersiveProgress).coerceIn(0f, 1f)
+        if (photoStackChromeAlpha > 0.001f) {
+            Column(
+                modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = photoStackChromeAlpha },
+            ) {
+                DirectionalTrackWipe(
+                    targetState = activeSong,
+                    contentKey = Song::id,
+                    direction = trackSkipDirection,
+                    motionEnabled = trackWipeMotionEnabled,
+                ) { visualSong ->
+                    SongTitleSection(
+                        title = SongTitleDisplay.displayTitle(visualSong.title, stripSongTitleParentheses),
+                        artist = visualSong.artist,
+                        album = visualSong.album,
+                        isBuffering = surfaceState.isBuffering,
+                        playbackError = surfaceState.playbackError,
+                        colors = colors,
+                        immersiveProgress = lower.immersiveProgress,
+                        modifier = titleModifier.graphicsLayer {
+                            translationY = lower.titleSlideDown.toPx()
+                        },
+                        onLongPress = if (!immersiveLower) onToggleImmersive else null,
+                    )
+                }
+                Spacer(Modifier.height(lower.photoStackTitleToControlsGap))
+                PlayerLowerPanelChrome(
+                    surfaceState = surfaceState,
                     colors = colors,
-                    immersiveProgress = lower.immersiveProgress,
-                    modifier = titleModifier.graphicsLayer {
-                        translationY = lower.titleSlideDown.toPx()
-                    },
-                    onLongPress = if (!immersiveLower) onToggleImmersive else null,
+                    seekState = seekState,
+                    lower = lower,
+                    spectrumEnabled = spectrumEnabled,
+                    hidden = hideLyricsPageChrome,
+                    onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+                    onPrevious = onPrevious,
+                    onTogglePlay = onTogglePlay,
+                    onPlayLongPress = playLongPress,
+                    onNext = onNext,
+                    onOpenEqualizer = onOpenEqualizer,
+                    onOpenQueue = onOpenQueue,
+                    modifier = chromeModifier,
                 )
+                Spacer(Modifier.weight(1f))
             }
-            Spacer(Modifier.height(lower.photoStackTitleToControlsGap))
-            PlayerLowerPanelChrome(
-                surfaceState = surfaceState,
-                colors = colors,
-                seekState = seekState,
-                lower = lower,
-                spectrumEnabled = spectrumEnabled,
-                hidden = hideLyricsPageChrome,
-                onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
-                onPrevious = onPrevious,
-                onTogglePlay = onTogglePlay,
-                onPlayLongPress = playLongPress,
-                onNext = onNext,
-                onOpenEqualizer = onOpenEqualizer,
-                onOpenQueue = onOpenQueue,
-                modifier = chromeModifier,
-            )
-            Spacer(Modifier.weight(1f))
         }
         return
     }

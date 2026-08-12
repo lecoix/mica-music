@@ -73,6 +73,7 @@ import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
 import com.mica.music.ui.screens.player.pinnedVideoCover
 import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
 import com.mica.music.ui.screens.player.PlayerPageFrame
+import com.mica.music.ui.screens.player.PlayerPageLayoutEngine
 import com.mica.music.ui.screens.player.UseNativeParticleCoverInPlayer
 import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
@@ -124,6 +125,8 @@ internal fun NowPlayingCoverSection(
     photoStackNavigation: PhotoStackCarouselNavigationBridge,
     screenWidth: Dp,
     stripSongTitleParentheses: Boolean,
+    coverDecodeTargetOverride: CoverDecodeTarget? = null,
+    coverFlowGesturesEnabledOverride: Boolean? = null,
     coverStartPaddingOverride: Dp? = null,
     /** When set, cover wipe shares progress with [OutgoingCoverBackgroundWipe]. */
     sharedCoverWipeState: PlayerCoverWipeState? = null,
@@ -151,7 +154,7 @@ internal fun NowPlayingCoverSection(
     // Lyrics focus lerps the slot toward the mini cover. Pin decode size so portrait
     // cover-flow does not cross into the landscape slot-sized path mid-fold.
     val pinCoverFlowDecodeToViewport = frame.lyricsProgress > ImmersiveProgressEpsilon
-    val coverDecodeTarget = remember(
+    val calculatedCoverDecodeTarget = remember(
         screenWidthPx,
         coverWidthPx,
         coverHeightPx,
@@ -171,6 +174,14 @@ internal fun NowPlayingCoverSection(
         } else {
             CoverDecodeTarget.forSpecialTheme(screenWidthPx)
         }
+    }
+    val coverDecodeTarget = coverDecodeTargetOverride ?: calculatedCoverDecodeTarget
+    val photoStackDecodeTarget = remember(screenWidthPx) {
+        val immersiveArtworkSizePx =
+            screenWidthPx *
+                PlayerPageLayoutEngine.PhotoStackImmersiveScreenFraction *
+                (1f - PlayerPageLayoutEngine.PhotoStackArtworkInsetHorizontalFraction * 2f)
+        CoverDecodeTarget.fromPixels(immersiveArtworkSizePx, immersiveArtworkSizePx)
     }
     val reflectionGapPx = with(density) { HifiSpacing.sm.toPx() }
     val reflectionExtraDp =
@@ -303,7 +314,7 @@ internal fun NowPlayingCoverSection(
                     motionEnabled = motionEnabled,
                     coverColor = coverColor,
                     stageActive = frame.coverFlowStageActive,
-                    gesturesEnabled = frame.gesturesEnabled,
+                    gesturesEnabled = coverFlowGesturesEnabledOverride ?: frame.gesturesEnabled,
                     onPlayQueueIndex = onPlayQueueIndex,
                     onPrevious = onPrevious,
                     onNext = onNext,
@@ -367,16 +378,31 @@ internal fun NowPlayingCoverSection(
                 }
             }
             if (!frame.coverFlowStageActive && coverSlotVisible && frame.photoStack.normalLayerVisible) {
+                val photoStackSlotStart =
+                    ((screenWidth - frame.photoStack.slotWidth) / 2).coerceAtLeast(0.dp)
+                val photoStackCardLeftPx = with(density) {
+                    ((frame.photoStack.slotWidth - frame.photoStack.cardWidth) / 2).toPx()
+                }
+                val photoStackCardTopPx = with(density) { frame.photoStack.cardTopInset.toPx() }
                 Box(
                     modifier = Modifier
-                        .padding(start = cover.startPadding, top = cover.topPadding)
-                        .size(cover.width, cover.height)
+                        .padding(start = photoStackSlotStart, top = cover.topPadding)
+                        .size(frame.photoStack.slotWidth, frame.photoStack.slotHeight)
                         .graphicsLayer {
                             alpha = coverContentAlpha
                             clip = false
                         }
-                        .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
-                        .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverClick, onCoverLongPress)),
+                        .onGloballyPositioned { coords ->
+                            val bounds = coords.boundsInRoot()
+                            onCoverBoundsChanged(
+                                Rect(
+                                    left = bounds.left + photoStackCardLeftPx,
+                                    top = bounds.top + photoStackCardTopPx,
+                                    right = bounds.left + photoStackCardLeftPx + coverWidthPx,
+                                    bottom = bounds.top + photoStackCardTopPx + coverHeightPx,
+                                ),
+                            )
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     PhotoStackThemeHost(
@@ -389,10 +415,12 @@ internal fun NowPlayingCoverSection(
                         gesturesEnabled = frame.gesturesEnabled,
                         onPrevious = onPrevious,
                         onNext = onNext,
+                        onCoverClick = onCoverClick,
                         onCoverLongPress = onCoverLongPress,
                         onCoverMotionActiveChanged = onCoverMotionActiveChanged,
                         navigationBridge = photoStackNavigation,
                         onPlayQueueIndex = onPlayQueueIndex,
+                        decodeTargetOverride = photoStackDecodeTarget,
                         modifier = Modifier.matchParentSize(),
                     )
                 }

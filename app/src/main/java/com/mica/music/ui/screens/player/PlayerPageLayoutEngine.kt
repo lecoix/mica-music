@@ -19,8 +19,14 @@ import com.mica.music.ui.theme.playerInfoRowHeight
  */
 object PlayerPageLayoutEngine {
     private const val PhotoStackScreenFraction = 0.80f
+    internal const val PhotoStackImmersiveScreenFraction = 0.90f
+    internal const val PhotoStackArtworkInsetHorizontalFraction = 0.038f
+    private const val PhotoStackImmersiveCenterBias = 0.82f
     private const val PhotoStackAspectRatio = 0.78f
     private const val PhotoStackEdgeFraction = 0.10f
+    private val PhotoStackImmersiveHorizontalBleed = 40.dp
+    private val PhotoStackImmersiveTopBleed = 52.dp
+    private val PhotoStackImmersiveBottomBleed = 104.dp
 
     fun computeFrame(
         input: PlayerPageLayoutInput,
@@ -103,9 +109,10 @@ object PlayerPageLayoutEngine {
         val photoStackLayout = if (input.photoStackMode) {
             computePhotoStackVerticalLayout(
                 screenHeight = input.screenHeight,
-                photoStackHeight = cover.height,
+                photoStackHeight = photoStack.slotHeight,
                 titleBlockHeight = photoStackTitleBlockHeight,
                 controlsHeight = photoStackControlsHeight,
+                immersiveProgress = immersiveProgress,
             )
         } else {
             PhotoStackVerticalLayout(
@@ -157,8 +164,8 @@ object PlayerPageLayoutEngine {
         val stablePlaybackScene =
             !input.lyricsExpanded &&
                 lyricsFocus <= ImmersiveProgressEpsilon &&
-                !input.immersiveLower &&
-                immersiveProgress <= ImmersiveProgressEpsilon
+                (!input.immersiveLower || input.photoStackMode) &&
+                (immersiveProgress <= ImmersiveProgressEpsilon || input.photoStackMode)
         val liveSpectrumRequested =
             input.spectrumSettingEnabled ||
                 input.photoStackMode
@@ -171,7 +178,7 @@ object PlayerPageLayoutEngine {
 
         val gesturesEnabled =
             !input.lyricsExpanded &&
-                !input.immersiveLower &&
+                (!input.immersiveLower || input.photoStackMode) &&
                 lyricsFocus < 0.01f
 
         val scene = when {
@@ -271,7 +278,10 @@ object PlayerPageLayoutEngine {
         }
         val (expandedCoverWidth, expandedCoverHeight) = when {
             input.photoStackMode -> {
-                val cardWidth = input.screenWidth * PhotoStackScreenFraction
+                val immersiveFraction = input.immersiveProgress.coerceIn(0f, 1f)
+                val screenFraction = PhotoStackScreenFraction +
+                    (PhotoStackImmersiveScreenFraction - PhotoStackScreenFraction) * immersiveFraction
+                val cardWidth = input.screenWidth * screenFraction
                 cardWidth to cardWidth / PhotoStackAspectRatio
             }
             input.fitOriginal -> measurePlayerCoverFitOriginal(
@@ -292,12 +302,23 @@ object PlayerPageLayoutEngine {
         } else {
             lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsFocus)
         }
+        val photoStackViewport = if (input.photoStackMode) {
+            computePhotoStackViewport(
+                screenWidth = input.screenWidth,
+                cardWidth = expandedCoverWidth,
+                cardHeight = expandedCoverHeight,
+                immersiveProgress = input.immersiveProgress,
+            )
+        } else {
+            null
+        }
         val photoStackLayout = if (input.photoStackMode) {
             computePhotoStackVerticalLayout(
                 screenHeight = input.screenHeight,
-                photoStackHeight = expandedCoverHeight,
+                photoStackHeight = photoStackViewport!!.slotHeight,
                 titleBlockHeight = photoStackTitleBlockHeight,
                 controlsHeight = photoStackControlsHeight,
+                immersiveProgress = input.immersiveProgress,
             )
         } else {
             PhotoStackVerticalLayout(edgeGap = 0.dp, middleGap = 0.dp)
@@ -326,7 +347,7 @@ object PlayerPageLayoutEngine {
         }
         val coverBlockHeight = when {
             input.photoStackMode -> lerpDp(
-                coverHeight + coverTopPadding + particleCoverBottomPadding,
+                photoStackViewport!!.slotHeight + coverTopPadding + particleCoverBottomPadding,
                 input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm,
                 lyricsFocus,
             )
@@ -377,19 +398,26 @@ object PlayerPageLayoutEngine {
         val normalLayerVisible =
             enabled &&
                 !input.lyricsExpanded &&
-                lyricsFocus <= ImmersiveProgressEpsilon &&
-                !input.immersiveLower
+                lyricsFocus <= ImmersiveProgressEpsilon
         val cardWidth = cover.width
         val cardHeight = cover.height
+        val viewport = computePhotoStackViewport(
+            screenWidth = input.screenWidth,
+            cardWidth = cardWidth,
+            cardHeight = cardHeight,
+            immersiveProgress = input.immersiveProgress,
+        )
         return PhotoStackFrame(
             enabled = enabled,
             normalLayerVisible = normalLayerVisible,
-            slotWidth = cover.width,
-            slotHeight = cover.height,
+            immersiveProgress = input.immersiveProgress.coerceIn(0f, 1f),
+            slotWidth = viewport.slotWidth,
+            slotHeight = viewport.slotHeight,
+            cardTopInset = viewport.cardTopInset,
             cardWidth = cardWidth,
             cardHeight = cardHeight,
             artworkInsetTop = cardWidth * 0.055f,
-            artworkInsetHorizontal = cardWidth * 0.038f,
+            artworkInsetHorizontal = cardWidth * PhotoStackArtworkInsetHorizontalFraction,
             artworkBottomBand = cardHeight - cardWidth - cardWidth * 0.055f,
             waveformHeight = 24.dp,
         )
@@ -399,6 +427,33 @@ object PlayerPageLayoutEngine {
         val edgeGap: Dp,
         val middleGap: Dp,
     )
+
+    private data class PhotoStackViewport(
+        val slotWidth: Dp,
+        val slotHeight: Dp,
+        val cardTopInset: Dp,
+    )
+
+    private fun computePhotoStackViewport(
+        screenWidth: Dp,
+        cardWidth: Dp,
+        cardHeight: Dp,
+        immersiveProgress: Float,
+    ): PhotoStackViewport {
+        val progress = immersiveProgress.coerceIn(0f, 1f)
+        val availableHorizontalBleed = (screenWidth - cardWidth).coerceAtLeast(0.dp)
+        val horizontalBleed = minOf(
+            PhotoStackImmersiveHorizontalBleed * progress,
+            availableHorizontalBleed,
+        )
+        val topBleed = PhotoStackImmersiveTopBleed * progress
+        val bottomBleed = PhotoStackImmersiveBottomBleed * progress
+        return PhotoStackViewport(
+            slotWidth = cardWidth + horizontalBleed,
+            slotHeight = cardHeight + topBleed + bottomBleed,
+            cardTopInset = topBleed,
+        )
+    }
 
     private fun computePhotoStackTitleBlockHeight(
         density: Density,
@@ -414,15 +469,19 @@ object PlayerPageLayoutEngine {
         photoStackHeight: Dp,
         titleBlockHeight: Dp,
         controlsHeight: Dp,
+        immersiveProgress: Float,
     ): PhotoStackVerticalLayout {
         val fixedHeight = photoStackHeight + titleBlockHeight + controlsHeight
         val availableGap = (screenHeight - fixedHeight).coerceAtLeast(0.dp)
         val desiredEdgeGap = screenHeight * PhotoStackEdgeFraction
-        val edgeGap = minOf(desiredEdgeGap, availableGap / 2)
-        val middleGap = ((availableGap - edgeGap * 2) / 2).coerceAtLeast(0.dp)
+        val normalEdgeGap = minOf(desiredEdgeGap, availableGap / 2)
+        val normalMiddleGap = ((availableGap - normalEdgeGap * 2) / 2).coerceAtLeast(0.dp)
+        val centeredTopGap = ((screenHeight - photoStackHeight).coerceAtLeast(0.dp) / 2) *
+            PhotoStackImmersiveCenterBias
+        val progress = immersiveProgress.coerceIn(0f, 1f)
         return PhotoStackVerticalLayout(
-            edgeGap = edgeGap,
-            middleGap = middleGap,
+            edgeGap = lerpDp(normalEdgeGap, centeredTopGap, progress),
+            middleGap = lerpDp(normalMiddleGap, 0.dp, progress),
         )
     }
 

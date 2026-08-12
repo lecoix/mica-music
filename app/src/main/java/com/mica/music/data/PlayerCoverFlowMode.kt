@@ -47,7 +47,6 @@ enum class PlayerCoverFlowMode(
         settingsLabel = "拍立得回忆",
         usesPhotoStack = true,
         forcesSquareCrop = true,
-        supportsImmersiveLower = false,
     ),
     ;
 

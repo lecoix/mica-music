@@ -10,4 +10,18 @@ class CoverFlowCarouselNavigationBridge {
     fun skipToIndex(index: Int) {
         view?.skipToIndexVisualFirst(index)
     }
+
+    fun beginDrag(): Boolean = view?.beginExternalDrag() == true
+
+    fun dragBy(deltaPx: Float) {
+        view?.dragExternalBy(deltaPx)
+    }
+
+    fun endDrag() {
+        view?.endExternalDrag()
+    }
+
+    fun cancelDrag() {
+        view?.cancelExternalDrag()
+    }
 }

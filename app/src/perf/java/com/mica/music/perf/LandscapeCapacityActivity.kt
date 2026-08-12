@@ -114,6 +114,7 @@ class LandscapeCapacityActivity : ComponentActivity() {
                 PhotoStackTransitionFramePx(
                     slotWidthPx = 960f,
                     slotHeightPx = 920f,
+                    cardTopInsetPx = 0f,
                     cardWidthPx = 620f,
                     cardHeightPx = 760f,
                     artworkInsetTopPx = 44f,
@@ -284,6 +285,7 @@ class LandscapeCapacityActivity : ComponentActivity() {
                     PhotoStackTransitionFramePx(
                         slotWidthPx = width * 0.72f,
                         slotHeightPx = height * 0.88f,
+                        cardTopInsetPx = 0f,
                         cardWidthPx = cardWidth,
                         cardHeightPx = cardWidth * 1.22f,
                         artworkInsetTopPx = cardWidth * 0.07f,

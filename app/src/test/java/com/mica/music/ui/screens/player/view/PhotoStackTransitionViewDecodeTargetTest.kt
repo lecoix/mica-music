@@ -16,6 +16,7 @@ class PhotoStackTransitionViewDecodeTargetTest {
         val frame = PhotoStackTransitionFramePx(
             slotWidthPx = 320f,
             slotHeightPx = 400f,
+            cardTopInsetPx = 0f,
             cardWidthPx = 260f,
             cardHeightPx = 320f,
             artworkInsetTopPx = 18f,
@@ -30,6 +31,38 @@ class PhotoStackTransitionViewDecodeTargetTest {
         val actual = view.getPrivate<CoverDecodeTarget>("decodeTarget")
         assertEquals(expected.widthPx, actual.widthPx)
         assertEquals(expected.heightPx, actual.heightPx)
+    }
+
+    @Test
+    fun decodeTargetOverrideRemainsStableAcrossFrameResize() {
+        val view = PhotoStackTransitionView(ApplicationProvider.getApplicationContext())
+        val normalFrame = PhotoStackTransitionFramePx(
+            slotWidthPx = 320f,
+            slotHeightPx = 400f,
+            cardTopInsetPx = 0f,
+            cardWidthPx = 260f,
+            cardHeightPx = 320f,
+            artworkInsetTopPx = 18f,
+            artworkInsetHorizontalPx = 16f,
+            waveformHeightPx = 24f,
+        )
+        val immersiveFrame = normalFrame.copy(
+            slotWidthPx = 390f,
+            slotHeightPx = 520f,
+            cardTopInsetPx = 52f,
+            cardWidthPx = 340f,
+            cardHeightPx = 420f,
+            artworkInsetTopPx = 22f,
+            artworkInsetHorizontalPx = 20f,
+        )
+        val stableTarget = CoverDecodeTarget.fromPixels(320f, 320f)
+
+        view.setDecodeTargetOverride(stableTarget)
+        view.setFrame(normalFrame)
+        assertEquals(stableTarget, view.getPrivate<CoverDecodeTarget>("decodeTarget"))
+
+        view.setFrame(immersiveFrame)
+        assertEquals(stableTarget, view.getPrivate<CoverDecodeTarget>("decodeTarget"))
     }
 
     @Suppress("UNCHECKED_CAST")

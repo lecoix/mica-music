@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -90,6 +91,7 @@ import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
 import com.mica.music.ui.screens.player.CoverFlowMath
+import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.screens.player.landscapeCoverFlowCloudExitActive
 import com.mica.music.ui.screens.player.landscapeCoverFlowImmersiveEligible
@@ -727,6 +729,47 @@ fun NowPlayingContent(
                 immersiveAllowed = !landscapeMode,
             ) ?: return@BoxWithConstraints
             val previewFrame = pageModel.frameFor(screenHeight * 0.45f)
+            val landscapeCoverFlowDecodeTargetCandidate = if (
+                landscapeMode &&
+                (effectiveCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
+                    effectiveCoverFlowMode == PlayerCoverFlowMode.RETRO_3D)
+            ) {
+                CoverDecodeTarget.forCoverFlow(
+                    viewportWidthPx = with(density) { screenWidth.toPx() },
+                    slotWidthPx = with(density) { previewFrame.cover.width.toPx() },
+                    slotHeightPx = with(density) { previewFrame.cover.height.toPx() },
+                )
+            } else {
+                null
+            }
+            val landscapeCoverFlowDecodeTargetState = remember(
+                landscapeMode,
+                effectiveCoverFlowMode,
+            ) {
+                mutableStateOf(landscapeCoverFlowDecodeTargetCandidate)
+            }
+            val landscapeCoverFlowImmersiveTransitionActive =
+                landscapeCoverFlowImmersiveActive ||
+                    landscapeCoverFlowImmersiveProgress > ImmersiveProgressEpsilon
+            val freezeLandscapeCoverFlowDecodeTarget =
+                landscapeCoverFlowImmersiveTransitionActive
+            LaunchedEffect(
+                landscapeCoverFlowDecodeTargetCandidate,
+                freezeLandscapeCoverFlowDecodeTarget,
+            ) {
+                if (!freezeLandscapeCoverFlowDecodeTarget ||
+                    landscapeCoverFlowDecodeTargetState.value == null
+                ) {
+                    landscapeCoverFlowDecodeTargetState.value =
+                        landscapeCoverFlowDecodeTargetCandidate
+                }
+            }
+            val landscapeCoverFlowDecodeTarget = if (freezeLandscapeCoverFlowDecodeTarget) {
+                landscapeCoverFlowDecodeTargetState.value
+                    ?: landscapeCoverFlowDecodeTargetCandidate
+            } else {
+                landscapeCoverFlowDecodeTargetCandidate
+            }
             val photoStackLyricsPageVisible = photoStackLyricsPageEnabled &&
                 photoStackLyricsFrame.lyricsMounted
             val photoStackClassicLyricsPageVisible = photoStackLyricsPageVisible &&
@@ -895,13 +938,13 @@ fun NowPlayingContent(
                     onCoverBoundsChanged = onCoverBoundsChanged,
                     onCoverAspectRatioChanged = { coverAspectRatio = it },
                     onCloseLyrics = { lyricsExpanded = false },
-                    onCoverClick = if (
+                    onCoverClick = when {
+                        effectiveCoverFlowMode.usesPhotoStack && effectiveImmersiveLower ->
+                            actions.togglePlay
                         effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
-                        uiSettings.customStandardCoverTapPlayPause
-                    ) {
-                        actions.togglePlay
-                    } else {
-                        null
+                            uiSettings.customStandardCoverTapPlayPause ->
+                            actions.togglePlay
+                        else -> null
                     },
                     onPlayQueueIndex = { index ->
                         TrackSwitchPerformance.armTrigger("queue-select")
@@ -909,12 +952,26 @@ fun NowPlayingContent(
                     },
                     onPrevious = actions.previous,
                     onNext = actions.next,
-                    onCoverLongPress = { openSongActionMenu(song) },
+                    onCoverLongPress = if (
+                        effectiveCoverFlowMode.usesPhotoStack && effectiveImmersiveLower
+                    ) {
+                        actions.toggleImmersiveLower
+                    } else {
+                        { openSongActionMenu(song) }
+                    },
                     onCoverMotionActiveChanged = { coverMotionActive = it },
                     coverFlowNavigation = coverFlowNavigation,
                     photoStackNavigation = photoStackNavigation,
                     screenWidth = screenWidth,
                     stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
+                    coverDecodeTargetOverride = landscapeCoverFlowDecodeTarget,
+                    coverFlowGesturesEnabledOverride = if (
+                        landscapeCoverFlowImmersiveTransitionActive
+                    ) {
+                        false
+                    } else {
+                        null
+                    },
                     coverStartPaddingOverride = coverStartPaddingOverride,
                     sharedCoverWipeState = if (coverArtworkUsesInternalWipe) coverWipeState else null,
                     sharedCoverWipeTarget = if (coverArtworkUsesInternalWipe) coverWipeTarget else null,
@@ -1133,7 +1190,14 @@ fun NowPlayingContent(
                 if (landscapeCoverFlowLyricsTransitionActive) {
                     val landscapeSharedBoundsTransform =
                         rememberLandscapeClassicBoundsTransform(motionEnabled)
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .landscapeCoverFlowImmersiveDragInput(
+                                enabled = landscapeCoverFlowImmersiveTransitionActive,
+                                navigationBridge = coverFlowNavigation,
+                            ),
+                    ) {
                         // CoverFlow stays mounted; side covers fold with progress.
                         LandscapeCoverFlowCoverLayer(
                             progress = landscapeCoverFlowLyricsProgress,
@@ -1160,7 +1224,11 @@ fun NowPlayingContent(
                                     foldProgress,
                                 )
                             },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(
+                                    if (landscapeCoverFlowImmersiveTransitionActive) 2f else 0f,
+                                ),
                         )
                         // Title / controls shift like STANDARD via sharedBounds.
                         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {

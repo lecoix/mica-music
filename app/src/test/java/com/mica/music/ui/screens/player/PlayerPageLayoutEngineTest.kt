@@ -60,6 +60,8 @@ class PlayerPageLayoutEngineTest {
         useCoverEdgeProgress: Boolean = false,
         particleCoverMode: Boolean = false,
         photoStackMode: Boolean = false,
+        immersiveLower: Boolean = false,
+        immersiveProgress: Float = if (immersiveLower) 1f else 0f,
         coverFlowModeEnabled: Boolean = false,
         coverSwitching: Boolean = false,
         spectrumSettingEnabled: Boolean = true,
@@ -72,8 +74,8 @@ class PlayerPageLayoutEngineTest {
         lyricsExpanded = lyricsExpanded,
         lyricsProgress = lyricsProgress,
         lyricsChromeFade = lyricsChromeFade,
-        immersiveLower = false,
-        immersiveProgress = 0f,
+        immersiveLower = immersiveLower,
+        immersiveProgress = immersiveProgress,
         coverFlowProgress = 0f,
         coverFlowModeEnabled = coverFlowModeEnabled,
         useCoverEdgeProgress = useCoverEdgeProgress,
@@ -513,6 +515,64 @@ class PlayerPageLayoutEngineTest {
         assertTrue(frame.photoStack.cardWidth < 400.dp)
         assertTrue(frame.photoStack.cardHeight > frame.photoStack.cardWidth)
         assertTrue(frame.spectrumEnabled)
+    }
+
+    @Test
+    fun photoStackImmersive_keepsPhotoInteractiveAndExpandsCard() {
+        val normal = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val immersive = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                immersiveLower = true,
+                immersiveProgress = 1f,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(PlayerPageScene.Immersive, immersive.scene)
+        assertTrue(immersive.photoStack.normalLayerVisible)
+        assertEquals(1f, immersive.photoStack.immersiveProgress)
+        assertTrue(immersive.gesturesEnabled)
+        assertTrue(immersive.spectrumEnabled)
+        assertTrue(immersive.photoStack.cardWidth > normal.photoStack.cardWidth)
+        assertEquals(360.dp, immersive.photoStack.cardWidth)
+        assertEquals(normal.photoStack.cardWidth, normal.photoStack.slotWidth)
+        assertEquals(normal.photoStack.cardHeight, normal.photoStack.slotHeight)
+        assertEquals(0.dp, normal.photoStack.cardTopInset)
+        assertEquals(400.dp, immersive.photoStack.slotWidth)
+        assertEquals(52.dp, immersive.photoStack.cardTopInset)
+        assertTrue(immersive.photoStack.slotHeight - immersive.photoStack.cardHeight > 155.dp)
+        assertTrue(
+            immersive.cover.topPadding + immersive.photoStack.cardTopInset >
+                normal.cover.topPadding,
+        )
+        assertEquals(0.dp, immersive.lower.photoStackTitleToControlsGap)
+    }
+
+    @Test
+    fun standardImmersive_keepsExistingGestureAndSpectrumGuards() {
+        val immersive = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                immersiveLower = true,
+                immersiveProgress = 1f,
+                spectrumSettingEnabled = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(PlayerPageScene.Immersive, immersive.scene)
+        assertEquals(false, immersive.gesturesEnabled)
+        assertEquals(false, immersive.spectrumEnabled)
     }
 
     @Test

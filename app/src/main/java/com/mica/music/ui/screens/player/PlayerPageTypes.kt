@@ -47,8 +47,10 @@ data class ParticleCoverFrame(
 data class PhotoStackFrame(
     val enabled: Boolean,
     val normalLayerVisible: Boolean,
+    val immersiveProgress: Float,
     val slotWidth: Dp,
     val slotHeight: Dp,
+    val cardTopInset: Dp,
     val cardWidth: Dp,
     val cardHeight: Dp,
     val artworkInsetTop: Dp,

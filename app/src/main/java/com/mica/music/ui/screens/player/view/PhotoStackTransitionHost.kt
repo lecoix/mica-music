@@ -27,10 +27,12 @@ internal fun PhotoStackTransitionHost(
     gesturesEnabled: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onCoverClick: (() -> Unit)? = null,
     onCoverLongPress: (() -> Unit)? = null,
     onPlayQueueIndex: (Int) -> Unit,
     onMotionActiveChanged: (Boolean) -> Unit,
     navigationBridge: PhotoStackCarouselNavigationBridge,
+    decodeTargetOverride: CoverDecodeTarget? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -39,13 +41,15 @@ internal fun PhotoStackTransitionHost(
     val cardHeightPx = with(density) { frame.cardHeight.toPx() }
     val slotWidthPx = with(density) { frame.slotWidth.toPx() }
     val slotHeightPx = with(density) { frame.slotHeight.toPx() }
+    val cardTopInsetPx = with(density) { frame.cardTopInset.toPx() }
     val artworkInsetTopPx = with(density) { frame.artworkInsetTop.toPx() }
     val artworkInsetHorizontalPx = with(density) { frame.artworkInsetHorizontal.toPx() }
     val waveformHeightPx = with(density) { frame.waveformHeight.toPx() }
     val artworkSizePx = (cardWidthPx - artworkInsetHorizontalPx * 2f).coerceAtLeast(1f)
-    val decodeTarget = remember(artworkSizePx) {
+    val dynamicDecodeTarget = remember(artworkSizePx) {
         CoverDecodeTarget.fromPixels(artworkSizePx, artworkSizePx)
     }
+    val decodeTarget = decodeTargetOverride ?: dynamicDecodeTarget
 
     LaunchedEffect(queue, currentIndex, decodeTarget) {
         for (offset in -1..3) {
@@ -71,11 +75,14 @@ internal fun PhotoStackTransitionHost(
             PhotoStackTransitionView(ctx).apply {
                 setMotionEnabled(motionEnabled)
                 setGesturesEnabled(gesturesEnabled)
+                setImmersiveProgress(frame.immersiveProgress)
                 setShadowTuning(shadowTuning)
+                setDecodeTargetOverride(decodeTargetOverride)
                 setFrame(
                     PhotoStackTransitionFramePx(
                         slotWidthPx = slotWidthPx,
                         slotHeightPx = slotHeightPx,
+                        cardTopInsetPx = cardTopInsetPx,
                         cardWidthPx = cardWidthPx,
                         cardHeightPx = cardHeightPx,
                         artworkInsetTopPx = artworkInsetTopPx,
@@ -96,6 +103,7 @@ internal fun PhotoStackTransitionHost(
                     onPlayQueueIndex = onPlayQueueIndex,
                     onPrevious = onPrevious,
                     onNext = onNext,
+                    onCoverClick = onCoverClick,
                     onMotionActiveChanged = onMotionActiveChanged,
                     onCoverLongPress = onCoverLongPress,
                 )
@@ -106,11 +114,14 @@ internal fun PhotoStackTransitionHost(
             val updateStartedNs = SystemClock.elapsedRealtimeNanos()
             view.setMotionEnabled(motionEnabled)
             view.setGesturesEnabled(gesturesEnabled)
+            view.setImmersiveProgress(frame.immersiveProgress)
             view.setShadowTuning(shadowTuning)
+            view.setDecodeTargetOverride(decodeTargetOverride)
             view.setFrame(
                 PhotoStackTransitionFramePx(
                     slotWidthPx = slotWidthPx,
                     slotHeightPx = slotHeightPx,
+                    cardTopInsetPx = cardTopInsetPx,
                     cardWidthPx = cardWidthPx,
                     cardHeightPx = cardHeightPx,
                     artworkInsetTopPx = artworkInsetTopPx,
@@ -131,6 +142,7 @@ internal fun PhotoStackTransitionHost(
                 onPlayQueueIndex = onPlayQueueIndex,
                 onPrevious = onPrevious,
                 onNext = onNext,
+                onCoverClick = onCoverClick,
                 onMotionActiveChanged = onMotionActiveChanged,
                 onCoverLongPress = onCoverLongPress,
             )

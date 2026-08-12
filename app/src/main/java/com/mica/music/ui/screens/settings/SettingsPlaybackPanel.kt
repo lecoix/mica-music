@@ -163,7 +163,7 @@ internal fun PlaybackSettingsPanel(
     if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
         SettingsToggleRow(
             title = "下半屏沉浸",
-            subtitle = "封面以下仅显示歌名与歌手并居中；点击播放/暂停，长按歌名区域可开关，粒子封面&拍立得回忆不适用（制作中）",
+            subtitle = "封面以下仅保留主题必要信息；拍立得回忆会把歌名、歌手与进度收进相纸，轻点播放/暂停、长按照片退出",
             checked = uiSettings.playerImmersiveLower,
             onCheckedChange = uiSettings::updatePlayerImmersiveLower,
         )

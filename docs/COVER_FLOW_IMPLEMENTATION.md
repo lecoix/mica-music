@@ -22,7 +22,7 @@
 共性：
 
 - 播放 / 暂停：不改变封面区布局形态。
-- 歌词页：平行 / 复古继续使用特殊主题的歌词聚焦过渡；拍立得使用 §13.5 的页面级左右滑转场，保持播放页布局帧稳定（且**不支持**下半屏沉浸）。
+- 歌词页：平行 / 复古继续使用特殊主题的歌词聚焦过渡；拍立得使用 §13.5 的页面级左右滑转场，保持播放页布局帧稳定。
 - 特殊主题下播放页强制**裁切填充**，忽略设置里「原样比例」。
 
 封面流（平行 / 复古）：启用后封面区常驻**横向七轨**队列带。  
@@ -66,7 +66,7 @@
 - 播放页其余未被子组件消费的空白区域：向左进入歌词页，向右退出；方向锁定后进度跟手，松手沿当前页方向移动不足四分之一屏宽回到原页。
 - 拍立得卡片、波形 seek、播放控制和歌词列表滚动继续由各自组件消费，不参与歌词页手势竞争。
 - 歌词页沿用粒子歌词的列表与底部播放控制，隐藏歌词聚焦顶栏；LIST / CLOUD / LETTER 以及无歌词空状态都使用同一套页面级滑入/滑出与淡出转场。
-- **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。
+- 支持下半屏沉浸：卡片从普通态约 **80%** 屏宽放大到约 **90%** 屏宽；歌名/歌手与频谱/进度收进前卡白边，轻点前卡播放/暂停，长按前卡退出沉浸。沉浸只改变绘制尺寸，封面 decode target 固定为沉浸态最大尺寸，避免尺寸动画触发重新解码闪烁。
 
 **共用**：
 
@@ -113,7 +113,7 @@
 
 | 元素 | 设计参考 / 现网 |
 |------|----------------|
-| 卡片比例 | 屏宽 × **80%**（`PhotoStackScreenFraction`），高宽比 **0.78** |
+| 卡片比例 | 普通态屏宽 × **80%**（`PhotoStackScreenFraction`）；沉浸态 × **90%**（`PhotoStackImmersiveScreenFraction`）；高宽比 **0.78** |
 | 稳态栈 | 前 / 中 / 后：`queue[i]`、`queue[i+1]`、`queue[i+2]` |
 | 稳态位姿 | 前卡 `rotationZ ≈ -1.4°`；中卡 offset `(14,10)dp` + `3.2°` + scale `0.95`；后卡 `(28,22)dp` + `6.4°` + scale `0.90` |
 | 纸框 | 米白渐变 + 1dp 描边；封面 inset 约 **5.5%** 顶 / **3.8%** 左右 |
@@ -125,7 +125,7 @@
 
 **已做**：播放页封面区；平行 / 复古七轨 ±3 + 拖动 + 按钮切歌；拍立得三卡栈 + 轻扫/seek；各主题 × 各播放页背景。
 
-**横屏封面流沉浸已做**：平行 / 复古标题长按入口、平行中心封面全屏高且复古复用同一缩放数字、封面本体上下居中、系统栏隐藏、返回/旋转/主题/歌词退出。
+**横屏封面流沉浸已做**：平行 / 复古标题长按入口、平行中心封面全屏高且复古复用同一缩放数字、封面本体上下居中、系统栏隐藏、返回/旋转/主题/歌词退出；沉浸进退期间冻结 decode target，避免系统栏/viewport 变化触发 bitmap prune 闪烁；沉浸态水平拖动由全屏 Compose 输入层接管并桥接回同一套 View 拖动状态机。
 
 **未做**：专辑浏览页 Cover Flow；强拟物舞台；拍立得歌词页转场的真机触摸与视觉自动化。
 
@@ -205,11 +205,15 @@ stripFraction ← 0
 
 ## 4. 动画时序
 
-### 4.1 拖动（View 内完成，不经 Compose）
+### 4.1 拖动（同一套 View 状态机，两种输入入口）
 
-1. `ACTION_DOWN` → `cancelAnimators()`，跟手改 `stripFraction`
-2. 步进：`stripFraction -= deltaPx / (coverWidthPx * laneStepFraction())`
-3. `ACTION_UP`：`stripFraction > 0.2625` → `onPlayQueueIndex`；`< -0.2625` → 上一首；否则 `animateStripTo(0)`
+普通竖/横屏由 `CoverFlowCarouselView.onTouchEvent` 直接接收原生 `MotionEvent`；横屏封面流沉浸由于 Compose `graphicsLayer` 会放大/平移视觉而不会同步扩大原生 View hit bounds，改由全屏 Compose `pointerInput` 在 Initial pass 接管水平拖动，再经 `CoverFlowCarouselNavigationBridge` 调回同一套 `beginDrag / dragBy / endDrag` 状态机。沉浸期间关闭 View 自己的 direct touch，避免双重消费；退出沉浸立即恢复。
+
+统一状态机：
+
+1. drag begin → `cancelAnimators()`，初始化 `dragAccumPx` / `stripFraction`
+2. 步进：`stripFraction -= deltaPx / (layoutWidthPx() * laneStepFraction())`
+3. drag end：`stripFraction > 0.2625` → 下一首；`< -0.2625` → 上一首；否则 `animateStripTo(0)`
 
 `laneStepFraction()`：平行用 `PauseFoldStep`，复古用 `RetroFirstStep`（与位移首格一致）。
 
@@ -311,9 +315,27 @@ stripFraction ← 0
 | 倒影像顶行像素拉伸 | 整图压进倒影区 | 只取底部 28% 条带翻转 |
 | 复古倒影与倾斜封面脱节 | 倒影第二遍绘制未跟封面变换栈 | 同一 `drawLane` 栈内先封面后倒影 |
 | 倒影盖住中心图 | 倒影单独全量第二遍绘制 | 按 z 序逐槽：封面+倒影 |
-| 滑动切歌失效 | Compose 透明层 `combinedClickable` 拦截触摸 | 手势交给 View；遮罩仅歌词展开 |
+| 滑动切歌失效 | Compose 透明层 `combinedClickable` 拦截触摸 | 普通态手势交给 View；遮罩仅歌词展开 |
+| 横屏沉浸只有局部区域能拖 | Compose `graphicsLayer(scale/translation)` 只改变 AndroidView 的视觉结果，不会同步改变原生 View hierarchy 的 layout/hit bounds；`clip=false` / `zIndex` 也不会扩大 hit 区 | 沉浸态关闭 View direct touch，由全屏 Compose Initial-pass 手势层接管后桥接回同一套 View drag 状态机；不要靠视觉 transform 推断 native hit rect |
+| 进入沉浸封面闪一下 | 沉浸尺寸/系统栏变化导致 decode target 跨 bucket，`setCoverDecodeTarget` 后 prune bitmap/reflection cache | 沉浸动画期间固定 decode target：拍立得从普通态即按最大沉浸尺寸解码；横屏封面流进退期间冻结当前 target |
 | 下半区变矮 | 倒影高度计入 Column 布局 | 布局 `blockHeight`，倒影溢出绘制 |
 | 外侧 ±2 看不见 | 复古步进过大 | 调 `RetroFirstStep` / `RetroOuterStep`（平行不动除非明确要求） |
+
+### 8.1 AndroidView + Compose 视觉变换的输入边界
+
+横屏沉浸的实机故障证明：**Compose 里的 `graphicsLayer { scaleX/scaleY/translationX/translationY }` 可以把 `AndroidView` 的内容画到原布局矩形之外，但不会把 Android View hierarchy 中该 View 的 `left/top/right/bottom` 或触摸命中区域一起放大/搬移。** `clip = false` 只允许越界绘制，`zIndex` 只改变 Compose 层级，两者都不能让越界区域收到原生 `MotionEvent`。
+
+因此对“AndroidView 岛 + Compose 外层大幅 transform”的组件，必须把三件事分开考虑：
+
+```text
+layout bounds   = AndroidView 真正占据的原生矩形
+draw bounds     = graphicsLayer 变换后眼睛看到的区域
+gesture bounds  = 产品希望允许起手的区域
+```
+
+三者**不能默认相等**。如果沉浸视觉需要全屏拖动，优先让 Compose 全屏节点成为 gesture viewport，再通过桥接调用 View 内唯一状态机；不要每帧 resize/re-layout AndroidView 来追视觉动画，也不要再复制第二套 `stripFraction` / commit 逻辑。
+
+本次 API 31 真机诊断曾扫到沉浸态 native hit 区近似只剩左上矩形，而视觉已铺到全屏；普通横屏同坐标可正常拖，证明故障由沉浸 transform 输入映射触发。最终四象限均通过全屏桥接进入 `coverflow-drag-start`，左下完整验证 `drag-start → drag-commit → cover-animation-end`。
 
 ---
 
@@ -338,7 +360,9 @@ stripFraction ← 0
 - [ ] 倒影是否仍在同一变换栈、底部条带翻转？
 - [ ] 布局高度是否仍为 `cover.blockHeight`（倒影不撑 Column）？
 - [ ] 是否在 View 热路径上误接 Compose 槽位动画或第二套 `stripFraction` 状态？
-- [ ] 真机：拖动切歌 + 按钮切歌 + 平行/复古各测一遍
+- [ ] 若 AndroidView 外层用了 `graphicsLayer` scale/translation，是否单独验证了 transform 后的 gesture viewport，而不是假设视觉 bounds = native hit bounds？
+- [ ] 沉浸动画是否保持 decode target 稳定，避免尺寸/系统栏变化触发 bitmap prune？
+- [ ] 真机：拖动切歌 + 按钮切歌 + 平行/复古各测一遍；横屏沉浸额外从四象限分别起手拖动
 
 ---
 
@@ -432,13 +456,17 @@ flowchart TB
 
 | 常量 | 值 | 含义 |
 |------|-----|------|
-| `PhotoStackScreenFraction` | `0.80` | 卡片宽度 / 屏宽 |
+| `PhotoStackScreenFraction` | `0.80` | 普通态卡片宽度 / 屏宽 |
+| `PhotoStackImmersiveScreenFraction` | `0.90` | 沉浸态卡片宽度 / 屏宽 |
 | `PhotoStackAspectRatio` | `0.78` | 高 / 宽 |
-| `PhotoStackEdgeFraction` | `0.10` | 期望顶/底留白 / 屏高 |
+| `PhotoStackEdgeFraction` | `0.10` | 普通态期望顶/底留白 / 屏高 |
+| `PhotoStackImmersiveHorizontalBleed` | `40dp` | 沉浸绘制 viewport 的横向溢出预算（最终仍受屏宽限制） |
+| `PhotoStackImmersiveTopBleed` | `52dp` | 顶部阴影/旋转溢出预算 |
+| `PhotoStackImmersiveBottomBleed` | `104dp` | 底部阴影 + 后两张卡片露边预算 |
 
-`PhotoStackFrame` 输出 `slotWidth/Height`、`cardWidth/Height`、`artworkInset*`、`waveformHeight`（24dp）供 Host 转 px。
+`PhotoStackFrame` 明确区分 **slot viewport** 与 **card 本体**：`slotWidth/Height` 可以大于 `cardWidth/Height`，`cardTopInset` 决定卡片在 viewport 内的 y 偏移。AndroidView 必须按 slot 尺寸挂载，否则 `clip=false` 也无法让 View 自己 bounds 外的阴影/后卡真正显示。`artworkInset*`、`waveformHeight`（24dp）继续按 card 本体计算。
 
-`normalLayerVisible = photoStackMode && !lyricsExpanded && !immersiveLower && lyricsFocus≈0`。
+`normalLayerVisible = photoStackMode && !lyricsExpanded && lyricsFocus≈0`；沉浸态仍保持同一 PhotoStack View 常驻。
 
 拍立得歌词页保持播放页布局帧稳定；页面级 `PhotoStackLyricsTransitionState` 持有单一跟手 progress，纯函数 `photoStackLyricsTransitionFrame` 决定双页挂载、位移、透明度与输入资格。转场中播放页和歌词页作为 sibling layer 持续挂载，只有到达 `0 / 1` 稳定端点后才卸载完全不可见的一页。播放页整体向左并淡出，歌词页从右侧滑入并淡入；关闭时反向执行。这样不改变拍立得卡片本身的尺寸、旋转、阴影和波形绘制，也不把卡片手势交给歌词页。
 
@@ -476,7 +504,8 @@ flowchart TB
 | 切歌后仍播旧曲 | Host index 与 View `logicalCenter` 竞态 | 查 `pendingHostIndex` / `playQueueIndexAfterVisualCommit` |
 | 转场中误触 seek | 未禁用手势 | `activeTransitionCards.isNotEmpty()` 时 `onTouchEvent` return false |
 | 阴影变更不刷新 | Bitmap 缓存 key 未变 | `setShadowTuning` → `clearShadowBitmapCache` |
-| 沉浸模式叠拍立得 | `supportsImmersiveLower=false` | 设置项应禁用；`normalLayerVisible` 已 guard |
+| 沉浸态底部阴影/后卡被切平 | `slotHeight == cardHeight`，前卡底边正好贴 View 底边；阴影和后卡 positive-Y 内容实际画到 AndroidView bounds 外 | slot/card 分离；沉浸 viewport 额外留 top/bottom bleed，并用 `cardTopInset` 保持卡片本体位置/触摸坐标一致 |
+| 进入沉浸封面闪一下 | decode target 直接跟动画中的 `cardWidth` 变化，跨 bucket 后 bitmap window 被 prune | Host 从普通态开始就固定到 90% 沉浸最大 artwork decode target；动画只改变绘制尺寸 |
 
 阴影预览：设置 → 高级 → **拍立得阴影预览**（`PhotoStackShadowPreviewScreen`）。
 

@@ -949,41 +949,78 @@ internal class CoverFlowCarouselView(context: Context) : View(context) {
         }
     }
 
+    private fun beginDragGesture() {
+        cancelAnimators()
+        setMotionActive(true)
+        dragAccumPx = 0f
+        dragging = true
+        TrackSwitchPerformance.beginCoverFlowWindow(logicalCenter, queue.size)
+        TrackSwitchPerformance.mark("coverflow-drag-start", "queueSize=${queue.size}")
+    }
+
+    private fun applyDragDelta(deltaPx: Float) {
+        if (!dragging) return
+        dragAccumPx += deltaPx
+        stripFraction -= deltaPx / (layoutWidthPx() * laneStepFraction())
+        invalidateFor("drag")
+    }
+
+    private fun finishDragGesture(tapX: Float? = null, cancelled: Boolean = false) {
+        if (!dragging) return
+        dragging = false
+        if (cancelled) {
+            animateStripTo(0f)
+            return
+        }
+        if (abs(dragAccumPx) < 12f) {
+            if (tapX == null || !handleTap(tapX)) {
+                setMotionActive(false)
+            }
+        } else {
+            handleDragEnd()
+        }
+    }
+
+    internal fun beginExternalDrag(): Boolean {
+        beginDragGesture()
+        return true
+    }
+
+    internal fun dragExternalBy(deltaPx: Float) {
+        applyDragDelta(deltaPx)
+    }
+
+    internal fun endExternalDrag() {
+        finishDragGesture()
+    }
+
+    internal fun cancelExternalDrag() {
+        finishDragGesture(cancelled = true)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!gesturesEnabled) return false
         gestureDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                cancelAnimators()
-                setMotionActive(true)
+                beginDragGesture()
                 dragStartX = event.x
-                dragAccumPx = 0f
-                dragging = true
-                TrackSwitchPerformance.beginCoverFlowWindow(logicalCenter, queue.size)
-                TrackSwitchPerformance.mark("coverflow-drag-start", "queueSize=${queue.size}")
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
             MotionEvent.ACTION_MOVE -> if (dragging) {
                 val deltaPx = event.x - dragStartX
                 dragStartX = event.x
-                dragAccumPx += deltaPx
-                stripFraction -= deltaPx / (layoutWidthPx() * laneStepFraction())
-                invalidateFor("drag")
+                applyDragDelta(deltaPx)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (!dragging) return true
-                dragging = false
                 parent?.requestDisallowInterceptTouchEvent(false)
-                if (abs(dragAccumPx) < 12f) {
-                    if (!handleTap(event.x)) {
-                        setMotionActive(false)
-                    }
-                } else {
-                    handleDragEnd()
-                }
+                finishDragGesture(
+                    tapX = event.x,
+                    cancelled = event.actionMasked == MotionEvent.ACTION_CANCEL,
+                )
                 return true
             }
         }

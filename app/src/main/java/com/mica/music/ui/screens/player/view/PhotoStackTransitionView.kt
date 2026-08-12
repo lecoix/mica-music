@@ -11,7 +11,10 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.os.SystemClock
+import android.text.TextPaint
+import android.text.TextUtils
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -49,6 +52,7 @@ private const val HostIndexGuardMs = 1_500L
 internal data class PhotoStackTransitionFramePx(
     val slotWidthPx: Float,
     val slotHeightPx: Float,
+    val cardTopInsetPx: Float,
     val cardWidthPx: Float,
     val cardHeightPx: Float,
     val artworkInsetTopPx: Float,
@@ -59,6 +63,7 @@ internal data class PhotoStackTransitionFramePx(
         val Empty = PhotoStackTransitionFramePx(
             slotWidthPx = 1f,
             slotHeightPx = 1f,
+            cardTopInsetPx = 0f,
             cardWidthPx = 1f,
             cardHeightPx = 1f,
             artworkInsetTopPx = 0f,
@@ -86,6 +91,7 @@ private enum class TouchMode {
 internal class PhotoStackTransitionView(context: Context) : View(context) {
 
     private val density = resources.displayMetrics.density
+    private val scaledDensity = density * resources.configuration.fontScale
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val paperPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -99,6 +105,16 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     }
     private val artworkFallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xE612202C.toInt()
+        textSize = 14f * scaledDensity
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+    }
+    private val subtitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x9912202C.toInt()
+        textSize = 10.5f * scaledDensity
+        typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    }
     private val cardRect = RectF()
     private val shadowRect = RectF()
     private val artworkRect = RectF()
@@ -115,12 +131,14 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
 
     private var frame = PhotoStackTransitionFramePx.Empty
     private var decodeTarget = CoverDecodeTarget.fromPixels(1f, 1f)
+    private var decodeTargetOverride: CoverDecodeTarget? = null
     private var artworkLoadGeneration: Long = 0L
     private var shadowTuning = PhotoStackShadowTuning()
     private var shadowBitmapCache: Bitmap? = null
     private var shadowBitmapCacheKey: String? = null
     private var motionEnabled = true
     private var gesturesEnabled = true
+    private var immersiveProgress = 0f
 
     private var queue: List<Song> = emptyList()
     private var logicalCenter: Int = 0
@@ -148,6 +166,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private var onPlayQueueIndex: ((Int) -> Unit)? = null
     private var onPrevious: (() -> Unit)? = null
     private var onNext: (() -> Unit)? = null
+    private var onCoverClick: (() -> Unit)? = null
     private var onCoverLongPress: (() -> Unit)? = null
     private var onMotionActiveChanged: ((Boolean) -> Unit)? = null
     private var motionActive = false
@@ -173,6 +192,15 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private val gestureDetector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                if (pointToFrontProgressLocal(e.x, e.y) != null) return false
+                if (pointToFrontCardLocal(e.x, e.y) == null) return false
+                cancelTouchGesture()
+                performClick()
+                onCoverClick?.invoke()
+                return true
+            }
+
             override fun onLongPress(e: MotionEvent) {
                 if (pointToFrontCardLocal(e.x, e.y) == null) return
                 cancelTouchGesture()
@@ -185,12 +213,21 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         setWillNotDraw(false)
     }
 
+    override fun performClick(): Boolean = super.performClick()
+
     fun setMotionEnabled(enabled: Boolean) {
         motionEnabled = enabled
     }
 
     fun setGesturesEnabled(enabled: Boolean) {
         gesturesEnabled = enabled
+    }
+
+    fun setImmersiveProgress(progress: Float) {
+        val next = progress.coerceIn(0f, 1f)
+        if (abs(immersiveProgress - next) < 0.0001f) return
+        immersiveProgress = next
+        invalidate()
     }
 
     fun setShadowTuning(tuning: PhotoStackShadowTuning) {
@@ -200,19 +237,30 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setDecodeTargetOverride(target: CoverDecodeTarget?) {
+        if (decodeTargetOverride == target) return
+        decodeTargetOverride = target
+        updateDecodeTargetForFrame()
+    }
+
     fun setFrame(frame: PhotoStackTransitionFramePx) {
         if (this.frame == frame) return
         this.frame = frame
+        updateDecodeTargetForFrame()
+        clearShadowBitmapCache()
+        invalidate()
+    }
+
+    private fun updateDecodeTargetForFrame() {
         val artworkSizePx =
             (frame.cardWidthPx - frame.artworkInsetHorizontalPx * 2f).coerceAtLeast(1f)
-        val nextDecodeTarget = CoverDecodeTarget.fromPixels(artworkSizePx, artworkSizePx)
+        val nextDecodeTarget = decodeTargetOverride
+            ?: CoverDecodeTarget.fromPixels(artworkSizePx, artworkSizePx)
         if (decodeTarget != nextDecodeTarget) {
             decodeTarget = nextDecodeTarget
             artworkLoadGeneration++
             pruneBitmapWindow()
         }
-        clearShadowBitmapCache()
-        invalidate()
     }
 
     fun setPlaybackState(
@@ -241,10 +289,12 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         onNext: () -> Unit,
         onMotionActiveChanged: (Boolean) -> Unit,
         onCoverLongPress: (() -> Unit)? = null,
+        onCoverClick: (() -> Unit)? = null,
     ) {
         this.onPlayQueueIndex = onPlayQueueIndex
         this.onPrevious = onPrevious
         this.onNext = onNext
+        this.onCoverClick = onCoverClick
         this.onMotionActiveChanged = onMotionActiveChanged
         this.onCoverLongPress = onCoverLongPress
     }
@@ -516,7 +566,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         val halfWidth = frame.cardWidthPx * 0.5f
         val halfHeight = frame.cardHeightPx * 0.5f
         val centerX = width * 0.5f + pose.translationX
-        val centerY = halfHeight + pose.translationY
+        val centerY = frame.cardTopInsetPx + halfHeight + pose.translationY
         val layerPadding = shadowLayerPaddingPx()
 
         canvas.save()
@@ -565,6 +615,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         }
 
         if (card.showProgress) {
+            drawImmersiveMetadata(canvas, card.song)
             drawProgressStrip(canvas)
         }
 
@@ -696,13 +747,54 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         shadowBitmapCacheKey = null
     }
 
+    private fun drawImmersiveMetadata(
+        canvas: Canvas,
+        song: Song,
+    ) {
+        val progress = immersiveProgress.coerceIn(0f, 1f)
+        if (progress <= 0.01f) return
+        val maxWidth = artworkRect.width().coerceAtLeast(1f)
+        val title = TextUtils.ellipsize(
+            song.title,
+            titlePaint,
+            maxWidth,
+            TextUtils.TruncateAt.END,
+        ).toString()
+        val subtitleSource = song.artist.ifBlank { song.album }
+        val subtitle = TextUtils.ellipsize(
+            subtitleSource,
+            subtitlePaint,
+            maxWidth,
+            TextUtils.TruncateAt.END,
+        ).toString()
+        titlePaint.alpha = (0xE6 * progress).roundToInt().coerceIn(0, 255)
+        subtitlePaint.alpha = (0x99 * progress).roundToInt().coerceIn(0, 255)
+        canvas.drawText(
+            title,
+            artworkRect.left,
+            artworkRect.bottom + dp(24f),
+            titlePaint,
+        )
+        if (subtitle.isNotBlank()) {
+            canvas.drawText(
+                subtitle,
+                artworkRect.left,
+                artworkRect.bottom + dp(42f),
+                subtitlePaint,
+            )
+        }
+    }
+
     private fun drawProgressStrip(canvas: Canvas) {
         val liveLevels = if (spectrumEnabled && isPlaying) MicaSpectrumAnalyzer.levels.value else emptyList()
         val playedFraction = ((sliderValue - seekRangeStart) / (seekRangeEnd - seekRangeStart)).coerceIn(0f, 1f)
         val count = PhotoStackWaveformBars
         val gap = dp(2f)
         val barWidth = ((artworkRect.width() - gap * (count - 1)) / count).coerceIn(dp(1f), dp(1.6f))
-        val centerY = (artworkRect.bottom + cardRect.bottom) * 0.5f
+        val standardCenterY = (artworkRect.bottom + cardRect.bottom) * 0.5f
+        val immersiveMetadataBottom = artworkRect.bottom + dp(46f)
+        val immersiveCenterY = (immersiveMetadataBottom + cardRect.bottom) * 0.5f
+        val centerY = lerp(standardCenterY, immersiveCenterY, immersiveProgress)
         val quietHeight = dp(1.4f)
         val activeRhythm = spectrumEnabled && isPlaying
         var hasMeaningfulLevel = false
@@ -724,7 +816,8 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         if (activeRhythm && hasMeaningfulLevel) {
             spectrumActivatedForBoundSong = true
         }
-        if (!spectrumEnabled || !spectrumActivatedForBoundSong) {
+        val immersiveFallbackVisible = immersiveProgress > 0.01f
+        if ((!spectrumEnabled || !spectrumActivatedForBoundSong) && !immersiveFallbackVisible) {
             return
         }
 
@@ -853,29 +946,31 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private fun frontPose(): PhotoStackPose = PhotoStackPose(
         translationX = 0f,
         translationY = 0f,
-        rotationZ = -1.4f,
+        rotationZ = lerp(-1.4f, -0.6f, immersiveProgress),
         scale = 1f,
     )
 
     private fun frontIdlePose(): PhotoStackPose = PhotoStackPose(
         translationX = dragFraction * frame.slotWidthPx * 0.35f,
         translationY = 0f,
-        rotationZ = -1.4f + dragFraction * 6f,
+        rotationZ = lerp(-1.4f, -0.6f, immersiveProgress) + dragFraction * 6f,
         scale = 1f,
     )
 
     private fun middlePose(): PhotoStackPose = PhotoStackPose(
-        translationX = dp(14f),
-        translationY = dp(10f),
-        rotationZ = 3.2f,
-        scale = 0.95f,
+        translationX = lerp(dp(14f), dp(22f), immersiveProgress),
+        translationY = lerp(dp(10f), dp(14f), immersiveProgress),
+        rotationZ = lerp(3.2f, 4.4f, immersiveProgress),
+        scale = lerp(0.95f, 0.94f, immersiveProgress),
+        alpha = lerp(1f, 0.86f, immersiveProgress),
     )
 
     private fun backPose(): PhotoStackPose = PhotoStackPose(
-        translationX = dp(28f),
-        translationY = dp(22f),
-        rotationZ = 6.4f,
-        scale = 0.90f,
+        translationX = lerp(dp(28f), dp(40f), immersiveProgress),
+        translationY = lerp(dp(22f), dp(28f), immersiveProgress),
+        rotationZ = lerp(6.4f, 7.8f, immersiveProgress),
+        scale = lerp(0.90f, 0.88f, immersiveProgress),
+        alpha = lerp(1f, 0.70f, immersiveProgress),
     )
 
     private fun lerpPose(
@@ -1055,8 +1150,16 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         val artworkSize = (frame.cardWidthPx - frame.artworkInsetHorizontalPx * 2f).coerceAtLeast(1f)
         val left = -halfWidth + frame.artworkInsetHorizontalPx
         val right = left + artworkSize
-        val top = halfHeight - dp(46f)
-        val bottom = halfHeight - dp(28f)
+        val top = lerp(
+            halfHeight - dp(46f),
+            halfHeight - dp(48f),
+            immersiveProgress,
+        )
+        val bottom = lerp(
+            halfHeight - dp(28f),
+            halfHeight - dp(16f),
+            immersiveProgress,
+        )
         return local.takeIf { it.first in left..right && it.second in top..bottom }
     }
 
@@ -1068,7 +1171,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         val halfWidth = frame.cardWidthPx * 0.5f
         val halfHeight = frame.cardHeightPx * 0.5f
         val centerX = width * 0.5f + pose.translationX
-        val centerY = halfHeight + pose.translationY
+        val centerY = frame.cardTopInsetPx + halfHeight + pose.translationY
         val dx = x - centerX
         val dy = y - centerY
         val radians = pose.rotationZ / 180f * PI.toFloat()
@@ -1257,6 +1360,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         onPlayQueueIndex = null
         onPrevious = null
         onNext = null
+        onCoverClick = null
         onCoverLongPress = null
         onMotionActiveChanged = null
         setMotionActive(false)

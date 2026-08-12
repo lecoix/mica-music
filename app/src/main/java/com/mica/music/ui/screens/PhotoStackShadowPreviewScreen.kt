@@ -149,8 +149,10 @@ fun PhotoStackShadowPreviewScreen(
                     PhotoStackFrame(
                         enabled = true,
                         normalLayerVisible = true,
+                        immersiveProgress = 0f,
                         slotWidth = cardWidth,
                         slotHeight = cardHeight,
+                        cardTopInset = 0.dp,
                         cardWidth = cardWidth,
                         cardHeight = cardHeight,
                         artworkInsetTop = cardWidth * 0.055f,

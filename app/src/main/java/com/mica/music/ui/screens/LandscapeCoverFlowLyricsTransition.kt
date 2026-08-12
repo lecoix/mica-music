@@ -1,5 +1,7 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,11 +22,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.zIndex
+import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
+import kotlin.math.abs
 
 /** How landscape cover-flow artwork leaves the player for a lyrics destination. */
 internal enum class LandscapeCoverFlowCoverExit {
@@ -141,6 +148,70 @@ internal fun LandscapeCoverFlowCoverLayer(
                 .zIndex(1f),
             foldProgress,
         )
+    }
+}
+
+@Composable
+internal fun Modifier.landscapeCoverFlowImmersiveDragInput(
+    enabled: Boolean,
+    navigationBridge: CoverFlowCarouselNavigationBridge,
+): Modifier {
+    if (!enabled) return this
+    val touchSlop = LocalViewConfiguration.current.touchSlop
+    return pointerInput(navigationBridge, touchSlop) {
+        awaitEachGesture {
+            val down = awaitFirstDown(
+                requireUnconsumed = false,
+                pass = PointerEventPass.Initial,
+            )
+
+            var lastPosition = down.position
+            var totalX = 0f
+            var totalY = 0f
+            var dragging = false
+            var cancelled = false
+
+            do {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id }
+                if (change == null) {
+                    cancelled = true
+                    break
+                }
+
+                val delta = change.position - lastPosition
+                lastPosition = change.position
+                totalX += delta.x
+                totalY += delta.y
+
+                if (!dragging) {
+                    if (abs(totalY) > touchSlop && abs(totalY) > abs(totalX)) {
+                        cancelled = true
+                        break
+                    }
+                    if (abs(totalX) > touchSlop && abs(totalX) >= abs(totalY)) {
+                        if (!navigationBridge.beginDrag()) {
+                            cancelled = true
+                            break
+                        }
+                        dragging = true
+                        navigationBridge.dragBy(totalX)
+                        change.consume()
+                    }
+                } else {
+                    navigationBridge.dragBy(delta.x)
+                    change.consume()
+                }
+            } while (change.pressed)
+
+            if (dragging) {
+                if (cancelled) {
+                    navigationBridge.cancelDrag()
+                } else {
+                    navigationBridge.endDrag()
+                }
+            }
+        }
     }
 }
 
