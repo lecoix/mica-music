@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <limits>
 
+#include "usb_iso_timing.h"
+
 namespace mica::usb::iso {
 
 constexpr std::uint64_t kQ16One = 65'536ULL;
@@ -198,6 +200,134 @@ inline RationalRateProjection project_sample_rate(
     projection.maximum_frames_per_interval = whole_frames + (remainder == 0 ? 0ULL : 1ULL);
     projection.capacity_sufficient =
         projection.maximum_frames_per_interval <= config.max_frames_per_packet();
+    return projection;
+}
+
+struct ExactNominalSchedulerConfig {
+    ServicePeriod data_service_period{};
+    std::uint32_t bytes_per_runtime_frame = 0;
+    std::uint32_t max_bytes_per_data_service_interval = 0;
+
+    constexpr bool valid() const {
+        return data_service_period.valid() &&
+            bytes_per_runtime_frame > 0 &&
+            max_bytes_per_data_service_interval >= bytes_per_runtime_frame;
+    }
+
+    constexpr std::uint32_t max_runtime_frames_per_interval() const {
+        return bytes_per_runtime_frame == 0 ? 0 :
+            max_bytes_per_data_service_interval / bytes_per_runtime_frame;
+    }
+};
+
+struct ExactNominalPacketResult {
+    bool valid = false;
+    bool capacity_limited = false;
+    std::uint32_t requested_runtime_frames = 0;
+    std::uint32_t scheduled_runtime_frames = 0;
+    std::uint32_t scheduled_bytes = 0;
+    std::uint64_t phase_numerator = 0;
+};
+
+/**
+ * Runtime-capable exact scheduler for modes without device feedback.
+ *
+ * The service period is an exact rational number of seconds. Each data service interval adds
+ * nominalRuntimeFrameRateHz * period.numerator to a phase whose denominator is period.denominator.
+ * This avoids converting the nominal clock through a floored fixed-point rate.
+ */
+class ExactNominalPacketScheduler {
+public:
+    ExactNominalPacketScheduler(
+        const ExactNominalSchedulerConfig config,
+        const std::uint64_t nominal_runtime_frame_rate_hz,
+        const std::uint64_t initial_phase_numerator = 0)
+        : config_(config),
+          nominal_runtime_frame_rate_hz_(nominal_runtime_frame_rate_hz),
+          phase_numerator_(initial_phase_numerator) {
+        valid_ = config_.valid() && nominal_runtime_frame_rate_hz_ > 0 &&
+            phase_numerator_ < config_.data_service_period.denominator &&
+            checked_multiply_u64(
+                nominal_runtime_frame_rate_hz_,
+                config_.data_service_period.numerator,
+                &step_numerator_);
+    }
+
+    ExactNominalPacketResult next() {
+        ExactNominalPacketResult result{};
+        std::uint64_t accumulated = 0;
+        if (!valid_ || !checked_add_u64(step_numerator_, phase_numerator_, &accumulated)) {
+            return result;
+        }
+
+        const std::uint64_t requested64 = accumulated / config_.data_service_period.denominator;
+        if (requested64 > std::numeric_limits<std::uint32_t>::max()) return result;
+
+        result.valid = true;
+        result.requested_runtime_frames = static_cast<std::uint32_t>(requested64);
+        result.scheduled_runtime_frames = std::min(
+            result.requested_runtime_frames,
+            config_.max_runtime_frames_per_interval());
+        result.capacity_limited =
+            result.requested_runtime_frames != result.scheduled_runtime_frames;
+        result.scheduled_bytes =
+            result.scheduled_runtime_frames * config_.bytes_per_runtime_frame;
+        phase_numerator_ = accumulated % config_.data_service_period.denominator;
+        result.phase_numerator = phase_numerator_;
+        return result;
+    }
+
+    bool valid() const { return valid_; }
+    std::uint64_t phase_numerator() const { return phase_numerator_; }
+
+private:
+    ExactNominalSchedulerConfig config_{};
+    std::uint64_t nominal_runtime_frame_rate_hz_ = 0;
+    std::uint64_t step_numerator_ = 0;
+    std::uint64_t phase_numerator_ = 0;
+    bool valid_ = false;
+};
+
+struct ExactNominalProjection {
+    bool valid = false;
+    bool capacity_sufficient = false;
+    std::uint64_t interval_count = 0;
+    std::uint64_t total_runtime_frames = 0;
+    std::uint64_t final_phase_numerator = 0;
+    std::uint64_t maximum_runtime_frames_per_interval = 0;
+};
+
+inline ExactNominalProjection project_nominal_runtime_rate(
+    const ExactNominalSchedulerConfig config,
+    const std::uint64_t interval_count,
+    const std::uint64_t nominal_runtime_frame_rate_hz,
+    const std::uint64_t initial_phase_numerator = 0) {
+    ExactNominalProjection projection{};
+    projection.interval_count = interval_count;
+    if (!config.valid() || nominal_runtime_frame_rate_hz == 0 ||
+        initial_phase_numerator >= config.data_service_period.denominator) {
+        return projection;
+    }
+
+    std::uint64_t step_numerator = 0;
+    std::uint64_t total_numerator = 0;
+    if (!checked_multiply_u64(
+            nominal_runtime_frame_rate_hz,
+            config.data_service_period.numerator,
+            &step_numerator) ||
+        !checked_multiply_u64(interval_count, step_numerator, &total_numerator) ||
+        !checked_add_u64(total_numerator, initial_phase_numerator, &total_numerator)) {
+        return projection;
+    }
+
+    projection.valid = true;
+    projection.total_runtime_frames = total_numerator / config.data_service_period.denominator;
+    projection.final_phase_numerator = total_numerator % config.data_service_period.denominator;
+    projection.maximum_runtime_frames_per_interval =
+        step_numerator / config.data_service_period.denominator +
+        (step_numerator % config.data_service_period.denominator == 0 ? 0ULL : 1ULL);
+    projection.capacity_sufficient =
+        projection.maximum_runtime_frames_per_interval <= config.max_runtime_frames_per_interval();
     return projection;
 }
 

@@ -120,3 +120,71 @@ The one-minute `Lifecycle` smoke completed two cycles with crash injection disab
 Final summary: `passed=true`, `completedCycles=2`, observed rates `48000, 44100, 96000`, FD count `186 -> 186`, and `cleanupDriversBound=true`. The successful diagnostics contain no non-zero `transportErrorCode`, `invalidFeedbackPacketCount`, `dataPacketErrorCount`, `underrunBytes`, or poll-timeout counter. This is a short hardware smoke only; the two PSS samples (`187974 -> 210538 KiB`) are not sufficient evidence for a resource-leak conclusion.
 
 The smoke also exposed two runner defects unrelated to production USB transport: a global media-key PLAY could be consumed by another app's active MediaSession, and an empty logcat poll immediately after clearing logcat was rejected by PowerShell mandatory-string binding. P4 now targets the QA Media3 control receiver explicitly and treats an empty control log as `Pending` until the existing timeout expires.
+
+## Directive 2026-08-13-02 exact timing / feedback normalization follow-up
+
+The previously proven P4-A1 slice was checkpointed before changing timing semantics:
+
+```text
+80ee75d2 test: checkpoint USB P4-A1 scheduler hardening
+```
+
+The bounded follow-up keeps P3's production API ownership intact and adds only generic native helper facts/tests:
+
+- `usb_iso_timing.h` represents an exact service period as rational seconds (`numerator / denominator`) with checked integer arithmetic;
+- `ExactNominalPacketScheduler` consumes `nominalRuntimeFrameRateHz` plus the exact data service period and preserves rational phase at runtime without converting the nominal rate through floored Q16;
+- `project_nominal_runtime_rate(...)` is the constant-time long-duration projection for the same exact nominal model;
+- `DecodeNormalizationProfile` makes feedback payload width, fractional bits, raw time unit, raw-to-data-interval scale, feedback poll period, and required-zero bits explicit;
+- feedback normalization yields an exact rational `runtime frames per data service interval`, while polling cadence remains metadata and does not scale the feedback value;
+- `ahead_window_period(...)` and `minimum_queue_depth_for_gap_exact(...)` use the exact data service period rather than assuming an integer `serviceIntervalsPerSecond`.
+
+SK02 retains a thin compatibility profile in `sk02_feedback_profile.h`: 4-byte unsigned 16.16, frames per HS microframe, data interval scale 1, feedback poll every eight microframes (1 ms), with no reserved-bit mask required by the captured profile. The production prototype now decodes through this generic profile and converts the normalized result back to exact Q16 for the frozen P2 packet scheduler, preserving current SK02 scheduling semantics.
+
+### Deterministic evidence
+
+`run-usb-native-host-tests.ps1` remains 6/6 PASS after the follow-up. Latest evidence:
+
+```text
+.scratch/usb-native-host-tests/p4-a1/20260813-011109
+```
+
+New deterministic checks prove:
+
+- 44.1 kHz exact nominal scheduling projects exactly `11,430,720,000` runtime frames over 72 hours with zero final rational phase;
+- the runtime scheduler itself emits exactly 44,100 frames across 8,000 one-eighth-millisecond intervals;
+- a 16 ms data service period (`2/125 s`, only 62.5 intervals/s) also projects 44.1 kHz exactly for 72 hours, proving the helper does not require integer intervals/second;
+- a feedback value expressed per microframe scales by 4 for a four-microframe data endpoint interval;
+- changing feedback polling from eight to sixteen microframes leaves the normalized rate unchanged;
+- short payloads, reserved required-zero bits, zero scale, masks outside the payload, and impossible fractional widths fail closed;
+- exact ahead-window math matches the frozen SK02 16 ms window and also passes a non-integer interval-frequency case.
+
+Android NDK Debug and Release builds both pass after the change:
+
+```text
+:usb-sk02-native-prototype:assembleDebug
+:usb-sk02-native-prototype:assembleRelease
+```
+
+`git diff --check` also passes.
+
+### Repeat SK02 smoke after runtime decoder change
+
+Because the SK02 prototype now consumes the normalization profile in its live feedback completion path, the connected DAC smoke was repeated. Evidence:
+
+```text
+.scratch/usb-sk02-soak/20260813-011613
+```
+
+The one-minute `Lifecycle` run passed with one completed cycle, observed `96000, 48000, 44100` Hz, FD count fixed at 181, and `cleanupDriversBound=true`. It exercised SharedPcm -> UsbDirectPcm -> SharedPcm -> UsbDirectPcm, pause/resume, near-end seek / boundary crossing, and the verified 48/96 kHz queue selections. A scan of the artifact found no non-zero `transportErrorCode`, `invalidFeedbackPacketCount`, `dataPacketErrorCount`, `underrunBytes`, or `totalPollTimeouts`, and no playback/prototype failure signature. The single PSS sample is not resource-leak evidence.
+
+### Facts required from P3, without taking P3 API ownership
+
+A production transport adapter must be able to provide facts equivalent to:
+
+- `nominalRuntimeFrameRateHz`;
+- exact data service period (not only an integer intervals/second approximation);
+- `bytesPerRuntimeFrame` and maximum bytes per data service interval;
+- optional feedback profile: payload bytes, fractional bits, raw feedback time unit, raw-to-data-interval scale numerator/denominator, feedback poll period, and any required-zero mask;
+- queue geometry / ahead-window target.
+
+P4 does not require the final Kotlin/JNI names or shape, and does not attach PCM/DSD semantic policy to these runtime-frame helpers.

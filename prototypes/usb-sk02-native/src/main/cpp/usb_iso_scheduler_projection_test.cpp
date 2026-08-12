@@ -85,6 +85,47 @@ bool fractional_q16_quantization_is_visible_not_hidden() {
     return drift_frames > 0 && drift_frames <= worst_case_floor_bound;
 }
 
+bool exact_nominal_runtime_scheduler_conserves_44k1_for_72h() {
+    constexpr mica::usb::iso::ExactNominalSchedulerConfig config{
+        {1, 8'000},
+        4,
+        200,
+    };
+    const std::uint64_t intervals = kProjectionSeconds * 8'000ULL;
+    const auto projection = mica::usb::iso::project_nominal_runtime_rate(
+        config, intervals, 44'100);
+    const std::uint64_t expected_frames = kProjectionSeconds * 44'100ULL;
+    if (!projection.valid || !projection.capacity_sufficient ||
+        projection.total_runtime_frames != expected_frames ||
+        projection.final_phase_numerator != 0) {
+        return false;
+    }
+
+    mica::usb::iso::ExactNominalPacketScheduler scheduler(config, 44'100);
+    std::uint64_t one_second_frames = 0;
+    for (std::uint32_t interval = 0; interval < 8'000; ++interval) {
+        const auto packet = scheduler.next();
+        if (!packet.valid || packet.capacity_limited) return false;
+        one_second_frames += packet.scheduled_runtime_frames;
+    }
+    return one_second_frames == 44'100 && scheduler.phase_numerator() == 0;
+}
+
+bool exact_service_period_does_not_require_integer_intervals_per_second() {
+    // 16 ms is 2/125 s: 62.5 data service intervals per second.
+    constexpr mica::usb::iso::ExactNominalSchedulerConfig config{
+        {2, 125},
+        4,
+        4'096,
+    };
+    constexpr std::uint64_t intervals = 16'200'000ULL;  // exactly 72 h at 16 ms/interval
+    const auto projection = mica::usb::iso::project_nominal_runtime_rate(
+        config, intervals, 44'100);
+    return projection.valid && projection.capacity_sufficient &&
+        projection.total_runtime_frames == kProjectionSeconds * 44'100ULL &&
+        projection.final_phase_numerator == 0;
+}
+
 bool insufficient_capacity_fails_projection_gate() {
     constexpr mica::usb::iso::SchedulerConfig too_small{8'000, 8, 300};
     const auto projection = mica::usb::iso::project_sample_rate(
@@ -115,12 +156,17 @@ int main() {
     const bool rational = seventy_two_hour_rational_projection_conserves_frames();
     const bool q16 = q16_projection_matches_packet_accumulator_exactly();
     const bool quantization = fractional_q16_quantization_is_visible_not_hidden();
+    const bool exact_nominal = exact_nominal_runtime_scheduler_conserves_44k1_for_72h();
+    const bool non_integer_interval_rate = exact_service_period_does_not_require_integer_intervals_per_second();
     const bool capacity = insufficient_capacity_fails_projection_gate();
     const bool overflow = counter_overflow_fails_closed();
     std::cout << "rational72h=" << (rational ? "pass" : "fail") << '\n'
               << "q16Accumulator=" << (q16 ? "pass" : "fail") << '\n'
               << "q16Quantization=" << (quantization ? "pass" : "fail") << '\n'
+              << "exactNominal72h=" << (exact_nominal ? "pass" : "fail") << '\n'
+              << "nonIntegerIntervalRate=" << (non_integer_interval_rate ? "pass" : "fail") << '\n'
               << "capacityGate=" << (capacity ? "pass" : "fail") << '\n'
               << "overflowGate=" << (overflow ? "pass" : "fail") << '\n';
-    return rational && q16 && quantization && capacity && overflow ? 0 : 1;
+    return rational && q16 && quantization && exact_nominal && non_integer_interval_rate &&
+        capacity && overflow ? 0 : 1;
 }

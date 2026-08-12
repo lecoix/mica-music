@@ -22,10 +22,10 @@
 #include <vector>
 
 #include "usb_underrun_accounting.h"
+#include "sk02_feedback_profile.h"
 #include "sk02_feedback_rate_filter.h"
 #include "sk02_iso_ahead_window.h"
 #include "sk02_stream_metrics.h"
-#include "usb_feedback_decoder.h"
 #include "usb_iso_scheduler.h"
 
 namespace {
@@ -810,15 +810,16 @@ private:
                 }
                 last_feedback_completion_ns = completed_ns;
                 const auto& packet = completed->urb->iso_frame_desc[0];
-                constexpr mica::usb::feedback::FixedPointFormat kSk02FeedbackFormat{4, 16};
-                const auto decoded = packet.status == 0 ?
-                    mica::usb::feedback::decode_unsigned_le(
+                const auto normalized = packet.status == 0 ?
+                    mica::usb::feedback::decode_and_normalize_unsigned_le(
                         completed->buffer.data(),
                         static_cast<std::size_t>(packet.actual_length),
-                        kSk02FeedbackFormat) :
-                    mica::usb::feedback::DecodeResult{};
-                if (decoded.valid) {
-                    const auto value64 = decoded.raw_value;
+                        sk02::feedback::kProfile) :
+                    mica::usb::feedback::NormalizedFeedbackRate{};
+                const auto normalized_q16 =
+                    mica::usb::feedback::to_fixed_point_exact(normalized, 16);
+                if (normalized_q16.valid) {
+                    const auto value64 = normalized_q16.value;
                     if (value64 >= 1ULL * 65'536ULL && value64 <= 64ULL * 65'536ULL) {
                         const auto value = static_cast<unsigned long>(value64);
                         current_feedback_q16.store(value, std::memory_order_release);
