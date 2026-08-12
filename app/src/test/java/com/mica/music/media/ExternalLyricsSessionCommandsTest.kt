@@ -9,6 +9,46 @@ import org.junit.Test
 class ExternalLyricsSessionCommandsTest {
 
     @Test
+    fun desktopToggleTurnsDesktopOffAndOtherModesIntoDesktop() {
+        assertEquals(
+            ExternalLyricsMode.OFF,
+            ExternalLyricsSessionCommands.nextModeAfterDesktopToggle(ExternalLyricsMode.DESKTOP),
+        )
+        assertEquals(
+            ExternalLyricsMode.DESKTOP,
+            ExternalLyricsSessionCommands.nextModeAfterDesktopToggle(ExternalLyricsMode.OFF),
+        )
+        assertEquals(
+            ExternalLyricsMode.DESKTOP,
+            ExternalLyricsSessionCommands.nextModeAfterDesktopToggle(ExternalLyricsMode.STATUS_BAR),
+        )
+    }
+
+    @Test
+    fun desktopToggleButtonTracksMode() {
+        assertEquals(
+            "开启桌面歌词",
+            ExternalLyricsSessionCommands.desktopToggleButtonLabel(ExternalLyricsMode.OFF),
+        )
+        assertEquals(
+            "开启桌面歌词",
+            ExternalLyricsSessionCommands.desktopToggleButtonLabel(ExternalLyricsMode.STATUS_BAR),
+        )
+        assertEquals(
+            "关闭桌面歌词",
+            ExternalLyricsSessionCommands.desktopToggleButtonLabel(ExternalLyricsMode.DESKTOP),
+        )
+        assertEquals(
+            com.mica.music.R.drawable.ic_desktop_lyrics_off,
+            ExternalLyricsSessionCommands.desktopToggleButtonIcon(ExternalLyricsMode.OFF),
+        )
+        assertEquals(
+            com.mica.music.R.drawable.ic_desktop_lyrics_on,
+            ExternalLyricsSessionCommands.desktopToggleButtonIcon(ExternalLyricsMode.DESKTOP),
+        )
+    }
+
+    @Test
     fun lockButtonOnlyExposesForDesktopLyrics() {
         assertTrue(
             ExternalLyricsSessionCommands.shouldExposeDesktopLock(ExternalLyricsMode.DESKTOP),
