@@ -49,3 +49,33 @@ target_include_directories(
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+add_executable(
+    usb_feedback_decoder_test
+    usb_feedback_decoder_test.cpp
+)
+target_include_directories(
+    usb_feedback_decoder_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_executable(
+    usb_iso_scheduler_projection_test
+    usb_iso_scheduler_projection_test.cpp
+)
+target_include_directories(
+    usb_iso_scheduler_projection_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_executable(
+    usb_iso_scheduler_stress_test
+    usb_iso_scheduler_stress_test.cpp
+)
+target_include_directories(
+    usb_iso_scheduler_stress_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)

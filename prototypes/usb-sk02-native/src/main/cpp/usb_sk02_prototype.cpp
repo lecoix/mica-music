@@ -25,6 +25,8 @@
 #include "sk02_feedback_rate_filter.h"
 #include "sk02_iso_ahead_window.h"
 #include "sk02_stream_metrics.h"
+#include "usb_feedback_decoder.h"
+#include "usb_iso_scheduler.h"
 
 namespace {
 
@@ -593,7 +595,12 @@ private:
         minimum_feedback_q16.store(initial_feedback, std::memory_order_release);
         maximum_feedback_q16.store(initial_feedback, std::memory_order_release);
         trusted_feedback_q16.store(initial_feedback, std::memory_order_release);
-        unsigned long long phase = 0;
+        mica::usb::iso::PacketScheduler packet_scheduler(
+            mica::usb::iso::SchedulerConfig{
+                sk02::iso::kUsbIntervalsPerSecond,
+                static_cast<std::uint32_t>(bytes_per_frame),
+                static_cast<std::uint32_t>(max_packet_bytes),
+            });
         long long last_data_completion_ns = 0;
         long long previous_data_completion_gap_us = 0;
         long long max_data_completion_gap_us = 0;
@@ -607,19 +614,17 @@ private:
             int total = 0;
             std::array<std::uint32_t, kDataPackets> scheduled_frames{};
             for (int packet = 0; packet < kDataPackets; ++packet) {
-                phase += feedback;
-                const unsigned long frames = static_cast<unsigned long>(phase >> 16);
-                phase &= 0xffff;
-                unsigned int bytes = static_cast<unsigned int>(frames * bytes_per_frame);
-                if (bytes > static_cast<unsigned int>(max_packet_bytes)) {
-                    bytes = static_cast<unsigned int>(max_packet_bytes / bytes_per_frame) *
-                        static_cast<unsigned int>(bytes_per_frame);
+                const auto schedule = packet_scheduler.next(feedback);
+                if (!schedule.valid) {
+                    error_code.store(EOVERFLOW, std::memory_order_release);
+                    return false;
                 }
+                const unsigned int bytes = schedule.scheduled_bytes;
                 request.urb->iso_frame_desc[packet].length = bytes;
                 request.urb->iso_frame_desc[packet].actual_length = 0;
                 request.urb->iso_frame_desc[packet].status = 0;
                 total += static_cast<int>(bytes);
-                scheduled_frames[packet] = bytes / static_cast<unsigned int>(bytes_per_frame);
+                scheduled_frames[packet] = schedule.scheduled_frames;
             }
             request.urb->buffer_length = total;
             request.urb->status = 0;
@@ -728,10 +733,11 @@ private:
                     }
                 }
             }
+            return true;
         };
         const auto submit = [&](IsoRequest& request) {
             if (!is_current() || stop_requested.load(std::memory_order_acquire)) return false;
-            if (!request.feedback) fill_data(request);
+            if (!request.feedback && !fill_data(request)) return false;
             if (ioctl(fd, USBDEVFS_SUBMITURB, request.urb) == 0) {
                 request.submitted = true;
                 return true;
@@ -804,12 +810,17 @@ private:
                 }
                 last_feedback_completion_ns = completed_ns;
                 const auto& packet = completed->urb->iso_frame_desc[0];
-                if (packet.status == 0 && packet.actual_length == 4) {
-                    unsigned long value = 0;
-                    for (int index = 0; index < 4; ++index) {
-                        value |= static_cast<unsigned long>(completed->buffer[index]) << (index * 8);
-                    }
-                    if (value >= 1UL * 65'536UL && value <= 64UL * 65'536UL) {
+                constexpr mica::usb::feedback::FixedPointFormat kSk02FeedbackFormat{4, 16};
+                const auto decoded = packet.status == 0 ?
+                    mica::usb::feedback::decode_unsigned_le(
+                        completed->buffer.data(),
+                        static_cast<std::size_t>(packet.actual_length),
+                        kSk02FeedbackFormat) :
+                    mica::usb::feedback::DecodeResult{};
+                if (decoded.valid) {
+                    const auto value64 = decoded.raw_value;
+                    if (value64 >= 1ULL * 65'536ULL && value64 <= 64ULL * 65'536ULL) {
+                        const auto value = static_cast<unsigned long>(value64);
                         current_feedback_q16.store(value, std::memory_order_release);
                         update_min(minimum_feedback_q16, value);
                         update_max(maximum_feedback_q16, value);

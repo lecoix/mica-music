@@ -354,8 +354,10 @@ function Start-Qa {
     Start-Sleep -Seconds 4
 }
 
-function Start-PlaybackThroughSystemSession {
-    Invoke-Adb -Arguments @("shell", "input", "keyevent", "126") | Out-Null
+function Start-PlaybackThroughQaSession {
+    # A global media-key event can be consumed by another app's active MediaSession. Address the
+    # QA receiver explicitly so the SharedPcm baseline always starts the session under test.
+    Invoke-Control -Suffix "USB_SK02_MEDIA3_PLAY" -LogName "play"
     Start-Sleep -Seconds 2
 }
 
@@ -876,7 +878,7 @@ try {
 
         Write-Event "Full-mode smoke: establish SharedPcm baseline"
         Set-InPlaceUsbPrototype -Enabled $false
-        Start-PlaybackThroughSystemSession
+        Start-PlaybackThroughQaSession
         Assert-PlayingAdvances -Label "full-mode-shared-before"
         Assert-KernelDriversBound
 

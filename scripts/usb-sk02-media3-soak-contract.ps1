@@ -21,7 +21,7 @@ function Get-PlaybackReadiness {
 
 function Get-ControlOutcome {
     param(
-        [Parameter(Mandatory)][string]$Logs,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Logs,
         [Parameter(Mandatory)][string]$LogName
     )
 
