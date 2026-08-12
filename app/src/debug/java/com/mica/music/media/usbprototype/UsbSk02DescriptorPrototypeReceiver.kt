@@ -1502,6 +1502,9 @@ class UsbSk02DescriptorPrototypeReceiver : BroadcastReceiver() {
         try {
             val raw = connection.rawDescriptors ?: ByteArray(0)
             state("target=${device.identity()} interfaces=${device.interfaceCount}")
+            state(
+                "usbfsSpeedCode=${com.mica.music.media.usb.UsbRuntimeNativeBridge.queryBusSpeed(connection.fileDescriptor)}",
+            )
             state("rawDescriptorBytes=${raw.size} rawDescriptorHex=${raw.toHex()}")
             val parsed = DescriptorProbe.parse(raw)
             parsed.lines.forEach(::state)

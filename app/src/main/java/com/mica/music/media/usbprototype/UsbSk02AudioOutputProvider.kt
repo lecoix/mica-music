@@ -13,12 +13,20 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioOutput
 import androidx.media3.exoplayer.audio.AudioOutputProvider
+import com.mica.music.media.usb.AndroidUsbAudioControlIo
+import com.mica.music.media.usb.AndroidUsbRuntimeFactsProvider
 import com.mica.music.media.usb.PlaybackOutputFacts
 import com.mica.music.media.usb.Sk02UsbContract
+import com.mica.music.media.usb.StandardUacDescriptorParser
+import com.mica.music.media.usb.Uac2RuntimeClockEvidenceReadResult
+import com.mica.music.media.usb.Uac2RuntimeClockEvidenceReader
+import com.mica.music.media.usb.UsbAudioDescriptorParseResult
 import com.mica.music.media.usb.UsbAudioEndpointShape
-import com.mica.music.media.usb.UsbAudioStreamingProfile
 import com.mica.music.media.usb.UsbAudioRuntimeHandle
-import com.mica.music.media.usb.UsbFormatDecision
+import com.mica.music.media.usb.UsbAudioStreamingProfile
+import com.mica.music.media.usb.UsbClockPlan
+import com.mica.music.media.usb.UsbGenericPcmSelection
+import com.mica.music.media.usb.UsbGenericPcmSelectionResult
 import com.mica.music.media.usb.UsbOutputCleanupLease
 import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputRequestLease
@@ -28,12 +36,11 @@ import com.mica.music.media.usb.UsbOutputSession
 import com.mica.music.media.usb.UsbPcmEncoding
 import com.mica.music.media.usb.UsbPcmFormat
 import com.mica.music.media.usb.UsbPermissionState
+import com.mica.music.media.usb.UsbRuntimeFactsResult
 import com.mica.music.media.usb.UsbRuntimeHealth
-import com.mica.music.media.usb.UsbSignalPolicy
+import com.mica.music.media.usb.UsbRuntimeStreamingProfileValidator
 import com.mica.music.media.usb.UsbStreamingProfileValidation
 import com.mica.music.media.usb.UsbTransportConfig
-import com.mica.music.media.usb.UsbTransportConfigBuilder
-import com.mica.music.media.usb.UsbTransportConfigResult
 import com.mica.music.util.DiagnosticLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -162,27 +169,7 @@ private object UsbSk02Media3SessionOwner {
                 sourceFormat = sourceFormat,
             ),
         ) { lease ->
-            val decision = when (
-                val result = Sk02UsbContract.negotiate(
-                    source = sourceFormat,
-                    capability = Sk02UsbContract.capability,
-                    signalPolicy = UsbSignalPolicy.EXACT_ONLY,
-                )
-            ) {
-                is UsbFormatDecision.Accepted -> result
-                is UsbFormatDecision.Rejected -> error(result.reason)
-            }
-            lease.ensureCurrent()
-            val transportConfig = when (
-                val result = UsbTransportConfigBuilder.build(
-                    decision = decision,
-                    busSpeed = Sk02UsbContract.capability.busSpeed,
-                )
-            ) {
-                is UsbTransportConfigResult.Ready -> result.config
-                is UsbTransportConfigResult.Rejected -> error(result.rejection.detail)
-            }
-            UsbSk02AudioOutput.open(context, config, decision, transportConfig, lease)
+            UsbSk02AudioOutput.open(context, config, sourceFormat, lease)
         }
     }
 
@@ -213,6 +200,7 @@ private class UsbSk02AudioOutput private constructor(
     private val sampleRate: Int,
     private val inputEncoding: Int,
     private val transportConfig: UsbTransportConfig,
+    private val clockSourceId: Int,
     private val originalClockHz: Int?,
     private val runtimeHandle: UsbAudioRuntimeHandle,
     private val negotiatedFormat: UsbPcmFormat,
@@ -392,10 +380,12 @@ private class UsbSk02AudioOutput private constructor(
             lease.io { connection.setInterface(streamingAlt0) }
         }.getOrDefault(false)
         val clockRestoreBytes = originalClockHz?.let { original ->
-            lease.io { setClockFrequency(connection, original) }
+            lease.io {
+                setClockFrequency(connection, audioControl.id, clockSourceId, original)
+            }
         }
         val restoredClockHz = originalClockHz?.let {
-            lease.io { readClockCurrentHz(connection) }
+            lease.io { readClockCurrentHz(connection, audioControl.id, clockSourceId) }
         }
         val streamingReleased = runCatching {
             lease.io { connection.releaseInterface(streamingAlt0) }
@@ -763,13 +753,9 @@ private class UsbSk02AudioOutput private constructor(
         fun open(
             context: Context,
             config: AudioOutputProvider.OutputConfig,
-            decision: UsbFormatDecision.Accepted,
-            transportConfig: UsbTransportConfig,
+            sourceFormat: UsbPcmFormat,
             lease: UsbOutputRequestLease,
         ): UsbSk02AudioOutput {
-            val profile = decision.streamingProfile
-            check(config.sampleRate == decision.deviceFormat.sampleRateHz)
-            check(profile.channelCount == decision.deviceFormat.channelCount)
             val manager = context.getSystemService(UsbManager::class.java)
             val targets = manager.deviceList.values.filter {
                 it.vendorId == Sk02UsbContract.identity.vendorId &&
@@ -781,70 +767,156 @@ private class UsbSk02AudioOutput private constructor(
             val target = targets.single()
             lease.ensureCurrent()
             check(manager.hasPermission(target)) { "USB permission for SK02 is missing" }
-            val interfaces = (0 until target.interfaceCount).map(target::getInterface)
-            val audioControl = interfaces.firstOrNull {
-                it.id == Sk02UsbContract.capability.audioControlInterface &&
-                    it.alternateSetting == 0
-            } ?: error("SK02 AudioControl interface is missing")
-            val streamingAlt0 = interfaces.firstOrNull {
-                it.id == profile.interfaceNumber && it.alternateSetting == 0
-            } ?: error("SK02 AudioStreaming alt 0 is missing")
-            val streamingTarget = interfaces.firstOrNull {
-                it.id == profile.interfaceNumber &&
-                    it.alternateSetting == profile.alternateSetting
-            } ?: error("SK02 AudioStreaming alt ${profile.alternateSetting} is missing")
-            validateStreamingEndpoints(streamingTarget, profile)
             val connection = lease.io { manager.openDevice(target) } ?: error("Unable to open SK02")
+            val interfaces = (0 until target.interfaceCount).map(target::getInterface)
+            var audioControl: UsbInterface? = null
+            var streamingAlt0: UsbInterface? = null
             var controlClaimed = false
             var streamingClaimed = false
             var altSelected = false
+            var selectedClockSourceId: Int? = null
             var originalClockHz: Int? = null
             try {
-                lease.ensureCurrent()
-                controlClaimed = lease.io { connection.claimInterface(audioControl, true) }
-                streamingClaimed = lease.io { connection.claimInterface(streamingAlt0, true) }
-                check(controlClaimed && streamingClaimed) { "Unable to force-claim SK02 interfaces" }
-                originalClockHz = lease.io { readClockCurrentHz(connection) }
-                check(lease.io { setClockFrequency(connection, config.sampleRate) } == 4) {
-                    "Unable to set SK02 clock to ${config.sampleRate} Hz"
+                val runtime = when (val result = AndroidUsbRuntimeFactsProvider.acquire(target, connection)) {
+                    is UsbRuntimeFactsResult.Ready -> result.facts
+                    is UsbRuntimeFactsResult.Rejected -> error(
+                        "USB runtime facts rejected: ${result.rejection.code}: ${result.rejection.detail}",
+                    )
                 }
-                check(lease.io { readClockCurrentHz(connection) } == config.sampleRate) {
-                    "SK02 clock did not settle at ${config.sampleRate} Hz"
+                val parsed = when (val result = StandardUacDescriptorParser.parse(runtime.descriptorSet)) {
+                    is UsbAudioDescriptorParseResult.Parsed -> result.facts
+                    is UsbAudioDescriptorParseResult.Rejected -> error(
+                        "USB descriptors rejected: ${result.rejection}",
+                    )
                 }
+                val selectedAudioControl = interfaces.firstOrNull {
+                    it.id == parsed.audioFunction.controlInterfaceNumber && it.alternateSetting == 0
+                } ?: error(
+                    "Parsed AudioControl interface ${parsed.audioFunction.controlInterfaceNumber} is missing at runtime",
+                )
+                audioControl = selectedAudioControl
+                controlClaimed = lease.io { connection.claimInterface(selectedAudioControl, true) }
+                check(controlClaimed) { "Unable to force-claim parsed AudioControl interface" }
+
+                val controlIo = AndroidUsbAudioControlIo(
+                    connection = connection,
+                    executeIo = { block -> lease.io(block) },
+                )
+                val clockEvidence = when (val result = Uac2RuntimeClockEvidenceReader.read(parsed, controlIo)) {
+                    is Uac2RuntimeClockEvidenceReadResult.Ready -> result.evidence
+                    is Uac2RuntimeClockEvidenceReadResult.Rejected -> error(
+                        "USB runtime clock evidence rejected: ${result.rejection}",
+                    )
+                }
+                val selection = when (
+                    val result = UsbGenericPcmSelection.select(
+                        source = sourceFormat,
+                        identity = runtime.identity,
+                        facts = parsed,
+                        uac2ClockEvidence = clockEvidence,
+                    )
+                ) {
+                    is UsbGenericPcmSelectionResult.Ready -> result
+                    is UsbGenericPcmSelectionResult.Rejected -> error(
+                        "Generic USB exact selection rejected: ${result.rejection}",
+                    )
+                }
+                val decision = selection.decision
+                val profile = decision.streamingProfile
+                val claimPlan = checkNotNull(profile.claimPlan) { "Generic USB candidate has no claim plan" }
+                check(claimPlan.controlInterfaceNumber == selectedAudioControl.id) {
+                    "Generic claim plan control interface does not match parsed AudioControl"
+                }
+                check(claimPlan.streamingInterfaceNumber == profile.interfaceNumber &&
+                    claimPlan.alternateSetting == profile.alternateSetting
+                ) { "Generic claim plan does not match selected streaming profile" }
+                check(config.sampleRate == decision.deviceFormat.sampleRateHz)
+                check(profile.channelCount == decision.deviceFormat.channelCount)
+
+                val selectedStreamingAlt0 = interfaces.firstOrNull {
+                    it.id == claimPlan.streamingInterfaceNumber && it.alternateSetting == 0
+                } ?: error("Parsed AudioStreaming alt 0 is missing")
+                streamingAlt0 = selectedStreamingAlt0
+                val streamingTarget = interfaces.firstOrNull {
+                    it.id == claimPlan.streamingInterfaceNumber &&
+                        it.alternateSetting == claimPlan.alternateSetting
+                } ?: error("Parsed AudioStreaming alt ${claimPlan.alternateSetting} is missing")
+                validateStreamingEndpoints(streamingTarget, profile)
+                streamingClaimed = lease.io { connection.claimInterface(selectedStreamingAlt0, true) }
+                check(streamingClaimed) { "Unable to force-claim parsed AudioStreaming interface" }
+
+                val clockPlan = profile.clockPlan as? UsbClockPlan.Uac2Entity
+                    ?: error("Contained SK02 generic path requires a proven UAC2 ClockSource plan")
+                selectedClockSourceId = clockPlan.sourceEntityId
+                originalClockHz = lease.io {
+                    readClockCurrentHz(connection, selectedAudioControl.id, clockPlan.sourceEntityId)
+                }
+                check(
+                    lease.io {
+                        setClockFrequency(
+                            connection,
+                            selectedAudioControl.id,
+                            clockPlan.sourceEntityId,
+                            config.sampleRate,
+                        )
+                    } == 4,
+                ) { "Unable to set parsed USB clock to ${config.sampleRate} Hz" }
+                check(
+                    lease.io {
+                        readClockCurrentHz(connection, selectedAudioControl.id, clockPlan.sourceEntityId)
+                    } == config.sampleRate,
+                ) { "Parsed USB clock did not settle at ${config.sampleRate} Hz" }
                 altSelected = lease.io { connection.setInterface(streamingTarget) }
-                check(altSelected) {
-                    "Unable to select SK02 alt ${profile.alternateSetting}"
-                }
+                check(altSelected) { "Unable to select parsed USB alt ${profile.alternateSetting}" }
+
                 return UsbSk02AudioOutput(
                     connection = connection,
-                    audioControl = audioControl,
-                    streamingAlt0 = streamingAlt0,
+                    audioControl = selectedAudioControl,
+                    streamingAlt0 = selectedStreamingAlt0,
                     streamingTarget = streamingTarget,
                     sampleRate = config.sampleRate,
                     inputEncoding = config.encoding,
-                    transportConfig = transportConfig,
+                    transportConfig = selection.transportConfig,
+                    clockSourceId = clockPlan.sourceEntityId,
                     originalClockHz = originalClockHz,
-                    runtimeHandle = UsbAudioRuntimeHandle(target.deviceId),
+                    runtimeHandle = runtime.runtimeHandle,
                     negotiatedFormat = decision.deviceFormat,
                     initialLease = lease,
                 ).also {
                     DiagnosticLog.event(
                         "UsbExclusivePrototype",
-                        "opened sr=${config.sampleRate} inputEncoding=${config.encoding} " +
-                            "alt=${profile.alternateSetting} generation=${lease.token.value}",
+                        "opened selection=generic-descriptor sr=${config.sampleRate} " +
+                            "inputEncoding=${config.encoding} alt=${profile.alternateSetting} " +
+                            "bus=${runtime.descriptorSet.busSpeed} bcdDevice=${runtime.identity.bcdDevice} " +
+                            "generation=${lease.token.value}",
                     )
                 }
             } catch (error: Exception) {
                 val cleanup = lease.cleanupLease()
-                if (altSelected) runCatching { cleanup.io { connection.setInterface(streamingAlt0) } }
-                originalClockHz?.let { original ->
-                    runCatching { cleanup.io { setClockFrequency(connection, original) } }
+                val cleanupStreamingAlt0 = streamingAlt0
+                if (altSelected && cleanupStreamingAlt0 != null) {
+                    runCatching { cleanup.io { connection.setInterface(cleanupStreamingAlt0) } }
                 }
-                if (streamingClaimed) {
-                    runCatching { cleanup.io { connection.releaseInterface(streamingAlt0) } }
+                val cleanupAudioControl = audioControl
+                val cleanupClockSourceId = selectedClockSourceId
+                if (originalClockHz != null && cleanupAudioControl != null && cleanupClockSourceId != null) {
+                    val original = checkNotNull(originalClockHz)
+                    runCatching {
+                        cleanup.io {
+                            setClockFrequency(
+                                connection,
+                                cleanupAudioControl.id,
+                                cleanupClockSourceId,
+                                original,
+                            )
+                        }
+                    }
                 }
-                if (controlClaimed) {
-                    runCatching { cleanup.io { connection.releaseInterface(audioControl) } }
+                if (streamingClaimed && cleanupStreamingAlt0 != null) {
+                    runCatching { cleanup.io { connection.releaseInterface(cleanupStreamingAlt0) } }
+                }
+                if (controlClaimed && cleanupAudioControl != null) {
+                    runCatching { cleanup.io { connection.releaseInterface(cleanupAudioControl) } }
                 }
                 cleanup.io { connection.close() }
                 throw error
@@ -865,22 +937,25 @@ private class UsbSk02AudioOutput private constructor(
                         interval = it.interval,
                     )
                 }
-            when (val result = Sk02UsbContract.validateRuntimeEndpoints(profile, endpoints)) {
+            when (val result = UsbRuntimeStreamingProfileValidator.validate(profile, endpoints)) {
                 UsbStreamingProfileValidation.Valid -> Unit
                 is UsbStreamingProfileValidation.Rejected -> error(
-                    "SK02 runtime topology rejected: ${result.reason}",
+                    "Parsed runtime topology rejected: ${result.reason}",
                 )
             }
         }
 
-        private fun readClockCurrentHz(connection: UsbDeviceConnection): Int? {
-            val clockId = checkNotNull(Sk02UsbContract.capability.clockSourceId)
+        private fun readClockCurrentHz(
+            connection: UsbDeviceConnection,
+            audioControlInterface: Int,
+            clockSourceId: Int,
+        ): Int? {
             val bytes = ByteArray(4)
             val transferred = connection.controlTransfer(
                 USB_CLASS_INTERFACE_IN,
                 UAC2_REQUEST_CUR,
                 UAC2_SAMPLING_FREQUENCY_CONTROL,
-                (clockId shl 8) or Sk02UsbContract.capability.audioControlInterface,
+                (clockSourceId shl 8) or audioControlInterface,
                 bytes,
                 bytes.size,
                 CONTROL_TIMEOUT_MS,
@@ -892,8 +967,12 @@ private class UsbSk02AudioOutput private constructor(
             }
         }
 
-        private fun setClockFrequency(connection: UsbDeviceConnection, sampleRate: Int): Int {
-            val clockId = checkNotNull(Sk02UsbContract.capability.clockSourceId)
+        private fun setClockFrequency(
+            connection: UsbDeviceConnection,
+            audioControlInterface: Int,
+            clockSourceId: Int,
+            sampleRate: Int,
+        ): Int {
             val bytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
                 .putInt(sampleRate)
                 .array()
@@ -901,7 +980,7 @@ private class UsbSk02AudioOutput private constructor(
                 USB_CLASS_INTERFACE_OUT,
                 UAC2_REQUEST_CUR,
                 UAC2_SAMPLING_FREQUENCY_CONTROL,
-                (clockId shl 8) or Sk02UsbContract.capability.audioControlInterface,
+                (clockSourceId shl 8) or audioControlInterface,
                 bytes,
                 bytes.size,
                 CONTROL_TIMEOUT_MS,

@@ -1285,6 +1285,15 @@ std::string run_pcm16_queue(
 
 }  // namespace
 
+extern "C" JNIEXPORT jint JNICALL
+Java_com_mica_music_media_usb_UsbRuntimeNativeBridge_queryBusSpeed(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jint fd) {
+    const int result = ioctl(fd, USBDEVFS_GET_SPEED, nullptr);
+    return result >= 0 ? result : -errno;
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_queryInterfaceDriver(
     JNIEnv* env,
