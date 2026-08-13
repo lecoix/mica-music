@@ -113,6 +113,27 @@ class DoPEncoder(
 
     fun hasPendingHalfFrame(): Boolean = hasCarriedFrame
 
+    /**
+     * Emits one valid DoP idle runtime frame without touching any pending content half-frame.
+     * All channels use the current marker and `0x69/0x69` DSD payload, then marker phase advances
+     * exactly once for the runtime frame.
+     */
+    fun encodeIdleFrame(
+        destinationWords: IntArray,
+        destinationWordOffset: Int = 0,
+    ): Int {
+        require(destinationWordOffset >= 0 && destinationWordOffset + channelCount <= destinationWords.size)
+        for (channel in 0 until channelCount) {
+            destinationWords[destinationWordOffset + channel] = logicalWord(
+                marker = marker,
+                olderByte = DSD_IDLE_BYTE,
+                newerByte = DSD_IDLE_BYTE,
+            )
+        }
+        advanceMarker()
+        return 1
+    }
+
     private fun writeCarrierFrame(
         first: ByteArray,
         secondSource: ByteArray,

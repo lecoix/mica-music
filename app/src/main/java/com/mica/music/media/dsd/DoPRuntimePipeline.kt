@@ -5,6 +5,16 @@ enum class DoPDiscontinuity {
     SEEK,
 }
 
+enum class DoPCarrierSessionReset {
+    NEW_CARRIER_SESSION,
+    RECONFIGURE,
+}
+
+private enum class DoPPackedFrameKind {
+    CONTENT,
+    IDLE,
+}
+
 data class DoPPipelineWriteResult(
     val canonicalFramesConsumed: Int,
     val carrierBytesEmitted: Int,
@@ -27,11 +37,38 @@ data class DoPPipelineDrainResult(
     val completedPendingHalfFrameWithIdle: Boolean,
 )
 
+data class DoPPipelineIdleWriteResult(
+    val idleFramesConsumed: Int,
+    val carrierBytesEmitted: Int,
+    val runtimeFramesPacked: Int,
+    val runtimeFramesFullyEmitted: Int,
+)
+
 data class DoPPipelineDiscontinuityResult(
     val reason: DoPDiscontinuity,
     val discardedPartialCanonicalFrameBytes: Int,
     val discardedPendingCanonicalHalfFrame: Boolean,
     val discardedPackedCarrierBytes: Int,
+)
+
+data class DoPSourceResetResult(
+    val reason: DoPDiscontinuity,
+    val discardedPartialCanonicalFrameBytes: Int,
+    val discardedPendingCanonicalHalfFrame: Boolean,
+    val discardedCanonicalSourceBytes: Int,
+    val discardedPackedCarrierBytes: Int,
+    val markerBeforeReset: Int,
+    val markerAfterReset: Int,
+)
+
+data class DoPCarrierSessionResetResult(
+    val reason: DoPCarrierSessionReset,
+    val discardedPartialCanonicalFrameBytes: Int,
+    val discardedPendingCanonicalHalfFrame: Boolean,
+    val discardedCanonicalSourceBytes: Int,
+    val discardedPackedCarrierBytes: Int,
+    val markerBeforeReset: Int,
+    val markerAfterReset: Int,
 )
 
 data class DoPPipelineAccounting(
@@ -41,9 +78,15 @@ data class DoPPipelineAccounting(
     val runtimeFramesFullyEmitted: Long,
     val carrierBytesEmitted: Long,
     val carrierBytesDiscardedAtDiscontinuity: Long,
+    val contentRuntimeFramesPacked: Long,
+    val idleRuntimeFramesPacked: Long,
+    val contentCarrierBytesEmitted: Long,
+    val idleCarrierBytesEmitted: Long,
+    val canonicalSourceBytesDiscardedAtReset: Long,
     val pendingPackedCarrierBytes: Int,
     val pendingPartialCanonicalFrameBytes: Int,
     val hasPendingCanonicalHalfFrame: Boolean,
+    val lastPackedMarker: Int?,
     val nextMarker: Int,
 ) {
     init {
@@ -53,8 +96,14 @@ data class DoPPipelineAccounting(
         require(runtimeFramesFullyEmitted >= 0L)
         require(carrierBytesEmitted >= 0L)
         require(carrierBytesDiscardedAtDiscontinuity >= 0L)
+        require(contentRuntimeFramesPacked >= 0L)
+        require(idleRuntimeFramesPacked >= 0L)
+        require(contentCarrierBytesEmitted >= 0L)
+        require(idleCarrierBytesEmitted >= 0L)
+        require(canonicalSourceBytesDiscardedAtReset >= 0L)
         require(pendingPackedCarrierBytes >= 0)
         require(pendingPartialCanonicalFrameBytes >= 0)
+        require(lastPackedMarker == null || lastPackedMarker == DoPEncoder.MARKER_A || lastPackedMarker == DoPEncoder.MARKER_B)
         require(nextMarker == DoPEncoder.MARKER_A || nextMarker == DoPEncoder.MARKER_B)
     }
 }
@@ -84,6 +133,7 @@ class DoPRuntimePipeline(
     private val packedRuntimeFrame = ByteArray(plan.bytesPerRuntimeFrame)
     private var pendingPackedOffset = 0
     private var pendingPackedLength = 0
+    private var pendingPackedKind: DoPPackedFrameKind? = null
 
     private var totalCanonicalBytesConsumed = 0L
     private var totalCanonicalFramesConsumed = 0L
@@ -91,6 +141,12 @@ class DoPRuntimePipeline(
     private var totalRuntimeFramesFullyEmitted = 0L
     private var totalCarrierBytesEmitted = 0L
     private var totalCarrierBytesDiscardedAtDiscontinuity = 0L
+    private var totalContentRuntimeFramesPacked = 0L
+    private var totalIdleRuntimeFramesPacked = 0L
+    private var totalContentCarrierBytesEmitted = 0L
+    private var totalIdleCarrierBytesEmitted = 0L
+    private var totalCanonicalSourceBytesDiscardedAtReset = 0L
+    private var lastPackedMarker: Int? = null
 
     /**
      * Frame-oriented convenience wrapper. It may only start when no partial canonical channel-frame
@@ -201,7 +257,7 @@ class DoPRuntimePipeline(
 
             if (produced == 0) continue
             check(produced == 1)
-            packCurrentRuntimeFrame()
+            packCurrentRuntimeFrame(DoPPackedFrameKind.CONTENT)
             packedFrames++
 
             val flush = emitPending(destination, outputOffset, outputRemaining)
@@ -257,7 +313,7 @@ class DoPRuntimePipeline(
         if (outputRemaining > 0 && pendingPackedBytes() == 0 && encoder.hasPendingHalfFrame()) {
             val produced = encoder.drain(words)
             check(produced == 1)
-            packCurrentRuntimeFrame()
+            packCurrentRuntimeFrame(DoPPackedFrameKind.CONTENT)
             packedFrames++
             completedWithIdle = true
 
@@ -275,6 +331,110 @@ class DoPRuntimePipeline(
     }
 
     /**
+     * Emits valid DoP idle runtime frames (`0x69/0x69` per channel) under the same carrier marker
+     * phase used by content. A pending content half-frame remains pending and is not rewritten.
+     */
+    fun writeIdleFrames(
+        frameCount: Int,
+        destination: ByteArray,
+        destinationOffset: Int = 0,
+        destinationByteCount: Int = destination.size - destinationOffset,
+    ): DoPPipelineIdleWriteResult {
+        require(frameCount >= 0)
+        require(destinationOffset >= 0 && destinationByteCount >= 0 && destinationOffset <= destination.size)
+        require(destinationByteCount <= destination.size - destinationOffset)
+
+        if (destinationByteCount == 0) {
+            return DoPPipelineIdleWriteResult(0, 0, 0, 0)
+        }
+
+        var idleFramesConsumed = 0
+        var emittedBytes = 0
+        var packedFrames = 0
+        var fullyEmittedFrames = 0
+        var outputOffset = destinationOffset
+        var outputRemaining = destinationByteCount
+
+        val initialFlush = emitPending(destination, outputOffset, outputRemaining)
+        emittedBytes += initialFlush.bytes
+        fullyEmittedFrames += initialFlush.framesCompleted
+        outputOffset += initialFlush.bytes
+        outputRemaining -= initialFlush.bytes
+
+        while (idleFramesConsumed < frameCount && outputRemaining > 0) {
+            check(pendingPackedBytes() == 0)
+            check(encoder.encodeIdleFrame(words) == 1)
+            packCurrentRuntimeFrame(DoPPackedFrameKind.IDLE)
+            idleFramesConsumed++
+            packedFrames++
+
+            val flush = emitPending(destination, outputOffset, outputRemaining)
+            emittedBytes += flush.bytes
+            fullyEmittedFrames += flush.framesCompleted
+            outputOffset += flush.bytes
+            outputRemaining -= flush.bytes
+        }
+
+        return DoPPipelineIdleWriteResult(
+            idleFramesConsumed = idleFramesConsumed,
+            carrierBytesEmitted = emittedBytes,
+            runtimeFramesPacked = packedFrames,
+            runtimeFramesFullyEmitted = fullyEmittedFrames,
+        )
+    }
+
+    /**
+     * Source-only reset for a retained carrier session. Stale source state is discarded while the
+     * next DoP marker phase is preserved exactly.
+     */
+    fun resetSourceForRetainedCarrier(reason: DoPDiscontinuity): DoPSourceResetResult {
+        val marker = encoder.marker
+        val discardedPartialFrameBytes = partialCanonicalFrameBytes
+        val discardedHalfFrame = encoder.hasPendingHalfFrame()
+        val discardedSourceBytes = discardedPartialFrameBytes + if (discardedHalfFrame) plan.channelCount else 0
+        val discardedPackedBytes = if (pendingPackedKind == DoPPackedFrameKind.CONTENT) pendingPackedBytes() else 0
+        totalCanonicalSourceBytesDiscardedAtReset += discardedSourceBytes.toLong()
+        totalCarrierBytesDiscardedAtDiscontinuity += discardedPackedBytes.toLong()
+        encoder = DoPEncoder(channelCount = plan.channelCount, initialMarker = marker)
+        partialCanonicalFrameBytes = 0
+        if (pendingPackedKind == DoPPackedFrameKind.CONTENT) {
+            clearPendingPackedState()
+        }
+        return DoPSourceResetResult(
+            reason = reason,
+            discardedPartialCanonicalFrameBytes = discardedPartialFrameBytes,
+            discardedPendingCanonicalHalfFrame = discardedHalfFrame,
+            discardedCanonicalSourceBytes = discardedSourceBytes,
+            discardedPackedCarrierBytes = discardedPackedBytes,
+            markerBeforeReset = marker,
+            markerAfterReset = encoder.marker,
+        )
+    }
+
+    /** Explicit new carrier session/reconfigure reset. Marker phase restarts at `0x05`. */
+    fun resetCarrierSession(reason: DoPCarrierSessionReset): DoPCarrierSessionResetResult {
+        val marker = encoder.marker
+        val discardedPartialFrameBytes = partialCanonicalFrameBytes
+        val discardedHalfFrame = encoder.hasPendingHalfFrame()
+        val discardedSourceBytes = discardedPartialFrameBytes + if (discardedHalfFrame) plan.channelCount else 0
+        val discardedPackedBytes = pendingPackedBytes()
+        totalCanonicalSourceBytesDiscardedAtReset += discardedSourceBytes.toLong()
+        totalCarrierBytesDiscardedAtDiscontinuity += discardedPackedBytes.toLong()
+        encoder = DoPEncoder(channelCount = plan.channelCount, initialMarker = DoPEncoder.MARKER_A)
+        clearSourceAndPendingState()
+        lastPackedMarker = null
+        return DoPCarrierSessionResetResult(
+            reason = reason,
+            discardedPartialCanonicalFrameBytes = discardedPartialFrameBytes,
+            discardedPendingCanonicalHalfFrame = discardedHalfFrame,
+            discardedCanonicalSourceBytes = discardedSourceBytes,
+            discardedPackedCarrierBytes = discardedPackedBytes,
+            markerBeforeReset = marker,
+            markerAfterReset = encoder.marker,
+        )
+    }
+
+    /**
      * Explicit source discontinuity. This is not a pause operation and owns no external generation.
      * It discards local partial-channel input, DoP half-frame carry, and pending packed output, then
      * restarts marker phase at 0x05.
@@ -285,9 +445,8 @@ class DoPRuntimePipeline(
         val discardedPackedBytes = pendingPackedBytes()
         totalCarrierBytesDiscardedAtDiscontinuity += discardedPackedBytes.toLong()
         encoder = DoPEncoder(channelCount = plan.channelCount, initialMarker = DoPEncoder.MARKER_A)
-        partialCanonicalFrameBytes = 0
-        pendingPackedOffset = 0
-        pendingPackedLength = 0
+        clearSourceAndPendingState()
+        lastPackedMarker = null
         return DoPPipelineDiscontinuityResult(
             reason = reason,
             discardedPartialCanonicalFrameBytes = discardedPartialFrameBytes,
@@ -303,17 +462,25 @@ class DoPRuntimePipeline(
         runtimeFramesFullyEmitted = totalRuntimeFramesFullyEmitted,
         carrierBytesEmitted = totalCarrierBytesEmitted,
         carrierBytesDiscardedAtDiscontinuity = totalCarrierBytesDiscardedAtDiscontinuity,
+        contentRuntimeFramesPacked = totalContentRuntimeFramesPacked,
+        idleRuntimeFramesPacked = totalIdleRuntimeFramesPacked,
+        contentCarrierBytesEmitted = totalContentCarrierBytesEmitted,
+        idleCarrierBytesEmitted = totalIdleCarrierBytesEmitted,
+        canonicalSourceBytesDiscardedAtReset = totalCanonicalSourceBytesDiscardedAtReset,
         pendingPackedCarrierBytes = pendingPackedBytes(),
         pendingPartialCanonicalFrameBytes = partialCanonicalFrameBytes,
         hasPendingCanonicalHalfFrame = encoder.hasPendingHalfFrame(),
+        lastPackedMarker = lastPackedMarker,
         nextMarker = encoder.marker,
     )
 
     fun hasPendingOutputOrCarry(): Boolean =
         pendingPackedBytes() > 0 || partialCanonicalFrameBytes > 0 || encoder.hasPendingHalfFrame()
 
-    private fun packCurrentRuntimeFrame() {
+    private fun packCurrentRuntimeFrame(kind: DoPPackedFrameKind) {
         check(pendingPackedBytes() == 0)
+        check(pendingPackedKind == null)
+        lastPackedMarker = (words[0] ushr 16) and 0xff
         val packedBytes = DoPEncoder.packWords(
             words = words,
             wordCount = plan.channelCount,
@@ -325,7 +492,23 @@ class DoPRuntimePipeline(
         }
         pendingPackedOffset = 0
         pendingPackedLength = packedBytes
+        pendingPackedKind = kind
         totalRuntimeFramesPacked++
+        when (kind) {
+            DoPPackedFrameKind.CONTENT -> totalContentRuntimeFramesPacked++
+            DoPPackedFrameKind.IDLE -> totalIdleRuntimeFramesPacked++
+        }
+    }
+
+    private fun clearSourceAndPendingState() {
+        partialCanonicalFrameBytes = 0
+        clearPendingPackedState()
+    }
+
+    private fun clearPendingPackedState() {
+        pendingPackedOffset = 0
+        pendingPackedLength = 0
+        pendingPackedKind = null
     }
 
     private data class EmitResult(
@@ -348,11 +531,16 @@ class DoPRuntimePipeline(
         )
         pendingPackedOffset += count
         totalCarrierBytesEmitted += count.toLong()
+        when (checkNotNull(pendingPackedKind)) {
+            DoPPackedFrameKind.CONTENT -> totalContentCarrierBytesEmitted += count.toLong()
+            DoPPackedFrameKind.IDLE -> totalIdleCarrierBytesEmitted += count.toLong()
+        }
 
         var completed = 0
         if (pendingPackedOffset == pendingPackedLength) {
             pendingPackedOffset = 0
             pendingPackedLength = 0
+            pendingPackedKind = null
             totalRuntimeFramesFullyEmitted++
             completed = 1
         }
