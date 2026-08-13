@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -20,14 +21,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.LyricsTiming
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
 import com.mica.music.data.SleepTimerController
+import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.NowPlayingActions
@@ -92,6 +96,15 @@ fun PlayerSheetHost(
     }
     val nextSong = queueState.queue.getOrNull(queueState.currentIndex + 1)
     val song = rememberSongWithLyrics(library, summarySong, nextSong, uiSettings.lyricsSlotPriority)
+    val context = LocalContext.current
+    val lyricsOffsetStore = remember(context) { SongLyricsOffsetStore.get(context) }
+    val songLyricsOffsetMs by remember(song.id, song.mediaUri, song.source) {
+        lyricsOffsetStore.observe(song)
+    }.collectAsState(initial = 0)
+    val lyricsPositionMs = LyricsTiming.effectivePositionMs(
+        progressState.positionMs,
+        LyricsTiming.effectiveOffsetMs(uiSettings.globalLyricsOffsetMs, songLyricsOffsetMs),
+    )
     val hydratedSurfaceState = surfaceState.copy(currentSong = song)
     val motionEnabled = rememberMicaMotionEnabled()
     val configuration = LocalConfiguration.current
@@ -172,7 +185,7 @@ fun PlayerSheetHost(
             style = uiSettings.miniPlayerStyle,
             song = song,
             isPlaying = surfaceState.isPlaying,
-            positionMs = progressState.positionMs,
+            positionMs = lyricsPositionMs,
             onPlayPause = actions.togglePlay,
             onPrevious = actions.previous,
             onNext = actions.next,

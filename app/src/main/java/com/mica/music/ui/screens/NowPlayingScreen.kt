@@ -21,7 +21,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +61,8 @@ import com.mica.music.data.DsdSupport
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsSession
+import com.mica.music.data.LyricsTiming
+import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.PlaybackProgressState
 import com.mica.music.data.PlaybackQueueState
 import com.mica.music.data.PlaybackSurfaceState
@@ -74,6 +81,7 @@ import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.AddToPlaylistSheet
 import com.mica.music.ui.components.MicaConfirmDialog
 import com.mica.music.ui.components.MicaSnackbarHost
+import com.mica.music.ui.components.LyricsOffsetSheet
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.PlaybackTuningSheet
 import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
@@ -234,6 +242,14 @@ fun NowPlayingContent(
     }
 
     val context = LocalContext.current
+    val lyricsOffsetStore = remember(context) { SongLyricsOffsetStore.get(context) }
+    val songLyricsOffsetMs by remember(song.id, song.mediaUri, song.source) {
+        lyricsOffsetStore.observe(song)
+    }.collectAsState(initial = 0)
+    val effectiveLyricsOffsetMs = LyricsTiming.effectiveOffsetMs(
+        uiSettings.globalLyricsOffsetMs,
+        songLyricsOffsetMs,
+    )
     val view = LocalView.current
     val keepScreenOn = uiSettings.keepScreenOnWhenPlaying && surfaceState.isPlaying
     DisposableEffect(view, keepScreenOn) {
@@ -249,6 +265,7 @@ fun NowPlayingContent(
     var queueSheetOpen by rememberSaveable { mutableStateOf(false) }
     var sleepTimerSheetOpen by remember { mutableStateOf(false) }
     var playbackTuningSheetOpen by remember { mutableStateOf(false) }
+    var lyricsOffsetSheetOpen by remember { mutableStateOf(false) }
     var lyricsExpanded by rememberSaveable { mutableStateOf(false) }
     var landscapeCoverFlowImmersive by remember { mutableStateOf(false) }
     var customLayoutEditing by rememberSaveable { mutableStateOf(false) }
@@ -267,6 +284,7 @@ fun NowPlayingContent(
         addToPlaylistSong != null ||
         sleepTimerSheetOpen ||
         playbackTuningSheetOpen ||
+        lyricsOffsetSheetOpen ||
         customLayoutEditing
     val motionEnabled = rememberMicaMotionEnabled()
     val photoStackLyricsEnabled = uiSettings.playerCoverFlowMode.usesPhotoStack &&
@@ -285,6 +303,7 @@ fun NowPlayingContent(
             pendingDeleteSong = null
             sleepTimerSheetOpen = false
             playbackTuningSheetOpen = false
+            lyricsOffsetSheetOpen = false
         }
         previousLandscapeWindow = isLandscapeWindow
     }
@@ -341,6 +360,7 @@ fun NowPlayingContent(
         queueSheetOpen,
         sleepTimerSheetOpen,
         playbackTuningSheetOpen,
+        lyricsOffsetSheetOpen,
         actionMenuSong,
         addToPlaylistSong,
         pendingDeleteSong,
@@ -350,6 +370,7 @@ fun NowPlayingContent(
             "page now-playing song=${song.id} handleBackToClose=$handleBackToClose " +
                 "lyricsExpanded=$lyricsExpanded queueSheet=$queueSheetOpen " +
                 "sleepTimerSheet=$sleepTimerSheetOpen playbackTuningSheet=$playbackTuningSheetOpen " +
+                "lyricsOffsetSheet=$lyricsOffsetSheetOpen " +
                 "landscapeCoverFlowImmersive=$landscapeCoverFlowImmersive " +
                 "actionMenu=${actionMenuSong?.id ?: "none"} " +
                 "addToPlaylist=${addToPlaylistSong?.id ?: "none"} delete=${pendingDeleteSong?.id ?: "none"}",
@@ -388,7 +409,7 @@ fun NowPlayingContent(
     }
 
     fun handleSongMenuAction(action: SongMenuAction, target: Song) {
-        if (target.isTransient && action != SongMenuAction.Share) {
+        if (target.isTransient && action != SongMenuAction.Share && action != SongMenuAction.LyricsOffset) {
             actionMenuSong = null
             return
         }
@@ -416,6 +437,10 @@ fun NowPlayingContent(
             SongMenuAction.SongInfo -> {
                 actionMenuSong = null
                 onOpenSongDetail(target.id)
+            }
+            SongMenuAction.LyricsOffset -> {
+                actionMenuSong = null
+                lyricsOffsetSheetOpen = true
             }
             SongMenuAction.RemoveFromPlaylist -> actionMenuSong = null
             SongMenuAction.Delete -> {
@@ -997,8 +1022,13 @@ fun NowPlayingContent(
             }
 
             val lyricsSession = remember(song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
-            val lyricsRenderState = remember(lyricsSession, progressState.positionMs) {
-                lyricsSession.snapshotAt(progressState.positionMs)
+            val lyricsRenderState = remember(lyricsSession, progressState.positionMs, effectiveLyricsOffsetMs) {
+                lyricsSession.snapshotAt(progressState.positionMs, effectiveLyricsOffsetMs)
+            }
+            val seekToLyricMs: (Int) -> Unit = remember(effectiveLyricsOffsetMs, actions) {
+                { lyricTimeMs ->
+                    actions.seekToMs(LyricsTiming.seekPositionMs(lyricTimeMs, effectiveLyricsOffsetMs))
+                }
             }
             val landscapeLowerSection: @Composable (Modifier, Dp, Modifier, Modifier) -> Unit =
                 { lowerModifier, panelHeight, titleSharedModifier, chromeSharedModifier ->
@@ -1090,7 +1120,7 @@ fun NowPlayingContent(
                     isVisible = lyricsCloudRequested ||
                         (photoStackLyricsPageEnabled && lyricsPageTransition > 0.001f),
                     colors = cloudColors,
-                    onLineClick = actions.seekToMs,
+                    onLineClick = seekToLyricMs,
                     bilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                     modifier = Modifier
                         .fillMaxSize()
@@ -1344,7 +1374,7 @@ fun NowPlayingContent(
                                                     renderState = lyricsRenderState,
                                                     isPlaying = surfaceState.isPlaying,
                                                     colors = lyricsColors,
-                                                    onLineClick = actions.seekToMs,
+                                                    onLineClick = seekToLyricMs,
                                                     lyricsAlignment =
                                                         uiSettings.lyricsPageAlignment,
                                                     lyricsFontSizeSp =
@@ -1701,7 +1731,7 @@ fun NowPlayingContent(
                                             renderState = lyricsRenderState,
                                             isPlaying = surfaceState.isPlaying,
                                             colors = lyricsColors,
-                                            onLineClick = actions.seekToMs,
+                                            onLineClick = seekToLyricMs,
                                             lyricsAlignment = uiSettings.lyricsPageAlignment,
                                             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
                                             lyricsTranslationFontSizeSp =
@@ -1981,7 +2011,7 @@ fun NowPlayingContent(
                             lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
                             lyricsWordAnimationPreset = uiSettings.lyricsWordAnimationPreset,
                             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
-                            onLineClick = actions.seekToMs,
+                            onLineClick = seekToLyricMs,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                             onPrevious = onPlayerPrevious,
                             onTogglePlay = actions.togglePlay,
@@ -1997,6 +2027,22 @@ fun NowPlayingContent(
 
             // No external OutgoingCoverArtworkWipe: disabled wipe themes raced a solid SongCover
             // frame on track change (particle classic lyrics). STANDARD/CUSTOM wipe in CoverSection.
+        }
+
+        if (lyricsExpanded && !uiSettings.lyricsPageImmersive && !playerOverlayOpen) {
+            IconButton(
+                onClick = { lyricsOffsetSheetOpen = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(contentPadding)
+                    .padding(HifiSpacing.md)
+                    .zIndex(8f),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Tune,
+                    contentDescription = "歌词偏移",
+                )
+            }
         }
 
         MicaSnackbarHost(
@@ -2045,6 +2091,7 @@ fun NowPlayingContent(
                     sleepTimerSheetOpen = true
                 },
                 showPlaybackTuning = playbackTuningAvailable,
+                showLyricsOffset = true,
                 playbackTuningLabel = formatPlaybackTuningMenuLabel(surfaceState.playbackTuning),
                 onPlaybackTuningClick = {
                     actionMenuSong = null
@@ -2087,6 +2134,15 @@ fun NowPlayingContent(
                 onPitchSemitonesChange = actions.setPlaybackPitchSemitones,
                 onReset = actions.resetPlaybackTuning,
                 landscape = isLandscapeWindow,
+            )
+        }
+
+        if (lyricsOffsetSheetOpen) {
+            LyricsOffsetSheet(
+                globalOffsetMs = uiSettings.globalLyricsOffsetMs,
+                songOffsetMs = songLyricsOffsetMs,
+                onSongOffsetChange = { lyricsOffsetStore.requestSet(song, it) },
+                onDismiss = { lyricsOffsetSheetOpen = false },
             )
         }
 

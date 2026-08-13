@@ -7,7 +7,7 @@ class LyricsTimelineEngine(
         val lines = document.lines
         if (lines.isEmpty()) return LyricsTimelineSnapshot(LyricsTimelinePhase.BeforeFirstLine)
 
-        val syncMs = positionMs + LyricsSync.LEAD_MS
+        val syncMs = positionMs
 
         val activeIndex = lines.indexOfLast { line ->
             line.startMs <= syncMs && (line.endMs == null || syncMs < line.endMs)

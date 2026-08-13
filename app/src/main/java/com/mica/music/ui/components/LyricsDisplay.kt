@@ -407,7 +407,7 @@ private fun lineTimedFillFraction(
 ): Float {
     val lineDuration = lyricFillEndTime(line.timeMs, nextLineTimeMs) - line.timeMs
     if (lineDuration <= 0) return 1f
-    val lineProgress = ((positionMs + LyricsSync.LEAD_MS - line.timeMs).toFloat() / lineDuration)
+    val lineProgress = ((positionMs - line.timeMs).toFloat() / lineDuration)
         .coerceIn(0f, 1f)
     if (syncDisplayRowFill) return lineProgress
     return rowFillFraction(row, lineProgress, line.text.length)
@@ -433,7 +433,7 @@ private fun wordSyncedFill(
 ): WordSyncedFill {
     val cueCount = line.cues.size
     if (cueCount == 0) return WordSyncedFill.Empty
-    val t = positionMs + LyricsSync.LEAD_MS
+    val t = positionMs
     if (t < line.cues.first().timeMs) return WordSyncedFill.Empty
 
     val activeCueIndex = LyricsSync.cueIndexForPosition(line, positionMs)

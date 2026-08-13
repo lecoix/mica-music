@@ -16,14 +16,21 @@ class LyricsSession(val document: LyricsDocument) {
     val hasTimedLyrics: Boolean = LyricsSync.hasTimedLyrics(lyrics)
     private val timelineEngine = LyricsTimelineEngine(document)
 
-    fun snapshotAt(positionMs: Int): LyricsRenderState = LyricsRenderState(
-        lyrics = lyrics,
-        document = document,
-        positionMs = positionMs,
-        hasTimedLyrics = hasTimedLyrics,
-        activeLineIndex = if (hasTimedLyrics) LyricsSync.indexForPosition(lyrics, positionMs) else -1,
-        timeline = timelineEngine.snapshotAt(positionMs),
-    )
+    fun snapshotAt(positionMs: Int, effectiveOffsetMs: Int = 0): LyricsRenderState {
+        val lyricsPositionMs = LyricsTiming.effectivePositionMs(positionMs, effectiveOffsetMs)
+        return LyricsRenderState(
+            lyrics = lyrics,
+            document = document,
+            positionMs = lyricsPositionMs,
+            hasTimedLyrics = hasTimedLyrics,
+            activeLineIndex = if (hasTimedLyrics) {
+                LyricsSync.indexForPosition(lyrics, lyricsPositionMs)
+            } else {
+                -1
+            },
+            timeline = timelineEngine.snapshotAt(lyricsPositionMs),
+        )
+    }
 }
 
 fun List<LyricLine>.renderStateAt(positionMs: Int): LyricsRenderState =

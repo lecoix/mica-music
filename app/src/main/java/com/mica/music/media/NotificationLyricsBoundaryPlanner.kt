@@ -17,12 +17,14 @@ internal object NotificationLyricsBoundaryPlanner {
         publishedIndex: Int?,
         nowRealtimeMs: Long,
         lastPublishedRealtimeMs: Long?,
+        effectiveOffsetMs: Int = 0,
     ): Plan {
         val boundaryPlan = LyricsBoundaryClock.plan(
             lineStartTimesMs = lineStartTimesMs,
             positionMs = positionMs,
             playbackSpeed = playbackSpeed,
             isAdvancing = isAdvancing,
+            effectiveOffsetMs = effectiveOffsetMs,
         )
         val activeIndex = boundaryPlan.activeIndex
         val boundaryWakeInMs = boundaryPlan.wakeInMs

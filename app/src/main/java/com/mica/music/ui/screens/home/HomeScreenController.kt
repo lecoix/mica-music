@@ -92,6 +92,9 @@ class HomeScreenController(
                 overlay = dismissActionMenu(overlay),
                 openSongDetailId = song.id,
             )
+            SongMenuAction.LyricsOffset -> SongMenuActionOutcome(
+                overlay = dismissActionMenu(overlay),
+            )
             SongMenuAction.RemoveFromPlaylist -> {
                 val removed = fromPlaylistId != null &&
                     playlistStore.removeSongFromPlaylist(fromPlaylistId, song.id)

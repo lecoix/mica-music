@@ -90,7 +90,7 @@ class LetterLyricsWordTimingTest {
     }
 
     @Test
-    fun visibleCountUsesLeadMsAndWordSchedule() {
+    fun visibleCountUsesExactPositionAndWordSchedule() {
         val revealMs = intArrayOf(1_000, 1_350, 1_600)
 
         assertEquals(
@@ -110,7 +110,7 @@ class LetterLyricsWordTimingTest {
                 graphemeRevealMs = revealMs,
                 lineIndex = 0,
                 activeLineIndex = 0,
-                framePositionMs = 850,
+                framePositionMs = 1_000,
             ),
         )
         assertEquals(
@@ -120,7 +120,7 @@ class LetterLyricsWordTimingTest {
                 graphemeRevealMs = revealMs,
                 lineIndex = 0,
                 activeLineIndex = 0,
-                framePositionMs = 1_200,
+                framePositionMs = 1_350,
             ),
         )
         assertEquals(
@@ -130,7 +130,7 @@ class LetterLyricsWordTimingTest {
                 graphemeRevealMs = revealMs,
                 lineIndex = 0,
                 activeLineIndex = 0,
-                framePositionMs = 1_500,
+                framePositionMs = 1_600,
             ),
         )
     }
@@ -153,7 +153,7 @@ class LetterLyricsWordTimingTest {
             2f / 3f,
             letterLineRevealProgress(
                 primarySchedule = schedule,
-                framePositionMs = 1_200,
+                framePositionMs = 1_350,
                 lineStartMs = 1_000,
                 lineEndMs = 2_000,
             ),
@@ -163,7 +163,7 @@ class LetterLyricsWordTimingTest {
             1f,
             letterLineRevealProgress(
                 primarySchedule = schedule,
-                framePositionMs = 1_500,
+                framePositionMs = 1_600,
                 lineStartMs = 1_000,
                 lineEndMs = 2_000,
             ),

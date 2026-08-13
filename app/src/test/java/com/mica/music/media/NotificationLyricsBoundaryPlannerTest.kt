@@ -17,7 +17,7 @@ class NotificationLyricsBoundaryPlannerTest {
         )
 
         assertEquals(null, plan.publishIndex)
-        assertEquals(375L, plan.wakeInMs)
+        assertEquals(450L, plan.wakeInMs)
     }
 
     @Test

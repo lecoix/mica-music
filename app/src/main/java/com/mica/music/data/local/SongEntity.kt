@@ -6,6 +6,13 @@ import com.mica.music.data.ReplayGainTags
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 
+@Entity(tableName = "song_lyrics_offsets")
+data class SongLyricsOffsetEntity(
+    @PrimaryKey val songId: String,
+    val mediaUri: String,
+    val offsetMs: Int,
+)
+
 @Entity(tableName = "song_lyrics", primaryKeys = ["songId", "slot"])
 data class SongLyricsEntity(
     val songId: String,

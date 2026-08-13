@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -59,11 +60,13 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSession
+import com.mica.music.data.LyricsTiming
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistCoverImporter
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
+import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.UserPlaylist
 import com.mica.music.media.NotificationLyrics
 import com.mica.music.data.preferences.LibraryBrowseSettings
@@ -88,6 +91,7 @@ import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -642,6 +646,19 @@ fun HomeScreen(
     val currentSong = currentSongSummary?.let {
         rememberSongWithLyrics(library, it, nextSong, uiSettings.lyricsSlotPriority)
     }
+    val lyricsOffsetStore = remember(context) { SongLyricsOffsetStore.get(context) }
+    val songLyricsOffsetFlow = remember(currentSong?.id, currentSong?.mediaUri, currentSong?.source) {
+        currentSong?.let(lyricsOffsetStore::observe) ?: flowOf(0)
+    }
+    val songLyricsOffsetMs by songLyricsOffsetFlow.collectAsState(initial = 0)
+    val effectiveLyricsOffsetMs = LyricsTiming.effectiveOffsetMs(
+        uiSettings.globalLyricsOffsetMs,
+        songLyricsOffsetMs,
+    )
+    val lyricsPositionMs = LyricsTiming.effectivePositionMs(
+        playbackState.positionMs,
+        effectiveLyricsOffsetMs,
+    )
     val infoRowLyricsSession = remember(currentSong?.id, currentSong?.lyricsDocument) {
         currentSong?.let { LyricsSession(it.lyricsDocument) }
     }
@@ -657,6 +674,7 @@ fun HomeScreen(
         playbackState.isBuffering,
         playbackState.playbackSpeed,
         lyricsVisible,
+        effectiveLyricsOffsetMs,
     ) {
         if (lyricsVisible) {
             awaitNextHomeLyricBoundary(
@@ -665,12 +683,13 @@ fun HomeScreen(
                 playbackSpeed = playbackState.playbackSpeed,
                 isAdvancing = playbackState.isPlaying && !playbackState.isBuffering,
                 syncPosition = playbackActions.syncPosition,
+                effectiveOffsetMs = effectiveLyricsOffsetMs,
             )
         }
     }
-    val activeLyricIndex = remember(infoRowLyricsSession, playbackState.positionMs) {
+    val activeLyricIndex = remember(infoRowLyricsSession, lyricsPositionMs) {
         infoRowLyricsSession?.let {
-            NotificationLyrics.lyricIndexForPosition(it, playbackState.positionMs)
+            NotificationLyrics.lyricIndexForPosition(it, lyricsPositionMs)
         } ?: -1
     }
     val activeLyricLine = infoRowLyricsSession
@@ -884,7 +903,7 @@ fun HomeScreen(
                                 lyricText = infoRowLyricText,
                                 karaokeLine = infoRowKaraokeLine,
                                 nextLyricLineTimeMs = nextLyricLineTimeMs,
-                                positionMs = playbackState.positionMs,
+                                positionMs = lyricsPositionMs,
                                 isPlaying = playbackState.isPlaying,
                                 onSortClick = { sortSheetOpen = true },
                                 onFolderModeClick = { sortSheetOpen = true },
@@ -1118,7 +1137,7 @@ fun HomeScreen(
                         style = miniPlayerStyle,
                         song = song,
                         isPlaying = playbackState.isPlaying,
-                        positionMs = playbackState.positionMs,
+                        positionMs = lyricsPositionMs,
                         onPlayPause = playbackActions.togglePlay,
                         onPrevious = playbackActions.previous,
                         onNext = playbackActions.next,

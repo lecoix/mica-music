@@ -41,6 +41,8 @@ import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsSliderRow
+import com.mica.music.ui.components.LyricsOffsetSheet
+import com.mica.music.ui.components.formatLyricsOffset
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.screens.settings.color.ExternalLyricsColorDialog
 import com.mica.music.ui.theme.HifiSpacing
@@ -55,6 +57,7 @@ internal fun LyricsSettingsPanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showExternalLyricsColors by remember { mutableStateOf(false) }
+    var showGlobalLyricsOffset by remember { mutableStateOf(false) }
     val fontPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -159,12 +162,26 @@ internal fun LyricsSettingsPanel(
 
     SettingsSectionTitle("通用显示")
 
+    SettingsActionRow(
+        title = "全局歌词偏移",
+        subtitle = "当前 ${formatLyricsOffset(uiSettings.globalLyricsOffsetMs)}；正数提前，负数延后",
+        onClick = { showGlobalLyricsOffset = true },
+    )
+
     SettingsToggleRow(
         title = "分割双语歌词",
         subtitle = "将含细空格（U+2009 等）或 //、／ 的行拆成上下两行；关闭后每行 LRC 保持一行",
         checked = uiSettings.lyricSplitEnabled,
         onCheckedChange = { uiSettings.updateLyricSplitEnabled(it) },
     )
+
+    if (showGlobalLyricsOffset) {
+        LyricsOffsetSheet(
+            globalOffsetMs = uiSettings.globalLyricsOffsetMs,
+            onGlobalOffsetChange = uiSettings::updateGlobalLyricsOffsetMs,
+            onDismiss = { showGlobalLyricsOffset = false },
+        )
+    }
 
     SettingsToggleRow(
         title = "显示读音 / 罗马音",

@@ -305,6 +305,9 @@ class AppUiSettings(context: Context) {
     var lyricsSlotPriority by mutableStateOf(LyricsPreferences.lyricsSlotPriority(appContext))
         private set
 
+    var globalLyricsOffsetMs by mutableIntStateOf(LyricsPreferences.globalLyricsOffsetMs(appContext))
+        private set
+
     var spectrumEnabled by mutableStateOf(PlaybackUiPreferences.spectrumEnabled(appContext))
         private set
 
@@ -834,6 +837,11 @@ class AppUiSettings(context: Context) {
     fun updateLyricsSlotPriority(priority: List<LyricsSlot>) {
         lyricsSlotPriority = priority
         LyricsPreferences.setLyricsSlotPriority(appContext, priority)
+    }
+
+    fun updateGlobalLyricsOffsetMs(offsetMs: Int) {
+        globalLyricsOffsetMs = LyricsTiming.normalizeLayer(offsetMs)
+        LyricsPreferences.setGlobalLyricsOffsetMs(appContext, globalLyricsOffsetMs)
     }
 
     fun updateSpectrumEnabled(enabled: Boolean) {

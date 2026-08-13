@@ -258,4 +258,15 @@ class LyricsPreferencesRobolectricTest {
         )
         assertEquals(DEFAULT_LYRICS_SLOT_PRIORITY, LyricsPreferences.lyricsSlotPriority(context))
     }
+
+    @Test
+    fun globalLyricsOffsetDefaultsToZeroRoundTripsAndClamps() {
+        assertEquals(0, LyricsPreferences.globalLyricsOffsetMs(context))
+
+        LyricsPreferences.setGlobalLyricsOffsetMs(context, 500)
+        assertEquals(500, LyricsPreferences.globalLyricsOffsetMs(context))
+
+        LyricsPreferences.setGlobalLyricsOffsetMs(context, 99_000)
+        assertEquals(5_000, LyricsPreferences.globalLyricsOffsetMs(context))
+    }
 }

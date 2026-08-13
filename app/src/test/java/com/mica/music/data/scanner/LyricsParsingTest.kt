@@ -102,8 +102,8 @@ class LyricsParsingTest {
         assertEquals(listOf("黑", "Girl ", "-"), parsed[0].cues.map { it.text })
         assertEquals(listOf(0, 22, 44), parsed[0].cues.map { it.timeMs })
         assertEquals(listOf("猜", "不", "透"), parsed[1].cues.map { it.text })
-        assertEquals(0, LyricsSync.cueIndexForPosition(parsed[1], 21_900))
-        assertEquals(1, LyricsSync.cueIndexForPosition(parsed[1], 22_100))
+        assertEquals(0, LyricsSync.cueIndexForPosition(parsed[1], 21_973))
+        assertEquals(1, LyricsSync.cueIndexForPosition(parsed[1], 22_229))
     }
 
     @Test
@@ -522,15 +522,16 @@ class LyricsParsingTest {
     }
 
     @Test
-    fun lyricSyncAppliesLeadWithoutSelectingTimedLineTooEarly() {
+    fun lyricSyncUsesExactPositionWithoutHiddenLead() {
         val lyrics = listOf(LyricLine(1_000, "one"), LyricLine(2_000, "two"))
         assertEquals(0, LyricsSync.indexForPosition(lyrics, 800))
-        assertEquals(1, LyricsSync.indexForPosition(lyrics, 1_900))
+        assertEquals(0, LyricsSync.indexForPosition(lyrics, 1_999))
+        assertEquals(1, LyricsSync.indexForPosition(lyrics, 2_000))
         assertEquals(-1, LyricsSync.indexForPosition(emptyList(), 1_000))
     }
 
     @Test
-    fun lyricSyncSelectsCueWithExistingLead() {
+    fun lyricSyncSelectsCueAtExactTimestamp() {
         val line = LyricLine(
             timeMs = 1_000,
             text = "one two",
@@ -538,8 +539,8 @@ class LyricsParsingTest {
         )
 
         assertEquals(-1, LyricsSync.cueIndexForPosition(line, 800))
-        assertEquals(0, LyricsSync.cueIndexForPosition(line, 850))
-        assertEquals(1, LyricsSync.cueIndexForPosition(line, 1_350))
+        assertEquals(0, LyricsSync.cueIndexForPosition(line, 1_000))
+        assertEquals(1, LyricsSync.cueIndexForPosition(line, 1_500))
         assertEquals(1, LyricsSync.cueIndexForPosition(line, 9_000))
     }
 

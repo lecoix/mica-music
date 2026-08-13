@@ -33,6 +33,7 @@ class RoomMigrationContractTest {
         context.deleteDatabase(FOUR_TO_FIVE_DB)
         context.deleteDatabase(TWO_TO_CURRENT_DB)
         context.deleteDatabase(SIXTEEN_TO_SEVENTEEN_DB)
+        context.deleteDatabase(SEVENTEEN_TO_EIGHTEEN_DB)
     }
 
     @Test
@@ -70,7 +71,7 @@ class RoomMigrationContractTest {
 
         helper.runMigrationsAndValidate(
             TWO_TO_CURRENT_DB,
-            17,
+            18,
             true,
             *MIGRATIONS_TWO_TO_CURRENT,
         ).close()
@@ -129,6 +130,30 @@ class RoomMigrationContractTest {
         }
     }
 
+    @Test
+    fun migrationSeventeenToEighteenAddsSongLyricsOffsets() {
+        helper.createDatabase(SEVENTEEN_TO_EIGHTEEN_DB, 17).close()
+
+        helper.runMigrationsAndValidate(
+            SEVENTEEN_TO_EIGHTEEN_DB,
+            18,
+            true,
+            MIGRATION_17_18,
+        ).use { database ->
+            database.execSQL(
+                "INSERT INTO song_lyrics_offsets(songId, mediaUri, offsetMs) " +
+                    "VALUES ('song', 'content://song', 500)",
+            )
+            database.query(
+                "SELECT mediaUri, offsetMs FROM song_lyrics_offsets WHERE songId = 'song'",
+            ).use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals("content://song", cursor.getString(0))
+                assertEquals(500, cursor.getInt(1))
+            }
+        }
+    }
+
     private fun SupportSQLiteDatabase.insertLegacySong(version: Int) {
         val externalLyricsColumn = if (version >= 3) ", externalLyricsSignature" else ""
         val externalLyricsValue = if (version >= 3) ", 'legacy-signature'" else ""
@@ -153,6 +178,7 @@ class RoomMigrationContractTest {
         const val FOUR_TO_FIVE_DB = "room-migration-4-5"
         const val TWO_TO_CURRENT_DB = "room-migration-2-current"
         const val SIXTEEN_TO_SEVENTEEN_DB = "room-migration-16-17"
+        const val SEVENTEEN_TO_EIGHTEEN_DB = "room-migration-17-18"
         val MIGRATIONS_TWO_TO_CURRENT = arrayOf(
             MIGRATION_2_3,
             MIGRATION_3_4,
@@ -169,6 +195,7 @@ class RoomMigrationContractTest {
             MIGRATION_14_15,
             MIGRATION_15_16,
             MIGRATION_16_17,
+            MIGRATION_17_18,
         )
     }
 }

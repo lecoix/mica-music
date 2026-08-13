@@ -761,7 +761,7 @@ internal fun externalLyricsFillFraction(
     line: ExternalLyricsLine,
     positionMs: Int,
 ): Float {
-    val shiftedPosition = positionMs + LyricsSync.LEAD_MS
+    val shiftedPosition = positionMs
     if (text.cues.isEmpty()) {
         // A line-timed lyric is not a sequence of character cues. Once the line is active,
         // reveal the whole line at once so the fallback cannot look like word-by-word karaoke.

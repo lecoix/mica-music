@@ -23,7 +23,7 @@ class HomeLyricsBoundarySyncTest {
             )
         }
 
-        advanceTimeBy(374)
+        advanceTimeBy(449)
         runCurrent()
         assertEquals(0, syncCount)
 

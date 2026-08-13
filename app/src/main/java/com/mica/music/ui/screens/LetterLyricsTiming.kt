@@ -15,7 +15,7 @@ import com.mica.music.data.LyricsSync
 import java.text.BreakIterator
 import java.util.Locale
 
-internal fun letterSyncTimeMs(framePositionMs: Int): Int = framePositionMs + LyricsSync.LEAD_MS
+internal fun letterSyncTimeMs(framePositionMs: Int): Int = framePositionMs
 
 /**
  * Frame clock for letter lyrics: advances every vsync without restarting when the player

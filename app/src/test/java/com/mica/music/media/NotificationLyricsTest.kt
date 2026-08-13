@@ -155,14 +155,14 @@ class NotificationLyricsTest {
     }
 
     @Test
-    fun lyricIndexUsesLeadMs() {
+    fun lyricIndexUsesExactPositionWithoutHiddenLead() {
         val lyrics = listOf(
             LyricLine(timeMs = 1_000, text = "第一句"),
             LyricLine(timeMs = 5_000, text = "第二句"),
         )
         val index = NotificationLyrics.lyricIndexForPosition(
             lyrics,
-            positionMs = 5_000 - LyricsSync.LEAD_MS,
+            positionMs = 5_000,
         )
         assertEquals(1, index)
     }

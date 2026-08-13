@@ -92,6 +92,24 @@ object LyricsPreferences {
     private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
     private const val KEY_INFO_ROW_WORD_LYRICS_ENABLED = "info_row_word_lyrics_enabled"
     private const val KEY_LYRICS_SLOT_PRIORITY = "lyrics_slot_priority"
+    private const val KEY_GLOBAL_LYRICS_OFFSET_MS = "global_lyrics_offset_ms"
+
+    fun globalLyricsOffsetMs(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_GLOBAL_LYRICS_OFFSET_MS, 0)
+            .coerceIn(com.mica.music.data.MIN_LYRICS_OFFSET_MS, com.mica.music.data.MAX_LYRICS_OFFSET_MS)
+
+    fun setGlobalLyricsOffsetMs(context: Context, offsetMs: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_GLOBAL_LYRICS_OFFSET_MS,
+                offsetMs.coerceIn(
+                    com.mica.music.data.MIN_LYRICS_OFFSET_MS,
+                    com.mica.music.data.MAX_LYRICS_OFFSET_MS,
+                ),
+            )
+            .apply()
+    }
 
     fun lyricsSlotPriority(context: Context): List<LyricsSlot> {
         val slots = MicaSettingsStore.prefs(context)
@@ -679,6 +697,7 @@ object LyricsPreferences {
                 KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE,
                 -> NotificationLyricsChange.DISPLAY
                 KEY_LYRICS_SLOT_PRIORITY -> NotificationLyricsChange.SOURCE
+                KEY_GLOBAL_LYRICS_OFFSET_MS -> NotificationLyricsChange.DISPLAY
                 else -> if (key?.startsWith(KEY_EXTERNAL_LYRICS_COLOR_PREFIX) == true) {
                     NotificationLyricsChange.DISPLAY
                 } else {
