@@ -7,7 +7,9 @@ import com.mica.music.media.dsf.DsfFormat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class DirectDsdMedia3FormatPolicyTest {
     private val facts = DsfExtractorPacketFacts(
@@ -46,6 +48,22 @@ class DirectDsdMedia3FormatPolicyTest {
             C.FORMAT_UNSUPPORTED_TYPE,
             renderer.supportsFormat(format(facts).buildUpon().setSampleMimeType("audio/flac").build()),
         )
+    }
+
+    @Test
+    fun rendererReusesOneFormatHolderThroughAuthoritativeSessionOpen() {
+        val source = File(
+            "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+        ).readText()
+        val renderBody = source.substringAfter("override fun render(")
+            .substringBefore("override fun isReady()")
+
+        assertEquals(1, Regex("\\bformatHolder\\b").findAll(renderBody).count())
+        assertTrue(renderBody.contains("val holder = formatHolder"))
+        assertTrue(renderBody.contains("readSource(holder, inputBuffer, 0)"))
+        assertTrue(renderBody.contains("val format = checkNotNull(holder.format)"))
+        assertTrue(renderBody.contains("DirectDsdMedia3FormatPolicy.factsOrNull(format)"))
+        assertTrue(renderBody.contains("sessionFactory.open(facts)"))
     }
 
     private fun format(packetFacts: DsfExtractorPacketFacts): Format = Format.Builder()

@@ -68,10 +68,11 @@ class DirectDsdMedia3Renderer(
             }
 
             inputBuffer.clear()
-            when (readSource(formatHolder, inputBuffer, 0)) {
+            val holder = formatHolder
+            when (readSource(holder, inputBuffer, 0)) {
                 C.RESULT_NOTHING_READ -> return
                 C.RESULT_FORMAT_READ -> {
-                    val format = checkNotNull(formatHolder.format)
+                    val format = checkNotNull(holder.format)
                     val facts = DirectDsdMedia3FormatPolicy.factsOrNull(format)
                         ?: error("Direct DSD renderer received non-authoritative DSF format")
                     currentFormat = format
