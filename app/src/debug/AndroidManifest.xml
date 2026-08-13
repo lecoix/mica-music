@@ -13,6 +13,15 @@
             </intent-filter>
         </provider>
 
+        <!-- PROTOTYPE: debug-only, ADB-driven real-DSF DoP content staircase. -->
+        <receiver
+            android:name=".media.usbprototype.UsbDoPContentProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="${applicationId}.debug.USB_DOP_CONTENT_PROBE" />
+            </intent-filter>
+        </receiver>
+
         <!-- PROTOTYPE: debug-only, ADB-driven DoP idle exact-carrier staircase. -->
         <receiver
             android:name=".media.usbprototype.UsbDoPIdleProbeReceiver"

@@ -9,12 +9,12 @@ $adb = Join-Path $root ".codex-android-sdk\platform-tools\adb.exe"
 $apk = Join-Path $root "app\build\outputs\apk\debug\app-debug.apk"
 $metadataPath = Join-Path $root "app\build\outputs\apk\debug\output-metadata.json"
 $packageName = "com.mica.music.qa"
-$receiver = "$packageName/com.mica.music.media.usbprototype.UsbDoPIdleProbeReceiver"
-$action = "$packageName.debug.USB_DOP_IDLE_PROBE"
-$tag = "MicaUsbDoPIdle"
+$receiver = "$packageName/com.mica.music.media.usbprototype.UsbDoPContentProbeReceiver"
+$action = "$packageName.debug.USB_DOP_CONTENT_PROBE"
+$tag = "MicaUsbDoPContent"
 $checkpoint = (& git -C $root rev-parse HEAD).Trim()
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$artifact = Join-Path $root ".scratch\usb-dop-idle\$stamp"
+$artifact = Join-Path $root ".scratch\usb-dop-content\$stamp"
 New-Item -ItemType Directory -Force -Path $artifact | Out-Null
 
 if (-not $Serial) {
@@ -55,24 +55,28 @@ $logs = @()
 do {
     Start-Sleep -Milliseconds 300
     $logs = @(& $adb -s $Serial logcat -d -s "${tag}:I" "${tag}:E" "*:S")
-    if ($logs -match "dopIdleProbe=result status=USER_ACTION_REQUIRED") {
+    if ($logs -match "dopContentProbe=result status=USER_ACTION_REQUIRED") {
         $status = "USER_ACTION_REQUIRED"
         break
     }
-    if ($logs -match "dopIdleProbe=result status=PASS") {
+    if ($logs -match "dopContentProbe=result status=PASS") {
         $status = "PASS"
         break
     }
-    if ($logs -match "dopIdleProbe=result status=FAIL") {
+    if ($logs -match "dopContentProbe=result status=SOURCE_UNAVAILABLE") {
+        $status = "SOURCE_UNAVAILABLE"
+        break
+    }
+    if ($logs -match "dopContentProbe=result status=FAIL") {
         $status = "FAIL"
         break
     }
 } while ((Get-Date) -lt $deadline)
 if (-not $status) { $status = "TIMEOUT" }
 
-$logs | Set-Content -LiteralPath (Join-Path $artifact "dop-logcat.txt") -Encoding UTF8
+$logs | Set-Content -LiteralPath (Join-Path $artifact "dop-content-logcat.txt") -Encoding UTF8
 $logs | Where-Object {
-    $_ -match "dopIdleProbe=(device|selection|prefill|armUnderThreshold|beforeArm|arm|sample|accounting|feeder|transportFinal|cleanup|result)"
+    $_ -match "dopContentProbe=(sourceDiscovery|sourceCandidate|sourceSelected|readerInfo|device|selection|prefill|armUnderThreshold|beforeArm|arm|sample|sourceEof|sourcePump|accounting|feeder|transportFinal|cleanup|sourceClose|result)"
 } | Set-Content -LiteralPath (Join-Path $artifact "probe-facts.txt") -Encoding UTF8
 & $adb -s $Serial logcat -d | Set-Content -LiteralPath (Join-Path $artifact "logcat-full.txt") -Encoding UTF8
 & $adb -s $Serial shell dumpsys usb | Set-Content -LiteralPath (Join-Path $artifact "dumpsys-usb.txt") -Encoding UTF8
@@ -108,5 +112,6 @@ $logs | Out-Host
 switch ($status) {
     "PASS" { exit 0 }
     "USER_ACTION_REQUIRED" { exit 2 }
+    "SOURCE_UNAVAILABLE" { exit 3 }
     default { exit 1 }
 }
