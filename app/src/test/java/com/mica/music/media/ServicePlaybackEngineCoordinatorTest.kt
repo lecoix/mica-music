@@ -13,6 +13,7 @@ import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -337,6 +338,125 @@ class ServicePlaybackEngineCoordinatorTest {
 
         verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
         verify(exactly = 1) { exo.seekTo(0, 100L) }
+        coordinator.release()
+    }
+
+    @Test
+    fun adoptedPreparedRebuildFirstPlayUsesExistingPreparedPipeline() {
+        val dsf = SongFixtures.song(
+            "prepared-dsf",
+            container = "DSD",
+            mime = "audio/x-dsf",
+            fileExtension = "dsf",
+        ).copy(fileName = "prepared.dsf", dateModifiedMs = 11L)
+        val item = SongMediaItemCodec.encode(dsf)
+        val exo = mockExoWithQueue(
+            listOf(item),
+            currentIndex = 0,
+            positionMs = 208_555L,
+            playWhenReady = false,
+        )
+        val player = MicaCompositePlayer(exo)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.start()
+
+        val adopted = coordinator.adoptPreparedRebuildRequest(0, item)
+        assertNotNull(adopted)
+
+        coordinator.playCurrent()
+
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 0) { exo.prepare() }
+        verify(exactly = 0) { exo.seekTo(any<Int>(), any<Long>()) }
+        verify(exactly = 1) { exo.play() }
+        coordinator.release()
+    }
+
+    @Test
+    fun rebuildAdoptionRejectsSourceRevisionMismatch() {
+        val expectedSong = SongFixtures.song("same-source").copy(dateModifiedMs = 1L)
+        val currentSong = expectedSong.copy(dateModifiedMs = 2L)
+        val expectedItem = SongMediaItemCodec.encode(expectedSong)
+        val currentItem = SongMediaItemCodec.encode(currentSong)
+        val exo = mockExoWithQueue(listOf(currentItem), currentIndex = 0, playWhenReady = false)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = MicaCompositePlayer(exo),
+            context = RuntimeEnvironment.getApplication(),
+        )
+
+        assertNull(coordinator.adoptPreparedRebuildRequest(0, expectedItem))
+        verify(exactly = 0) { exo.play() }
+        verify(exactly = 0) { exo.prepare() }
+    }
+
+    @Test
+    fun rebuildAdoptionRejectsIndexMismatch() {
+        val items = listOf(
+            SongMediaItemCodec.encode(SongFixtures.song("first")),
+            SongMediaItemCodec.encode(SongFixtures.song("second")),
+        )
+        val exo = mockExoWithQueue(items, currentIndex = 1, playWhenReady = false)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = MicaCompositePlayer(exo),
+            context = RuntimeEnvironment.getApplication(),
+        )
+
+        assertNull(coordinator.adoptPreparedRebuildRequest(0, items[0]))
+        verify(exactly = 0) { exo.play() }
+        verify(exactly = 0) { exo.prepare() }
+    }
+
+    @Test
+    fun ordinaryFirstPlayWithoutRebuildAdoptionStillRestartsQueue() {
+        val item = SongMediaItemCodec.encode(
+            SongFixtures.song("cold", container = "FLAC", mime = "audio/flac"),
+        )
+        val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 123L, playWhenReady = false)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = MicaCompositePlayer(exo),
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.start()
+
+        coordinator.playCurrent()
+
+        verify(exactly = 1) { exo.setMediaItems(any<List<MediaItem>>(), 0, 123L) }
+        verify(exactly = 1) { exo.prepare() }
+        coordinator.release()
+    }
+
+    @Test
+    fun postAdoptionPlayerErrorBelongsToAdoptedRequest() {
+        val song = SongFixtures.song("adopt-error", container = "FLAC", mime = "audio/flac")
+            .copy(dateModifiedMs = 7L)
+        val item = SongMediaItemCodec.encode(song)
+        val error = ExoPlaybackException.createForRenderer(
+            IllegalStateException("prepared pipeline failed"),
+            "AudioRenderer",
+            0,
+            Format.Builder().setSampleMimeType("audio/flac").build(),
+            C.FORMAT_HANDLED,
+            false,
+            ExoPlaybackException.ERROR_CODE_DECODING_FAILED,
+        )
+        val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 456L, playWhenReady = false)
+        every { exo.playerError } returns error
+        var failure: PlaybackFailure? = null
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = MicaCompositePlayer(exo),
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.onPlaybackFailure = { failure = it }
+        coordinator.start()
+
+        val adopted = coordinator.adoptPreparedRebuildRequest(0, item)
+        assertNotNull(adopted)
+        coordinator.onPlayerError(error)
+
+        assertEquals(PlaybackFailureKind.DECODE_FAILED, failure?.kind)
         coordinator.release()
     }
 

@@ -1219,6 +1219,19 @@ class MicaMediaService : MediaSessionService() {
         compositePlayer = candidate.compositePlayer
         activeOutputPath = target
         installPlayerScopedBindings(candidate)
+        val expectedIndex = snapshot.currentIndex
+            .takeIf { snapshot.mediaItems.indices.contains(it) }
+        val expectedItem = expectedIndex?.let(snapshot.mediaItems::get)
+        val adopted = if (expectedIndex != null && expectedItem != null) {
+            playbackEngineCoordinator?.adoptPreparedRebuildRequest(expectedIndex, expectedItem)
+        } else {
+            null
+        }
+        DiagnosticLog.event(
+            "UsbOutputRebuild",
+            "prepared-request-adoption adopted=${adopted != null} " +
+                "index=${expectedIndex ?: -1} mediaId=${expectedItem?.mediaId ?: "none"}",
+        )
         installUsbPlaybackIntentObserver(candidate.compositePlayer)
     }
 

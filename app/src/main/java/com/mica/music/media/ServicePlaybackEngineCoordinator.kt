@@ -30,6 +30,37 @@ internal class ServicePlaybackEngineCoordinator(
         onPlaybackBoundary = null
     }
 
+    /**
+     * Seeds request ownership for a player that was prepared by the full-stack rebuild seam.
+     * This method never mutates the player timeline or prepare state; a mismatch leaves normal
+     * first-play routing untouched.
+     */
+    fun adoptPreparedRebuildRequest(
+        expectedIndex: Int,
+        expectedMediaItem: MediaItem,
+    ): PlaybackRequest? {
+        if (requestState.activeRequest != null) return null
+        if (player.currentMediaItemIndex != expectedIndex) return null
+        val currentItem = player.currentMediaItem ?: return null
+        if (currentItem.mediaId != expectedMediaItem.mediaId) return null
+        val expectedSong = SongMediaItemCodec.decode(expectedMediaItem) ?: return null
+        val currentSong = SongMediaItemCodec.decode(currentItem) ?: return null
+        val expectedRevision = PlaybackSourceRevision.of(expectedSong)
+        val currentRevision = PlaybackSourceRevision.of(currentSong)
+        if (currentSong.id != expectedSong.id || currentRevision != expectedRevision) return null
+        if (PlaybackRouter.decide(currentSong) !is PlaybackRouteDecision.Supported) return null
+        val request = requestState.begin(
+            currentSong,
+            player.currentPosition.coerceAtLeast(0L),
+        )
+        DiagnosticLog.event(
+            "PlaybackEngine",
+            "adopt-rebuilt request=${request.id} index=$expectedIndex source=${request.sourceRevision}",
+        )
+        logDeliveryProbe(currentSong)
+        return request
+    }
+
     fun playCurrent() {
         val item = player.currentMediaItem ?: return
         val song = SongMediaItemCodec.decode(item) ?: run {
