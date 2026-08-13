@@ -127,6 +127,26 @@ class DirectDsdRendererPumpTest {
     }
 
     @Test
+    fun positionResetCloseDiscardsRendererPendingTailBeforeFreshPumpAcceptsTargetPacket() {
+        val oldTransport = FakeSession(facts, intArrayOf(1), startupReadyAfterBytes = 0)
+        val oldPump = DirectDsdRendererPump(facts, oldTransport)
+        oldPump.offerExtractorPacket(byteArrayOf(reverse(0x10), reverse(0x20)), timeUs = 10)
+        assertEquals(1, oldPump.pump().canonicalBytesConsumed)
+        assertEquals(1, oldPump.snapshot().pendingCanonicalBytes)
+
+        oldPump.close()
+        assertEquals(1, oldTransport.closeCalls)
+        assertArrayEquals(byteArrayOf(0x10), oldTransport.committed.toByteArray())
+
+        val targetTransport = FakeSession(facts, intArrayOf(99), startupReadyAfterBytes = 0)
+        val freshPump = DirectDsdRendererPump(facts, targetTransport)
+        freshPump.offerExtractorPacket(byteArrayOf(reverse(0x30), reverse(0x40)), timeUs = 45_000_000)
+        assertEquals(2, freshPump.pump().canonicalBytesConsumed)
+        assertEquals(0, freshPump.snapshot().pendingCanonicalBytes)
+        assertArrayEquals(byteArrayOf(0x30, 0x40), targetTransport.committed.toByteArray())
+    }
+
+    @Test
     fun closeAfterPauseResumeIsIdempotent() {
         val transport = FakeSession(facts, intArrayOf(), startupReadyAfterBytes = 0)
         val pump = DirectDsdRendererPump(facts, transport)

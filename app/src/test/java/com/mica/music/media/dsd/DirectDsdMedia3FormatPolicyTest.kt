@@ -75,6 +75,7 @@ class DirectDsdMedia3FormatPolicyTest {
         assertTrue(source.contains("pump?.isStartupPrefillReady() == true"))
         assertTrue(source.contains("override fun onStarted()"))
         assertTrue(source.contains("if (active.isPlaybackArmed())"))
+        assertTrue(source.contains("if (pauseGapActive)"))
         assertTrue(source.contains("active.stopPauseGapLiveness()"))
         assertTrue(source.contains("pauseGapActive = false"))
         assertTrue(source.contains("active.armPlayback()"))
@@ -88,6 +89,25 @@ class DirectDsdMedia3FormatPolicyTest {
         assertTrue(!source.contains("resumeBlockedAfterStop"))
     }
 
+    @Test
+    fun rendererPlayingPositionResetReopensFromRetainedFormatAndArmsFreshSessionExplicitly() {
+        val source = File(
+            "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+        ).readText()
+        val resetBody = source.substringAfter("override fun onPositionReset(")
+            .substringBefore("override fun onDisabled()")
+        val bufferReadBody = source.substringAfter("C.RESULT_BUFFER_READ ->")
+            .substringBefore("override fun isReady()")
+
+        assertTrue(resetBody.contains("val hadPump = oldPump != null"))
+        assertTrue(resetBody.contains("positionResetState.onPositionReset(positionUs, hadPump = hadPump, isPlaying = isPlaying)"))
+        assertTrue(resetBody.contains("closePump(\"position-reset:\$positionUs\")"))
+        assertTrue(!resetBody.contains("currentFormat = null"))
+        assertTrue(bufferReadBody.contains("pump ?: openPumpIfNeeded(authoritativeCurrentFacts())"))
+        assertTrue(source.contains("renderer=post-reset-open positionUs=\$resetPositionUs"))
+        assertTrue(source.contains("maybeArmAfterPlayingReset(active, sampleTimeUs = inputBuffer.timeUs)"))
+        assertTrue(source.contains("renderer=post-reset-arm positionUs=\$resetPositionUs"))
+    }
     private fun format(packetFacts: DsfExtractorPacketFacts): Format = Format.Builder()
         .setSampleMimeType(DsfFormat.MIME_DSF)
         .setContainerMimeType(DsfFormat.MIME_CONTAINER_DSF)

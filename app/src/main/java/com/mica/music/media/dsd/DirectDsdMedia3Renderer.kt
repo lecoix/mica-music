@@ -42,6 +42,32 @@ internal data class DirectDsdDrainResult(
     val budgetExhausted: Boolean,
 )
 
+/** Tracks only renderer-local discontinuity state; transport/session ownership stays elsewhere. */
+internal class DirectDsdPositionResetState {
+    private var freshPumpPositionUs: Long? = null
+    private var playingArmPositionUs: Long? = null
+
+    fun onPositionReset(positionUs: Long, hadPump: Boolean, isPlaying: Boolean) {
+        freshPumpPositionUs = positionUs.takeIf { hadPump }
+        playingArmPositionUs = positionUs.takeIf { hadPump && isPlaying }
+    }
+
+    fun consumeFreshPumpPositionUs(): Long? = freshPumpPositionUs.also { freshPumpPositionUs = null }
+
+    fun postResetArmPositionUsIfReady(startupReady: Boolean, playbackArmed: Boolean): Long? =
+        playingArmPositionUs?.takeIf { startupReady && !playbackArmed }
+
+    fun markPostResetArmed(positionUs: Long) {
+        check(playingArmPositionUs == positionUs) { "unexpected Direct DSD post-reset arm" }
+        playingArmPositionUs = null
+    }
+
+    fun clear() {
+        freshPumpPositionUs = null
+        playingArmPositionUs = null
+    }
+}
+
 /** Bounds one Media3 render opportunity without coupling the limit to USB transport policy. */
 internal class DirectDsdRenderDrainLoop(
     private val maxSourceReads: Int,
@@ -80,6 +106,7 @@ class DirectDsdMedia3Renderer(
 ) : BaseRenderer(C.TRACK_TYPE_AUDIO) {
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
     private val drainLoop = DirectDsdRenderDrainLoop(MAX_SOURCE_READS_PER_RENDER)
+    private val positionResetState = DirectDsdPositionResetState()
     private var currentFormat: Format? = null
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
@@ -135,6 +162,7 @@ class DirectDsdMedia3Renderer(
         val activePump = pump
         if (activePump != null && !activePump.canAcceptPacket()) {
             activePump.pump()
+            maybeArmAfterPlayingReset(activePump, sampleTimeUs = null)
             if (!activePump.canAcceptPacket()) {
                 return DirectDsdDrainStepResult(
                     sourceReadPerformed = false,
@@ -165,14 +193,7 @@ class DirectDsdMedia3Renderer(
                 val facts = DirectDsdMedia3FormatPolicy.factsOrNull(format)
                     ?: error("Direct DSD renderer received non-authoritative DSF format")
                 currentFormat = format
-                if (pump == null) {
-                    val session = sessionFactory.open(facts)
-                    pump = DirectDsdRendererPump(facts, session)
-                    milestone(
-                        "renderer=claimed sourceRate=${facts.sourceSampleRateHz} " +
-                            "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder}",
-                    )
-                }
+                openPumpIfNeeded(facts)
                 DirectDsdDrainStepResult(true, false, DirectDsdDrainAction.CONTINUE)
             }
             C.RESULT_BUFFER_READ -> {
@@ -181,7 +202,7 @@ class DirectDsdMedia3Renderer(
                     milestone("renderer=input-eos positionUs=$positionUs")
                     DirectDsdDrainStepResult(true, false, DirectDsdDrainAction.CONTINUE)
                 } else {
-                    val active = pump ?: error("DSD sample arrived before format")
+                    val active = pump ?: openPumpIfNeeded(authoritativeCurrentFacts())
                     inputBuffer.flip()
                     val data = checkNotNull(inputBuffer.data)
                     val packet = ByteArray(data.remaining())
@@ -199,6 +220,7 @@ class DirectDsdMedia3Renderer(
                         )
                     }
                     active.pump()
+                    maybeArmAfterPlayingReset(active, sampleTimeUs = inputBuffer.timeUs)
                     DirectDsdDrainStepResult(
                         sourceReadPerformed = true,
                         packetRead = true,
@@ -218,6 +240,42 @@ class DirectDsdMedia3Renderer(
         }
     }
 
+    private fun authoritativeCurrentFacts(): DsfExtractorPacketFacts {
+        val format = checkNotNull(currentFormat) { "DSD sample arrived without retained authoritative format" }
+        return DirectDsdMedia3FormatPolicy.factsOrNull(format)
+            ?: error("Retained Direct DSD format is no longer authoritative")
+    }
+
+    private fun openPumpIfNeeded(facts: DsfExtractorPacketFacts): DirectDsdRendererPump {
+        pump?.let { return it }
+        val session = sessionFactory.open(facts)
+        return DirectDsdRendererPump(facts, session).also { freshPump ->
+            pump = freshPump
+            milestone(
+                "renderer=claimed sourceRate=${facts.sourceSampleRateHz} " +
+                    "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder}",
+            )
+            positionResetState.consumeFreshPumpPositionUs()?.let { resetPositionUs ->
+                milestone("renderer=post-reset-open positionUs=$resetPositionUs")
+            }
+        }
+    }
+
+    private fun maybeArmAfterPlayingReset(active: DirectDsdRendererPump, sampleTimeUs: Long?): Boolean {
+        val resetPositionUs = positionResetState.postResetArmPositionUsIfReady(
+            startupReady = active.isStartupPrefillReady(),
+            playbackArmed = active.isPlaybackArmed(),
+        ) ?: return false
+        active.armPlayback()
+        check(active.isPlaybackArmed())
+        positionResetState.markPostResetArmed(resetPositionUs)
+        milestone(
+            "renderer=post-reset-arm positionUs=$resetPositionUs " +
+                "sampleTimeUs=${sampleTimeUs ?: -1L} armed=true",
+        )
+        return true
+    }
+
     override fun isReady(): Boolean =
         !ended && (pump?.isStartupPrefillReady() == true) &&
             ((pump?.snapshot()?.pendingCanonicalBytes ?: 0) > 0 || isSourceReady() || inputEosSeen)
@@ -228,18 +286,28 @@ class DirectDsdMedia3Renderer(
         try {
             val active = checkNotNull(pump) { "Direct DSD renderer started before transport prepare" }
             if (active.isPlaybackArmed()) {
-                active.stopPauseGapLiveness()
-                check(active.isPlaybackArmed())
-                pauseGapActive = false
-                milestone(
-                    "renderer=started armed=true resumed=true samples=$sampleCount " +
-                        "lastSampleTimeUs=$lastSampleMilestoneTimeUs",
-                )
+                if (pauseGapActive) {
+                    active.stopPauseGapLiveness()
+                    check(active.isPlaybackArmed())
+                    pauseGapActive = false
+                    milestone(
+                        "renderer=started armed=true resumed=true samples=$sampleCount " +
+                            "lastSampleTimeUs=$lastSampleMilestoneTimeUs",
+                    )
+                } else {
+                    milestone(
+                        "renderer=started armed=true resumed=false alreadyArmed=true samples=$sampleCount " +
+                            "lastSampleTimeUs=$lastSampleMilestoneTimeUs",
+                    )
+                }
             } else {
                 check(active.isStartupPrefillReady()) { "Direct DSD renderer started before startup prefill" }
-                active.armPlayback()
-                check(active.isPlaybackArmed())
-                milestone("renderer=started armed=true resumed=false")
+                val armedFromPlayingReset = maybeArmAfterPlayingReset(active, sampleTimeUs = null)
+                if (!armedFromPlayingReset) {
+                    active.armPlayback()
+                    check(active.isPlaybackArmed())
+                }
+                milestone("renderer=started armed=true resumed=false postReset=$armedFromPlayingReset")
             }
         } catch (error: Throwable) {
             throw createRendererException(
@@ -273,6 +341,15 @@ class DirectDsdMedia3Renderer(
     }
 
     override fun onPositionReset(positionUs: Long, joining: Boolean, isPlaying: Boolean) {
+        val oldPump = pump
+        val hadPump = oldPump != null
+        val oldPendingBytes = oldPump?.snapshot()?.pendingCanonicalBytes ?: 0
+        val oldArmed = oldPump?.isPlaybackArmed() == true
+        milestone(
+            "renderer=position-reset positionUs=$positionUs joining=$joining isPlaying=$isPlaying " +
+                "hadPump=$hadPump oldPending=$oldPendingBytes oldArmed=$oldArmed",
+        )
+        positionResetState.onPositionReset(positionUs, hadPump = hadPump, isPlaying = isPlaying)
         closePump("position-reset:$positionUs")
         inputEosSeen = false
         ended = false
@@ -286,6 +363,7 @@ class DirectDsdMedia3Renderer(
 
     override fun onDisabled() {
         closePump("disabled")
+        positionResetState.clear()
         currentFormat = null
         inputEosSeen = false
         ended = false
@@ -299,6 +377,7 @@ class DirectDsdMedia3Renderer(
 
     override fun onReset() {
         closePump("reset")
+        positionResetState.clear()
         currentFormat = null
         inputEosSeen = false
         ended = false
