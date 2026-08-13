@@ -63,9 +63,21 @@ data class ExternalLyricsStyle(
     val desktopWidthPercent: Int = DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT,
     val statusBarWidthPercent: Int = DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT,
     val statusBarTextAlignment: LyricsPageAlignment = LyricsPageAlignment.CENTER,
+    val opacityPercent: Int = DEFAULT_EXTERNAL_LYRICS_OPACITY_PERCENT,
+    val shadowStrengthPercent: Int = DEFAULT_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT,
+    val glowStrengthPercent: Int = DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT,
 ) {
     val normalizedColors: List<Int>
         get() = normalizeExternalLyricsColors(colorsArgb)
+
+    val opacityFraction: Float
+        get() = normalizeExternalLyricsEffectPercent(opacityPercent) / 100f
+
+    val shadowStrengthFraction: Float
+        get() = normalizeExternalLyricsEffectPercent(shadowStrengthPercent) / 100f
+
+    val glowStrengthFraction: Float
+        get() = normalizeExternalLyricsEffectPercent(glowStrengthPercent) / 100f
 }
 
 const val DEFAULT_EXTERNAL_LYRICS_GRADIENT_ANGLE = 0
@@ -76,6 +88,11 @@ const val MAX_EXTERNAL_LYRICS_WIDTH_PERCENT = 100
 const val MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP = 0
 const val MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP = 240
 const val MAX_EXTERNAL_LYRICS_COLORS = 4
+const val MIN_EXTERNAL_LYRICS_EFFECT_PERCENT = 0
+const val MAX_EXTERNAL_LYRICS_EFFECT_PERCENT = 100
+const val DEFAULT_EXTERNAL_LYRICS_OPACITY_PERCENT = 100
+const val DEFAULT_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT = 100
+const val DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT = 0
 
 val DEFAULT_EXTERNAL_LYRICS_COLORS = listOf(
     0xFFFFFFFF.toInt(),
@@ -86,3 +103,6 @@ val DEFAULT_EXTERNAL_LYRICS_COLORS = listOf(
 
 fun normalizeExternalLyricsColors(colors: List<Int>): List<Int> =
     colors.take(MAX_EXTERNAL_LYRICS_COLORS).ifEmpty { DEFAULT_EXTERNAL_LYRICS_COLORS }
+
+fun normalizeExternalLyricsEffectPercent(percent: Int): Int =
+    percent.coerceIn(MIN_EXTERNAL_LYRICS_EFFECT_PERCENT, MAX_EXTERNAL_LYRICS_EFFECT_PERCENT)

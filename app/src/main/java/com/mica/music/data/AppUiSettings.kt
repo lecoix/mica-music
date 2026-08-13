@@ -298,6 +298,21 @@ class AppUiSettings(context: Context) {
     var externalLyricsColors by mutableStateOf(LyricsPreferences.externalLyricsColors(appContext))
         private set
 
+    var externalLyricsOpacityPercent by mutableIntStateOf(
+        LyricsPreferences.externalLyricsOpacityPercent(appContext),
+    )
+        private set
+
+    var externalLyricsShadowStrengthPercent by mutableIntStateOf(
+        LyricsPreferences.externalLyricsShadowStrengthPercent(appContext),
+    )
+        private set
+
+    var externalLyricsGlowStrengthPercent by mutableIntStateOf(
+        LyricsPreferences.externalLyricsGlowStrengthPercent(appContext),
+    )
+        private set
+
     var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
         private set
 
@@ -824,6 +839,27 @@ class AppUiSettings(context: Context) {
     fun updateExternalLyricsColors(colors: List<Int>) {
         externalLyricsColors = normalizeExternalLyricsColors(colors)
         LyricsPreferences.setExternalLyricsColors(appContext, externalLyricsColors)
+    }
+
+    fun updateExternalLyricsOpacityPercent(percent: Int) {
+        externalLyricsOpacityPercent = normalizeExternalLyricsEffectPercent(percent)
+        LyricsPreferences.setExternalLyricsOpacityPercent(appContext, externalLyricsOpacityPercent)
+    }
+
+    fun updateExternalLyricsShadowStrengthPercent(percent: Int) {
+        externalLyricsShadowStrengthPercent = normalizeExternalLyricsEffectPercent(percent)
+        LyricsPreferences.setExternalLyricsShadowStrengthPercent(
+            appContext,
+            externalLyricsShadowStrengthPercent,
+        )
+    }
+
+    fun updateExternalLyricsGlowStrengthPercent(percent: Int) {
+        externalLyricsGlowStrengthPercent = normalizeExternalLyricsEffectPercent(percent)
+        LyricsPreferences.setExternalLyricsGlowStrengthPercent(
+            appContext,
+            externalLyricsGlowStrengthPercent,
+        )
     }
 
     fun updateInfoRowLyricsEnabled(enabled: Boolean) {

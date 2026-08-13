@@ -27,10 +27,12 @@ import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.MAX_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MAX_EXTERNAL_LYRICS_EFFECT_PERCENT
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MIN_EXTERNAL_LYRICS_EFFECT_PERCENT
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
@@ -442,6 +444,33 @@ internal fun LyricsSettingsPanel(
                 },
             )
         }
+
+        SettingsSliderRow(
+            title = "已填充歌词透明度",
+            subtitle = "只影响逐字填充后的文字；未填充部分保持较弱显示",
+            value = uiSettings.externalLyricsOpacityPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_EFFECT_PERCENT..MAX_EXTERNAL_LYRICS_EFFECT_PERCENT,
+            suffix = "%",
+            onValueChange = { uiSettings.updateExternalLyricsOpacityPercent(it) },
+        )
+
+        SettingsSliderRow(
+            title = "外部歌词阴影强度",
+            subtitle = "黑色柔影用于提升复杂背景上的可读性；0% 时关闭",
+            value = uiSettings.externalLyricsShadowStrengthPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_EFFECT_PERCENT..MAX_EXTERNAL_LYRICS_EFFECT_PERCENT,
+            suffix = "%",
+            onValueChange = { uiSettings.updateExternalLyricsShadowStrengthPercent(it) },
+        )
+
+        SettingsSliderRow(
+            title = "外部歌词发光强度",
+            subtitle = "使用当前歌词主色产生柔和外发光；0% 时关闭",
+            value = uiSettings.externalLyricsGlowStrengthPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_EFFECT_PERCENT..MAX_EXTERNAL_LYRICS_EFFECT_PERCENT,
+            suffix = "%",
+            onValueChange = { uiSettings.updateExternalLyricsGlowStrengthPercent(it) },
+        )
     }
 
     if (uiSettings.lyricsPageTheme == LyricsPageTheme.LIST) {
