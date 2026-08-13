@@ -1,5 +1,13 @@
 package com.mica.music.media.usbprototype
 
+import com.mica.music.media.usb.PlaybackOutputFacts
+import com.mica.music.media.usb.StaleUsbOutputRequestException
+import com.mica.music.media.usb.UsbAudioDeviceIdentity
+import com.mica.music.media.usb.UsbOutputCleanupLease
+import com.mica.music.media.usb.UsbOutputRequest
+import com.mica.music.media.usb.UsbOutputRequestLease
+import com.mica.music.media.usb.UsbOutputSession
+import com.mica.music.media.usb.UsbOutputSessionOwner
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -13,16 +21,65 @@ import org.junit.Test
 
 class UsbDirectDsdPauseLivenessSupportTest {
     @Test
-    fun closeDrainOnlyPumpsAlreadyAcceptedCarrier() {
+    fun cleanupDrainOnlyPumpsAlreadyAcceptedCarrier() {
         val source = File(
             "src/debug/java/com/mica/music/media/usbprototype/UsbDirectDsdTransportSession.kt",
         ).readText()
-        val body = source.substringAfter("private fun drainCommittedCarrierBeforeClose()")
+        val body = source.substringAfter("private fun drainCommittedCarrierUnderCleanup")
             .substringBefore("private fun maybeMarkStartupPrefillReady")
 
         assertTrue(body.contains("feeder.pump()"))
+        assertTrue(body.contains("withCleanupLease(lease)"))
         assertFalse(body.contains("writeContentBytes("))
         assertFalse(body.contains("writeGapFrames("))
+        assertFalse(body.contains("readSource("))
+        assertFalse(body.contains("armPlayback"))
+        assertFalse(body.contains("resetSource"))
+        assertFalse(body.contains("resetCarrier"))
+    }
+
+    @Test
+    fun ownerReleaseCanDrainWithCleanupAuthorityAfterGenerationAdvancesWhileOldRequestStaysStale() {
+        val owner = UsbOutputSessionOwner()
+        lateinit var authority: UsbDirectDsdSinkIoAuthority
+        var stagedBytes = 12_288
+        var cleanupBytesWritten = 0
+        val session = owner.replace(
+            UsbOutputRequest(
+                device = UsbAudioDeviceIdentity(
+                    vendorId = 0x262a,
+                    productId = 0x0001,
+                    descriptorFingerprint = "directive29-cleanup-authority",
+                ),
+            ),
+        ) { openingLease ->
+            authority = UsbDirectDsdSinkIoAuthority(openingLease)
+            object : UsbOutputSession {
+                override val activeFacts = PlaybackOutputFacts()
+
+                override fun restart(lease: UsbOutputRequestLease) {
+                    error("restart is outside this test")
+                }
+
+                override fun release(lease: UsbOutputCleanupLease, reason: String) {
+                    authority.withCleanupLease(lease) {
+                        authority.io {
+                            cleanupBytesWritten += stagedBytes
+                            stagedBytes = 0
+                        }
+                    }
+                }
+            }
+        }
+        val openingGeneration = owner.facts.generation
+
+        owner.release(session, "directive29-test")
+
+        assertTrue(owner.facts.generation > openingGeneration)
+        assertEquals(12_288, cleanupBytesWritten)
+        assertEquals(0, stagedBytes)
+        val staleFailure = runCatching { authority.io { error("stale active I/O must not run") } }.exceptionOrNull()
+        assertTrue(staleFailure is StaleUsbOutputRequestException)
     }
 
     @Test
