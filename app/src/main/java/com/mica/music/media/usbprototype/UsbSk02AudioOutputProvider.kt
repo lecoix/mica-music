@@ -29,6 +29,8 @@ import com.mica.music.media.usb.UsbClockPlan
 import com.mica.music.media.usb.UsbGenericPcmSelection
 import com.mica.music.media.usb.UsbGenericPcmSelectionResult
 import com.mica.music.media.usb.UsbOutputCleanupLease
+import com.mica.music.media.usb.UsbOutputLifecycleRuntime
+import com.mica.music.media.usb.UsbOutputPhase
 import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputRequestLease
 import com.mica.music.media.usb.UsbOutputRequestToken
@@ -42,6 +44,7 @@ import com.mica.music.media.usb.UsbPotentialAudioDiscoveryResult
 import com.mica.music.media.usb.UsbRuntimeFactsResult
 import com.mica.music.media.usb.UsbRuntimeHealth
 import com.mica.music.media.usb.UsbRuntimeStreamingProfileValidator
+import com.mica.music.media.usb.UsbStableIdentityPolicy
 import com.mica.music.media.usb.UsbStreamingProfileValidation
 import com.mica.music.media.usb.UsbTransportConfig
 import com.mica.music.util.DiagnosticLog
@@ -161,22 +164,20 @@ class UsbSk02AudioOutputProvider(context: Context) : AudioOutputProvider {
 
 @UnstableApi
 private object UsbSk02Media3SessionOwner {
+    private data class SelectedTarget(
+        val candidate: UsbPotentialAudioDevice,
+        val identity: UsbAudioDeviceIdentity,
+    )
+
     fun open(
         context: Context,
         config: AudioOutputProvider.OutputConfig,
     ): UsbSk02AudioOutput {
         val sourceFormat = config.toUsbPcmFormat()
         val manager = context.getSystemService(UsbManager::class.java)
-        val candidate = when (val discovery = AndroidUsbAudioDiscovery.discover(manager)) {
-            UsbPotentialAudioDiscoveryResult.NoPotentialDevice ->
-                error("No potential USB Audio device is attached")
-            is UsbPotentialAudioDiscoveryResult.PermissionNeeded ->
-                error("USB Audio permission is required for ${discovery.candidates.size} potential device(s)")
-            is UsbPotentialAudioDiscoveryResult.Ambiguous ->
-                error("Multiple potential USB Audio devices are attached; explicit DAC selection is required")
-            is UsbPotentialAudioDiscoveryResult.OnePermittedCandidate -> discovery.candidate
-        }
-        val identity = preflightIdentity(manager, candidate)
+        val target = selectTarget(manager)
+        val candidate = target.candidate
+        val identity = target.identity
         return UsbOutputRuntime.owner.replace(
             request = UsbOutputRequest(
                 device = identity,
@@ -192,6 +193,52 @@ private object UsbSk02Media3SessionOwner {
                 lease = lease,
             )
         }
+    }
+
+    private fun selectTarget(manager: UsbManager): SelectedTarget {
+        val existingFacts = UsbOutputRuntime.owner.facts
+        val reconnectExpected = if (
+            UsbOutputLifecycleRuntime.hasInterruptedUsbIntent() &&
+            existingFacts.phase == UsbOutputPhase.REQUESTED &&
+            existingFacts.permission == UsbPermissionState.GRANTED
+        ) {
+            existingFacts.request?.device?.let { expected ->
+                existingFacts.runtimeHandle?.let { runtimeHandle -> expected to runtimeHandle }
+            }
+        } else {
+            null
+        }
+
+        if (reconnectExpected != null) {
+            val (expectedIdentity, runtimeHandle) = reconnectExpected
+            val candidate = UsbPotentialAudioDevice(
+                runtimeHandle = runtimeHandle,
+                vendorId = expectedIdentity.vendorId,
+                productId = expectedIdentity.productId,
+                permission = UsbPermissionState.GRANTED,
+            )
+            val observedIdentity = preflightIdentity(manager, candidate)
+            val conflicts = UsbStableIdentityPolicy.conflicts(expectedIdentity, observedIdentity)
+            check(conflicts.isEmpty()) {
+                "Stable reconnect identity changed before production open: $conflicts"
+            }
+            DiagnosticLog.event(
+                "UsbExclusivePrototype",
+                "target selection=stable-reconnect runtimeDeviceId=${runtimeHandle.runtimeDeviceId}",
+            )
+            return SelectedTarget(candidate, observedIdentity)
+        }
+
+        val candidate = when (val discovery = AndroidUsbAudioDiscovery.discover(manager)) {
+            UsbPotentialAudioDiscoveryResult.NoPotentialDevice ->
+                error("No potential USB Audio device is attached")
+            is UsbPotentialAudioDiscoveryResult.PermissionNeeded ->
+                error("USB Audio permission is required for ${discovery.candidates.size} potential device(s)")
+            is UsbPotentialAudioDiscoveryResult.Ambiguous ->
+                error("Multiple potential USB Audio devices are attached; explicit DAC selection is required")
+            is UsbPotentialAudioDiscoveryResult.OnePermittedCandidate -> discovery.candidate
+        }
+        return SelectedTarget(candidate, preflightIdentity(manager, candidate))
     }
 
     private fun preflightIdentity(

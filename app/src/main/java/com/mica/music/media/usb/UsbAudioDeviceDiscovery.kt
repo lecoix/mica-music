@@ -36,27 +36,31 @@ internal sealed interface UsbPotentialAudioDiscoveryResult {
  * candidate, but never proves exact format/capability compatibility.
  */
 internal object UsbPotentialAudioDeviceDiscovery {
+    fun potentialCandidates(
+        attached: List<UsbAttachedDeviceDiscoveryFacts>,
+    ): List<UsbPotentialAudioDevice> = attached
+        .asSequence()
+        .filter(UsbAttachedDeviceDiscoveryFacts::hasAudioInterface)
+        .map { facts ->
+            UsbPotentialAudioDevice(
+                runtimeHandle = facts.runtimeHandle,
+                vendorId = facts.vendorId,
+                productId = facts.productId,
+                permission = facts.permission,
+            )
+        }
+        .sortedWith(
+            compareBy<UsbPotentialAudioDevice>(
+                UsbPotentialAudioDevice::vendorId,
+                UsbPotentialAudioDevice::productId,
+            ).thenBy { it.runtimeHandle.runtimeDeviceId },
+        )
+        .toList()
+
     fun discover(
         attached: List<UsbAttachedDeviceDiscoveryFacts>,
     ): UsbPotentialAudioDiscoveryResult {
-        val candidates = attached
-            .asSequence()
-            .filter(UsbAttachedDeviceDiscoveryFacts::hasAudioInterface)
-            .map { facts ->
-                UsbPotentialAudioDevice(
-                    runtimeHandle = facts.runtimeHandle,
-                    vendorId = facts.vendorId,
-                    productId = facts.productId,
-                    permission = facts.permission,
-                )
-            }
-            .sortedWith(
-                compareBy<UsbPotentialAudioDevice>(
-                    UsbPotentialAudioDevice::vendorId,
-                    UsbPotentialAudioDevice::productId,
-                ).thenBy { it.runtimeHandle.runtimeDeviceId },
-            )
-            .toList()
+        val candidates = potentialCandidates(attached)
 
         if (candidates.isEmpty()) return UsbPotentialAudioDiscoveryResult.NoPotentialDevice
 

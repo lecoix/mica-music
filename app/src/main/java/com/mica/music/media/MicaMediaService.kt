@@ -522,10 +522,80 @@ class MicaMediaService : MediaSessionService() {
                     }
                 }
                 is UsbOutputLifecycleEvent.Attached -> {
-                    val lifecycleToken = UsbLifecycleToken(event.generation, event.runtimeHandle)
+                    var lifecycleToken = UsbLifecycleToken(event.generation, event.runtimeHandle)
                     if (!UsbHostOutputPreferences.isEnabled(this) ||
                         !UsbOutputLifecycleRuntime.isCurrent(lifecycleToken)
                     ) return@post
+
+                    var permissionRequest = com.mica.music.media.usb.UsbOutputRequest(
+                        device = com.mica.music.media.usb.Sk02UsbContract.identity,
+                    )
+                    var permissionRuntimeHandle: com.mica.music.media.usb.UsbAudioRuntimeHandle? = null
+                    if (UsbOutputLifecycleRuntime.hasInterruptedUsbIntent()) {
+                        val expectedIdentity = UsbOutputRuntime.owner.facts.request?.device
+                        if (expectedIdentity == null) {
+                            DiagnosticLog.event(
+                                "UsbOutputLifecycle",
+                                "reconnect resolution=unavailable reason=missing-stable-identity",
+                            )
+                            return@post
+                        }
+                        val manager = getSystemService(android.hardware.usb.UsbManager::class.java)
+                        when (
+                            val resolution = com.mica.music.media.usb.AndroidUsbStableReconnectResolver.resolve(
+                                manager,
+                                expectedIdentity,
+                            )
+                        ) {
+                            is com.mica.music.media.usb.UsbStableReconnectResolution.Resolved -> {
+                                permissionRuntimeHandle = resolution.candidate.runtimeHandle
+                                permissionRequest = com.mica.music.media.usb.UsbOutputRequest(
+                                    device = expectedIdentity,
+                                )
+                                if (permissionRuntimeHandle != lifecycleToken.runtimeHandle) {
+                                    lifecycleToken = UsbOutputLifecycleRuntime.beginAttach(
+                                        permissionRuntimeHandle,
+                                    )
+                                }
+                                if (!UsbOutputLifecycleRuntime.isCurrent(lifecycleToken)) return@post
+                                DiagnosticLog.event(
+                                    "UsbOutputLifecycle",
+                                    "reconnect resolution=resolved lifecycleGeneration=${lifecycleToken.generation} " +
+                                        "runtimeDeviceId=${permissionRuntimeHandle.runtimeDeviceId}",
+                                )
+                            }
+                            com.mica.music.media.usb.UsbStableReconnectResolution.NoPotentialDevice -> {
+                                DiagnosticLog.event(
+                                    "UsbOutputLifecycle",
+                                    "reconnect resolution=unavailable reason=no-potential-device",
+                                )
+                                return@post
+                            }
+                            is com.mica.music.media.usb.UsbStableReconnectResolution.PermissionUnavailable -> {
+                                DiagnosticLog.event(
+                                    "UsbOutputLifecycle",
+                                    "reconnect resolution=permission-unavailable " +
+                                        "candidates=${resolution.candidates.size}",
+                                )
+                                return@post
+                            }
+                            is com.mica.music.media.usb.UsbStableReconnectResolution.Unavailable -> {
+                                DiagnosticLog.event(
+                                    "UsbOutputLifecycle",
+                                    "reconnect resolution=unavailable nonMatches=${resolution.nonMatches.size}",
+                                )
+                                return@post
+                            }
+                            is com.mica.music.media.usb.UsbStableReconnectResolution.Ambiguous -> {
+                                DiagnosticLog.event(
+                                    "UsbOutputLifecycle",
+                                    "reconnect resolution=ambiguous matches=${resolution.matches.size}",
+                                )
+                                return@post
+                            }
+                        }
+                    }
+
                     var permissionToken: com.mica.music.media.usb.UsbOutputRequestToken? = null
                     val requested = UsbOutputLifecycleRuntime.publishIfCurrent(lifecycleToken) {
                         if (activeOutputPath.outputMode == PlaybackOutputMode.UsbDirectPcm) {
@@ -535,9 +605,8 @@ class MicaMediaService : MediaSessionService() {
                         permissionToken = runCatching {
                             com.mica.music.media.usb.UsbOutputDeviceLifecycle.requestPermission(
                                 this,
-                                com.mica.music.media.usb.UsbOutputRequest(
-                                    device = com.mica.music.media.usb.Sk02UsbContract.identity,
-                                ),
+                                permissionRequest,
+                                permissionRuntimeHandle,
                             )
                         }.getOrNull()
                     }
@@ -545,13 +614,18 @@ class MicaMediaService : MediaSessionService() {
                     if (!requested || token == null ||
                         !UsbOutputLifecycleRuntime.bindPermissionRequest(lifecycleToken, token.value)
                     ) return@post
-                    DiagnosticLog.event("UsbOutputLifecycle", "attach permission-requested lifecycleGeneration=${event.generation} permissionGeneration=${token.value} device=${event.runtimeHandle.runtimeDeviceId}")
+                    val targetRuntimeHandle = permissionRuntimeHandle ?: lifecycleToken.runtimeHandle
+                    DiagnosticLog.event(
+                        "UsbOutputLifecycle",
+                        "attach permission-requested lifecycleGeneration=${lifecycleToken.generation} " +
+                            "permissionGeneration=${token.value} device=${targetRuntimeHandle.runtimeDeviceId}",
+                    )
                     val facts = UsbOutputRuntime.owner.facts
                     if (facts.generation == token.value &&
-                        facts.runtimeHandle == event.runtimeHandle &&
+                        facts.runtimeHandle == targetRuntimeHandle &&
                         facts.permission == com.mica.music.media.usb.UsbPermissionState.GRANTED
                     ) {
-                        restoreUsbAfterGrantedPermission(event.runtimeHandle, token.value)
+                        restoreUsbAfterGrantedPermission(targetRuntimeHandle, token.value)
                     }
                 }
                 is UsbOutputLifecycleEvent.Permission -> {

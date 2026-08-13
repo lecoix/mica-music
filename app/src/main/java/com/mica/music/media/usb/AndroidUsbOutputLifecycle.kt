@@ -35,14 +35,21 @@ internal class AndroidUsbAudioDeviceRepository(context: Context) : UsbAudioDevic
  * Calling this does not enable USB output or rebuild playback; that policy remains a later P2 seam.
  */
 internal object UsbOutputDeviceLifecycle {
-    fun requestPermission(context: Context, request: UsbOutputRequest): UsbOutputRequestToken {
+    fun requestPermission(
+        context: Context,
+        request: UsbOutputRequest,
+        targetRuntimeHandle: UsbAudioRuntimeHandle? = null,
+    ): UsbOutputRequestToken {
         val appContext = context.applicationContext
         val manager = appContext.getSystemService(UsbManager::class.java)
-        val matches = manager.deviceList.values.filter {
-            it.vendorId == request.device.vendorId && it.productId == request.device.productId
+        val matches = manager.deviceList.values.filter { device ->
+            device.vendorId == request.device.vendorId &&
+                device.productId == request.device.productId &&
+                (targetRuntimeHandle == null || device.deviceId == targetRuntimeHandle.runtimeDeviceId)
         }
         check(matches.size == 1) {
-            "Expected exactly one requested USB device; found ${matches.size}"
+            "Expected exactly one requested USB device; found ${matches.size} " +
+                "targetRuntimeDeviceId=${targetRuntimeHandle?.runtimeDeviceId}"
         }
         val device = matches.single()
         val runtimeHandle = UsbAudioRuntimeHandle(device.deviceId)
@@ -181,7 +188,7 @@ class UsbOutputLifecycleReceiver : BroadcastReceiver() {
 
     private fun handleDetach(intent: Intent) {
         val device = intent.usbDeviceExtra() ?: return
-        if (!isSk02(device)) return
+        if (!AndroidUsbAudioDiscovery.isPotentialAudioDevice(device)) return
         val runtimeHandle = UsbAudioRuntimeHandle(device.deviceId)
         val disposition = UsbOutputRuntime.owner.deviceDetached(runtimeHandle)
         if (disposition == UsbDeviceDetachDisposition.STALE_RUNTIME) {
@@ -203,7 +210,7 @@ class UsbOutputLifecycleReceiver : BroadcastReceiver() {
 
     private fun handleAttach(intent: Intent) {
         val device = intent.usbDeviceExtra() ?: return
-        if (!isSk02(device)) return
+        if (!AndroidUsbAudioDiscovery.isPotentialAudioDevice(device)) return
         val runtimeHandle = UsbAudioRuntimeHandle(device.deviceId)
         val lifecycleToken = UsbOutputLifecycleRuntime.beginAttach(runtimeHandle)
         UsbOutputLifecycleRuntime.dispatch(
