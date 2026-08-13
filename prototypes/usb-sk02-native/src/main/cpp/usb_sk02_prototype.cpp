@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "usb_underrun_accounting.h"
+#include "usb_payload_policy.h"
 #include "sk02_feedback_profile.h"
 #include "sk02_feedback_rate_filter.h"
 #include "sk02_iso_ahead_window.h"
@@ -276,17 +277,20 @@ struct NativeTransportConfig {
  * THROWAWAY Media3 bridge for the already-proven SK02 USBFS transport.
  *
  * The Java side owns permission, interface claims, clock selection and restoration. This object
- * owns the only running URB queue. Writes are non-blocking and feed a bounded two-second ring;
- * the USB worker emits silence instead of replaying stale source bytes on underrun or pause.
+ * owns the only running URB queue. Writes are non-blocking and feed a bounded two-second ring.
+ * Payload shortage behavior is a separate session policy: production PCM preserves historical
+ * zero-fill, while exact-frame sessions fail before submitting synthesized bytes.
  */
 class Media3StreamSession {
 public:
     Media3StreamSession(
         const int descriptor,
         const NativeTransportConfig transport_config,
+        const mica::usb::payload::Policy payload_policy_value,
         const long long generation)
         : fd(descriptor),
           transport(transport_config),
+          payload_policy(payload_policy_value),
           expected_generation(generation),
           ring(
               static_cast<size_t>(transport_config.nominal_runtime_frame_rate_hz) *
@@ -304,7 +308,23 @@ public:
     Media3StreamSession& operator=(const Media3StreamSession&) = delete;
 
     int write(const unsigned char* source, const int length) {
-        if (source == nullptr || length <= 0 || length % transport.bytes_per_runtime_frame != 0) return 0;
+        if (source == nullptr || length <= 0) return 0;
+        const auto validation = mica::usb::payload::validate_source_write(
+            payload_policy,
+            static_cast<size_t>(length),
+            static_cast<size_t>(transport.bytes_per_runtime_frame));
+        if (!validation.accepted) {
+            if (validation.stream_error_code != 0) {
+                int expected = 0;
+                error_code.compare_exchange_strong(
+                    expected,
+                    validation.stream_error_code,
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire);
+                condition.notify_all();
+            }
+            return 0;
+        }
         std::lock_guard<std::mutex> guard(mutex);
         if (stop_requested.load(std::memory_order_acquire) || error_code.load() != 0) return 0;
         const size_t buffered_before_write = ring_size + in_flight_source_bytes;
@@ -776,7 +796,22 @@ private:
                     schedule_metrics.schedule_deviation_frames,
                     std::memory_order_release);
             }
-            if (request.source_bytes > 0) {
+            const auto payload_fill = mica::usb::payload::finalize_scheduled_payload(
+                payload_policy,
+                request.buffer.data(),
+                static_cast<size_t>(total),
+                request.source_bytes,
+                static_cast<size_t>(transport.bytes_per_runtime_frame));
+            if (!payload_fill.ready_for_submit) {
+                abandon_source(request.source_bytes);
+                request.source_bytes = 0;
+                error_code.store(
+                    payload_fill.stream_error_code == 0 ? EIO : payload_fill.stream_error_code,
+                    std::memory_order_release);
+                return false;
+            }
+            if (mica::usb::payload::observes_pcm_continuity_metrics(payload_policy) &&
+                request.source_bytes > 0) {
                 pcm_metrics.observe_request(
                     request.buffer.data(),
                     request.source_bytes,
@@ -805,11 +840,7 @@ private:
                     pcm_metrics.maximum_request_boundary_sample_delta,
                     std::memory_order_release);
             }
-            if (request.source_bytes < static_cast<size_t>(total)) {
-                std::fill(
-                    request.buffer.begin() + static_cast<std::ptrdiff_t>(request.source_bytes),
-                    request.buffer.begin() + total,
-                    0);
+            if (payload_fill.synthesized_bytes > 0) {
                 if (should_count_underrun(
                         take,
                         static_cast<size_t>(total))) {
@@ -1006,6 +1037,7 @@ private:
 
     const int fd;
     const NativeTransportConfig transport;
+    const mica::usb::payload::Policy payload_policy;
     const long long expected_generation;
     mutable std::mutex mutex;
     std::condition_variable condition;
@@ -1467,12 +1499,14 @@ Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_createMedia3Stream
     jlong feedback_poll_period_numerator,
     jlong feedback_poll_period_denominator,
     jlong feedback_required_zero_mask,
+    jint payload_policy,
     jlong generation) {
     if (fd < 0 || nominal_runtime_frame_rate_hz <= 0 ||
         data_endpoint_address <= 0 || data_endpoint_address > 0xff ||
         bytes_per_runtime_frame <= 0 || data_max_bytes_per_service_interval <= 0 ||
         data_service_period_numerator <= 0 || data_service_period_denominator <= 0 ||
-        packets_per_transfer <= 0 || data_queue_depth <= 0 || generation <= 0) {
+        packets_per_transfer <= 0 || data_queue_depth <= 0 || generation <= 0 ||
+        !mica::usb::payload::is_valid_policy_value(payload_policy)) {
         return 0;
     }
 
@@ -1538,6 +1572,7 @@ Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_createMedia3Stream
         auto* session = new Media3StreamSession(
             fd,
             config,
+            static_cast<mica::usb::payload::Policy>(payload_policy),
             static_cast<long long>(generation));
         return reinterpret_cast<jlong>(session);
     } catch (...) {

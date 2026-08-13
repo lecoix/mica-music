@@ -79,3 +79,13 @@ target_include_directories(
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+add_executable(
+    usb_payload_policy_test
+    usb_payload_policy_test.cpp
+)
+target_include_directories(
+    usb_payload_policy_test
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)

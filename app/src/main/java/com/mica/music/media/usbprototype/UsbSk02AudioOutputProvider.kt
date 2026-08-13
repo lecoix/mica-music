@@ -511,9 +511,10 @@ private class UsbSk02AudioOutput private constructor(
 
     private fun createNative(token: UsbOutputRequestToken): Long {
         val handle = UsbSk02NativePrototype.createMedia3Stream(
-            connection.fileDescriptor,
-            transportConfig,
-            token.value,
+            fd = connection.fileDescriptor,
+            config = transportConfig,
+            generation = token.value,
+            payloadPolicy = UsbNativePayloadPolicy.PCM_ZERO_FILL,
         )
         check(handle != 0L) { "Unable to create native SK02 Media3 stream" }
         return handle

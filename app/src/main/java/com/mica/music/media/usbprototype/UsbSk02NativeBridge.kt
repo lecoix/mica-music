@@ -63,6 +63,12 @@ internal data class UsbNativeTransportArgs(
     }
 }
 
+/** Producer/session payload behavior; intentionally separate from device transport facts. */
+internal enum class UsbNativePayloadPolicy(val nativeValue: Int) {
+    PCM_ZERO_FILL(0),
+    EXACT_FRAMES_ONLY(1),
+}
+
 /** JNI surface shared by Debug, Perf, and Release SK02 output providers. */
 internal object UsbSk02NativePrototype {
     init {
@@ -83,6 +89,7 @@ internal object UsbSk02NativePrototype {
         fd: Int,
         config: UsbTransportConfig,
         generation: Long,
+        payloadPolicy: UsbNativePayloadPolicy,
     ): Long {
         val args = UsbNativeTransportArgs.from(config)
         return createMedia3StreamNative(
@@ -106,6 +113,7 @@ internal object UsbSk02NativePrototype {
             feedbackPollPeriodNumerator = args.feedbackPollPeriodNumerator,
             feedbackPollPeriodDenominator = args.feedbackPollPeriodDenominator,
             feedbackRequiredZeroMask = args.feedbackRequiredZeroMask,
+            payloadPolicy = payloadPolicy.nativeValue,
             generation = generation,
         )
     }
@@ -130,6 +138,7 @@ internal object UsbSk02NativePrototype {
         feedbackPollPeriodNumerator: Long,
         feedbackPollPeriodDenominator: Long,
         feedbackRequiredZeroMask: Long,
+        payloadPolicy: Int,
         generation: Long,
     ): Long
     external fun writeMedia3Stream(
