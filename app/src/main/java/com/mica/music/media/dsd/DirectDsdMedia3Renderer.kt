@@ -107,6 +107,9 @@ class DirectDsdMedia3Renderer(
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
     private val drainLoop = DirectDsdRenderDrainLoop(MAX_SOURCE_READS_PER_RENDER)
     private val positionResetState = DirectDsdPositionResetState()
+    private val rendererGeneration = DirectDsdSeekDiscontinuityCoordinator.newRendererGeneration()
+    private var nextSessionGeneration = 0L
+    private var activeSessionGeneration: DirectDsdSessionGeneration? = null
     private var currentFormat: Format? = null
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
@@ -249,11 +252,19 @@ class DirectDsdMedia3Renderer(
     private fun openPumpIfNeeded(facts: DsfExtractorPacketFacts): DirectDsdRendererPump {
         pump?.let { return it }
         val session = sessionFactory.open(facts)
-        return DirectDsdRendererPump(facts, session).also { freshPump ->
+        val freshPump = DirectDsdRendererPump(facts, session)
+        val sessionGeneration = DirectDsdSessionGeneration(
+            rendererGeneration = rendererGeneration,
+            sessionGeneration = ++nextSessionGeneration,
+        )
+        return freshPump.also {
             pump = freshPump
+            activeSessionGeneration = sessionGeneration
+            DirectDsdSeekDiscontinuityCoordinator.activateSession(sessionGeneration)
             milestone(
                 "renderer=claimed sourceRate=${facts.sourceSampleRateHz} " +
-                    "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder}",
+                    "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder} " +
+                    "rendererGeneration=$rendererGeneration sessionGeneration=${sessionGeneration.sessionGeneration}",
             )
             positionResetState.consumeFreshPumpPositionUs()?.let { resetPositionUs ->
                 milestone("renderer=post-reset-open positionUs=$resetPositionUs")
@@ -322,13 +333,17 @@ class DirectDsdMedia3Renderer(
         try {
             val active = pump
             val wasArmed = active?.isPlaybackArmed() == true
-            val gapStarted = wasArmed && !ended
+            val sessionGeneration = activeSessionGeneration
+            val seekDispatch = sessionGeneration?.let(DirectDsdSeekDiscontinuityCoordinator::observeStopped)
+            val seekPending = seekDispatch != null
+            val gapStarted = wasArmed && !ended && !seekPending
             if (gapStarted) {
                 pauseGapActive = true
                 checkNotNull(active).startPauseGapLiveness()
             }
             milestone(
-                "renderer=stopped armed=$wasArmed gapStarted=$gapStarted samples=$sampleCount " +
+                "renderer=stopped armed=$wasArmed seekPending=$seekPending gapStarted=$gapStarted " +
+                    "seekRequest=${seekDispatch?.requestId ?: -1L} samples=$sampleCount " +
                     "lastSampleTimeUs=$lastSampleMilestoneTimeUs",
             )
         } catch (error: Throwable) {
@@ -345,11 +360,28 @@ class DirectDsdMedia3Renderer(
         val hadPump = oldPump != null
         val oldPendingBytes = oldPump?.snapshot()?.pendingCanonicalBytes ?: 0
         val oldArmed = oldPump?.isPlaybackArmed() == true
+        val streamOffsetUs = getStreamOffsetUs()
+        val sourcePositionUs = positionUs - streamOffsetUs
+        val seekDecision = activeSessionGeneration?.let { sessionGeneration ->
+            DirectDsdSeekDiscontinuityCoordinator.consumePositionReset(
+                session = sessionGeneration,
+                sourcePositionUs = sourcePositionUs,
+                isPlaying = isPlaying,
+            )
+        } ?: DirectDsdSeekResetDecision(DirectDsdSeekResetMatch.NONE)
+        val matchedPlayingSeek = seekDecision.match == DirectDsdSeekResetMatch.MATCHED
         milestone(
             "renderer=position-reset positionUs=$positionUs joining=$joining isPlaying=$isPlaying " +
-                "hadPump=$hadPump oldPending=$oldPendingBytes oldArmed=$oldArmed",
+                "hadPump=$hadPump oldPending=$oldPendingBytes oldArmed=$oldArmed " +
+                "streamOffsetUs=$streamOffsetUs sourcePositionUs=$sourcePositionUs " +
+                "seekMatch=${seekDecision.match} seekRequest=${seekDecision.requestId ?: -1L} " +
+                "seekTargetUs=${seekDecision.targetSourcePositionUs ?: -1L}",
         )
-        positionResetState.onPositionReset(positionUs, hadPump = hadPump, isPlaying = isPlaying)
+        positionResetState.onPositionReset(
+            positionUs,
+            hadPump = hadPump,
+            isPlaying = isPlaying && matchedPlayingSeek,
+        )
         closePump("position-reset:$positionUs")
         inputEosSeen = false
         ended = false
@@ -390,9 +422,16 @@ class DirectDsdMedia3Renderer(
     }
 
     private fun closePump(reason: String) {
-        pump?.close()
+        val closingPump = pump
+        val closingGeneration = activeSessionGeneration
         pump = null
-        milestone("renderer=close reason=$reason")
+        activeSessionGeneration = null
+        closingGeneration?.let(DirectDsdSeekDiscontinuityCoordinator::deactivateSession)
+        try {
+            closingPump?.close()
+        } finally {
+            milestone("renderer=close reason=$reason")
+        }
     }
 
     companion object {

@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.mica.music.media.dsd.DirectDsdSeekDiscontinuityCoordinator
 import com.mica.music.util.DiagnosticLog
 import java.util.Locale
 
@@ -112,9 +113,34 @@ class MicaCompositePlayer(
     ) {
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
-        if (!playWhenReady) exoPlayer.playWhenReady = false
+        val safePositionMs = positionMs.coerceAtLeast(0L)
+        if (!playWhenReady) {
+            DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
+            exoPlayer.playWhenReady = false
+        }
         beforePlaybackStart()
-        exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
+        val seekIntent = if (
+            playWhenReady && exoPlayer.isPlaying && safeIndex == exoPlayer.currentMediaItemIndex
+        ) {
+            DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek(safePositionMs)
+        } else {
+            null
+        }
+        seekIntent?.let { intent ->
+            DiagnosticLog.event(
+                "DirectDsdSeek",
+                "dispatch seam=start-existing request=${intent.requestId} " +
+                    "rendererGeneration=${intent.session.rendererGeneration} " +
+                    "sessionGeneration=${intent.session.sessionGeneration} " +
+                    "targetSourceUs=${intent.targetSourcePositionUs}",
+            )
+        }
+        try {
+            exoPlayer.seekTo(safeIndex, safePositionMs)
+        } catch (error: Throwable) {
+            seekIntent?.let { DirectDsdSeekDiscontinuityCoordinator.cancelRequest(it.requestId) }
+            throw error
+        }
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         exoPlayer.playWhenReady = playWhenReady
         DiagnosticLog.event(
@@ -127,6 +153,7 @@ class MicaCompositePlayer(
     fun selectExistingWithoutPlayback(index: Int, positionMs: Long = 0L) {
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
+        DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         exoPlayer.pause()
         if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
         exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
@@ -141,6 +168,7 @@ class MicaCompositePlayer(
     ) {
         if (mediaItems.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
+        DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         exoPlayer.pause()
         if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
         exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
@@ -150,6 +178,7 @@ class MicaCompositePlayer(
 
     /** Stops, seeks, and re-prepares playback to flush processor state (does not rebuild the sink). */
     fun flushPlaybackPipeline(positionMs: Long, resumePlayback: Boolean) {
+        DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         exoPlayer.playWhenReady = false
         exoPlayer.stop()
         exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
@@ -180,10 +209,12 @@ class MicaCompositePlayer(
     }
 
     fun pauseExoDirect() {
+        DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         exoPlayer.pause()
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
+        if (!playWhenReady) DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         onPlaybackIntentChanged?.invoke(playWhenReady)
         if (playWhenReady) {
             playbackCoordinator?.playCurrent() ?: super.setPlayWhenReady(true)
@@ -198,12 +229,33 @@ class MicaCompositePlayer(
     }
 
     override fun pause() {
+        DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         onPlaybackIntentChanged?.invoke(false)
         super.pause()
     }
 
     override fun seekTo(positionMs: Long) {
-        super.seekTo(positionMs)
+        val safePositionMs = positionMs.coerceAtLeast(0L)
+        val seekIntent = if (exoPlayer.isPlaying) {
+            DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek(safePositionMs)
+        } else {
+            null
+        }
+        seekIntent?.let { intent ->
+            DiagnosticLog.event(
+                "DirectDsdSeek",
+                "dispatch seam=seek-position request=${intent.requestId} " +
+                    "rendererGeneration=${intent.session.rendererGeneration} " +
+                    "sessionGeneration=${intent.session.sessionGeneration} " +
+                    "targetSourceUs=${intent.targetSourcePositionUs}",
+            )
+        }
+        try {
+            super.seekTo(safePositionMs)
+        } catch (error: Throwable) {
+            seekIntent?.let { DirectDsdSeekDiscontinuityCoordinator.cancelRequest(it.requestId) }
+            throw error
+        }
     }
 
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {

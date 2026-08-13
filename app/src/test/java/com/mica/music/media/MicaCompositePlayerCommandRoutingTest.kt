@@ -3,18 +3,34 @@ package com.mica.music.media
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.mica.music.media.dsd.DirectDsdSeekDiscontinuityCoordinator
+import com.mica.music.media.dsd.DirectDsdSessionGeneration
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifySequence
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class MicaCompositePlayerCommandRoutingTest {
+
+    @Before
+    fun resetDirectSeekStateBeforeTest() {
+        DirectDsdSeekDiscontinuityCoordinator.resetForTest()
+    }
+
+    @After
+    fun resetDirectSeekStateAfterTest() {
+        DirectDsdSeekDiscontinuityCoordinator.resetForTest()
+    }
 
     @Test
     fun trackSelectionCommandsRouteThroughCoordinator() {
@@ -70,6 +86,75 @@ class MicaCompositePlayerCommandRoutingTest {
             coordinator.onSelectMediaItem(5, 375L)
         }
         verify(exactly = 0) { exo.seekTo(any<Int>(), any<Long>()) }
+    }
+
+    @Test
+    fun ordinaryPlayingPositionSeekPublishesDirectIntentBeforeExoSeek() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        every { exo.isPlaying } returns true
+        activateDirectSession()
+        every { exo.seekTo(12_345L) } answers {
+            assertNotNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
+        }
+        val player = MicaCompositePlayer(exo)
+
+        player.seekTo(12_345L)
+
+        val pending = requireNotNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
+        assertEquals(12_345_000L, pending.targetSourcePositionUs)
+        verify(exactly = 1) { exo.seekTo(12_345L) }
+    }
+
+    @Test
+    fun startExistingSamePlayingItemPublishesDirectIntentBeforeIndexedSeek() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        every { exo.mediaItemCount } returns 1
+        every { exo.currentMediaItemIndex } returns 0
+        every { exo.isPlaying } returns true
+        every { exo.playbackState } returns Player.STATE_READY
+        activateDirectSession()
+        every { exo.seekTo(0, 45_000L) } answers {
+            assertNotNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
+        }
+        val player = MicaCompositePlayer(exo)
+
+        player.startExistingItem(index = 0, positionMs = 45_000L, playWhenReady = true)
+
+        val pending = requireNotNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
+        assertEquals(45_000_000L, pending.targetSourcePositionUs)
+        verify(exactly = 1) { exo.seekTo(0, 45_000L) }
+    }
+
+    @Test
+    fun crossItemAndPausedExistingSeeksDoNotPublishDirectPlayingIntent() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        every { exo.mediaItemCount } returns 2
+        every { exo.currentMediaItemIndex } returns 0
+        every { exo.isPlaying } returns true
+        every { exo.playbackState } returns Player.STATE_READY
+        activateDirectSession()
+        val player = MicaCompositePlayer(exo)
+
+        player.startExistingItem(index = 1, positionMs = 1_000L, playWhenReady = true)
+        assertNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
+
+        every { exo.currentMediaItemIndex } returns 0
+        every { exo.isPlaying } returns false
+        player.startExistingItem(index = 0, positionMs = 2_000L, playWhenReady = false)
+        assertNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
+    }
+
+    @Test
+    fun explicitPauseCancelsStaleDirectSeekIntentBeforeExoPause() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        activateDirectSession()
+        assertNotNull(DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek(5_000L))
+        val player = MicaCompositePlayer(exo)
+
+        player.pauseExoDirect()
+
+        assertNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
+        verify(exactly = 1) { exo.pause() }
     }
 
     @Test
@@ -142,4 +227,10 @@ class MicaCompositePlayerCommandRoutingTest {
         List(count) { index ->
             MediaItem.Builder().setMediaId("song-$index").build()
         }
+
+    private fun activateDirectSession() {
+        DirectDsdSeekDiscontinuityCoordinator.activateSession(
+            DirectDsdSessionGeneration(rendererGeneration = 99L, sessionGeneration = 1L),
+        )
+    }
 }
