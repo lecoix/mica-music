@@ -36,6 +36,7 @@ import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputPhase
 import com.mica.music.media.usb.UsbOutputLifecycleEvent
 import com.mica.music.media.usb.UsbOutputLifecycleRuntime
+import com.mica.music.media.usb.UsbProvenReconnectTargetRuntime
 import com.mica.music.media.usb.UsbLifecycleToken
 import com.mica.music.media.usb.UsbHealthRecoveryController
 import com.mica.music.media.usb.UsbHealthRecoveryDecision
@@ -265,6 +266,7 @@ class MicaMediaService : MediaSessionService() {
         UsbOutputRebuildRuntime.clear()
         UsbOutputLifecycleRuntime.clear()
         UsbOutputLifecycleRuntime.clearRecovery()
+        UsbProvenReconnectTargetRuntime.clearForServiceDestruction()
         UsbRecoveryDebugRuntime.clear()
         DebugPlaybackControlRuntime.clear()
         playbackRouteMonitor?.release()
@@ -531,15 +533,25 @@ class MicaMediaService : MediaSessionService() {
                         device = com.mica.music.media.usb.Sk02UsbContract.identity,
                     )
                     var permissionRuntimeHandle: com.mica.music.media.usb.UsbAudioRuntimeHandle? = null
-                    if (UsbOutputLifecycleRuntime.hasInterruptedUsbIntent()) {
-                        val expectedIdentity = UsbOutputRuntime.owner.facts.request?.device
+                    val interruptedUsbRecovery = UsbOutputLifecycleRuntime.hasInterruptedUsbIntent()
+                    if (interruptedUsbRecovery) {
+                        val expectedIdentity =
+                            UsbProvenReconnectTargetRuntime.expectedIdentityForInterruptedRecovery(
+                                interruptedUsbRecovery,
+                            )
                         if (expectedIdentity == null) {
                             DiagnosticLog.event(
                                 "UsbOutputLifecycle",
-                                "reconnect resolution=unavailable reason=missing-stable-identity",
+                                "reconnect resolution=unavailable reason=missing-proven-stable-identity",
                             )
                             return@post
                         }
+                        DiagnosticLog.event(
+                            "UsbOutputLifecycle",
+                            "reconnect target=last-proven-production-open " +
+                                "vendorId=${expectedIdentity.vendorId} productId=${expectedIdentity.productId} " +
+                                "bcdDevice=${expectedIdentity.bcdDevice}",
+                        )
                         val manager = getSystemService(android.hardware.usb.UsbManager::class.java)
                         when (
                             val resolution = com.mica.music.media.usb.AndroidUsbStableReconnectResolver.resolve(
@@ -662,7 +674,10 @@ class MicaMediaService : MediaSessionService() {
         previousEnabled: Boolean,
     ) {
         mainHandler.post {
-            if (!requestedEnabled) UsbOutputLifecycleRuntime.clearRecovery()
+            if (!requestedEnabled) {
+                UsbOutputLifecycleRuntime.clearRecovery()
+                UsbProvenReconnectTargetRuntime.clearForExplicitDisable()
+            }
             val target = UsbHostOutputPreferences.pathForEnabled(requestedEnabled)
             val previousMode = activeOutputPath.outputMode
             val result = if (target == activeOutputPath) {

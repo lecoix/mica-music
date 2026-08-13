@@ -41,6 +41,7 @@ import com.mica.music.media.usb.UsbPcmFormat
 import com.mica.music.media.usb.UsbPermissionState
 import com.mica.music.media.usb.UsbPotentialAudioDevice
 import com.mica.music.media.usb.UsbPotentialAudioDiscoveryResult
+import com.mica.music.media.usb.UsbProvenReconnectTargetRuntime
 import com.mica.music.media.usb.UsbRuntimeFactsResult
 import com.mica.music.media.usb.UsbRuntimeHealth
 import com.mica.music.media.usb.UsbRuntimeStreamingProfileValidator
@@ -178,21 +179,29 @@ private object UsbSk02Media3SessionOwner {
         val target = selectTarget(manager)
         val candidate = target.candidate
         val identity = target.identity
-        return UsbOutputRuntime.owner.replace(
-            request = UsbOutputRequest(
-                device = identity,
-                sourceFormat = sourceFormat,
-            ),
-        ) { lease ->
-            UsbSk02AudioOutput.open(
-                context = context,
-                config = config,
-                sourceFormat = sourceFormat,
-                candidate = candidate,
-                expectedIdentity = identity,
-                lease = lease,
-            )
+        val output = UsbProvenReconnectTargetRuntime.publishAfterSuccessfulOpen(identity) {
+            UsbOutputRuntime.owner.replace(
+                request = UsbOutputRequest(
+                    device = identity,
+                    sourceFormat = sourceFormat,
+                ),
+            ) { lease ->
+                UsbSk02AudioOutput.open(
+                    context = context,
+                    config = config,
+                    sourceFormat = sourceFormat,
+                    candidate = candidate,
+                    expectedIdentity = identity,
+                    lease = lease,
+                )
+            }
         }
+        DiagnosticLog.event(
+            "UsbExclusivePrototype",
+            "reconnect target=published-after-production-open " +
+                "vendorId=${identity.vendorId} productId=${identity.productId} bcdDevice=${identity.bcdDevice}",
+        )
+        return output
     }
 
     private fun selectTarget(manager: UsbManager): SelectedTarget {
