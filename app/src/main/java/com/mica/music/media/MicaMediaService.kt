@@ -533,6 +533,7 @@ class MicaMediaService : MediaSessionService() {
                         device = com.mica.music.media.usb.Sk02UsbContract.identity,
                     )
                     var permissionRuntimeHandle: com.mica.music.media.usb.UsbAudioRuntimeHandle? = null
+                    var proofPermissionRequest = false
                     val interruptedUsbRecovery = UsbOutputLifecycleRuntime.hasInterruptedUsbIntent()
                     if (interruptedUsbRecovery) {
                         val expectedIdentity =
@@ -589,7 +590,40 @@ class MicaMediaService : MediaSessionService() {
                                     "reconnect resolution=permission-unavailable " +
                                         "candidates=${resolution.candidates.size}",
                                 )
-                                return@post
+                                when (
+                                    val plan = com.mica.music.media.usb.UsbReconnectProofPermissionPlanner.plan(
+                                        expectedIdentity,
+                                        resolution,
+                                    )
+                                ) {
+                                    is com.mica.music.media.usb.UsbReconnectProofPermissionPlan.RequestProofPermission -> {
+                                        val candidate = plan.candidate
+                                        permissionRuntimeHandle = candidate.runtimeHandle
+                                        permissionRequest = com.mica.music.media.usb.UsbOutputRequest(
+                                            device = expectedIdentity,
+                                        )
+                                        if (permissionRuntimeHandle != lifecycleToken.runtimeHandle) {
+                                            lifecycleToken = UsbOutputLifecycleRuntime.beginAttach(
+                                                permissionRuntimeHandle,
+                                            )
+                                        }
+                                        if (!UsbOutputLifecycleRuntime.isCurrent(lifecycleToken)) return@post
+                                        proofPermissionRequest = true
+                                        DiagnosticLog.event(
+                                            "UsbOutputLifecycle",
+                                            "reconnect proof-permission=planned lifecycleGeneration=${lifecycleToken.generation} " +
+                                                "runtimeDeviceId=${candidate.runtimeHandle.runtimeDeviceId} " +
+                                                "visibleVendorId=${candidate.vendorId} visibleProductId=${candidate.productId}",
+                                        )
+                                    }
+                                    is com.mica.music.media.usb.UsbReconnectProofPermissionPlan.DoNotRequest -> {
+                                        DiagnosticLog.event(
+                                            "UsbOutputLifecycle",
+                                            "reconnect proof-permission=blocked reason=${plan.rejection}",
+                                        )
+                                        return@post
+                                    }
+                                }
                             }
                             is com.mica.music.media.usb.UsbStableReconnectResolution.Unavailable -> {
                                 DiagnosticLog.event(
@@ -630,14 +664,19 @@ class MicaMediaService : MediaSessionService() {
                     DiagnosticLog.event(
                         "UsbOutputLifecycle",
                         "attach permission-requested lifecycleGeneration=${lifecycleToken.generation} " +
-                            "permissionGeneration=${token.value} device=${targetRuntimeHandle.runtimeDeviceId}",
+                            "permissionGeneration=${token.value} device=${targetRuntimeHandle.runtimeDeviceId} " +
+                            "proofOnly=$proofPermissionRequest",
                     )
                     val facts = UsbOutputRuntime.owner.facts
                     if (facts.generation == token.value &&
                         facts.runtimeHandle == targetRuntimeHandle &&
                         facts.permission == com.mica.music.media.usb.UsbPermissionState.GRANTED
                     ) {
-                        restoreUsbAfterGrantedPermission(targetRuntimeHandle, token.value)
+                        if (interruptedUsbRecovery && proofPermissionRequest) {
+                            restoreInterruptedUsbAfterExactReproof(targetRuntimeHandle, token.value)
+                        } else {
+                            restoreUsbAfterGrantedPermission(targetRuntimeHandle, token.value)
+                        }
                     }
                 }
                 is UsbOutputLifecycleEvent.Permission -> {
@@ -657,7 +696,7 @@ class MicaMediaService : MediaSessionService() {
                     val facts = UsbOutputRuntime.owner.facts
                     if (facts.generation != event.generation || facts.runtimeHandle != event.runtimeHandle) return@post
                     if (UsbOutputLifecycleRuntime.hasInterruptedUsbIntent()) {
-                        restoreUsbAfterGrantedPermission(event.runtimeHandle, event.generation)
+                        restoreInterruptedUsbAfterExactReproof(event.runtimeHandle, event.generation)
                     } else {
                         scheduleOutputPathRebuild(
                             requestedEnabled = true,
@@ -713,6 +752,63 @@ class MicaMediaService : MediaSessionService() {
                         result.generation,
                     ),
             )
+        }
+    }
+
+    private fun restoreInterruptedUsbAfterExactReproof(
+        runtimeHandle: com.mica.music.media.usb.UsbAudioRuntimeHandle,
+        permissionGeneration: Long,
+    ) {
+        val facts = UsbOutputRuntime.owner.facts
+        if (facts.generation != permissionGeneration ||
+            facts.runtimeHandle != runtimeHandle ||
+            facts.permission != com.mica.music.media.usb.UsbPermissionState.GRANTED
+        ) {
+            DiagnosticLog.event(
+                "UsbOutputLifecycle",
+                "reconnect post-grant-reproof=blocked reason=stale-permission " +
+                    "permissionGeneration=$permissionGeneration device=${runtimeHandle.runtimeDeviceId}",
+            )
+            return
+        }
+        val expectedIdentity = UsbProvenReconnectTargetRuntime.expectedIdentityForInterruptedRecovery(
+            UsbOutputLifecycleRuntime.hasInterruptedUsbIntent(),
+        )
+        if (expectedIdentity == null) {
+            DiagnosticLog.event(
+                "UsbOutputLifecycle",
+                "reconnect post-grant-reproof=blocked reason=missing-proven-stable-identity",
+            )
+            return
+        }
+        val manager = getSystemService(android.hardware.usb.UsbManager::class.java)
+        when (
+            val decision = com.mica.music.media.usb.UsbReconnectPostGrantProofGate.reproveAndDecide(
+                runtimeHandle,
+            ) {
+                com.mica.music.media.usb.AndroidUsbStableReconnectResolver.resolve(
+                    manager,
+                    expectedIdentity,
+                )
+            }
+        ) {
+            is com.mica.music.media.usb.UsbReconnectPostGrantDecision.Restore -> {
+                DiagnosticLog.event(
+                    "UsbOutputLifecycle",
+                    "reconnect post-grant-reproof=resolved permissionGeneration=$permissionGeneration " +
+                        "runtimeDeviceId=${runtimeHandle.runtimeDeviceId} " +
+                        "bcdDevice=${decision.resolved.identity.bcdDevice}",
+                )
+                restoreUsbAfterGrantedPermission(runtimeHandle, permissionGeneration)
+            }
+            is com.mica.music.media.usb.UsbReconnectPostGrantDecision.DoNotRestore -> {
+                DiagnosticLog.event(
+                    "UsbOutputLifecycle",
+                    "reconnect post-grant-reproof=blocked reason=${decision.rejection} " +
+                        "resolution=${decision.resolution.javaClass.simpleName} " +
+                        "permissionGeneration=$permissionGeneration device=${runtimeHandle.runtimeDeviceId}",
+                )
+            }
         }
     }
 
