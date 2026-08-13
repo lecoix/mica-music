@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -145,6 +146,9 @@ fun HomeScreen(
     val artistGridState = rememberLazyGridState()
     val albumListState = rememberLazyListState()
     val albumGridState = rememberLazyGridState()
+    val playlistOverviewListState = rememberSaveable(saver = LazyListState.Saver) {
+        LazyListState()
+    }
 
     val coverImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -484,11 +488,13 @@ fun HomeScreen(
 
     LaunchedEffect(uiState.section, uiState.activePlaylistId) {
         when (uiState.section) {
-            HomeSection.Songs, HomeSection.Artists, HomeSection.Albums ->
+            HomeSection.Songs, HomeSection.Artists, HomeSection.Albums, HomeSection.Folders ->
                 LibraryBrowseSettings.setLastHomeLocation(context, uiState.section.name, null)
-            HomeSection.Playlist -> uiState.activePlaylistId?.let { playlistId ->
-                LibraryBrowseSettings.setLastHomeLocation(context, uiState.section.name, playlistId)
-            }
+            HomeSection.Playlist -> LibraryBrowseSettings.setLastHomeLocation(
+                context,
+                uiState.section.name,
+                uiState.activePlaylistId,
+            )
             else -> Unit
         }
     }
@@ -1007,6 +1013,7 @@ fun HomeScreen(
                         onImportPlaylist = {
                             playlistImportLauncher.launch(arrayOf("application/json", "text/plain"))
                         },
+                        listState = playlistOverviewListState,
                         modifier = Modifier.fillMaxSize(),
                     )
                     is HomePaneKey.Playlist -> HomePlaylistContent(

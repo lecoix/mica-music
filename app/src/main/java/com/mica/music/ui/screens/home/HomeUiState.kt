@@ -82,7 +82,8 @@ internal fun restoreHomeLocation(sectionValue: String?, playlistId: String?): Pa
         ?.let { runCatching { HomeSection.valueOf(it) }.getOrNull() }
         ?: return HomeSection.Songs to null
     return when (section) {
-        HomeSection.Songs, HomeSection.Artists, HomeSection.Albums -> section to null
+        HomeSection.Songs, HomeSection.Artists, HomeSection.Albums, HomeSection.Folders ->
+            section to null
         HomeSection.Playlist -> HomeSection.Playlist to playlistId?.takeIf(String::isNotBlank)
         else -> HomeSection.Songs to null
     }

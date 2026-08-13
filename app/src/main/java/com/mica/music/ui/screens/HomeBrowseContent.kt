@@ -119,7 +119,7 @@ internal fun HomeBrowseContent(
     motionEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val folderListState = rememberLazyListState()
+    val folderListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     if (library.isLoadingCachedLibrary && library.songs.isEmpty()) {
         EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
@@ -328,6 +328,7 @@ private fun MusicFoldersBrowse(
             onSongOpenMenu = onSongOpenMenu,
             listBottomPadding = listBottomPadding,
             fastScrollLabels = groups.map { it.title },
+            forceListLayout = true,
             modifier = modifier,
         )
         return
@@ -1078,6 +1079,7 @@ private fun FolderDepthPage(
                 },
                 onSongOpenMenu = onSongOpenMenu,
                 listBottomPadding = listBottomPadding,
+                forceListLayout = depth == 0 && scopePathSegments.isEmpty(),
                 modifier = modifier,
             )
         }
@@ -1376,6 +1378,7 @@ private fun FolderContentList(
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp = 0.dp,
     fastScrollLabels: List<String>? = null,
+    forceListLayout: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val configuration = LocalConfiguration.current
@@ -1401,7 +1404,7 @@ private fun FolderContentList(
         )
     }
 
-    if (columns > 1) {
+    if (columns > 1 && !forceListLayout) {
         if (fastScrollLabels == null) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
