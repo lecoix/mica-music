@@ -24,6 +24,52 @@ object DirectDsdMedia3FormatPolicy {
     }
 }
 
+internal enum class DirectDsdDrainAction {
+    CONTINUE,
+    YIELD,
+    TERMINAL,
+}
+
+internal data class DirectDsdDrainStepResult(
+    val sourceReadPerformed: Boolean,
+    val packetRead: Boolean,
+    val action: DirectDsdDrainAction,
+)
+
+internal data class DirectDsdDrainResult(
+    val sourceReadCount: Int,
+    val packetReadCount: Int,
+    val budgetExhausted: Boolean,
+)
+
+/** Bounds one Media3 render opportunity without coupling the limit to USB transport policy. */
+internal class DirectDsdRenderDrainLoop(
+    private val maxSourceReads: Int,
+) {
+    init {
+        require(maxSourceReads > 0)
+    }
+
+    fun drain(step: () -> DirectDsdDrainStepResult): DirectDsdDrainResult {
+        var sourceReads = 0
+        var packets = 0
+        while (sourceReads < maxSourceReads) {
+            val result = step()
+            if (result.sourceReadPerformed) sourceReads++
+            if (result.packetRead) packets++
+            when (result.action) {
+                DirectDsdDrainAction.YIELD,
+                DirectDsdDrainAction.TERMINAL,
+                -> return DirectDsdDrainResult(sourceReads, packets, budgetExhausted = false)
+                DirectDsdDrainAction.CONTINUE -> check(result.sourceReadPerformed) {
+                    "Direct DSD drain CONTINUE must account for one source read"
+                }
+            }
+        }
+        return DirectDsdDrainResult(sourceReads, packets, budgetExhausted = true)
+    }
+}
+
 /**
  * Raw DSF renderer used only by the QA Direct-DSD prototype gate.
  * It consumes extractor packets before FFmpeg and owns no PCM sink or decoder.
@@ -33,6 +79,7 @@ class DirectDsdMedia3Renderer(
     private val milestone: (String) -> Unit = {},
 ) : BaseRenderer(C.TRACK_TYPE_AUDIO) {
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
+    private val drainLoop = DirectDsdRenderDrainLoop(MAX_SOURCE_READS_PER_RENDER)
     private var currentFormat: Format? = null
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
@@ -40,6 +87,9 @@ class DirectDsdMedia3Renderer(
     private var resumeBlockedAfterStop = false
     private var sampleCount = 0L
     private var lastSampleMilestoneTimeUs = Long.MIN_VALUE
+    private var renderInvocationCount = 0L
+    private var drainBudgetExhaustionCount = 0L
+    private var lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
 
     override fun getName(): String = NAME
 
@@ -55,55 +105,20 @@ class DirectDsdMedia3Renderer(
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
         if (ended || resumeBlockedAfterStop) return
         try {
-            val activePump = pump
-            if (activePump != null && !activePump.canAcceptPacket()) {
-                activePump.pump()
-                if (!activePump.canAcceptPacket()) return
-            }
-            if (inputEosSeen) {
-                if (activePump == null || activePump.signalEndOfStream()) {
-                    ended = true
-                    milestone("renderer=eos positionUs=$positionUs")
-                }
-                return
-            }
-
-            inputBuffer.clear()
-            val holder = formatHolder
-            when (readSource(holder, inputBuffer, 0)) {
-                C.RESULT_NOTHING_READ -> return
-                C.RESULT_FORMAT_READ -> {
-                    val format = checkNotNull(holder.format)
-                    val facts = DirectDsdMedia3FormatPolicy.factsOrNull(format)
-                        ?: error("Direct DSD renderer received non-authoritative DSF format")
-                    currentFormat = format
-                    if (pump == null) {
-                        val session = sessionFactory.open(facts)
-                        pump = DirectDsdRendererPump(facts, session)
-                        milestone("renderer=claimed sourceRate=${facts.sourceSampleRateHz} channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder}")
-                    }
-                    return
-                }
-                C.RESULT_BUFFER_READ -> {
-                    if (inputBuffer.isEndOfStream) {
-                        inputEosSeen = true
-                        milestone("renderer=input-eos positionUs=$positionUs")
-                        return
-                    }
-                    val active = pump ?: error("DSD sample arrived before format")
-                    inputBuffer.flip()
-                    val data = checkNotNull(inputBuffer.data)
-                    val packet = ByteArray(data.remaining())
-                    data.get(packet)
-                    active.offerExtractorPacket(packet, inputBuffer.timeUs)
-                    sampleCount++
-                    if (sampleCount == 1L || inputBuffer.timeUs - lastSampleMilestoneTimeUs >= SAMPLE_MILESTONE_INTERVAL_US) {
-                        lastSampleMilestoneTimeUs = inputBuffer.timeUs
-                        milestone("renderer=sample count=$sampleCount timeUs=${inputBuffer.timeUs} packetBytes=${packet.size}")
-                    }
-                    active.pump()
-                }
-                else -> return
+            renderInvocationCount++
+            val drain = drainLoop.drain { renderDrainStep(positionUs) }
+            if (drain.budgetExhausted) drainBudgetExhaustionCount++
+            if (
+                renderInvocationCount == 1L ||
+                elapsedRealtimeUs - lastDrainMilestoneElapsedRealtimeUs >= DRAIN_MILESTONE_INTERVAL_US
+            ) {
+                lastDrainMilestoneElapsedRealtimeUs = elapsedRealtimeUs
+                milestone(
+                    "renderer=drain callbacks=$renderInvocationCount " +
+                        "packets=$sampleCount budgetExhausted=$drainBudgetExhaustionCount " +
+                        "lastReads=${drain.sourceReadCount} lastPackets=${drain.packetReadCount} " +
+                        "pending=${pump?.snapshot()?.pendingCanonicalBytes ?: 0}",
+                )
             }
         } catch (error: ExoPlaybackException) {
             throw error
@@ -112,6 +127,93 @@ class DirectDsdMedia3Renderer(
                 error,
                 currentFormat,
                 PlaybackException.ERROR_CODE_UNSPECIFIED,
+            )
+        }
+    }
+
+    private fun renderDrainStep(positionUs: Long): DirectDsdDrainStepResult {
+        val activePump = pump
+        if (activePump != null && !activePump.canAcceptPacket()) {
+            activePump.pump()
+            if (!activePump.canAcceptPacket()) {
+                return DirectDsdDrainStepResult(
+                    sourceReadPerformed = false,
+                    packetRead = false,
+                    action = DirectDsdDrainAction.YIELD,
+                )
+            }
+        }
+        if (inputEosSeen) {
+            if (activePump == null || activePump.signalEndOfStream()) {
+                ended = true
+                milestone("renderer=eos positionUs=$positionUs")
+                return DirectDsdDrainStepResult(false, false, DirectDsdDrainAction.TERMINAL)
+            }
+            return DirectDsdDrainStepResult(false, false, DirectDsdDrainAction.YIELD)
+        }
+
+        inputBuffer.clear()
+        val holder = formatHolder
+        return when (readSource(holder, inputBuffer, 0)) {
+            C.RESULT_NOTHING_READ -> DirectDsdDrainStepResult(
+                sourceReadPerformed = true,
+                packetRead = false,
+                action = DirectDsdDrainAction.YIELD,
+            )
+            C.RESULT_FORMAT_READ -> {
+                val format = checkNotNull(holder.format)
+                val facts = DirectDsdMedia3FormatPolicy.factsOrNull(format)
+                    ?: error("Direct DSD renderer received non-authoritative DSF format")
+                currentFormat = format
+                if (pump == null) {
+                    val session = sessionFactory.open(facts)
+                    pump = DirectDsdRendererPump(facts, session)
+                    milestone(
+                        "renderer=claimed sourceRate=${facts.sourceSampleRateHz} " +
+                            "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder}",
+                    )
+                }
+                DirectDsdDrainStepResult(true, false, DirectDsdDrainAction.CONTINUE)
+            }
+            C.RESULT_BUFFER_READ -> {
+                if (inputBuffer.isEndOfStream) {
+                    inputEosSeen = true
+                    milestone("renderer=input-eos positionUs=$positionUs")
+                    DirectDsdDrainStepResult(true, false, DirectDsdDrainAction.CONTINUE)
+                } else {
+                    val active = pump ?: error("DSD sample arrived before format")
+                    inputBuffer.flip()
+                    val data = checkNotNull(inputBuffer.data)
+                    val packet = ByteArray(data.remaining())
+                    data.get(packet)
+                    active.offerExtractorPacket(packet, inputBuffer.timeUs)
+                    sampleCount++
+                    if (
+                        sampleCount == 1L ||
+                        inputBuffer.timeUs - lastSampleMilestoneTimeUs >= SAMPLE_MILESTONE_INTERVAL_US
+                    ) {
+                        lastSampleMilestoneTimeUs = inputBuffer.timeUs
+                        milestone(
+                            "renderer=sample count=$sampleCount timeUs=${inputBuffer.timeUs} " +
+                                "packetBytes=${packet.size}",
+                        )
+                    }
+                    active.pump()
+                    DirectDsdDrainStepResult(
+                        sourceReadPerformed = true,
+                        packetRead = true,
+                        action = if (active.canAcceptPacket()) {
+                            DirectDsdDrainAction.CONTINUE
+                        } else {
+                            DirectDsdDrainAction.YIELD
+                        },
+                    )
+                }
+            }
+            else -> DirectDsdDrainStepResult(
+                sourceReadPerformed = true,
+                packetRead = false,
+                action = DirectDsdDrainAction.YIELD,
             )
         }
     }
@@ -155,6 +257,9 @@ class DirectDsdMedia3Renderer(
         ended = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
+        renderInvocationCount = 0L
+        drainBudgetExhaustionCount = 0L
+        lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
     }
 
     override fun onDisabled() {
@@ -165,6 +270,9 @@ class DirectDsdMedia3Renderer(
         resumeBlockedAfterStop = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
+        renderInvocationCount = 0L
+        drainBudgetExhaustionCount = 0L
+        lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
     }
 
     override fun onReset() {
@@ -175,6 +283,9 @@ class DirectDsdMedia3Renderer(
         resumeBlockedAfterStop = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
+        renderInvocationCount = 0L
+        drainBudgetExhaustionCount = 0L
+        lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
     }
 
     private fun closePump(reason: String) {
@@ -185,6 +296,9 @@ class DirectDsdMedia3Renderer(
 
     companion object {
         const val NAME = "MicaDirectDsdDoP"
+        // Four immediate source reads per callback exceed DSD128 demand even near 50 callbacks/s.
+        internal const val MAX_SOURCE_READS_PER_RENDER = 4
         private const val SAMPLE_MILESTONE_INTERVAL_US = 250_000L
+        private const val DRAIN_MILESTONE_INTERVAL_US = 250_000L
     }
 }
