@@ -89,31 +89,78 @@ class DoPCarrierSessionContinuityTest {
     }
 
     @Test
-    fun pauseIdleDoesNotRewritePendingContentHalfFrame() {
+    fun pendingRealHalfFrameOneGapFrameCompletesMixedContentBeforePureIdle() {
         val plan = packed24Plan(channelCount = 2)
         val session = DoPCarrierSession(plan)
         val firstHalf = byteArrayOf(0x10, 0x20)
-        val secondHalf = byteArrayOf(0x11, 0x21)
 
         val first = session.writeContentBytes(firstHalf, destination = ByteArray(32))
         assertEquals(0, first.runtimeFramesPacked)
         assertTrue(session.accounting().hasPendingCanonicalHalfFrame)
 
-        val idle = emitIdle(session, frameCount = 3, outputChunkSizes = intArrayOf(1, 4, 2))
-        assertEquals(listOf(0x05, 0xFA, 0x05), markers(idle, plan))
-        assertTrue(session.accounting().hasPendingCanonicalHalfFrame)
-        assertEquals(DoPEncoder.MARKER_B, session.accounting().nextMarker)
+        val destination = ByteArray(plan.bytesPerRuntimeFrame)
+        val gap = session.writeGapFrames(frameCount = 1, destination = destination)
 
-        val resumed = emitContent(session, secondHalf, intArrayOf(1, 5, 2))
-        assertEquals(listOf(0xFA), markers(resumed, plan))
+        assertEquals(1, gap.requestedGapFrames)
+        assertEquals(1, gap.gapFramesAccepted)
+        assertTrue(gap.completedPendingHalfFrameWithIdle)
+        assertEquals(0, gap.pureIdleFramesPacked)
+        assertEquals(plan.bytesPerRuntimeFrame, gap.carrierBytesEmitted)
+        assertEquals(1, gap.runtimeFramesFullyEmitted)
+        assertEquals(null, gap.blockedReason)
         assertArrayEquals(
             byteArrayOf(
-                0x11, 0x10, 0xFA.toByte(),
-                0x21, 0x20, 0xFA.toByte(),
+                DSD_IDLE_BYTE, 0x10, 0x05,
+                DSD_IDLE_BYTE, 0x20, 0x05,
+            ),
+            destination,
+        )
+        assertFalse(session.accounting().hasPendingCanonicalHalfFrame)
+        assertEquals(1L, session.accounting().contentRuntimeFramesPacked)
+        assertEquals(0L, session.accounting().idleRuntimeFramesPacked)
+        assertEquals(DoPEncoder.MARKER_B, session.accounting().nextMarker)
+    }
+
+    @Test
+    fun pendingRealHalfFrameGapTailIsChronologicalAndResumeStartsFresh() {
+        val plan = packed24Plan(channelCount = 2)
+        val session = DoPCarrierSession(plan)
+        val firstHalf = byteArrayOf(0x10, 0x20)
+        session.writeContentBytes(firstHalf, destination = ByteArray(32))
+
+        val destination = ByteArray(plan.bytesPerRuntimeFrame * 4)
+        val gap = session.writeGapFrames(frameCount = 4, destination = destination)
+        assertEquals(4, gap.gapFramesAccepted)
+        assertTrue(gap.completedPendingHalfFrameWithIdle)
+        assertEquals(3, gap.pureIdleFramesPacked)
+        assertEquals(listOf(0x05, 0xFA, 0x05, 0xFA), markers(destination, plan))
+        assertEquals(DSD_IDLE_BYTE, destination[0])
+        assertEquals(0x10.toByte(), destination[1])
+        assertEquals(DSD_IDLE_BYTE, destination[3])
+        assertEquals(0x20.toByte(), destination[4])
+        assertIdlePayloadAndMarkers(
+            payload = destination.copyOfRange(plan.bytesPerRuntimeFrame, destination.size),
+            plan = plan,
+            initialMarker = DoPEncoder.MARKER_B,
+            frameCount = 3,
+        )
+
+        val resumed = emitContent(
+            session,
+            byteArrayOf(0x11, 0x21, 0x12, 0x22),
+            intArrayOf(1, 5, 2),
+        )
+        assertEquals(listOf(0x05), markers(resumed, plan))
+        assertArrayEquals(
+            byteArrayOf(
+                0x12, 0x11, 0x05,
+                0x22, 0x21, 0x05,
             ),
             resumed,
         )
         assertFalse(session.accounting().hasPendingCanonicalHalfFrame)
+        assertEquals(2L, session.accounting().contentRuntimeFramesPacked)
+        assertEquals(3L, session.accounting().idleRuntimeFramesPacked)
     }
 
     @Test
@@ -229,8 +276,8 @@ class DoPCarrierSessionContinuityTest {
         val plan = packed24Plan(channelCount = 2)
         val session = DoPCarrierSession(plan)
         val firstByte = ByteArray(1)
-        val idleStart = session.writeIdleFrames(frameCount = 1, destination = firstByte)
-        assertEquals(1, idleStart.idleFramesConsumed)
+        val idleStart = session.writeGapFrames(frameCount = 1, destination = firstByte)
+        assertEquals(1, idleStart.gapFramesAccepted)
         assertEquals(1, idleStart.carrierBytesEmitted)
         assertEquals(plan.bytesPerRuntimeFrame - 1, session.accounting().pendingPackedCarrierBytes)
         assertEquals(DoPEncoder.MARKER_B, session.accounting().nextMarker)
@@ -246,6 +293,153 @@ class DoPCarrierSessionContinuityTest {
 
         val content = emitContent(session, byteArrayOf(1, 11, 2, 12), intArrayOf(1, 3, 5))
         assertEquals(listOf(0xFA), markers(content, plan))
+    }
+
+    @Test
+    fun partialCanonicalFrameBlocksGapUntilExplicitRetainedCarrierSourceReset() {
+        val plan = packed24Plan(channelCount = 3)
+        val session = DoPCarrierSession(plan)
+        val source = byteArrayOf(0x10, 0x20)
+        val write = session.writeContentBytes(source, destination = ByteArray(32))
+        assertEquals(source.size, write.canonicalBytesConsumed)
+        assertEquals(0, write.canonicalFramesCompleted)
+        assertEquals(2, session.accounting().pendingPartialCanonicalFrameBytes)
+
+        val beforeGap = session.accounting()
+        val destination = ByteArray(plan.bytesPerRuntimeFrame * 3) { 0x7E }
+        val blocked = session.writeGapFrames(frameCount = 3, destination = destination)
+        assertEquals(3, blocked.requestedGapFrames)
+        assertEquals(0, blocked.gapFramesAccepted)
+        assertFalse(blocked.completedPendingHalfFrameWithIdle)
+        assertEquals(0, blocked.pureIdleFramesPacked)
+        assertEquals(0, blocked.carrierBytesEmitted)
+        assertEquals(0, blocked.runtimeFramesFullyEmitted)
+        assertEquals(DoPGapBlockedReason.PARTIAL_CANONICAL_FRAME, blocked.blockedReason)
+        assertEquals(beforeGap, session.accounting())
+        assertTrue(destination.all { it == 0x7E.toByte() })
+
+        val reset = session.resetSource(DoPDiscontinuity.SEEK)
+        assertEquals(2, reset.discardedPartialCanonicalFrameBytes)
+        assertEquals(2, reset.discardedCanonicalSourceBytes)
+        assertEquals(DoPEncoder.MARKER_A, reset.markerAfterReset)
+
+        val afterReset = ByteArray(plan.bytesPerRuntimeFrame * 2)
+        val gap = session.writeGapFrames(frameCount = 2, destination = afterReset)
+        assertEquals(2, gap.gapFramesAccepted)
+        assertFalse(gap.completedPendingHalfFrameWithIdle)
+        assertEquals(2, gap.pureIdleFramesPacked)
+        assertIdlePayloadAndMarkers(afterReset, plan, DoPEncoder.MARKER_A, frameCount = 2)
+    }
+
+    @Test
+    fun pendingPackedContentFinishesBeforeAnyNewGapIdle() {
+        val plan = packed24Plan(channelCount = 2)
+        val session = DoPCarrierSession(plan)
+        val source = byteArrayOf(0x10, 0x20, 0x11, 0x21)
+        val firstByte = ByteArray(1)
+        val write = session.writeContentBytes(source, destination = firstByte)
+        assertEquals(1, write.runtimeFramesPacked)
+        assertEquals(1, write.carrierBytesEmitted)
+        assertEquals(plan.bytesPerRuntimeFrame - 1, session.accounting().pendingPackedCarrierBytes)
+
+        val tailAndGap = ByteArray(plan.bytesPerRuntimeFrame * 2 - 1)
+        val gap = session.writeGapFrames(frameCount = 1, destination = tailAndGap)
+        assertEquals(1, gap.gapFramesAccepted)
+        assertEquals(1, gap.pureIdleFramesPacked)
+        assertFalse(gap.completedPendingHalfFrameWithIdle)
+        assertEquals(2, gap.runtimeFramesFullyEmitted)
+
+        val payload = firstByte + tailAndGap
+        assertEquals(listOf(0x05, 0xFA), markers(payload, plan))
+        assertArrayEquals(
+            byteArrayOf(
+                0x11, 0x10, 0x05,
+                0x21, 0x20, 0x05,
+            ),
+            payload.copyOfRange(0, plan.bytesPerRuntimeFrame),
+        )
+        assertIdlePayloadAndMarkers(
+            payload.copyOfRange(plan.bytesPerRuntimeFrame, payload.size),
+            plan,
+            DoPEncoder.MARKER_B,
+            frameCount = 1,
+        )
+    }
+
+    @Test
+    fun pendingPackedIdleFinishesBeforeNextGapFrameWithContinuousMarker() {
+        val plan = packed24Plan(channelCount = 2)
+        val session = DoPCarrierSession(plan)
+        val firstByte = ByteArray(1)
+        val first = session.writeGapFrames(frameCount = 1, destination = firstByte)
+        assertEquals(1, first.gapFramesAccepted)
+        assertEquals(1, first.pureIdleFramesPacked)
+        assertEquals(plan.bytesPerRuntimeFrame - 1, session.accounting().pendingPackedCarrierBytes)
+
+        val tailAndNext = ByteArray(plan.bytesPerRuntimeFrame * 2 - 1)
+        val second = session.writeGapFrames(frameCount = 1, destination = tailAndNext)
+        assertEquals(1, second.gapFramesAccepted)
+        assertEquals(1, second.pureIdleFramesPacked)
+        assertEquals(2, second.runtimeFramesFullyEmitted)
+
+        val payload = firstByte + tailAndNext
+        assertIdlePayloadAndMarkers(payload, plan, DoPEncoder.MARKER_A, frameCount = 2)
+    }
+
+    @Test
+    fun zeroFrameGapIsStrictNoOpEvenWithPendingPackedContent() {
+        val plan = packed24Plan(channelCount = 2)
+        val session = DoPCarrierSession(plan)
+        val source = byteArrayOf(0x10, 0x20, 0x11, 0x21)
+        session.writeContentBytes(source, destination = ByteArray(1))
+        val before = session.accounting()
+        val destination = ByteArray(32) { 0x55 }
+
+        val result = session.writeGapFrames(frameCount = 0, destination = destination)
+
+        assertEquals(0, result.requestedGapFrames)
+        assertEquals(0, result.gapFramesAccepted)
+        assertEquals(0, result.carrierBytesEmitted)
+        assertEquals(null, result.blockedReason)
+        assertEquals(before, session.accounting())
+        assertTrue(destination.all { it == 0x55.toByte() })
+    }
+
+    @Test
+    fun mixedGapCompletionRemainsByteExactForBothProven32BitPlacements() {
+        for (packing in listOf(
+            DoPCarrierPacking.SLOT_32_LE_MSB_ALIGNED,
+            DoPCarrierPacking.SLOT_32_LE_LSB_ALIGNED,
+        )) {
+            val plan = explicit32Plan(packing, channelCount = 2)
+            val session = DoPCarrierSession(plan)
+            session.writeContentBytes(byteArrayOf(0x10, 0x20), destination = ByteArray(32))
+            val output = ByteArray(plan.bytesPerRuntimeFrame)
+            val gap = session.writeGapFrames(frameCount = 1, destination = output)
+            assertTrue(gap.completedPendingHalfFrameWithIdle)
+            assertEquals(0, gap.pureIdleFramesPacked)
+            assertEquals(listOf(DoPEncoder.MARKER_A), markers(output, plan))
+
+            for (channel in 0 until 2) {
+                val base = channel * packing.bytesPerChannel
+                val real = if (channel == 0) 0x10.toByte() else 0x20.toByte()
+                when (packing) {
+                    DoPCarrierPacking.SLOT_32_LE_MSB_ALIGNED -> {
+                        assertEquals(0, output[base].toInt())
+                        assertEquals(DSD_IDLE_BYTE, output[base + 1])
+                        assertEquals(real, output[base + 2])
+                        assertEquals(DoPEncoder.MARKER_A, output[base + 3].toInt() and 0xff)
+                    }
+                    DoPCarrierPacking.SLOT_32_LE_LSB_ALIGNED -> {
+                        assertEquals(DSD_IDLE_BYTE, output[base])
+                        assertEquals(real, output[base + 1])
+                        assertEquals(DoPEncoder.MARKER_A, output[base + 2].toInt() and 0xff)
+                        assertEquals(0, output[base + 3].toInt())
+                    }
+                    DoPCarrierPacking.PACKED_24_LE -> error("not a 32-bit packing")
+                }
+            }
+        }
     }
 
     @Test
@@ -321,6 +515,73 @@ class DoPCarrierSessionContinuityTest {
         assertTrue(session.accounting().canonicalSourceBytesDiscardedAtReset > 0L)
     }
 
+    @Test
+    fun fixedSeedGapProjectionPreservesMarkersAndRealSourceChronologyBeyondTenThousandFrames() {
+        val random = Random(0xD05E6008L)
+        val plan = packed24Plan(channelCount = 2)
+        val session = DoPCarrierSession(plan)
+        val payload = ByteArrayOutputStream()
+        val expectedRealSource = ByteArrayOutputStream()
+        var pendingExpectedCanonicalFrame: ByteArray? = null
+
+        repeat(12_000) { index ->
+            when (random.nextInt(10)) {
+                0, 1 -> {
+                    val reset = session.resetSource(
+                        if (index % 2 == 0) DoPDiscontinuity.SEEK else DoPDiscontinuity.NEW_SOURCE_GENERATION,
+                    )
+                    if (pendingExpectedCanonicalFrame != null) {
+                        assertTrue(reset.discardedPendingCanonicalHalfFrame)
+                        pendingExpectedCanonicalFrame = null
+                    } else {
+                        assertFalse(reset.discardedPendingCanonicalHalfFrame)
+                    }
+                }
+                in 2..5 -> {
+                    val frameCount = 1 + random.nextInt(3)
+                    val source = ByteArray(frameCount * plan.channelCount) { nextProjectionSourceByte(random) }
+                    for (frame in 0 until frameCount) {
+                        val canonicalFrame = source.copyOfRange(
+                            frame * plan.channelCount,
+                            (frame + 1) * plan.channelCount,
+                        )
+                        val pending = pendingExpectedCanonicalFrame
+                        if (pending == null) {
+                            pendingExpectedCanonicalFrame = canonicalFrame
+                        } else {
+                            expectedRealSource.write(pending)
+                            expectedRealSource.write(canonicalFrame)
+                            pendingExpectedCanonicalFrame = null
+                        }
+                    }
+                    payload.write(emitContentRandomlyFragmented(session, source, random))
+                }
+                else -> {
+                    val gapFrames = 1 + random.nextInt(3)
+                    pendingExpectedCanonicalFrame?.let {
+                        expectedRealSource.write(it)
+                        pendingExpectedCanonicalFrame = null
+                    }
+                    payload.write(emitGapRandomlyFragmented(session, gapFrames, random))
+                }
+            }
+        }
+
+        pendingExpectedCanonicalFrame?.let {
+            expectedRealSource.write(it)
+            pendingExpectedCanonicalFrame = null
+            payload.write(emitGapRandomlyFragmented(session, frameCount = 1, random = random))
+        }
+
+        val carrier = payload.toByteArray()
+        val projectedMarkers = markers(carrier, plan)
+        assertTrue(projectedMarkers.size > 10_000)
+        assertAlternating(projectedMarkers, DoPEncoder.MARKER_A)
+        assertArrayEquals(expectedRealSource.toByteArray(), realCanonicalSourceChronology(carrier, plan))
+        assertEquals(0, session.accounting().pendingPartialCanonicalFrameBytes)
+        assertFalse(session.accounting().hasPendingCanonicalHalfFrame)
+    }
+
     private fun emitContent(
         session: DoPCarrierSession,
         source: ByteArray,
@@ -379,25 +640,79 @@ class DoPCarrierSessionContinuityTest {
         var chunkIndex = 0
         while (remaining > 0 || session.accounting().pendingPackedCarrierBytes > 0) {
             val destination = ByteArray(outputChunkSizes[chunkIndex++ % outputChunkSizes.size])
-            val result = session.writeIdleFrames(remaining, destination)
-            out.write(destination, 0, result.carrierBytesEmitted)
-            remaining -= result.idleFramesConsumed
-            assertTrue(result.idleFramesConsumed > 0 || result.carrierBytesEmitted > 0)
+            if (remaining > 0) {
+                val result = session.writeGapFrames(remaining, destination)
+                assertEquals(null, result.blockedReason)
+                out.write(destination, 0, result.carrierBytesEmitted)
+                remaining -= result.gapFramesAccepted
+                assertTrue(result.gapFramesAccepted > 0 || result.carrierBytesEmitted > 0)
+            } else {
+                val result = session.flushCarrierOutput(destination)
+                out.write(destination, 0, result.carrierBytesEmitted)
+                assertTrue(result.carrierBytesEmitted > 0)
+            }
         }
         return out.toByteArray()
     }
 
-    private fun emitIdleRandomlyFragmented(session: DoPCarrierSession, random: Random): ByteArray {
+    private fun emitIdleRandomlyFragmented(session: DoPCarrierSession, random: Random): ByteArray =
+        emitGapRandomlyFragmented(session, frameCount = 1, random = random)
+
+    private fun emitGapRandomlyFragmented(
+        session: DoPCarrierSession,
+        frameCount: Int,
+        random: Random,
+    ): ByteArray {
         val out = ByteArrayOutputStream()
-        var remaining = 1
+        var remaining = frameCount
         while (remaining > 0 || session.accounting().pendingPackedCarrierBytes > 0) {
             val destination = ByteArray(1 + random.nextInt(session.plan.bytesPerRuntimeFrame + 2))
-            val result = session.writeIdleFrames(remaining, destination)
-            out.write(destination, 0, result.carrierBytesEmitted)
-            remaining -= result.idleFramesConsumed
-            assertTrue(result.idleFramesConsumed > 0 || result.carrierBytesEmitted > 0)
+            if (remaining > 0) {
+                val result = session.writeGapFrames(remaining, destination)
+                assertEquals(null, result.blockedReason)
+                out.write(destination, 0, result.carrierBytesEmitted)
+                remaining -= result.gapFramesAccepted
+                assertTrue(result.gapFramesAccepted > 0 || result.carrierBytesEmitted > 0)
+            } else {
+                val result = session.flushCarrierOutput(destination)
+                out.write(destination, 0, result.carrierBytesEmitted)
+                assertTrue(result.carrierBytesEmitted > 0)
+            }
         }
         return out.toByteArray()
+    }
+
+    private fun nextProjectionSourceByte(random: Random): Byte {
+        var value = random.nextInt(256)
+        if (value == (DSD_IDLE_BYTE.toInt() and 0xff)) value = 0x68
+        return value.toByte()
+    }
+
+    private fun realCanonicalSourceChronology(payload: ByteArray, plan: DoPCarrierPlan): ByteArray {
+        require(plan.packing == DoPCarrierPacking.PACKED_24_LE)
+        require(payload.size % plan.bytesPerRuntimeFrame == 0)
+        val source = ByteArrayOutputStream()
+        var frameOffset = 0
+        while (frameOffset < payload.size) {
+            var olderIsIdle = true
+            var newerIsIdle = true
+            val older = ByteArray(plan.channelCount)
+            val newer = ByteArray(plan.channelCount)
+            for (channel in 0 until plan.channelCount) {
+                val base = frameOffset + channel * plan.packing.bytesPerChannel
+                newer[channel] = payload[base]
+                older[channel] = payload[base + 1]
+                olderIsIdle = olderIsIdle && older[channel] == DSD_IDLE_BYTE
+                newerIsIdle = newerIsIdle && newer[channel] == DSD_IDLE_BYTE
+            }
+            if (!(olderIsIdle && newerIsIdle)) {
+                assertFalse("content/mixed frame cannot have idle as the older canonical frame", olderIsIdle)
+                source.write(older)
+                if (!newerIsIdle) source.write(newer)
+            }
+            frameOffset += plan.bytesPerRuntimeFrame
+        }
+        return source.toByteArray()
     }
 
     private fun finishSource(session: DoPCarrierSession, outputChunkSizes: IntArray): ByteArray {

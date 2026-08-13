@@ -28,13 +28,29 @@ class DoPCarrierSession(
         destinationByteCount = destinationByteCount,
     )
 
-    fun writeIdleFrames(
+    /**
+     * Requests carrier continuity without allowing idle to overtake already-consumed source bytes.
+     * A pending real DoP half-frame is completed with `0x69` before pure idle is introduced; an
+     * incomplete multichannel canonical frame blocks the gap until the caller supplies or resets it.
+     */
+    fun writeGapFrames(
         frameCount: Int,
         destination: ByteArray,
         destinationOffset: Int = 0,
         destinationByteCount: Int = destination.size - destinationOffset,
-    ): DoPPipelineIdleWriteResult = pipeline.writeIdleFrames(
+    ): DoPCarrierGapWriteResult = pipeline.writeGapFrames(
         frameCount = frameCount,
+        destination = destination,
+        destinationOffset = destinationOffset,
+        destinationByteCount = destinationByteCount,
+    )
+
+    /** Flushes an already-accepted packed frame without accepting any new content or gap frame. */
+    fun flushCarrierOutput(
+        destination: ByteArray,
+        destinationOffset: Int = 0,
+        destinationByteCount: Int = destination.size - destinationOffset,
+    ): DoPPipelineFlushResult = pipeline.flushPendingOutput(
         destination = destination,
         destinationOffset = destinationOffset,
         destinationByteCount = destinationByteCount,

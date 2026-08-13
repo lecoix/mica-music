@@ -44,6 +44,36 @@ data class DoPPipelineIdleWriteResult(
     val runtimeFramesFullyEmitted: Int,
 )
 
+enum class DoPGapBlockedReason {
+    PARTIAL_CANONICAL_FRAME,
+}
+
+data class DoPCarrierGapWriteResult(
+    val requestedGapFrames: Int,
+    val gapFramesAccepted: Int,
+    val completedPendingHalfFrameWithIdle: Boolean,
+    val pureIdleFramesPacked: Int,
+    val carrierBytesEmitted: Int,
+    val runtimeFramesFullyEmitted: Int,
+    val blockedReason: DoPGapBlockedReason?,
+) {
+    init {
+        require(requestedGapFrames >= 0)
+        require(gapFramesAccepted >= 0 && gapFramesAccepted <= requestedGapFrames)
+        require(pureIdleFramesPacked >= 0 && pureIdleFramesPacked <= gapFramesAccepted)
+        require(
+            gapFramesAccepted == pureIdleFramesPacked + if (completedPendingHalfFrameWithIdle) 1 else 0,
+        )
+        require(carrierBytesEmitted >= 0)
+        require(runtimeFramesFullyEmitted >= 0)
+    }
+}
+
+data class DoPPipelineFlushResult(
+    val carrierBytesEmitted: Int,
+    val runtimeFramesFullyEmitted: Int,
+)
+
 data class DoPPipelineDiscontinuityResult(
     val reason: DoPDiscontinuity,
     val discardedPartialCanonicalFrameBytes: Int,
@@ -331,10 +361,10 @@ class DoPRuntimePipeline(
     }
 
     /**
-     * Emits valid DoP idle runtime frames (`0x69/0x69` per channel) under the same carrier marker
-     * phase used by content. A pending content half-frame remains pending and is not rewritten.
+     * Low-level pure-idle primitive. This intentionally does not resolve pending source chronology;
+     * session/future feeder code must use [writeGapFrames] through [DoPCarrierSession] instead.
      */
-    fun writeIdleFrames(
+    internal fun writeIdleFrames(
         frameCount: Int,
         destination: ByteArray,
         destinationOffset: Int = 0,
@@ -380,6 +410,133 @@ class DoPRuntimePipeline(
             carrierBytesEmitted = emittedBytes,
             runtimeFramesPacked = packedFrames,
             runtimeFramesFullyEmitted = fullyEmittedFrames,
+        )
+    }
+
+    /**
+     * Chronology-safe carrier-gap operation for the session facade.
+     *
+     * A gap may not overtake canonical DSD bytes already consumed from the source. Existing packed
+     * output is therefore emitted first. A complete canonical frame retained by [DoPEncoder] as a
+     * pending half-frame is then completed with one `0x69` byte per channel and remains CONTENT
+     * accounting. Only the remaining requested gap budget is packed as pure `0x69/0x69` IDLE.
+     *
+     * An incomplete multichannel canonical frame cannot be completed without inventing source
+     * bytes, so gap entry is blocked before output or marker state changes. A zero-frame request is
+     * a strict no-op, including when packed output is pending.
+     */
+    internal fun writeGapFrames(
+        frameCount: Int,
+        destination: ByteArray,
+        destinationOffset: Int = 0,
+        destinationByteCount: Int = destination.size - destinationOffset,
+    ): DoPCarrierGapWriteResult {
+        require(frameCount >= 0)
+        require(destinationOffset >= 0 && destinationByteCount >= 0 && destinationOffset <= destination.size)
+        require(destinationByteCount <= destination.size - destinationOffset)
+
+        if (frameCount == 0) {
+            return DoPCarrierGapWriteResult(
+                requestedGapFrames = 0,
+                gapFramesAccepted = 0,
+                completedPendingHalfFrameWithIdle = false,
+                pureIdleFramesPacked = 0,
+                carrierBytesEmitted = 0,
+                runtimeFramesFullyEmitted = 0,
+                blockedReason = null,
+            )
+        }
+
+        if (partialCanonicalFrameBytes > 0) {
+            check(pendingPackedBytes() == 0) {
+                "partial canonical input and packed carrier output must not coexist"
+            }
+            return DoPCarrierGapWriteResult(
+                requestedGapFrames = frameCount,
+                gapFramesAccepted = 0,
+                completedPendingHalfFrameWithIdle = false,
+                pureIdleFramesPacked = 0,
+                carrierBytesEmitted = 0,
+                runtimeFramesFullyEmitted = 0,
+                blockedReason = DoPGapBlockedReason.PARTIAL_CANONICAL_FRAME,
+            )
+        }
+
+        if (destinationByteCount == 0) {
+            return DoPCarrierGapWriteResult(
+                requestedGapFrames = frameCount,
+                gapFramesAccepted = 0,
+                completedPendingHalfFrameWithIdle = false,
+                pureIdleFramesPacked = 0,
+                carrierBytesEmitted = 0,
+                runtimeFramesFullyEmitted = 0,
+                blockedReason = null,
+            )
+        }
+
+        var gapFramesAccepted = 0
+        var completedPendingHalfFrameWithIdle = false
+        var pureIdleFramesPacked = 0
+        var emittedBytes = 0
+        var fullyEmittedFrames = 0
+        var outputOffset = destinationOffset
+        var outputRemaining = destinationByteCount
+
+        val initialFlush = emitPending(destination, outputOffset, outputRemaining)
+        emittedBytes += initialFlush.bytes
+        fullyEmittedFrames += initialFlush.framesCompleted
+        outputOffset += initialFlush.bytes
+        outputRemaining -= initialFlush.bytes
+
+        while (gapFramesAccepted < frameCount && outputRemaining > 0) {
+            check(pendingPackedBytes() == 0) {
+                "pending packed carrier bytes must be emitted before accepting a new gap frame"
+            }
+
+            if (encoder.hasPendingHalfFrame()) {
+                check(!completedPendingHalfFrameWithIdle) {
+                    "one gap request cannot complete more than one pending content half-frame"
+                }
+                check(encoder.drain(words) == 1)
+                packCurrentRuntimeFrame(DoPPackedFrameKind.CONTENT)
+                completedPendingHalfFrameWithIdle = true
+            } else {
+                check(encoder.encodeIdleFrame(words) == 1)
+                packCurrentRuntimeFrame(DoPPackedFrameKind.IDLE)
+                pureIdleFramesPacked++
+            }
+            gapFramesAccepted++
+
+            val flush = emitPending(destination, outputOffset, outputRemaining)
+            emittedBytes += flush.bytes
+            fullyEmittedFrames += flush.framesCompleted
+            outputOffset += flush.bytes
+            outputRemaining -= flush.bytes
+        }
+
+        return DoPCarrierGapWriteResult(
+            requestedGapFrames = frameCount,
+            gapFramesAccepted = gapFramesAccepted,
+            completedPendingHalfFrameWithIdle = completedPendingHalfFrameWithIdle,
+            pureIdleFramesPacked = pureIdleFramesPacked,
+            carrierBytesEmitted = emittedBytes,
+            runtimeFramesFullyEmitted = fullyEmittedFrames,
+            blockedReason = null,
+        )
+    }
+
+    /** Emits only bytes from an already-packed runtime frame; never packs or advances a marker. */
+    internal fun flushPendingOutput(
+        destination: ByteArray,
+        destinationOffset: Int = 0,
+        destinationByteCount: Int = destination.size - destinationOffset,
+    ): DoPPipelineFlushResult {
+        require(destinationOffset >= 0 && destinationByteCount >= 0 && destinationOffset <= destination.size)
+        require(destinationByteCount <= destination.size - destinationOffset)
+        val emitted = emitPending(destination, destinationOffset, destinationByteCount)
+        return DoPPipelineFlushResult(
+            carrierBytesEmitted = emitted.bytes,
+            runtimeFramesFullyEmitted = emitted.framesCompleted,
         )
     }
 
