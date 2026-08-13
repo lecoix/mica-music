@@ -67,18 +67,25 @@ class DirectDsdMedia3FormatPolicyTest {
     }
 
     @Test
-    fun rendererLifecycleDefersArmUntilStartedAndBlocksResumeAfterStop() {
+    fun rendererLifecycleArmsOnceThenJoinsGapBeforeResumeContent() {
         val source = File(
             "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
         ).readText()
 
         assertTrue(source.contains("pump?.isStartupPrefillReady() == true"))
         assertTrue(source.contains("override fun onStarted()"))
+        assertTrue(source.contains("if (active.isPlaybackArmed())"))
+        assertTrue(source.contains("active.stopPauseGapLiveness()"))
+        assertTrue(source.contains("pauseGapActive = false"))
         assertTrue(source.contains("active.armPlayback()"))
         assertTrue(source.contains("override fun onStopped()"))
-        assertTrue(source.contains("closePump(\"stopped-after-arm\")"))
-        assertTrue(source.contains("resumeBlockedAfterStop = true"))
-        assertTrue(source.contains("if (ended || resumeBlockedAfterStop) return"))
+        assertTrue(source.contains("startPauseGapLiveness()"))
+        assertTrue(source.contains("pauseGapActive = true"))
+        assertTrue(source.contains("if (ended || pauseGapActive) return"))
+        assertTrue(source.contains("closePump(\"disabled\")"))
+        assertTrue(source.contains("closePump(\"reset\")"))
+        assertTrue(!source.contains("closePump(\"stopped-after-arm\")"))
+        assertTrue(!source.contains("resumeBlockedAfterStop"))
     }
 
     private fun format(packetFacts: DsfExtractorPacketFacts): Format = Format.Builder()

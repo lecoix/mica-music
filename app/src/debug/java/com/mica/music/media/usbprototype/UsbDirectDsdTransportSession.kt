@@ -101,6 +101,7 @@ private class UsbDirectDsdTransportSession private constructor(
     private val originalClockHz: Int,
     private val nativeHandle: Long,
     private val requiredPrefillFrames: Long,
+    private val bufferPolicy: UsbDirectDsdBufferPolicy,
     private val carrierSession: DoPCarrierSession,
     private val feeder: ExactCarrierFeeder,
     private val milestone: (String) -> Unit,
@@ -111,8 +112,14 @@ private class UsbDirectDsdTransportSession private constructor(
     @Volatile
     override var playbackArmed: Boolean = false
         private set
+    @Volatile
     private var closed = false
+    private val pauseLiveness = UsbDirectDsdPauseLivenessController()
+    @Volatile
+    private var gapLivenessEverStarted = false
+    private var gapRefillActive = false
     private var lastProgressMilestoneMs = 0L
+    private var lastGapMilestoneMs = 0L
 
     override val activeFacts: PlaybackOutputFacts = PlaybackOutputFacts(
         runtimeHandle = runtimeHandle,
@@ -126,17 +133,19 @@ private class UsbDirectDsdTransportSession private constructor(
 
     override fun writeCanonical(bytes: ByteArray, offset: Int, byteCount: Int): DirectDsdTransportWriteResult {
         check(!closed)
-        val consumed = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
-            lease.ensureCurrent()
-            check(UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) == 0) { "Native exact transport failed" }
-            val result = feeder.writeContentBytes(bytes, offset, byteCount)
-            check(result.status != ExactCarrierFeedStatus.FAILED && result.error == null) {
-                "ExactCarrierFeeder failed ${result.error}"
-            }
-            maybeMarkStartupPrefillReady(lease)
-            publishProgressIfDue()
-            result.canonicalBytesConsumed
-        } ?: error("Direct DSD USB session became stale")
+        val consumed = pauseLiveness.withContentWriter {
+            UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+                lease.ensureCurrent()
+                check(UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) == 0) { "Native exact transport failed" }
+                val result = feeder.writeContentBytes(bytes, offset, byteCount)
+                check(result.status != ExactCarrierFeedStatus.FAILED && result.error == null) {
+                    "ExactCarrierFeeder failed ${result.error}"
+                }
+                maybeMarkStartupPrefillReady(lease)
+                publishProgressIfDue()
+                result.canonicalBytesConsumed
+            } ?: error("Direct DSD USB session became stale")
+        }
         return DirectDsdTransportWriteResult(consumed)
     }
 
@@ -147,30 +156,59 @@ private class UsbDirectDsdTransportSession private constructor(
         armPlaybackWithOwner()
     }
 
+    override fun startPauseGapLiveness() {
+        check(!closed) { "pause-gap start after close" }
+        check(playbackArmed) { "pause-gap start before Direct DSD arm" }
+        val before = currentCarrierSnapshot("gap-start")
+        gapLivenessEverStarted = true
+        gapRefillActive = false
+        milestone(
+            "directDsd=gap-start buffered=${before.bufferedFrames} high=${bufferPolicy.highWatermarkFrames} " +
+                "low=${bufferPolicy.lowWatermarkFrames} completed=${before.completedFrames} " +
+                "contentPacked=${before.contentPacked} idlePacked=${before.idlePacked}",
+        )
+        pauseLiveness.startGap(::runGapLivenessStep)
+    }
+
+    override fun stopPauseGapLiveness() {
+        check(!closed) { "pause-gap stop after close" }
+        check(playbackArmed) { "pause-gap stop before Direct DSD arm" }
+        pauseLiveness.stopGapAndJoin()
+        gapRefillActive = false
+        val after = currentCarrierSnapshot("gap-stop")
+        check(after.errorCode == 0) { "Native exact transport failed during pause gap" }
+        milestone(
+            "directDsd=gap-stop joined=true buffered=${after.bufferedFrames} high=${bufferPolicy.highWatermarkFrames} " +
+                "completed=${after.completedFrames} contentPacked=${after.contentPacked} idlePacked=${after.idlePacked}",
+        )
+    }
+
     override fun finishEndOfStream(): Boolean {
         check(!closed)
-        return UsbOutputRuntime.owner.withActiveSession(this) { lease ->
-            lease.ensureCurrent()
-            var guard = 0
-            while (guard++ < 1024) {
-                val snapshot = feeder.snapshot()
-                if (snapshot.contractError != null) error("feeder contract failed at EOS")
-                if (snapshot.stagedCarrierBytes.isEmpty() && snapshot.upstreamPendingPackedCarrierBytes == 0) break
-                val result = feeder.pump()
-                if (result.status == ExactCarrierFeedStatus.FAILED) error("feeder failed draining EOS")
-                if (result.sinkBytesAccepted == 0 && result.carrierBytesFlushedFromSession == 0) return@withActiveSession false
-            }
-            val feederSnapshot = feeder.snapshot()
-            val accounting = carrierSession.accounting()
-            val clean = feederSnapshot.stagedCarrierBytes.isEmpty() &&
-                feederSnapshot.upstreamPendingPackedCarrierBytes == 0 &&
-                feederSnapshot.contractError == null &&
-                accounting.pendingPackedCarrierBytes == 0 &&
-                accounting.pendingPartialCanonicalFrameBytes == 0 &&
-                !accounting.hasPendingCanonicalHalfFrame
-            milestone("directDsd=eos clean=$clean canonical=${accounting.canonicalBytesConsumed} contentPacked=${accounting.contentRuntimeFramesPacked} idlePacked=${accounting.idleRuntimeFramesPacked}")
-            clean
-        } ?: false
+        return pauseLiveness.withContentWriter {
+            UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+                lease.ensureCurrent()
+                var guard = 0
+                while (guard++ < 1024) {
+                    val snapshot = feeder.snapshot()
+                    if (snapshot.contractError != null) error("feeder contract failed at EOS")
+                    if (snapshot.stagedCarrierBytes.isEmpty() && snapshot.upstreamPendingPackedCarrierBytes == 0) break
+                    val result = feeder.pump()
+                    if (result.status == ExactCarrierFeedStatus.FAILED) error("feeder failed draining EOS")
+                    if (result.sinkBytesAccepted == 0 && result.carrierBytesFlushedFromSession == 0) return@withActiveSession false
+                }
+                val feederSnapshot = feeder.snapshot()
+                val accounting = carrierSession.accounting()
+                val clean = feederSnapshot.stagedCarrierBytes.isEmpty() &&
+                    feederSnapshot.upstreamPendingPackedCarrierBytes == 0 &&
+                    feederSnapshot.contractError == null &&
+                    accounting.pendingPackedCarrierBytes == 0 &&
+                    accounting.pendingPartialCanonicalFrameBytes == 0 &&
+                    !accounting.hasPendingCanonicalHalfFrame
+                milestone("directDsd=eos clean=$clean canonical=${accounting.canonicalBytesConsumed} contentPacked=${accounting.contentRuntimeFramesPacked} idlePacked=${accounting.idleRuntimeFramesPacked}")
+                clean
+            } ?: false
+        }
     }
 
     override fun restart(lease: UsbOutputRequestLease) {
@@ -180,7 +218,9 @@ private class UsbDirectDsdTransportSession private constructor(
 
     override fun release(lease: UsbOutputCleanupLease, reason: String) {
         if (closed) return
+        val pauseSnapshot = pauseLiveness.snapshot()
         closed = true
+        pauseLiveness.markReleasedWithoutJoin()
         val accounting = carrierSession.accounting()
         val feederSnapshot = feeder.snapshot()
         val finalCompleted = runCatching { UsbSk02NativePrototype.getMedia3CompletedFrames(nativeHandle) }.getOrDefault(-1L)
@@ -212,14 +252,19 @@ private class UsbDirectDsdTransportSession private constructor(
             streamingDriver?.contains("driver=snd-usb-audio") == true
         val cleanupGreen = nativeDestroyed && altRestored && clockRestored && streamingReleased &&
             controlReleased && reconnectErrno == 0 && driversBound
+        val idleAccountingGreen = if (gapLivenessEverStarted) {
+            accounting.idleRuntimeFramesPacked > 0L
+        } else {
+            accounting.idleRuntimeFramesPacked == 0L
+        }
         val transportGreen = playbackArmed && finalError == 0 && underrun == 0L &&
             invalidFeedback == 0L && dataErrors == 0L && pcmMetrics.all { it == 0L } &&
             accounting.canonicalBytesConsumed > 0L && accounting.contentRuntimeFramesPacked > 0L &&
-            accounting.idleRuntimeFramesPacked == 0L && accounting.pendingPackedCarrierBytes == 0 &&
+            idleAccountingGreen && accounting.pendingPackedCarrierBytes == 0 &&
             accounting.pendingPartialCanonicalFrameBytes == 0 && !accounting.hasPendingCanonicalHalfFrame &&
             feederSnapshot.stagedCarrierBytes.isEmpty() &&
             feederSnapshot.upstreamPendingPackedCarrierBytes == 0 && feederSnapshot.contractError == null &&
-            cleanupGreen
+            pauseSnapshot.workerFailure == null && !pauseSnapshot.workerAlive && cleanupGreen
         connection.close()
         milestone(
             "directDsd=close reason=$reason completed=$finalCompleted error=$finalError underrun=$underrun " +
@@ -230,14 +275,65 @@ private class UsbDirectDsdTransportSession private constructor(
                 "feederStaged=${feederSnapshot.stagedCarrierBytes.size} feederPending=${feederSnapshot.upstreamPendingPackedCarrierBytes} " +
                 "feederError=${feederSnapshot.contractError} nativeDestroyed=$nativeDestroyed altRestored=$altRestored " +
                 "clockRestored=$clockRestored streamingReleased=$streamingReleased controlReleased=$controlReleased " +
-                "reconnectErrno=$reconnectErrno driversBound=$driversBound cleanupGreen=$cleanupGreen transportGreen=$transportGreen",
+                "reconnectErrno=$reconnectErrno driversBound=$driversBound gapEver=$gapLivenessEverStarted " +
+                "gapPhase=${pauseSnapshot.phase} gapWorkerAlive=${pauseSnapshot.workerAlive} " +
+                "gapFailure=${pauseSnapshot.workerFailure} cleanupGreen=$cleanupGreen transportGreen=$transportGreen",
         )
         milestone("directDsd=result status=${if (transportGreen) "PASS" else "FAIL"} reason=$reason")
     }
 
     override fun close() {
         if (closed) return
+        val pauseFailure = runCatching { pauseLiveness.stopGapAndJoin() }.exceptionOrNull()
+        val drainFailure = if (pauseFailure == null) {
+            runCatching { drainCommittedCarrierBeforeClose() }.exceptionOrNull()
+        } else {
+            null
+        }
+        val livenessCloseFailure = runCatching { pauseLiveness.closeAndJoin() }.exceptionOrNull()
         UsbOutputRuntime.owner.release(this, "renderer-close")
+        pauseFailure?.let { throw it }
+        drainFailure?.let { throw it }
+        livenessCloseFailure?.let { throw it }
+    }
+
+    /** Drains only already-accepted carrier output; it never accepts new CONTENT or GAP source. */
+    private fun drainCommittedCarrierBeforeClose() {
+        pauseLiveness.withContentWriter {
+            val clean = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+                lease.ensureCurrent()
+                val deadlineMs = SystemClock.elapsedRealtime() + CLOSE_DRAIN_TIMEOUT_MS
+                var drained = false
+                while (true) {
+                    val snapshot = feeder.snapshot()
+                    snapshot.contractError?.let { error("feeder contract failed before close: $it") }
+                    if (snapshot.stagedCarrierBytes.isEmpty() && snapshot.upstreamPendingPackedCarrierBytes == 0) {
+                        drained = true
+                        break
+                    }
+                    check(UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) == 0) {
+                        "Native exact transport failed while draining close tail"
+                    }
+                    val result = feeder.pump()
+                    check(result.status != ExactCarrierFeedStatus.FAILED && result.error == null) {
+                        "ExactCarrierFeeder failed draining close tail ${result.error}"
+                    }
+                    if (result.sinkBytesAccepted == 0 && result.carrierBytesFlushedFromSession == 0) {
+                        check(SystemClock.elapsedRealtime() < deadlineMs) {
+                            "Timed out draining committed Direct DSD carrier tail"
+                        }
+                        Thread.sleep(1L)
+                    }
+                }
+                drained
+            } ?: error("Direct DSD USB session became stale while draining close tail")
+            check(clean)
+        }
+        val snapshot = feeder.snapshot()
+        milestone(
+            "directDsd=close-drain staged=${snapshot.stagedCarrierBytes.size} " +
+                "upstreamPending=${snapshot.upstreamPendingPackedCarrierBytes} error=${snapshot.contractError}",
+        )
     }
 
     private fun maybeMarkStartupPrefillReady(lease: UsbOutputRequestLease) {
@@ -282,6 +378,78 @@ private class UsbDirectDsdTransportSession private constructor(
         check(armed)
     }
 
+    private data class CarrierSnapshot(
+        val bufferedFrames: Long,
+        val completedFrames: Long,
+        val errorCode: Int,
+        val contentPacked: Long,
+        val idlePacked: Long,
+    )
+
+    private fun currentCarrierSnapshot(label: String): CarrierSnapshot =
+        pauseLiveness.withContentWriter {
+            UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+                lease.ensureCurrent()
+                val error = UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle)
+                check(error == 0) { "Native exact transport failed at $label error=$error" }
+                val accounting = carrierSession.accounting()
+                CarrierSnapshot(
+                    bufferedFrames = UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle),
+                    completedFrames = UsbSk02NativePrototype.getMedia3CompletedFrames(nativeHandle),
+                    errorCode = error,
+                    contentPacked = accounting.contentRuntimeFramesPacked,
+                    idlePacked = accounting.idleRuntimeFramesPacked,
+                )
+            } ?: error("Direct DSD USB session became stale at $label")
+        }
+
+    private fun runGapLivenessStep(): Long {
+        check(!closed) { "GAP worker after close" }
+        return UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            lease.ensureCurrent()
+            val error = UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle)
+            check(error == 0) { "Native exact transport failed during GAP error=$error" }
+            val beforeBuffered = UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
+            check(beforeBuffered >= 0L)
+            if (!gapRefillActive && bufferPolicy.shouldBeginRefill(beforeBuffered)) {
+                gapRefillActive = true
+            }
+
+            if (gapRefillActive) {
+                val requestFrames = bufferPolicy.refillRequestFrames(beforeBuffered, GAP_WRITE_REQUEST_FRAMES)
+                if (requestFrames > 0) {
+                    val result = feeder.writeGapFrames(requestFrames)
+                    check(result.status != ExactCarrierFeedStatus.FAILED && result.error == null) {
+                        "ExactCarrierFeeder GAP failed ${result.error}"
+                    }
+                    check(result.blockedReason == null) {
+                        "Direct DSD GAP blocked by accepted source state ${result.blockedReason}"
+                    }
+                }
+                val afterBuffered = UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
+                if (afterBuffered >= bufferPolicy.highWatermarkFrames) {
+                    gapRefillActive = false
+                }
+            }
+
+            publishGapProgressIfDue()
+            if (gapRefillActive) 0L else GAP_POLL_INTERVAL_MS
+        } ?: error("Direct DSD USB session became stale during GAP")
+    }
+
+    private fun publishGapProgressIfDue() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastGapMilestoneMs < 250L) return
+        lastGapMilestoneMs = now
+        val accounting = carrierSession.accounting()
+        milestone(
+            "directDsd=gap-progress elapsedMs=$now completed=${UsbSk02NativePrototype.getMedia3CompletedFrames(nativeHandle)} " +
+                "buffered=${UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)} " +
+                "error=${UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle)} " +
+                "contentPacked=${accounting.contentRuntimeFramesPacked} idlePacked=${accounting.idleRuntimeFramesPacked} " +
+                "refillActive=$gapRefillActive",
+        )
+    }
     private fun publishProgressIfDue() {
         if (!playbackArmed) return
         val now = SystemClock.elapsedRealtime()
@@ -297,6 +465,10 @@ private class UsbDirectDsdTransportSession private constructor(
     }
 
     companion object {
+        private const val GAP_WRITE_REQUEST_FRAMES = 4_096
+        private const val GAP_POLL_INTERVAL_MS = 5L
+        private const val CLOSE_DRAIN_TIMEOUT_MS = 250L
+
         fun open(
             context: Context,
             device: UsbDevice,
@@ -407,18 +579,31 @@ private class UsbDirectDsdTransportSession private constructor(
                 val capacityFrames = UsbSk02NativePrototype.getMedia3BufferCapacityFrames(nativeHandle)
                 check(requiredBytes > 0 && requiredFrames > 0 && capacityFrames >= requiredFrames)
                 check(requiredBytes == requiredFrames * plan.bytesPerRuntimeFrame)
+                val bufferPolicy = UsbDirectDsdBufferPolicy.create(
+                    carrierRateHz = plan.runtimeFrameRateHz,
+                    requiredPrefillFrames = requiredFrames,
+                    capacityFrames = capacityFrames,
+                )
                 val underArm = UsbSk02NativePrototype.armExactCarrierSession(nativeHandle)
                 check(underArm == UsbExactCarrierArmResult.RETRY_INSUFFICIENT_PREFILL)
                 milestone(
                     "directDsd=native dormant=true requiredBytes=$requiredBytes requiredFrames=$requiredFrames " +
-                        "capacityFrames=$capacityFrames underArm=$underArm",
+                        "capacityFrames=$capacityFrames highWatermark=${bufferPolicy.highWatermarkFrames} " +
+                        "lowWatermark=${bufferPolicy.lowWatermarkFrames} underArm=$underArm",
                 )
 
                 val carrierSession = DoPCarrierSession(plan)
                 val handleForSink = nativeHandle
                 val sink = UsbDoPIdleNativeSink(plan.bytesPerRuntimeFrame) { buffer, length ->
                     lease.ensureCurrent()
-                    UsbSk02NativePrototype.writeMedia3Stream(handleForSink, buffer, 0, length)
+                    val bufferedFrames = UsbSk02NativePrototype.getMedia3BufferedFrames(handleForSink)
+                    check(bufferedFrames >= 0L) { "Native exact buffered-frame query failed" }
+                    val allowedBytes = bufferPolicy.allowedSinkBytes(
+                        bufferedFrames = bufferedFrames,
+                        requestedBytes = length,
+                        bytesPerRuntimeFrame = plan.bytesPerRuntimeFrame,
+                    )
+                    if (allowedBytes == 0) 0 else UsbSk02NativePrototype.writeMedia3Stream(handleForSink, buffer, 0, allowedBytes)
                 }
                 val feeder = ExactCarrierFeeder(carrierSession, sink, stagingFrameCapacity = 4_096)
                 return UsbDirectDsdTransportSession(
@@ -433,6 +618,7 @@ private class UsbDirectDsdTransportSession private constructor(
                     originalClockHz = checkNotNull(originalClockHz),
                     nativeHandle = nativeHandle,
                     requiredPrefillFrames = requiredFrames,
+                    bufferPolicy = bufferPolicy,
                     carrierSession = carrierSession,
                     feeder = feeder,
                     milestone = milestone,

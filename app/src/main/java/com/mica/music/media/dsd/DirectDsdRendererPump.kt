@@ -20,6 +20,12 @@ interface DirectDsdTransportSession : AutoCloseable {
 
     fun armPlayback()
 
+    /** Starts chronology-safe carrier liveness while Media3 is logically paused. */
+    fun startPauseGapLiveness()
+
+    /** Stops and joins pause carrier liveness before Media3 resumes source delivery. */
+    fun stopPauseGapLiveness()
+
     /** Returns true only when end-of-stream state is clean and transport can finish. */
     fun finishEndOfStream(): Boolean
 }
@@ -104,6 +110,16 @@ class DirectDsdRendererPump(
     fun armPlayback() {
         check(!closed) { "arm after pump close" }
         session.armPlayback()
+    }
+
+    fun startPauseGapLiveness() {
+        check(!closed) { "pause-gap start after pump close" }
+        session.startPauseGapLiveness()
+    }
+
+    fun stopPauseGapLiveness() {
+        check(!closed) { "pause-gap stop after pump close" }
+        session.stopPauseGapLiveness()
     }
 
     fun snapshot(): DirectDsdRendererPumpSnapshot = DirectDsdRendererPumpSnapshot(

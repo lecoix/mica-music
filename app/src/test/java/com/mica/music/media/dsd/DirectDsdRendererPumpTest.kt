@@ -97,8 +97,8 @@ class DirectDsdRendererPumpTest {
         assertEquals(1, transport.armCalls)
     }
     @Test
-    fun armedPumpCloseIsIdempotentAndCannotResumeWithoutRebuild() {
-        val transport = FakeSession(facts, intArrayOf(), startupReadyAfterBytes = 0)
+    fun armedPumpPauseGapRetainsPendingPacketAndResumeDrainsExactTail() {
+        val transport = FakeSession(facts, intArrayOf(1, 99), startupReadyAfterBytes = 0)
         val pump = DirectDsdRendererPump(facts, transport)
         assertTrue(pump.isStartupPrefillReady())
         assertFalse(pump.isPlaybackArmed())
@@ -107,18 +107,36 @@ class DirectDsdRendererPumpTest {
         assertTrue(pump.isPlaybackArmed())
         assertEquals(1, transport.armCalls)
 
+        val packet = byteArrayOf(reverse(0x10), reverse(0x20))
+        pump.offerExtractorPacket(packet, timeUs = 44)
+        assertEquals(1, pump.pump().canonicalBytesConsumed)
+        assertEquals(1, pump.snapshot().pendingCanonicalBytes)
+
+        pump.startPauseGapLiveness()
+        assertTrue(transport.gapActive)
+        assertEquals(1, transport.gapStartCalls)
+        assertEquals(1, pump.snapshot().pendingCanonicalBytes)
+        assertEquals(1, transport.writeCalls)
+
+        pump.stopPauseGapLiveness()
+        assertFalse(transport.gapActive)
+        assertEquals(1, transport.gapStopCalls)
+        assertEquals(1, pump.pump().canonicalBytesConsumed)
+        assertEquals(0, pump.snapshot().pendingCanonicalBytes)
+        assertArrayEquals(byteArrayOf(0x10, 0x20), transport.committed.toByteArray())
+    }
+
+    @Test
+    fun closeAfterPauseResumeIsIdempotent() {
+        val transport = FakeSession(facts, intArrayOf(), startupReadyAfterBytes = 0)
+        val pump = DirectDsdRendererPump(facts, transport)
+        pump.armPlayback()
+        pump.startPauseGapLiveness()
+        pump.stopPauseGapLiveness()
+
         pump.close()
         pump.close()
         assertEquals(1, transport.closeCalls)
-
-        var resumeFailed = false
-        try {
-            pump.armPlayback()
-        } catch (_: IllegalStateException) {
-            resumeFailed = true
-        }
-        assertTrue(resumeFailed)
-        assertEquals(1, transport.armCalls)
     }
 
     @Test
@@ -153,9 +171,13 @@ class DirectDsdRendererPumpTest {
         val committed = java.io.ByteArrayOutputStream()
         var writeCalls = 0
         var armCalls = 0
+        var gapStartCalls = 0
+        var gapStopCalls = 0
+        var gapActive = false
         var closeCalls = 0
 
         override fun writeCanonical(bytes: ByteArray, offset: Int, byteCount: Int): DirectDsdTransportWriteResult {
+            check(!gapActive) { "CONTENT write while GAP owns transport" }
             val limit = limits.getOrElse(writeCalls) { Int.MAX_VALUE }
             writeCalls++
             val consumed = minOf(byteCount, limit)
@@ -169,6 +191,20 @@ class DirectDsdRendererPumpTest {
             check(!playbackArmed) { "already armed" }
             armCalls++
             playbackArmed = true
+        }
+
+        override fun startPauseGapLiveness() {
+            check(playbackArmed) { "GAP before arm" }
+            check(!gapActive) { "GAP already active" }
+            gapStartCalls++
+            gapActive = true
+        }
+
+        override fun stopPauseGapLiveness() {
+            check(playbackArmed) { "GAP stop before arm" }
+            check(gapActive) { "GAP not active" }
+            gapStopCalls++
+            gapActive = false
         }
 
         override fun finishEndOfStream(): Boolean =

@@ -84,7 +84,7 @@ class DirectDsdMedia3Renderer(
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
     private var ended = false
-    private var resumeBlockedAfterStop = false
+    private var pauseGapActive = false
     private var sampleCount = 0L
     private var lastSampleMilestoneTimeUs = Long.MIN_VALUE
     private var renderInvocationCount = 0L
@@ -103,7 +103,7 @@ class DirectDsdMedia3Renderer(
         }
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
-        if (ended || resumeBlockedAfterStop) return
+        if (ended || pauseGapActive) return
         try {
             renderInvocationCount++
             val drain = drainLoop.drain { renderDrainStep(positionUs) }
@@ -219,19 +219,28 @@ class DirectDsdMedia3Renderer(
     }
 
     override fun isReady(): Boolean =
-        !ended && !resumeBlockedAfterStop && (pump?.isStartupPrefillReady() == true) &&
+        !ended && (pump?.isStartupPrefillReady() == true) &&
             ((pump?.snapshot()?.pendingCanonicalBytes ?: 0) > 0 || isSourceReady() || inputEosSeen)
 
     override fun isEnded(): Boolean = ended
 
     override fun onStarted() {
         try {
-            check(!resumeBlockedAfterStop) { "Direct DSD resume requires renderer rebuild" }
             val active = checkNotNull(pump) { "Direct DSD renderer started before transport prepare" }
-            check(active.isStartupPrefillReady()) { "Direct DSD renderer started before startup prefill" }
-            active.armPlayback()
-            check(active.isPlaybackArmed())
-            milestone("renderer=started armed=true")
+            if (active.isPlaybackArmed()) {
+                active.stopPauseGapLiveness()
+                check(active.isPlaybackArmed())
+                pauseGapActive = false
+                milestone(
+                    "renderer=started armed=true resumed=true samples=$sampleCount " +
+                        "lastSampleTimeUs=$lastSampleMilestoneTimeUs",
+                )
+            } else {
+                check(active.isStartupPrefillReady()) { "Direct DSD renderer started before startup prefill" }
+                active.armPlayback()
+                check(active.isPlaybackArmed())
+                milestone("renderer=started armed=true resumed=false")
+            }
         } catch (error: Throwable) {
             throw createRendererException(
                 error,
@@ -242,19 +251,32 @@ class DirectDsdMedia3Renderer(
     }
 
     override fun onStopped() {
-        val active = pump
-        val wasArmed = active?.isPlaybackArmed() == true
-        if (wasArmed) {
-            closePump("stopped-after-arm")
-            resumeBlockedAfterStop = true
+        try {
+            val active = pump
+            val wasArmed = active?.isPlaybackArmed() == true
+            val gapStarted = wasArmed && !ended
+            if (gapStarted) {
+                pauseGapActive = true
+                checkNotNull(active).startPauseGapLiveness()
+            }
+            milestone(
+                "renderer=stopped armed=$wasArmed gapStarted=$gapStarted samples=$sampleCount " +
+                    "lastSampleTimeUs=$lastSampleMilestoneTimeUs",
+            )
+        } catch (error: Throwable) {
+            throw createRendererException(
+                error,
+                currentFormat,
+                PlaybackException.ERROR_CODE_UNSPECIFIED,
+            )
         }
-        milestone("renderer=stopped armed=$wasArmed resumeBlocked=$resumeBlockedAfterStop")
     }
 
     override fun onPositionReset(positionUs: Long, joining: Boolean, isPlaying: Boolean) {
         closePump("position-reset:$positionUs")
         inputEosSeen = false
         ended = false
+        pauseGapActive = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
         renderInvocationCount = 0L
@@ -267,7 +289,7 @@ class DirectDsdMedia3Renderer(
         currentFormat = null
         inputEosSeen = false
         ended = false
-        resumeBlockedAfterStop = false
+        pauseGapActive = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
         renderInvocationCount = 0L
@@ -280,7 +302,7 @@ class DirectDsdMedia3Renderer(
         currentFormat = null
         inputEosSeen = false
         ended = false
-        resumeBlockedAfterStop = false
+        pauseGapActive = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
         renderInvocationCount = 0L
