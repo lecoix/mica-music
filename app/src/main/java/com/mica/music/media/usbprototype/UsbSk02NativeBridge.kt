@@ -69,6 +69,15 @@ internal enum class UsbNativePayloadPolicy(val nativeValue: Int) {
     EXACT_FRAMES_ONLY(1),
 }
 
+/** Retryable/terminal result codes for the non-production exact-carrier activation seam. */
+internal object UsbExactCarrierArmResult {
+    const val RETRY_INSUFFICIENT_PREFILL = 0
+    const val ARMED = 1
+    const val ALREADY_ARMED = 2
+    const val NOT_EXACT_SESSION = -1
+    const val STOPPED_OR_FAILED = -2
+}
+
 /** JNI surface shared by Debug, Perf, and Release SK02 output providers. */
 internal object UsbSk02NativePrototype {
     init {
@@ -148,6 +157,10 @@ internal object UsbSk02NativePrototype {
         length: Int,
     ): Int
     external fun setMedia3StreamPlaying(handle: Long, playing: Boolean)
+    external fun getExactCarrierStartupPrefillBytes(handle: Long): Long
+    external fun getExactCarrierStartupPrefillFrames(handle: Long): Long
+    external fun armExactCarrierSession(handle: Long): Int
+    external fun isExactCarrierSessionArmed(handle: Long): Boolean
     external fun getMedia3CompletedFrames(handle: Long): Long
     external fun getMedia3BufferedFrames(handle: Long): Long
     external fun getMedia3BufferCapacityFrames(handle: Long): Long

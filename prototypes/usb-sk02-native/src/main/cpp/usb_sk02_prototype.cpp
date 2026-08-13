@@ -26,6 +26,7 @@
 
 #include "usb_underrun_accounting.h"
 #include "usb_payload_policy.h"
+#include "usb_exact_carrier_activation.h"
 #include "sk02_feedback_profile.h"
 #include "sk02_feedback_rate_filter.h"
 #include "sk02_iso_ahead_window.h"
@@ -297,7 +298,23 @@ public:
                   static_cast<size_t>(transport_config.bytes_per_runtime_frame) * 2U,
               0) {
         if (!transport.valid()) throw std::invalid_argument("invalid USB transport config");
-        worker = std::thread(&Media3StreamSession::run, this);
+        const bool exact_frames_only =
+            payload_policy == mica::usb::payload::Policy::ExactFramesOnly;
+        if (!mica::usb::activation::worker_starts_on_construction(exact_frames_only)) {
+            const auto startup_bound = mica::usb::activation::calculate_startup_prefill_bound(
+                transport.data_queue_depth,
+                transport.packets_per_transfer,
+                transport.max_bytes_per_data_service_interval,
+                transport.bytes_per_runtime_frame,
+                static_cast<std::uint64_t>(ring.size()));
+            if (!startup_bound.valid) {
+                throw std::invalid_argument("invalid exact-carrier startup prefill geometry");
+            }
+            exact_activation.emplace(startup_bound);
+        } else {
+            // Preserve historical PCM lifecycle exactly: construction starts the worker immediately.
+            worker = std::thread(&Media3StreamSession::run, this);
+        }
     }
 
     ~Media3StreamSession() {
@@ -371,6 +388,11 @@ public:
     }
 
     void set_playing(const bool value) {
+        if (payload_policy == mica::usb::payload::Policy::ExactFramesOnly) {
+            // Exact carrier activation is intentionally not Media3 logical play/pause. Once armed,
+            // higher layers must keep supplying valid carrier frames (including valid gap frames).
+            return;
+        }
         const bool previous = playing.exchange(value, std::memory_order_acq_rel);
         if (value && !previous) {
             {
@@ -389,6 +411,54 @@ public:
         condition.notify_all();
     }
 
+    long long required_exact_startup_prefill_bytes_value() const {
+        std::lock_guard<std::mutex> guard(mutex);
+        if (!exact_activation.has_value()) return -1;
+        return static_cast<long long>(exact_activation->bound.required_bytes);
+    }
+
+    long long required_exact_startup_prefill_frames_value() const {
+        std::lock_guard<std::mutex> guard(mutex);
+        if (!exact_activation.has_value()) return -1;
+        return static_cast<long long>(exact_activation->bound.required_frames);
+    }
+
+    int arm_exact_carrier() {
+        std::lock_guard<std::mutex> lifecycle_guard(worker_lifecycle_mutex);
+        std::lock_guard<std::mutex> guard(mutex);
+        if (!exact_activation.has_value()) return -1;
+        const auto decision = exact_activation->evaluate_arm(
+            static_cast<std::uint64_t>(ring_size),
+            stop_requested.load(std::memory_order_acquire) ||
+                shutdown_started.load(std::memory_order_acquire) || !is_current(),
+            error_code.load(std::memory_order_acquire));
+        switch (decision) {
+            case mica::usb::activation::ArmDecision::RetryInsufficientPrefill:
+                return 0;
+            case mica::usb::activation::ArmDecision::AlreadyArmed:
+                return 2;
+            case mica::usb::activation::ArmDecision::StoppedOrFailed:
+                return -2;
+            case mica::usb::activation::ArmDecision::Accepted:
+                break;
+        }
+
+        exact_transport_armed.store(true, std::memory_order_release);
+        try {
+            worker = std::thread(&Media3StreamSession::run, this);
+        } catch (...) {
+            exact_transport_armed.store(false, std::memory_order_release);
+            error_code.store(EAGAIN, std::memory_order_release);
+            return -2;
+        }
+        exact_activation->mark_armed();
+        return 1;
+    }
+
+    bool exact_carrier_armed_value() const {
+        return exact_transport_armed.load(std::memory_order_acquire);
+    }
+
     void flush() {
         // The Java owner recreates the native session after this call. Keeping flush here bounded
         // makes a direct call safe and prevents any new source data from entering the old queue.
@@ -400,6 +470,7 @@ public:
         if (shutdown_started.compare_exchange_strong(expected, true)) {
             stop_requested.store(true, std::memory_order_release);
             condition.notify_all();
+            std::lock_guard<std::mutex> lifecycle_guard(worker_lifecycle_mutex);
             if (worker.joinable()) worker.join();
         }
     }
@@ -589,8 +660,11 @@ private:
 
     SourceTakeResult take_source(unsigned char* target, const size_t requested) {
         std::lock_guard<std::mutex> guard(mutex);
-        const bool playing_when_taken = playing.load(std::memory_order_acquire);
-        if (!playing_when_taken) return {0, false};
+        const bool source_flow_active = mica::usb::activation::source_flow_active(
+            payload_policy == mica::usb::payload::Policy::ExactFramesOnly,
+            playing.load(std::memory_order_acquire),
+            exact_transport_armed.load(std::memory_order_acquire));
+        if (!source_flow_active) return {0, false};
         const size_t available = std::min(requested, ring_size);
         const size_t aligned = available - available % static_cast<size_t>(transport.bytes_per_runtime_frame);
         for (size_t index = 0; index < aligned; ++index) {
@@ -653,7 +727,7 @@ private:
             }
         }
 
-        {
+        if (payload_policy == mica::usb::payload::Policy::PcmZeroFill) {
             std::unique_lock<std::mutex> guard(mutex);
             const size_t prebuffer = static_cast<size_t>(transport.nominal_runtime_frame_rate_hz) *
                 static_cast<size_t>(transport.bytes_per_runtime_frame) / 20U;
@@ -1040,13 +1114,16 @@ private:
     const mica::usb::payload::Policy payload_policy;
     const long long expected_generation;
     mutable std::mutex mutex;
+    std::mutex worker_lifecycle_mutex;
     std::condition_variable condition;
     std::vector<unsigned char> ring;
+    std::optional<mica::usb::activation::ExactCarrierActivationGate> exact_activation;
     size_t ring_head = 0;
     size_t ring_tail = 0;
     size_t ring_size = 0;
     size_t in_flight_source_bytes = 0;
     std::atomic<bool> playing{false};
+    std::atomic<bool> exact_transport_armed{false};
     std::atomic<bool> stop_requested{false};
     std::atomic<bool> shutdown_started{false};
     std::atomic<int> error_code{0};
@@ -1606,6 +1683,42 @@ Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_setMedia3StreamPla
     jboolean playing) {
     auto* session = reinterpret_cast<Media3StreamSession*>(handle);
     if (session != nullptr) session->set_playing(playing == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getExactCarrierStartupPrefillBytes(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? -1 : session->required_exact_startup_prefill_bytes_value();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_getExactCarrierStartupPrefillFrames(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? -1 : session->required_exact_startup_prefill_frames_value();
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_armExactCarrierSession(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session == nullptr ? -2 : session->arm_exact_carrier();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_mica_music_media_usbprototype_UsbSk02NativePrototype_isExactCarrierSessionArmed(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    auto* session = reinterpret_cast<Media3StreamSession*>(handle);
+    return session != nullptr && session->exact_carrier_armed_value() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jlong JNICALL
