@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import androidx.media3.decoder.ffmpeg.FfmpegRendererSupportProbe
 import com.mica.music.data.PlaybackTuning
+import com.mica.music.media.dsd.DirectDsdPrototypeRendererLoader
 import java.util.ArrayList
 
 @UnstableApi
@@ -128,6 +129,7 @@ internal class MicaRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
+        DirectDsdPrototypeRendererLoader.create(context)?.let(out::add)
         out.add(
             FfmpegAudioRenderer(
                 eventHandler,

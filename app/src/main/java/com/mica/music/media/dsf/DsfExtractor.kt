@@ -17,8 +17,9 @@ import java.io.IOException
 /**
  * Media3 progressive extractor for Sony DSF (`.dsf`) files.
  *
- * Outputs interleaved 1-bit DSD payload bytes for a downstream FFmpeg renderer.
- * Header parsing is validated against [DsfHeaderReader].
+ * Outputs channel-planar DSF payload packets for a downstream renderer. Full packets preserve the
+ * on-disk per-channel block layout; the final packet compacts each channel's valid tail while
+ * preserving that planar shape. Header parsing is validated against [DsfHeaderReader].
  */
 @UnstableApi
 class DsfExtractor : Extractor {
@@ -89,6 +90,7 @@ class DsfExtractor : Extractor {
         .setChannelCount(parsed.channelCount)
         // FFmpeg's DSD decoder emits one float PCM sample per packed DSD byte.
         .setSampleRate(parsed.decoderSampleRateHz)
+        .setCustomData(DsfExtractorPacketFacts.fromFormat(parsed))
         .setAverageBitrate(
             (parsed.sampleRateHz.toLong() * parsed.channelCount * parsed.bitsPerSample).toInt(),
         )

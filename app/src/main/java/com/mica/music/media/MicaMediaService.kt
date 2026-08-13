@@ -342,6 +342,7 @@ class MicaMediaService : MediaSessionService() {
                     .apply {
                         if (BuildConfig.DEBUG && controller.packageName == packageName) {
                             add(UsbOutputRebuildSessionCommand.command)
+                            add(DirectDsdPrototypeSessionCommand.command)
                         }
                     }
                     .build()
@@ -389,6 +390,13 @@ class MicaMediaService : MediaSessionService() {
                     controller.packageName == packageName
                 ) {
                     scheduleOutputPathRebuild(args)
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                if (customCommand.customAction == DirectDsdPrototypeSessionCommand.ACTION &&
+                    BuildConfig.DEBUG &&
+                    controller.packageName == packageName
+                ) {
+                    scheduleDirectDsdPrototypeRebuild(args)
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 if (!ControllerCapabilityPolicy.allowsIncomingCustomAction(
@@ -751,6 +759,45 @@ class MicaMediaService : MediaSessionService() {
                         UsbOutputRebuildSessionCommand.EXTRA_GENERATION,
                         result.generation,
                     ),
+            )
+        }
+    }
+
+    private fun scheduleDirectDsdPrototypeRebuild(args: Bundle) {
+        val enabled = args.getBoolean(DirectDsdPrototypeSessionCommand.EXTRA_ENABLED, false)
+        mainHandler.post {
+            val previous = runCatching { DirectDsdPrototypeControl.isEnabled(this) }.getOrDefault(false)
+            var resultCode = SessionError.ERROR_UNKNOWN
+            var generation = -1L
+            if (activeOutputPath.outputMode == PlaybackOutputMode.SharedPcm &&
+                (!enabled || UsbOutputRuntime.owner.facts.phase == com.mica.music.media.usb.UsbOutputPhase.IDLE)
+            ) {
+                val rebuilt = runCatching {
+                    DirectDsdPrototypeControl.setEnabled(this, enabled)
+                    outputRebuildCoordinator.rebuild(activeOutputPath)
+                }.getOrElse {
+                    runCatching { DirectDsdPrototypeControl.setEnabled(this, previous) }
+                    null
+                }
+                if (rebuilt != null) {
+                    generation = rebuilt.generation
+                    resultCode = if (rebuilt is PlaybackOutputRebuildResult.Published) {
+                        SessionResult.RESULT_SUCCESS
+                    } else {
+                        runCatching { DirectDsdPrototypeControl.setEnabled(this, previous) }
+                        SessionError.ERROR_UNKNOWN
+                    }
+                }
+            }
+            DiagnosticLog.event(
+                "DirectDsdPrototype",
+                "rebuild enabled=$enabled previous=$previous resultCode=$resultCode generation=$generation output=${activeOutputPath.outputMode}",
+            )
+            sendBroadcast(
+                Intent(DirectDsdPrototypeSessionCommand.resultAction(packageName))
+                    .setPackage(packageName)
+                    .putExtra(DirectDsdPrototypeSessionCommand.EXTRA_ENABLED, enabled)
+                    .putExtra(DirectDsdPrototypeSessionCommand.EXTRA_RESULT_CODE, resultCode),
             )
         }
     }

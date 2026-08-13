@@ -13,6 +13,14 @@
             </intent-filter>
         </provider>
 
+        <!-- PROTOTYPE: debug-only ADB control plane; data still flows through the existing MediaSession/Exo stack. -->
+        <receiver
+            android:name=".media.usbprototype.UsbDirectDsdPrototypeCommandReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="${applicationId}.debug.DIRECT_DSD_PROTOTYPE" />
+            </intent-filter>
+        </receiver>
         <!-- PROTOTYPE: debug-only, ADB-driven real-DSF DoP content staircase. -->
         <receiver
             android:name=".media.usbprototype.UsbDoPContentProbeReceiver"
