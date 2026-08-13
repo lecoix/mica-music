@@ -65,6 +65,63 @@ class DirectDsdRendererPumpTest {
     }
 
     @Test
+    fun startupPrefillBecomesReadyWithoutArmThenExplicitStartArmsOnce() {
+        val transport = FakeSession(
+            facts,
+            limits = intArrayOf(2, 99),
+            startupReadyAfterBytes = 6,
+        )
+        val pump = DirectDsdRendererPump(facts, transport)
+        pump.offerExtractorPacket(
+            byteArrayOf(
+                reverse(0x10), reverse(0x11), reverse(0x12),
+                reverse(0x20), reverse(0x21), reverse(0x22),
+            ),
+            timeUs = 33,
+        )
+
+        assertFalse(pump.isStartupPrefillReady())
+        assertFalse(pump.isPlaybackArmed())
+        assertEquals(0, transport.armCalls)
+        assertEquals(2, pump.pump().canonicalBytesConsumed)
+        assertFalse(pump.isStartupPrefillReady())
+        assertEquals(0, transport.armCalls)
+
+        assertEquals(4, pump.pump().canonicalBytesConsumed)
+        assertTrue(pump.isStartupPrefillReady())
+        assertFalse(pump.isPlaybackArmed())
+        assertEquals(0, transport.armCalls)
+
+        pump.armPlayback()
+        assertTrue(pump.isPlaybackArmed())
+        assertEquals(1, transport.armCalls)
+    }
+    @Test
+    fun armedPumpCloseIsIdempotentAndCannotResumeWithoutRebuild() {
+        val transport = FakeSession(facts, intArrayOf(), startupReadyAfterBytes = 0)
+        val pump = DirectDsdRendererPump(facts, transport)
+        assertTrue(pump.isStartupPrefillReady())
+        assertFalse(pump.isPlaybackArmed())
+
+        pump.armPlayback()
+        assertTrue(pump.isPlaybackArmed())
+        assertEquals(1, transport.armCalls)
+
+        pump.close()
+        pump.close()
+        assertEquals(1, transport.closeCalls)
+
+        var resumeFailed = false
+        try {
+            pump.armPlayback()
+        } catch (_: IllegalStateException) {
+            resumeFailed = true
+        }
+        assertTrue(resumeFailed)
+        assertEquals(1, transport.armCalls)
+    }
+
+    @Test
     fun endRequiresTailDrainedAndSessionCleanThenCloseIsIdempotent() {
         val transport = FakeSession(facts, intArrayOf(0, 99), finishResults = ArrayDeque(listOf(false, true)))
         val pump = DirectDsdRendererPump(facts, transport)
@@ -87,10 +144,15 @@ class DirectDsdRendererPumpTest {
         override val facts: DsfExtractorPacketFacts,
         private val limits: IntArray,
         private val finishResults: ArrayDeque<Boolean> = ArrayDeque(listOf(true)),
+        private val startupReadyAfterBytes: Int = 0,
     ) : DirectDsdTransportSession {
-        override val playbackArmed: Boolean = true
+        override var startupPrefillReady: Boolean = startupReadyAfterBytes == 0
+            private set
+        override var playbackArmed: Boolean = false
+            private set
         val committed = java.io.ByteArrayOutputStream()
         var writeCalls = 0
+        var armCalls = 0
         var closeCalls = 0
 
         override fun writeCanonical(bytes: ByteArray, offset: Int, byteCount: Int): DirectDsdTransportWriteResult {
@@ -98,7 +160,15 @@ class DirectDsdRendererPumpTest {
             writeCalls++
             val consumed = minOf(byteCount, limit)
             if (consumed > 0) committed.write(bytes, offset, consumed)
+            if (committed.size() >= startupReadyAfterBytes) startupPrefillReady = true
             return DirectDsdTransportWriteResult(consumed)
+        }
+
+        override fun armPlayback() {
+            check(startupPrefillReady) { "arm before startup ready" }
+            check(!playbackArmed) { "already armed" }
+            armCalls++
+            playbackArmed = true
         }
 
         override fun finishEndOfStream(): Boolean =

@@ -37,6 +37,7 @@ class DirectDsdMedia3Renderer(
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
     private var ended = false
+    private var resumeBlockedAfterStop = false
     private var sampleCount = 0L
     private var lastSampleMilestoneTimeUs = Long.MIN_VALUE
 
@@ -52,7 +53,7 @@ class DirectDsdMedia3Renderer(
         }
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
-        if (ended) return
+        if (ended || resumeBlockedAfterStop) return
         try {
             val activePump = pump
             if (activePump != null && !activePump.canAcceptPacket()) {
@@ -116,10 +117,37 @@ class DirectDsdMedia3Renderer(
     }
 
     override fun isReady(): Boolean =
-        !ended && (pump?.isTransportReadyForPlayback() == true) &&
+        !ended && !resumeBlockedAfterStop && (pump?.isStartupPrefillReady() == true) &&
             ((pump?.snapshot()?.pendingCanonicalBytes ?: 0) > 0 || isSourceReady() || inputEosSeen)
 
     override fun isEnded(): Boolean = ended
+
+    override fun onStarted() {
+        try {
+            check(!resumeBlockedAfterStop) { "Direct DSD resume requires renderer rebuild" }
+            val active = checkNotNull(pump) { "Direct DSD renderer started before transport prepare" }
+            check(active.isStartupPrefillReady()) { "Direct DSD renderer started before startup prefill" }
+            active.armPlayback()
+            check(active.isPlaybackArmed())
+            milestone("renderer=started armed=true")
+        } catch (error: Throwable) {
+            throw createRendererException(
+                error,
+                currentFormat,
+                PlaybackException.ERROR_CODE_UNSPECIFIED,
+            )
+        }
+    }
+
+    override fun onStopped() {
+        val active = pump
+        val wasArmed = active?.isPlaybackArmed() == true
+        if (wasArmed) {
+            closePump("stopped-after-arm")
+            resumeBlockedAfterStop = true
+        }
+        milestone("renderer=stopped armed=$wasArmed resumeBlocked=$resumeBlockedAfterStop")
+    }
 
     override fun onPositionReset(positionUs: Long, joining: Boolean, isPlaying: Boolean) {
         closePump("position-reset:$positionUs")
@@ -134,6 +162,7 @@ class DirectDsdMedia3Renderer(
         currentFormat = null
         inputEosSeen = false
         ended = false
+        resumeBlockedAfterStop = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
     }
@@ -143,6 +172,7 @@ class DirectDsdMedia3Renderer(
         currentFormat = null
         inputEosSeen = false
         ended = false
+        resumeBlockedAfterStop = false
         sampleCount = 0L
         lastSampleMilestoneTimeUs = Long.MIN_VALUE
     }

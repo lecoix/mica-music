@@ -66,6 +66,21 @@ class DirectDsdMedia3FormatPolicyTest {
         assertTrue(renderBody.contains("sessionFactory.open(facts)"))
     }
 
+    @Test
+    fun rendererLifecycleDefersArmUntilStartedAndBlocksResumeAfterStop() {
+        val source = File(
+            "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+        ).readText()
+
+        assertTrue(source.contains("pump?.isStartupPrefillReady() == true"))
+        assertTrue(source.contains("override fun onStarted()"))
+        assertTrue(source.contains("active.armPlayback()"))
+        assertTrue(source.contains("override fun onStopped()"))
+        assertTrue(source.contains("closePump(\"stopped-after-arm\")"))
+        assertTrue(source.contains("resumeBlockedAfterStop = true"))
+        assertTrue(source.contains("if (ended || resumeBlockedAfterStop) return"))
+    }
+
     private fun format(packetFacts: DsfExtractorPacketFacts): Format = Format.Builder()
         .setSampleMimeType(DsfFormat.MIME_DSF)
         .setContainerMimeType(DsfFormat.MIME_CONTAINER_DSF)

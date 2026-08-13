@@ -106,6 +106,9 @@ private class UsbDirectDsdTransportSession private constructor(
     private val milestone: (String) -> Unit,
 ) : DirectDsdTransportSession, UsbOutputSession {
     @Volatile
+    override var startupPrefillReady: Boolean = false
+        private set
+    @Volatile
     override var playbackArmed: Boolean = false
         private set
     private var closed = false
@@ -130,11 +133,18 @@ private class UsbDirectDsdTransportSession private constructor(
             check(result.status != ExactCarrierFeedStatus.FAILED && result.error == null) {
                 "ExactCarrierFeeder failed ${result.error}"
             }
-            maybeArm(lease)
+            maybeMarkStartupPrefillReady(lease)
             publishProgressIfDue()
             result.canonicalBytesConsumed
         } ?: error("Direct DSD USB session became stale")
         return DirectDsdTransportWriteResult(consumed)
+    }
+
+    override fun armPlayback() {
+        check(!closed) { "arm after close" }
+        check(startupPrefillReady) { "Direct DSD arm before startup prefill" }
+        check(!playbackArmed) { "Direct DSD playback already armed" }
+        armPlaybackWithOwner()
     }
 
     override fun finishEndOfStream(): Boolean {
@@ -230,24 +240,46 @@ private class UsbDirectDsdTransportSession private constructor(
         UsbOutputRuntime.owner.release(this, "renderer-close")
     }
 
-    private fun maybeArm(lease: UsbOutputRequestLease) {
-        if (playbackArmed) return
+    private fun maybeMarkStartupPrefillReady(lease: UsbOutputRequestLease) {
+        if (startupPrefillReady) return
         lease.ensureCurrent()
+        check(!playbackArmed) { "Direct DSD armed before startup readiness" }
+        check(!UsbSk02NativePrototype.isExactCarrierSessionArmed(nativeHandle)) {
+            "Native exact session armed during startup prefill"
+        }
         val buffered = UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
         if (buffered < requiredPrefillFrames) return
         val accounting = carrierSession.accounting()
         check(accounting.canonicalBytesConsumed > 0)
         check(accounting.contentRuntimeFramesPacked > 0)
         check(accounting.idleRuntimeFramesPacked == 0L)
+        startupPrefillReady = true
         milestone(
             "directDsd=prefill buffered=$buffered required=$requiredPrefillFrames canonical=${accounting.canonicalBytesConsumed} " +
-                "contentPacked=${accounting.contentRuntimeFramesPacked} idlePacked=${accounting.idleRuntimeFramesPacked}",
+                "contentPacked=${accounting.contentRuntimeFramesPacked} idlePacked=${accounting.idleRuntimeFramesPacked} armed=false",
         )
-        val arm = UsbSk02NativePrototype.armExactCarrierSession(nativeHandle)
-        check(arm == UsbExactCarrierArmResult.ARMED) { "Native exact arm failed result=$arm" }
-        check(UsbSk02NativePrototype.isExactCarrierSessionArmed(nativeHandle))
-        playbackArmed = true
-        milestone("directDsd=arm result=$arm armed=true")
+    }
+
+    private fun armPlaybackWithOwner() {
+        val armed = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            lease.ensureCurrent()
+            check(UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) == 0) { "Native exact transport failed before arm" }
+            val buffered = UsbSk02NativePrototype.getMedia3BufferedFrames(nativeHandle)
+            check(buffered >= requiredPrefillFrames) {
+                "Direct DSD startup prefill regressed buffered=$buffered required=$requiredPrefillFrames"
+            }
+            check(!playbackArmed) { "Direct DSD playback already armed" }
+            check(!UsbSk02NativePrototype.isExactCarrierSessionArmed(nativeHandle)) {
+                "Native exact session armed outside renderer STARTED lifecycle"
+            }
+            val arm = UsbSk02NativePrototype.armExactCarrierSession(nativeHandle)
+            check(arm == UsbExactCarrierArmResult.ARMED) { "Native exact arm failed result=$arm" }
+            check(UsbSk02NativePrototype.isExactCarrierSessionArmed(nativeHandle))
+            playbackArmed = true
+            milestone("directDsd=arm result=$arm armed=true")
+            true
+        } ?: error("Direct DSD USB session became stale before arm")
+        check(armed)
     }
 
     private fun publishProgressIfDue() {

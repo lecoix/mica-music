@@ -9,6 +9,7 @@ data class DirectDsdTransportWriteResult(
 
 interface DirectDsdTransportSession : AutoCloseable {
     val facts: DsfExtractorPacketFacts
+    val startupPrefillReady: Boolean
     val playbackArmed: Boolean
 
     fun writeCanonical(
@@ -16,6 +17,8 @@ interface DirectDsdTransportSession : AutoCloseable {
         offset: Int,
         byteCount: Int,
     ): DirectDsdTransportWriteResult
+
+    fun armPlayback()
 
     /** Returns true only when end-of-stream state is clean and transport can finish. */
     fun finishEndOfStream(): Boolean
@@ -94,7 +97,14 @@ class DirectDsdRendererPump(
 
     fun isEnded(): Boolean = ended
 
-    fun isTransportReadyForPlayback(): Boolean = session.playbackArmed
+    fun isStartupPrefillReady(): Boolean = session.startupPrefillReady
+
+    fun isPlaybackArmed(): Boolean = session.playbackArmed
+
+    fun armPlayback() {
+        check(!closed) { "arm after pump close" }
+        session.armPlayback()
+    }
 
     fun snapshot(): DirectDsdRendererPumpSnapshot = DirectDsdRendererPumpSnapshot(
         pendingCanonicalBytes = pendingBytes(),
