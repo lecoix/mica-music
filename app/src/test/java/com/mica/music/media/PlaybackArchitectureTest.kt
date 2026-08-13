@@ -28,21 +28,36 @@ class PlaybackArchitectureTest {
     }
 
     @Test
-    fun dsfIsSupportedAndDffIsRejected() {
-        val dsf = SongFixtures.song("dsf", container = "DSD", mime = "audio/x-dsf")
+    fun dsfIdentityUsesExplicitMimeThenFinalExtensionFallback() {
+        val normalDsf = SongFixtures.song("dsf", container = "DSD", mime = "audio/dsd")
             .copy(fileName = "track.dsf", filePath = "Music/track.dsf")
-        val dff = SongFixtures.song("dff", container = "DSD", mime = "audio/x-dsdiff")
+        val wrappedDsf = SongFixtures.song("wrapped-dsf", container = "DSD", mime = "audio/x-dsf")
+            .copy(fileName = "track.dsf.dsd", filePath = "Music/track.dsf.dsd")
+        val ambiguousDsd = SongFixtures.song("ambiguous-dsd", container = "DSD", mime = "audio/dsd")
+            .copy(fileName = "track.dsd", filePath = "Music/track.dsd")
+        val dsdiff = SongFixtures.song("dsdiff", container = "DSD", mime = "audio/x-dsdiff")
             .copy(fileName = "track.dff", filePath = "Music/track.dff")
+        val explicitDffWithMisleadingName =
+            SongFixtures.song("dff-misleading", container = "DSD", mime = "audio/x-dff")
+                .copy(fileName = "misleading.dsf", filePath = "Music/misleading.dsf")
 
-        assertTrue(PlaybackRouter.decide(dsf) is PlaybackRouteDecision.Supported)
-        val dffRoute = PlaybackRouter.decide(dff)
-        assertTrue(dffRoute is PlaybackRouteDecision.Unsupported)
-        assertEquals(
-            "不支持 DFF/DSDIFF 格式，请使用 DSF",
-            PlaybackRouter.unsupportedMessage(dff),
-        )
-        assertFalse(PlaybackRouter.isPlayable(dff))
-        assertTrue(PlaybackRouter.isPlayable(dsf))
+        listOf(normalDsf, wrappedDsf).forEach { song ->
+            val route = PlaybackRouter.decide(song)
+            assertTrue(route is PlaybackRouteDecision.Supported)
+            assertEquals("dsf-exo-extractor", (route as PlaybackRouteDecision.Supported).reason)
+            assertTrue(PlaybackRouter.isPlayable(song))
+        }
+
+        listOf(ambiguousDsd, dsdiff, explicitDffWithMisleadingName).forEach { song ->
+            val route = PlaybackRouter.decide(song)
+            assertTrue(route is PlaybackRouteDecision.Unsupported)
+            assertEquals("dsd-dff-unsupported", (route as PlaybackRouteDecision.Unsupported).reason)
+            assertEquals(
+                "不支持 DFF/DSDIFF 格式，请使用 DSF",
+                PlaybackRouter.unsupportedMessage(song),
+            )
+            assertFalse(PlaybackRouter.isPlayable(song))
+        }
     }
 
     @Test

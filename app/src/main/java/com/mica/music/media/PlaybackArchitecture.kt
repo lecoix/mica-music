@@ -51,7 +51,7 @@ object PlaybackSourceRevision {
 object PlaybackRouter {
     fun decide(song: Song): PlaybackRouteDecision {
         val decision = if (DsdSupport.isDsdSong(song)) {
-            if (isDsfFile(song)) {
+            if (DsdSupport.isDsfSong(song)) {
                 PlaybackRouteDecision.Supported("dsf-exo-extractor")
             } else {
                 PlaybackRouteDecision.Unsupported(
@@ -74,9 +74,6 @@ object PlaybackRouter {
 
     fun unsupportedMessage(song: Song): String? =
         (decide(song) as? PlaybackRouteDecision.Unsupported)?.userMessage
-
-    private fun isDsfFile(song: Song): Boolean =
-        song.fileName.substringAfterLast('.', "").equals("dsf", ignoreCase = true)
 
     private fun isApeFile(song: Song): Boolean {
         val extension = song.fileName.substringAfterLast('.', "").lowercase()
