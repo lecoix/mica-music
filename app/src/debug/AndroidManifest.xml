@@ -13,6 +13,15 @@
             </intent-filter>
         </provider>
 
+        <!-- PROTOTYPE: debug-only, ADB-driven DoP idle exact-carrier staircase. -->
+        <receiver
+            android:name=".media.usbprototype.UsbDoPIdleProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="${applicationId}.debug.USB_DOP_IDLE_PROBE" />
+            </intent-filter>
+        </receiver>
+
         <!-- PROTOTYPE: debug-only, ADB-driven SK02 descriptor probe. -->
         <receiver
             android:name=".media.usbprototype.UsbSk02DescriptorPrototypeReceiver"
