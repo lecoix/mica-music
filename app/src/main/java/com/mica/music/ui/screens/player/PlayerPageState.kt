@@ -150,7 +150,9 @@ internal fun rememberPlayerPageUiModel(
         !ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode) &&
             coverDisplayMode == CoverDisplayMode.FIT_ORIGINAL
 
-    val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+    val statusBarTop = homeStatusBarTopPadding(
+        hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOnPlayer,
+    )
 
     androidx.compose.runtime.LaunchedEffect(song.id) {
         spectrumDeferred = true

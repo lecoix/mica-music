@@ -213,7 +213,9 @@ fun AppNavigationMain(
                     navController.popBackStack()
                 }
             } else {
-                val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+                val statusTop = homeStatusBarTopPadding(
+                    hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+                )
                 SongDetailScreen(
                     song = song,
                     library = library,
@@ -230,7 +232,9 @@ fun AppNavigationMain(
             }
         }
         composable(Routes.Settings) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             SettingsScreen(
                 library = library,
                 uiSettings = uiSettings,
@@ -261,7 +265,9 @@ fun AppNavigationMain(
             )
         }
         composable(Routes.ParticleCoverPreview) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             ParticleCoverPreviewScreen(
                 library = library,
                 savedTuning = uiSettings.particleCoverTuning,
@@ -278,7 +284,9 @@ fun AppNavigationMain(
             )
         }
         composable(Routes.MetadataDebug) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             MetadataDebugScreen(
                 library = library,
                 playerController = playerController,
@@ -293,7 +301,9 @@ fun AppNavigationMain(
             )
         }
         composable(Routes.SpatialAudio) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             SpatialAudioScreen(
                 onBack = {
                     logBackFlow("back-consume source=spatial-audio-topbar")
@@ -307,7 +317,9 @@ fun AppNavigationMain(
             )
         }
         composable(Routes.PhotoStackShadowPreview) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             PhotoStackShadowPreviewScreen(
                 library = library,
                 onBack = {
@@ -322,7 +334,9 @@ fun AppNavigationMain(
             )
         }
         composable(Routes.Equalizer) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             EqualizerScreen(
                 onBack = {
                     logBackFlow("back-consume source=equalizer-topbar")
@@ -336,7 +350,9 @@ fun AppNavigationMain(
             )
         }
         composable(Routes.About) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             AboutScreen(
                 songs = library.songs,
                 onBack = {
@@ -355,7 +371,9 @@ fun AppNavigationMain(
             )
         }
         composable(Routes.VersionUpdate) {
-            val statusTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
             VersionUpdateScreen(
                 onBack = {
                     logBackFlow("back-consume source=version-update-topbar")

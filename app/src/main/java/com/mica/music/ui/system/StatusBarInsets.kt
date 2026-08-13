@@ -14,17 +14,21 @@ import androidx.compose.ui.unit.dp
  * 主页/设置顶栏顶部间距：在 edge-to-edge 下把顶栏放在状态栏下方。
  *
  * - [hideStatusBar] 为 true 时始终用固定 [status_bar_height]，避免切回 App 时 inset 从有到无导致布局跳动。
- * - 否则优先 [WindowInsets.statusBars]；inset 为 0 时用系统 status_bar_height 兜底。
+ * - 否则取 [WindowInsets.statusBars] 与固定高度的较大值，避免状态栏显示动画刚开始时
+ *   从固定高度跳到接近 0 的动画 inset，造成内容先上移再下移。
  */
 @Composable
 fun homeStatusBarTopPadding(hideStatusBar: Boolean = false): Dp {
+    val fixedHeight = rememberFixedStatusBarHeight()
     if (hideStatusBar) {
-        return rememberFixedStatusBarHeight()
+        return fixedHeight
     }
     val insetTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    if (insetTop > 0.dp) return insetTop
-    return rememberFixedStatusBarHeight()
+    return stableStatusBarTopPadding(insetTop, fixedHeight)
 }
+
+internal fun stableStatusBarTopPadding(insetTop: Dp, fixedHeight: Dp): Dp =
+    maxOf(insetTop, fixedHeight)
 
 @Composable
 private fun rememberFixedStatusBarHeight(): Dp {

@@ -581,7 +581,7 @@ fun NowPlayingContent(
             )
             ImmersiveSystemBarsEffect(
                 enabled = landscapeCoverFlowImmersiveActive,
-                restoreStatusBarHidden = uiSettings.hideStatusBar,
+                restoreStatusBarHidden = uiSettings.statusBarVisibilityMode.hidesOnPlayer,
             )
             // Landscape STANDARD: keep the pre–full-page-wipe feel (fade), not directional clip.
             val effectiveTrackWipeDirection = when {
@@ -594,7 +594,11 @@ fun NowPlayingContent(
             }
             val effectiveImmersiveLower = !landscapeMode && immersiveLower
             val landscapeTopPadding = if (landscapeMode) {
-                if (uiSettings.hideStatusBar) 0.dp else homeStatusBarTopPadding(hideStatusBar = false) + 8.dp
+                if (uiSettings.statusBarVisibilityMode.hidesOnPlayer) {
+                    0.dp
+                } else {
+                    homeStatusBarTopPadding(hideStatusBar = false) + 8.dp
+                }
             } else {
                 0.dp
             }
@@ -625,7 +629,7 @@ fun NowPlayingContent(
                     hasTimedPageLyrics
             val letterLyricsRequested = lyricsExpanded && letterLyricsAvailable
             StatusBarEffect(
-                hideStatusBar = uiSettings.hideStatusBar ||
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOnPlayer ||
                     letterLyricsRequested ||
                     landscapeCoverFlowImmersiveActive,
                 darkStatusBarIcons = letterLyricsRequested ||

@@ -25,7 +25,9 @@ class AppUiSettings(context: Context) {
     var themeMode by mutableStateOf(AppearancePreferences.themeMode(appContext))
         private set
 
-    var hideStatusBar by mutableStateOf(AppearancePreferences.hideStatusBar(appContext))
+    var statusBarVisibilityMode by mutableStateOf(
+        AppearancePreferences.statusBarVisibilityMode(appContext),
+    )
         private set
 
     var playerLowerBackground by mutableStateOf(PlaybackUiPreferences.playerLowerBackground(appContext))
@@ -340,9 +342,9 @@ class AppUiSettings(context: Context) {
         AppearancePreferences.setThemeMode(appContext, mode)
     }
 
-    fun updateHideStatusBar(hide: Boolean) {
-        hideStatusBar = hide
-        AppearancePreferences.setHideStatusBar(appContext, hide)
+    fun updateStatusBarVisibilityMode(mode: StatusBarVisibilityMode) {
+        statusBarVisibilityMode = mode
+        AppearancePreferences.setStatusBarVisibilityMode(appContext, mode)
     }
 
     fun updatePlayerLowerBackground(mode: PlayerLowerBackgroundMode) {

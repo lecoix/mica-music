@@ -373,7 +373,9 @@ fun HomeScreen(
         library.clearScanSyncSummary()
     }
 
-    val statusBarTop = homeStatusBarTopPadding(hideStatusBar = uiSettings.hideStatusBar)
+    val statusBarTop = homeStatusBarTopPadding(
+        hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+    )
 
     val latestPlaybackState by rememberUpdatedState(playbackState)
     val libraryAccess = rememberHomeLibraryAccess(
