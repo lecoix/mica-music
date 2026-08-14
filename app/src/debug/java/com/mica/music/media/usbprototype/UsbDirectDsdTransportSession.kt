@@ -8,11 +8,15 @@ import android.os.SystemClock
 import com.mica.music.media.dsd.DirectDsdTransportSession
 import com.mica.music.media.dsd.DirectDsdTransportSessionFactory
 import com.mica.music.media.dsd.DirectDsdTransportWriteResult
+import com.mica.music.media.dsd.DirectDsdFreshTransitionPreparationResult
+import com.mica.music.media.dsd.DirectDsdRetainedSourceTransitionResult
 import com.mica.music.media.dsd.DirectDsdMonotonicClock
 import com.mica.music.media.dsd.DirectDsdSystemMonotonicClock
+import com.mica.music.media.dsd.DoPDiscontinuity
 import com.mica.music.media.dsd.DoPCarrierPacking
 import com.mica.music.media.dsd.DoPCarrierPlanningResult
 import com.mica.music.media.dsd.DoPCarrierSession
+import com.mica.music.media.dsd.DoPCarrierSessionReset
 import com.mica.music.media.dsd.DsdCarrierSourceFacts
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.usb.AndroidUsbAudioControlIo
@@ -94,7 +98,7 @@ internal class UsbDirectDsdTransportSessionFactory(
 }
 
 private class UsbDirectDsdTransportSession private constructor(
-    override val facts: DsfExtractorPacketFacts,
+    facts: DsfExtractorPacketFacts,
     private val carrierFormat: UsbPcmFormat,
     private val runtimeHandle: com.mica.music.media.usb.UsbAudioRuntimeHandle,
     private val connection: android.hardware.usb.UsbDeviceConnection,
@@ -112,6 +116,8 @@ private class UsbDirectDsdTransportSession private constructor(
     private val milestone: (String) -> Unit,
     private val writeTiming: DirectDsdWriteTimingRecorder,
 ) : DirectDsdTransportSession, UsbOutputSession {
+    override var facts: DsfExtractorPacketFacts = facts
+        private set
     @Volatile
     override var startupPrefillReady: Boolean = false
         private set
@@ -211,6 +217,127 @@ private class UsbDirectDsdTransportSession private constructor(
                 stopPauseGapLiveness()
                 true
             }
+        }
+    }
+
+    override fun transitionRetainedSource(
+        newFacts: DsfExtractorPacketFacts,
+    ): DirectDsdRetainedSourceTransitionResult {
+        check(!closed) { "retained source transition after close" }
+        check(newFacts.sourceSampleRateHz == facts.sourceSampleRateHz) {
+            "retained Direct DSD transition changed source rate"
+        }
+        check(newFacts.channelCount == facts.channelCount) {
+            "retained Direct DSD transition changed channel geometry"
+        }
+        return pauseLiveness.withContentWriter {
+            UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+                lease.ensureCurrent()
+                var guard = 0
+                while (true) {
+                    val snapshot = feeder.snapshot()
+                    snapshot.contractError?.let { error("feeder contract failed at track boundary: $it") }
+                    if (snapshot.stagedCarrierBytes.isEmpty() &&
+                        snapshot.upstreamPendingPackedCarrierBytes == 0
+                    ) {
+                        break
+                    }
+                    check(guard++ < 1024) { "retained track boundary feeder drain exceeded work bound" }
+                    check(UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) == 0) {
+                        "Native exact transport failed during retained track boundary drain"
+                    }
+                    val result = feeder.pump()
+                    check(result.status != ExactCarrierFeedStatus.FAILED && result.error == null) {
+                        "ExactCarrierFeeder failed retained track boundary drain ${result.error}"
+                    }
+                    check(result.sinkBytesAccepted > 0 || result.carrierBytesFlushedFromSession > 0) {
+                        "retained track boundary drain made no progress"
+                    }
+                }
+                val drained = feeder.snapshot()
+                val accountingBeforeReset = carrierSession.accounting()
+                check(drained.stagedCarrierBytes.isEmpty())
+                check(drained.upstreamPendingPackedCarrierBytes == 0)
+                check(accountingBeforeReset.pendingPackedCarrierBytes == 0)
+                milestone(
+                    "trackTransition=OLD_FEEDER_DRAINED staged=0 upstreamPending=0 " +
+                        "pendingPacked=${accountingBeforeReset.pendingPackedCarrierBytes}",
+                )
+                val reset = feeder.resetSource(DoPDiscontinuity.NEW_SOURCE_GENERATION)
+                check(reset.applied && reset.reset != null) {
+                    "retained source reset blocked reason=${reset.blockedReason} error=${reset.error}"
+                }
+                val accountingAfterReset = carrierSession.accounting()
+                check(accountingAfterReset.pendingPackedCarrierBytes == 0)
+                check(accountingAfterReset.pendingPartialCanonicalFrameBytes == 0)
+                check(!accountingAfterReset.hasPendingCanonicalHalfFrame)
+                facts = newFacts
+                milestone(
+                    "trackTransition=SOURCE_RESET_APPLIED sourceRate=${newFacts.sourceSampleRateHz} " +
+                        "marker=${accountingAfterReset.nextMarker} pendingPacked=0 pendingPartial=0 pendingHalf=false",
+                )
+                DirectDsdRetainedSourceTransitionResult(
+                    feederPendingZero = true,
+                    sourceResetApplied = true,
+                )
+            } ?: error("Direct DSD USB session became stale during retained track transition")
+        }
+    }
+
+    override fun prepareFreshTrackTransition(
+        reason: DoPCarrierSessionReset,
+    ): DirectDsdFreshTransitionPreparationResult {
+        check(!closed) { "fresh track transition after close" }
+        return pauseLiveness.withContentWriter {
+            UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+                lease.ensureCurrent()
+                var guard = 0
+                while (true) {
+                    val snapshot = feeder.snapshot()
+                    snapshot.contractError?.let { error("feeder contract failed at fresh track boundary: $it") }
+                    if (snapshot.stagedCarrierBytes.isEmpty() &&
+                        snapshot.upstreamPendingPackedCarrierBytes == 0
+                    ) {
+                        break
+                    }
+                    check(guard++ < 1024) { "fresh track boundary feeder drain exceeded work bound" }
+                    check(UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) == 0) {
+                        "Native exact transport failed during fresh track boundary drain"
+                    }
+                    val result = feeder.pump()
+                    check(result.status != ExactCarrierFeedStatus.FAILED && result.error == null) {
+                        "ExactCarrierFeeder failed fresh track boundary drain ${result.error}"
+                    }
+                    check(result.sinkBytesAccepted > 0 || result.carrierBytesFlushedFromSession > 0) {
+                        "fresh track boundary drain made no progress"
+                    }
+                }
+                val drained = feeder.snapshot()
+                val beforeReset = carrierSession.accounting()
+                check(drained.stagedCarrierBytes.isEmpty())
+                check(drained.upstreamPendingPackedCarrierBytes == 0)
+                check(beforeReset.pendingPackedCarrierBytes == 0)
+                milestone(
+                    "trackTransition=OLD_FEEDER_P5_PENDING_ZERO staged=0 upstreamPending=0 " +
+                        "pendingPacked=${beforeReset.pendingPackedCarrierBytes}",
+                )
+                val reset = feeder.resetCarrier(reason)
+                check(reset.applied && reset.reset != null) {
+                    "fresh carrier reset blocked reason=${reset.blockedReason} error=${reset.error}"
+                }
+                val afterReset = carrierSession.accounting()
+                check(afterReset.pendingPackedCarrierBytes == 0)
+                check(afterReset.pendingPartialCanonicalFrameBytes == 0)
+                check(!afterReset.hasPendingCanonicalHalfFrame)
+                milestone(
+                    "trackTransition=CARRIER_RECONFIGURE_RESET_APPLIED reason=$reason " +
+                        "marker=${afterReset.nextMarker} pendingPacked=0 pendingPartial=0 pendingHalf=false",
+                )
+                DirectDsdFreshTransitionPreparationResult(
+                    feederPendingZero = true,
+                    carrierResetApplied = true,
+                )
+            } ?: error("Direct DSD USB session became stale during fresh track transition")
         }
     }
 

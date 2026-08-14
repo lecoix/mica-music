@@ -14,6 +14,8 @@ import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import androidx.media3.decoder.ffmpeg.FfmpegRendererSupportProbe
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.media.dsd.DirectDsdPrototypeRendererLoader
+import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
+import com.mica.music.media.dsd.TransitionAwarePcmAudioSink
 import java.util.ArrayList
 
 @UnstableApi
@@ -21,6 +23,8 @@ internal class MicaRenderersFactory(
     context: Context,
     private val outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
 ) : DefaultRenderersFactory(context) {
+
+    private val trackTransitionCoordinator = DirectDsdTrackTransitionCoordinator()
 
     private val alacBlockingSelector = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
         if (mimeType == MimeTypes.AUDIO_ALAC) {
@@ -52,11 +56,11 @@ internal class MicaRenderersFactory(
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink? {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectMinimalSink(
+            return transitionAwarePcmSink(buildUsbDirectMinimalSink(
                 context = context,
                 profileLabel = "usb-direct-platform",
                 enableFloatOutput = enableFloatOutput,
-            )
+            ))
         }
         val processorChain = buildUnifiedFixedChain(context)
         PcmFormatDiagnostics.logSinkBuild(
@@ -65,11 +69,11 @@ internal class MicaRenderersFactory(
             enableAudioOutputPlaybackParameters = false,
             processorNames = processorChain.processorNamesForDiagnostics(),
         )
-        return DefaultAudioSink.Builder(context)
+        return transitionAwarePcmSink(DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(false)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessorChain(processorChain)
-            .build()
+            .build())
     }
 
     override fun buildAudioRenderers(
@@ -129,7 +133,7 @@ internal class MicaRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
-        DirectDsdPrototypeRendererLoader.create(context)?.let(out::add)
+        DirectDsdPrototypeRendererLoader.create(context, trackTransitionCoordinator)?.let(out::add)
         out.add(
             FfmpegAudioRenderer(
                 eventHandler,
@@ -163,7 +167,7 @@ internal class MicaRenderersFactory(
 
     private fun buildDsdAudioSink(context: Context): AudioSink {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectDsdSink(context)
+            return transitionAwarePcmSink(buildUsbDirectDsdSink(context))
         }
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled
         val chain = MicaAudioProcessorChain(
@@ -189,11 +193,11 @@ internal class MicaRenderersFactory(
             enableAudioOutputPlaybackParameters = false,
             processorNames = chain.processorNamesForDiagnostics(),
         )
-        return DefaultAudioSink.Builder(context)
+        return transitionAwarePcmSink(DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatDsdOutput)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessorChain(chain)
-            .build()
+            .build())
     }
 
     /**
@@ -205,11 +209,11 @@ internal class MicaRenderersFactory(
      */
     private fun buildPcmAudioSink(context: Context): AudioSink {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectMinimalSink(
+            return transitionAwarePcmSink(buildUsbDirectMinimalSink(
                 context = context,
                 profileLabel = "usb-direct-pcm",
                 enableFloatOutput = true,
-            )
+            ))
         }
         val chain = MicaAudioProcessorChain(
             includePlaybackTuning = false,
@@ -229,8 +233,11 @@ internal class MicaRenderersFactory(
             )
             .setAudioProcessorChain(chain)
             .build()
-        return MicaFloatDspAudioSink(inner, MicaEqualizerSpectrumTap())
+        return transitionAwarePcmSink(MicaFloatDspAudioSink(inner, MicaEqualizerSpectrumTap()))
     }
+
+    private fun transitionAwarePcmSink(delegate: AudioSink): AudioSink =
+        TransitionAwarePcmAudioSink(delegate, trackTransitionCoordinator)
 
     private fun buildUnifiedFixedChain(context: Context): MicaAudioProcessorChain {
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled

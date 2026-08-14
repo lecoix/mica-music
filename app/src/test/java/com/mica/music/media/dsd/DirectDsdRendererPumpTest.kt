@@ -194,6 +194,69 @@ class DirectDsdRendererPumpTest {
         assertEquals(1, transport.closeCalls)
     }
 
+    @Test
+    fun retainedTrackTransitionDropsOnlyRendererOwnedTailAndRebindsFreshSourceFacts() {
+        val transport = FakeSession(facts, intArrayOf(1, 99))
+        val pump = DirectDsdRendererPump(facts, transport)
+        pump.offerExtractorPacket(byteArrayOf(reverse(0x10), reverse(0x20)), timeUs = 1)
+        assertEquals(1, pump.pump().canonicalBytesConsumed)
+        assertEquals(1, pump.snapshot().pendingCanonicalBytes)
+
+        val newFacts = facts.copy(sourceBitOrder = DsdSourceBitOrder.MSB_FIRST)
+        val (discarded, transition) = pump.transitionRetainedSource(newFacts)
+
+        assertEquals(1, discarded)
+        assertTrue(transition.feederPendingZero)
+        assertTrue(transition.sourceResetApplied)
+        assertEquals(1, transport.transitionCalls)
+        assertEquals(newFacts, transport.lastTransitionFacts)
+        assertEquals(newFacts, pump.facts)
+        assertEquals(0, pump.snapshot().pendingCanonicalBytes)
+        assertEquals(0L, pump.snapshot().offeredPacketCount)
+        assertEquals(0L, pump.snapshot().canonicalBytesCommitted)
+
+        pump.offerExtractorPacket(byteArrayOf(0x31, 0x41), timeUs = 2)
+        assertEquals(2, pump.pump().canonicalBytesConsumed)
+        assertArrayEquals(byteArrayOf(0x10, 0x31, 0x41), transport.committed.toByteArray())
+    }
+
+    @Test
+    fun retainedTrackTransitionReopensPumpAfterCleanOldSourceEos() {
+        val transport = FakeSession(facts, intArrayOf(99))
+        val pump = DirectDsdRendererPump(facts, transport)
+        assertTrue(pump.signalEndOfStream())
+        assertTrue(pump.isEnded())
+
+        val (discarded, transition) = pump.transitionRetainedSource(facts.copy())
+
+        assertEquals(0, discarded)
+        assertTrue(transition.sourceResetApplied)
+        assertFalse(pump.isEnded())
+        assertTrue(pump.canAcceptPacket())
+        pump.offerExtractorPacket(byteArrayOf(reverse(0x51), reverse(0x61)), timeUs = 3)
+        assertEquals(2, pump.pump().canonicalBytesConsumed)
+        assertArrayEquals(byteArrayOf(0x51, 0x61), transport.committed.toByteArray())
+    }
+
+    @Test
+    fun freshTrackTransitionDropsRendererTailAndRequiresCarrierResetPreparation() {
+        val transport = FakeSession(facts, intArrayOf(1, 99))
+        val pump = DirectDsdRendererPump(facts, transport)
+        pump.offerExtractorPacket(byteArrayOf(reverse(0x10), reverse(0x20)), timeUs = 1)
+        assertEquals(1, pump.pump().canonicalBytesConsumed)
+        assertEquals(1, pump.snapshot().pendingCanonicalBytes)
+
+        val (discarded, transition) =
+            pump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+
+        assertEquals(1, discarded)
+        assertTrue(transition.feederPendingZero)
+        assertTrue(transition.carrierResetApplied)
+        assertEquals(1, transport.freshTransitionCalls)
+        assertEquals(DoPCarrierSessionReset.RECONFIGURE, transport.lastFreshTransitionReason)
+        assertEquals(0, pump.snapshot().pendingCanonicalBytes)
+    }
+
     private class FakeSession(
         override val facts: DsfExtractorPacketFacts,
         private val limits: IntArray,
@@ -211,6 +274,10 @@ class DirectDsdRendererPumpTest {
         var gapStopCalls = 0
         var gapActive = false
         var closeCalls = 0
+        var transitionCalls = 0
+        var lastTransitionFacts: DsfExtractorPacketFacts? = null
+        var freshTransitionCalls = 0
+        var lastFreshTransitionReason: DoPCarrierSessionReset? = null
 
         override fun writeCanonical(bytes: ByteArray, offset: Int, byteCount: Int): DirectDsdTransportWriteResult {
             check(!gapActive) { "CONTENT write while GAP owns transport" }
@@ -247,6 +314,29 @@ class DirectDsdRendererPumpTest {
             if (!gapActive) return false
             stopPauseGapLiveness()
             return true
+        }
+
+        override fun transitionRetainedSource(
+            newFacts: DsfExtractorPacketFacts,
+        ): DirectDsdRetainedSourceTransitionResult {
+            check(!gapActive) { "retained transition while GAP active" }
+            transitionCalls++
+            lastTransitionFacts = newFacts
+            return DirectDsdRetainedSourceTransitionResult(
+                feederPendingZero = true,
+                sourceResetApplied = true,
+            )
+        }
+
+        override fun prepareFreshTrackTransition(
+            reason: DoPCarrierSessionReset,
+        ): DirectDsdFreshTransitionPreparationResult {
+            freshTransitionCalls++
+            lastFreshTransitionReason = reason
+            return DirectDsdFreshTransitionPreparationResult(
+                feederPendingZero = true,
+                carrierResetApplied = true,
+            )
         }
 
         override fun finishEndOfStream(): Boolean =

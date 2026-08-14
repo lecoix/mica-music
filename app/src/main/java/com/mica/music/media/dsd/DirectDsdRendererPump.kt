@@ -7,6 +7,16 @@ data class DirectDsdTransportWriteResult(
     val canonicalBytesConsumed: Int,
 )
 
+data class DirectDsdRetainedSourceTransitionResult(
+    val feederPendingZero: Boolean,
+    val sourceResetApplied: Boolean,
+)
+
+data class DirectDsdFreshTransitionPreparationResult(
+    val feederPendingZero: Boolean,
+    val carrierResetApplied: Boolean,
+)
+
 interface DirectDsdTransportSession : AutoCloseable {
     val facts: DsfExtractorPacketFacts
     val startupPrefillReady: Boolean
@@ -32,6 +42,14 @@ interface DirectDsdTransportSession : AutoCloseable {
      */
     fun quiescePauseGapForOutputRebuild(): Boolean
 
+    /** Drains already-accepted carrier and resets only source generation on one retained DoP plan. */
+    fun transitionRetainedSource(newFacts: DsfExtractorPacketFacts): DirectDsdRetainedSourceTransitionResult
+
+    /** Drains old accepted output and terminates all P5 carrier/source state before fresh runtime. */
+    fun prepareFreshTrackTransition(
+        reason: DoPCarrierSessionReset,
+    ): DirectDsdFreshTransitionPreparationResult
+
     /** Returns true only when end-of-stream state is clean and transport can finish. */
     fun finishEndOfStream(): Boolean
 }
@@ -55,9 +73,11 @@ data class DirectDsdRendererPumpSnapshot(
  * transport reports them consumed; a later extractor packet cannot overtake that tail.
  */
 class DirectDsdRendererPump(
-    val facts: DsfExtractorPacketFacts,
+    facts: DsfExtractorPacketFacts,
     private val session: DirectDsdTransportSession,
 ) : AutoCloseable {
+    var facts: DsfExtractorPacketFacts = facts
+        private set
     private var pending = ByteArray(0)
     private var pendingOffset = 0
     private var pendingPacketTimeUs: Long? = null
@@ -131,6 +151,44 @@ class DirectDsdRendererPump(
     fun quiescePauseGapForOutputRebuild(): Boolean {
         if (closed) return false
         return session.quiescePauseGapForOutputRebuild()
+    }
+
+    /**
+     * Track boundary for one retained carrier plan. Renderer-owned uncommitted canonical bytes are
+     * discarded; only bytes already accepted by feeder/P5 are drained by the transport session.
+     */
+    fun transitionRetainedSource(newFacts: DsfExtractorPacketFacts): Pair<Int, DirectDsdRetainedSourceTransitionResult> {
+        check(!closed) { "source transition after close" }
+        val discardedCanonicalBytes = pendingBytes()
+        pending = ByteArray(0)
+        pendingOffset = 0
+        pendingPacketTimeUs = null
+        val result = session.transitionRetainedSource(newFacts)
+        check(result.feederPendingZero && result.sourceResetApplied) {
+            "retained Direct DSD source transition did not reach pending-zero reset"
+        }
+        facts = newFacts
+        offeredPackets = 0L
+        consumedPackets = 0L
+        committedBytes = 0L
+        lastConsumedTimeUs = null
+        ended = false
+        return discardedCanonicalBytes to result
+    }
+
+    fun prepareFreshTrackTransition(
+        reason: DoPCarrierSessionReset,
+    ): Pair<Int, DirectDsdFreshTransitionPreparationResult> {
+        check(!closed) { "fresh transition after close" }
+        val discardedCanonicalBytes = pendingBytes()
+        pending = ByteArray(0)
+        pendingOffset = 0
+        pendingPacketTimeUs = null
+        val result = session.prepareFreshTrackTransition(reason)
+        check(result.feederPendingZero && result.carrierResetApplied) {
+            "fresh Direct DSD transition did not reach reset/pending-zero"
+        }
+        return discardedCanonicalBytes to result
     }
 
     fun snapshot(): DirectDsdRendererPumpSnapshot = DirectDsdRendererPumpSnapshot(

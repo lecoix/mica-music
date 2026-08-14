@@ -6,7 +6,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.decoder.DecoderInputBuffer
 import androidx.media3.exoplayer.BaseRenderer
 import androidx.media3.exoplayer.ExoPlaybackException
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RendererCapabilities
+import androidx.media3.exoplayer.source.MediaSource
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.dsf.DsfFormat
 
@@ -138,6 +140,7 @@ class DirectDsdMedia3Renderer(
     private val sessionFactory: DirectDsdTransportSessionFactory,
     private val milestone: (String) -> Unit = {},
     private val monotonicClock: DirectDsdMonotonicClock = DirectDsdSystemMonotonicClock,
+    private val transitionCoordinator: DirectDsdTrackTransitionCoordinator? = null,
 ) : BaseRenderer(C.TRACK_TYPE_AUDIO) {
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
     private val drainLoop = DirectDsdRenderDrainLoop(MAX_SOURCE_READS_PER_RENDER)
@@ -156,6 +159,9 @@ class DirectDsdMedia3Renderer(
     private var renderInvocationCount = 0L
     private var drainBudgetExhaustionCount = 0L
     private var lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
+    private var playingTrackTransitionPending = false
+    private var deferredPausedFreshFormat: Format? = null
+    private var deferredResumeAuthorityObserved = false
 
     override fun getName(): String = NAME
 
@@ -170,6 +176,7 @@ class DirectDsdMedia3Renderer(
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
         if (ended || pauseGapActive) return
+        if (deferredPausedFreshFormat != null && !deferredResumeAuthorityObserved) return
         try {
             renderInvocationCount++
             val callbackStartNs = timing.onCallbackStart()
@@ -283,6 +290,7 @@ class DirectDsdMedia3Renderer(
                     }
                     timing.measurePump { active.pump() }
                     maybeArmAfterPlayingReset(active, sampleTimeUs = inputBuffer.timeUs)
+                    maybeArmAfterPlayingTrackTransition(active, sampleTimeUs = inputBuffer.timeUs)
                     DirectDsdDrainStepResult(
                         sourceReadPerformed = true,
                         packetRead = true,
@@ -330,6 +338,12 @@ class DirectDsdMedia3Renderer(
                     "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder} " +
                     "rendererGeneration=$rendererGeneration sessionGeneration=${sessionGeneration.sessionGeneration}",
             )
+            if (playingTrackTransitionPending) {
+                milestone(
+                    "trackTransition=FRESH_DIRECT_RUNTIME_CREATED sourceRate=${facts.sourceSampleRateHz} " +
+                        "sessionGeneration=${sessionGeneration.sessionGeneration}",
+                )
+            }
             positionResetState.consumeFreshPumpPositionUs()?.let { resetPositionUs ->
                 milestone("renderer=post-reset-open positionUs=$resetPositionUs")
             }
@@ -351,14 +365,185 @@ class DirectDsdMedia3Renderer(
         return true
     }
 
-    override fun isReady(): Boolean =
-        !ended && (pump?.isStartupPrefillReady() == true) &&
+    private fun maybeArmAfterPlayingTrackTransition(
+        active: DirectDsdRendererPump,
+        sampleTimeUs: Long?,
+    ): Boolean {
+        if (
+            !playingTrackTransitionPending ||
+            state != Renderer.STATE_STARTED ||
+            !active.isStartupPrefillReady() ||
+            active.isPlaybackArmed()
+        ) {
+            return false
+        }
+        active.armPlayback()
+        check(active.isPlaybackArmed())
+        transitionCoordinator?.beforeDirectAccept(isPlaying = true)
+        playingTrackTransitionPending = false
+        deferredPausedFreshFormat = null
+        deferredResumeAuthorityObserved = false
+        milestone(
+            "trackTransition=FRESH_RUNTIME_ARMED sampleTimeUs=${sampleTimeUs ?: -1L} armed=true",
+        )
+        milestone("trackTransition=QUALIFIED_STARTED_PREFILL_ARM_COMPLETE")
+        milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=false")
+        return true
+    }
+
+    override fun onStreamChanged(
+        formats: Array<out Format>,
+        startPositionUs: Long,
+        offsetUs: Long,
+        mediaPeriodId: MediaSource.MediaPeriodId,
+    ) {
+        val newFormat = formats.firstOrNull { DirectDsdMedia3FormatPolicy.factsOrNull(it) != null } ?: return
+        val newFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(newFormat))
+        transitionCoordinator?.completePcmReleaseForDirectHandoff()
+        val active = pump
+        val playing = state == Renderer.STATE_STARTED
+        val transitionMode = DirectDsdTrackTransitionPolicy.decide(active?.facts, newFacts, playing)
+        if (transitionMode == DirectDsdTrackTransitionMode.INITIAL) {
+            val familySnapshot = transitionCoordinator?.snapshot()
+            val pcmHandoff = familySnapshot?.lastReleasedFamily == DirectDsdTrackTransportFamily.PCM
+            val pcmHandoffWasPaused = pcmHandoff && familySnapshot?.lastReleasedWasPaused == true
+            if (pcmHandoffWasPaused || (!playing && transitionCoordinator?.shouldDeferDirectUntilResume() == true)) {
+                currentFormat = newFormat
+                deferredPausedFreshFormat = newFormat
+                deferredResumeAuthorityObserved = false
+                playingTrackTransitionPending = true
+                resetTrackSourceCounters()
+                milestone("trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
+                milestone("trackTransition=FRESH_DIRECT_DEFERRED family=PCM_TO_DOP")
+                milestone(
+                    "trackTransition=DEFERRED_PAUSED_FRESH_RUNTIME oldRate=-1 " +
+                        "newRate=${newFacts.sourceSampleRateHz} acceptAllowed=false family=PCM_TO_DOP",
+                )
+                return
+            }
+            if (pcmHandoff) {
+                currentFormat = newFormat
+                playingTrackTransitionPending = true
+                resetTrackSourceCounters()
+                milestone("trackTransition=NEW_DSD_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
+                return
+            }
+            transitionCoordinator?.beforeDirectAccept(playing)
+            currentFormat = newFormat
+            milestone("trackTransition=NEW_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
+            milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP")
+            return
+        }
+
+        val activePump = checkNotNull(active)
+        if (transitionMode == DirectDsdTrackTransitionMode.RETAINED_SAME_PLAN) {
+            val wasPausedGap = pauseGapActive
+            if (wasPausedGap) {
+                activePump.stopPauseGapLiveness()
+                pauseGapActive = false
+                milestone("trackTransition=PAUSE_GAP_STOPPED")
+            }
+            milestone(
+                "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=$playing " +
+                    "sourceRate=${activePump.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
+                    "startPositionUs=$startPositionUs offsetUs=$offsetUs",
+            )
+            val (discardedCanonicalBytes, result) = activePump.transitionRetainedSource(newFacts)
+            check(result.feederPendingZero && result.sourceResetApplied)
+            currentFormat = newFormat
+            resetTrackSourceCounters()
+            milestone(
+                "trackTransition=NEW_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz} " +
+                    "discardedRendererCanonical=$discardedCanonicalBytes",
+            )
+            if (wasPausedGap) {
+                activePump.startPauseGapLiveness()
+                pauseGapActive = true
+                milestone("trackTransition=PAUSE_GAP_REESTABLISHED_AFTER_BOUNDARY")
+            } else {
+                milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=true")
+            }
+            return
+        }
+
+        if (transitionMode == DirectDsdTrackTransitionMode.DEFERRED_PAUSED_FRESH_RUNTIME) {
+            if (pauseGapActive) {
+                activePump.stopPauseGapLiveness()
+                pauseGapActive = false
+                milestone("trackTransition=PAUSE_GAP_STOPPED")
+            }
+            milestone(
+                "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=false " +
+                    "sourceRate=${activePump.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz}",
+            )
+            activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            closePump("track-reconfigure-paused-deferred")
+            milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
+            transitionCoordinator?.onDirectReleased(wasPaused = true)
+            currentFormat = newFormat
+            deferredPausedFreshFormat = newFormat
+            deferredResumeAuthorityObserved = false
+            playingTrackTransitionPending = true
+            resetTrackSourceCounters()
+            milestone("trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
+            milestone("trackTransition=FRESH_DIRECT_DEFERRED")
+            milestone(
+                "trackTransition=DEFERRED_PAUSED_FRESH_RUNTIME oldRate=${activePump.facts.sourceSampleRateHz} " +
+                    "newRate=${newFacts.sourceSampleRateHz} acceptAllowed=false",
+            )
+            return
+        }
+
+        milestone(
+            "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=true " +
+                "sourceRate=${activePump.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz}",
+        )
+        activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+        closePump("track-reconfigure")
+        milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
+        transitionCoordinator?.onDirectReleased(wasPaused = false)
+        currentFormat = newFormat
+        playingTrackTransitionPending = true
+        resetTrackSourceCounters()
+        milestone("trackTransition=NEW_RATE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
+    }
+
+    private fun resetTrackSourceCounters() {
+        inputEosSeen = false
+        ended = false
+        sampleCount = 0L
+        lastSampleMilestoneTimeUs = Long.MIN_VALUE
+        renderInvocationCount = 0L
+        drainBudgetExhaustionCount = 0L
+        lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
+    }
+
+    override fun isReady(): Boolean {
+        if (deferredPausedFreshFormat != null && !deferredResumeAuthorityObserved) return true
+        return !ended && (pump?.isStartupPrefillReady() == true) &&
             ((pump?.snapshot()?.pendingCanonicalBytes ?: 0) > 0 || isSourceReady() || inputEosSeen)
+    }
 
     override fun isEnded(): Boolean = ended
 
     override fun onStarted() {
         try {
+            transitionCoordinator?.onDirectPlayState(paused = false)
+            deferredPausedFreshFormat?.let { pendingFormat ->
+                if (!deferredResumeAuthorityObserved) {
+                    val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pendingFormat))
+                    val currentFacts = authoritativeCurrentFacts()
+                    check(currentFacts == pendingFacts) {
+                        "deferred Direct DSD destination facts changed before resume"
+                    }
+                    deferredResumeAuthorityObserved = true
+                    milestone("trackTransition=RENDERER_STARTED_AUTHORITY_OBSERVED")
+                    milestone(
+                        "trackTransition=DESTINATION_CURRENTNESS_REVALIDATED sourceRate=${pendingFacts.sourceSampleRateHz}",
+                    )
+                    return
+                }
+            }
             val active = checkNotNull(pump) { "Direct DSD renderer started before transport prepare" }
             if (active.isPlaybackArmed()) {
                 if (pauseGapActive) {
@@ -379,8 +564,11 @@ class DirectDsdMedia3Renderer(
                 check(active.isStartupPrefillReady()) { "Direct DSD renderer started before startup prefill" }
                 val armedFromPlayingReset = maybeArmAfterPlayingReset(active, sampleTimeUs = null)
                 if (!armedFromPlayingReset) {
-                    active.armPlayback()
-                    check(active.isPlaybackArmed())
+                    val armedFromTrackTransition = maybeArmAfterPlayingTrackTransition(active, sampleTimeUs = null)
+                    if (!armedFromTrackTransition) {
+                        active.armPlayback()
+                        check(active.isPlaybackArmed())
+                    }
                 }
                 milestone("renderer=started armed=true resumed=false postReset=$armedFromPlayingReset")
             }
@@ -395,6 +583,16 @@ class DirectDsdMedia3Renderer(
 
     override fun onStopped() {
         try {
+            transitionCoordinator?.onDirectPlayState(paused = true)
+            if (deferredPausedFreshFormat != null && deferredResumeAuthorityObserved) {
+                val deferredPump = pump
+                if (deferredPump != null && !deferredPump.isPlaybackArmed()) {
+                    closePump("track-deferred-repaused")
+                }
+                deferredResumeAuthorityObserved = false
+                milestone("trackTransition=DEFERRED_PAUSED_FRESH_RUNTIME reasserted=true acceptAllowed=false")
+                return
+            }
             val active = pump
             val wasArmed = active?.isPlaybackArmed() == true
             val sessionGeneration = activeSessionGeneration
@@ -458,8 +656,13 @@ class DirectDsdMedia3Renderer(
     }
 
     override fun onDisabled() {
+        val wasPausedGap = pauseGapActive
         closePump("disabled")
+        transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
+        playingTrackTransitionPending = false
+        deferredPausedFreshFormat = null
+        deferredResumeAuthorityObserved = false
         currentFormat = null
         inputEosSeen = false
         ended = false
@@ -472,8 +675,13 @@ class DirectDsdMedia3Renderer(
     }
 
     override fun onReset() {
+        val wasPausedGap = pauseGapActive
         closePump("reset")
+        transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
+        playingTrackTransitionPending = false
+        deferredPausedFreshFormat = null
+        deferredResumeAuthorityObserved = false
         currentFormat = null
         inputEosSeen = false
         ended = false
