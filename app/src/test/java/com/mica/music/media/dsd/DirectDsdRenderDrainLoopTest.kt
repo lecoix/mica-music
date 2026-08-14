@@ -7,6 +7,53 @@ import org.junit.Test
 
 class DirectDsdRenderDrainLoopTest {
     @Test
+    fun dsd128BudgetHasMarginAtThirtyFiveThirtyEightAndFortyCallbacksPerSecond() {
+        val reads = DirectDsdRenderDrainCapacityPolicy.sourceReadsPerCallback(
+            sourceSampleRateHz = 5_644_800,
+            channelCount = 2,
+        )
+        assertEquals(6, reads)
+        assertEquals(reads, DirectDsdMedia3Renderer.MAX_SOURCE_READS_PER_RENDER)
+
+        val requiredPacketsPerSecond = 172.266
+        listOf(35, 38, 40).forEach { callbacksPerSecond ->
+            val capacity = DirectDsdRenderDrainCapacityPolicy.packetCapacityPerSecond(
+                sourceSampleRateHz = 5_644_800,
+                channelCount = 2,
+                callbacksPerSecond = callbacksPerSecond,
+            )
+            assertTrue("capacity=$capacity at callbacks=$callbacksPerSecond", capacity > requiredPacketsPerSecond)
+        }
+    }
+
+    @Test
+    fun dsd64UsesSmallerBoundedBudget() {
+        assertEquals(
+            3,
+            DirectDsdRenderDrainCapacityPolicy.sourceReadsPerCallback(
+                sourceSampleRateHz = 2_822_400,
+                channelCount = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun rendererDemandBudgetStillCapsIndefinitelyReadySource() {
+        var calls = 0
+        val result = DirectDsdRenderDrainLoop(
+            maxSourceReads = DirectDsdMedia3Renderer.MAX_SOURCE_READS_PER_RENDER,
+        ).drain {
+            calls++
+            step(read = true, packet = true, DirectDsdDrainAction.CONTINUE)
+        }
+
+        assertEquals(6, calls)
+        assertEquals(6, result.sourceReadCount)
+        assertEquals(6, result.packetReadCount)
+        assertTrue(result.budgetExhausted)
+    }
+
+    @Test
     fun formatCanContinueIntoMultiplePacketsWithinOneRenderOpportunity() {
         val steps = ArrayDeque(
             listOf(

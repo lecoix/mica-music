@@ -42,6 +42,40 @@ internal data class DirectDsdDrainResult(
     val budgetExhausted: Boolean,
 )
 
+/**
+ * Converts the worst supported raw-DSD packet demand into a bounded per-render read budget.
+ * The callback floor is an explicit qualification assumption rather than an accidental Media3 cadence dependency.
+ */
+internal object DirectDsdRenderDrainCapacityPolicy {
+    private const val QUALIFICATION_CALLBACKS_PER_SECOND_FLOOR = 35
+    private const val CAPACITY_MARGIN_NUMERATOR = 6
+    private const val CAPACITY_MARGIN_DENOMINATOR = 5
+    private const val EXTRACTOR_PACKET_BYTES = 8192
+    private const val BITS_PER_BYTE = 8
+    private const val HARD_MAX_SOURCE_READS_PER_CALLBACK = 8
+
+    fun sourceReadsPerCallback(sourceSampleRateHz: Int, channelCount: Int): Int {
+        require(sourceSampleRateHz > 0)
+        require(channelCount > 0)
+        val demandNumerator = Math.multiplyExact(sourceSampleRateHz.toLong(), channelCount.toLong())
+        val demandDenominator = BITS_PER_BYTE.toLong() * EXTRACTOR_PACKET_BYTES
+        val budgetNumerator = Math.multiplyExact(demandNumerator, CAPACITY_MARGIN_NUMERATOR.toLong())
+        val budgetDenominator =
+            demandDenominator * QUALIFICATION_CALLBACKS_PER_SECOND_FLOOR * CAPACITY_MARGIN_DENOMINATOR
+        val reads = ((budgetNumerator + budgetDenominator - 1L) / budgetDenominator).toInt()
+        check(reads in 1..HARD_MAX_SOURCE_READS_PER_CALLBACK) {
+            "Direct DSD demand exceeds bounded render drain capacity: reads=$reads"
+        }
+        return reads
+    }
+
+    fun packetCapacityPerSecond(
+        sourceSampleRateHz: Int,
+        channelCount: Int,
+        callbacksPerSecond: Int,
+    ): Int = sourceReadsPerCallback(sourceSampleRateHz, channelCount) * callbacksPerSecond
+}
+
 /** Tracks only renderer-local discontinuity state; transport/session ownership stays elsewhere. */
 internal class DirectDsdPositionResetState {
     private var freshPumpPositionUs: Long? = null
@@ -146,6 +180,7 @@ class DirectDsdMedia3Renderer(
                 milestone(
                     "renderer=drain callbacks=$renderInvocationCount " +
                         "packets=$sampleCount budgetExhausted=$drainBudgetExhaustionCount " +
+                        "readBudget=$MAX_SOURCE_READS_PER_RENDER " +
                         "lastReads=${drain.sourceReadCount} lastPackets=${drain.packetReadCount} " +
                         "pending=${pump?.snapshot()?.pendingCanonicalBytes ?: 0}",
                 )
@@ -444,8 +479,12 @@ class DirectDsdMedia3Renderer(
 
     companion object {
         const val NAME = "MicaDirectDsdDoP"
-        // Four immediate source reads per callback exceed DSD128 demand even near 50 callbacks/s.
-        internal const val MAX_SOURCE_READS_PER_RENDER = 4
+        // Worst supported prototype demand is DSD128 stereo. The policy derives a bounded budget
+        // with explicit margin at the 35 callbacks/s qualification floor instead of assuming ~50 Hz.
+        internal val MAX_SOURCE_READS_PER_RENDER = DirectDsdRenderDrainCapacityPolicy.sourceReadsPerCallback(
+            sourceSampleRateHz = 5_644_800,
+            channelCount = 2,
+        )
         private const val SAMPLE_MILESTONE_INTERVAL_US = 250_000L
         private const val DRAIN_MILESTONE_INTERVAL_US = 250_000L
     }
