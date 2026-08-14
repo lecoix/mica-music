@@ -21,10 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
@@ -2031,22 +2027,6 @@ fun NowPlayingContent(
 
             // No external OutgoingCoverArtworkWipe: disabled wipe themes raced a solid SongCover
             // frame on track change (particle classic lyrics). STANDARD/CUSTOM wipe in CoverSection.
-        }
-
-        if (lyricsExpanded && !uiSettings.lyricsPageImmersive && !playerOverlayOpen) {
-            IconButton(
-                onClick = { lyricsOffsetSheetOpen = true },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(contentPadding)
-                    .padding(HifiSpacing.md)
-                    .zIndex(8f),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Tune,
-                    contentDescription = "歌词偏移",
-                )
-            }
         }
 
         MicaSnackbarHost(
