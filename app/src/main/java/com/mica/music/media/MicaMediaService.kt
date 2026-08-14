@@ -263,6 +263,7 @@ class MicaMediaService : MediaSessionService() {
                 }
                 val availableSessionCommands = defaultResult.availableSessionCommands
                     .buildUpon()
+                    .add(ExternalLyricsSessionCommands.toggleDesktopLyrics)
                     .add(ExternalLyricsSessionCommands.toggleDesktopLock)
                     .build()
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -286,6 +287,21 @@ class MicaMediaService : MediaSessionService() {
                 args: Bundle,
             ): ListenableFuture<SessionResult> {
                 val identity = controllerIdentity(controller)
+                if (customCommand.customAction ==
+                    ExternalLyricsSessionCommands.TOGGLE_DESKTOP_LYRICS_ACTION &&
+                    isMediaNotificationController(session, controller)
+                ) {
+                    mainHandler.post {
+                        val currentMode = LyricsPreferences.externalLyricsMode(this@MicaMediaService)
+                        LyricsPreferences.setExternalLyricsMode(
+                            this@MicaMediaService,
+                            ExternalLyricsSessionCommands.nextModeAfterDesktopToggle(currentMode),
+                        )
+                        DesktopLyricsOverlayController.sync(this@MicaMediaService)
+                        updateMediaButtonPreferences()
+                    }
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
                 if (customCommand.customAction ==
                     ExternalLyricsSessionCommands.TOGGLE_DESKTOP_LOCK_ACTION &&
                     isMediaNotificationController(session, controller)

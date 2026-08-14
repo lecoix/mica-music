@@ -35,6 +35,7 @@ object MediaStoreScanner {
 
     internal const val LYRICS_SCAN_BATCH_SIZE = 6
     internal const val PROBE_PARALLELISM = 8
+    internal val FILE_EXTENSION_FALLBACKS = DsdSupport.extensions + "ape"
 
     suspend fun scan(
         context: Context,
@@ -88,7 +89,12 @@ object MediaStoreScanner {
                         )
                     }
                 }
-                songs += persistScannedLyricsBatches(batch, lyricsReadFailed, profiler, onLyricsBatch)
+                songs += persistScannedLyricsBatches(
+                    batch.filterForDuration(options),
+                    lyricsReadFailed,
+                    profiler,
+                    onLyricsBatch,
+                )
                 done += chunk.size
                 onProgress?.invoke(done, drafts.size)
             }
@@ -133,7 +139,12 @@ object MediaStoreScanner {
                     }
                 }.awaitAll()
                 }
-                songs += persistScannedLyricsBatches(batch, lyricsReadFailed, profiler, onLyricsBatch)
+                songs += persistScannedLyricsBatches(
+                    batch.filterForDuration(options),
+                    lyricsReadFailed,
+                    profiler,
+                    onLyricsBatch,
+                )
             }
         }
 
@@ -191,11 +202,7 @@ object MediaStoreScanner {
         } else {
             "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         }
-        val durationClause = if (options.minDurationMs > 0) {
-            " AND ${MediaStore.Audio.Media.DURATION} >= ${options.minDurationMs}"
-        } else {
-            ""
-        }
+        val durationClause = mediaStoreDurationClause(options.minDurationMs)
         val selection = "$musicClause$durationClause"
         val sortOrder = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
 
@@ -302,11 +309,11 @@ object MediaStoreScanner {
         val existingKeys = drafts
             .map { draft -> mediaStoreDuplicateKey(draft.mediaUri, draft.filePath, draft.sizeBytes) }
             .toMutableSet()
-        drafts += loadDsdFileDrafts(context, options, lyricsByAudioKey, existingKeys)
+        drafts += loadExtendedAudioFileDrafts(context, options, lyricsByAudioKey, existingKeys)
         return drafts
     }
 
-    private fun loadDsdFileDrafts(
+    private fun loadExtendedAudioFileDrafts(
         context: Context,
         options: ScanOptions,
         lyricsByAudioKey: Map<String, List<ExternalLyricsRef>>,
@@ -332,10 +339,10 @@ object MediaStoreScanner {
             @Suppress("DEPRECATION")
             projection += MediaStore.Files.FileColumns.DATA
         }
-        val selection = DsdSupport.extensions.joinToString(" OR ") {
+        val selection = FILE_EXTENSION_FALLBACKS.joinToString(" OR ") {
             "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?"
         }
-        val args = DsdSupport.extensions.map { "%.$it" }.toTypedArray()
+        val args = FILE_EXTENSION_FALLBACKS.map { "%.$it" }.toTypedArray()
         val out = mutableListOf<TrackDraft>()
         context.contentResolver.query(
             filesUri,
@@ -360,10 +367,12 @@ object MediaStoreScanner {
             while (c.moveToNext()) {
                 val name = c.getString(nameCol) ?: continue
                 val ext = name.substringAfterLast('.', "").lowercase()
-                if (!DsdSupport.isDsdExtension(ext)) continue
+                if (ext !in FILE_EXTENSION_FALLBACKS) continue
                 val id = c.getLong(idCol)
                 val uri = ContentUris.withAppendedId(filesUri, id)
-                val mime = c.getStringOrEmpty(mimeCol).ifBlank { DsdSupport.mimeForExtension(ext) }
+                val mime = c.getStringOrEmpty(mimeCol).ifBlank {
+                    if (ext == "ape") "audio/x-ape" else DsdSupport.mimeForExtension(ext)
+                }
                 val size = c.getLongOrZero(sizeCol)
                 val relativePath = if (relativePathCol >= 0) c.getString(relativePathCol).orEmpty() else ""
                 val filePath = when {
@@ -492,6 +501,18 @@ object MediaStoreScanner {
         if (columnIndex >= 0 && !isNull(columnIndex)) getLong(columnIndex) else 0L
 
 }
+
+internal fun mediaStoreDurationClause(minDurationMs: Long): String {
+    if (minDurationMs <= 0L) return ""
+    val duration = MediaStore.Audio.Media.DURATION
+    return " AND ($duration IS NULL OR $duration <= 0 OR $duration >= $minDurationMs)"
+}
+
+internal fun shouldKeepScannedDuration(durationSec: Int, minDurationMs: Long): Boolean =
+    minDurationMs <= 0L || durationSec == 0 || durationSec * 1000L >= minDurationMs
+
+private fun List<ScannedSong>.filterForDuration(options: ScanOptions): List<ScannedSong> =
+    filter { scanned -> shouldKeepScannedDuration(scanned.song.durationSec, options.minDurationMs) }
 
 internal suspend fun persistScannedLyricsBatch(
     songs: List<ScannedSong>,

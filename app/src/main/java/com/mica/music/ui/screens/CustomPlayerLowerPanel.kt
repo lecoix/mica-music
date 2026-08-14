@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -431,7 +432,7 @@ private fun CustomPlayerEditChrome(
     Box(modifier) {
         Row(
             modifier = Modifier
-                .align(Alignment.TopCenter)
+                .align(Alignment.BottomCenter)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .background(colors.surfaceCard.copy(alpha = 0.96f))
                 .padding(horizontal = 4.dp),
@@ -453,7 +454,8 @@ private fun CustomPlayerEditChrome(
 
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .background(colors.surfaceCard.copy(alpha = 0.96f))
                 .padding(6.dp),

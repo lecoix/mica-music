@@ -148,7 +148,9 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     private fun applyWindowStatusBar() {
         applyEdgeToEdgeSystemBars()
-        StatusBarController.applyFromPreferences(this, window)
+        val isPlayerPage = ::navigationCoordinator.isInitialized &&
+            (navigationCoordinator.playerExpanded || navigationCoordinator.overlayFullScreen)
+        StatusBarController.applyFromPreferences(this, window, isPlayerPage = isPlayerPage)
     }
 
     private fun applyEdgeToEdgeSystemBars() {

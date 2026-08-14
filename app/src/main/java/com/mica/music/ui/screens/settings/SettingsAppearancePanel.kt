@@ -16,6 +16,7 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.PlaylistSidebarStyle
+import com.mica.music.data.StatusBarVisibilityMode
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
@@ -168,11 +169,14 @@ internal fun AppearanceSettingsPanel(
         },
     )
 
-    SettingsToggleRow(
+    SettingsChoiceRow(
         title = "隐藏状态栏",
-        subtitle = "全屏显示内容；从屏幕顶部下滑可临时唤出状态栏",
-        checked = uiSettings.hideStatusBar,
-        onCheckedChange = { uiSettings.updateHideStatusBar(it) },
+        subtitle = "按页面选择隐藏范围；隐藏后可从屏幕顶部下滑临时唤出",
+        choices = StatusBarVisibilityModeChoices,
+        selectedValue = uiSettings.statusBarVisibilityMode.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateStatusBarVisibilityMode(StatusBarVisibilityMode.entries[ordinal])
+        },
     )
 
     Spacer(Modifier.height(HifiSpacing.lg))

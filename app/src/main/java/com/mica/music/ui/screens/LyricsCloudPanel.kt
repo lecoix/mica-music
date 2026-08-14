@@ -179,7 +179,7 @@ internal fun LyricsCloudPanel(
         lyricsCloudPanOffset(
             lineStartMs = currentLine.timeMs,
             lineEndMs = currentLine.endTimeMs ?: nextLineTimeMs,
-            positionMs = framePositionMs + LyricsSync.LEAD_MS,
+            positionMs = framePositionMs,
             lineWidthPx = currentNode.width * unit,
             viewportWidthPx = widthPx.toFloat(),
             unitPx = unit,
@@ -518,7 +518,7 @@ private fun cloudTokenCharacterState(
     lineEndMs: Int?,
 ): CloudCharacterState? {
     if (tokens.isEmpty()) return null
-    val timeMs = positionMs + LyricsSync.LEAD_MS
+    val timeMs = positionMs
     if (timeMs < tokens.first().startMs) return CloudCharacterState(-1, 0f)
     var searchFrom = 0
     val ranges = tokens.mapNotNull { token ->
@@ -555,7 +555,7 @@ private fun cloudForcedCharacterState(
 ): CloudCharacterState {
     val endMs = lineEndMs?.takeIf { it > lineStartMs }
         ?: (lineStartMs + CLOUD_FORCE_WORD_FALLBACK_DURATION_MS)
-    val progress = ((positionMs + LyricsSync.LEAD_MS - lineStartMs).toFloat() /
+    val progress = ((positionMs - lineStartMs).toFloat() /
         (endMs - lineStartMs)).coerceIn(0f, 1f)
     val scaled = progress * text.length.coerceAtLeast(1)
     val offset = scaled.toInt().coerceIn(0, text.length.coerceAtLeast(1) - 1)

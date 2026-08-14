@@ -11,6 +11,7 @@ import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.LyricsSync
+import com.mica.music.data.LyricsTiming
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricToken
@@ -19,6 +20,7 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.ExternalLyricsMode
 import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
+import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.preferences.LyricsPreferences
@@ -60,6 +62,7 @@ internal class NotificationLyricsCoordinator(
         handler = playerHandler,
         loadSong = songLoader,
     )
+    private val lyricsOffsetStore = SongLyricsOffsetStore.get(appContext)
 
     private var started = false
     private var released = false
@@ -87,6 +90,11 @@ internal class NotificationLyricsCoordinator(
 
     private var unregisterPreferenceListener: (() -> Unit)? = null
     private var invalidationJob: Job? = null
+    private var offsetInvalidationJob: Job? = null
+    private var offsetLoadJob: Job? = null
+    private var offsetGeneration = 0L
+    private var offsetSongKey: String? = null
+    private var songLyricsOffsetMs = 0
 
     private val wakeUp = Runnable {
         if (!released) reconcile()
@@ -151,6 +159,18 @@ internal class NotificationLyricsCoordinator(
                 }
             }
         }
+        offsetInvalidationJob = lyricsScope.launch {
+            lyricsOffsetStore.changes.collect { change ->
+                if (change.songId == trackedSongId) {
+                    playerHandler.post {
+                        if (!released && change.songId == trackedSongId) {
+                            invalidateOffsetLoad()
+                            reconcile()
+                        }
+                    }
+                }
+            }
+        }
         reconcile()
     }
 
@@ -164,6 +184,10 @@ internal class NotificationLyricsCoordinator(
         unregisterPreferenceListener = null
         invalidationJob?.cancel()
         invalidationJob = null
+        offsetInvalidationJob?.cancel()
+        offsetInvalidationJob = null
+        offsetLoadJob?.cancel()
+        offsetLoadJob = null
         lyricsScope.cancel()
         songCache.clear()
         desktopLyrics?.clear()
@@ -197,6 +221,11 @@ internal class NotificationLyricsCoordinator(
             return
         }
         if (trackedSongId != decoded.id) resetForSong(decoded.id)
+        ensureLyricsOffset(decoded)
+        val effectiveLyricsOffsetMs = LyricsTiming.effectiveOffsetMs(
+            LyricsPreferences.globalLyricsOffsetMs(appContext),
+            songLyricsOffsetMs,
+        )
 
         if (!notificationEnabled) {
             restoreDefaultMetadataIfNeeded(decoded, item)
@@ -228,6 +257,7 @@ internal class NotificationLyricsCoordinator(
                 publishedIndex = lastPublishedIndex,
                 nowRealtimeMs = nowRealtimeMs,
                 lastPublishedRealtimeMs = lastPublishedRealtimeMs,
+                effectiveOffsetMs = effectiveLyricsOffsetMs,
             )
             plan.publishIndex?.let { index ->
                 publish(
@@ -240,6 +270,7 @@ internal class NotificationLyricsCoordinator(
                     notificationEnabled = notificationEnabled,
                     desktopLyricsEnabled = desktopLyricsEnabled,
                     statusBarLyricsEnabled = statusBarLyricsEnabled,
+                    effectiveLyricsOffsetMs = effectiveLyricsOffsetMs,
                 )
             }
             plannedWakeInMs = plan.wakeInMs
@@ -258,7 +289,12 @@ internal class NotificationLyricsCoordinator(
         val externalLyricsWakeInMs = WORD_SYNC_TICK_MS.takeIf {
             player.isPlaying && externalLyricsEnabled && document != null
         }
-        desktopLyrics?.updatePosition(player.currentPosition.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        desktopLyrics?.updatePosition(
+            LyricsTiming.effectivePositionMs(
+                player.currentPosition.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                effectiveLyricsOffsetMs,
+            ),
+        )
         scheduleEarliest(plannedWakeInMs, retryWakeInMs, watchdogWakeInMs, externalLyricsWakeInMs)
     }
 
@@ -355,6 +391,7 @@ internal class NotificationLyricsCoordinator(
         notificationEnabled: Boolean,
         desktopLyricsEnabled: Boolean,
         statusBarLyricsEnabled: Boolean,
+        effectiveLyricsOffsetMs: Int,
     ) {
         val display = NotificationLyrics.displayOptions(appContext)
         val displayLine = NotificationLyrics.lyricLineText(session.lyrics, index, display)
@@ -382,7 +419,10 @@ internal class NotificationLyricsCoordinator(
         if (externalLine != null) {
             desktopLyrics?.publish(
                 line = externalLine,
-                positionMs = player.currentPosition.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                positionMs = LyricsTiming.effectivePositionMs(
+                    player.currentPosition.coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    effectiveLyricsOffsetMs,
+                ),
                 desktopEnabled = desktopLyricsEnabled,
                 statusBarEnabled = statusBarLyricsEnabled,
             )
@@ -396,6 +436,7 @@ internal class NotificationLyricsCoordinator(
             display.splitEnabled.toString(),
             display.bilingualMode.name,
             display.wordByWordEnabled.toString(),
+            effectiveLyricsOffsetMs.toString(),
         ).joinToString("|")
         val signature = NotificationLyrics.signature(song.id, index, "$inputRevision|$displayLine")
         if (signature == lastSignature) {
@@ -486,8 +527,49 @@ internal class NotificationLyricsCoordinator(
         forceReload = true
     }
 
+    private fun ensureLyricsOffset(song: Song) {
+        val key = "${song.id}|${song.mediaUri}"
+        if (offsetSongKey == key) return
+        offsetSongKey = key
+        songLyricsOffsetMs = 0
+        lastPublishedIndex = null
+        lastSignature = null
+        offsetLoadJob?.cancel()
+        val requestGeneration = ++offsetGeneration
+        offsetLoadJob = lyricsScope.launch {
+            val loadedOffset = lyricsOffsetStore.offsetFor(song)
+            playerHandler.post {
+                val currentSong = player.currentMediaItem?.let(SongMediaItemCodec::decode)
+                if (
+                    released ||
+                    requestGeneration != offsetGeneration ||
+                    offsetSongKey != key ||
+                    currentSong?.id != song.id ||
+                    currentSong?.mediaUri != song.mediaUri
+                ) {
+                    return@post
+                }
+                songLyricsOffsetMs = loadedOffset
+                lastPublishedIndex = null
+                lastSignature = null
+                reconcile()
+            }
+        }
+    }
+
+    private fun invalidateOffsetLoad() {
+        offsetGeneration += 1
+        offsetLoadJob?.cancel()
+        offsetLoadJob = null
+        offsetSongKey = null
+        songLyricsOffsetMs = 0
+        lastPublishedIndex = null
+        lastSignature = null
+    }
+
     private fun resetForSong(songId: String?) {
         generation += 1
+        invalidateOffsetLoad()
         trackedSongId = songId
         activeSpec = null
         activeDocument = null

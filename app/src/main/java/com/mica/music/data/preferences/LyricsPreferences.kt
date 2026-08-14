@@ -6,6 +6,9 @@ import com.mica.music.data.DEFAULT_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_COLORS
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_GRADIENT_ANGLE
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT
+import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_OPACITY_PERCENT
+import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT
 import com.mica.music.data.DEFAULT_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.ExternalLyricsColorMode
 import com.mica.music.data.ExternalLyricsMode
@@ -37,6 +40,7 @@ import com.mica.music.data.MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
 import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.normalizeExternalLyricsColors
+import com.mica.music.data.normalizeExternalLyricsEffectPercent
 
 /** 歌词页、通知歌词与播放页歌词文字相关偏好。 */
 object LyricsPreferences {
@@ -89,9 +93,32 @@ object LyricsPreferences {
     private const val KEY_EXTERNAL_LYRICS_COLOR_COUNT = "external_lyrics_color_count"
     private const val KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE = "external_lyrics_gradient_angle"
     private const val KEY_EXTERNAL_LYRICS_COLOR_PREFIX = "external_lyrics_color_"
+    private const val KEY_EXTERNAL_LYRICS_OPACITY_PERCENT = "external_lyrics_opacity_percent"
+    private const val KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT =
+        "external_lyrics_shadow_strength_percent"
+    private const val KEY_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT =
+        "external_lyrics_glow_strength_percent"
     private const val KEY_INFO_ROW_LYRICS_ENABLED = "info_row_lyrics_enabled"
     private const val KEY_INFO_ROW_WORD_LYRICS_ENABLED = "info_row_word_lyrics_enabled"
     private const val KEY_LYRICS_SLOT_PRIORITY = "lyrics_slot_priority"
+    private const val KEY_GLOBAL_LYRICS_OFFSET_MS = "global_lyrics_offset_ms"
+
+    fun globalLyricsOffsetMs(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(KEY_GLOBAL_LYRICS_OFFSET_MS, 0)
+            .coerceIn(com.mica.music.data.MIN_LYRICS_OFFSET_MS, com.mica.music.data.MAX_LYRICS_OFFSET_MS)
+
+    fun setGlobalLyricsOffsetMs(context: Context, offsetMs: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_GLOBAL_LYRICS_OFFSET_MS,
+                offsetMs.coerceIn(
+                    com.mica.music.data.MIN_LYRICS_OFFSET_MS,
+                    com.mica.music.data.MAX_LYRICS_OFFSET_MS,
+                ),
+            )
+            .apply()
+    }
 
     fun lyricsSlotPriority(context: Context): List<LyricsSlot> {
         val slots = MicaSettingsStore.prefs(context)
@@ -613,6 +640,39 @@ object LyricsPreferences {
         }.apply()
     }
 
+    fun externalLyricsOpacityPercent(context: Context): Int =
+        externalLyricsEffectPercent(
+            context,
+            KEY_EXTERNAL_LYRICS_OPACITY_PERCENT,
+            DEFAULT_EXTERNAL_LYRICS_OPACITY_PERCENT,
+        )
+
+    fun setExternalLyricsOpacityPercent(context: Context, percent: Int) {
+        setExternalLyricsEffectPercent(context, KEY_EXTERNAL_LYRICS_OPACITY_PERCENT, percent)
+    }
+
+    fun externalLyricsShadowStrengthPercent(context: Context): Int =
+        externalLyricsEffectPercent(
+            context,
+            KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT,
+            DEFAULT_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT,
+        )
+
+    fun setExternalLyricsShadowStrengthPercent(context: Context, percent: Int) {
+        setExternalLyricsEffectPercent(context, KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT, percent)
+    }
+
+    fun externalLyricsGlowStrengthPercent(context: Context): Int =
+        externalLyricsEffectPercent(
+            context,
+            KEY_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT,
+            DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT,
+        )
+
+    fun setExternalLyricsGlowStrengthPercent(context: Context, percent: Int) {
+        setExternalLyricsEffectPercent(context, KEY_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT, percent)
+    }
+
     fun externalLyricsStyle(context: Context): ExternalLyricsStyle = ExternalLyricsStyle(
         visibilityMode = externalLyricsVisibilityMode(context),
         colorMode = externalLyricsColorMode(context),
@@ -627,6 +687,9 @@ object LyricsPreferences {
         desktopWidthPercent = desktopLyricsWidthPercent(context),
         statusBarWidthPercent = statusBarLyricsWidthPercent(context),
         statusBarTextAlignment = statusBarLyricsTextAlignment(context),
+        opacityPercent = externalLyricsOpacityPercent(context),
+        shadowStrengthPercent = externalLyricsShadowStrengthPercent(context),
+        glowStrengthPercent = externalLyricsGlowStrengthPercent(context),
     )
 
     fun infoRowLyricsEnabled(context: Context): Boolean =
@@ -677,8 +740,12 @@ object LyricsPreferences {
                 KEY_EXTERNAL_LYRICS_COLOR_MODE,
                 KEY_EXTERNAL_LYRICS_COLOR_COUNT,
                 KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE,
+                KEY_EXTERNAL_LYRICS_OPACITY_PERCENT,
+                KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT,
+                KEY_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT,
                 -> NotificationLyricsChange.DISPLAY
                 KEY_LYRICS_SLOT_PRIORITY -> NotificationLyricsChange.SOURCE
+                KEY_GLOBAL_LYRICS_OFFSET_MS -> NotificationLyricsChange.DISPLAY
                 else -> if (key?.startsWith(KEY_EXTERNAL_LYRICS_COLOR_PREFIX) == true) {
                     NotificationLyricsChange.DISPLAY
                 } else {
@@ -720,6 +787,17 @@ object LyricsPreferences {
                 key,
                 percent.coerceIn(MIN_EXTERNAL_LYRICS_WIDTH_PERCENT, MAX_EXTERNAL_LYRICS_WIDTH_PERCENT),
             )
+            .apply()
+    }
+
+    private fun externalLyricsEffectPercent(context: Context, key: String, defaultValue: Int): Int =
+        normalizeExternalLyricsEffectPercent(
+            MicaSettingsStore.prefs(context).getInt(key, defaultValue),
+        )
+
+    private fun setExternalLyricsEffectPercent(context: Context, key: String, percent: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(key, normalizeExternalLyricsEffectPercent(percent))
             .apply()
     }
 

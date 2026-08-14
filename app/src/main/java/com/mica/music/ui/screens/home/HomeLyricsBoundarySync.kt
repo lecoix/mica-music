@@ -9,12 +9,14 @@ internal suspend fun awaitNextHomeLyricBoundary(
     playbackSpeed: Float,
     isAdvancing: Boolean,
     syncPosition: () -> Unit,
+    effectiveOffsetMs: Int = 0,
 ) {
     val wakeInMs = LyricsBoundaryClock.plan(
         lineStartTimesMs = lineStartTimesMs,
         positionMs = positionMs.toLong(),
         playbackSpeed = playbackSpeed,
         isAdvancing = isAdvancing,
+        effectiveOffsetMs = effectiveOffsetMs,
     ).wakeInMs ?: return
     delay(wakeInMs)
     syncPosition()

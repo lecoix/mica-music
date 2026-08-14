@@ -41,7 +41,7 @@ fun MicaAppRoot(
             lyricFont = uiSettings.lyricFont,
         ) {
             StatusBarEffect(
-                hideStatusBar = uiSettings.hideStatusBar,
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
                 darkStatusBarIcons = !darkTheme,
             )
             content()

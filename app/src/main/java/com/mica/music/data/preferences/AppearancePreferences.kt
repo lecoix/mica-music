@@ -13,12 +13,14 @@ import com.mica.music.data.MIN_CUSTOM_WALLPAPER_BLUR_DP
 import com.mica.music.data.MIN_CUSTOM_WALLPAPER_OVERLAY_PERCENT
 import com.mica.music.data.MicaPreset
 import com.mica.music.data.PlaylistSidebarStyle
+import com.mica.music.data.StatusBarVisibilityMode
 
 /** 主题、状态栏、强调色与云母背景偏好。 */
 object AppearancePreferences {
     private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_HIDE_STATUS_BAR = "hide_status_bar"
-    /** 旧版 key，迁移到 [KEY_HIDE_STATUS_BAR] */
+    private const val KEY_STATUS_BAR_VISIBILITY_MODE = "status_bar_visibility_mode"
+    /** 更早版本的播放页沉浸 key；仅用于兼容迁移。 */
     private const val KEY_IMMERSIVE_PLAYER_STATUS_BAR = "immersive_player_status_bar"
     private const val KEY_APP_ACCENT_COLOR = "app_accent_color"
     private const val KEY_CUSTOM_ACCENT_COLOR = "custom_accent_color"
@@ -50,20 +52,30 @@ object AppearancePreferences {
             .apply()
     }
 
-    /** 全应用隐藏状态栏（含主页、设置、播放页）；从屏幕边缘下滑可临时显示 */
-    fun hideStatusBar(context: Context): Boolean {
+    /** 状态栏分页面显示策略；旧布尔值按原语义迁移为“关闭”或“全部隐藏”。 */
+    fun statusBarVisibilityMode(context: Context): StatusBarVisibilityMode {
         val p = MicaSettingsStore.prefs(context)
         return when {
-            p.contains(KEY_HIDE_STATUS_BAR) -> p.getBoolean(KEY_HIDE_STATUS_BAR, false)
+            p.contains(KEY_STATUS_BAR_VISIBILITY_MODE) ->
+                StatusBarVisibilityMode.fromStorage(p.getString(KEY_STATUS_BAR_VISIBILITY_MODE, null))
+            p.contains(KEY_HIDE_STATUS_BAR) -> if (p.getBoolean(KEY_HIDE_STATUS_BAR, false)) {
+                StatusBarVisibilityMode.ALL
+            } else {
+                StatusBarVisibilityMode.OFF
+            }
             p.contains(KEY_IMMERSIVE_PLAYER_STATUS_BAR) ->
-                p.getBoolean(KEY_IMMERSIVE_PLAYER_STATUS_BAR, true)
-            else -> false
+                if (p.getBoolean(KEY_IMMERSIVE_PLAYER_STATUS_BAR, true)) {
+                    StatusBarVisibilityMode.ALL
+                } else {
+                    StatusBarVisibilityMode.OFF
+                }
+            else -> StatusBarVisibilityMode.OFF
         }
     }
 
-    fun setHideStatusBar(context: Context, hide: Boolean) {
+    fun setStatusBarVisibilityMode(context: Context, mode: StatusBarVisibilityMode) {
         MicaSettingsStore.prefs(context).edit()
-            .putBoolean(KEY_HIDE_STATUS_BAR, hide)
+            .putString(KEY_STATUS_BAR_VISIBILITY_MODE, mode.storageValue)
             .apply()
     }
 

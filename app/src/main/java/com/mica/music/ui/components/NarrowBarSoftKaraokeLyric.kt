@@ -82,7 +82,7 @@ fun NarrowBarSoftKaraokeLyric(
     val panPx = narrowBarLyricPanOffsetPx(
         lineStartMs = line.timeMs,
         lineEndMs = line.endTimeMs ?: nextLineTimeMs,
-        positionMs = framePositionMs + LyricsSync.LEAD_MS,
+        positionMs = framePositionMs,
         contentWidthPx = contentWidthPx,
         viewportWidthPx = viewportWidthPx.toFloat(),
     )
@@ -194,7 +194,7 @@ internal fun narrowBarSoftFillFraction(
 ): Float {
     val cueCount = line.cues.size
     if (cueCount == 0) return 0f
-    val t = positionMs + LyricsSync.LEAD_MS
+    val t = positionMs
     if (t < line.cues.first().timeMs) return 0f
     val activeCueIndex = LyricsSync.cueIndexForPosition(line, positionMs)
     if (activeCueIndex < 0) return 0f

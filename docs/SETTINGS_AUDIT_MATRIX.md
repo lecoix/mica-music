@@ -25,7 +25,7 @@
 | 强调色 | `AppearancePreferences` / `app_accent_color`、`custom_accent_color` | `MicaTheme.colors.accent`；`CUSTOM` 时额外读取自定义色 | `ACTIVE` | 自定义颜色作为该行详情，不单独占主页面 |
 | 云母背景 | `AppearancePreferences` / `mica_background_preset`、`custom_mica_*` | `micaAppBackground()`、主题背景；`CUSTOM` 时额外读取自定义色 | `ACTIVE` | 与强调色合并为“颜色与背景” |
 | 自定义壁纸 | `AppearancePreferences` / `custom_wallpaper_path` | 主界面背景和设置页背景；播放页/歌词页有明确排除 | `ACTIVE` | 保留；恢复默认作为同一详情页动作 |
-| 隐藏状态栏 | `AppearancePreferences` / `hide_status_bar` | Activity 状态栏控制和页面顶部 inset | `ACTIVE` | 保留；旧 `immersive_player_status_bar` 作为兼容 key 处理 |
+| 隐藏状态栏 | `AppearancePreferences` / `status_bar_visibility_mode` | Activity 状态栏控制和播放页/非播放页顶部 inset | `ACTIVE` | 四档：关闭、仅播放页隐藏、仅非播放页隐藏、全部隐藏；旧 `hide_status_bar` 与 `immersive_player_status_bar` 兼容迁移为关闭/全部隐藏 |
 | 迷你播放栏样式 | `PlaybackUiPreferences` / `mini_player_style` | `MiniPlayer`、底栏高度/清除空间；样式能力影响频谱 tap 资格 | `ACTIVE` | 单独放入“迷你播放栏” |
 | 迷你播放栏歌词 | `PlaybackUiPreferences` / `mini_player_lyrics_enabled` | `MiniPlayer`、`HomeScreen`、`PlayerSheetHost` | `ACTIVE` | 保留 |
 | 迷你播放栏逐字歌词 | `PlaybackUiPreferences` / `mini_player_word_lyrics_enabled` | 仅当迷你播放栏歌词开启且有逐字时间轴时有明显效果 | `CONDITIONAL` | 作为“迷你播放栏歌词”详情项；关闭父开关时折叠 |
@@ -35,6 +35,8 @@
 | 信息行逐字歌词 | `LyricsPreferences` / `info_row_word_lyrics_enabled` | 父开关开启、播放中且有逐字时间轴时生效 | `CONDITIONAL` | 跟随信息行歌词折叠 |
 | 通知栏歌词 | `LyricsPreferences` / `notification_lyrics_enabled` | `NotificationLyricsCoordinator`；通知/媒体会话条件 | `CONDITIONAL` | 移入“歌词输出”并注明系统通知条件 |
 | 车载蓝牙歌词输出 | `LyricsPreferences` / `notification_lyrics_enabled` | 与通知栏歌词共用 `NotificationLyricsCoordinator` 的歌词加载和边界调度；通知栏歌词开启时额外更新兼容车机的无队列媒体会话 | `CONDITIONAL` | 已合入通知栏歌词；保留 legacy session，需真车验收 |
+| 外部歌词输出 | `LyricsPreferences` / `external_lyrics_mode` 及桌面/状态栏子项 | `DesktopLyricsOverlayService`；桌面歌词和状态栏歌词互斥，并要求悬浮窗权限 | `CONDITIONAL` | 只显示当前输出模式对应的位置、字号和排版子项 |
+| 已填充歌词透明度/阴影/发光 | `LyricsPreferences` / `external_lyrics_opacity_percent`、`external_lyrics_shadow_strength_percent`、`external_lyrics_glow_strength_percent` | `DesktopLyricsOverlayService.ExternalLyricsLineText`；桌面与状态栏共享，0–100%；透明度只控制已填充文字且覆盖颜色内置 alpha，未填充文字固定为 42%；阴影为右下方向性窄柔影，发光为零偏移宽色晕 | `CONDITIONAL` | 放在外部歌词颜色之后；默认 100/100/0；阴影/发光不再受填充透明度联动，两种效果同时开启时相互衰减 |
 
 ### 播放与封面
 
@@ -117,6 +119,7 @@
 | `global_font_*` | 有读取、写入和主题消费，但没有正常入口 | `ORPHANED` | 见上方全局字体项 |
 | `player_info_show_duration` | `playerInfoVisibility()` 只在新 `showCurrentTime` 不存在时读取 | `LEGACY` | 保留兼容读取；新写入只写 `showCurrentTime` |
 | `immersive_player_status_bar` | `AppearancePreferences` 对旧 key 做兼容读取 | `LEGACY` | 保留读取，不再新增写入 |
+| `hide_status_bar` | `AppearancePreferences` 对旧布尔 key 做兼容读取 | `LEGACY` | `false` → 关闭，`true` → 全部隐藏；不再新增写入 |
 | SettingsScreen 的粒子/拍立得预览回调 | `SettingsScreen` 接收，但当前页面没有消费；路由仍存在 | `LEGACY` | 清理无用参数和导航接线；不要因此删除预览页面 |
 | 设计文档中的旧设置分类 | 2026-08-12 已同步 `DESIGN_SPEC.md`：稳定分类为 `APPEARANCE / PLAYBACK / LYRICS / LIBRARY / AUDIO / DIAGNOSTICS`，列表/专辑/艺术家显示设置保留上下文入口 | `ACTIVE` | 后续调整 `SettingsCategory` 时同时更新本矩阵与 `DESIGN_SPEC.md` |
 

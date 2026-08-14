@@ -29,8 +29,9 @@ object StatusBarController {
         }
     }
 
-    fun applyFromPreferences(context: Context, window: Window) {
-        val hide = AppearancePreferences.hideStatusBar(context)
+    fun applyFromPreferences(context: Context, window: Window, isPlayerPage: Boolean = false) {
+        val mode = AppearancePreferences.statusBarVisibilityMode(context)
+        val hide = if (isPlayerPage) mode.hidesOnPlayer else mode.hidesOutsidePlayer
         val darkIcons = !isDarkTheme(context)
         apply(window, hide, darkIcons)
     }

@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -617,12 +618,21 @@ private fun ExternalLyricsLineText(
     marquee: Boolean,
     textAlign: TextAlign,
 ) {
+    val opacityFraction = style.opacityFraction
+    val shadowStrengthFraction = style.shadowStrengthFraction
+    val glowStrengthFraction = style.glowStrengthFraction
+    val effectTuning = externalLyricsEffectTuning(
+        shadowStrengthFraction = shadowStrengthFraction,
+        glowStrengthFraction = glowStrengthFraction,
+    )
     val textStyle = MicaTheme.typography.lyricCurrent.copy(
         fontSize = fontSizeSp.sp,
+        fontWeight = FontWeight.Normal,
         textAlign = textAlign,
         shadow = Shadow(
-            color = Color.Black.copy(alpha = 0.9f),
-            blurRadius = 8f,
+            color = Color.Black.copy(alpha = effectTuning.shadowAlpha),
+            offset = Offset(effectTuning.shadowOffsetX, effectTuning.shadowOffsetY),
+            blurRadius = effectTuning.shadowBlurRadius,
         ),
     )
     val fillFraction = externalLyricsFillFraction(text, line, positionMs)
@@ -637,7 +647,8 @@ private fun ExternalLyricsLineText(
         label = "externalLyricsFill",
     )
     var textLayout by remember(text.text, fontSizeSp) { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-    val baseColor = Color(style.normalizedColors.first()).copy(alpha = 0.42f)
+    val primaryColor = Color(style.normalizedColors.first())
+    val baseColor = primaryColor.copy(alpha = ExternalLyricsUnfilledAlpha)
 
     val marqueeModifier = if (marquee) {
         Modifier
@@ -660,6 +671,25 @@ private fun ExternalLyricsLineText(
             Modifier
         },
     ) {
+        if (glowStrengthFraction > 0f && opacityFraction > 0f) {
+            Text(
+                text = text.text,
+                style = textStyle.copy(
+                    color = primaryColor.copy(
+                        alpha = effectTuning.glowFillAlpha,
+                    ),
+                    shadow = Shadow(
+                        color = primaryColor.copy(alpha = effectTuning.glowAlpha),
+                        offset = Offset(effectTuning.glowOffsetX, effectTuning.glowOffsetY),
+                        blurRadius = effectTuning.glowBlurRadius,
+                    ),
+                ),
+                maxLines = if (marquee) 1 else 3,
+                softWrap = !marquee,
+                overflow = if (marquee) TextOverflow.Visible else TextOverflow.Ellipsis,
+                modifier = marqueeModifier,
+            )
+        }
         Text(
             text = text.text,
             style = textStyle.copy(color = baseColor),
@@ -710,7 +740,7 @@ private fun ExternalLyricsLineText(
                     drawContext.canvas.saveLayer(layerBounds, androidx.compose.ui.graphics.Paint())
                     this@drawWithContent.drawContent()
                     drawRect(
-                        brush = externalLyricsBrush(style, size),
+                        brush = externalLyricsBrush(style, size, opacityFraction),
                         blendMode = BlendMode.SrcIn,
                     )
                     drawContext.canvas.restore()
@@ -720,11 +750,57 @@ private fun ExternalLyricsLineText(
     }
 }
 
+internal data class ExternalLyricsEffectTuning(
+    val shadowAlpha: Float,
+    val shadowOffsetX: Float,
+    val shadowOffsetY: Float,
+    val shadowBlurRadius: Float,
+    val glowAlpha: Float,
+    val glowFillAlpha: Float,
+    val glowOffsetX: Float,
+    val glowOffsetY: Float,
+    val glowBlurRadius: Float,
+)
+
+/** Keeps the two effects visually distinct and prevents both halos stacking at full strength. */
+internal fun externalLyricsEffectTuning(
+    shadowStrengthFraction: Float,
+    glowStrengthFraction: Float,
+): ExternalLyricsEffectTuning {
+    val shadow = shadowStrengthFraction.coerceIn(0f, 1f)
+    val glow = glowStrengthFraction.coerceIn(0f, 1f)
+    val shadowStackDamping = 1f - 0.28f * glow
+    val glowStackDamping = 1f - 0.18f * shadow
+    return ExternalLyricsEffectTuning(
+        shadowAlpha = 1f * shadow * shadowStackDamping,
+        shadowOffsetX = 1.5f,
+        shadowOffsetY = 2.5f,
+        shadowBlurRadius = 4.5f,
+        glowAlpha = 0.72f * glow * glowStackDamping,
+        glowFillAlpha = 0.035f * glow * glowStackDamping,
+        glowOffsetX = 0f,
+        glowOffsetY = 0f,
+        glowBlurRadius = 18f,
+    )
+}
+
+internal const val ExternalLyricsUnfilledAlpha = 0.42f
+
+internal fun externalLyricsFilledAlpha(
+    @Suppress("UNUSED_PARAMETER") colorArgb: Int,
+    opacityFraction: Float,
+): Float = opacityFraction.coerceIn(0f, 1f)
+
 private fun externalLyricsBrush(
     style: com.mica.music.data.ExternalLyricsStyle,
     size: androidx.compose.ui.geometry.Size,
+    opacityFraction: Float,
 ): Brush {
-    val colors = style.normalizedColors.map(::Color)
+    val colors = style.normalizedColors.map { argb ->
+        Color(argb).let { color ->
+            color.copy(alpha = externalLyricsFilledAlpha(argb, opacityFraction))
+        }
+    }
     if (style.colorMode == ExternalLyricsColorMode.SINGLE || colors.size < 2) {
         return SolidColor(colors.first())
     }
@@ -761,7 +837,7 @@ internal fun externalLyricsFillFraction(
     line: ExternalLyricsLine,
     positionMs: Int,
 ): Float {
-    val shiftedPosition = positionMs + LyricsSync.LEAD_MS
+    val shiftedPosition = positionMs
     if (text.cues.isEmpty()) {
         // A line-timed lyric is not a sequence of character cues. Once the line is active,
         // reveal the whole line at once so the fallback cannot look like word-by-word karaoke.

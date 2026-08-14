@@ -3,7 +3,9 @@ package com.mica.music.data.preferences
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.CustomWallpaperCrop
 import com.mica.music.data.MicaPreset
+import com.mica.music.data.StatusBarVisibilityMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -31,6 +33,45 @@ class AppearancePreferencesRobolectricTest {
 
         assertEquals(AppAccentColor.CUSTOM, AppearancePreferences.appAccentColor(context))
         assertEquals(customColor, AppearancePreferences.customAccentColorArgb(context))
+    }
+
+    @Test
+    fun statusBarVisibilityModeDefaultsToOffAndRoundTripsEveryMode() {
+        assertEquals(
+            StatusBarVisibilityMode.OFF,
+            AppearancePreferences.statusBarVisibilityMode(context),
+        )
+
+        StatusBarVisibilityMode.entries.forEach { mode ->
+            AppearancePreferences.setStatusBarVisibilityMode(context, mode)
+            assertEquals(mode, AppearancePreferences.statusBarVisibilityMode(context))
+        }
+    }
+
+    @Test
+    fun statusBarVisibilityModesTargetPlayerAndNonPlayerPagesIndependently() {
+        assertFalse(StatusBarVisibilityMode.OFF.hidesOnPlayer)
+        assertFalse(StatusBarVisibilityMode.OFF.hidesOutsidePlayer)
+        assertTrue(StatusBarVisibilityMode.PLAYER_ONLY.hidesOnPlayer)
+        assertFalse(StatusBarVisibilityMode.PLAYER_ONLY.hidesOutsidePlayer)
+        assertFalse(StatusBarVisibilityMode.NON_PLAYER_ONLY.hidesOnPlayer)
+        assertTrue(StatusBarVisibilityMode.NON_PLAYER_ONLY.hidesOutsidePlayer)
+        assertTrue(StatusBarVisibilityMode.ALL.hidesOnPlayer)
+        assertTrue(StatusBarVisibilityMode.ALL.hidesOutsidePlayer)
+    }
+
+    @Test
+    fun legacyHideStatusBarBooleanKeepsItsOriginalMeaning() {
+        val preferences = context.getSharedPreferences(
+            "mica_settings",
+            android.content.Context.MODE_PRIVATE,
+        )
+
+        preferences.edit().putBoolean("hide_status_bar", true).commit()
+        assertEquals(StatusBarVisibilityMode.ALL, AppearancePreferences.statusBarVisibilityMode(context))
+
+        preferences.edit().putBoolean("hide_status_bar", false).commit()
+        assertEquals(StatusBarVisibilityMode.OFF, AppearancePreferences.statusBarVisibilityMode(context))
     }
 
     @Test

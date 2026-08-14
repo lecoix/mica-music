@@ -25,7 +25,9 @@ class AppUiSettings(context: Context) {
     var themeMode by mutableStateOf(AppearancePreferences.themeMode(appContext))
         private set
 
-    var hideStatusBar by mutableStateOf(AppearancePreferences.hideStatusBar(appContext))
+    var statusBarVisibilityMode by mutableStateOf(
+        AppearancePreferences.statusBarVisibilityMode(appContext),
+    )
         private set
 
     var playerLowerBackground by mutableStateOf(PlaybackUiPreferences.playerLowerBackground(appContext))
@@ -296,6 +298,21 @@ class AppUiSettings(context: Context) {
     var externalLyricsColors by mutableStateOf(LyricsPreferences.externalLyricsColors(appContext))
         private set
 
+    var externalLyricsOpacityPercent by mutableIntStateOf(
+        LyricsPreferences.externalLyricsOpacityPercent(appContext),
+    )
+        private set
+
+    var externalLyricsShadowStrengthPercent by mutableIntStateOf(
+        LyricsPreferences.externalLyricsShadowStrengthPercent(appContext),
+    )
+        private set
+
+    var externalLyricsGlowStrengthPercent by mutableIntStateOf(
+        LyricsPreferences.externalLyricsGlowStrengthPercent(appContext),
+    )
+        private set
+
     var infoRowLyricsEnabled by mutableStateOf(LyricsPreferences.infoRowLyricsEnabled(appContext))
         private set
 
@@ -303,6 +320,9 @@ class AppUiSettings(context: Context) {
         private set
 
     var lyricsSlotPriority by mutableStateOf(LyricsPreferences.lyricsSlotPriority(appContext))
+        private set
+
+    var globalLyricsOffsetMs by mutableIntStateOf(LyricsPreferences.globalLyricsOffsetMs(appContext))
         private set
 
     var spectrumEnabled by mutableStateOf(PlaybackUiPreferences.spectrumEnabled(appContext))
@@ -337,9 +357,9 @@ class AppUiSettings(context: Context) {
         AppearancePreferences.setThemeMode(appContext, mode)
     }
 
-    fun updateHideStatusBar(hide: Boolean) {
-        hideStatusBar = hide
-        AppearancePreferences.setHideStatusBar(appContext, hide)
+    fun updateStatusBarVisibilityMode(mode: StatusBarVisibilityMode) {
+        statusBarVisibilityMode = mode
+        AppearancePreferences.setStatusBarVisibilityMode(appContext, mode)
     }
 
     fun updatePlayerLowerBackground(mode: PlayerLowerBackgroundMode) {
@@ -821,6 +841,27 @@ class AppUiSettings(context: Context) {
         LyricsPreferences.setExternalLyricsColors(appContext, externalLyricsColors)
     }
 
+    fun updateExternalLyricsOpacityPercent(percent: Int) {
+        externalLyricsOpacityPercent = normalizeExternalLyricsEffectPercent(percent)
+        LyricsPreferences.setExternalLyricsOpacityPercent(appContext, externalLyricsOpacityPercent)
+    }
+
+    fun updateExternalLyricsShadowStrengthPercent(percent: Int) {
+        externalLyricsShadowStrengthPercent = normalizeExternalLyricsEffectPercent(percent)
+        LyricsPreferences.setExternalLyricsShadowStrengthPercent(
+            appContext,
+            externalLyricsShadowStrengthPercent,
+        )
+    }
+
+    fun updateExternalLyricsGlowStrengthPercent(percent: Int) {
+        externalLyricsGlowStrengthPercent = normalizeExternalLyricsEffectPercent(percent)
+        LyricsPreferences.setExternalLyricsGlowStrengthPercent(
+            appContext,
+            externalLyricsGlowStrengthPercent,
+        )
+    }
+
     fun updateInfoRowLyricsEnabled(enabled: Boolean) {
         infoRowLyricsEnabled = enabled
         LyricsPreferences.setInfoRowLyricsEnabled(appContext, enabled)
@@ -834,6 +875,11 @@ class AppUiSettings(context: Context) {
     fun updateLyricsSlotPriority(priority: List<LyricsSlot>) {
         lyricsSlotPriority = priority
         LyricsPreferences.setLyricsSlotPriority(appContext, priority)
+    }
+
+    fun updateGlobalLyricsOffsetMs(offsetMs: Int) {
+        globalLyricsOffsetMs = LyricsTiming.normalizeLayer(offsetMs)
+        LyricsPreferences.setGlobalLyricsOffsetMs(appContext, globalLyricsOffsetMs)
     }
 
     fun updateSpectrumEnabled(enabled: Boolean) {

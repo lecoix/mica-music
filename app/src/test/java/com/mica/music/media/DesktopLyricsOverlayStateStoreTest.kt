@@ -8,6 +8,40 @@ import com.mica.music.data.LyricCue
 
 class DesktopLyricsOverlayStateStoreTest {
     @Test
+    fun shadowIsDirectionalWhileGlowRemainsCenteredAndSofter() {
+        val effects = externalLyricsEffectTuning(
+            shadowStrengthFraction = 1f,
+            glowStrengthFraction = 1f,
+        )
+
+        assertTrue(effects.shadowOffsetX > 0f)
+        assertTrue(effects.shadowOffsetY > 0f)
+        assertEquals(0f, effects.glowOffsetX)
+        assertEquals(0f, effects.glowOffsetY)
+        assertTrue(effects.shadowBlurRadius < effects.glowBlurRadius)
+    }
+
+    @Test
+    fun combinedEffectsAreDampedInsteadOfStackingAtFullStrength() {
+        val shadowOnly = externalLyricsEffectTuning(1f, 0f)
+        val glowOnly = externalLyricsEffectTuning(0f, 1f)
+        val combined = externalLyricsEffectTuning(1f, 1f)
+
+        assertEquals(1f, shadowOnly.shadowAlpha)
+        assertTrue(combined.shadowAlpha < shadowOnly.shadowAlpha)
+        assertTrue(combined.glowAlpha < glowOnly.glowAlpha)
+    }
+
+    @Test
+    fun filledOpacityOverridesStoredColorAlphaWhileUnfilledOpacityStaysFixed() {
+        val translucentMagenta = 0x40FF00FF
+
+        assertEquals(1f, externalLyricsFilledAlpha(translucentMagenta, 1f))
+        assertEquals(0.65f, externalLyricsFilledAlpha(translucentMagenta, 0.65f))
+        assertEquals(0.42f, ExternalLyricsUnfilledAlpha)
+    }
+
+    @Test
     fun lyricSnapshotFollowsPlaybackVisibilityWithoutDuplicatingPositionPolling() {
         val store = DesktopLyricsOverlayStateStore()
 

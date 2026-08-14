@@ -38,17 +38,17 @@ class LyricsTimelineEngineTest {
         assertEquals(LyricsTimelinePhase.BeforeFirstLine, engine.snapshotAt(500).phase)
         val active = engine.snapshotAt(1_500).phase as LyricsTimelinePhase.Line
         assertEquals(0, active.index)
-        assertEquals(0.65f, active.progress, 0.0001f)
+        assertEquals(0.5f, active.progress, 0.0001f)
         val gap = engine.snapshotAt(3_500).phase as LyricsTimelinePhase.Gap
         assertEquals(0, gap.previousIndex)
         assertEquals(1, gap.nextIndex)
         assertEquals(3_000, gap.durationMs)
-        assertEquals(0.55f, gap.progress, 0.0001f)
+        assertEquals(0.5f, gap.progress, 0.0001f)
         assertEquals(LyricsTimelinePhase.AfterLastLine, engine.snapshotAt(6_000).phase)
     }
 
     @Test
-    fun timelineLineActivationUsesLeadMs() {
+    fun timelineLineActivationUsesExactPosition() {
         val engine = LyricsTimelineEngine(
             LyricsDocument(
                 lines = listOf(
@@ -57,8 +57,8 @@ class LyricsTimelineEngineTest {
             ),
         )
 
-        assertEquals(LyricsTimelinePhase.BeforeFirstLine, engine.snapshotAt(849).phase)
-        val active = engine.snapshotAt(850).phase as LyricsTimelinePhase.Line
+        assertEquals(LyricsTimelinePhase.BeforeFirstLine, engine.snapshotAt(999).phase)
+        val active = engine.snapshotAt(1_000).phase as LyricsTimelinePhase.Line
         assertEquals(0, active.index)
     }
 

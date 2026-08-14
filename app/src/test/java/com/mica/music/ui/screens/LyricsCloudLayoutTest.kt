@@ -78,11 +78,11 @@ class LyricsCloudLayoutTest {
 
         assertEquals(
             CloudCharacterState(activeIndex = 0, progress = 0.5f),
-            cloudCharacterState(line, row, 100, 2_000, false),
+            cloudCharacterState(line, row, 250, 2_000, false),
         )
         assertEquals(
             CloudCharacterState(activeIndex = 1, progress = 0f),
-            cloudCharacterState(line, row, 350, 2_000, false),
+            cloudCharacterState(line, row, 500, 2_000, false),
         )
     }
 
@@ -107,7 +107,7 @@ class LyricsCloudLayoutTest {
 
         assertEquals(
             CloudCharacterState(activeIndex = 2, progress = 0.25f),
-            cloudCharacterState(line, translation, 1_750, 3_000, true),
+            cloudCharacterState(line, translation, 1_900, 3_000, true),
         )
     }
 
@@ -124,7 +124,7 @@ class LyricsCloudLayoutTest {
 
         assertEquals(
             CloudCharacterState(activeIndex = 8, progress = 0.25f),
-            cloudCharacterState(line, translation, 1_750, 3_000, true),
+            cloudCharacterState(line, translation, 1_900, 3_000, true),
         )
     }
 
@@ -140,7 +140,7 @@ class LyricsCloudLayoutTest {
 
         assertEquals(
             CloudCharacterState(activeIndex = 1, progress = 0.625f),
-            cloudCharacterState(line, translation, 1_500, 3_000, false),
+            cloudCharacterState(line, translation, 1_650, 3_000, false),
         )
     }
 

@@ -6,6 +6,23 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RewriteQueriesToDropUnusedColumns
 import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface SongLyricsOffsetDao {
+    @Query("SELECT * FROM song_lyrics_offsets WHERE songId = :songId LIMIT 1")
+    fun observe(songId: String): Flow<SongLyricsOffsetEntity?>
+
+    @Query("SELECT * FROM song_lyrics_offsets WHERE songId = :songId LIMIT 1")
+    suspend fun get(songId: String): SongLyricsOffsetEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: SongLyricsOffsetEntity)
+
+    @Query("DELETE FROM song_lyrics_offsets WHERE songId = :songId")
+    suspend fun delete(songId: String)
+
+}
 
 @Dao
 interface SongDao {

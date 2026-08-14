@@ -28,6 +28,7 @@ import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlaylistSidebarStyle
 import com.mica.music.data.ReplayGainMode
+import com.mica.music.data.StatusBarVisibilityMode
 import com.mica.music.ui.theme.MicaPreset
 
 internal val DurationChoices = listOf(
@@ -73,6 +74,10 @@ internal val MicaBackgroundChoices = MicaPreset.entries.map {
 }
 
 internal val PlaylistSidebarStyleChoices = PlaylistSidebarStyle.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+internal val StatusBarVisibilityModeChoices = StatusBarVisibilityMode.entries.map {
     it.ordinal to it.settingsLabel
 }
 

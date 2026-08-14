@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -56,6 +57,7 @@ internal fun HomePlaylistOverviewContent(
     onAction: (UserPlaylist, PlaylistOverviewAction) -> Unit,
     onCreatePlaylist: () -> Unit,
     onImportPlaylist: () -> Unit,
+    listState: LazyListState,
     modifier: Modifier = Modifier,
 ) {
     if (playlists.isEmpty()) {
@@ -83,6 +85,7 @@ internal fun HomePlaylistOverviewContent(
     }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = HifiSpacing.lg,

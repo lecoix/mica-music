@@ -14,11 +14,13 @@ internal object LyricsBoundaryClock {
         positionMs: Long,
         playbackSpeed: Float,
         isAdvancing: Boolean,
+        effectiveOffsetMs: Int = 0,
     ): Plan {
-        val activeIndex = activeIndex(lineStartTimesMs, positionMs)
+        val effectivePositionMs = (positionMs + effectiveOffsetMs.toLong()).coerceAtLeast(0L)
+        val activeIndex = activeIndex(lineStartTimesMs, effectivePositionMs)
         val nextBoundaryPositionMs = lineStartTimesMs
             .asSequence()
-            .map { it.toLong() - LyricsSync.LEAD_MS }
+            .map { it.toLong() - effectiveOffsetMs.toLong() }
             .firstOrNull { it > positionMs }
         val wakeInMs = if (isAdvancing && playbackSpeed > 0f && nextBoundaryPositionMs != null) {
             ceil((nextBoundaryPositionMs - positionMs) / playbackSpeed.toDouble())
@@ -32,7 +34,7 @@ internal object LyricsBoundaryClock {
 
     private fun activeIndex(lineStartTimesMs: IntArray, positionMs: Long): Int {
         if (lineStartTimesMs.isEmpty() || lineStartTimesMs.none { it > 0 }) return -1
-        val effectivePositionMs = positionMs + LyricsSync.LEAD_MS
+        val effectivePositionMs = positionMs
         var index = 0
         for (candidate in lineStartTimesMs.indices) {
             if (lineStartTimesMs[candidate] <= effectivePositionMs) {

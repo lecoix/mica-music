@@ -14,6 +14,20 @@ class LyricsBoundaryClockTest {
         )
 
         assertEquals(0, plan.activeIndex)
-        assertEquals(375L, plan.wakeInMs)
+        assertEquals(450L, plan.wakeInMs)
+    }
+
+    @Test
+    fun positiveOffsetActivatesAndWakesLyricsEarly() {
+        val plan = LyricsBoundaryClock.plan(
+            lineStartTimesMs = intArrayOf(1_000, 5_000),
+            positionMs = 4_500,
+            playbackSpeed = 1f,
+            isAdvancing = true,
+            effectiveOffsetMs = 500,
+        )
+
+        assertEquals(1, plan.activeIndex)
+        assertEquals(null, plan.wakeInMs)
     }
 }

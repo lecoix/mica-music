@@ -203,6 +203,46 @@ class LyricsPreferencesRobolectricTest {
     }
 
     @Test
+    fun externalLyricsEffectsDefaultRoundTripAndClamp() {
+        assertEquals(100, LyricsPreferences.externalLyricsOpacityPercent(context))
+        assertEquals(100, LyricsPreferences.externalLyricsShadowStrengthPercent(context))
+        assertEquals(0, LyricsPreferences.externalLyricsGlowStrengthPercent(context))
+
+        LyricsPreferences.setExternalLyricsOpacityPercent(context, -1)
+        LyricsPreferences.setExternalLyricsShadowStrengthPercent(context, 62)
+        LyricsPreferences.setExternalLyricsGlowStrengthPercent(context, 101)
+
+        assertEquals(0, LyricsPreferences.externalLyricsOpacityPercent(context))
+        assertEquals(62, LyricsPreferences.externalLyricsShadowStrengthPercent(context))
+        assertEquals(100, LyricsPreferences.externalLyricsGlowStrengthPercent(context))
+        assertEquals(0, LyricsPreferences.externalLyricsStyle(context).opacityPercent)
+        assertEquals(62, LyricsPreferences.externalLyricsStyle(context).shadowStrengthPercent)
+        assertEquals(100, LyricsPreferences.externalLyricsStyle(context).glowStrengthPercent)
+    }
+
+    @Test
+    fun externalLyricsEffectChangesInvalidateTheLiveDisplay() {
+        val changes = mutableListOf<LyricsPreferences.NotificationLyricsChange>()
+        val unregister = LyricsPreferences.registerNotificationLyricsChangeListener(context, changes::add)
+        try {
+            LyricsPreferences.setExternalLyricsOpacityPercent(context, 80)
+            LyricsPreferences.setExternalLyricsShadowStrengthPercent(context, 60)
+            LyricsPreferences.setExternalLyricsGlowStrengthPercent(context, 40)
+        } finally {
+            unregister()
+        }
+
+        assertEquals(
+            listOf(
+                LyricsPreferences.NotificationLyricsChange.DISPLAY,
+                LyricsPreferences.NotificationLyricsChange.DISPLAY,
+                LyricsPreferences.NotificationLyricsChange.DISPLAY,
+            ),
+            changes,
+        )
+    }
+
+    @Test
     fun lyricsPageLineSpacingDefaultsToTwentyFourAndRoundTrips() {
         assertEquals(24, LyricsPreferences.lyricsPageLineSpacingDp(context))
 
@@ -257,5 +297,16 @@ class LyricsPreferencesRobolectricTest {
             listOf(LyricsSlot.EMBEDDED, LyricsSlot.EMBEDDED, LyricsSlot.EXTERNAL_LRC),
         )
         assertEquals(DEFAULT_LYRICS_SLOT_PRIORITY, LyricsPreferences.lyricsSlotPriority(context))
+    }
+
+    @Test
+    fun globalLyricsOffsetDefaultsToZeroRoundTripsAndClamps() {
+        assertEquals(0, LyricsPreferences.globalLyricsOffsetMs(context))
+
+        LyricsPreferences.setGlobalLyricsOffsetMs(context, 500)
+        assertEquals(500, LyricsPreferences.globalLyricsOffsetMs(context))
+
+        LyricsPreferences.setGlobalLyricsOffsetMs(context, 99_000)
+        assertEquals(5_000, LyricsPreferences.globalLyricsOffsetMs(context))
     }
 }

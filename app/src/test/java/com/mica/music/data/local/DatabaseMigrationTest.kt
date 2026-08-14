@@ -651,6 +651,37 @@ class DatabaseMigrationTest {
         helper.close()
     }
 
+    @Test
+    fun migrationSeventeenToEighteenCreatesSongLyricsOffsets() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(17) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_17_18.migrate(db)
+        db.execSQL(
+            "INSERT INTO song_lyrics_offsets(songId, mediaUri, offsetMs) " +
+                "VALUES ('song', 'content://song', -500)",
+        )
+
+        assertEquals(
+            setOf("songId", "mediaUri", "offsetMs"),
+            tableColumns(db, "song_lyrics_offsets"),
+        )
+        db.query("SELECT offsetMs FROM song_lyrics_offsets WHERE songId = 'song'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(-500, cursor.getInt(0))
+        }
+        helper.close()
+    }
+
     private fun tableColumns(
         db: SupportSQLiteDatabase,
         table: String,

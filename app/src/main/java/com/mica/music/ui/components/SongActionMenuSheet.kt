@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.PlaylistRemove
@@ -66,6 +67,7 @@ enum class SongMenuAction {
     Share,
     EditTags,
     SongInfo,
+    LyricsOffset,
     RemoveFromPlaylist,
     Delete,
 }
@@ -85,6 +87,7 @@ fun SongActionMenuSheet(
     showPlaybackTuning: Boolean = false,
     playbackTuningLabel: String = "速度 / 音高",
     onPlaybackTuningClick: (() -> Unit)? = null,
+    showLyricsOffset: Boolean = false,
     showLibraryActions: Boolean = true,
     landscape: Boolean = false,
 ) {
@@ -113,6 +116,7 @@ fun SongActionMenuSheet(
                 showPlaybackTuning = showPlaybackTuning,
                 playbackTuningLabel = playbackTuningLabel,
                 onPlaybackTuningClick = onPlaybackTuningClick,
+                showLyricsOffset = showLyricsOffset,
                 showLibraryActions = showLibraryActions,
             )
         }
@@ -160,6 +164,13 @@ fun SongActionMenuSheet(
                     icon = Icons.Outlined.Speed,
                     label = playbackTuningLabel,
                     onClick = onPlaybackTuningClick,
+                )
+            }
+            if (showLyricsOffset) {
+                SongMenuItem(
+                    icon = Icons.Outlined.Tune,
+                    label = "歌词偏移",
+                    onClick = { onAction(SongMenuAction.LyricsOffset) },
                 )
             }
             SongMenuItem(
@@ -303,6 +314,7 @@ private fun LandscapeSongActionMenu(
     showPlaybackTuning: Boolean,
     playbackTuningLabel: String,
     onPlaybackTuningClick: (() -> Unit)?,
+    showLyricsOffset: Boolean,
     showLibraryActions: Boolean,
 ) {
     val entries = buildList {
@@ -315,6 +327,11 @@ private fun LandscapeSongActionMenu(
             }
             if (showPlaybackTuning && onPlaybackTuningClick != null) {
                 add(LandscapeSongMenuEntry(Icons.Outlined.Speed, playbackTuningLabel, onClick = onPlaybackTuningClick))
+            }
+            if (showLyricsOffset) {
+                add(LandscapeSongMenuEntry(Icons.Outlined.Tune, "歌词偏移") {
+                    onAction(SongMenuAction.LyricsOffset)
+                })
             }
         }
         if (showLibraryActions) {
@@ -329,6 +346,11 @@ private fun LandscapeSongActionMenu(
         }
         if (showPlaybackTuning && onPlaybackTuningClick != null) {
             add(LandscapeSongMenuEntry(Icons.Outlined.Speed, playbackTuningLabel, onClick = onPlaybackTuningClick))
+        }
+        if (showLyricsOffset) {
+            add(LandscapeSongMenuEntry(Icons.Outlined.Tune, "歌词偏移") {
+                onAction(SongMenuAction.LyricsOffset)
+            })
         }
         add(LandscapeSongMenuEntry(Icons.Outlined.Share, "分享") {
             onAction(SongMenuAction.Share)

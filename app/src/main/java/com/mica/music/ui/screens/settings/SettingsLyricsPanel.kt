@@ -27,10 +27,12 @@ import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.MAX_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MAX_EXTERNAL_LYRICS_EFFECT_PERCENT
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MIN_EXTERNAL_LYRICS_EFFECT_PERCENT
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
 import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
@@ -41,6 +43,8 @@ import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsSliderRow
+import com.mica.music.ui.components.LyricsOffsetSheet
+import com.mica.music.ui.components.formatLyricsOffset
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.screens.settings.color.ExternalLyricsColorDialog
 import com.mica.music.ui.theme.HifiSpacing
@@ -55,6 +59,7 @@ internal fun LyricsSettingsPanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showExternalLyricsColors by remember { mutableStateOf(false) }
+    var showGlobalLyricsOffset by remember { mutableStateOf(false) }
     val fontPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -159,12 +164,26 @@ internal fun LyricsSettingsPanel(
 
     SettingsSectionTitle("通用显示")
 
+    SettingsActionRow(
+        title = "全局歌词偏移",
+        subtitle = "当前 ${formatLyricsOffset(uiSettings.globalLyricsOffsetMs)}；正数提前，负数延后",
+        onClick = { showGlobalLyricsOffset = true },
+    )
+
     SettingsToggleRow(
         title = "分割双语歌词",
         subtitle = "将含细空格（U+2009 等）或 //、／ 的行拆成上下两行；关闭后每行 LRC 保持一行",
         checked = uiSettings.lyricSplitEnabled,
         onCheckedChange = { uiSettings.updateLyricSplitEnabled(it) },
     )
+
+    if (showGlobalLyricsOffset) {
+        LyricsOffsetSheet(
+            globalOffsetMs = uiSettings.globalLyricsOffsetMs,
+            onGlobalOffsetChange = uiSettings::updateGlobalLyricsOffsetMs,
+            onDismiss = { showGlobalLyricsOffset = false },
+        )
+    }
 
     SettingsToggleRow(
         title = "显示读音 / 罗马音",
@@ -425,6 +444,33 @@ internal fun LyricsSettingsPanel(
                 },
             )
         }
+
+        SettingsSliderRow(
+            title = "已填充歌词透明度",
+            subtitle = "只影响逐字填充后的文字；未填充部分保持较弱显示",
+            value = uiSettings.externalLyricsOpacityPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_EFFECT_PERCENT..MAX_EXTERNAL_LYRICS_EFFECT_PERCENT,
+            suffix = "%",
+            onValueChange = { uiSettings.updateExternalLyricsOpacityPercent(it) },
+        )
+
+        SettingsSliderRow(
+            title = "外部歌词阴影强度",
+            subtitle = "黑色柔影用于提升复杂背景上的可读性；0% 时关闭",
+            value = uiSettings.externalLyricsShadowStrengthPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_EFFECT_PERCENT..MAX_EXTERNAL_LYRICS_EFFECT_PERCENT,
+            suffix = "%",
+            onValueChange = { uiSettings.updateExternalLyricsShadowStrengthPercent(it) },
+        )
+
+        SettingsSliderRow(
+            title = "外部歌词发光强度",
+            subtitle = "使用当前歌词主色产生柔和外发光；0% 时关闭",
+            value = uiSettings.externalLyricsGlowStrengthPercent,
+            valueRange = MIN_EXTERNAL_LYRICS_EFFECT_PERCENT..MAX_EXTERNAL_LYRICS_EFFECT_PERCENT,
+            suffix = "%",
+            onValueChange = { uiSettings.updateExternalLyricsGlowStrengthPercent(it) },
+        )
     }
 
     if (uiSettings.lyricsPageTheme == LyricsPageTheme.LIST) {

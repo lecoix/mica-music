@@ -17,4 +17,21 @@ class ExternalLyricsSettingsTest {
         assertEquals(ExternalLyricsColorMode.SINGLE, ExternalLyricsColorMode.fromStorage("bad"))
         assertTrue(ExternalLyricsStyle().normalizedColors.isNotEmpty())
     }
+
+    @Test
+    fun effectStrengthsPreserveCurrentDefaultsAndClampForRendering() {
+        val defaults = ExternalLyricsStyle()
+        assertEquals(1f, defaults.opacityFraction)
+        assertEquals(1f, defaults.shadowStrengthFraction)
+        assertEquals(0f, defaults.glowStrengthFraction)
+
+        val invalid = ExternalLyricsStyle(
+            opacityPercent = -20,
+            shadowStrengthPercent = 140,
+            glowStrengthPercent = 250,
+        )
+        assertEquals(0f, invalid.opacityFraction)
+        assertEquals(1f, invalid.shadowStrengthFraction)
+        assertEquals(1f, invalid.glowStrengthFraction)
+    }
 }
