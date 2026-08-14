@@ -1,0 +1,16 @@
+# schema=dop-hotpath-operation-model-v1
+# packet=stereo DSD128; scope=pre-fast-path granular baseline; canonicalBytes=8192; canonicalFrames=4096; runtimeFrames=2048; carrierBytes=12288; packing=PACKED_24_LE
+stage	operation	callsPerPacket	bytesTouchedOrAllocatedPerPacket	classification	note
+p5.writeBytes	canonical-frame-loop	4096	0	IMPLEMENTATION_GRANULARITY	One loop iteration per two-channel canonical frame.
+p5.writeBytes	source-to-partial-copy	4096	8192	IMPLEMENTATION_ACCIDENT	Aligned source is copied two bytes at a time through partialCanonicalFrame.
+p5.encoder	encodeFrames-call	4096	0	IMPLEMENTATION_GRANULARITY	Encoder API already accepts many frames; current pipeline always passes frameCount=1.
+p5.encoder	carried-frame-copy	2048	4096	IMPLEMENTATION_ACCIDENT	frameCount=1 forces every first half of a DoP pair through carriedFrame; even 4096-frame batch needs no carry.
+p5.encoder	logical-word-write	4096	0	SEMANTIC_REQUIRED	Two logical words per 2048 DoP runtime frames; payload and marker chronology must remain exact.
+p5.pack	packWords-call	2048	12288	IMPLEMENTATION_GRANULARITY	Packing is required but per-runtime-frame call granularity is not.
+p5.emit	emitPending-call	2049	12288	IMPLEMENTATION_GRANULARITY	Initial empty flush plus one flush per runtime frame; arbitrary-fragment semantics must remain for fallback path.
+p5.emit	EmitResult-construction-opportunity	2049	0	IMPLEMENTATION_ACCIDENT	Each emitPending source call constructs a tiny result value; runtime escape analysis may remove some allocations, so this is a source-level allocation opportunity rather than an asserted heap count.
+p5.emit	packed-frame-to-upstream-copy	2048	12288	IMPLEMENTATION_ACCIDENT	Six-byte copies assemble a carrier packet already large enough for one bulk aligned emission.
+feeder	upstream-buffer-allocation	1	24576	IMPLEMENTATION_ACCIDENT	4096 staging frames x 6 bytes are newly allocated for every writeContentBytes call.
+feeder	capture-upstream-copy	1	12288	CONTRACT_STAGING	Committed P5 bytes enter bounded feeder staging before sink acceptance.
+feeder	offeredCopy-allocation-copy	1	12288	DEFENSIVE_COPY	Full aligned staging prefix is copied before sink call; removal is zero-copy on full acceptance.
+feeder	accounting-snapshot-for-pending-query	1	0	IMPLEMENTATION_ACCIDENT	upstreamPendingPackedBytes obtains a full DoPPipelineAccounting snapshot for one integer.

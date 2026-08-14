@@ -160,6 +160,7 @@ class DoPRuntimePipeline(
     private val partialCanonicalFrame = ByteArray(plan.channelCount)
     private var partialCanonicalFrameBytes = 0
     private val words = IntArray(plan.channelCount)
+    private var bulkWords = IntArray(0)
     private val packedRuntimeFrame = ByteArray(plan.bytesPerRuntimeFrame)
     private var pendingPackedOffset = 0
     private var pendingPackedLength = 0
@@ -241,6 +242,15 @@ class DoPRuntimePipeline(
         if (destinationByteCount == 0) {
             return DoPPipelineByteWriteResult(0, 0, 0, 0, 0)
         }
+
+        tryWriteBulkAligned(
+            source = source,
+            sourceOffset = sourceOffset,
+            sourceByteCount = sourceByteCount,
+            destination = destination,
+            destinationOffset = destinationOffset,
+            destinationByteCount = destinationByteCount,
+        )?.let { return it }
 
         var sourceBytesConsumed = 0
         var completedCanonicalFrames = 0
@@ -633,6 +643,91 @@ class DoPRuntimePipeline(
 
     fun hasPendingOutputOrCarry(): Boolean =
         pendingPackedBytes() > 0 || partialCanonicalFrameBytes > 0 || encoder.hasPendingHalfFrame()
+
+    /**
+     * Fast path for the common feeder packet shape: a clean aligned source chunk whose complete
+     * carrier output fits in the caller-provided destination. Every fragmented/carry/pending case
+     * deliberately returns null so the original granular loop below remains authoritative there.
+     */
+    private fun tryWriteBulkAligned(
+        source: ByteArray,
+        sourceOffset: Int,
+        sourceByteCount: Int,
+        destination: ByteArray,
+        destinationOffset: Int,
+        destinationByteCount: Int,
+    ): DoPPipelineByteWriteResult? {
+        if (sourceByteCount == 0) return null
+        if (pendingPackedBytes() != 0) return null
+        if (partialCanonicalFrameBytes != 0) return null
+        if (encoder.hasPendingHalfFrame()) return null
+        if (source === destination) return null
+
+        val channelCount = plan.channelCount
+        if (sourceOffset % channelCount != 0) return null
+        if (sourceByteCount % channelCount != 0) return null
+
+        val canonicalFrames = sourceByteCount / channelCount
+        if (canonicalFrames == 0 || canonicalFrames % 2 != 0) return null
+
+        val runtimeFrames = canonicalFrames / 2
+        val carrierBytesLong = runtimeFrames.toLong() * plan.bytesPerRuntimeFrame.toLong()
+        if (carrierBytesLong > destinationByteCount.toLong() || carrierBytesLong > Int.MAX_VALUE.toLong()) {
+            return null
+        }
+
+        val wordCountLong = runtimeFrames.toLong() * channelCount.toLong()
+        if (wordCountLong > Int.MAX_VALUE.toLong()) return null
+        val wordCount = wordCountLong.toInt()
+        ensureBulkWordsCapacity(wordCount)
+
+        val produced = encoder.encodeFrames(
+            source = source,
+            sourceOffset = sourceOffset,
+            frameCount = canonicalFrames,
+            destinationWords = bulkWords,
+        )
+        check(produced == runtimeFrames) {
+            "bulk DoP encoder produced=$produced expected=$runtimeFrames"
+        }
+        check(!encoder.hasPendingHalfFrame()) {
+            "bulk aligned DoP write must not retain a canonical half-frame"
+        }
+
+        val carrierBytes = DoPEncoder.packWords(
+            words = bulkWords,
+            wordCount = wordCount,
+            packing = plan.packing,
+            destination = destination,
+            destinationOffset = destinationOffset,
+        )
+        check(carrierBytes == carrierBytesLong.toInt()) {
+            "bulk DoP packed bytes=$carrierBytes expected=$carrierBytesLong"
+        }
+
+        lastPackedMarker = (bulkWords[(produced - 1) * channelCount] ushr 16) and 0xff
+        totalCanonicalBytesConsumed += sourceByteCount.toLong()
+        totalCanonicalFramesConsumed += canonicalFrames.toLong()
+        totalRuntimeFramesPacked += runtimeFrames.toLong()
+        totalRuntimeFramesFullyEmitted += runtimeFrames.toLong()
+        totalCarrierBytesEmitted += carrierBytes.toLong()
+        totalContentRuntimeFramesPacked += runtimeFrames.toLong()
+        totalContentCarrierBytesEmitted += carrierBytes.toLong()
+
+        return DoPPipelineByteWriteResult(
+            canonicalBytesConsumed = sourceByteCount,
+            canonicalFramesCompleted = canonicalFrames,
+            carrierBytesEmitted = carrierBytes,
+            runtimeFramesPacked = runtimeFrames,
+            runtimeFramesFullyEmitted = runtimeFrames,
+        )
+    }
+
+    private fun ensureBulkWordsCapacity(requiredWords: Int) {
+        if (bulkWords.size < requiredWords) {
+            bulkWords = IntArray(requiredWords)
+        }
+    }
 
     private fun packCurrentRuntimeFrame(kind: DoPPackedFrameKind) {
         check(pendingPackedBytes() == 0)
