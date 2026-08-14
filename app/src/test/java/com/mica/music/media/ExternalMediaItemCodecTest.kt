@@ -1,6 +1,7 @@
 package com.mica.music.media
 
 import android.content.Context
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.scanner.AlbumArtCache
 import com.mica.music.testutil.SongFixtures
@@ -14,6 +15,12 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class ExternalMediaItemCodecTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    private val affectedHuawei = SystemMediaArtworkResolver.DeviceProfile(
+        manufacturer = "HUAWEI",
+        model = "OXF-AN10",
+        sdkInt = 31,
+    )
 
     @Test
     fun managedArtworkIsRetainedOnlyAsAControllerGrantableContentUri() {
@@ -34,6 +41,29 @@ class ExternalMediaItemCodecTest {
             item.localConfiguration?.uri?.toString(),
             ExternalMediaItemCodec.decode(item)?.mediaUri,
         )
+    }
+
+    @Test
+    fun affectedHuaweiExternalItemUsesTheSameBackingFileBoundary() {
+        val raw = AlbumArtCache.storeManagedArtwork(
+            context,
+            "external-huawei",
+            "external-cover-${System.nanoTime()}".toByteArray(),
+        )
+        val backing = AlbumArtCache.fileForManagedArtwork(context, raw)!!
+
+        try {
+            val item = ExternalMediaItemCodec.encode(
+                context,
+                SongFixtures.song("external-huawei").copy(albumArtUri = raw),
+                affectedHuawei,
+            )
+
+            assertEquals("file", item.mediaMetadata.artworkUri?.scheme)
+            assertEquals(Uri.fromFile(backing), item.mediaMetadata.artworkUri)
+        } finally {
+            backing.delete()
+        }
     }
 
     @Test

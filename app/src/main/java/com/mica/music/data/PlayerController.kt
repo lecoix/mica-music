@@ -1121,7 +1121,7 @@ class PlayerController internal constructor(
         publishPlaybackStates()
         if (wasPlayingBeforeQueueChange(c) && !foundOldSong) {
             c.setMediaItems(
-                newQueue.map { it.toMediaItem() },
+                newQueue.map { it.toMediaItem(appCtx) },
                 currentIndex,
                 0L,
             )
@@ -1130,7 +1130,7 @@ class PlayerController internal constructor(
         } else {
             if (c.mediaItemCount == 0) {
                 c.setMediaItems(
-                    newQueue.map { it.toMediaItem() },
+                    newQueue.map { it.toMediaItem(appCtx) },
                     currentIndex,
                     0L,
                 )
@@ -1476,7 +1476,7 @@ class PlayerController internal constructor(
             }
             is PlaybackQueueNavigationPlan.CarryQueuePayload -> {
                 val mapStartedNs = SystemClock.elapsedRealtimeNanos()
-                val queueItems = songQueue.map { it.toMediaItem() }
+                val queueItems = songQueue.map { it.toMediaItem(appCtx) }
                 PendingPlaybackNavigation.prepare(targetSongId = songId, items = queueItems)
                 logQueueSyncMs(
                     action = "play-switch-nav",
@@ -1487,7 +1487,7 @@ class PlayerController internal constructor(
                 navigationPlan.serviceIndex
             }
             is PlaybackQueueNavigationPlan.SyncQueue -> {
-                val queueItems = songQueue.map { it.toMediaItem() }
+                val queueItems = songQueue.map { it.toMediaItem(appCtx) }
                 syncQueueToService(
                     c = expectedController,
                     targetIndex = navigationPlan.serviceIndex,
@@ -1529,6 +1529,7 @@ class PlayerController internal constructor(
             positionMs = positionMs,
             preserveCurrentPlayback = preserveCurrentPlayback,
             prebuiltItems = prebuiltItems,
+            mediaItemFactory = { song -> song.toMediaItem(appCtx) },
         ) ?: return
         val result = plan.result
         if (plan is PlaybackQueueSyncPlan.Skip) {
@@ -1871,6 +1872,9 @@ internal fun evaluatePendingSeekClear(
 
 internal fun Song.toMediaItem(): MediaItem =
     com.mica.music.media.SongMediaItemCodec.encode(this)
+
+internal fun Song.toMediaItem(context: Context): MediaItem =
+    com.mica.music.media.SongMediaItemCodec.encodeForSession(context, this)
 
 /**
  * MediaItem 只承载播放/会话所需的轻量字段；曲库中的完整 Song（例如歌词）优先。

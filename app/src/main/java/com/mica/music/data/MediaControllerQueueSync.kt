@@ -57,6 +57,7 @@ internal object MediaControllerQueueSync {
         positionMs: Long,
         preserveCurrentPlayback: Boolean,
         prebuiltItems: List<MediaItem>? = null,
+        mediaItemFactory: (Song) -> MediaItem = { song -> song.toMediaItem() },
     ): PlaybackQueueSyncPlan? {
         if (queue.isEmpty()) return null
         val safeTarget = targetIndex.coerceIn(0, queue.lastIndex)
@@ -108,7 +109,7 @@ internal object MediaControllerQueueSync {
             metadataChangedIndices.isNotEmpty() &&
             player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)
         ) {
-            val items = prebuiltItems ?: queue.map { it.toMediaItem() }
+            val items = prebuiltItems ?: queue.map(mediaItemFactory)
             return PlaybackQueueSyncPlan.ReplaceMediaItems(
                 replacements = metadataChangedIndices.map { index -> IndexedValue(index, items[index]) },
                 result = QueueSyncResult(
@@ -121,7 +122,7 @@ internal object MediaControllerQueueSync {
                 ),
             )
         }
-        val items = prebuiltItems ?: queue.map { it.toMediaItem() }
+        val items = prebuiltItems ?: queue.map(mediaItemFactory)
         return PlaybackQueueSyncPlan.SetMediaItems(
             items = items,
             startPositionMs = startPosition,
@@ -155,6 +156,7 @@ internal object MediaControllerQueueSync {
         positionMs: Long,
         preserveCurrentPlayback: Boolean,
         prebuiltItems: List<MediaItem>? = null,
+        mediaItemFactory: (Song) -> MediaItem = { song -> song.toMediaItem() },
     ): QueueSyncResult? =
         planSync(
             player = player,
@@ -163,6 +165,7 @@ internal object MediaControllerQueueSync {
             positionMs = positionMs,
             preserveCurrentPlayback = preserveCurrentPlayback,
             prebuiltItems = prebuiltItems,
+            mediaItemFactory = mediaItemFactory,
         )?.let { plan ->
             executeSyncPlan(player, plan)
         }

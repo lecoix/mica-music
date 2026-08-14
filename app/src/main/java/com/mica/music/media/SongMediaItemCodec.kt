@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
@@ -42,6 +43,29 @@ object SongMediaItemCodec {
         item.mediaMetadata.extras?.getString(LYRICS_REVISION).orEmpty()
 
     fun encode(song: Song, includeUri: Boolean = true): MediaItem {
+        val artworkUri = song.albumArtUri?.let { raw ->
+            runCatching { Uri.parse(raw) }.getOrNull()
+        }
+        return encode(song, includeUri, artworkUri)
+    }
+
+    internal fun encodeForSession(
+        context: Context,
+        song: Song,
+        device: SystemMediaArtworkResolver.DeviceProfile =
+            SystemMediaArtworkResolver.DeviceProfile.current(),
+        includeUri: Boolean = true,
+    ): MediaItem = encode(
+        song = song,
+        includeUri = includeUri,
+        artworkUri = SystemMediaArtworkResolver.resolve(context, song.albumArtUri, device),
+    )
+
+    private fun encode(
+        song: Song,
+        includeUri: Boolean,
+        artworkUri: Uri?,
+    ): MediaItem {
         val extras = buildExtras(song)
         val metadata = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -52,7 +76,7 @@ object SongMediaItemCodec {
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .setExtras(extras)
             .apply {
-                song.albumArtUri?.let { runCatching { setArtworkUri(Uri.parse(it)) } }
+                artworkUri?.let(::setArtworkUri)
             }
             .build()
         val builder = MediaItem.Builder()

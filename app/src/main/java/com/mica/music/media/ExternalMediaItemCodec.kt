@@ -23,7 +23,12 @@ internal object ExternalMediaItemCodec {
     private const val COVER_COLOR_KEY = "mica.external.coverColorArgb"
     private const val VERSION = 1
 
-    fun encode(context: Context, song: Song): MediaItem {
+    fun encode(
+        context: Context,
+        song: Song,
+        device: SystemMediaArtworkResolver.DeviceProfile =
+            SystemMediaArtworkResolver.DeviceProfile.current(),
+    ): MediaItem {
         val metadataExtras = Bundle().apply {
             putInt(VERSION_KEY, VERSION)
             putString(SOURCE_KEY, song.source.name)
@@ -38,7 +43,7 @@ internal object ExternalMediaItemCodec {
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .setExtras(metadataExtras)
             .apply {
-                externalArtworkUri(context, song.albumArtUri)?.let(::setArtworkUri)
+                externalArtworkUri(context, song.albumArtUri, device)?.let(::setArtworkUri)
             }
             .build()
         val mime = PlaybackMimeResolver.resolve(
@@ -92,10 +97,15 @@ internal object ExternalMediaItemCodec {
     }
 
     /** Returns only artwork schemes that an external controller can reasonably resolve. */
-    fun externalArtworkUri(context: Context, rawArtworkUri: String?): Uri? {
+    fun externalArtworkUri(
+        context: Context,
+        rawArtworkUri: String?,
+        device: SystemMediaArtworkResolver.DeviceProfile =
+            SystemMediaArtworkResolver.DeviceProfile.current(),
+    ): Uri? {
         if (rawArtworkUri.isNullOrBlank()) return null
         if (AlbumArtCache.parseManagedArtworkUri(context, rawArtworkUri) != null) {
-            return Uri.parse(rawArtworkUri)
+            return SystemMediaArtworkResolver.resolve(context, rawArtworkUri, device)
         }
         val uri = runCatching { Uri.parse(rawArtworkUri) }.getOrNull() ?: return null
         return uri.takeIf { it.scheme.equals("http", ignoreCase = true) ||
