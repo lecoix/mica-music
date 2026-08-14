@@ -90,6 +90,22 @@ class DirectDsdMedia3FormatPolicyTest {
     }
 
     @Test
+    fun rendererRegistersAndUnregistersExactTeardownGenerationAroundPumpLifetime() {
+        val source = File(
+            "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+        ).readText()
+        val openBody = source.substringAfter("private fun openPumpIfNeeded(")
+            .substringBefore("private fun maybeArmAfterPlayingReset")
+        val closeBody = source.substringAfter("private fun closePump(reason: String)")
+            .substringBefore("companion object")
+
+        assertTrue(openBody.contains("DirectDsdTeardownQuiescenceCoordinator.register(sessionGeneration)"))
+        assertTrue(openBody.contains("freshPump.quiescePauseGapForOutputRebuild()"))
+        assertTrue(closeBody.contains("DirectDsdTeardownQuiescenceCoordinator.unregister(generation)"))
+        assertTrue(closeBody.indexOf("unregister(generation)") < closeBody.indexOf("closingPump?.close()"))
+    }
+
+    @Test
     fun rendererPlayingPositionResetReopensFromRetainedFormatAndArmsFreshSessionExplicitly() {
         val source = File(
             "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",

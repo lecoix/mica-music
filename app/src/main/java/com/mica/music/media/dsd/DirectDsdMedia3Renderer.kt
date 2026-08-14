@@ -261,6 +261,11 @@ class DirectDsdMedia3Renderer(
             pump = freshPump
             activeSessionGeneration = sessionGeneration
             DirectDsdSeekDiscontinuityCoordinator.activateSession(sessionGeneration)
+            check(
+                DirectDsdTeardownQuiescenceCoordinator.register(sessionGeneration) {
+                    freshPump.quiescePauseGapForOutputRebuild()
+                },
+            ) { "stale Direct DSD teardown registration $sessionGeneration" }
             milestone(
                 "renderer=claimed sourceRate=${facts.sourceSampleRateHz} " +
                     "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder} " +
@@ -426,7 +431,10 @@ class DirectDsdMedia3Renderer(
         val closingGeneration = activeSessionGeneration
         pump = null
         activeSessionGeneration = null
-        closingGeneration?.let(DirectDsdSeekDiscontinuityCoordinator::deactivateSession)
+        closingGeneration?.let { generation ->
+            DirectDsdTeardownQuiescenceCoordinator.unregister(generation)
+            DirectDsdSeekDiscontinuityCoordinator.deactivateSession(generation)
+        }
         try {
             closingPump?.close()
         } finally {

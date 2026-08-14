@@ -127,6 +127,22 @@ class DirectDsdRendererPumpTest {
     }
 
     @Test
+    fun rebuildQuiesceIsNoOpForContentAndStopsOnlyActiveGap() {
+        val transport = FakeSession(facts, intArrayOf(), startupReadyAfterBytes = 0)
+        val pump = DirectDsdRendererPump(facts, transport)
+        pump.armPlayback()
+
+        assertFalse(pump.quiescePauseGapForOutputRebuild())
+        assertEquals(0, transport.gapStopCalls)
+
+        pump.startPauseGapLiveness()
+        assertTrue(transport.gapActive)
+        assertTrue(pump.quiescePauseGapForOutputRebuild())
+        assertFalse(transport.gapActive)
+        assertEquals(1, transport.gapStopCalls)
+    }
+
+    @Test
     fun positionResetCloseDiscardsRendererPendingTailBeforeFreshPumpAcceptsTargetPacket() {
         val oldTransport = FakeSession(facts, intArrayOf(1), startupReadyAfterBytes = 0)
         val oldPump = DirectDsdRendererPump(facts, oldTransport)
@@ -225,6 +241,12 @@ class DirectDsdRendererPumpTest {
             check(gapActive) { "GAP not active" }
             gapStopCalls++
             gapActive = false
+        }
+
+        override fun quiescePauseGapForOutputRebuild(): Boolean {
+            if (!gapActive) return false
+            stopPauseGapLiveness()
+            return true
         }
 
         override fun finishEndOfStream(): Boolean =

@@ -31,6 +31,7 @@ import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.media.dsd.DirectDsdTeardownQuiescenceCoordinator
 import com.mica.music.media.usb.UsbOutputRuntime
 import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputPhase
@@ -224,7 +225,23 @@ class MicaMediaService : MediaSessionService() {
         }
 
         outputRebuildCoordinator = PlaybackOutputRebuildCoordinator(
-            onGenerationPublished = { UsbOutputRuntime.owner.invalidate() },
+            onGenerationPublished = { generation ->
+                DirectDsdTeardownQuiescenceCoordinator.quiesceBeforeOwnerInvalidation(
+                    onQuiesced = { outcome ->
+                        DiagnosticLog.event(
+                            "UsbOutputRebuild",
+                            "barrier=pre-invalidate-quiesce generation=$generation outcome=$outcome",
+                        )
+                    },
+                    invalidateOwner = {
+                        DiagnosticLog.event(
+                            "UsbOutputRebuild",
+                            "barrier=owner-invalidate generation=$generation",
+                        )
+                        UsbOutputRuntime.owner.invalidate()
+                    },
+                )
+            },
             capture = {
                 PlaybackStackSnapshot.capture(
                     checkNotNull(compositePlayer) { "Playback stack is not active" },

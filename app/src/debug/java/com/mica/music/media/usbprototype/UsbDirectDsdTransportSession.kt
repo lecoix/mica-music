@@ -184,6 +184,21 @@ private class UsbDirectDsdTransportSession private constructor(
         )
     }
 
+    override fun quiescePauseGapForOutputRebuild(): Boolean {
+        if (closed || !playbackArmed) return false
+        return when (pauseLiveness.snapshot().phase) {
+            UsbDirectDsdWriterPhase.CONTENT,
+            UsbDirectDsdWriterPhase.CLOSED,
+            -> false
+            UsbDirectDsdWriterPhase.GAP,
+            UsbDirectDsdWriterPhase.FAILED,
+            -> {
+                stopPauseGapLiveness()
+                true
+            }
+        }
+    }
+
     override fun finishEndOfStream(): Boolean {
         check(!closed)
         return pauseLiveness.withContentWriter {

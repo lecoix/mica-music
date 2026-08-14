@@ -26,6 +26,12 @@ interface DirectDsdTransportSession : AutoCloseable {
     /** Stops and joins pause carrier liveness before Media3 resumes source delivery. */
     fun stopPauseGapLiveness()
 
+    /**
+     * Rebuild-only quiesce seam. Returns true only when an active/failed pause GAP was stopped and
+     * joined; CONTENT/never-started state is a side-effect-free false result.
+     */
+    fun quiescePauseGapForOutputRebuild(): Boolean
+
     /** Returns true only when end-of-stream state is clean and transport can finish. */
     fun finishEndOfStream(): Boolean
 }
@@ -120,6 +126,11 @@ class DirectDsdRendererPump(
     fun stopPauseGapLiveness() {
         check(!closed) { "pause-gap stop after pump close" }
         session.stopPauseGapLiveness()
+    }
+
+    fun quiescePauseGapForOutputRebuild(): Boolean {
+        if (closed) return false
+        return session.quiescePauseGapForOutputRebuild()
     }
 
     fun snapshot(): DirectDsdRendererPumpSnapshot = DirectDsdRendererPumpSnapshot(
