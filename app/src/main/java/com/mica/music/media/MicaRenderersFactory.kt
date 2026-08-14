@@ -15,6 +15,7 @@ import androidx.media3.decoder.ffmpeg.FfmpegRendererSupportProbe
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.media.dsd.DirectDsdPrototypeRendererLoader
 import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
+import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.TransitionAwarePcmAudioSink
 import java.util.ArrayList
 
@@ -22,9 +23,9 @@ import java.util.ArrayList
 internal class MicaRenderersFactory(
     context: Context,
     private val outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
+    private val trackTransitionCoordinator: DirectDsdTrackTransitionCoordinator = DirectDsdTrackTransitionCoordinator(),
+    private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
 ) : DefaultRenderersFactory(context) {
-
-    private val trackTransitionCoordinator = DirectDsdTrackTransitionCoordinator()
 
     private val alacBlockingSelector = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
         if (mimeType == MimeTypes.AUDIO_ALAC) {
@@ -133,7 +134,11 @@ internal class MicaRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
-        DirectDsdPrototypeRendererLoader.create(context, trackTransitionCoordinator)?.let(out::add)
+        DirectDsdPrototypeRendererLoader.create(
+            context,
+            trackTransitionCoordinator,
+            manualNavigationTransitionBridge,
+        )?.let(out::add)
         out.add(
             FfmpegAudioRenderer(
                 eventHandler,
@@ -237,7 +242,11 @@ internal class MicaRenderersFactory(
     }
 
     private fun transitionAwarePcmSink(delegate: AudioSink): AudioSink =
-        TransitionAwarePcmAudioSink(delegate, trackTransitionCoordinator)
+        TransitionAwarePcmAudioSink(
+            delegate,
+            trackTransitionCoordinator,
+            manualNavigationTransitionBridge,
+        )
 
     private fun buildUnifiedFixedChain(context: Context): MicaAudioProcessorChain {
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled

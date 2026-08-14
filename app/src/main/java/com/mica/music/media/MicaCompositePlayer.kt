@@ -7,6 +7,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.mica.music.media.dsd.DirectDsdSeekDiscontinuityCoordinator
+import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
+import com.mica.music.media.dsd.ManualNavigationTransitionBridge
+import com.mica.music.media.dsd.ManualNavigationTransitionEpoch
 import com.mica.music.util.DiagnosticLog
 import java.util.Locale
 
@@ -26,6 +29,8 @@ data class PlaybackQueueSnapshot(
 @UnstableApi
 class MicaCompositePlayer(
     private val exoPlayer: ExoPlayer,
+    private val trackTransitionCoordinator: DirectDsdTrackTransitionCoordinator = DirectDsdTrackTransitionCoordinator(),
+    private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
     private val beforePlaybackStart: () -> Unit = {},
 ) : ForwardingPlayer(exoPlayer) {
 
@@ -86,16 +91,27 @@ class MicaCompositePlayer(
     ) {
         val safeIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
         val targetId = mediaItems.getOrNull(safeIndex)?.mediaId
-        val switchingItem = targetId != null && targetId != currentMediaItem?.mediaId
-        if (switchingItem && exoPlayer.playbackState != Player.STATE_IDLE) {
-            exoPlayer.stop()
+        val currentId = currentMediaItem?.mediaId
+        val switchingItem = currentId != null && targetId != null && targetId != currentId
+        val navigationEpoch = if (switchingItem) {
+            publishManualNavigation(targetId, playWhenReady, "start-exo-playback")
+        } else {
+            null
         }
         val prevItems = mediaItemCount
         val setStartedNs = SystemClock.elapsedRealtimeNanos()
-        beforePlaybackStart()
-        exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = playWhenReady
+        try {
+            if (switchingItem && exoPlayer.playbackState != Player.STATE_IDLE) {
+                exoPlayer.stop()
+            }
+            beforePlaybackStart()
+            exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = playWhenReady
+        } catch (error: Throwable) {
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "start-exo-playback-error") }
+            throw error
+        }
         val setMs = (SystemClock.elapsedRealtimeNanos() - setStartedNs) / 1_000_000.0
         DiagnosticLog.event(
             "QueueSync",
@@ -114,6 +130,14 @@ class MicaCompositePlayer(
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
         val safePositionMs = positionMs.coerceAtLeast(0L)
+        val targetId = runCatching { exoPlayer.getMediaItemAt(safeIndex) }.getOrNull()?.mediaId
+        val switchingItem = targetId != null &&
+            (safeIndex != exoPlayer.currentMediaItemIndex || targetId != exoPlayer.currentMediaItem?.mediaId)
+        val navigationEpoch = if (switchingItem) {
+            publishManualNavigation(targetId, playWhenReady, "start-existing")
+        } else {
+            null
+        }
         if (!playWhenReady) {
             DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
             exoPlayer.playWhenReady = false
@@ -139,6 +163,7 @@ class MicaCompositePlayer(
             exoPlayer.seekTo(safeIndex, safePositionMs)
         } catch (error: Throwable) {
             seekIntent?.let { DirectDsdSeekDiscontinuityCoordinator.cancelRequest(it.requestId) }
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "start-existing-error") }
             throw error
         }
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
@@ -153,11 +178,24 @@ class MicaCompositePlayer(
     fun selectExistingWithoutPlayback(index: Int, positionMs: Long = 0L) {
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
+        val targetId = runCatching { exoPlayer.getMediaItemAt(safeIndex) }.getOrNull()?.mediaId
+        val switchingItem = targetId != null &&
+            (safeIndex != exoPlayer.currentMediaItemIndex || targetId != exoPlayer.currentMediaItem?.mediaId)
+        val navigationEpoch = if (switchingItem) {
+            publishManualNavigation(targetId, requestedPlaying = false, seam = "select-existing-without-playback")
+        } else {
+            null
+        }
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
-        exoPlayer.pause()
-        if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
-        exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
-        exoPlayer.playWhenReady = false
+        try {
+            exoPlayer.pause()
+            if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
+            exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
+            exoPlayer.playWhenReady = false
+        } catch (error: Throwable) {
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "select-existing-error") }
+            throw error
+        }
     }
 
     /** Selects an unsupported item as the current item without preparing or playing it. */
@@ -168,11 +206,23 @@ class MicaCompositePlayer(
     ) {
         if (mediaItems.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
+        val targetId = mediaItems[safeIndex].mediaId
+        val switchingItem = targetId != exoPlayer.currentMediaItem?.mediaId
+        val navigationEpoch = if (switchingItem) {
+            publishManualNavigation(targetId, requestedPlaying = false, seam = "select-without-playback")
+        } else {
+            null
+        }
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
-        exoPlayer.pause()
-        if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
-        exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
-        exoPlayer.playWhenReady = false
+        try {
+            exoPlayer.pause()
+            if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
+            exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
+            exoPlayer.playWhenReady = false
+        } catch (error: Throwable) {
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "select-without-playback-error") }
+            throw error
+        }
         queueRevision++
     }
 
@@ -200,7 +250,7 @@ class MicaCompositePlayer(
         if (mediaItemCount == 0) return
         val safe = index.coerceIn(0, mediaItemCount - 1)
         if (safe == currentMediaItemIndex) return
-        exoPlayer.seekTo(safe, currentPosition)
+        startExistingItem(safe, currentPosition, playWhenReady)
     }
 
     fun playExoDirect() {
@@ -277,5 +327,27 @@ class MicaCompositePlayer(
 
     override fun seekToNext() {
         playbackCoordinator?.onSkipToNext() ?: super.seekToNext()
+    }
+
+    internal fun abortManualNavigation(reason: String) {
+        manualNavigationTransitionBridge.abort(reason)
+    }
+
+    private fun publishManualNavigation(
+        targetMediaId: String,
+        requestedPlaying: Boolean,
+        seam: String,
+    ): ManualNavigationTransitionEpoch {
+        val epoch = manualNavigationTransitionBridge.publish(
+            targetMediaId = targetMediaId,
+            requestedPlaying = requestedPlaying,
+            sourceFamily = trackTransitionCoordinator.snapshot().activeFamily,
+        )
+        DiagnosticLog.event(
+            "TrackNavigation",
+            "dispatch seam=$seam request=${epoch.requestId} target=$targetMediaId " +
+                "playing=$requestedPlaying source=${epoch.sourceFamily}",
+        )
+        return epoch
     }
 }

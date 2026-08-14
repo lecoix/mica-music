@@ -7,6 +7,7 @@ import androidx.media3.exoplayer.Renderer
 import com.mica.music.media.dsd.DirectDsdMedia3Renderer
 import com.mica.music.media.dsd.DirectDsdSystemMonotonicClock
 import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
+import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import java.io.File
 
 object UsbDirectDsdPrototypeControl {
@@ -31,6 +32,7 @@ object UsbDirectDsdPrototypeRendererFactory {
     fun create(
         context: Context,
         transitionCoordinator: DirectDsdTrackTransitionCoordinator,
+        manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
     ): Renderer? {
         if (!UsbDirectDsdPrototypeControl.isEnabled()) return null
         val appContext = context.applicationContext
@@ -42,6 +44,7 @@ object UsbDirectDsdPrototypeRendererFactory {
             milestone = publish,
             monotonicClock = clock,
             transitionCoordinator = transitionCoordinator,
+            manualNavigationTransitionBridge = manualNavigationTransitionBridge,
         )
     }
 }

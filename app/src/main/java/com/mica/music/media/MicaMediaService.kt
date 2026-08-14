@@ -278,6 +278,7 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        compositePlayer?.abortManualNavigation("service-destroy")
         mainHandler.removeCallbacks(usbHealthRecoveryPoll)
         cancelUsbRecovery()
         UsbOutputRebuildRuntime.clear()
@@ -1194,7 +1195,7 @@ class MicaMediaService : MediaSessionService() {
                 check(mediaIndex in 0 until player.mediaItemCount) {
                     "mediaIndex=$mediaIndex itemCount=${player.mediaItemCount}"
                 }
-                player.seekToDefaultPosition(mediaIndex)
+                player.seekTo(mediaIndex, 0L)
                 player.play()
             }
             DebugPlaybackControl.SEEK_NEAR_END -> {
@@ -1264,6 +1265,7 @@ class MicaMediaService : MediaSessionService() {
             "UsbOutputRebuild",
             "barrier=retire-start from=$previousMode",
         )
+        previousComposite.abortManualNavigation("playback-stack-retire")
         previousComposite.onPlaybackIntentChanged = null
         previousComposite.playWhenReady = false
         releasePlayerScopedBindings(previousExo)

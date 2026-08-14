@@ -9,12 +9,15 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
+import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 
 @UnstableApi
 internal data class ExoPlaybackStack(
     val exoPlayer: ExoPlayer,
     val compositePlayer: MicaCompositePlayer,
     val applyAudioFocusSetting: () -> Unit,
+    val manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
 )
 
 @UnstableApi
@@ -27,7 +30,14 @@ internal object ExoPlaybackStackFactory {
         outputPath.requireSupportedForPlayback()
         outputPath.logForDiagnostics()
         val dataSourceFactory = DefaultDataSource.Factory(context)
-        val renderersFactory = MicaRenderersFactory(context, outputPath)
+        val trackTransitionCoordinator = DirectDsdTrackTransitionCoordinator()
+        val manualNavigationTransitionBridge = ManualNavigationTransitionBridge()
+        val renderersFactory = MicaRenderersFactory(
+            context,
+            outputPath,
+            trackTransitionCoordinator,
+            manualNavigationTransitionBridge,
+        )
         val mediaSourceFactory = DefaultMediaSourceFactory(
             dataSourceFactory,
             MicaExtractorsFactory.create(),
@@ -67,11 +77,15 @@ internal object ExoPlaybackStackFactory {
         val compositePlayer = MicaCompositePlayer(
             exoPlayer = exoPlayer,
             beforePlaybackStart = applyAudioFocusSetting,
+            trackTransitionCoordinator = trackTransitionCoordinator,
+            manualNavigationTransitionBridge = manualNavigationTransitionBridge,
         )
+        manualNavigationTransitionBridge.bindCurrentMediaIdProvider { exoPlayer.currentMediaItem?.mediaId }
         return ExoPlaybackStack(
             exoPlayer = exoPlayer,
             compositePlayer = compositePlayer,
             applyAudioFocusSetting = applyAudioFocusSetting,
+            manualNavigationTransitionBridge = manualNavigationTransitionBridge,
         )
     }
 }

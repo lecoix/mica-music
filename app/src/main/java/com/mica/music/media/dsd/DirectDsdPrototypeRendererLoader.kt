@@ -11,6 +11,7 @@ internal object DirectDsdPrototypeRendererLoader {
     fun create(
         context: Context,
         transitionCoordinator: DirectDsdTrackTransitionCoordinator,
+        manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
     ): Renderer? {
         if (!BuildConfig.DEBUG) return null
         return runCatching {
@@ -19,8 +20,14 @@ internal object DirectDsdPrototypeRendererLoader {
                 "create",
                 Context::class.java,
                 DirectDsdTrackTransitionCoordinator::class.java,
+                ManualNavigationTransitionBridge::class.java,
             )
-            method.invoke(null, context, transitionCoordinator) as? Renderer
+            method.invoke(
+                null,
+                context,
+                transitionCoordinator,
+                manualNavigationTransitionBridge,
+            ) as? Renderer
         }.getOrElse { error ->
             throw IllegalStateException("Debug Direct DSD renderer factory is unavailable", error)
         }

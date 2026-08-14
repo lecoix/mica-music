@@ -99,13 +99,15 @@ class DirectDsdTrackTransitionStructureTest {
         val streamChanged = source.substringAfter("override fun onStreamChanged(")
             .substringBefore("private fun resetTrackSourceCounters()")
         val replacement = streamChanged.substringAfter("pendingFreshDirectDestination?.let { pending ->")
-            .substringBefore("transitionCoordinator?.completePcmReleaseForDirectHandoff()")
+            .substringBefore("if (navigationEpoch != null)")
 
         assertOrdered(
             replacement,
             "check(!pendingPump.isPlaybackArmed())",
             "closePump(\"track-pending-destination-replaced\")",
-            "bindPendingFreshDestination(newFormat, requiresStartedAuthority = !playing, replacement = true)",
+            "effectiveNavigationEpoch",
+            "bindPendingFreshDestination(",
+            "navigationEpoch = effectiveNavigationEpoch",
             "return",
         )
         assertTrue(!replacement.contains("beforeDirectAccept"))
@@ -176,7 +178,7 @@ class DirectDsdTrackTransitionStructureTest {
             activation,
             "pending.requiresResumeAuthority && !resumeAuthority",
             "activeFamily == DirectDsdTrackTransportFamily.DOP",
-            "beforePcmAccept(isPlaying = true)",
+            "beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)",
             "super.configure(",
             "pendingConfiguration = null",
         )

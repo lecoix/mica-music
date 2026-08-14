@@ -14,12 +14,15 @@ import java.nio.ByteBuffer
 internal class TransitionAwarePcmAudioSink(
     delegate: AudioSink,
     private val transitionCoordinator: DirectDsdTrackTransitionCoordinator,
+    private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
 ) : ForwardingAudioSink(delegate) {
     private data class PendingConfiguration(
         val format: Format,
         val specifiedBufferSize: Int,
         val outputChannels: IntArray?,
         val requiresResumeAuthority: Boolean,
+        val navigationRequestId: Long?,
+        val navigationRequestedPlaying: Boolean,
     )
 
     private var pendingConfiguration: PendingConfiguration? = null
@@ -30,6 +33,7 @@ internal class TransitionAwarePcmAudioSink(
         specifiedBufferSize: Int,
         outputChannels: IntArray?,
     ) {
+        val navigationEpoch = manualNavigationTransitionBridge.bindPcmDestination(inputFormat)
         val requiresResumeAuthority = transitionCoordinator.shouldDeferPcmUntilResume()
         if (
             transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP ||
@@ -40,12 +44,22 @@ internal class TransitionAwarePcmAudioSink(
                 specifiedBufferSize = specifiedBufferSize,
                 outputChannels = outputChannels?.copyOf(),
                 requiresResumeAuthority = requiresResumeAuthority,
+                navigationRequestId = navigationEpoch?.requestId,
+                navigationRequestedPlaying = navigationEpoch?.requestedPlaying ?: true,
             )
             return
         }
         transitionCoordinator.onPcmActivity()
-        transitionCoordinator.beforePcmAccept(isPlaying = true)
+        transitionCoordinator.beforePcmAccept(isPlaying = navigationEpoch?.requestedPlaying ?: true)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
+        navigationEpoch?.let {
+            check(
+                manualNavigationTransitionBridge.complete(
+                    it.requestId,
+                    DirectDsdTrackTransportFamily.PCM,
+                ),
+            ) { "PCM navigation acceptance for stale destination epoch" }
+        }
     }
 
     override fun handleBuffer(
@@ -101,13 +115,21 @@ internal class TransitionAwarePcmAudioSink(
         if (pending.requiresResumeAuthority && !resumeAuthority) return false
         if (transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP) return false
         transitionCoordinator.onPcmActivity()
-        transitionCoordinator.beforePcmAccept(isPlaying = true)
+        transitionCoordinator.beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)
         super.configure(
             pending.format,
             pending.specifiedBufferSize,
             pending.outputChannels,
         )
         pendingConfiguration = null
+        pending.navigationRequestId?.let { requestId ->
+            check(
+                manualNavigationTransitionBridge.complete(
+                    requestId,
+                    DirectDsdTrackTransportFamily.PCM,
+                ),
+            ) { "PCM navigation acceptance for stale destination epoch" }
+        }
         if (playRequestedWhilePending) {
             playRequestedWhilePending = false
             super.play()
