@@ -42,6 +42,7 @@
 | [`TESTING.md`](TESTING.md) | 质量门、测试分层、播放/队列/数据库契约与真机验收清单 |
 | [`SETTINGS_AUDIT_MATRIX.md`](SETTINGS_AUDIT_MATRIX.md) | 设置入口 → 持久化 owner/key → 运行时消费点的静态审计矩阵 |
 | [`APP_UPDATE.md`](APP_UPDATE.md) | 更新清单、发布 workflow 与国内镜像接入说明 |
+| [`HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md`](HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md) | OXF-AN10 MediaSession 封面触发锁屏的真机证据、现行兼容边界与未来替代方案 |
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库扫描架构、TagLib fork 接入、增量复用、性能实测与冷扫上界结论 |
@@ -135,3 +136,4 @@
 | 2026-08-07 | 新增 `LIBRARY_SCAN.md`：扫描流水线、性能 (9)(10)(11) 与暂缓优化方向 |
 | 2026-08-07 | 全量文档审计：同步歌单 Room（schema v17）、播放状态所有权收拢、offload 熔断、外部队列恢复边界、歌词结构化角色；补录 `TESTING` / `SETTINGS_AUDIT_MATRIX` / `APP_UPDATE` 到索引 |
 | 2026-08-06 | 新增 `SPECTRUM_STALL_BUG.md`：VORACITY 频谱停滞根因、解耦修复与输出设备参考调研 |
+| 2026-08-15 | 新增 `HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md`：记录 OXF-AN10 真机验证的 MediaSession artwork URI 兼容方案及未来选项 |
