@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.media3.exoplayer.Renderer
 import com.mica.music.media.dsd.DirectDsdMedia3Renderer
+import com.mica.music.media.dsd.DirectDsdSystemMonotonicClock
 import java.io.File
 
 object UsbDirectDsdPrototypeControl {
@@ -30,10 +31,12 @@ object UsbDirectDsdPrototypeRendererFactory {
         if (!UsbDirectDsdPrototypeControl.isEnabled()) return null
         val appContext = context.applicationContext
         val publish: (String) -> Unit = { UsbDirectDsdPrototypeEvidence.record(appContext, it) }
+        val clock = DirectDsdSystemMonotonicClock
         publish("directDsd=renderer-created")
         return DirectDsdMedia3Renderer(
-            sessionFactory = UsbDirectDsdTransportSessionFactory(appContext, publish),
+            sessionFactory = UsbDirectDsdTransportSessionFactory(appContext, publish, clock),
             milestone = publish,
+            monotonicClock = clock,
         )
     }
 }

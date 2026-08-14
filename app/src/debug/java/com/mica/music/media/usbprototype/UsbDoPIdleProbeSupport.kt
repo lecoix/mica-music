@@ -27,15 +27,28 @@ internal fun interface UsbExactCarrierNativeWrite {
 
 internal class UsbDoPIdleNativeSink(
     override val bytesPerRuntimeFrame: Int,
+    private val timing: DirectDsdWriteTimingRecorder? = null,
     private val nativeWrite: UsbExactCarrierNativeWrite,
 ) : ExactCarrierFrameSink {
     override fun writeCarrierFrames(source: ByteArray, offset: Int, byteCount: Int): Int {
         require(offset >= 0 && byteCount >= 0 && offset + byteCount <= source.size)
         require(byteCount % bytesPerRuntimeFrame == 0)
         if (byteCount == 0) return 0
-        val direct = ByteBuffer.allocateDirect(byteCount)
-        direct.put(source, offset, byteCount)
-        direct.flip()
-        return nativeWrite.write(direct, byteCount)
+        val operation = {
+            val direct = timing?.measureDirectBuffer {
+                ByteBuffer.allocateDirect(byteCount).also { buffer ->
+                    buffer.put(source, offset, byteCount)
+                    buffer.flip()
+                }
+            } ?: ByteBuffer.allocateDirect(byteCount).also { buffer ->
+                buffer.put(source, offset, byteCount)
+                buffer.flip()
+            }
+            val accepted = timing?.measureNativeWrite { nativeWrite.write(direct, byteCount) }
+                ?: nativeWrite.write(direct, byteCount)
+            timing?.recordSinkResult(byteCount, accepted)
+            accepted
+        }
+        return timing?.measureSink(operation) ?: operation()
     }
 }
