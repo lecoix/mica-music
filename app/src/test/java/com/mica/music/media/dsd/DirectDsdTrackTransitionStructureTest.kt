@@ -59,8 +59,7 @@ class DirectDsdTrackTransitionStructureTest {
 
         assertTrue(deferred.contains("trackTransition=DEFERRED_PAUSED_FRESH_RUNTIME"))
         assertTrue(deferred.contains("acceptAllowed=false"))
-        assertTrue(deferred.contains("deferredPausedFreshFormat = newFormat"))
-        assertTrue(deferred.contains("playingTrackTransitionPending = true"))
+        assertTrue(deferred.contains("bindPendingFreshDestination(newFormat, requiresStartedAuthority = true"))
         assertTrue(!deferred.contains("sessionFactory.open"))
         assertTrue(!deferred.contains("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED"))
         assertOrdered(
@@ -80,7 +79,7 @@ class DirectDsdTrackTransitionStructureTest {
             "trackTransition=RENDERER_STARTED_AUTHORITY_OBSERVED",
             "trackTransition=DESTINATION_CURRENTNESS_REVALIDATED",
         )
-        val arm = source.substringAfter("private fun maybeArmAfterPlayingTrackTransition(")
+        val arm = source.substringAfter("private fun maybeArmAfterFreshTrackTransition(")
             .substringBefore("override fun onStreamChanged(")
         assertOrdered(
             arm,
@@ -92,33 +91,28 @@ class DirectDsdTrackTransitionStructureTest {
     }
 
     @Test
-    fun repeatedPausedDirectPendingReplacementPrecedesInitialPolicyAndNeverAccepts() {
+    fun unifiedPendingReplacementPrecedesInitialPolicyAndNeverAccepts() {
         val source = source(
             "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
             "app/src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
         )
         val streamChanged = source.substringAfter("override fun onStreamChanged(")
             .substringBefore("private fun resetTrackSourceCounters()")
-        val replacement = streamChanged.substringAfter(
-            "if (!playing && pendingDeferredFormat != null && active == null)",
-        ).substringBefore("transitionCoordinator?.completePcmReleaseForDirectHandoff()")
+        val replacement = streamChanged.substringAfter("pendingFreshDirectDestination?.let { pending ->")
+            .substringBefore("transitionCoordinator?.completePcmReleaseForDirectHandoff()")
 
         assertOrdered(
             replacement,
-            "currentFormat = newFormat",
-            "deferredPausedFreshFormat = newFormat",
-            "deferredResumeAuthorityObserved = false",
-            "playingTrackTransitionPending = true",
-            "trackTransition=PENDING_DESTINATION_REPLACED",
-            "trackTransition=PENDING_DESTINATION_FACTS_BOUND",
-            "trackTransition=FRESH_DIRECT_DEFERRED replacement=true",
+            "check(!pendingPump.isPlaybackArmed())",
+            "closePump(\"track-pending-destination-replaced\")",
+            "bindPendingFreshDestination(newFormat, requiresStartedAuthority = !playing, replacement = true)",
             "return",
         )
         assertTrue(!replacement.contains("beforeDirectAccept"))
         assertTrue(!replacement.contains("sessionFactory.open"))
         assertTrue(!replacement.contains("NEW_SOURCE_ACCEPT_ALLOWED"))
         assertTrue(
-            streamChanged.indexOf("if (!playing && pendingDeferredFormat != null && active == null)") <
+            streamChanged.indexOf("pendingFreshDirectDestination?.let { pending ->") <
                 streamChanged.indexOf("DirectDsdTrackTransitionPolicy.decide"),
         )
     }

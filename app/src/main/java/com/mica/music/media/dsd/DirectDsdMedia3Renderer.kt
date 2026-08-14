@@ -132,6 +132,13 @@ internal class DirectDsdRenderDrainLoop(
     }
 }
 
+private data class PendingFreshDirectDestination(
+    val epochId: Long,
+    val format: Format,
+    val requiresStartedAuthority: Boolean,
+    val startedAuthorityObserved: Boolean,
+)
+
 /**
  * Raw DSF renderer used only by the QA Direct-DSD prototype gate.
  * It consumes extractor packets before FFmpeg and owns no PCM sink or decoder.
@@ -159,9 +166,8 @@ class DirectDsdMedia3Renderer(
     private var renderInvocationCount = 0L
     private var drainBudgetExhaustionCount = 0L
     private var lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
-    private var playingTrackTransitionPending = false
-    private var deferredPausedFreshFormat: Format? = null
-    private var deferredResumeAuthorityObserved = false
+    private var nextFreshTransitionEpochId = 0L
+    private var pendingFreshDirectDestination: PendingFreshDirectDestination? = null
 
     override fun getName(): String = NAME
 
@@ -176,7 +182,9 @@ class DirectDsdMedia3Renderer(
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
         if (ended || pauseGapActive) return
-        if (deferredPausedFreshFormat != null && !deferredResumeAuthorityObserved) return
+        pendingFreshDirectDestination?.let { pending ->
+            if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) return
+        }
         try {
             renderInvocationCount++
             val callbackStartNs = timing.onCallbackStart()
@@ -258,7 +266,15 @@ class DirectDsdMedia3Renderer(
                 val format = checkNotNull(holder.format)
                 val facts = DirectDsdMedia3FormatPolicy.factsOrNull(format)
                     ?: error("Direct DSD renderer received non-authoritative DSF format")
-                currentFormat = format
+                val pending = pendingFreshDirectDestination
+                if (pending == null) {
+                    currentFormat = format
+                } else {
+                    val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
+                    check(pendingFacts == facts) {
+                        "Direct DSD format read does not match pending destination epoch"
+                    }
+                }
                 openPumpIfNeeded(facts)
                 DirectDsdDrainStepResult(true, false, DirectDsdDrainAction.CONTINUE)
             }
@@ -290,7 +306,7 @@ class DirectDsdMedia3Renderer(
                     }
                     timing.measurePump { active.pump() }
                     maybeArmAfterPlayingReset(active, sampleTimeUs = inputBuffer.timeUs)
-                    maybeArmAfterPlayingTrackTransition(active, sampleTimeUs = inputBuffer.timeUs)
+                    maybeArmAfterFreshTrackTransition(active, sampleTimeUs = inputBuffer.timeUs)
                     DirectDsdDrainStepResult(
                         sourceReadPerformed = true,
                         packetRead = true,
@@ -338,10 +354,12 @@ class DirectDsdMedia3Renderer(
                     "channels=${facts.channelCount} bitOrder=${facts.sourceBitOrder} " +
                     "rendererGeneration=$rendererGeneration sessionGeneration=${sessionGeneration.sessionGeneration}",
             )
-            if (playingTrackTransitionPending) {
+            pendingFreshDirectDestination?.let { pending ->
+                val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
+                check(pendingFacts == facts) { "fresh Direct runtime opened for stale destination epoch" }
                 milestone(
                     "trackTransition=FRESH_DIRECT_RUNTIME_CREATED sourceRate=${facts.sourceSampleRateHz} " +
-                        "sessionGeneration=${sessionGeneration.sessionGeneration}",
+                        "sessionGeneration=${sessionGeneration.sessionGeneration} epoch=${pending.epochId}",
                 )
             }
             positionResetState.consumeFreshPumpPositionUs()?.let { resetPositionUs ->
@@ -365,26 +383,28 @@ class DirectDsdMedia3Renderer(
         return true
     }
 
-    private fun maybeArmAfterPlayingTrackTransition(
+    private fun maybeArmAfterFreshTrackTransition(
         active: DirectDsdRendererPump,
         sampleTimeUs: Long?,
     ): Boolean {
+        val pending = pendingFreshDirectDestination ?: return false
         if (
-            !playingTrackTransitionPending ||
             state != Renderer.STATE_STARTED ||
+            (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) ||
             !active.isStartupPrefillReady() ||
             active.isPlaybackArmed()
         ) {
             return false
         }
+        val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
+        check(active.facts == pendingFacts) { "fresh Direct arm for stale destination epoch" }
         active.armPlayback()
         check(active.isPlaybackArmed())
         transitionCoordinator?.beforeDirectAccept(isPlaying = true)
-        playingTrackTransitionPending = false
-        deferredPausedFreshFormat = null
-        deferredResumeAuthorityObserved = false
+        pendingFreshDirectDestination = null
         milestone(
-            "trackTransition=FRESH_RUNTIME_ARMED sampleTimeUs=${sampleTimeUs ?: -1L} armed=true",
+            "trackTransition=FRESH_RUNTIME_ARMED sampleTimeUs=${sampleTimeUs ?: -1L} " +
+                "armed=true epoch=${pending.epochId}",
         )
         milestone("trackTransition=QUALIFIED_STARTED_PREFILL_ARM_COMPLETE")
         milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=false")
@@ -401,23 +421,14 @@ class DirectDsdMedia3Renderer(
         val newFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(newFormat))
         val active = pump
         val playing = state == Renderer.STATE_STARTED
-        val pendingDeferredFormat = deferredPausedFreshFormat
-        if (!playing && pendingDeferredFormat != null && active == null) {
-            val oldPendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pendingDeferredFormat))
-            currentFormat = newFormat
-            deferredPausedFreshFormat = newFormat
-            deferredResumeAuthorityObserved = false
-            playingTrackTransitionPending = true
-            resetTrackSourceCounters()
-            milestone(
-                "trackTransition=PENDING_DESTINATION_REPLACED oldRate=${oldPendingFacts.sourceSampleRateHz} " +
-                    "newRate=${newFacts.sourceSampleRateHz} sameFacts=${oldPendingFacts == newFacts}",
-            )
-            milestone(
-                "trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz} " +
-                    "replacement=true",
-            )
-            milestone("trackTransition=FRESH_DIRECT_DEFERRED replacement=true")
+        pendingFreshDirectDestination?.let { pending ->
+            val pendingPump = pump
+            if (pendingPump != null) {
+                check(!pendingPump.isPlaybackArmed()) { "accepted Direct runtime still marked pending" }
+                closePump("track-pending-destination-replaced")
+                milestone("trackTransition=PENDING_RUNTIME_RETIRED epoch=${pending.epochId}")
+            }
+            bindPendingFreshDestination(newFormat, requiresStartedAuthority = !playing, replacement = true)
             return
         }
 
@@ -428,11 +439,7 @@ class DirectDsdMedia3Renderer(
             val pcmHandoff = familySnapshot?.lastReleasedFamily == DirectDsdTrackTransportFamily.PCM
             val pcmHandoffWasPaused = pcmHandoff && familySnapshot?.lastReleasedWasPaused == true
             if (pcmHandoffWasPaused || (!playing && transitionCoordinator?.shouldDeferDirectUntilResume() == true)) {
-                currentFormat = newFormat
-                deferredPausedFreshFormat = newFormat
-                deferredResumeAuthorityObserved = false
-                playingTrackTransitionPending = true
-                resetTrackSourceCounters()
+                bindPendingFreshDestination(newFormat, requiresStartedAuthority = true, replacement = false)
                 milestone("trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
                 milestone("trackTransition=FRESH_DIRECT_DEFERRED family=PCM_TO_DOP")
                 milestone(
@@ -442,9 +449,7 @@ class DirectDsdMedia3Renderer(
                 return
             }
             if (pcmHandoff) {
-                currentFormat = newFormat
-                playingTrackTransitionPending = true
-                resetTrackSourceCounters()
+                bindPendingFreshDestination(newFormat, requiresStartedAuthority = false, replacement = false)
                 milestone("trackTransition=NEW_DSD_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
                 return
             }
@@ -500,11 +505,7 @@ class DirectDsdMedia3Renderer(
             closePump("track-reconfigure-paused-deferred")
             milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
             transitionCoordinator?.onDirectReleased(wasPaused = true)
-            currentFormat = newFormat
-            deferredPausedFreshFormat = newFormat
-            deferredResumeAuthorityObserved = false
-            playingTrackTransitionPending = true
-            resetTrackSourceCounters()
+            bindPendingFreshDestination(newFormat, requiresStartedAuthority = true, replacement = false)
             milestone("trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
             milestone("trackTransition=FRESH_DIRECT_DEFERRED")
             milestone(
@@ -522,10 +523,31 @@ class DirectDsdMedia3Renderer(
         closePump("track-reconfigure")
         milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
         transitionCoordinator?.onDirectReleased(wasPaused = false)
-        currentFormat = newFormat
-        playingTrackTransitionPending = true
-        resetTrackSourceCounters()
+        bindPendingFreshDestination(newFormat, requiresStartedAuthority = false, replacement = false)
         milestone("trackTransition=NEW_RATE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
+    }
+
+    private fun bindPendingFreshDestination(
+        format: Format,
+        requiresStartedAuthority: Boolean,
+        replacement: Boolean,
+    ) {
+        val previous = pendingFreshDirectDestination
+        val facts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(format))
+        val next = PendingFreshDirectDestination(
+            epochId = ++nextFreshTransitionEpochId,
+            format = format,
+            requiresStartedAuthority = requiresStartedAuthority,
+            startedAuthorityObserved = false,
+        )
+        currentFormat = format
+        pendingFreshDirectDestination = next
+        resetTrackSourceCounters()
+        milestone(
+            "trackTransition=PENDING_DESTINATION_${if (replacement) "REPLACED" else "BOUND"} " +
+                "epoch=${next.epochId} previousEpoch=${previous?.epochId ?: -1L} " +
+                "sourceRate=${facts.sourceSampleRateHz} requiresStarted=$requiresStartedAuthority",
+        )
     }
 
     private fun resetTrackSourceCounters() {
@@ -539,7 +561,9 @@ class DirectDsdMedia3Renderer(
     }
 
     override fun isReady(): Boolean {
-        if (deferredPausedFreshFormat != null && !deferredResumeAuthorityObserved) return true
+        pendingFreshDirectDestination?.let { pending ->
+            if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) return true
+        }
         return !ended && (pump?.isStartupPrefillReady() == true) &&
             ((pump?.snapshot()?.pendingCanonicalBytes ?: 0) > 0 || isSourceReady() || inputEosSeen)
     }
@@ -549,18 +573,18 @@ class DirectDsdMedia3Renderer(
     override fun onStarted() {
         try {
             transitionCoordinator?.onDirectPlayState(paused = false)
-            deferredPausedFreshFormat?.let { pendingFormat ->
-                if (!deferredResumeAuthorityObserved) {
-                    val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pendingFormat))
-                    check(currentFormat === pendingFormat) {
+            pendingFreshDirectDestination?.let { pending ->
+                if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) {
+                    val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
+                    check(currentFormat === pending.format) {
                         "deferred Direct DSD destination format changed before resume"
                     }
                     val currentFacts = authoritativeCurrentFacts()
                     check(currentFacts == pendingFacts) {
                         "deferred Direct DSD destination facts changed before resume"
                     }
-                    deferredResumeAuthorityObserved = true
-                    milestone("trackTransition=RENDERER_STARTED_AUTHORITY_OBSERVED")
+                    pendingFreshDirectDestination = pending.copy(startedAuthorityObserved = true)
+                    milestone("trackTransition=RENDERER_STARTED_AUTHORITY_OBSERVED epoch=${pending.epochId}")
                     milestone(
                         "trackTransition=DESTINATION_CURRENTNESS_REVALIDATED sourceRate=${pendingFacts.sourceSampleRateHz}",
                     )
@@ -587,7 +611,7 @@ class DirectDsdMedia3Renderer(
                 check(active.isStartupPrefillReady()) { "Direct DSD renderer started before startup prefill" }
                 val armedFromPlayingReset = maybeArmAfterPlayingReset(active, sampleTimeUs = null)
                 if (!armedFromPlayingReset) {
-                    val armedFromTrackTransition = maybeArmAfterPlayingTrackTransition(active, sampleTimeUs = null)
+                    val armedFromTrackTransition = maybeArmAfterFreshTrackTransition(active, sampleTimeUs = null)
                     if (!armedFromTrackTransition) {
                         active.armPlayback()
                         check(active.isPlaybackArmed())
@@ -607,13 +631,20 @@ class DirectDsdMedia3Renderer(
     override fun onStopped() {
         try {
             transitionCoordinator?.onDirectPlayState(paused = true)
-            if (deferredPausedFreshFormat != null && deferredResumeAuthorityObserved) {
+            pendingFreshDirectDestination?.let { pending ->
                 val deferredPump = pump
-                if (deferredPump != null && !deferredPump.isPlaybackArmed()) {
+                if (deferredPump != null) {
+                    check(!deferredPump.isPlaybackArmed()) { "accepted Direct runtime still marked pending" }
                     closePump("track-deferred-repaused")
                 }
-                deferredResumeAuthorityObserved = false
-                milestone("trackTransition=DEFERRED_PAUSED_FRESH_RUNTIME reasserted=true acceptAllowed=false")
+                pendingFreshDirectDestination = pending.copy(
+                    requiresStartedAuthority = true,
+                    startedAuthorityObserved = false,
+                )
+                milestone(
+                    "trackTransition=DEFERRED_PAUSED_FRESH_RUNTIME reasserted=true " +
+                        "acceptAllowed=false epoch=${pending.epochId}",
+                )
                 return
             }
             val active = pump
@@ -683,9 +714,7 @@ class DirectDsdMedia3Renderer(
         closePump("disabled")
         transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
-        playingTrackTransitionPending = false
-        deferredPausedFreshFormat = null
-        deferredResumeAuthorityObserved = false
+        pendingFreshDirectDestination = null
         currentFormat = null
         inputEosSeen = false
         ended = false
@@ -702,9 +731,7 @@ class DirectDsdMedia3Renderer(
         closePump("reset")
         transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
-        playingTrackTransitionPending = false
-        deferredPausedFreshFormat = null
-        deferredResumeAuthorityObserved = false
+        pendingFreshDirectDestination = null
         currentFormat = null
         inputEosSeen = false
         ended = false

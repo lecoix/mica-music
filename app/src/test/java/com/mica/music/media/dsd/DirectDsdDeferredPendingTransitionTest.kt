@@ -1,6 +1,7 @@
 package com.mica.music.media.dsd
 
 import androidx.media3.common.Format
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.dsf.DsfFormat
@@ -13,87 +14,121 @@ import org.junit.Test
 
 class DirectDsdDeferredPendingTransitionTest {
     @Test
-    fun repeatedPausedDirectDifferentFactsRebindsLatestPendingWithoutAcceptanceOrRuntime() {
+    fun pausedPendingDifferentFactsRebindsLatestEpochWithoutAcceptanceOrRuntime() {
         val events = mutableListOf<String>()
         var openCalls = 0
         val coordinator = DirectDsdTrackTransitionCoordinator(events::add)
-        val renderer = DirectDsdMedia3Renderer(
-            sessionFactory = DirectDsdTransportSessionFactory {
-                openCalls++
-                error("deferred replacement must not open runtime")
-            },
-            milestone = events::add,
-            transitionCoordinator = coordinator,
-        )
-        val oldFormat = format(facts(5_644_800))
-        val newFormat = format(facts(2_822_400))
-        seedDeferred(renderer, oldFormat)
+        val renderer = renderer(events, coordinator) { openCalls++ }
+        bindPending(renderer, format(facts(5_644_800)), requiresStarted = true)
+        val firstEpoch = pendingLong(renderer, "epochId")
+        val replacement = format(facts(2_822_400))
 
-        invokeStreamChanged(renderer, newFormat)
+        invokeStreamChanged(renderer, replacement)
 
-        assertSame(newFormat, privateField<Format>(renderer, "currentFormat"))
-        assertSame(newFormat, privateField<Format>(renderer, "deferredPausedFreshFormat"))
-        assertTrue(privateField<Boolean>(renderer, "playingTrackTransitionPending"))
-        assertFalse(privateField<Boolean>(renderer, "deferredResumeAuthorityObserved"))
+        assertSame(replacement, privateField<Format>(renderer, "currentFormat"))
+        assertSame(replacement, pendingField<Format>(renderer, "format"))
+        assertTrue(pendingLong(renderer, "epochId") > firstEpoch)
+        assertTrue(pendingField<Boolean>(renderer, "requiresStartedAuthority"))
+        assertFalse(pendingField<Boolean>(renderer, "startedAuthorityObserved"))
         assertEquals(0, openCalls)
         assertEquals(DirectDsdTrackTransportFamily.NONE, coordinator.snapshot().activeFamily)
-        assertTrue(events.any { it.contains("PENDING_DESTINATION_REPLACED") && it.contains("sameFacts=false") })
-        assertTrue(events.any { it.contains("FRESH_DIRECT_DEFERRED replacement=true") })
-        assertFalse(events.any { it.contains("NEW_SOURCE_ACCEPT_ALLOWED") })
-        assertFalse(events.any { it.contains("dop-accept-allowed") })
+        assertTrue(events.any { it.contains("PENDING_DESTINATION_REPLACED") })
+        assertFalse(events.any { it.contains("NEW_SOURCE_ACCEPT_ALLOWED") || it.contains("dop-accept-allowed") })
     }
 
     @Test
-    fun repeatedPausedDirectSameFactsStillReplacesLogicalPendingFormat() {
+    fun pausedPendingSameFactsStillAdvancesLogicalEpoch() {
+        val renderer = renderer(mutableListOf(), DirectDsdTrackTransitionCoordinator {}) {}
+        val old = format(facts(5_644_800))
+        val replacement = format(facts(5_644_800))
+        bindPending(renderer, old, requiresStarted = true)
+        val firstEpoch = pendingLong(renderer, "epochId")
+
+        invokeStreamChanged(renderer, replacement)
+
+        assertSame(replacement, pendingField<Format>(renderer, "format"))
+        assertTrue(pendingLong(renderer, "epochId") > firstEpoch)
+    }
+
+    @Test
+    fun playingPendingRapidReplacementUsesSameEpochAbstractionAndNeverAccepts() {
         val events = mutableListOf<String>()
         val coordinator = DirectDsdTrackTransitionCoordinator(events::add)
-        val renderer = DirectDsdMedia3Renderer(
-            sessionFactory = DirectDsdTransportSessionFactory {
-                error("same-facts deferred replacement must not open runtime")
-            },
-            milestone = events::add,
-            transitionCoordinator = coordinator,
-        )
-        val oldFormat = format(facts(5_644_800))
-        val replacementFormat = format(facts(5_644_800))
-        assertTrue(oldFormat !== replacementFormat)
-        seedDeferred(renderer, oldFormat)
+        val renderer = renderer(events, coordinator) {}
+        setBaseRendererState(renderer, Renderer.STATE_STARTED)
+        bindPending(renderer, format(facts(5_644_800)), requiresStarted = false)
+        val firstEpoch = pendingLong(renderer, "epochId")
 
-        invokeStreamChanged(renderer, replacementFormat)
+        invokeStreamChanged(renderer, format(facts(2_822_400)))
+        val secondEpoch = pendingLong(renderer, "epochId")
+        invokeStreamChanged(renderer, format(facts(2_822_400)))
+        val thirdEpoch = pendingLong(renderer, "epochId")
 
-        assertSame(replacementFormat, privateField<Format>(renderer, "currentFormat"))
-        assertSame(replacementFormat, privateField<Format>(renderer, "deferredPausedFreshFormat"))
+        assertTrue(secondEpoch > firstEpoch)
+        assertTrue(thirdEpoch > secondEpoch)
+        assertFalse(pendingField<Boolean>(renderer, "requiresStartedAuthority"))
         assertEquals(DirectDsdTrackTransportFamily.NONE, coordinator.snapshot().activeFamily)
-        assertTrue(events.any { it.contains("PENDING_DESTINATION_REPLACED") && it.contains("sameFacts=true") })
+        assertNull(privateField<Any?>(renderer, "pump"))
+        assertFalse(events.any { it.contains("NEW_SOURCE_ACCEPT_ALLOWED") || it.contains("dop-accept-allowed") })
+    }
+
+    @Test
+    fun pausedReplacementResumeThenRepauseReassertsStartedAuthorityOnSameEpoch() {
+        val events = mutableListOf<String>()
+        val renderer = renderer(events, DirectDsdTrackTransitionCoordinator {}) {}
+        bindPending(renderer, format(facts(5_644_800)), requiresStarted = true)
+        invokeStreamChanged(renderer, format(facts(2_822_400)))
+        val epoch = pendingLong(renderer, "epochId")
+
+        invokeNoArg(renderer, "onStarted")
+        assertEquals(epoch, pendingLong(renderer, "epochId"))
+        assertTrue(pendingField<Boolean>(renderer, "requiresStartedAuthority"))
+        assertTrue(pendingField<Boolean>(renderer, "startedAuthorityObserved"))
+        assertNull(privateField<Any?>(renderer, "pump"))
+
+        invokeNoArg(renderer, "onStopped")
+        assertEquals(epoch, pendingLong(renderer, "epochId"))
+        assertTrue(pendingField<Boolean>(renderer, "requiresStartedAuthority"))
+        assertFalse(pendingField<Boolean>(renderer, "startedAuthorityObserved"))
+        assertNull(privateField<Any?>(renderer, "pump"))
         assertFalse(events.any { it.contains("NEW_SOURCE_ACCEPT_ALLOWED") })
     }
 
     @Test
-    fun disableAndResetClearDeferredPendingDestination() {
+    fun disableAndResetRetirePendingEpoch() {
         listOf("onDisabled", "onReset").forEach { lifecycleMethod ->
-            val renderer = DirectDsdMedia3Renderer(
-                sessionFactory = DirectDsdTransportSessionFactory {
-                    error("clearing inert pending state must not open runtime")
-                },
-                transitionCoordinator = DirectDsdTrackTransitionCoordinator {},
-            )
-            seedDeferred(renderer, format(facts(5_644_800)))
+            val renderer = renderer(mutableListOf(), DirectDsdTrackTransitionCoordinator {}) {}
+            bindPending(renderer, format(facts(5_644_800)), requiresStarted = true)
 
             invokeNoArg(renderer, lifecycleMethod)
 
             assertNull(privateField<Format?>(renderer, "currentFormat"))
-            assertNull(privateField<Format?>(renderer, "deferredPausedFreshFormat"))
-            assertFalse(privateField<Boolean>(renderer, "playingTrackTransitionPending"))
-            assertFalse(privateField<Boolean>(renderer, "deferredResumeAuthorityObserved"))
+            assertNull(privateField<Any?>(renderer, "pendingFreshDirectDestination"))
         }
     }
 
-    private fun seedDeferred(renderer: DirectDsdMedia3Renderer, pendingFormat: Format) {
-        setPrivateField(renderer, "currentFormat", pendingFormat)
-        setPrivateField(renderer, "deferredPausedFreshFormat", pendingFormat)
-        setPrivateField(renderer, "deferredResumeAuthorityObserved", false)
-        setPrivateField(renderer, "playingTrackTransitionPending", true)
-        assertNull(privateField<Any?>(renderer, "pump"))
+    private fun renderer(
+        events: MutableList<String>,
+        coordinator: DirectDsdTrackTransitionCoordinator,
+        onOpen: () -> Unit,
+    ) = DirectDsdMedia3Renderer(
+        sessionFactory = DirectDsdTransportSessionFactory {
+            onOpen()
+            error("pending epoch test must not open runtime")
+        },
+        milestone = events::add,
+        transitionCoordinator = coordinator,
+    )
+
+    private fun bindPending(renderer: DirectDsdMedia3Renderer, format: Format, requiresStarted: Boolean) {
+        val method = DirectDsdMedia3Renderer::class.java.getDeclaredMethod(
+            "bindPendingFreshDestination",
+            Format::class.java,
+            Boolean::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType,
+        )
+        method.isAccessible = true
+        method.invoke(renderer, format, requiresStarted, false)
     }
 
     private fun invokeStreamChanged(renderer: DirectDsdMedia3Renderer, format: Format) {
@@ -105,19 +140,31 @@ class DirectDsdDeferredPendingTransitionTest {
             MediaPeriodId::class.java,
         )
         method.isAccessible = true
-        method.invoke(renderer, arrayOf(format), 0L, 0L, MediaPeriodId("deferred-pending-test"))
+        method.invoke(renderer, arrayOf(format), 0L, 0L, MediaPeriodId("pending-epoch-test"))
     }
 
     private fun invokeNoArg(renderer: DirectDsdMedia3Renderer, name: String) {
-        val method = DirectDsdMedia3Renderer::class.java.getDeclaredMethod(name)
-        method.isAccessible = true
-        method.invoke(renderer)
+        DirectDsdMedia3Renderer::class.java.getDeclaredMethod(name).also {
+            it.isAccessible = true
+            it.invoke(renderer)
+        }
     }
 
-    private fun setPrivateField(renderer: DirectDsdMedia3Renderer, name: String, value: Any?) {
-        val field = DirectDsdMedia3Renderer::class.java.getDeclaredField(name)
+    private fun setBaseRendererState(renderer: DirectDsdMedia3Renderer, state: Int) {
+        val field = renderer.javaClass.superclass.getDeclaredField("state")
         field.isAccessible = true
-        field.set(renderer, value)
+        field.setInt(renderer, state)
+    }
+
+    private fun pendingLong(renderer: DirectDsdMedia3Renderer, name: String): Long =
+        pendingField<Long>(renderer, name)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> pendingField(renderer: DirectDsdMedia3Renderer, name: String): T {
+        val pending = privateField<Any>(renderer, "pendingFreshDirectDestination")
+        val field = pending.javaClass.getDeclaredField(name)
+        field.isAccessible = true
+        return field.get(pending) as T
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -127,11 +174,7 @@ class DirectDsdDeferredPendingTransitionTest {
         return field.get(renderer) as T
     }
 
-    private fun facts(rate: Int) = DsfExtractorPacketFacts(
-        sourceSampleRateHz = rate,
-        channelCount = 2,
-        sourceBitOrder = DsdSourceBitOrder.LSB_FIRST,
-    )
+    private fun facts(rate: Int) = DsfExtractorPacketFacts(rate, 2, DsdSourceBitOrder.LSB_FIRST)
 
     private fun format(packetFacts: DsfExtractorPacketFacts): Format = Format.Builder()
         .setSampleMimeType(DsfFormat.MIME_DSF)
