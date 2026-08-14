@@ -137,9 +137,11 @@ internal class DirectDsdRenderDrainLoop(
 class DirectDsdMedia3Renderer(
     private val sessionFactory: DirectDsdTransportSessionFactory,
     private val milestone: (String) -> Unit = {},
+    private val monotonicClock: DirectDsdMonotonicClock = DirectDsdSystemMonotonicClock,
 ) : BaseRenderer(C.TRACK_TYPE_AUDIO) {
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
     private val drainLoop = DirectDsdRenderDrainLoop(MAX_SOURCE_READS_PER_RENDER)
+    private val timing = DirectDsdRenderTimingAccumulator(monotonicClock)
     private val positionResetState = DirectDsdPositionResetState()
     private val rendererGeneration = DirectDsdSeekDiscontinuityCoordinator.newRendererGeneration()
     private var nextSessionGeneration = 0L
@@ -170,24 +172,37 @@ class DirectDsdMedia3Renderer(
         if (ended || pauseGapActive) return
         try {
             renderInvocationCount++
+            val callbackStartNs = timing.onCallbackStart()
             val drain = drainLoop.drain { renderDrainStep(positionUs) }
+            timing.onDrainComplete(callbackStartNs, drain)
             if (drain.budgetExhausted) drainBudgetExhaustionCount++
             if (
                 renderInvocationCount == 1L ||
                 elapsedRealtimeUs - lastDrainMilestoneElapsedRealtimeUs >= DRAIN_MILESTONE_INTERVAL_US
             ) {
                 lastDrainMilestoneElapsedRealtimeUs = elapsedRealtimeUs
+                val t = timing.snapshotAndReset()
                 milestone(
-                    "renderer=drain callbacks=$renderInvocationCount " +
-                        "packets=$sampleCount budgetExhausted=$drainBudgetExhaustionCount " +
-                        "readBudget=$MAX_SOURCE_READS_PER_RENDER " +
+                    "renderer=drain callbacks=$renderInvocationCount packets=$sampleCount " +
+                        "budgetExhausted=$drainBudgetExhaustionCount readBudget=$MAX_SOURCE_READS_PER_RENDER " +
                         "lastReads=${drain.sourceReadCount} lastPackets=${drain.packetReadCount} " +
-                        "pending=${pump?.snapshot()?.pendingCanonicalBytes ?: 0}",
+                        "pending=${pump?.snapshot()?.pendingCanonicalBytes ?: 0} " +
+                        "timingWallNs=${t.wallNs} timingCallbacks=${t.callbacks} " +
+                        "interArrivalMinNs=${t.interArrivalMinNs} interArrivalMaxNs=${t.interArrivalMaxNs} " +
+                        "timingReads=${t.sourceReads} timingPackets=${t.packets} timingBudget=${t.budgetExhausted} " +
+                        "termPending=${t.pendingTailYields} termNothing=${t.nothingReadYields} " +
+                        "termTerminal=${t.terminalStops} termError=${t.errors} " +
+                        "busyTotalNs=${t.drainBusyTotalNs} busyMaxNs=${t.drainBusyMaxNs} " +
+                        "readTotalNs=${t.readSourceTotalNs} readMaxNs=${t.readSourceMaxNs} " +
+                        "packetTotalNs=${t.packetStageTotalNs} packetMaxNs=${t.packetStageMaxNs} " +
+                        "pumpTotalNs=${t.pumpTotalNs} pumpMaxNs=${t.pumpMaxNs}",
                 )
             }
         } catch (error: ExoPlaybackException) {
+            timing.onTermination(DirectDsdDrainTermination.ERROR)
             throw error
         } catch (error: Throwable) {
+            timing.onTermination(DirectDsdDrainTermination.ERROR)
             throw createRendererException(
                 error,
                 currentFormat,
@@ -199,9 +214,10 @@ class DirectDsdMedia3Renderer(
     private fun renderDrainStep(positionUs: Long): DirectDsdDrainStepResult {
         val activePump = pump
         if (activePump != null && !activePump.canAcceptPacket()) {
-            activePump.pump()
+            timing.measurePump { activePump.pump() }
             maybeArmAfterPlayingReset(activePump, sampleTimeUs = null)
             if (!activePump.canAcceptPacket()) {
+                timing.onTermination(DirectDsdDrainTermination.PENDING_TAIL)
                 return DirectDsdDrainStepResult(
                     sourceReadPerformed = false,
                     packetRead = false,
@@ -212,20 +228,25 @@ class DirectDsdMedia3Renderer(
         if (inputEosSeen) {
             if (activePump == null || activePump.signalEndOfStream()) {
                 ended = true
+                timing.onTermination(DirectDsdDrainTermination.TERMINAL)
                 milestone("renderer=eos positionUs=$positionUs")
                 return DirectDsdDrainStepResult(false, false, DirectDsdDrainAction.TERMINAL)
             }
+            timing.onTermination(DirectDsdDrainTermination.PENDING_TAIL)
             return DirectDsdDrainStepResult(false, false, DirectDsdDrainAction.YIELD)
         }
 
         inputBuffer.clear()
         val holder = formatHolder
-        return when (readSource(holder, inputBuffer, 0)) {
-            C.RESULT_NOTHING_READ -> DirectDsdDrainStepResult(
-                sourceReadPerformed = true,
-                packetRead = false,
-                action = DirectDsdDrainAction.YIELD,
-            )
+        return when (timing.measureReadSource { readSource(holder, inputBuffer, 0) }) {
+            C.RESULT_NOTHING_READ -> {
+                timing.onTermination(DirectDsdDrainTermination.NOTHING_READ)
+                DirectDsdDrainStepResult(
+                    sourceReadPerformed = true,
+                    packetRead = false,
+                    action = DirectDsdDrainAction.YIELD,
+                )
+            }
             C.RESULT_FORMAT_READ -> {
                 val format = checkNotNull(holder.format)
                 val facts = DirectDsdMedia3FormatPolicy.factsOrNull(format)
@@ -241,11 +262,14 @@ class DirectDsdMedia3Renderer(
                     DirectDsdDrainStepResult(true, false, DirectDsdDrainAction.CONTINUE)
                 } else {
                     val active = pump ?: openPumpIfNeeded(authoritativeCurrentFacts())
-                    inputBuffer.flip()
-                    val data = checkNotNull(inputBuffer.data)
-                    val packet = ByteArray(data.remaining())
-                    data.get(packet)
-                    active.offerExtractorPacket(packet, inputBuffer.timeUs)
+                    val packet = timing.measurePacketStage {
+                        inputBuffer.flip()
+                        val data = checkNotNull(inputBuffer.data)
+                        ByteArray(data.remaining()).also { bytes ->
+                            data.get(bytes)
+                            active.offerExtractorPacket(bytes, inputBuffer.timeUs)
+                        }
+                    }
                     sampleCount++
                     if (
                         sampleCount == 1L ||
@@ -257,7 +281,7 @@ class DirectDsdMedia3Renderer(
                                 "packetBytes=${packet.size}",
                         )
                     }
-                    active.pump()
+                    timing.measurePump { active.pump() }
                     maybeArmAfterPlayingReset(active, sampleTimeUs = inputBuffer.timeUs)
                     DirectDsdDrainStepResult(
                         sourceReadPerformed = true,
