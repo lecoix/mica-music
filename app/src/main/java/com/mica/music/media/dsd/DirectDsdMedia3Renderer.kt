@@ -399,9 +399,29 @@ class DirectDsdMedia3Renderer(
     ) {
         val newFormat = formats.firstOrNull { DirectDsdMedia3FormatPolicy.factsOrNull(it) != null } ?: return
         val newFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(newFormat))
-        transitionCoordinator?.completePcmReleaseForDirectHandoff()
         val active = pump
         val playing = state == Renderer.STATE_STARTED
+        val pendingDeferredFormat = deferredPausedFreshFormat
+        if (!playing && pendingDeferredFormat != null && active == null) {
+            val oldPendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pendingDeferredFormat))
+            currentFormat = newFormat
+            deferredPausedFreshFormat = newFormat
+            deferredResumeAuthorityObserved = false
+            playingTrackTransitionPending = true
+            resetTrackSourceCounters()
+            milestone(
+                "trackTransition=PENDING_DESTINATION_REPLACED oldRate=${oldPendingFacts.sourceSampleRateHz} " +
+                    "newRate=${newFacts.sourceSampleRateHz} sameFacts=${oldPendingFacts == newFacts}",
+            )
+            milestone(
+                "trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz} " +
+                    "replacement=true",
+            )
+            milestone("trackTransition=FRESH_DIRECT_DEFERRED replacement=true")
+            return
+        }
+
+        transitionCoordinator?.completePcmReleaseForDirectHandoff()
         val transitionMode = DirectDsdTrackTransitionPolicy.decide(active?.facts, newFacts, playing)
         if (transitionMode == DirectDsdTrackTransitionMode.INITIAL) {
             val familySnapshot = transitionCoordinator?.snapshot()
@@ -532,6 +552,9 @@ class DirectDsdMedia3Renderer(
             deferredPausedFreshFormat?.let { pendingFormat ->
                 if (!deferredResumeAuthorityObserved) {
                     val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pendingFormat))
+                    check(currentFormat === pendingFormat) {
+                        "deferred Direct DSD destination format changed before resume"
+                    }
                     val currentFacts = authoritativeCurrentFacts()
                     check(currentFacts == pendingFacts) {
                         "deferred Direct DSD destination facts changed before resume"

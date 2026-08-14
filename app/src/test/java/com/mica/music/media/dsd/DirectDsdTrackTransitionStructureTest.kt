@@ -92,6 +92,38 @@ class DirectDsdTrackTransitionStructureTest {
     }
 
     @Test
+    fun repeatedPausedDirectPendingReplacementPrecedesInitialPolicyAndNeverAccepts() {
+        val source = source(
+            "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+            "app/src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+        )
+        val streamChanged = source.substringAfter("override fun onStreamChanged(")
+            .substringBefore("private fun resetTrackSourceCounters()")
+        val replacement = streamChanged.substringAfter(
+            "if (!playing && pendingDeferredFormat != null && active == null)",
+        ).substringBefore("transitionCoordinator?.completePcmReleaseForDirectHandoff()")
+
+        assertOrdered(
+            replacement,
+            "currentFormat = newFormat",
+            "deferredPausedFreshFormat = newFormat",
+            "deferredResumeAuthorityObserved = false",
+            "playingTrackTransitionPending = true",
+            "trackTransition=PENDING_DESTINATION_REPLACED",
+            "trackTransition=PENDING_DESTINATION_FACTS_BOUND",
+            "trackTransition=FRESH_DIRECT_DEFERRED replacement=true",
+            "return",
+        )
+        assertTrue(!replacement.contains("beforeDirectAccept"))
+        assertTrue(!replacement.contains("sessionFactory.open"))
+        assertTrue(!replacement.contains("NEW_SOURCE_ACCEPT_ALLOWED"))
+        assertTrue(
+            streamChanged.indexOf("if (!playing && pendingDeferredFormat != null && active == null)") <
+                streamChanged.indexOf("DirectDsdTrackTransitionPolicy.decide"),
+        )
+    }
+
+    @Test
     fun freshSessionPreparationDrainsBeforeCarrierResetAndRuntimeRelease() {
         val sessionSource = source(
             "src/debug/java/com/mica/music/media/usbprototype/UsbDirectDsdTransportSession.kt",
