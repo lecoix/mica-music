@@ -45,7 +45,7 @@ class DirectDsdTrackTransitionCoordinator(
         activeFamily = DirectDsdTrackTransportFamily.PCM
         pcmPaused = !isPlaying
         pcmReleasePending = false
-        consumeReleasedHistoryLocked(DirectDsdTrackTransportFamily.DOP)
+        consumeReleasedHistoryLocked()
         milestone("trackTransition=pcm-accept-allowed playing=$isPlaying")
     }
 
@@ -92,7 +92,7 @@ class DirectDsdTrackTransitionCoordinator(
         ) { "paused PCM -> Direct DSD transition is deferred" }
         activeFamily = DirectDsdTrackTransportFamily.DOP
         directPaused = !isPlaying
-        consumeReleasedHistoryLocked(DirectDsdTrackTransportFamily.PCM)
+        consumeReleasedHistoryLocked()
         milestone("trackTransition=dop-accept-allowed playing=$isPlaying")
     }
 
@@ -130,11 +130,12 @@ class DirectDsdTrackTransitionCoordinator(
         milestone("trackTransition=PCM_SINK_DECODER_STATE_RELEASED paused=$pcmPaused")
     }
 
-    private fun consumeReleasedHistoryLocked(expectedSourceFamily: DirectDsdTrackTransportFamily) {
-        if (lastReleasedFamily != expectedSourceFamily) return
+    private fun consumeReleasedHistoryLocked() {
+        if (lastReleasedFamily == DirectDsdTrackTransportFamily.NONE) return
+        val sourceFamily = lastReleasedFamily
         lastReleasedFamily = DirectDsdTrackTransportFamily.NONE
         lastReleasedWasPaused = false
-        milestone("trackTransition=release-history-consumed source=$expectedSourceFamily")
+        milestone("trackTransition=release-history-consumed source=$sourceFamily")
     }
 
     private companion object {

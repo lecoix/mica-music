@@ -128,6 +128,70 @@ class DirectDsdTrackTransitionCoordinatorTest {
         assertEquals(DirectDsdTrackTransportFamily.DOP, coordinator.snapshot().activeFamily)
     }
 
+    @Test
+    fun pausedDopSameFamilyFreshReactivationConsumesItsOwnReleaseHistory() {
+        val coordinator = DirectDsdTrackTransitionCoordinator {}
+        coordinator.beforeDirectAccept(isPlaying = true)
+        coordinator.onDirectPlayState(paused = true)
+        coordinator.onDirectReleased(wasPaused = true)
+
+        assertTrue(coordinator.shouldDeferPcmUntilResume())
+        coordinator.beforeDirectAccept(isPlaying = true)
+
+        val accepted = coordinator.snapshot()
+        assertEquals(DirectDsdTrackTransportFamily.DOP, accepted.activeFamily)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, accepted.lastReleasedFamily)
+        assertTrue(!accepted.lastReleasedWasPaused)
+        assertTrue(!coordinator.shouldDeferPcmUntilResume())
+
+        coordinator.onDirectReleased(wasPaused = false)
+        coordinator.beforePcmAccept(isPlaying = true)
+        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
+    }
+
+    @Test
+    fun pausedPcmSameFamilyReactivationConsumesItsOwnReleaseHistory() {
+        val coordinator = DirectDsdTrackTransitionCoordinator {}
+        coordinator.beforePcmAccept(isPlaying = true)
+        coordinator.onPcmPlayState(paused = true)
+        coordinator.onPcmReleased()
+
+        assertTrue(coordinator.shouldDeferDirectUntilResume())
+        coordinator.beforePcmAccept(isPlaying = true)
+
+        val accepted = coordinator.snapshot()
+        assertEquals(DirectDsdTrackTransportFamily.PCM, accepted.activeFamily)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, accepted.lastReleasedFamily)
+        assertTrue(!accepted.lastReleasedWasPaused)
+        assertTrue(!coordinator.shouldDeferDirectUntilResume())
+
+        coordinator.onPcmReleased()
+        coordinator.beforeDirectAccept(isPlaying = true)
+        assertEquals(DirectDsdTrackTransportFamily.DOP, coordinator.snapshot().activeFamily)
+    }
+
+    @Test
+    fun rapidAlternationNeverCarriesReleaseHistoryAcrossSuccessfulAcceptanceEpochs() {
+        val coordinator = DirectDsdTrackTransitionCoordinator {}
+        coordinator.beforeDirectAccept(isPlaying = true)
+        coordinator.onDirectReleased(wasPaused = true)
+        coordinator.beforeDirectAccept(isPlaying = true)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, coordinator.snapshot().lastReleasedFamily)
+
+        coordinator.onDirectReleased(wasPaused = false)
+        coordinator.beforePcmAccept(isPlaying = true)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, coordinator.snapshot().lastReleasedFamily)
+
+        coordinator.onPcmReleased()
+        coordinator.beforePcmAccept(isPlaying = true)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, coordinator.snapshot().lastReleasedFamily)
+
+        coordinator.onPcmReleased()
+        coordinator.beforeDirectAccept(isPlaying = true)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, coordinator.snapshot().lastReleasedFamily)
+        assertEquals(DirectDsdTrackTransportFamily.DOP, coordinator.snapshot().activeFamily)
+    }
+
     private fun assertFails(block: () -> Unit) {
         var failed = false
         try {
