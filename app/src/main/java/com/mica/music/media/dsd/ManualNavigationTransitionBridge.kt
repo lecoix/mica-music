@@ -29,11 +29,13 @@ class ManualNavigationTransitionBridge(
 ) {
     private var nextRequestId = 0L
     private var active: ManualNavigationTransitionEpoch? = null
-    private var currentMediaIdProvider: (() -> String?)? = null
+    private var currentMediaId: String? = null
 
     @Synchronized
-    fun bindCurrentMediaIdProvider(provider: () -> String?) {
-        currentMediaIdProvider = provider
+    fun updateCurrentMediaId(mediaId: String?) {
+        if (currentMediaId == mediaId) return
+        currentMediaId = mediaId
+        milestone("navigationTransition=current-media target=${mediaId ?: "none"}")
     }
 
     @Synchronized
@@ -97,7 +99,7 @@ class ManualNavigationTransitionBridge(
         val epoch = active ?: return false
         return epoch.requestId == requestId &&
             epoch.targetFacts == facts &&
-            currentMediaIdProvider?.invoke() == epoch.targetMediaId
+            currentMediaId == epoch.targetMediaId
     }
 
     @Synchronized
@@ -108,7 +110,7 @@ class ManualNavigationTransitionBridge(
         val epoch = active ?: return false
         if (epoch.requestId != requestId) return false
         if (epoch.targetFacts?.family != family) return false
-        if (currentMediaIdProvider?.invoke() != epoch.targetMediaId) return false
+        if (currentMediaId != epoch.targetMediaId) return false
         active = null
         milestone("navigationTransition=completed request=$requestId family=$family")
         return true
@@ -132,11 +134,17 @@ class ManualNavigationTransitionBridge(
     @Synchronized
     fun snapshot(): ManualNavigationTransitionEpoch? = active
 
+    @Synchronized
+    fun isTargetCurrent(requestId: Long): Boolean {
+        val epoch = active ?: return false
+        return epoch.requestId == requestId && currentMediaId == epoch.targetMediaId
+    }
+
     private fun bindDestination(
         facts: ManualNavigationDestinationFacts,
     ): ManualNavigationTransitionEpoch? {
         val epoch = active ?: return null
-        if (currentMediaIdProvider?.invoke() != epoch.targetMediaId) return null
+        if (currentMediaId != epoch.targetMediaId) return null
         val bound = epoch.copy(targetFacts = facts)
         active = bound
         milestone(

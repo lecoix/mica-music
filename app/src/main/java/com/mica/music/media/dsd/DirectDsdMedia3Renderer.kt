@@ -186,6 +186,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
         if (ended || pauseGapActive) return
+        if (!refreshPendingNavigationBinding()) return
         pendingFreshDirectDestination?.let { pending ->
             if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) return
         }
@@ -336,6 +337,72 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             ?: error("Retained Direct DSD format is no longer authoritative")
     }
 
+    private fun refreshPendingNavigationBinding(): Boolean {
+        val pending = pendingFreshDirectDestination ?: return true
+        val requestId = pending.navigationRequestId ?: return true
+        if (pending.navigationFacts != null) return true
+        val bridge = manualNavigationTransitionBridge ?: return false
+        val activeNavigation = bridge.snapshot() ?: return false
+        if (activeNavigation.requestId != requestId) return false
+        val facts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
+        val bound = bridge.bindDirectDestination(facts) ?: return false
+        if (bound.requestId != requestId) return false
+        val navigationFacts = checkNotNull(bound.targetFacts)
+        val active = pump
+        if (active != null) {
+            val mode = DirectDsdTrackTransitionPolicy.decide(
+                active.facts,
+                facts,
+                activeNavigation.requestedPlaying,
+            )
+            milestone(
+                "trackTransition=NAVIGATION_CURRENTNESS_CONFIRMED request=$requestId " +
+                    "family=DOP sourceRate=${facts.sourceSampleRateHz} mode=$mode",
+            )
+            if (mode == DirectDsdTrackTransitionMode.RETAINED_SAME_PLAN) {
+                milestone(
+                    "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=${activeNavigation.requestedPlaying} " +
+                        "sourceRate=${active.facts.sourceSampleRateHz} newRate=${facts.sourceSampleRateHz} " +
+                        "navigationRequest=$requestId currentnessDeferred=true",
+                )
+                val (discardedCanonicalBytes, result) = active.transitionRetainedSource(facts)
+                check(result.feederPendingZero && result.sourceResetApplied)
+                currentFormat = pending.format
+                resetTrackSourceCounters()
+                milestone(
+                    "trackTransition=NEW_SOURCE_FACTS_BOUND sourceRate=${facts.sourceSampleRateHz} " +
+                        "discardedRendererCanonical=$discardedCanonicalBytes navigationRequest=$requestId " +
+                        "currentnessDeferred=true",
+                )
+                if (!activeNavigation.requestedPlaying) {
+                    active.startPauseGapLiveness()
+                    pauseGapActive = true
+                    transitionCoordinator?.onDirectPlayState(paused = true)
+                    milestone("trackTransition=PAUSE_GAP_REESTABLISHED_AFTER_BOUNDARY")
+                } else {
+                    transitionCoordinator?.onDirectPlayState(paused = false)
+                }
+                check(
+                    bridge.complete(requestId, DirectDsdTrackTransportFamily.DOP),
+                ) { "retained Direct navigation completion lost currentness" }
+                pendingFreshDirectDestination = null
+                milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=true")
+                return true
+            }
+            active.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            closePump("manual-navigation-currentness-fresh")
+            transitionCoordinator?.onDirectReleased(wasPaused = !activeNavigation.requestedPlaying)
+            milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED navigationRequest=$requestId currentnessDeferred=true")
+        } else {
+            milestone(
+                "trackTransition=NAVIGATION_CURRENTNESS_CONFIRMED request=$requestId " +
+                    "family=DOP sourceRate=${facts.sourceSampleRateHz} mode=FRESH_RUNTIME",
+            )
+        }
+        pendingFreshDirectDestination = pending.copy(navigationFacts = navigationFacts)
+        return true
+    }
+
     private fun openPumpIfNeeded(facts: DsfExtractorPacketFacts): DirectDsdRendererPump {
         pump?.let { return it }
         val session = sessionFactory.open(facts)
@@ -440,21 +507,33 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         val active = pump
         val playing = state == Renderer.STATE_STARTED
         val navigationEpoch = manualNavigationTransitionBridge?.bindDirectDestination(newFacts)
+        val navigationSnapshot = manualNavigationTransitionBridge?.snapshot()
         pendingFreshDirectDestination?.let { pending ->
             val pendingPump = pump
-            if (pendingPump != null) {
+            if (pendingPump != null && pending.navigationFacts != null) {
                 check(!pendingPump.isPlaybackArmed()) { "accepted Direct runtime still marked pending" }
                 closePump("track-pending-destination-replaced")
                 milestone("trackTransition=PENDING_RUNTIME_RETIRED epoch=${pending.epochId}")
             }
-            val effectiveNavigationEpoch = navigationEpoch ?: pending.navigationRequestId?.let { requestId ->
-                manualNavigationTransitionBridge?.snapshot()?.takeIf { it.requestId == requestId }
-            }
+            val effectiveNavigationEpoch = navigationEpoch ?: navigationSnapshot
             bindPendingFreshDestination(
                 newFormat,
                 requiresStartedAuthority = !playing || effectiveNavigationEpoch?.requestedPlaying == false,
                 replacement = true,
                 navigationEpoch = effectiveNavigationEpoch,
+            )
+            return
+        }
+        if (navigationEpoch == null && navigationSnapshot != null) {
+            bindPendingFreshDestination(
+                newFormat,
+                requiresStartedAuthority = !navigationSnapshot.requestedPlaying,
+                replacement = false,
+                navigationEpoch = navigationSnapshot,
+            )
+            milestone(
+                "trackTransition=MANUAL_NAVIGATION_WAIT_CURRENTNESS request=${navigationSnapshot.requestId} " +
+                    "playing=${navigationSnapshot.requestedPlaying} family=DOP",
             )
             return
         }

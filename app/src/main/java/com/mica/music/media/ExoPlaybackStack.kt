@@ -3,6 +3,8 @@ package com.mica.music.media
 import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -80,7 +82,11 @@ internal object ExoPlaybackStackFactory {
             trackTransitionCoordinator = trackTransitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
         )
-        manualNavigationTransitionBridge.bindCurrentMediaIdProvider { exoPlayer.currentMediaItem?.mediaId }
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                manualNavigationTransitionBridge.updateCurrentMediaId(mediaItem?.mediaId)
+            }
+        })
         return ExoPlaybackStack(
             exoPlayer = exoPlayer,
             compositePlayer = compositePlayer,

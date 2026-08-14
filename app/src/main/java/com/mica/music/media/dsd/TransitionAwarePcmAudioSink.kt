@@ -34,18 +34,21 @@ internal class TransitionAwarePcmAudioSink(
         outputChannels: IntArray?,
     ) {
         val navigationEpoch = manualNavigationTransitionBridge.bindPcmDestination(inputFormat)
+        val navigationSnapshot = manualNavigationTransitionBridge.snapshot()
         val requiresResumeAuthority = transitionCoordinator.shouldDeferPcmUntilResume()
         if (
             transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP ||
-            requiresResumeAuthority
+            requiresResumeAuthority ||
+            (navigationEpoch == null && navigationSnapshot != null)
         ) {
+            val effectiveNavigationEpoch = navigationEpoch ?: navigationSnapshot
             pendingConfiguration = PendingConfiguration(
                 format = inputFormat,
                 specifiedBufferSize = specifiedBufferSize,
                 outputChannels = outputChannels?.copyOf(),
                 requiresResumeAuthority = requiresResumeAuthority,
-                navigationRequestId = navigationEpoch?.requestId,
-                navigationRequestedPlaying = navigationEpoch?.requestedPlaying ?: true,
+                navigationRequestId = effectiveNavigationEpoch?.requestId,
+                navigationRequestedPlaying = effectiveNavigationEpoch?.requestedPlaying ?: true,
             )
             return
         }
@@ -114,6 +117,10 @@ internal class TransitionAwarePcmAudioSink(
         val pending = pendingConfiguration ?: return true
         if (pending.requiresResumeAuthority && !resumeAuthority) return false
         if (transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP) return false
+        pending.navigationRequestId?.let { requestId ->
+            val bound = manualNavigationTransitionBridge.bindPcmDestination(pending.format) ?: return false
+            if (bound.requestId != requestId) return false
+        }
         transitionCoordinator.onPcmActivity()
         transitionCoordinator.beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)
         super.configure(
