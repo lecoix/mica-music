@@ -1104,6 +1104,223 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(protocol.snapshot().inFlightActivations.isEmpty())
     }
 
+    @Test
+    fun playMintedRetirementKeepsHistoricalFalseAcrossLaterPauseAndDefersSuccessor() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+            facts = "pcm96",
+        )
+        protocol.registerAdapter(adapterB)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+        )
+        val proof = FamilyProof.StackReleased("closed")
+        val receipt = requireNotNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                proof,
+            ),
+        )
+        assertFalse(receipt.semanticPausedAtRetirement)
+
+        ledger.publish(PlaybackIntent.PAUSE)
+        val duplicateMint = requireNotNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                proof,
+            ),
+        )
+        assertEquals(receipt, duplicateMint)
+        assertFalse(duplicateMint.semanticPausedAtRetirement)
+        assertTrue(protocol.acceptSourceRetirement(receipt.copy()))
+        assertEquals(receipt, protocol.snapshot().mutation?.sourceRetirement)
+        assertNull(protocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
+
+        ledger.publish(PlaybackIntent.PLAY)
+        assertNotNull(protocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
+    }
+
+    @Test
+    fun pauseMintedRetirementKeepsHistoricalTrueAcrossLaterPlayAndAllowsSuccessor() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PAUSE)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+            facts = "pcm96",
+        )
+        protocol.registerAdapter(adapterB)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+        )
+        val receipt = requireNotNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                FamilyProof.StackReleased("closed"),
+            ),
+        )
+        assertTrue(receipt.semanticPausedAtRetirement)
+
+        ledger.publish(PlaybackIntent.PLAY)
+        assertTrue(protocol.acceptSourceRetirement(receipt))
+        assertTrue(requireNotNull(protocol.snapshot().mutation?.sourceRetirement).semanticPausedAtRetirement)
+        assertNotNull(protocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
+    }
+
+    @Test
+    fun flippedPausedBitCannotForgeIssuedRetirementReceipt() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+            facts = "pcm96",
+        )
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+        )
+        val receipt = requireNotNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                FamilyProof.StackReleased("closed"),
+            ),
+        )
+        val ownershipBefore = protocol.snapshot().familyOwnership
+
+        assertFalse(protocol.acceptSourceRetirement(receipt.copy(semanticPausedAtRetirement = true)))
+        assertNull(protocol.snapshot().mutation?.sourceRetirement)
+        assertEquals(ownershipBefore, protocol.snapshot().familyOwnership)
+        assertTrue(protocol.acceptSourceRetirement(receipt))
+    }
+
+    @Test
+    fun changedIssuedRetirementFactsRemainRejectedUntilExactCanonicalValueArrives() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+            facts = "pcm96",
+        )
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b),
+        )
+        val receipt = requireNotNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                FamilyProof.StackReleased("closed"),
+            ),
+        )
+
+        assertFalse(protocol.acceptSourceRetirement(receipt.copy(receiptId = SideEffectReceiptId(999))))
+        assertFalse(protocol.acceptSourceRetirement(receipt.copy(sourceAdapterInstanceId = adapterB)))
+        assertFalse(protocol.acceptSourceRetirement(receipt.copy(sourceFamily = PlaybackFamily.DOP)))
+        assertFalse(protocol.acceptSourceRetirement(receipt.copy(outputTarget = OutputTarget.UsbBound(UsbOutputGeneration(6)))))
+        assertFalse(protocol.acceptSourceRetirement(receipt.copy(scope = RetirementScope.STACK_TEARDOWN_RELEASED)))
+        assertFalse(protocol.acceptSourceRetirement(receipt.copy(familyProof = FamilyProof.StackReleased("changed"))))
+        assertNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterB,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                FamilyProof.StackReleased("closed"),
+            ),
+        )
+        assertNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.STACK_TEARDOWN_RELEASED,
+                FamilyProof.StackReleased("closed"),
+            ),
+        )
+        assertNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                FamilyProof.StackReleased("changed"),
+            ),
+        )
+        assertNull(protocol.snapshot().mutation?.sourceRetirement)
+        assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
+        assertTrue(protocol.acceptSourceRetirement(receipt))
+    }
+
+    @Test
+    fun acceptedRetirementReceiptCannotReplayOrRemintWithLaterIntent() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+            facts = "pcm96",
+        )
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+        )
+        val proof = FamilyProof.StackReleased("closed")
+        val receipt = requireNotNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                proof,
+            ),
+        )
+        assertTrue(protocol.acceptSourceRetirement(receipt))
+
+        ledger.publish(PlaybackIntent.PAUSE)
+        assertFalse(protocol.acceptSourceRetirement(receipt))
+        assertNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                proof,
+            ),
+        )
+        assertFalse(requireNotNull(protocol.snapshot().mutation?.sourceRetirement).semanticPausedAtRetirement)
+    }
+
     private fun fresh(output: OutputTarget = OutputTarget.SharedPcm): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
         val ledger = PlaybackIntentLedger()
         val protocol = UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(1), output)

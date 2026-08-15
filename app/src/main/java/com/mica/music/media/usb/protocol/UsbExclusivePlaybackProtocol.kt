@@ -334,6 +334,7 @@ class UsbExclusivePlaybackProtocol(
     private var nextActivationId = 0L
     private var nextOwnershipId = 0L
     private var nextReceiptId = 0L
+    private val issuedRetirementReceiptsByMutation = linkedMapOf<MutationId, SourceRetirementReceipt>()
     private var mutation: MutationEpoch? = null
     private var familyOwnership: FamilyOwnership = FamilyOwnership.None
     private val activations = linkedMapOf<ActivationId, ActivationRecord>()
@@ -487,6 +488,7 @@ class UsbExclusivePlaybackProtocol(
             if (causalHandleFactory != null) return null
             null
         }
+        issuedRetirementReceiptsByMutation.clear()
         nextMutationId = id.value
         reclassifyUncommittedAuthorityLocked(retiring = false)
         val epoch = MutationEpoch(
@@ -518,10 +520,16 @@ class UsbExclusivePlaybackProtocol(
     fun acceptSourceRetirement(receipt: SourceRetirementReceipt): Boolean {
         val epoch = mutation ?: return false
         val owned = familyOwnership
-        if (lifecycle !is ProtocolLifecycle.Active || !retirementReceiptMatchesLocked(epoch, owned, receipt)) return false
+        val issued = issuedRetirementReceiptsByMutation[epoch.mutationId] ?: return false
+        if (
+            lifecycle !is ProtocolLifecycle.Active ||
+            issued != receipt ||
+            epoch.sourceRetirement != null ||
+            !retirementReceiptMatchesLocked(epoch, owned, receipt)
+        ) return false
         val lease = owned.writeLeaseOrNull() ?: return false
-        lease.revoke()
-        if (!lease.isDrained()) return false
+        if (!lease.isRevoked() || !lease.isDrained()) return false
+        issuedRetirementReceiptsByMutation.remove(epoch.mutationId)
         mutation = epoch.copy(sourceRetirement = receipt)
         if (receipt.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED) {
             familyOwnership = FamilyOwnership.None
@@ -538,11 +546,27 @@ class UsbExclusivePlaybackProtocol(
     ): SourceRetirementReceipt? {
         val epoch = mutation ?: return null
         val owned = familyOwnership
-        if (lifecycle !is ProtocolLifecycle.Active || epoch.mutationId != mutationId) return null
+        if (
+            lifecycle !is ProtocolLifecycle.Active ||
+            epoch.mutationId != mutationId ||
+            epoch.sourceRetirement != null
+        ) return null
         val ownershipId = owned.ownershipIdOrNull() ?: return null
         val occurrence = owned.occurrenceOrNull()
         val lease = owned.writeLeaseOrNull() ?: return null
-        val candidate = SourceRetirementReceipt(
+
+        issuedRetirementReceiptsByMutation[mutationId]?.let { issued ->
+            if (
+                issued.sourceFamilyOwnershipId != ownershipId ||
+                issued.sourceAdapterInstanceId != sourceAdapterInstanceId ||
+                issued.scope != scope ||
+                issued.familyProof != familyProof ||
+                !retirementReceiptMatchesLocked(epoch, owned, issued)
+            ) return null
+            return issued
+        }
+
+        val preflight = SourceRetirementReceipt(
             receiptId = SideEffectReceiptId(nextReceiptId + 1),
             retiringMutationId = mutationId,
             sourceFamilyOwnershipId = ownershipId,
@@ -551,13 +575,17 @@ class UsbExclusivePlaybackProtocol(
             sourceAdapterInstanceId = sourceAdapterInstanceId,
             outputTarget = lease.identity.outputTarget,
             scope = scope,
-            semanticPausedAtRetirement = ledger.snapshot().desired == PlaybackIntent.PAUSE,
+            semanticPausedAtRetirement = false,
             familyProof = familyProof,
         )
-        if (!retirementReceiptMatchesLocked(epoch, owned, candidate)) return null
+        if (!retirementReceiptMatchesLocked(epoch, owned, preflight)) return null
         lease.revoke()
         if (!lease.isDrained()) return null
+        val candidate = preflight.copy(
+            semanticPausedAtRetirement = ledger.snapshot().desired == PlaybackIntent.PAUSE,
+        )
         nextReceiptId += 1
+        issuedRetirementReceiptsByMutation[mutationId] = candidate
         return candidate
     }
 
@@ -927,6 +955,7 @@ class UsbExclusivePlaybackProtocol(
     fun updateOutputTarget(target: OutputTarget) {
         if (lifecycle !is ProtocolLifecycle.Active) return
         if (outputTarget != target) {
+            issuedRetirementReceiptsByMutation.clear()
             familyOwnership.writeLeaseOrNull()?.revoke()
             reclassifyUncommittedAuthorityLocked(retiring = false)
             outputTarget = target
@@ -939,6 +968,7 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun beginRetiring() {
         if (lifecycle !is ProtocolLifecycle.Active) return
+        issuedRetirementReceiptsByMutation.clear()
         familyOwnership.writeLeaseOrNull()?.revoke()
         reclassifyUncommittedAuthorityLocked(retiring = true)
         lifecycle = ProtocolLifecycle.Retiring(activations.keys.toSet())
@@ -1204,8 +1234,7 @@ class UsbExclusivePlaybackProtocol(
             receipt.sourceOccurrence != owned.occurrenceOrNull() ||
             receipt.sourceAdapterInstanceId != owned.adapterInstanceIdOrNull() ||
             receipt.sourceFamily != owned.familyOrNull() ||
-            receipt.outputTarget != lease.identity.outputTarget ||
-            receipt.semanticPausedAtRetirement != (ledger.snapshot().desired == PlaybackIntent.PAUSE)
+            receipt.outputTarget != lease.identity.outputTarget
         ) return false
         return retirementReceiptSufficientForOwnedTargetLocked(epoch, owned, receipt)
     }
