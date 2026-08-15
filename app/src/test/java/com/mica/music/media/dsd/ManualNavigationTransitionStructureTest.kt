@@ -75,53 +75,53 @@ class ManualNavigationTransitionStructureTest {
     }
 
     @Test
-    fun applicationPauseRevokesGrantBeforeUnderlyingPauseDispatch() {
+    fun applicationPausePublishesProtocolIntentBeforeUnderlyingPauseDispatch() {
         val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
         val direct = source.substringAfter("fun pauseExoDirect()")
             .substringBefore("override fun setPlayWhenReady")
         assertOrdered(
             direct,
-            "revokeManualNavigationResumeAuthority()",
+            "publishProtocolIntent(false)",
             "exoPlayer.pause()",
         )
         val playWhenReady = source.substringAfter("override fun setPlayWhenReady(playWhenReady: Boolean)")
             .substringBefore("override fun play()")
         assertOrdered(
             playWhenReady,
-            "revokeManualNavigationResumeAuthority()",
+            "publishProtocolIntent(playWhenReady)",
             "super.setPlayWhenReady(false)",
         )
         val pause = source.substringAfter("override fun pause()")
             .substringBefore("override fun seekTo(positionMs: Long)")
         assertOrdered(
             pause,
-            "revokeManualNavigationResumeAuthority()",
+            "publishProtocolIntent(false)",
             "super.pause()",
         )
     }
 
     @Test
-    fun applicationResumeGrantPrecedesUnderlyingExoPlayDispatch() {
+    fun applicationResumeIntentPrecedesUnderlyingExoPlayDispatch() {
         val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
         val direct = source.substringAfter("fun playExoDirect()")
             .substringBefore("fun pauseExoDirect()")
         assertOrdered(
             direct,
-            "grantManualNavigationResumeAuthority()",
+            "publishProtocolIntent(true)",
             "exoPlayer.play()",
         )
         val play = source.substringAfter("override fun play()")
             .substringBefore("override fun pause()")
         assertOrdered(
             play,
-            "grantManualNavigationResumeAuthority()",
+            "publishProtocolIntent(true)",
             "playbackCoordinator?.playCurrent() ?: super.play()",
         )
         val playWhenReady = source.substringAfter("override fun setPlayWhenReady(playWhenReady: Boolean)")
             .substringBefore("override fun play()")
         assertOrdered(
             playWhenReady,
-            "if (playWhenReady) grantManualNavigationResumeAuthority()",
+            "publishProtocolIntent(playWhenReady)",
             "playbackCoordinator?.playCurrent() ?: super.setPlayWhenReady(true)",
         )
     }
@@ -142,13 +142,12 @@ class ManualNavigationTransitionStructureTest {
             .substringBefore("override fun onPositionReset")
         assertOrdered(
             body,
-            "observeDirectRetirementStop()",
+            "manualNavigationTransitionBridge.observeDirectRetirementStop()",
             "navigationPending=true",
             "gapStarted=false",
             "return",
-            "onDirectPlayState(paused = true)",
-            "startPauseGapLiveness()",
         )
+        assertFalse(body.contains("onDirectPlayState("))
     }
 
     @Test
@@ -160,10 +159,10 @@ class ManualNavigationTransitionStructureTest {
             body,
             "observePlaybackStream(mediaPeriodId)",
             "bindDirectDestination(newFacts, it)",
-            "val navigationSnapshot = manualNavigationTransitionBridge?.snapshot()",
-            "if (navigationEpoch == null && navigationSnapshot != null && playbackIdentity != null)",
+            "val navigationSnapshot = manualNavigationTransitionBridge.snapshot()",
+            "if (navigationEpoch == null && navigationSnapshot != null)",
         )
-        val waiting = body.substringAfter("if (navigationEpoch == null && navigationSnapshot != null && playbackIdentity != null)")
+        val waiting = body.substringAfter("if (navigationEpoch == null && navigationSnapshot != null)")
             .substringBefore("if (navigationEpoch != null)")
         assertOrdered(waiting, "MANUAL_NAVIGATION_WAIT_PLAYBACK_IDENTITY", "return")
     }
@@ -175,8 +174,7 @@ class ManualNavigationTransitionStructureTest {
             .substringBefore("override fun onStreamChanged(")
         assertOrdered(
             body,
-            "val playbackIdentity = checkNotNull(pending.navigationPlaybackIdentity)",
-            "isCurrentDestination(",
+            "val pending = pendingFreshDirectDestination ?: return false",
             "observeShadowArmAndSourceAccept(active)",
             "completeNavigationProjection(",
             "pendingFreshDirectDestination = null",
@@ -196,12 +194,8 @@ class ManualNavigationTransitionStructureTest {
         )
         val refresh = source.substringAfter("private fun refreshPendingNavigationBinding()")
             .substringBefore("private fun openPumpIfNeeded")
-        assertOrdered(
-            refresh,
-            "val playbackIdentity = pending.navigationPlaybackIdentity ?: return false",
-            "bridge.isCurrentDestination(requestId, navigationFacts, playbackIdentity)",
-            "bridge.bindDirectDestination(facts, playbackIdentity)",
-        )
+        assertTrue(refresh.contains("protocolDestinationCurrent()"))
+        assertFalse(refresh.contains("bridge.isCurrentDestination"))
     }
 
     @Test
@@ -254,9 +248,9 @@ class ManualNavigationTransitionStructureTest {
         val source = source("app/src/main/java/com/mica/music/media/MicaRenderersFactory.kt")
         assertTrue(source.contains("val dsdPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
         assertTrue(source.contains("val pcmPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
-        assertTrue(source.contains("ffmpegDsdPlaybackAdapter?.observeStream("))
+        assertTrue(source.contains("ffmpegDsdPlaybackAdapter.observeStream("))
         assertTrue(source.contains("dsdPeriodProjection.onStreamChanged(mediaPeriodId)"))
-        assertTrue(source.contains("ffmpegPcmPlaybackAdapter?.observeStream("))
+        assertTrue(source.contains("ffmpegPcmPlaybackAdapter.observeStream("))
         assertTrue(source.contains("pcmPeriodProjection.onStreamChanged(mediaPeriodId)"))
         val replace = source.substringAfter("private fun replacePlatformAudioRenderer(")
             .substringBefore("private fun buildUnifiedFixedChain")

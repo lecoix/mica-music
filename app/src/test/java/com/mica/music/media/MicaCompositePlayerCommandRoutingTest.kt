@@ -5,12 +5,14 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.mica.music.media.dsd.DirectDsdSeekDiscontinuityCoordinator
 import com.mica.music.media.dsd.DirectDsdSessionGeneration
+import com.mica.music.media.usb.protocol.FamilyOwnership
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifySequence
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -36,7 +38,7 @@ class MicaCompositePlayerCommandRoutingTest {
     fun trackSelectionCommandsRouteThroughCoordinator() {
         val exo = mockk<ExoPlayer>(relaxed = true)
         val coordinator = mockk<ServicePlaybackEngineCoordinator>(relaxed = true)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         player.playbackCoordinator = coordinator
 
         player.seekTo(3, 1_234L)
@@ -54,24 +56,24 @@ class MicaCompositePlayerCommandRoutingTest {
     }
 
     @Test
-    fun withoutCoordinatorCommandsStayOnExoPlayer() {
+    fun withoutBoundProtocolDestinationCommandsFailClosedBeforeExo() {
         val exo = mockk<ExoPlayer>(relaxed = true)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
 
         player.seekTo(2, 987L)
         player.seekToNextMediaItem()
         player.seekToPreviousMediaItem()
 
-        verify(exactly = 1) { exo.seekTo(2, 987L) }
-        verify(exactly = 1) { exo.seekToNextMediaItem() }
-        verify(exactly = 1) { exo.seekToPreviousMediaItem() }
+        verify(exactly = 0) { exo.seekTo(2, 987L) }
+        verify(exactly = 0) { exo.seekToNextMediaItem() }
+        verify(exactly = 0) { exo.seekToPreviousMediaItem() }
     }
 
     @Test
     fun rapidIndexedSelectionsPreserveOrder() {
         val exo = mockk<ExoPlayer>(relaxed = true)
         val coordinator = mockk<ServicePlaybackEngineCoordinator>(relaxed = true)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         player.playbackCoordinator = coordinator
 
         player.seekTo(3, 0L)
@@ -96,7 +98,7 @@ class MicaCompositePlayerCommandRoutingTest {
         every { exo.seekTo(12_345L) } answers {
             assertNotNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
         }
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
 
         player.seekTo(12_345L)
 
@@ -116,7 +118,7 @@ class MicaCompositePlayerCommandRoutingTest {
         every { exo.seekTo(0, 45_000L) } answers {
             assertNotNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
         }
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
 
         player.startExistingItem(index = 0, positionMs = 45_000L, playWhenReady = true)
 
@@ -133,7 +135,7 @@ class MicaCompositePlayerCommandRoutingTest {
         every { exo.isPlaying } returns true
         every { exo.playbackState } returns Player.STATE_READY
         activateDirectSession()
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
 
         player.startExistingItem(index = 1, positionMs = 1_000L, playWhenReady = true)
         assertNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
@@ -149,7 +151,7 @@ class MicaCompositePlayerCommandRoutingTest {
         val exo = mockk<ExoPlayer>(relaxed = true)
         activateDirectSession()
         assertNotNull(DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek(5_000L))
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
 
         player.pauseExoDirect()
 
@@ -166,7 +168,7 @@ class MicaCompositePlayerCommandRoutingTest {
             queue.getOrNull(firstArg()) ?: MediaItem.Builder().setMediaId("inserted").build()
         }
         every { exo.currentMediaItemIndex } returns 1
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val initialRevision = player.playbackQueueSnapshot().revision
 
         player.addMediaItem(2, MediaItem.Builder().setMediaId("inserted").build())
@@ -177,9 +179,61 @@ class MicaCompositePlayerCommandRoutingTest {
     }
 
     @Test
+    fun setMediaItemsMintsProtocolDestinationBeforeExoDispatch() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        val player = MicaCompositePlayer(exo, stack)
+        val destination = MediaItem.Builder().setMediaId("destination-b").build()
+        every { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) } answers {
+            assertEquals("destination-b", stack.snapshot().mutation?.targetMediaId)
+            assertFalse(stack.snapshot().mutation?.destinationBound ?: true)
+        }
+
+        player.setMediaItems(listOf(destination), 0, 0L)
+
+        verify(exactly = 1) { exo.setMediaItems(listOf(destination), 0, 0L) }
+    }
+
+    @Test
+    fun replacingQueueSupersedesStaleDestinationBeforeEachExoDispatch() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        val player = MicaCompositePlayer(exo, stack)
+        val b = MediaItem.Builder().setMediaId("destination-b").build()
+        val c = MediaItem.Builder().setMediaId("destination-c").build()
+        val dispatched = mutableListOf<String>()
+        every { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) } answers {
+            dispatched += stack.snapshot().mutation?.targetMediaId.orEmpty()
+        }
+
+        player.setMediaItems(listOf(b), 0, 0L)
+        player.setMediaItems(listOf(c), 0, 0L)
+
+        assertEquals(listOf("destination-b", "destination-c"), dispatched)
+        assertEquals("destination-c", stack.snapshot().mutation?.targetMediaId)
+    }
+
+    @Test
+    fun clearMediaItemsRevokesSourceLeaseAndFencesTeardownBeforeExoDispatch() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        val player = MicaCompositePlayer(exo, stack)
+        every { exo.clearMediaItems() } answers {
+            val snapshot = stack.snapshot()
+            assertNull(snapshot.applicationCurrent.mediaId)
+            assertTrue((snapshot.familyOwnership as FamilyOwnership.PcmOwned).writeLease.isRevoked())
+            assertTrue(snapshot.mutation?.targetMediaId?.startsWith("__queue_clear__:") == true)
+        }
+
+        player.clearMediaItems()
+
+        verify(exactly = 1) { exo.clearMediaItems() }
+    }
+
+    @Test
     fun flushPlaybackPipeline_stopsSeeksAndResumes() {
         val exo = mockk<ExoPlayer>(relaxed = true)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
 
         player.flushPlaybackPipeline(positionMs = 12_345L, resumePlayback = true)
 
@@ -199,7 +253,7 @@ class MicaCompositePlayerCommandRoutingTest {
         every { exo.currentMediaItem } returns null
         every { exo.mediaItemCount } returns 0
         var starts = 0
-        val player = MicaCompositePlayer(exo) { starts++ }
+        val player = MicaCompositePlayer(exo, testPlaybackStack(), beforePlaybackStart = { starts++ })
 
         player.startExoPlayback(items(1), startIndex = 0)
 
@@ -209,7 +263,7 @@ class MicaCompositePlayerCommandRoutingTest {
     @Test
     fun replayGainMultipliesRequestedVolume() {
         val exo = mockk<ExoPlayer>(relaxed = true)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
 
         player.volume = 0.8f
         player.setReplayGainVolume(0.5f)

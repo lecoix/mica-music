@@ -34,20 +34,24 @@ object UsbDirectDsdPrototypeRendererFactory {
         context: Context,
         transitionCoordinator: DirectDsdTrackTransitionCoordinator,
         manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
-        playbackAdapter: Any?,
+        playbackAdapter: Any,
     ): Renderer? {
         if (!UsbDirectDsdPrototypeControl.isEnabled()) return null
+        val adapter = checkNotNull(playbackAdapter as? UsbExclusivePlaybackAdapter) {
+            "M3 Direct renderer requires its production playback adapter"
+        }
         val appContext = context.applicationContext
         val publish: (String) -> Unit = { UsbDirectDsdPrototypeEvidence.record(appContext, it) }
         val clock = DirectDsdSystemMonotonicClock
         publish("directDsd=renderer-created")
         return DirectDsdMedia3Renderer(
             sessionFactory = UsbDirectDsdTransportSessionFactory(appContext, publish, clock),
+            playbackAdapter = adapter,
             milestone = publish,
             monotonicClock = clock,
             transitionCoordinator = transitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
-        ).also { it.installUsbExclusivePlaybackAdapter(playbackAdapter as? UsbExclusivePlaybackAdapter) }
+        )
     }
 }
 

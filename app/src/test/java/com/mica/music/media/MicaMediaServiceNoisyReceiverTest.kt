@@ -40,7 +40,12 @@ class MicaMediaServiceNoisyReceiverTest {
             assertEquals(receiversBefore + 1, noisyReceiverCount(application))
 
             val player = service.onGetSession(mockk(relaxed = true))!!.player
-            player.setMediaItem(MediaItem.fromUri("file:///robolectric-noisy.wav"))
+            player.setMediaItem(
+                MediaItem.Builder()
+                    .setMediaId("robolectric-noisy")
+                    .setUri("file:///robolectric-noisy.wav")
+                    .build(),
+            )
             player.playWhenReady = true
             shadowOf(Looper.getMainLooper()).idle()
             assertTrue(player.playWhenReady)

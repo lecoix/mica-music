@@ -3,10 +3,14 @@ package com.mica.music.media.dsd
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.source.MediaSource
+import com.mica.music.media.usb.protocol.FamilyOwnership
+import com.mica.music.media.usb.protocol.PlaybackFamily
+import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
 
@@ -24,11 +28,12 @@ class TransitionAwarePcmNavigationGenerationTest {
         val playingA = MediaSource.MediaPeriodId("period-A", 1L)
         bridge.updateApplicationPlayingOccurrence(playingA)
         val authoritativeA = ManualNavigationPlaybackIdentity.from(playingA)
+        val harness = TestProtocolHarness.create()
         val coordinator = DirectDsdTrackTransitionCoordinator()
         coordinator.beforeDirectAccept(isPlaying = true)
         val delegate = mockk<AudioSink>(relaxed = true)
         val projection = ManualNavigationPlaybackPeriodProjection(bridge)
-        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection, harness.pcmAdapter)
 
         // Reading head is already B, while application/playing current remains A.
         projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
@@ -43,14 +48,20 @@ class TransitionAwarePcmNavigationGenerationTest {
         sink.configure(pcm96, 0, null)
         verify(exactly = 0) { delegate.configure(any(), any(), any()) }
 
-        coordinator.onDirectReleased(wasPaused = false)
+        harness.beginDestination(
+            "B",
+            PlaybackOccurrence("period-B", 2L),
+            PlaybackFamily.PCM,
+            "pcm-target",
+            playing = true,
+        )
+        harness.releaseDirectSource()
         bridge.updateApplicationCurrentness("B", "period-B")
         sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
 
         verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
         verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
-        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
-        assertNull(bridge.snapshot())
+        assertTrue(harness.stack.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
     }
 
     @Test
@@ -59,11 +70,12 @@ class TransitionAwarePcmNavigationGenerationTest {
         bridge.updateApplicationCurrentness("A", "uid-A")
         val playingA = MediaSource.MediaPeriodId("uid-A", 1L)
         bridge.updateApplicationPlayingOccurrence(playingA)
+        val harness = TestProtocolHarness.create()
         val coordinator = DirectDsdTrackTransitionCoordinator()
         coordinator.beforeDirectAccept(isPlaying = true)
         val delegate = mockk<AudioSink>(relaxed = true)
         val projection = ManualNavigationPlaybackPeriodProjection(bridge)
-        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection, harness.pcmAdapter)
 
         projection.onStreamChanged(MediaSource.MediaPeriodId("uid-A", 2L))
         val epoch = bridge.publish(
@@ -77,7 +89,14 @@ class TransitionAwarePcmNavigationGenerationTest {
         sink.configure(pcm96, 0, null)
         verify(exactly = 0) { delegate.configure(any(), any(), any()) }
 
-        coordinator.onDirectReleased(wasPaused = false)
+        harness.beginDestination(
+            "A-repeat",
+            PlaybackOccurrence("uid-A", 2L),
+            PlaybackFamily.PCM,
+            "pcm-target",
+            playing = true,
+        )
+        harness.releaseDirectSource()
         bridge.updateApplicationCurrentness(
             "A-repeat",
             "uid-A",
@@ -86,8 +105,7 @@ class TransitionAwarePcmNavigationGenerationTest {
         sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
 
         verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
-        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
-        assertNull(bridge.snapshot())
+        assertTrue(harness.stack.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
     }
 
     @Test
@@ -99,6 +117,7 @@ class TransitionAwarePcmNavigationGenerationTest {
         coordinator.beforeDirectAccept(isPlaying = true)
         coordinator.onDirectPlayState(paused = true)
         coordinator.onDirectReleased(wasPaused = true)
+        val harness = TestProtocolHarness.create()
 
         val epoch = bridge.publish(
             targetMediaId = "B",
@@ -111,7 +130,15 @@ class TransitionAwarePcmNavigationGenerationTest {
         val delegate = mockk<AudioSink>(relaxed = true)
         val projection = ManualNavigationPlaybackPeriodProjection(bridge)
         projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
-        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection, harness.pcmAdapter)
+        harness.beginDestination(
+            "B",
+            PlaybackOccurrence("period-B", 2L),
+            PlaybackFamily.PCM,
+            "pcm-target",
+            playing = false,
+        )
+        harness.releaseDirectSource()
         sink.configure(pcm96, 0, null)
 
         repeat(3) {
@@ -123,12 +150,13 @@ class TransitionAwarePcmNavigationGenerationTest {
         assertEquals(epoch.requestId, bridge.snapshot()?.requestId)
 
         assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        assertTrue(harness.stack.publishSemanticIntent(true))
         sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
 
         verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
         verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
         verify(exactly = 0) { delegate.play() }
-        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
+        assertTrue(harness.stack.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
         assertNull(bridge.snapshot())
 
         sink.play()
@@ -143,12 +171,21 @@ class TransitionAwarePcmNavigationGenerationTest {
         coordinator.beforeDirectAccept(isPlaying = true)
         coordinator.onDirectPlayState(paused = true)
         coordinator.onDirectReleased(wasPaused = true)
+        val harness = TestProtocolHarness.create()
         val epoch = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP, "period-B")
         bridge.updateApplicationCurrentness("B", "period-B", invalidatePlayingOccurrence = true)
         val delegate = mockk<AudioSink>(relaxed = true)
         val projection = ManualNavigationPlaybackPeriodProjection(bridge)
         projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
-        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection, harness.pcmAdapter)
+        harness.beginDestination(
+            "B",
+            PlaybackOccurrence("period-B", 2L),
+            PlaybackFamily.PCM,
+            "pcm-target",
+            playing = false,
+        )
+        harness.releaseDirectSource()
         sink.configure(pcm96, 0, null)
 
         assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
@@ -162,11 +199,11 @@ class TransitionAwarePcmNavigationGenerationTest {
         assertEquals(2L, bridge.snapshot()?.targetPlaybackIdentity?.windowSequenceNumber)
 
         assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        assertTrue(harness.stack.publishSemanticIntent(true))
         sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
         verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
         verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
-        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
-        assertNull(bridge.snapshot())
+        assertTrue(harness.stack.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
     }
 
     @Test
@@ -177,12 +214,22 @@ class TransitionAwarePcmNavigationGenerationTest {
         coordinator.beforeDirectAccept(isPlaying = true)
         coordinator.onDirectPlayState(paused = true)
         coordinator.onDirectReleased(wasPaused = true)
+        val harness = TestProtocolHarness.create()
         val epoch = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP, "period-B")
         val delegate = mockk<AudioSink>(relaxed = true)
         val projection = ManualNavigationPlaybackPeriodProjection(bridge)
         projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
-        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection, harness.pcmAdapter)
         sink.configure(pcm96, 0, null)
+
+        harness.beginDestination(
+            "B",
+            PlaybackOccurrence("period-B", 2L),
+            PlaybackFamily.PCM,
+            "pcm-target",
+            playing = false,
+        )
+        harness.releaseDirectSource()
 
         assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
         assertEquals(false, sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1))
@@ -190,10 +237,11 @@ class TransitionAwarePcmNavigationGenerationTest {
         assertEquals(epoch.requestId, bridge.snapshot()?.requestId)
 
         bridge.updateApplicationCurrentness("B", "period-B", invalidatePlayingOccurrence = true)
+        assertTrue(harness.stack.publishSemanticIntent(true))
         sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
         verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
         verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
-        assertNull(bridge.snapshot())
+        assertTrue(harness.stack.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
     }
 
     @Test
@@ -204,18 +252,34 @@ class TransitionAwarePcmNavigationGenerationTest {
         coordinator.beforeDirectAccept(isPlaying = true)
         coordinator.onDirectPlayState(paused = true)
         coordinator.onDirectReleased(wasPaused = true)
+        val harness = TestProtocolHarness.create()
         val delegate = mockk<AudioSink>(relaxed = true)
         val projection = ManualNavigationPlaybackPeriodProjection(bridge)
-        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection, harness.pcmAdapter)
 
         val b = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP, "period-B")
         bridge.updateApplicationCurrentness("B", "period-B")
         projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
         sink.configure(pcm96, 0, null)
+        harness.beginDestination(
+            "B",
+            PlaybackOccurrence("period-B", 2L),
+            PlaybackFamily.PCM,
+            "pcm-target",
+            playing = false,
+        )
+        harness.releaseDirectSource()
         assertEquals(b.requestId, bridge.grantResumeForActivePausedRequest())
 
         val c = bridge.publish("C", false, DirectDsdTrackTransportFamily.DOP, "period-C")
         bridge.updateApplicationCurrentness("C", "period-C")
+        harness.beginDestination(
+            "C",
+            PlaybackOccurrence("period-C", 3L),
+            PlaybackFamily.PCM,
+            "pcm-target-c",
+            playing = false,
+        )
         assertEquals(false, sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1))
         verify(exactly = 0) { delegate.configure(any(), any(), any()) }
         assertEquals(c.requestId, bridge.snapshot()?.requestId)
@@ -243,10 +307,11 @@ class TransitionAwarePcmNavigationGenerationTest {
             expectedTargetPeriodUid = "period-C",
         )
         bridge.updateApplicationCurrentness("C", "period-C")
+        val harness = TestProtocolHarness.create()
 
         val delegate = mockk<AudioSink>(relaxed = true)
         val projection = ManualNavigationPlaybackPeriodProjection(bridge)
-        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection, harness.pcmAdapter)
 
         projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
         sink.configure(pcm96, 0, null)
@@ -255,11 +320,19 @@ class TransitionAwarePcmNavigationGenerationTest {
         assertNull(bridge.snapshot()?.targetPlaybackIdentity)
 
         coordinator.onDirectReleased(wasPaused = false)
+        harness.beginDestination(
+            "C",
+            PlaybackOccurrence("period-C", 3L),
+            PlaybackFamily.PCM,
+            "pcm-target-c",
+            playing = true,
+        )
+        harness.releaseDirectSource()
         projection.onStreamChanged(MediaSource.MediaPeriodId("period-C", 3L))
         sink.configure(pcm96, 0, null)
 
         verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
-        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
+        assertTrue(harness.stack.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
         assertNull(bridge.snapshot())
 
         // The superseded B PendingConfiguration must not resurrect after C was accepted.

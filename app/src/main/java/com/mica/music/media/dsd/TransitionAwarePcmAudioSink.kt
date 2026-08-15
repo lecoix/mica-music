@@ -4,7 +4,9 @@ import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import com.mica.music.media.usb.protocol.CommitDisposition
+import com.mica.music.media.usb.protocol.PcmConfigurePermit
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
+import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.WriteKind
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
@@ -22,15 +24,13 @@ internal class TransitionAwarePcmAudioSink(
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
     private val playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection =
         ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge),
-    private val playbackAdapter: UsbExclusivePlaybackAdapter? = null,
+    private val playbackAdapter: UsbExclusivePlaybackAdapter,
 ) : ForwardingAudioSink(delegate) {
     private data class PendingConfiguration(
         val format: Format,
         val specifiedBufferSize: Int,
         val outputChannels: IntArray?,
-        val requiresResumeAuthority: Boolean,
         val navigationRequestId: Long?,
-        val navigationRequestedPlaying: Boolean,
         val playbackIdentity: ManualNavigationPlaybackIdentity?,
     )
 
@@ -50,66 +50,35 @@ internal class TransitionAwarePcmAudioSink(
         // M3 production path: a protocol permit must exist before the delegate is touched. A
         // denied permit is retained as a deferred configuration and never falls through to the
         // legacy coordinator as an authority.
-        playbackAdapter?.let { adapter ->
-            val permit = adapter.preparePcmConfigure(playbackOccurrence, configureFacts)
-            if (permit == null) {
-                pendingConfiguration = PendingConfiguration(
-                    format = inputFormat,
-                    specifiedBufferSize = specifiedBufferSize,
-                    outputChannels = outputChannels?.copyOf(),
-                    requiresResumeAuthority = false,
-                    navigationRequestId = navigationEpoch?.requestId ?: navigationSnapshot?.requestId,
-                    navigationRequestedPlaying = navigationEpoch?.requestedPlaying
-                        ?: navigationSnapshot?.requestedPlaying
-                        ?: true,
-                    playbackIdentity = playbackIdentity,
-                )
-                return
-            }
-            pendingConfiguration = null
-            configureWithProtocol(
-                adapter = adapter,
-                permit = permit,
-                occurrence = playbackOccurrence,
-                inputFormat = inputFormat,
-                specifiedBufferSize = specifiedBufferSize,
-                outputChannels = outputChannels,
-                facts = configureFacts,
-            )
-            navigationEpoch?.let { completeNavigationProjection(it.requestId) }
-            return
-        }
-
-        val requiresResumeAuthority = transitionCoordinator.shouldDeferPcmUntilResume()
-        if (
-            transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP ||
-            requiresResumeAuthority ||
-            (navigationEpoch == null && navigationSnapshot != null)
-        ) {
-            val effectiveNavigationEpoch = navigationEpoch ?: navigationSnapshot
+        val permit = playbackAdapter.preparePcmConfigure(playbackOccurrence, configureFacts)
+        if (permit == null) {
             pendingConfiguration = PendingConfiguration(
                 format = inputFormat,
                 specifiedBufferSize = specifiedBufferSize,
                 outputChannels = outputChannels?.copyOf(),
-                requiresResumeAuthority = requiresResumeAuthority,
-                navigationRequestId = effectiveNavigationEpoch?.requestId,
-                navigationRequestedPlaying = effectiveNavigationEpoch?.requestedPlaying ?: true,
+                navigationRequestId = navigationEpoch?.requestId ?: navigationSnapshot?.requestId,
                 playbackIdentity = playbackIdentity,
             )
             return
         }
         pendingConfiguration = null
-        transitionCoordinator.onPcmActivity()
-        transitionCoordinator.beforePcmAccept(isPlaying = navigationEpoch?.requestedPlaying ?: true)
-        super.configure(inputFormat, specifiedBufferSize, outputChannels)
-        navigationEpoch?.let {
-            check(
-                manualNavigationTransitionBridge.complete(
-                    it.requestId,
-                    DirectDsdTrackTransportFamily.PCM,
-                ),
-            ) { "PCM navigation acceptance for stale destination epoch" }
-        }
+        val accepted = configureWithProtocol(
+            adapter = playbackAdapter,
+            permit = permit,
+            occurrence = playbackOccurrence,
+            inputFormat = inputFormat,
+            specifiedBufferSize = specifiedBufferSize,
+            outputChannels = outputChannels,
+            facts = configureFacts,
+            retryConfiguration = PendingConfiguration(
+                format = inputFormat,
+                specifiedBufferSize = specifiedBufferSize,
+                outputChannels = outputChannels?.copyOf(),
+                navigationRequestId = navigationEpoch?.requestId ?: navigationSnapshot?.requestId,
+                playbackIdentity = playbackIdentity,
+            ),
+        )
+        if (accepted) navigationEpoch?.let { completeNavigationProjection(it.requestId) }
     }
 
     override fun handleBuffer(
@@ -118,137 +87,101 @@ internal class TransitionAwarePcmAudioSink(
         encodedAccessUnitCount: Int,
     ): Boolean {
         if (pendingConfiguration != null && !activatePendingConfiguration()) return false
-        playbackAdapter?.let { adapter ->
-            val identity = playbackPeriodProjection.snapshot()
-            val occurrence = UsbExclusiveShadowMedia3Facts.occurrence(identity) ?: return false
-            var lease = adapter.tryEnterWrite(occurrence, WriteKind.PCM_DATA)
-            if (lease == null) {
-                // A reusable decoder/sink may advance the exact occurrence without another
-                // configure callback. The adapter may mint a retained handoff only after the
-                // raw target stream proof and old lease drain are both exact; otherwise this
-                // remains fail-closed and no B bytes reach the delegate.
-                adapter.prepareRetainedPcmHandoff(occurrence)?.let { permit ->
-                    val disposition = adapter.commitRetainedPcmHandoff(permit)
-                    if (disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
-                        lease = adapter.tryEnterWrite(occurrence, WriteKind.PCM_DATA)
-                    }
+        val identity = playbackPeriodProjection.snapshot()
+        val occurrence = UsbExclusiveShadowMedia3Facts.occurrence(identity) ?: return false
+        var lease = playbackAdapter.tryEnterWrite(occurrence, WriteKind.PCM_DATA)
+        if (lease == null) {
+            // A reusable decoder/sink may advance the exact occurrence without another
+            // configure callback. The adapter may mint a retained handoff only after the
+            // raw target stream proof and old lease drain are both exact; otherwise this
+            // remains fail-closed and no B bytes reach the delegate.
+            playbackAdapter.prepareRetainedPcmHandoff(occurrence)?.let { permit ->
+                val disposition = playbackAdapter.commitRetainedPcmHandoff(permit)
+                if (disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
+                    lease = playbackAdapter.tryEnterWrite(occurrence, WriteKind.PCM_DATA)
                 }
             }
-            lease ?: return false
-            return try {
-                super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
-            } finally {
-                lease.exit()
-            }
         }
-        transitionCoordinator.onPcmActivity()
-        transitionCoordinator.beforePcmAccept(isPlaying = true)
-        return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        lease ?: return false
+        return try {
+            super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        } finally {
+            lease.exit()
+        }
     }
 
     override fun play() {
-        if (playbackAdapter == null) transitionCoordinator.onPcmPlayState(paused = false)
         if (pendingConfiguration != null) return
-        if (playbackAdapter != null) {
-            super.play()
-            return
-        }
-        transitionCoordinator.onPcmActivity()
         super.play()
     }
 
     override fun pause() {
-        if (playbackAdapter == null) transitionCoordinator.onPcmPlayState(paused = true)
         super.pause()
     }
 
     override fun flush() {
         pendingConfiguration = null
         super.flush()
-        if (playbackAdapter == null) transitionCoordinator.onPcmFlushPotentialRelease()
     }
 
     override fun reset() {
         pendingConfiguration = null
         super.reset()
-        playbackAdapter?.observePcmRuntimeReleased(
+        playbackAdapter.observePcmRuntimeReleased(
             UsbExclusiveShadowMedia3Facts.occurrence(playbackPeriodProjection.snapshot()),
             "reset",
         )
-        if (playbackAdapter == null) transitionCoordinator.onPcmReleased()
     }
 
     override fun release() {
         pendingConfiguration = null
         super.release()
-        playbackAdapter?.observePcmRuntimeReleased(
+        playbackAdapter.observePcmRuntimeReleased(
             UsbExclusiveShadowMedia3Facts.occurrence(playbackPeriodProjection.snapshot()),
             "release",
         )
-        if (playbackAdapter == null) transitionCoordinator.onPcmReleased()
     }
 
     private fun activatePendingConfiguration(): Boolean {
         val pending = pendingConfiguration ?: return true
-        playbackAdapter?.let { adapter ->
-            val occurrence = UsbExclusiveShadowMedia3Facts.occurrence(pending.playbackIdentity) ?: return false
-            val permit = adapter.preparePcmConfigure(occurrence, "pcm-pending-configure") ?: return false
-            try {
-                super.configure(pending.format, pending.specifiedBufferSize, pending.outputChannels)
-            } catch (error: Throwable) {
-                adapter.failPcmConfigure(permit, "configure:${error.javaClass.simpleName}")
-                throw error
-            }
-            val disposition = adapter.commitPcmConfigure(
+        val occurrence = UsbExclusiveShadowMedia3Facts.occurrence(pending.playbackIdentity) ?: return false
+        val permit = playbackAdapter.preparePcmConfigure(occurrence, "pcm-pending-configure") ?: return false
+        val resourceIdentity = ResourceIdentity("pcm-configure-${permit.activationId.value}")
+        try {
+            super.configure(pending.format, pending.specifiedBufferSize, pending.outputChannels)
+        } catch (error: Throwable) {
+            val disposition = playbackAdapter.failPcmConfigure(
                 permit,
-                occurrence,
-                com.mica.music.media.usb.protocol.ResourceIdentity("pcm-configure-${permit.activationId.value}"),
-                "protocol-configure-complete",
+                resourceIdentity,
+                "configure:${error.javaClass.simpleName}",
             )
-            check(disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
-                "PCM protocol rejected pending configure receipt: $disposition"
-            }
+            resolvePcmCommit(
+                playbackAdapter,
+                permit,
+                resourceIdentity,
+                disposition,
+                retryConfiguration = pending,
+            )
+            throw error
+        }
+        val disposition = playbackAdapter.commitPcmConfigure(
+            permit,
+            occurrence,
+            resourceIdentity,
+            "protocol-configure-complete",
+        )
+        val accepted = resolvePcmCommit(
+            playbackAdapter,
+            permit,
+            resourceIdentity,
+            disposition,
+            retryConfiguration = pending,
+        )
+        if (accepted) {
             pendingConfiguration = null
             pending.navigationRequestId?.let(::completeNavigationProjection)
-            return true
         }
-        if (transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP) return false
-
-        val requestId = pending.navigationRequestId
-        if (pending.requiresResumeAuthority) {
-            if (requestId == null || !manualNavigationTransitionBridge.hasResumeGrant(requestId)) return false
-        }
-        if (requestId != null) {
-            val bound = manualNavigationTransitionBridge.bindPcmDestination(
-                pending.format,
-                pending.playbackIdentity,
-            ) ?: return false
-            if (bound.requestId != requestId) return false
-        }
-        if (pending.requiresResumeAuthority) {
-            checkNotNull(requestId)
-            if (!manualNavigationTransitionBridge.consumeResumeGrant(requestId)) return false
-        }
-
-        transitionCoordinator.onPcmActivity()
-        transitionCoordinator.beforePcmAccept(
-            isPlaying = if (pending.requiresResumeAuthority) true else pending.navigationRequestedPlaying,
-        )
-        super.configure(
-            pending.format,
-            pending.specifiedBufferSize,
-            pending.outputChannels,
-        )
-        pendingConfiguration = null
-        requestId?.let {
-            check(
-                manualNavigationTransitionBridge.complete(
-                    it,
-                    DirectDsdTrackTransportFamily.PCM,
-                ),
-            ) { "PCM navigation acceptance for stale destination epoch" }
-        }
-        return true
+        return accepted
     }
 
     private fun configureWithProtocol(
@@ -259,21 +192,83 @@ internal class TransitionAwarePcmAudioSink(
         specifiedBufferSize: Int,
         outputChannels: IntArray?,
         facts: String,
-    ) {
+        retryConfiguration: PendingConfiguration,
+    ): Boolean {
+        val resourceIdentity = ResourceIdentity("pcm-configure-${permit.activationId.value}")
         try {
             super.configure(inputFormat, specifiedBufferSize, outputChannels)
         } catch (error: Throwable) {
-            adapter.failPcmConfigure(permit, "configure:${error.javaClass.simpleName}")
+            val disposition = adapter.failPcmConfigure(
+                permit,
+                resourceIdentity,
+                "configure:${error.javaClass.simpleName}",
+            )
+            resolvePcmCommit(adapter, permit, resourceIdentity, disposition, retryConfiguration)
             throw error
         }
         val disposition = adapter.commitPcmConfigure(
             permit,
             occurrence,
-            com.mica.music.media.usb.protocol.ResourceIdentity("pcm-configure-${permit.activationId.value}"),
+            resourceIdentity,
             facts,
         )
-        check(disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
-            "PCM protocol rejected configure receipt: $disposition"
+        return resolvePcmCommit(adapter, permit, resourceIdentity, disposition, retryConfiguration)
+    }
+
+    /** Performs delegate cleanup before releasing the exact protocol requirement. */
+    private fun resolvePcmCommit(
+        adapter: UsbExclusivePlaybackAdapter,
+        permit: PcmConfigurePermit,
+        resourceIdentity: ResourceIdentity,
+        disposition: CommitDisposition,
+        retryConfiguration: PendingConfiguration,
+    ): Boolean = when (disposition) {
+        is CommitDisposition.CurrentPlaying,
+        is CommitDisposition.CurrentPaused,
+        -> true
+        is CommitDisposition.CurrentCleanupRequired -> {
+            super.reset()
+            when (adapter.completeCleanup(permit.activationId, resourceIdentity)) {
+                CommitDisposition.RetryPendingSameMutation -> {
+                    pendingConfiguration = retryConfiguration
+                    false
+                }
+                CommitDisposition.TerminalFailure -> {
+                    pendingConfiguration = null
+                    error("PCM configure cleanup completed with terminal continuation")
+                }
+                CommitDisposition.StaleNoEffect -> {
+                    pendingConfiguration = null
+                    false
+                }
+                null -> error("PCM configure cleanup requirement was not owned by its adapter")
+                else -> error("Unexpected PCM cleanup continuation after current receipt")
+            }
+        }
+        is CommitDisposition.StaleCleanupRequired,
+        is CommitDisposition.RetiringCleanupRequired,
+        -> {
+            super.reset()
+            checkNotNull(adapter.completeCleanup(permit.activationId, resourceIdentity)) {
+                "PCM stale/retiring cleanup requirement was not owned by its adapter"
+            }
+            pendingConfiguration = null
+            false
+        }
+        CommitDisposition.RetryPendingSameMutation -> {
+            pendingConfiguration = retryConfiguration
+            false
+        }
+        CommitDisposition.StaleNoEffect -> {
+            // The exact receipt was not accepted; reset the delegate before failing closed so a
+            // stale sink cannot keep a writable configured resource alive.
+            super.reset()
+            pendingConfiguration = null
+            error("PCM configure receipt became stale without a cleanup requirement")
+        }
+        CommitDisposition.TerminalFailure -> {
+            pendingConfiguration = null
+            error("PCM configure receipt reached terminal failure")
         }
     }
 

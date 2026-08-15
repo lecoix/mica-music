@@ -449,6 +449,37 @@ class UsbExclusivePlaybackProtocol(
         applicationCurrent = ApplicationCurrent(mediaId, periodUid, occurrence)
     }
 
+    /**
+     * Fences an explicit queue clear without leaving the committed source lease writable. The
+     * source remains represented by a bound teardown mutation until its exact runtime release is
+     * observed; no successor activation can be prepared because application currentness is empty.
+     */
+    @Synchronized
+    fun beginQueueClear(): Boolean {
+        if (lifecycle !is ProtocolLifecycle.Active || activations.isNotEmpty() || cleanupRequirements.isNotEmpty()) return false
+        val source = familyOwnership
+        val lease = source.writeLeaseOrNull()
+        if (lease != null && !lease.isDrained()) return false
+        if (source is FamilyOwnership.None) {
+            mutation = null
+            applicationCurrent = ApplicationCurrent(null, null, null)
+            return true
+        }
+        val sourceFamily = source.familyOrNull() ?: return false
+        val sourceFacts = source.factsOrNull() ?: return false
+        val sourceOccurrence = source.occurrenceOrNull() ?: return false
+        val clearMutation = beginMutationLocked(
+            kind = MutationKind.MANUAL,
+            targetMediaId = "__queue_clear__:${nextMutationId + 1}",
+            targetFamily = sourceFamily,
+            targetFacts = sourceFacts,
+            targetOccurrence = sourceOccurrence,
+        )
+        lease?.revoke()
+        applicationCurrent = ApplicationCurrent(null, null, null)
+        return clearMutation != null
+    }
+
     @Synchronized
     fun observeCandidate(candidate: CandidateOccurrence): Boolean {
         if (lifecycle !is ProtocolLifecycle.Active || candidate.adapterInstanceId !in adapters) return false
@@ -1225,6 +1256,33 @@ class UsbExclusivePlaybackProtocol(
         return disposition
     }
 
+    /** Returns only cleanup requirements owned by the exact adapter activation. */
+    @Synchronized
+    fun cleanupRequirementsFor(
+        adapterInstanceId: AdapterInstanceId,
+        activationId: ActivationId,
+    ): List<CleanupRequirement> {
+        val record = activations[activationId] ?: return emptyList()
+        if (record.adapterInstanceId != adapterInstanceId) return emptyList()
+        return cleanupRequirements.values.filter { it.activationId == activationId }
+    }
+
+    /** Completes one exact owner-scoped cleanup requirement; forged/duplicate identities are no-op. */
+    @Synchronized
+    fun completeCleanup(
+        adapterInstanceId: AdapterInstanceId,
+        activationId: ActivationId,
+        resourceIdentity: ResourceIdentity,
+    ): CommitDisposition? {
+        val requirement = cleanupRequirements[resourceIdentity] ?: return null
+        val record = activations[requirement.activationId] ?: return null
+        if (
+            requirement.activationId != activationId ||
+            record.adapterInstanceId != adapterInstanceId
+        ) return null
+        return completeCleanup(resourceIdentity)
+    }
+
     @Synchronized
     fun updateOutputTarget(target: OutputTarget) {
         if (lifecycle !is ProtocolLifecycle.Active) return
@@ -1616,6 +1674,12 @@ class UsbExclusivePlaybackProtocol(
         FamilyOwnership.None -> null
         is FamilyOwnership.PcmOwned -> PlaybackFamily.PCM
         is FamilyOwnership.DopOwned -> PlaybackFamily.DOP
+    }
+
+    private fun FamilyOwnership.factsOrNull(): String? = when (this) {
+        FamilyOwnership.None -> null
+        is FamilyOwnership.PcmOwned -> facts
+        is FamilyOwnership.DopOwned -> facts
     }
 
     private fun SideEffectReceipt.resourceIdentityOrNull(): ResourceIdentity? = when (this) {

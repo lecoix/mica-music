@@ -27,6 +27,7 @@ import com.mica.music.data.toLyricsDocumentCompat
 import com.mica.music.data.toMediaItem
 import com.mica.music.media.ape.ApeFormat
 import com.mica.music.media.dsf.DsfFormat
+import com.mica.music.media.usb.shadow.UsbExclusivePlaybackCoordinator
 import com.mica.music.testutil.ContractTestSupport.await
 import com.mica.music.testutil.ContractTestSupport.createSilentWav
 import com.mica.music.testutil.ContractTestSupport.onMain
@@ -79,7 +80,7 @@ class RealAudioDecodeContractTest {
         )
         val previousLyricsSetting = LyricsPreferences.notificationLyricsEnabled(context)
         val observation = DecodeObservation()
-        val stack = onMain { ExoPlaybackStackFactory.build(context) }
+        val stack = onMain { ExoPlaybackStackFactory.build(context, playbackCoordinator = UsbExclusivePlaybackCoordinator()) }
         val engineCoordinator = onMain {
             ServicePlaybackEngineCoordinator(stack.compositePlayer, context).also { it.start() }
         }
@@ -157,7 +158,7 @@ class RealAudioDecodeContractTest {
             assetPath = "media/contract-silence-alac.m4a",
         )
         val observation = DecodeObservation()
-        val stack = onMain { ExoPlaybackStackFactory.build(context) }
+        val stack = onMain { ExoPlaybackStackFactory.build(context, playbackCoordinator = UsbExclusivePlaybackCoordinator()) }
 
         try {
             onMain {
@@ -195,7 +196,7 @@ class RealAudioDecodeContractTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val file = createDsf(context.cacheDir)
         val observation = DecodeObservation()
-        val stack = onMain { ExoPlaybackStackFactory.build(context) }
+        val stack = onMain { ExoPlaybackStackFactory.build(context, playbackCoordinator = UsbExclusivePlaybackCoordinator()) }
 
         try {
             onMain {
@@ -270,7 +271,7 @@ class RealAudioDecodeContractTest {
 
     private fun assertApePlaybackContract(context: Context, sourceKind: String, uri: Uri) {
         val observation = DecodeObservation()
-        val stack = onMain { ExoPlaybackStackFactory.build(context) }
+        val stack = onMain { ExoPlaybackStackFactory.build(context, playbackCoordinator = UsbExclusivePlaybackCoordinator()) }
         val engineCoordinator = onMain {
             ServicePlaybackEngineCoordinator(stack.compositePlayer, context).also { it.start() }
         }

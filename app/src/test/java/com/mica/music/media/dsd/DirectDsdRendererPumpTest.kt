@@ -1,6 +1,7 @@
 package com.mica.music.media.dsd
 
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
+import com.mica.music.media.usb.protocol.ResourceIdentity
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -172,6 +173,17 @@ class DirectDsdRendererPumpTest {
 
         pump.close()
         pump.close()
+        assertEquals(1, transport.closeCalls)
+    }
+
+    @Test
+    fun lateExactStageCleanupAfterRuntimeCloseDoesNotReopenOrResetThePump() {
+        val transport = FakeSession(facts, intArrayOf(), startupReadyAfterBytes = 0)
+        val pump = DirectDsdRendererPump(facts, transport)
+        pump.close()
+
+        val resources = setOf(ResourceIdentity("direct:late:prefill"))
+        assertEquals(resources, pump.cleanupExactResources(resources))
         assertEquals(1, transport.closeCalls)
     }
 

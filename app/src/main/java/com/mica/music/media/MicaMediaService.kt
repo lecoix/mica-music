@@ -145,7 +145,7 @@ class MicaMediaService : MediaSessionService() {
         exoPlayer = stack.exoPlayer
         compositePlayer = stack.compositePlayer
         activePlaybackStack = stack.playbackStack
-        stack.playbackStack?.let(usbExclusivePlaybackCoordinator::publishStack)
+        usbExclusivePlaybackCoordinator.publishStack(stack.playbackStack)
         usbResumePlaybackRequested = stack.compositePlayer.playWhenReady
         installUsbPlaybackIntentObserver(stack.compositePlayer)
         replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
@@ -1263,7 +1263,7 @@ class MicaMediaService : MediaSessionService() {
         exoPlayer = candidate.exoPlayer
         compositePlayer = candidate.compositePlayer
         activePlaybackStack = candidate.playbackStack
-        candidate.playbackStack?.let(usbExclusivePlaybackCoordinator::publishStack)
+        usbExclusivePlaybackCoordinator.publishStack(candidate.playbackStack)
         activeOutputPath = target
         installPlayerScopedBindings(candidate)
         val expectedIndex = snapshot.currentIndex

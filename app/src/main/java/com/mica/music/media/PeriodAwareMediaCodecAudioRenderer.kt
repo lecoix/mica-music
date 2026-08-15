@@ -26,7 +26,7 @@ internal class PeriodAwareMediaCodecAudioRenderer(
     eventListener: AudioRendererEventListener,
     audioSink: AudioSink,
     private val playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection,
-    private val playbackAdapter: UsbExclusivePlaybackAdapter? = null,
+    private val playbackAdapter: UsbExclusivePlaybackAdapter,
 ) : MediaCodecAudioRenderer(
     context,
     codecAdapterFactory,
@@ -43,7 +43,7 @@ internal class PeriodAwareMediaCodecAudioRenderer(
         offsetUs: Long,
         mediaPeriodId: MediaSource.MediaPeriodId,
     ) {
-        playbackAdapter?.observeStream(
+        playbackAdapter.observeStream(
             UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
             PlaybackFamily.PCM,
             UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "platform-pcm"),

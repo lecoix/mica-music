@@ -25,7 +25,7 @@ class ServicePlaybackEngineCoordinatorTest {
 
     @Test
     fun playbackStateControlsSpectrumClockWithoutAnActiveRequest() {
-        val player = MicaCompositePlayer(mockExoWithQueue(emptyList(), currentIndex = 0))
+        val player = MicaCompositePlayer(mockExoWithQueue(emptyList(), currentIndex = 0), testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -46,7 +46,7 @@ class ServicePlaybackEngineCoordinatorTest {
     fun automaticPositionDiscontinuityPublishesExactPlaybackBoundary() {
         val first = SongMediaItemCodec.encode(SongFixtures.song("first"))
         val second = SongMediaItemCodec.encode(SongFixtures.song("second"))
-        val player = MicaCompositePlayer(mockExoWithQueue(listOf(first, second), currentIndex = 1))
+        val player = MicaCompositePlayer(mockExoWithQueue(listOf(first, second), currentIndex = 1), testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -77,7 +77,7 @@ class ServicePlaybackEngineCoordinatorTest {
     @Test
     fun seekPositionDiscontinuityDoesNotPublishPlaybackBoundary() {
         val item = SongMediaItemCodec.encode(SongFixtures.song("song"))
-        val player = MicaCompositePlayer(mockExoWithQueue(listOf(item), currentIndex = 0))
+        val player = MicaCompositePlayer(mockExoWithQueue(listOf(item), currentIndex = 0), testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -97,7 +97,7 @@ class ServicePlaybackEngineCoordinatorTest {
     @Test
     fun positionDiscontinuityClearsBufferedSpectrumPcm() {
         val item = SongMediaItemCodec.encode(SongFixtures.song("song"))
-        val player = MicaCompositePlayer(mockExoWithQueue(listOf(item), currentIndex = 0))
+        val player = MicaCompositePlayer(mockExoWithQueue(listOf(item), currentIndex = 0), testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -138,7 +138,7 @@ class ServicePlaybackEngineCoordinatorTest {
         ).copy(fileName = "track.dff")
         val item = SongMediaItemCodec.encode(dff)
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         var failure: PlaybackFailure? = null
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
@@ -168,7 +168,7 @@ class ServicePlaybackEngineCoordinatorTest {
             SongMediaItemCodec.encode(SongFixtures.song("second")),
         )
         val exo = mockExoWithQueue(items, currentIndex = 0, playWhenReady = false)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -190,7 +190,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val flac = SongFixtures.song("flac", container = "FLAC", mime = "audio/flac")
         val item = SongMediaItemCodec.encode(flac)
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -210,7 +210,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val first = SongMediaItemCodec.encode(SongFixtures.song("first"))
         val second = SongMediaItemCodec.encode(SongFixtures.song("second"))
         val exo = mockExoWithQueue(listOf(first), currentIndex = 0)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -231,7 +231,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val song = SongFixtures.song()
         val item = SongMediaItemCodec.encode(song)
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 5_000L)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -249,7 +249,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val items = listOf("first", "second", "third", "fourth")
             .map { SongMediaItemCodec.encode(SongFixtures.song(it)) }
         val exo = mockExoWithQueue(items, currentIndex = 1)
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -280,7 +280,7 @@ class ServicePlaybackEngineCoordinatorTest {
         )
         val exo = mockExoWithQueue(items, currentIndex = 0)
         every { exo.playerError } returns error
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         var failure: PlaybackFailure? = null
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
@@ -307,7 +307,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 0L)
         every { exo.isPlaying } returns false
         every { exo.playbackState } returns Player.STATE_READY
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -327,7 +327,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val item = SongMediaItemCodec.encode(flac)
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 100L)
         every { exo.isPlaying } returns true
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -356,7 +356,7 @@ class ServicePlaybackEngineCoordinatorTest {
             positionMs = 208_555L,
             playWhenReady = false,
         )
-        val player = MicaCompositePlayer(exo)
+        val player = MicaCompositePlayer(exo, testPlaybackStack())
         val coordinator = ServicePlaybackEngineCoordinator(
             player = player,
             context = RuntimeEnvironment.getApplication(),
@@ -383,7 +383,7 @@ class ServicePlaybackEngineCoordinatorTest {
         val currentItem = SongMediaItemCodec.encode(currentSong)
         val exo = mockExoWithQueue(listOf(currentItem), currentIndex = 0, playWhenReady = false)
         val coordinator = ServicePlaybackEngineCoordinator(
-            player = MicaCompositePlayer(exo),
+            player = MicaCompositePlayer(exo, testPlaybackStack()),
             context = RuntimeEnvironment.getApplication(),
         )
 
@@ -400,7 +400,7 @@ class ServicePlaybackEngineCoordinatorTest {
         )
         val exo = mockExoWithQueue(items, currentIndex = 1, playWhenReady = false)
         val coordinator = ServicePlaybackEngineCoordinator(
-            player = MicaCompositePlayer(exo),
+            player = MicaCompositePlayer(exo, testPlaybackStack()),
             context = RuntimeEnvironment.getApplication(),
         )
 
@@ -416,7 +416,7 @@ class ServicePlaybackEngineCoordinatorTest {
         )
         val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 123L, playWhenReady = false)
         val coordinator = ServicePlaybackEngineCoordinator(
-            player = MicaCompositePlayer(exo),
+            player = MicaCompositePlayer(exo, testPlaybackStack()),
             context = RuntimeEnvironment.getApplication(),
         )
         coordinator.start()
@@ -446,7 +446,7 @@ class ServicePlaybackEngineCoordinatorTest {
         every { exo.playerError } returns error
         var failure: PlaybackFailure? = null
         val coordinator = ServicePlaybackEngineCoordinator(
-            player = MicaCompositePlayer(exo),
+            player = MicaCompositePlayer(exo, testPlaybackStack()),
             context = RuntimeEnvironment.getApplication(),
         )
         coordinator.onPlaybackFailure = { failure = it }

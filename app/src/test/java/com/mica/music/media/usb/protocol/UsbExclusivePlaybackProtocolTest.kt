@@ -88,6 +88,30 @@ class UsbExclusivePlaybackProtocolTest {
     }
 
     @Test
+    fun cleanupCompletionIsOwnerScopedAndDuplicateSafe() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        val mutation = targetPcm(protocol, b, adapterB)
+        val permit = requireNotNull(protocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
+        val resource = ResourceIdentity("pcm-owner-scoped")
+        assertTrue(
+            protocol.commitPcmConfigure(
+                permit,
+                SideEffectReceipt.PartialNeedsCleanup(permit.activationId, resource, "partial"),
+            ) is CommitDisposition.CurrentCleanupRequired,
+        )
+
+        assertEquals(listOf(resource), protocol.cleanupRequirementsFor(adapterB, permit.activationId).map { it.resourceIdentity })
+        assertTrue(protocol.cleanupRequirementsFor(adapterA, permit.activationId).isEmpty())
+        assertNull(protocol.completeCleanup(adapterA, permit.activationId, resource))
+        assertEquals(
+            CommitDisposition.RetryPendingSameMutation,
+            protocol.completeCleanup(adapterB, permit.activationId, resource),
+        )
+        assertNull(protocol.completeCleanup(adapterB, permit.activationId, resource))
+    }
+
+    @Test
     fun terminalFailureWithLiveResourceBecomesTerminalOnlyAfterCleanup() {
         val (ledger, protocol) = fresh()
         ledger.publish(PlaybackIntent.PLAY)
@@ -621,6 +645,108 @@ class UsbExclusivePlaybackProtocolTest {
 
         playing.writeLease.exit()
         assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
+    }
+
+    @Test
+    fun retiringDirectRuntimeReleaseNeedsExactIdentityBeforeRetirement() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.DOP,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("direct-runtime-a"),
+            facts = "dop128",
+        )
+
+        protocol.beginRetiring()
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertNull(
+            protocol.mintRetiringDirectRuntimeReceipt(
+                adapterB,
+                a,
+                RuntimeIdentity("direct-runtime-a"),
+                FamilyProof.DirectFamilyReleased("wrong-adapter"),
+            ),
+        )
+        assertNull(
+            protocol.mintRetiringDirectRuntimeReceipt(
+                adapterA,
+                PlaybackOccurrence("wrong-period", a.windowSequenceNumber),
+                RuntimeIdentity("direct-runtime-a"),
+                FamilyProof.DirectFamilyReleased("wrong-occurrence"),
+            ),
+        )
+        assertNull(
+            protocol.mintRetiringDirectRuntimeReceipt(
+                adapterA,
+                a,
+                RuntimeIdentity("forged-runtime"),
+                FamilyProof.DirectFamilyReleased("wrong-runtime"),
+            ),
+        )
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+
+        val receipt = requireNotNull(
+            protocol.mintRetiringDirectRuntimeReceipt(
+                adapterA,
+                a,
+                RuntimeIdentity("direct-runtime-a"),
+                FamilyProof.DirectFamilyReleased("exact-close"),
+            ),
+        )
+        assertFalse(protocol.acceptRetiringDirectRuntimeReceipt(receipt.copy(sourceAdapterInstanceId = adapterB)))
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertTrue(protocol.acceptRetiringDirectRuntimeReceipt(receipt))
+        assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
+        assertFalse(protocol.acceptRetiringDirectRuntimeReceipt(receipt))
+    }
+
+    @Test
+    fun retiringDirectRuntimeReleaseRemainsExactWithDestinationBoundSuccessorEpoch() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.registerAdapter(adapterB)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.DOP,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("direct-runtime-a"),
+            facts = "dop128",
+        )
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val successor = requireNotNull(
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b),
+        )
+        assertTrue(successor.destinationBound)
+
+        protocol.beginRetiring()
+        val pending = protocol.snapshot()
+        assertTrue(pending.lifecycle is ProtocolLifecycle.Retiring)
+        assertEquals(successor.mutationId, pending.mutation?.mutationId)
+        assertNull(
+            protocol.mintRetiringDirectRuntimeReceipt(
+                adapterA,
+                b,
+                RuntimeIdentity("direct-runtime-a"),
+                FamilyProof.DirectFamilyReleased("wrong-source-occurrence"),
+            ),
+        )
+        val receipt = requireNotNull(
+            protocol.mintRetiringDirectRuntimeReceipt(
+                adapterA,
+                a,
+                RuntimeIdentity("direct-runtime-a"),
+                FamilyProof.DirectFamilyReleased("exact-close-with-successor"),
+            ),
+        )
+        assertTrue(protocol.acceptRetiringDirectRuntimeReceipt(receipt))
+        assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
+        assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.None)
     }
 
     @Test

@@ -13,7 +13,7 @@ internal object DirectDsdPrototypeRendererLoader {
         context: Context,
         transitionCoordinator: DirectDsdTrackTransitionCoordinator,
         manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
-        playbackAdapter: UsbExclusivePlaybackAdapter?,
+        playbackAdapter: UsbExclusivePlaybackAdapter,
     ): Renderer? {
         if (!BuildConfig.DEBUG) return null
         return runCatching {

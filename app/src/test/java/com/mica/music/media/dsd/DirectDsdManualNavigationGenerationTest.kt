@@ -21,6 +21,7 @@ class DirectDsdManualNavigationGenerationTest {
             sessionFactory = DirectDsdTransportSessionFactory {
                 error("generation quarantine must not open Direct runtime")
             },
+            playbackAdapter = testDirectPlaybackAdapter(),
             milestone = events::add,
             transitionCoordinator = coordinator,
             manualNavigationTransitionBridge = bridge,
@@ -78,6 +79,7 @@ class DirectDsdManualNavigationGenerationTest {
         val bridge = ManualNavigationTransitionBridge()
         val renderer = DirectDsdMedia3Renderer(
             sessionFactory = DirectDsdTransportSessionFactory { error("must stay closed") },
+            playbackAdapter = testDirectPlaybackAdapter(),
             manualNavigationTransitionBridge = bridge,
         )
         bridge.updateApplicationCurrentness("A", "period-A")

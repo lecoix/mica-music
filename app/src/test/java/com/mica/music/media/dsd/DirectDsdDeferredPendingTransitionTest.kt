@@ -73,17 +73,23 @@ class DirectDsdDeferredPendingTransitionTest {
     }
 
     @Test
-    fun pausedReplacementResumeThenRepauseReassertsStartedAuthorityOnSameEpoch() {
+    fun pausedReplacementResumeWithoutProtocolEvidenceFailsClosedOnSameEpoch() {
         val events = mutableListOf<String>()
         val renderer = renderer(events, DirectDsdTrackTransitionCoordinator {}) {}
         bindPending(renderer, format(facts(5_644_800)), requiresStarted = true)
         invokeStreamChanged(renderer, format(facts(2_822_400)))
         val epoch = pendingLong(renderer, "epochId")
 
-        invokeNoArg(renderer, "onStarted")
+        val startedFailedClosed = try {
+            invokeNoArg(renderer, "onStarted")
+            false
+        } catch (_: java.lang.reflect.InvocationTargetException) {
+            true
+        }
+        assertTrue(startedFailedClosed)
         assertEquals(epoch, pendingLong(renderer, "epochId"))
         assertTrue(pendingField<Boolean>(renderer, "requiresStartedAuthority"))
-        assertTrue(pendingField<Boolean>(renderer, "startedAuthorityObserved"))
+        assertFalse(pendingField<Boolean>(renderer, "startedAuthorityObserved"))
         assertNull(privateField<Any?>(renderer, "pump"))
 
         invokeNoArg(renderer, "onStopped")
@@ -116,6 +122,7 @@ class DirectDsdDeferredPendingTransitionTest {
             onOpen()
             error("pending epoch test must not open runtime")
         },
+        playbackAdapter = testDirectPlaybackAdapter(),
         milestone = events::add,
         transitionCoordinator = coordinator,
     )

@@ -4,6 +4,7 @@ import com.mica.music.media.usb.protocol.AdapterInstanceId
 import com.mica.music.media.usb.protocol.ActiveWriteLease
 import com.mica.music.media.usb.protocol.CandidateOccurrence
 import com.mica.music.media.usb.protocol.CommitDisposition
+import com.mica.music.media.usb.protocol.CleanupRequirement
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.DirectStagePermit
 import com.mica.music.media.usb.protocol.DirectRetainedHandoffPermit
@@ -324,6 +325,18 @@ internal class UsbExclusiveShadowStack internal constructor(
         return epoch
     }
 
+    /** Fences an empty-queue dispatch while retaining exact source teardown provenance. */
+    fun beginQueueClear(): Boolean {
+        val accepted = protocol.beginQueueClear()
+        coordinator.emit(
+            this,
+            "QUEUE_CLEAR",
+            if (accepted) UsbExclusiveShadowDecision.WOULD_PERMIT else UsbExclusiveShadowDecision.STALE_DROP,
+            detail = "protocol-authority=true source-teardown=${if (accepted) "fenced" else "blocked"}",
+        )
+        return accepted
+    }
+
     fun observeManualNavigation(targetMediaId: String, seam: String) {
         coordinator.observeSafely(this, "MANUAL_NAVIGATION") {
             beginManualNavigation(targetMediaId, seam)
@@ -568,10 +581,11 @@ internal class UsbExclusiveShadowStack internal constructor(
     internal fun failPcmConfigure(
         adapter: UsbExclusiveShadowAdapter,
         permit: PcmConfigurePermit,
+        resourceIdentity: ResourceIdentity,
         failure: String,
     ): CommitDisposition = protocol.commitPcmConfigure(
         permit,
-        SideEffectReceipt.TerminalFailure(permit.activationId, null, failure),
+        SideEffectReceipt.TerminalFailure(permit.activationId, resourceIdentity, failure),
     ).also { result ->
         coordinator.emit(
             this,
@@ -653,6 +667,17 @@ internal class UsbExclusiveShadowStack internal constructor(
         )
         return result
     }
+
+    internal fun cleanupRequirements(
+        adapter: UsbExclusiveShadowAdapter,
+        activationId: com.mica.music.media.usb.protocol.ActivationId,
+    ): List<CleanupRequirement> = protocol.cleanupRequirementsFor(adapter.id, activationId)
+
+    internal fun completeCleanup(
+        adapter: UsbExclusiveShadowAdapter,
+        activationId: com.mica.music.media.usb.protocol.ActivationId,
+        resourceIdentity: ResourceIdentity,
+    ): CommitDisposition? = protocol.completeCleanup(adapter.id, activationId, resourceIdentity)
 
     /** Exact PCM runtime teardown seam used by sink reset/release after the delegate side effect. */
     internal fun observePcmRuntimeReleased(
@@ -1109,8 +1134,20 @@ internal class UsbExclusiveShadowAdapter internal constructor(
         facts: String,
     ): CommitDisposition = stack.commitPcmConfigure(this, permit, occurrence, resourceIdentity, facts)
 
-    fun failPcmConfigure(permit: PcmConfigurePermit, failure: String): CommitDisposition =
-        stack.failPcmConfigure(this, permit, failure)
+    fun failPcmConfigure(
+        permit: PcmConfigurePermit,
+        resourceIdentity: ResourceIdentity,
+        failure: String,
+    ): CommitDisposition = stack.failPcmConfigure(this, permit, resourceIdentity, failure)
+
+    fun cleanupRequirements(
+        activationId: com.mica.music.media.usb.protocol.ActivationId,
+    ): List<CleanupRequirement> = stack.cleanupRequirements(this, activationId)
+
+    fun completeCleanup(
+        activationId: com.mica.music.media.usb.protocol.ActivationId,
+        resourceIdentity: ResourceIdentity,
+    ): CommitDisposition? = stack.completeCleanup(this, activationId, resourceIdentity)
 
     fun prepareRetainedPcmHandoff(occurrence: PlaybackOccurrence?): RetainedPcmHandoffPermit? =
         stack.prepareRetainedPcmHandoff(this, occurrence)

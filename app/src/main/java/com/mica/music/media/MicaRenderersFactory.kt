@@ -32,22 +32,22 @@ internal class MicaRenderersFactory(
     private val outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
     private val trackTransitionCoordinator: DirectDsdTrackTransitionCoordinator = DirectDsdTrackTransitionCoordinator(),
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
-    private val playbackStack: UsbExclusivePlaybackStack? = null,
+    private val playbackStack: UsbExclusivePlaybackStack,
 ) : DefaultRenderersFactory(context) {
 
     private val platformPlaybackPeriodProjection =
         ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)
-    private val platformPlaybackAdapter: UsbExclusivePlaybackAdapter? by lazy {
-        playbackStack?.newAdapter(UsbExclusivePlaybackAdapterKind.PLATFORM_PCM)
+    private val platformPlaybackAdapter: UsbExclusivePlaybackAdapter by lazy {
+        playbackStack.newAdapter(UsbExclusivePlaybackAdapterKind.PLATFORM_PCM)
     }
-    private val ffmpegPcmPlaybackAdapter: UsbExclusivePlaybackAdapter? by lazy {
-        playbackStack?.newAdapter(UsbExclusivePlaybackAdapterKind.FFMPEG_PCM)
+    private val ffmpegPcmPlaybackAdapter: UsbExclusivePlaybackAdapter by lazy {
+        playbackStack.newAdapter(UsbExclusivePlaybackAdapterKind.FFMPEG_PCM)
     }
-    private val ffmpegDsdPlaybackAdapter: UsbExclusivePlaybackAdapter? by lazy {
-        playbackStack?.newAdapter(UsbExclusivePlaybackAdapterKind.FFMPEG_DSD_PCM)
+    private val ffmpegDsdPlaybackAdapter: UsbExclusivePlaybackAdapter by lazy {
+        playbackStack.newAdapter(UsbExclusivePlaybackAdapterKind.FFMPEG_DSD_PCM)
     }
-    private val directPlaybackAdapter: UsbExclusivePlaybackAdapter? by lazy {
-        playbackStack?.newAdapter(UsbExclusivePlaybackAdapterKind.DIRECT_DOP)
+    private val directPlaybackAdapter: UsbExclusivePlaybackAdapter by lazy {
+        playbackStack.newAdapter(UsbExclusivePlaybackAdapterKind.DIRECT_DOP)
     }
 
     private val alacBlockingSelector = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
@@ -190,7 +190,7 @@ internal class MicaRenderersFactory(
                 MicaRendererSupportPolicies.dsdOnly,
                 false,
                 FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId ->
-                    ffmpegDsdPlaybackAdapter?.observeStream(
+                    ffmpegDsdPlaybackAdapter.observeStream(
                         UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
                         PlaybackFamily.PCM,
                         UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "ffmpeg-dsd-pcm"),
@@ -209,7 +209,7 @@ internal class MicaRenderersFactory(
                 MicaRendererSupportPolicies.pcmOnly,
                 outputPath.usbOutputRequest != null,
                 FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId ->
-                    ffmpegPcmPlaybackAdapter?.observeStream(
+                    ffmpegPcmPlaybackAdapter.observeStream(
                         UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
                         PlaybackFamily.PCM,
                         UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "ffmpeg-pcm"),
@@ -335,7 +335,7 @@ internal class MicaRenderersFactory(
     private fun transitionAwarePcmSink(
         delegate: AudioSink,
         playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection,
-        playbackAdapter: UsbExclusivePlaybackAdapter?,
+        playbackAdapter: UsbExclusivePlaybackAdapter,
     ): AudioSink =
         TransitionAwarePcmAudioSink(
             delegate,

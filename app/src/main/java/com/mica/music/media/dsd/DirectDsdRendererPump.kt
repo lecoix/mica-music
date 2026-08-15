@@ -2,6 +2,8 @@ package com.mica.music.media.dsd
 
 import com.mica.music.media.dsf.DsfExtractorPacketCanonicalizer
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
+import com.mica.music.media.usb.protocol.DirectStage
+import com.mica.music.media.usb.protocol.ResourceIdentity
 
 data class DirectDsdTransportWriteResult(
     val canonicalBytesConsumed: Int,
@@ -189,6 +191,37 @@ class DirectDsdRendererPump(
             "fresh Direct DSD transition did not reach reset/pending-zero"
         }
         return discardedCanonicalBytes to result
+    }
+
+    /**
+     * Cleans only resources named by this Direct activation. CREATE_RUNTIME owns the session
+     * lifetime and therefore closes this pump; later stage identities use the existing exact
+     * carrier-reset seam while retaining the runtime for a same-mutation retry.
+     */
+    fun cleanupExactResources(resources: Set<ResourceIdentity>): Set<ResourceIdentity> {
+        require(resources.isNotEmpty()) { "Direct cleanup requires an exact resource identity" }
+        val stages = resources.map { resource ->
+            when {
+                resource.value.endsWith(":create") -> DirectStage.CREATE_RUNTIME
+                resource.value.endsWith(":prefill") -> DirectStage.PREFILL
+                resource.value.endsWith(":arm") -> DirectStage.ARM
+                resource.value.endsWith(":source-accept") -> DirectStage.SOURCE_ACCEPT
+                else -> error("unknown Direct cleanup resource ${resource.value}")
+            }
+        }.toSet()
+        if (DirectStage.CREATE_RUNTIME in stages || closed) {
+            // A late receipt can arrive after this owning runtime was already closed by the
+            // exact teardown seam. The closed pump is itself the proof that its runtime-scoped
+            // stage resources have been torn down; do not reset a successor or reopen it.
+            close()
+        } else {
+            check(!closed) { "Direct stage cleanup after runtime close" }
+            val result = session.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            check(result.feederPendingZero && result.carrierResetApplied) {
+                "Direct exact stage cleanup did not reach carrier barrier"
+            }
+        }
+        return resources
     }
 
     fun snapshot(): DirectDsdRendererPumpSnapshot = DirectDsdRendererPumpSnapshot(

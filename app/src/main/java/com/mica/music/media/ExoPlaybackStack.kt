@@ -28,10 +28,10 @@ internal data class ExoPlaybackStack(
     val compositePlayer: MicaCompositePlayer,
     val applyAudioFocusSetting: () -> Unit,
     val manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
-    val playbackStack: UsbExclusivePlaybackStack?,
+    val playbackStack: UsbExclusivePlaybackStack,
 ) {
     /** Source-compatible alias; it references the same production stack instance. */
-    val shadowStack: UsbExclusivePlaybackStack?
+    val shadowStack: UsbExclusivePlaybackStack
         get() = playbackStack
 }
 
@@ -41,7 +41,7 @@ internal object ExoPlaybackStackFactory {
     fun build(
         context: Context,
         outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
-        playbackCoordinator: UsbExclusivePlaybackCoordinator? = null,
+        playbackCoordinator: UsbExclusivePlaybackCoordinator,
     ): ExoPlaybackStack {
         outputPath.requireSupportedForPlayback()
         outputPath.logForDiagnostics()
@@ -53,7 +53,7 @@ internal object ExoPlaybackStackFactory {
         } else {
             OutputTarget.Unavailable
         }
-        val playbackStack = playbackCoordinator?.createStack(initialOutputTarget)
+        val playbackStack = playbackCoordinator.createStack(initialOutputTarget)
         val renderersFactory = MicaRenderersFactory(
             context,
             outputPath,
@@ -102,7 +102,8 @@ internal object ExoPlaybackStackFactory {
             beforePlaybackStart = applyAudioFocusSetting,
             trackTransitionCoordinator = trackTransitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
-        ).also { it.installUsbExclusivePlaybackStack(playbackStack) }
+            playbackStack = playbackStack,
+        )
         fun publishApplicationCurrentness(
             timeline: Timeline,
             mediaItem: MediaItem?,
@@ -116,7 +117,7 @@ internal object ExoPlaybackStackFactory {
                     expectedMediaId = it,
                 )
             }
-            if (mediaId != null) playbackStack?.observeTimelinePeriod(mediaId, targetPeriodUid)
+            if (mediaId != null) playbackStack.observeTimelinePeriod(mediaId, targetPeriodUid)
             manualNavigationTransitionBridge.updateApplicationCurrentness(
                 mediaId,
                 targetPeriodUid,
@@ -125,7 +126,7 @@ internal object ExoPlaybackStackFactory {
         }
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                playbackStack?.observeApplicationMedia(mediaItem?.mediaId)
+                playbackStack.observeApplicationMedia(mediaItem?.mediaId)
                 publishApplicationCurrentness(
                     exoPlayer.currentTimeline,
                     mediaItem,
@@ -137,7 +138,7 @@ internal object ExoPlaybackStackFactory {
                 val limit = minOf(exoPlayer.mediaItemCount, timeline.windowCount)
                 for (index in 0 until limit) {
                     val item = runCatching { exoPlayer.getMediaItemAt(index) }.getOrNull() ?: continue
-                    playbackStack?.observeTimelinePeriod(
+                    playbackStack.observeTimelinePeriod(
                         item.mediaId,
                         ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
                             timeline,
@@ -166,7 +167,7 @@ internal object ExoPlaybackStackFactory {
                         break
                     }
                 }
-                playbackStack?.observeCurrentPlayerOccurrence(
+                playbackStack.observeCurrentPlayerOccurrence(
                     player.currentMediaItem?.mediaId,
                     currentOccurrence
                         ?.takeIf { authoritative }

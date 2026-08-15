@@ -38,6 +38,7 @@ class DirectDsdMedia3FormatPolicyTest {
     fun rendererSupportIsHandledOnlyForAuthoritativePrototypeDsf() {
         val renderer = DirectDsdMedia3Renderer(
             DirectDsdTransportSessionFactory { error("support probe must not open transport") },
+            testDirectPlaybackAdapter(),
         )
         assertEquals(C.FORMAT_HANDLED, renderer.supportsFormat(format(facts)))
         assertEquals(

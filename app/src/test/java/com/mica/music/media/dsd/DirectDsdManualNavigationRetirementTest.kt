@@ -22,10 +22,10 @@ class DirectDsdManualNavigationRetirementTest {
         invoke(renderer, "onDisabled")
 
         val snapshot = coordinator.snapshot()
-        assertEquals(DirectDsdTrackTransportFamily.NONE, snapshot.activeFamily)
-        assertEquals(DirectDsdTrackTransportFamily.DOP, snapshot.lastReleasedFamily)
-        assertTrue(snapshot.lastReleasedWasPaused)
-        assertTrue(coordinator.shouldDeferPcmUntilResume())
+        assertEquals(DirectDsdTrackTransportFamily.DOP, snapshot.activeFamily)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, snapshot.lastReleasedFamily)
+        assertFalse(snapshot.lastReleasedWasPaused)
+        assertFalse(coordinator.shouldDeferPcmUntilResume())
         assertTrue(bridge.snapshot() != null)
     }
 
@@ -45,7 +45,8 @@ class DirectDsdManualNavigationRetirementTest {
         invoke(renderer, "onDisabled")
 
         val snapshot = coordinator.snapshot()
-        assertEquals(DirectDsdTrackTransportFamily.DOP, snapshot.lastReleasedFamily)
+        assertEquals(DirectDsdTrackTransportFamily.DOP, snapshot.activeFamily)
+        assertEquals(DirectDsdTrackTransportFamily.NONE, snapshot.lastReleasedFamily)
         assertFalse(snapshot.lastReleasedWasPaused)
         assertFalse(coordinator.shouldDeferPcmUntilResume())
         assertTrue(bridge.snapshot() != null)
@@ -58,6 +59,7 @@ class DirectDsdManualNavigationRetirementTest {
         sessionFactory = DirectDsdTransportSessionFactory {
             error("manual retirement must not open a Direct runtime")
         },
+        playbackAdapter = testDirectPlaybackAdapter(),
         transitionCoordinator = coordinator,
         manualNavigationTransitionBridge = bridge,
     )
