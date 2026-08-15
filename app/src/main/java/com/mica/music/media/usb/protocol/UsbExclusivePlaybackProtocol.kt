@@ -1,7 +1,5 @@
 package com.mica.music.media.usb.protocol
 
-import java.util.concurrent.atomic.AtomicInteger
-
 data class PlaybackStackId(val value: Long)
 data class UsbOutputGeneration(val value: Long)
 data class MutationId(val value: Long)
@@ -113,10 +111,30 @@ data class WriteLeaseIdentity(
 class ActiveWriteLease internal constructor(val identity: WriteLeaseIdentity) {
     private var revoked = false
     private var semanticPaused = false
-    private val entered = AtomicInteger(0)
+    private var entered = 0
+    private var activeDopWriteKind: WriteKind = WriteKind.DOP_CONTENT
+    private var pendingDopWriteKind: WriteKind? = null
+    private var onDrained: (() -> Unit)? = null
+
+    internal fun setOnDrained(callback: () -> Unit) {
+        synchronized(this) {
+            onDrained = callback
+        }
+    }
 
     @Synchronized
     fun updateSemanticPaused(paused: Boolean) {
+        if (identity.family == PlaybackFamily.DOP) {
+            val target = if (paused) WriteKind.DOP_GAP else WriteKind.DOP_CONTENT
+            if (entered == 0) {
+                activeDopWriteKind = target
+                pendingDopWriteKind = null
+            } else if (target == activeDopWriteKind) {
+                pendingDopWriteKind = null
+            } else {
+                pendingDopWriteKind = target
+            }
+        }
         semanticPaused = paused
     }
 
@@ -133,15 +151,26 @@ class ActiveWriteLease internal constructor(val identity: WriteLeaseIdentity) {
         }
         val allowed = when (identity.family) {
             PlaybackFamily.PCM -> !semanticPaused && writeKind == WriteKind.PCM_DATA
-            PlaybackFamily.DOP -> if (semanticPaused) writeKind == WriteKind.DOP_GAP else writeKind == WriteKind.DOP_CONTENT
+            PlaybackFamily.DOP -> pendingDopWriteKind == null && writeKind == activeDopWriteKind
         }
         if (!allowed) return false
-        entered.incrementAndGet()
+        entered += 1
         return true
     }
 
     fun exit() {
-        check(entered.decrementAndGet() >= 0) { "write lease exit without enter" }
+        val callback = synchronized(this) {
+            check(entered > 0) { "write lease exit without enter" }
+            entered -= 1
+            if (entered == 0) {
+                pendingDopWriteKind?.let { activeDopWriteKind = it }
+                pendingDopWriteKind = null
+                onDrained
+            } else {
+                null
+            }
+        }
+        callback?.invoke()
     }
 
     @Synchronized
@@ -149,10 +178,14 @@ class ActiveWriteLease internal constructor(val identity: WriteLeaseIdentity) {
         revoked = true
     }
 
-    fun isDrained(): Boolean = entered.get() == 0
+    @Synchronized
+    fun isDrained(): Boolean = entered == 0
 
     @Synchronized
     fun isRevoked(): Boolean = revoked
+
+    @Synchronized
+    internal fun hasPendingModeDrain(): Boolean = pendingDopWriteKind != null
 }
 
 sealed interface FamilyOwnership {
@@ -165,6 +198,7 @@ sealed interface FamilyOwnership {
         val adapterInstanceId: AdapterInstanceId,
         val semanticPaused: Boolean,
         val runtimeIdentity: RuntimeIdentity,
+        val facts: String,
         val writeLease: ActiveWriteLease,
     ) : FamilyOwnership
 
@@ -175,6 +209,7 @@ sealed interface FamilyOwnership {
         val adapterInstanceId: AdapterInstanceId,
         val semanticPaused: Boolean,
         val runtimeIdentity: RuntimeIdentity,
+        val facts: String,
         val writeLease: ActiveWriteLease,
     ) : FamilyOwnership
 }
@@ -204,6 +239,7 @@ data class DirectStagePermit(
     val adapterInstanceId: AdapterInstanceId,
     val occurrence: PlaybackOccurrence,
     val stage: DirectStage,
+    val runtimeIdentity: RuntimeIdentity,
     val outputTarget: OutputTarget,
     val adoptedIntentRevision: IntentRevision,
 )
@@ -216,18 +252,21 @@ sealed interface SideEffectReceipt {
         override val activationId: ActivationId,
         val resourceIdentity: ResourceIdentity,
         val facts: String,
+        val runtimeIdentity: RuntimeIdentity? = null,
     ) : SideEffectReceipt
 
     data class PartialNeedsCleanup(
         override val activationId: ActivationId,
         val resourceIdentity: ResourceIdentity,
         val facts: String,
+        val runtimeIdentity: RuntimeIdentity? = null,
     ) : SideEffectReceipt
 
     data class TerminalFailure(
         override val activationId: ActivationId,
         val resourceIdentity: ResourceIdentity?,
         val failure: String,
+        val runtimeIdentity: RuntimeIdentity? = null,
     ) : SideEffectReceipt
 }
 
@@ -255,7 +294,8 @@ data class DirectActivationState(
     val adapterInstanceId: AdapterInstanceId,
     val occurrence: PlaybackOccurrence,
     val runtimeIdentity: RuntimeIdentity,
-    val completedStages: Set<DirectStage>,
+    val completedStageResources: Map<DirectStage, ResourceIdentity>,
+    val pendingStage: DirectStage?,
     val carrierBarrierSatisfied: Boolean,
 )
 
@@ -288,7 +328,7 @@ class UsbExclusivePlaybackProtocol(
     private var outputTarget: OutputTarget = initialOutputTarget
     private var applicationCurrent = ApplicationCurrent(null, null, null)
     private val adapters = linkedSetOf<AdapterInstanceId>()
-    private val startedAdapters = linkedSetOf<AdapterInstanceId>()
+    private val startedAuthorities = linkedMapOf<AdapterInstanceId, StartedAuthority>()
     private val candidates = linkedSetOf<CandidateOccurrence>()
     private var nextMutationId = 0L
     private var nextActivationId = 0L
@@ -299,6 +339,12 @@ class UsbExclusivePlaybackProtocol(
     private val activations = linkedMapOf<ActivationId, ActivationRecord>()
     private val cleanupRequirements = linkedMapOf<ResourceIdentity, CleanupRequirement>()
     private var directActivation: DirectActivationState? = null
+
+    private data class StartedAuthority(
+        val mutationId: MutationId,
+        val occurrence: PlaybackOccurrence,
+        val activationId: ActivationId,
+    )
 
     private data class ActivationRecord(
         val activationId: ActivationId,
@@ -314,7 +360,7 @@ class UsbExclusivePlaybackProtocol(
 
     @Synchronized
     fun registerAdapter(adapterInstanceId: AdapterInstanceId): Boolean {
-        if (lifecycle is ProtocolLifecycle.Retired) return false
+        if (lifecycle !is ProtocolLifecycle.Active) return false
         adapters += adapterInstanceId
         return true
     }
@@ -324,12 +370,19 @@ class UsbExclusivePlaybackProtocol(
         if (lifecycle !is ProtocolLifecycle.Active || adapterInstanceId !in adapters) return false
         val currentMutation = mutation ?: return false
         if (currentMutation.targetOccurrence != occurrence) return false
-        startedAdapters += adapterInstanceId
+        val direct = directActivation ?: return false
+        if (
+            direct.mutationId != currentMutation.mutationId ||
+            direct.adapterInstanceId != adapterInstanceId ||
+            direct.occurrence != occurrence
+        ) return false
+        startedAuthorities[adapterInstanceId] = StartedAuthority(currentMutation.mutationId, occurrence, direct.activationId)
         return true
     }
 
     @Synchronized
     fun adoptLatestIntent(): IntentSnapshot {
+        if (lifecycle !is ProtocolLifecycle.Active) return adoptedIntent
         val latest = ledger.snapshot()
         adoptedIntent = latest
         familyOwnership = when (val owned = familyOwnership) {
@@ -352,11 +405,12 @@ class UsbExclusivePlaybackProtocol(
     fun captureTechnicalIntentFence(): IntentRevision = ledger.snapshot().revision
 
     @Synchronized
-    fun restoreAfterTechnicalQuiesce(@Suppress("UNUSED_PARAMETER") captured: IntentRevision): IntentSnapshot = adoptLatestIntent()
+    fun restoreAfterTechnicalQuiesce(@Suppress("UNUSED_PARAMETER") captured: IntentRevision): IntentSnapshot =
+        if (lifecycle is ProtocolLifecycle.Active) adoptLatestIntent() else adoptedIntent
 
     @Synchronized
     fun updateApplicationCurrent(mediaId: String?, periodUid: Any?, occurrence: PlaybackOccurrence?) {
-        if (lifecycle is ProtocolLifecycle.Retired) return
+        if (lifecycle !is ProtocolLifecycle.Active) return
         applicationCurrent = ApplicationCurrent(mediaId, periodUid, occurrence)
     }
 
@@ -379,9 +433,62 @@ class UsbExclusivePlaybackProtocol(
         causalHandleFactory: ((MutationId) -> MutationCausalHandle)? = null,
     ): MutationEpoch? {
         if (lifecycle !is ProtocolLifecycle.Active) return null
-        invalidateUncommittedAuthorityLocked()
+        if (kind == MutationKind.AUTO_NEXT) return null
+        return beginMutationLocked(
+            kind = kind,
+            targetMediaId = targetMediaId,
+            targetFamily = targetFamily,
+            targetFacts = targetFacts,
+            targetOccurrence = targetOccurrence,
+            requestAlias = requestAlias,
+            causalHandleFactory = causalHandleFactory,
+        )
+    }
+
+    @Synchronized
+    fun adoptAutoCandidate(mediaId: String, occurrence: PlaybackOccurrence): MutationEpoch? {
+        if (lifecycle !is ProtocolLifecycle.Active) return null
+        if (applicationCurrent.mediaId != mediaId || applicationCurrent.occurrence != occurrence) return null
+        val candidate = candidates.singleOrNull { it.mediaId == mediaId && it.occurrence == occurrence } ?: return null
+        return beginMutationLocked(
+            kind = MutationKind.AUTO_NEXT,
+            targetMediaId = mediaId,
+            targetFamily = candidate.family,
+            targetFacts = candidate.facts,
+            targetOccurrence = occurrence,
+        )
+    }
+
+    private fun beginMutationLocked(
+        kind: MutationKind,
+        targetMediaId: String,
+        targetFamily: PlaybackFamily,
+        targetFacts: String,
+        targetOccurrence: PlaybackOccurrence?,
+        requestAlias: RequestAlias? = null,
+        causalHandleFactory: ((MutationId) -> MutationCausalHandle)? = null,
+    ): MutationEpoch? {
         val source = familyOwnership
-        val id = MutationId(++nextMutationId)
+        val id = MutationId(nextMutationId + 1)
+        val causalHandle = if (kind == MutationKind.SEEK) {
+            val ownedAdapter = source.adapterInstanceIdOrNull() ?: return null
+            val ownedOccurrence = source.occurrenceOrNull() ?: return null
+            val handle = causalHandleFactory?.invoke(id) ?: return null
+            if (
+                handle.stackId != stackId ||
+                handle.mutationId != id ||
+                handle.adapterInstanceId != ownedAdapter ||
+                handle.sourceOccurrence != ownedOccurrence ||
+                handle.targetSourcePositionUs < 0L ||
+                targetOccurrence != ownedOccurrence
+            ) return null
+            handle
+        } else {
+            if (causalHandleFactory != null) return null
+            null
+        }
+        nextMutationId = id.value
+        reclassifyUncommittedAuthorityLocked(retiring = false)
         val epoch = MutationEpoch(
             mutationId = id,
             kind = kind,
@@ -392,24 +499,10 @@ class UsbExclusivePlaybackProtocol(
             targetOccurrence = targetOccurrence,
             targetFamily = targetFamily,
             targetFacts = targetFacts,
-            causalHandle = causalHandleFactory?.invoke(id),
+            causalHandle = causalHandle,
         )
         mutation = epoch
         return epoch
-    }
-
-    @Synchronized
-    fun adoptAutoCandidate(mediaId: String, occurrence: PlaybackOccurrence): MutationEpoch? {
-        if (lifecycle !is ProtocolLifecycle.Active) return null
-        if (applicationCurrent.mediaId != mediaId || applicationCurrent.occurrence != occurrence) return null
-        val candidate = candidates.singleOrNull { it.mediaId == mediaId && it.occurrence == occurrence } ?: return null
-        return beginMutation(
-            kind = MutationKind.AUTO_NEXT,
-            targetMediaId = mediaId,
-            targetFamily = candidate.family,
-            targetFacts = candidate.facts,
-            targetOccurrence = occurrence,
-        )
     }
 
     @Synchronized
@@ -424,14 +517,11 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun acceptSourceRetirement(receipt: SourceRetirementReceipt): Boolean {
         val epoch = mutation ?: return false
-        if (lifecycle !is ProtocolLifecycle.Active || receipt.retiringMutationId != epoch.mutationId) return false
-        if (receipt.sourceFamilyOwnershipId != epoch.sourceOwnershipId || receipt.sourceOccurrence != epoch.sourceOccurrence) return false
         val owned = familyOwnership
-        if (owned.ownershipIdOrNull() != receipt.sourceFamilyOwnershipId) return false
+        if (lifecycle !is ProtocolLifecycle.Active || !retirementReceiptMatchesLocked(epoch, owned, receipt)) return false
         val lease = owned.writeLeaseOrNull() ?: return false
         lease.revoke()
         if (!lease.isDrained()) return false
-        if (receipt.semanticPausedAtRetirement != (ledger.snapshot().desired == PlaybackIntent.PAUSE)) return false
         mutation = epoch.copy(sourceRetirement = receipt)
         if (receipt.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED) {
             familyOwnership = FamilyOwnership.None
@@ -452,20 +542,23 @@ class UsbExclusivePlaybackProtocol(
         val ownershipId = owned.ownershipIdOrNull() ?: return null
         val occurrence = owned.occurrenceOrNull()
         val lease = owned.writeLeaseOrNull() ?: return null
-        lease.revoke()
-        if (!lease.isDrained()) return null
-        return SourceRetirementReceipt(
-            receiptId = SideEffectReceiptId(++nextReceiptId),
+        val candidate = SourceRetirementReceipt(
+            receiptId = SideEffectReceiptId(nextReceiptId + 1),
             retiringMutationId = mutationId,
             sourceFamilyOwnershipId = ownershipId,
-            sourceFamily = owned.familyOrNull()!!,
+            sourceFamily = owned.familyOrNull() ?: return null,
             sourceOccurrence = occurrence,
             sourceAdapterInstanceId = sourceAdapterInstanceId,
-            outputTarget = outputTarget,
+            outputTarget = lease.identity.outputTarget,
             scope = scope,
             semanticPausedAtRetirement = ledger.snapshot().desired == PlaybackIntent.PAUSE,
             familyProof = familyProof,
         )
+        if (!retirementReceiptMatchesLocked(epoch, owned, candidate)) return null
+        lease.revoke()
+        if (!lease.isDrained()) return null
+        nextReceiptId += 1
+        return candidate
     }
 
     @Synchronized
@@ -486,7 +579,15 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun commitPcmConfigure(permit: PcmConfigurePermit, receipt: SideEffectReceipt): CommitDisposition {
         return commitActivationLocked(permit.activationId, permit.mutationId, permit.adapterInstanceId, permit.occurrence, PlaybackFamily.PCM, receipt) {
-            commitFamilyLocked(PlaybackFamily.PCM, permit.mutationId, permit.adapterInstanceId, permit.occurrence, RuntimeIdentity("pcm:${receipt.resourceIdentityOrNull()?.value ?: "configured"}"), permit.activationId)
+            commitFamilyLocked(
+                PlaybackFamily.PCM,
+                permit.mutationId,
+                permit.adapterInstanceId,
+                permit.occurrence,
+                RuntimeIdentity("pcm:${receipt.resourceIdentityOrNull()?.value ?: "configured"}"),
+                permit.facts,
+                permit.activationId,
+            )
         }
     }
 
@@ -517,7 +618,16 @@ class UsbExclusivePlaybackProtocol(
             return CommitDisposition.StaleNoEffect
         }
         activations.remove(permit.activationId)
-        val result = commitFamilyLocked(PlaybackFamily.PCM, permit.mutationId, permit.adapterInstanceId, permit.occurrence, permit.runtimeIdentity, permit.activationId)
+        val facts = mutation?.targetFacts ?: return CommitDisposition.StaleNoEffect
+        val result = commitFamilyLocked(
+            PlaybackFamily.PCM,
+            permit.mutationId,
+            permit.adapterInstanceId,
+            permit.occurrence,
+            permit.runtimeIdentity,
+            facts,
+            permit.activationId,
+        )
         updateRetiringBarrierLocked(permit.activationId)
         return result
     }
@@ -538,90 +648,276 @@ class UsbExclusivePlaybackProtocol(
         val activation = if (current == null) {
             if (stage != DirectStage.CREATE_RUNTIME || hasConflictingCleanupOrActivationLocked()) return null
             val id = ActivationId(++nextActivationId)
-            val created = DirectActivationState(id, mutationId, adapterInstanceId, occurrence, runtimeIdentity, emptySet(), carrierBarrierSatisfied)
+            val created = DirectActivationState(
+                activationId = id,
+                mutationId = mutationId,
+                adapterInstanceId = adapterInstanceId,
+                occurrence = occurrence,
+                runtimeIdentity = runtimeIdentity,
+                completedStageResources = emptyMap(),
+                pendingStage = null,
+                carrierBarrierSatisfied = carrierBarrierSatisfied,
+            )
             directActivation = created
             activations[id] = ActivationRecord(id, mutationId, adapterInstanceId, occurrence, PlaybackFamily.DOP, outputTarget, ActivationKind.DIRECT)
             created
         } else {
-            if (current.mutationId != mutationId || current.adapterInstanceId != adapterInstanceId || current.occurrence != occurrence) return null
+            if (
+                current.mutationId != mutationId ||
+                current.adapterInstanceId != adapterInstanceId ||
+                current.occurrence != occurrence ||
+                current.runtimeIdentity != runtimeIdentity
+            ) return null
             current
         }
+        if (activation.pendingStage != null) return null
         val expectedPrevious = when (stage) {
             DirectStage.CREATE_RUNTIME -> emptySet()
             DirectStage.PREFILL -> setOf(DirectStage.CREATE_RUNTIME)
             DirectStage.ARM -> setOf(DirectStage.CREATE_RUNTIME, DirectStage.PREFILL)
             DirectStage.SOURCE_ACCEPT -> setOf(DirectStage.CREATE_RUNTIME, DirectStage.PREFILL, DirectStage.ARM)
         }
-        if (activation.completedStages != expectedPrevious) return null
-        if (stage == DirectStage.ARM && adapterInstanceId !in startedAdapters) return null
-        if (epoch.kind == MutationKind.SEEK && stage == DirectStage.SOURCE_ACCEPT && !activation.carrierBarrierSatisfied) return null
-        return DirectStagePermit(activation.activationId, mutationId, adapterInstanceId, occurrence, stage, outputTarget, adoptedIntent.revision)
-    }
-
-    @Synchronized
-    fun commitDirectStage(permit: DirectStagePermit): CommitDisposition? {
-        val activation = directActivation ?: return CommitDisposition.StaleNoEffect
-        if (activation.activationId != permit.activationId || !activationIsCurrentLocked(activations[permit.activationId] ?: return CommitDisposition.StaleNoEffect, permit.mutationId, permit.adapterInstanceId, permit.occurrence)) {
-            return CommitDisposition.StaleNoEffect
+        if (activation.completedStageResources.keys != expectedPrevious) return null
+        if (stage == DirectStage.ARM) {
+            val started = startedAuthorities[adapterInstanceId] ?: return null
+            if (
+                started.mutationId != mutationId ||
+                started.occurrence != occurrence ||
+                started.activationId != activation.activationId
+            ) return null
         }
-        adoptLatestIntent()
+        val effectiveCarrierBarrier = activation.carrierBarrierSatisfied || carrierBarrierSatisfied
         if (
-            adoptedIntent.desired != PlaybackIntent.PLAY ||
-            adoptedIntent.revision != permit.adoptedIntentRevision
+            epoch.kind == MutationKind.SEEK &&
+            stage == DirectStage.SOURCE_ACCEPT &&
+            (epoch.causalHandle == null || !effectiveCarrierBarrier)
         ) return null
-        val completed = activation.completedStages + permit.stage
-        directActivation = activation.copy(completedStages = completed)
-        if (permit.stage != DirectStage.SOURCE_ACCEPT) return null
-        activations.remove(permit.activationId)
-        val result = commitFamilyLocked(PlaybackFamily.DOP, permit.mutationId, permit.adapterInstanceId, permit.occurrence, activation.runtimeIdentity, permit.activationId)
-        directActivation = null
-        updateRetiringBarrierLocked(permit.activationId)
-        return result
+        directActivation = activation.copy(
+            pendingStage = stage,
+            carrierBarrierSatisfied = effectiveCarrierBarrier,
+        )
+        return DirectStagePermit(
+            activation.activationId,
+            mutationId,
+            adapterInstanceId,
+            occurrence,
+            stage,
+            runtimeIdentity,
+            outputTarget,
+            adoptedIntent.revision,
+        )
     }
 
     @Synchronized
-    fun commitSideEffect(receipt: SideEffectReceipt): CommitDisposition {
-        val record = activations[receipt.activationId]
-        if (record == null) return CommitDisposition.StaleNoEffect
-        val current = activationIsCurrentLocked(record, record.mutationId, record.adapterInstanceId, record.occurrence)
+    fun commitDirectStage(permit: DirectStagePermit, receipt: SideEffectReceipt): CommitDisposition? {
+        val record = activations[permit.activationId] ?: return CommitDisposition.StaleNoEffect
+        if (record.kind != ActivationKind.DIRECT || receipt.activationId != permit.activationId) return CommitDisposition.StaleNoEffect
+        val activation = directActivation
+        if (
+            activation == null ||
+            activation.activationId != permit.activationId ||
+            activation.pendingStage != permit.stage ||
+            activation.runtimeIdentity != permit.runtimeIdentity ||
+            activation.mutationId != permit.mutationId ||
+            activation.adapterInstanceId != permit.adapterInstanceId ||
+            activation.occurrence != permit.occurrence
+        ) return CommitDisposition.StaleNoEffect
+        if (!receiptRuntimeMatchesDirectPermit(receipt, permit)) return CommitDisposition.StaleNoEffect
+
+        val current = activationIsCurrentLocked(record, permit.mutationId, permit.adapterInstanceId, permit.occurrence)
         val retiring = lifecycle is ProtocolLifecycle.Retiring
-        val disposition = when (receipt) {
-            is SideEffectReceipt.NotStarted -> if (current && !retiring) CommitDisposition.RetryPendingSameMutation else CommitDisposition.StaleNoEffect
-            is SideEffectReceipt.Completed -> when {
-                retiring -> requireCleanupLocked(record, receipt.resourceIdentity, null, retiring = true)
-                current -> CommitDisposition.RetryPendingSameMutation
-                else -> requireCleanupLocked(record, receipt.resourceIdentity, null, retiring = false, stale = true)
+        return when (receipt) {
+            is SideEffectReceipt.NotStarted -> {
+                directActivation = activation.copy(pendingStage = null)
+                if (current && !retiring) {
+                    CommitDisposition.RetryPendingSameMutation
+                } else if (activation.completedStageResources.isNotEmpty()) {
+                    directActivation = null
+                    requireDirectAbortCleanupLocked(
+                        record = record,
+                        activation = activation,
+                        receiptResource = null,
+                        continuation = null,
+                        retiring = retiring,
+                        stale = !retiring,
+                    )
+                } else {
+                    removeDirectActivationLocked(permit.activationId)
+                    CommitDisposition.StaleNoEffect
+                }
             }
-            is SideEffectReceipt.PartialNeedsCleanup -> when {
-                retiring -> requireCleanupLocked(record, receipt.resourceIdentity, null, retiring = true)
-                current -> requireCleanupLocked(record, receipt.resourceIdentity, CleanupContinuation.RETRY_SAME_MUTATION, retiring = false)
-                else -> requireCleanupLocked(record, receipt.resourceIdentity, null, retiring = false, stale = true)
+            is SideEffectReceipt.Completed -> when {
+                retiring -> {
+                    directActivation = null
+                    requireDirectAbortCleanupLocked(
+                        record = record,
+                        activation = activation,
+                        receiptResource = receipt.resourceIdentity,
+                        continuation = null,
+                        retiring = true,
+                        stale = false,
+                    )
+                }
+                !current -> {
+                    directActivation = null
+                    requireDirectAbortCleanupLocked(
+                        record = record,
+                        activation = activation,
+                        receiptResource = receipt.resourceIdentity,
+                        continuation = null,
+                        retiring = false,
+                        stale = true,
+                    )
+                }
+                else -> {
+                    val progressed = activation.copy(
+                        completedStageResources = activation.completedStageResources + (permit.stage to receipt.resourceIdentity),
+                        pendingStage = null,
+                    )
+                    directActivation = progressed
+                    if (permit.stage != DirectStage.SOURCE_ACCEPT) {
+                        null
+                    } else {
+                        val facts = mutation?.targetFacts ?: return CommitDisposition.StaleNoEffect
+                        activations.remove(permit.activationId)
+                        directActivation = null
+                        startedAuthorities.remove(permit.adapterInstanceId)
+                        val result = commitFamilyLocked(
+                            PlaybackFamily.DOP,
+                            permit.mutationId,
+                            permit.adapterInstanceId,
+                            permit.occurrence,
+                            activation.runtimeIdentity,
+                            facts,
+                            permit.activationId,
+                        )
+                        updateRetiringBarrierLocked(permit.activationId)
+                        result
+                    }
+                }
+            }
+            is SideEffectReceipt.PartialNeedsCleanup -> {
+                directActivation = activation.copy(pendingStage = null)
+                when {
+                    retiring -> {
+                        directActivation = null
+                        requireDirectAbortCleanupLocked(
+                            record = record,
+                            activation = activation,
+                            receiptResource = receipt.resourceIdentity,
+                            continuation = null,
+                            retiring = true,
+                            stale = false,
+                        )
+                    }
+                    current -> requireCleanupLocked(
+                        record,
+                        receipt.resourceIdentity,
+                        CleanupContinuation.RETRY_SAME_MUTATION,
+                        retiring = false,
+                    )
+                    else -> {
+                        directActivation = null
+                        requireDirectAbortCleanupLocked(
+                            record = record,
+                            activation = activation,
+                            receiptResource = receipt.resourceIdentity,
+                            continuation = null,
+                            retiring = false,
+                            stale = true,
+                        )
+                    }
+                }
             }
             is SideEffectReceipt.TerminalFailure -> {
+                directActivation = activation.copy(pendingStage = null)
                 val resource = receipt.resourceIdentity
                 when {
-                    resource == null -> if (current && !retiring) CommitDisposition.TerminalFailure else CommitDisposition.StaleNoEffect
-                    retiring -> requireCleanupLocked(record, resource, null, retiring = true)
-                    current -> requireCleanupLocked(record, resource, CleanupContinuation.TERMINAL, retiring = false)
-                    else -> requireCleanupLocked(record, resource, null, retiring = false, stale = true)
+                    resource == null -> {
+                        if (activation.completedStageResources.isEmpty()) {
+                            removeDirectActivationLocked(permit.activationId)
+                            if (current && !retiring) CommitDisposition.TerminalFailure else CommitDisposition.StaleNoEffect
+                        } else {
+                            directActivation = null
+                            requireDirectAbortCleanupLocked(
+                                record = record,
+                                activation = activation,
+                                receiptResource = null,
+                                continuation = if (current && !retiring) CleanupContinuation.TERMINAL else null,
+                                retiring = retiring,
+                                stale = !current && !retiring,
+                            )
+                        }
+                    }
+                    retiring -> {
+                        directActivation = null
+                        requireDirectAbortCleanupLocked(
+                            record = record,
+                            activation = activation,
+                            receiptResource = resource,
+                            continuation = null,
+                            retiring = true,
+                            stale = false,
+                        )
+                    }
+                    current -> {
+                        directActivation = activation.copy(pendingStage = null)
+                        requireDirectAbortCleanupLocked(
+                            record = record,
+                            activation = activation,
+                            receiptResource = resource,
+                            continuation = CleanupContinuation.TERMINAL,
+                            retiring = false,
+                            stale = false,
+                        )
+                    }
+                    else -> {
+                        directActivation = null
+                        requireDirectAbortCleanupLocked(
+                            record = record,
+                            activation = activation,
+                            receiptResource = resource,
+                            continuation = null,
+                            retiring = false,
+                            stale = true,
+                        )
+                    }
                 }
             }
         }
-        if (disposition !is CommitDisposition.CurrentCleanupRequired && disposition !is CommitDisposition.StaleCleanupRequired && disposition !is CommitDisposition.RetiringCleanupRequired) {
-            activations.remove(receipt.activationId)
-            updateRetiringBarrierLocked(receipt.activationId)
-        }
-        return disposition
     }
 
     @Synchronized
     fun completeCleanup(resourceIdentity: ResourceIdentity): CommitDisposition? {
         val requirement = cleanupRequirements.remove(resourceIdentity) ?: return null
-        activations.remove(requirement.activationId)
-        val disposition = when (requirement.continuation) {
-            CleanupContinuation.RETRY_SAME_MUTATION -> CommitDisposition.RetryPendingSameMutation
-            CleanupContinuation.TERMINAL -> CommitDisposition.TerminalFailure
-            null -> CommitDisposition.StaleNoEffect
+        val record = activations[requirement.activationId]
+        val stillCurrent = record != null && activationIsCurrentLocked(
+            record,
+            record.mutationId,
+            record.adapterInstanceId,
+            record.occurrence,
+        )
+        val siblings = cleanupRequirements.values.filter { it.activationId == requirement.activationId }
+        val aggregateContinuation = requirement.continuation ?: siblings.firstNotNullOfOrNull { it.continuation }
+        if (siblings.isNotEmpty()) {
+            if (aggregateContinuation != null && siblings.none { it.continuation != null }) {
+                val carrier = siblings.first()
+                cleanupRequirements[carrier.resourceIdentity] = carrier.copy(continuation = aggregateContinuation)
+            }
+            updateRetiringBarrierLocked(requirement.activationId)
+            return CommitDisposition.StaleNoEffect
+        }
+        val disposition = when {
+            lifecycle !is ProtocolLifecycle.Active || !stillCurrent -> CommitDisposition.StaleNoEffect
+            aggregateContinuation == CleanupContinuation.RETRY_SAME_MUTATION -> CommitDisposition.RetryPendingSameMutation
+            aggregateContinuation == CleanupContinuation.TERMINAL -> CommitDisposition.TerminalFailure
+            else -> CommitDisposition.StaleNoEffect
+        }
+        val preserveDirectRetry =
+            disposition == CommitDisposition.RetryPendingSameMutation && record?.kind == ActivationKind.DIRECT
+        if (!preserveDirectRetry) {
+            activations.remove(requirement.activationId)
+            if (directActivation?.activationId == requirement.activationId) directActivation = null
         }
         updateRetiringBarrierLocked(requirement.activationId)
         return disposition
@@ -629,22 +925,24 @@ class UsbExclusivePlaybackProtocol(
 
     @Synchronized
     fun updateOutputTarget(target: OutputTarget) {
-        if (lifecycle is ProtocolLifecycle.Retired) return
+        if (lifecycle !is ProtocolLifecycle.Active) return
         if (outputTarget != target) {
+            familyOwnership.writeLeaseOrNull()?.revoke()
+            reclassifyUncommittedAuthorityLocked(retiring = false)
             outputTarget = target
-            directActivation = null
         }
     }
 
     @Synchronized
-    fun isOutputBindingCurrent(target: OutputTarget): Boolean = lifecycle !is ProtocolLifecycle.Retired && outputTarget == target
+    fun isOutputBindingCurrent(target: OutputTarget): Boolean = lifecycle is ProtocolLifecycle.Active && outputTarget == target
 
     @Synchronized
     fun beginRetiring() {
         if (lifecycle !is ProtocolLifecycle.Active) return
         familyOwnership.writeLeaseOrNull()?.revoke()
-        val inFlight = activations.keys.toSet()
-        lifecycle = if (inFlight.isEmpty() && cleanupRequirements.isEmpty()) ProtocolLifecycle.Retired else ProtocolLifecycle.Retiring(inFlight)
+        reclassifyUncommittedAuthorityLocked(retiring = true)
+        lifecycle = ProtocolLifecycle.Retiring(activations.keys.toSet())
+        reevaluateRetiringLocked()
     }
 
     @Synchronized
@@ -665,17 +963,26 @@ class UsbExclusivePlaybackProtocol(
     fun currentWriteLease(): ActiveWriteLease? = familyOwnership.writeLeaseOrNull()
 
     @Synchronized
-    fun installOwnedFamilyForModel(
+    internal fun installOwnedFamilyForModel(
         family: PlaybackFamily,
         mutationId: MutationId,
         adapterInstanceId: AdapterInstanceId,
         occurrence: PlaybackOccurrence,
         runtimeIdentity: RuntimeIdentity,
+        facts: String = "model",
     ): CommitDisposition {
         check(lifecycle is ProtocolLifecycle.Active)
-        mutation = MutationEpoch(mutationId, MutationKind.MANUAL, null, null, null, "model", occurrence, family, "model")
+        mutation = MutationEpoch(mutationId, MutationKind.MANUAL, null, null, null, "model", occurrence, family, facts)
         if (mutationId.value > nextMutationId) nextMutationId = mutationId.value
-        return commitFamilyLocked(family, mutationId, adapterInstanceId, occurrence, runtimeIdentity, ActivationId(++nextActivationId))
+        return commitFamilyLocked(
+            family,
+            mutationId,
+            adapterInstanceId,
+            occurrence,
+            runtimeIdentity,
+            facts,
+            ActivationId(++nextActivationId),
+        )
     }
 
     private fun canPrepareLocked(
@@ -690,7 +997,10 @@ class UsbExclusivePlaybackProtocol(
         val epoch = mutation ?: return false
         if (epoch.mutationId != mutationId || epoch.targetFamily != family || epoch.targetFacts != facts || epoch.targetOccurrence != occurrence) return false
         if (applicationCurrent.mediaId != epoch.targetMediaId || applicationCurrent.occurrence != occurrence) return false
-        if (epoch.sourceOwnershipId != null && epoch.sourceRetirement == null) return false
+        if (epoch.sourceOwnershipId != null) {
+            val retirement = epoch.sourceRetirement ?: return false
+            if (!retirementReceiptSufficientForTargetLocked(epoch, retirement)) return false
+        }
         if (outputTarget is OutputTarget.Unavailable) return false
         adoptLatestIntent()
         if (requirePlay && adoptedIntent.desired != PlaybackIntent.PLAY) return false
@@ -707,7 +1017,7 @@ class UsbExclusivePlaybackProtocol(
         onCompletedCurrent: () -> CommitDisposition,
     ): CommitDisposition {
         val record = activations[activationId] ?: return CommitDisposition.StaleNoEffect
-        require(receipt.activationId == activationId)
+        if (receipt.activationId != activationId || record.family != family) return CommitDisposition.StaleNoEffect
         val current = activationIsCurrentLocked(record, mutationId, adapterInstanceId, occurrence)
         val retiring = lifecycle is ProtocolLifecycle.Retiring
         val disposition = when (receipt) {
@@ -742,17 +1052,22 @@ class UsbExclusivePlaybackProtocol(
         adapterInstanceId: AdapterInstanceId,
         occurrence: PlaybackOccurrence,
         runtimeIdentity: RuntimeIdentity,
+        facts: String,
         activationId: ActivationId,
     ): CommitDisposition {
         adoptLatestIntent()
-        familyOwnership.writeLeaseOrNull()?.revoke()
+        familyOwnership.writeLeaseOrNull()?.let { previous ->
+            previous.revoke()
+            if (!previous.isDrained()) return CommitDisposition.StaleNoEffect
+        }
         val ownershipId = FamilyOwnershipId(++nextOwnershipId)
         val lease = ActiveWriteLease(WriteLeaseIdentity(stackId, outputTarget, mutationId, occurrence, adapterInstanceId, ownershipId, activationId, family))
         val paused = adoptedIntent.desired == PlaybackIntent.PAUSE
         lease.updateSemanticPaused(paused)
+        lease.setOnDrained { onCommittedWriteLeaseDrained(ownershipId) }
         familyOwnership = when (family) {
-            PlaybackFamily.PCM -> FamilyOwnership.PcmOwned(ownershipId, mutationId, occurrence, adapterInstanceId, paused, runtimeIdentity, lease)
-            PlaybackFamily.DOP -> FamilyOwnership.DopOwned(ownershipId, mutationId, occurrence, adapterInstanceId, paused, runtimeIdentity, lease)
+            PlaybackFamily.PCM -> FamilyOwnership.PcmOwned(ownershipId, mutationId, occurrence, adapterInstanceId, paused, runtimeIdentity, facts, lease)
+            PlaybackFamily.DOP -> FamilyOwnership.DopOwned(ownershipId, mutationId, occurrence, adapterInstanceId, paused, runtimeIdentity, facts, lease)
         }
         mutation = null
         return if (paused) CommitDisposition.CurrentPaused(ownershipId, lease) else CommitDisposition.CurrentPlaying(ownershipId, lease)
@@ -780,18 +1095,174 @@ class UsbExclusivePlaybackProtocol(
         }
     }
 
+    private fun requireDirectAbortCleanupLocked(
+        record: ActivationRecord,
+        activation: DirectActivationState,
+        receiptResource: ResourceIdentity?,
+        continuation: CleanupContinuation?,
+        retiring: Boolean,
+        stale: Boolean,
+    ): CommitDisposition {
+        val resources = linkedSetOf<ResourceIdentity>()
+        resources += activation.completedStageResources.values
+        receiptResource?.let { resources += it }
+        check(resources.isNotEmpty()) { "Direct abort cleanup requires at least one live resource" }
+        resources.forEach { resource ->
+            cleanupRequirements[resource] = CleanupRequirement(
+                activationId = record.activationId,
+                resourceIdentity = resource,
+                continuation = continuation,
+                retiring = retiring,
+            )
+        }
+        val primary = receiptResource ?: resources.first()
+        return when {
+            retiring -> CommitDisposition.RetiringCleanupRequired(primary)
+            stale -> CommitDisposition.StaleCleanupRequired(primary)
+            else -> CommitDisposition.CurrentCleanupRequired(primary, checkNotNull(continuation))
+        }
+    }
+
     private fun hasConflictingCleanupLocked(): Boolean = cleanupRequirements.isNotEmpty()
 
     private fun hasConflictingCleanupOrActivationLocked(): Boolean = cleanupRequirements.isNotEmpty() || activations.isNotEmpty()
 
-    private fun invalidateUncommittedAuthorityLocked() {
+    private fun reclassifyUncommittedAuthorityLocked(retiring: Boolean) {
+        startedAuthorities.clear()
+        val direct = directActivation ?: return
+        if (direct.pendingStage != null) return
+        val record = activations[direct.activationId] ?: run {
+            directActivation = null
+            return
+        }
+        val resources = direct.completedStageResources.values.toSet()
+        if (resources.isEmpty()) {
+            removeDirectActivationLocked(direct.activationId)
+            return
+        }
+        resources.forEach { resource ->
+            requireCleanupLocked(
+                record = record,
+                resourceIdentity = resource,
+                continuation = null,
+                retiring = retiring,
+                stale = !retiring,
+            )
+        }
         directActivation = null
     }
 
-    private fun updateRetiringBarrierLocked(completedActivation: ActivationId) {
-        val retiring = lifecycle as? ProtocolLifecycle.Retiring ?: return
-        val remaining = retiring.inFlight - completedActivation
-        lifecycle = if (remaining.isEmpty() && cleanupRequirements.isEmpty()) ProtocolLifecycle.Retired else ProtocolLifecycle.Retiring(remaining)
+    private fun updateRetiringBarrierLocked(@Suppress("UNUSED_PARAMETER") completedActivation: ActivationId) {
+        reevaluateRetiringLocked()
+    }
+
+    private fun reevaluateRetiringLocked() {
+        if (lifecycle !is ProtocolLifecycle.Retiring) return
+        val committedLeaseDrained = familyOwnership.writeLeaseOrNull()?.isDrained() ?: true
+        lifecycle = if (activations.isEmpty() && cleanupRequirements.isEmpty() && committedLeaseDrained) {
+            ProtocolLifecycle.Retired
+        } else {
+            ProtocolLifecycle.Retiring(activations.keys.toSet())
+        }
+    }
+
+    private fun onCommittedWriteLeaseDrained(ownershipId: FamilyOwnershipId) {
+        synchronized(this) {
+            if (familyOwnership.ownershipIdOrNull() == ownershipId) {
+                reevaluateRetiringLocked()
+            }
+        }
+    }
+
+    private fun removeDirectActivationLocked(activationId: ActivationId) {
+        activations.remove(activationId)
+        if (directActivation?.activationId == activationId) directActivation = null
+        startedAuthorities.entries.removeAll { it.value.activationId == activationId }
+        reevaluateRetiringLocked()
+    }
+
+    private fun receiptRuntimeMatchesDirectPermit(receipt: SideEffectReceipt, permit: DirectStagePermit): Boolean =
+        when (receipt) {
+            is SideEffectReceipt.NotStarted -> true
+            is SideEffectReceipt.Completed -> receipt.runtimeIdentity == permit.runtimeIdentity
+            is SideEffectReceipt.PartialNeedsCleanup -> receipt.runtimeIdentity == permit.runtimeIdentity
+            is SideEffectReceipt.TerminalFailure ->
+                receipt.resourceIdentity == null || receipt.runtimeIdentity == permit.runtimeIdentity
+        }
+
+    private fun retirementReceiptMatchesLocked(
+        epoch: MutationEpoch,
+        owned: FamilyOwnership,
+        receipt: SourceRetirementReceipt,
+    ): Boolean {
+        val lease = owned.writeLeaseOrNull() ?: return false
+        if (
+            receipt.retiringMutationId != epoch.mutationId ||
+            receipt.sourceFamilyOwnershipId != epoch.sourceOwnershipId ||
+            receipt.sourceFamilyOwnershipId != owned.ownershipIdOrNull() ||
+            receipt.sourceOccurrence != epoch.sourceOccurrence ||
+            receipt.sourceOccurrence != owned.occurrenceOrNull() ||
+            receipt.sourceAdapterInstanceId != owned.adapterInstanceIdOrNull() ||
+            receipt.sourceFamily != owned.familyOrNull() ||
+            receipt.outputTarget != lease.identity.outputTarget ||
+            receipt.semanticPausedAtRetirement != (ledger.snapshot().desired == PlaybackIntent.PAUSE)
+        ) return false
+        return retirementReceiptSufficientForOwnedTargetLocked(epoch, owned, receipt)
+    }
+
+    private fun retirementReceiptSufficientForOwnedTargetLocked(
+        epoch: MutationEpoch,
+        owned: FamilyOwnership,
+        receipt: SourceRetirementReceipt,
+    ): Boolean {
+        if (!retirementReceiptSufficientForTargetLocked(epoch, receipt)) return false
+        return when (owned) {
+            FamilyOwnership.None -> false
+            is FamilyOwnership.PcmOwned -> when (val proof = receipt.familyProof) {
+                is FamilyProof.PcmRuntimeRetained ->
+                    receipt.scope == RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED &&
+                        epoch.targetFamily == PlaybackFamily.PCM &&
+                        proof.runtimeIdentity == owned.runtimeIdentity &&
+                        proof.compatibilityFacts.isNotBlank() &&
+                        proof.tailOrderingProof.isNotBlank()
+                is FamilyProof.StackReleased ->
+                    receipt.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED && proof.proof.isNotBlank()
+                else -> false
+            }
+            is FamilyOwnership.DopOwned -> when (val proof = receipt.familyProof) {
+                is FamilyProof.DirectRuntimeRetained ->
+                    receipt.scope == RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED &&
+                        epoch.targetFamily == PlaybackFamily.DOP &&
+                        epoch.targetFacts == owned.facts &&
+                        proof.runtimeIdentity == owned.runtimeIdentity &&
+                        proof.proof.isNotBlank()
+                is FamilyProof.DirectFamilyReleased ->
+                    receipt.scope == RetirementScope.FAMILY_RUNTIME_RELEASED && proof.proof.isNotBlank()
+                is FamilyProof.StackReleased ->
+                    receipt.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED && proof.proof.isNotBlank()
+                else -> false
+            }
+        }
+    }
+
+    private fun retirementReceiptSufficientForTargetLocked(
+        epoch: MutationEpoch,
+        receipt: SourceRetirementReceipt,
+    ): Boolean = when (receipt.sourceFamily) {
+        PlaybackFamily.PCM -> when (receipt.scope) {
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED ->
+                epoch.targetFamily == PlaybackFamily.PCM && receipt.familyProof is FamilyProof.PcmRuntimeRetained
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
+            RetirementScope.STACK_TEARDOWN_RELEASED,
+            -> receipt.familyProof is FamilyProof.StackReleased
+        }
+        PlaybackFamily.DOP -> when (receipt.scope) {
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED ->
+                epoch.targetFamily == PlaybackFamily.DOP && receipt.familyProof is FamilyProof.DirectRuntimeRetained
+            RetirementScope.FAMILY_RUNTIME_RELEASED ->
+                receipt.familyProof is FamilyProof.DirectFamilyReleased || receipt.familyProof is FamilyProof.StackReleased
+            RetirementScope.STACK_TEARDOWN_RELEASED -> receipt.familyProof is FamilyProof.StackReleased
+        }
     }
 
     private fun FamilyOwnership.ownershipIdOrNull(): FamilyOwnershipId? = when (this) {
@@ -804,6 +1275,12 @@ class UsbExclusivePlaybackProtocol(
         FamilyOwnership.None -> null
         is FamilyOwnership.PcmOwned -> occurrence
         is FamilyOwnership.DopOwned -> occurrence
+    }
+
+    private fun FamilyOwnership.adapterInstanceIdOrNull(): AdapterInstanceId? = when (this) {
+        FamilyOwnership.None -> null
+        is FamilyOwnership.PcmOwned -> adapterInstanceId
+        is FamilyOwnership.DopOwned -> adapterInstanceId
     }
 
     private fun FamilyOwnership.writeLeaseOrNull(): ActiveWriteLease? = when (this) {

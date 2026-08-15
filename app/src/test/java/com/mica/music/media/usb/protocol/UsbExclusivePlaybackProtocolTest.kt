@@ -135,7 +135,25 @@ class UsbExclusivePlaybackProtocolTest {
     fun sameOccurrenceSeekMutationMakesOlderActivationStale() {
         val (ledger, protocol) = fresh()
         ledger.publish(PlaybackIntent.PLAY)
-        val first = targetPcm(protocol, b, adapterB)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterB,
+            b,
+            RuntimeIdentity("pcm-runtime"),
+            facts = "pcm96",
+        )
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val retirement = requireNotNull(
+            protocol.mintRetirementReceipt(
+                first.mutationId,
+                adapterB,
+                RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
+                FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm-runtime"), "compatible", "tail-drained"),
+            ),
+        )
+        assertTrue(protocol.acceptSourceRetirement(retirement))
         val permit = requireNotNull(protocol.preparePcmConfigure(first.mutationId, adapterB, b, "pcm96"))
         val seek = requireNotNull(
             protocol.beginMutation(
@@ -253,8 +271,9 @@ class UsbExclusivePlaybackProtocolTest {
         val install = protocol.installOwnedFamilyForModel(PlaybackFamily.PCM, MutationId(1), adapterA, a, RuntimeIdentity("pcm-runtime"))
         val leaseA = (install as CommitDisposition.CurrentPlaying).writeLease
         protocol.registerAdapter(adapterB)
+        assertTrue(protocol.observeCandidate(CandidateOccurrence(adapterB, "B", b, PlaybackFamily.PCM, "pcm")))
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.AUTO_NEXT, "B", PlaybackFamily.PCM, "pcm", b))
+        val mutation = requireNotNull(protocol.adoptAutoCandidate("B", b))
         val receipt = requireNotNull(
             protocol.mintRetirementReceipt(
                 mutation.mutationId,
@@ -368,7 +387,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(9)))
         ledger.publish(PlaybackIntent.PLAY)
         protocol.registerAdapter(adapterA)
-        protocol.installOwnedFamilyForModel(PlaybackFamily.DOP, MutationId(1), adapterA, a, RuntimeIdentity("carrier"))
+        protocol.installOwnedFamilyForModel(PlaybackFamily.DOP, MutationId(1), adapterA, a, RuntimeIdentity("carrier"), facts = "dop128")
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val samePlan = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
@@ -393,18 +412,17 @@ class UsbExclusivePlaybackProtocolTest {
 
         val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("dop-b")))
         ledger.publish(PlaybackIntent.PAUSE)
-        assertNull(protocol.commitDirectStage(create))
+        assertNull(protocol.commitDirectStage(create, completedDirect(create, "dop-b-runtime")))
+        assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("dop-b")))
         ledger.publish(PlaybackIntent.PLAY)
-        val create2 = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("dop-b")))
-        assertNull(protocol.commitDirectStage(create2))
         val prefill = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("dop-b")))
-        assertNull(protocol.commitDirectStage(prefill))
+        assertNull(protocol.commitDirectStage(prefill, completedDirect(prefill, "dop-b-prefill")))
         assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.ARM, RuntimeIdentity("dop-b")))
         assertTrue(protocol.observeAdapterStarted(adapterB, b))
         val arm = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.ARM, RuntimeIdentity("dop-b")))
-        assertNull(protocol.commitDirectStage(arm))
+        assertNull(protocol.commitDirectStage(arm, completedDirect(arm, "dop-b-arm")))
         val accept = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.SOURCE_ACCEPT, RuntimeIdentity("dop-b")))
-        assertTrue(protocol.commitDirectStage(accept) is CommitDisposition.CurrentPlaying)
+        assertTrue(protocol.commitDirectStage(accept, completedDirect(accept, "dop-b-accept")) is CommitDisposition.CurrentPlaying)
     }
 
     @Test
@@ -415,11 +433,11 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
-        assertTrue(protocol.observeAdapterStarted(adapterA, b))
+        assertFalse(protocol.observeAdapterStarted(adapterA, b))
         val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
-        protocol.commitDirectStage(create)
+        protocol.commitDirectStage(create, completedDirect(create, "runtime-b-create"))
         val prefill = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("runtime-b")))
-        protocol.commitDirectStage(prefill)
+        protocol.commitDirectStage(prefill, completedDirect(prefill, "runtime-b-prefill"))
         assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.ARM, RuntimeIdentity("runtime-b")))
         assertTrue(protocol.observeAdapterStarted(adapterB, b))
         assertNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.ARM, RuntimeIdentity("runtime-b")))
@@ -450,14 +468,40 @@ class UsbExclusivePlaybackProtocolTest {
         ledger.publish(PlaybackIntent.PLAY)
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.SEEK, "B", PlaybackFamily.DOP, "dop128", b))
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.DOP,
+            MutationId(1),
+            adapterB,
+            b,
+            RuntimeIdentity("seek-source"),
+            facts = "dop128",
+        )
+        val mutation = requireNotNull(
+            protocol.beginMutation(
+                MutationKind.SEEK,
+                "B",
+                PlaybackFamily.DOP,
+                "dop128",
+                b,
+                causalHandleFactory = { id -> MutationCausalHandle(PlaybackStackId(1), id, adapterB, b, 9_000_000) },
+            ),
+        )
+        val retirement = requireNotNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterB,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                FamilyProof.DirectFamilyReleased("seek-zero-barrier"),
+            ),
+        )
+        assertTrue(protocol.acceptSourceRetirement(retirement))
         val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("seek-runtime"), carrierBarrierSatisfied = false))
-        protocol.commitDirectStage(create)
+        protocol.commitDirectStage(create, completedDirect(create, "seek-create"))
         val prefill = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("seek-runtime")))
-        protocol.commitDirectStage(prefill)
+        protocol.commitDirectStage(prefill, completedDirect(prefill, "seek-prefill"))
         protocol.observeAdapterStarted(adapterB, b)
         val arm = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.ARM, RuntimeIdentity("seek-runtime")))
-        protocol.commitDirectStage(arm)
+        protocol.commitDirectStage(arm, completedDirect(arm, "seek-arm"))
         assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.SOURCE_ACCEPT, RuntimeIdentity("seek-runtime")))
     }
 
@@ -515,6 +559,551 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(protocol.acceptSourceRetirement(receipt))
     }
 
+    @Test
+    fun outputGenerationInvalidationRevokesCommittedLease() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+        ) as CommitDisposition.CurrentPlaying
+
+        protocol.updateOutputTarget(OutputTarget.UsbBound(UsbOutputGeneration(6)))
+
+        assertTrue(playing.writeLease.isRevoked())
+        assertFalse(playing.writeLease.tryEnter(a, MutationId(1), adapterA, WriteKind.PCM_DATA))
+    }
+
+    @Test
+    fun outputInvalidationDuringEnteredWriteClosesNewAdmissionsButLetsEnteredWriterDrain() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+        ) as CommitDisposition.CurrentPlaying
+        val lease = playing.writeLease
+        assertTrue(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.PCM_DATA))
+
+        protocol.updateOutputTarget(OutputTarget.UsbBound(UsbOutputGeneration(6)))
+
+        assertTrue(lease.isRevoked())
+        assertFalse(lease.isDrained())
+        assertFalse(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.PCM_DATA))
+        lease.exit()
+        assertTrue(lease.isDrained())
+    }
+
+    @Test
+    fun retiringWaitsForCommittedEnteredWriterDrain() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+        ) as CommitDisposition.CurrentPlaying
+        assertTrue(playing.writeLease.tryEnter(a, MutationId(1), adapterA, WriteKind.PCM_DATA))
+
+        protocol.beginRetiring()
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+
+        playing.writeLease.exit()
+        assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
+    }
+
+    @Test
+    fun dopContentAndGapAdmissionsNeverOverlapAcrossPauseOrResume() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.DOP,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("dop-a"),
+            facts = "dop128",
+        ) as CommitDisposition.CurrentPlaying
+        val lease = playing.writeLease
+        assertTrue(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.DOP_CONTENT))
+
+        ledger.publish(PlaybackIntent.PAUSE)
+        protocol.adoptLatestIntent()
+        assertFalse(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.DOP_GAP))
+        assertFalse(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.DOP_CONTENT))
+        lease.exit()
+        assertTrue(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.DOP_GAP))
+
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.adoptLatestIntent()
+        assertFalse(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.DOP_CONTENT))
+        assertFalse(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.DOP_GAP))
+        lease.exit()
+        assertTrue(lease.tryEnter(a, MutationId(1), adapterA, WriteKind.DOP_CONTENT))
+        lease.exit()
+    }
+
+    @Test
+    fun retainedDopProofCannotUnlockDopToPcm() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.DOP,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("carrier-a"),
+            facts = "dop128",
+        ) as CommitDisposition.CurrentPlaying
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+
+        assertNull(
+            protocol.mintRetirementReceipt(
+                next.mutationId,
+                adapterA,
+                RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
+                FamilyProof.DirectRuntimeRetained(RuntimeIdentity("carrier-a"), "retained"),
+            ),
+        )
+        assertFalse(playing.writeLease.isRevoked())
+        assertNull(protocol.preparePcmConfigure(next.mutationId, adapterB, b, "pcm96"))
+    }
+
+    @Test
+    fun rejectedRetirementProofDoesNotMutateLiveSourceAuthority() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.registerAdapter(adapterB)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+            facts = "pcm96",
+        ) as CommitDisposition.CurrentPlaying
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val owned = protocol.snapshot().familyOwnership as FamilyOwnership.PcmOwned
+        val forged = SourceRetirementReceipt(
+            receiptId = SideEffectReceiptId(900),
+            retiringMutationId = next.mutationId,
+            sourceFamilyOwnershipId = owned.ownershipId,
+            sourceFamily = PlaybackFamily.PCM,
+            sourceOccurrence = a,
+            sourceAdapterInstanceId = adapterB,
+            outputTarget = OutputTarget.SharedPcm,
+            scope = RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
+            semanticPausedAtRetirement = false,
+            familyProof = FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm-a"), "compatible", "ordered"),
+        )
+
+        assertFalse(protocol.acceptSourceRetirement(forged))
+        assertFalse(playing.writeLease.isRevoked())
+        assertTrue(playing.writeLease.tryEnter(a, MutationId(1), adapterA, WriteKind.PCM_DATA))
+        playing.writeLease.exit()
+    }
+
+    @Test
+    fun cleanupRetryDoesNotSurviveSupersedingMutation() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val permit = requireNotNull(protocol.preparePcmConfigure(first.mutationId, adapterB, b, "pcm96"))
+        val resource = ResourceIdentity("pcm-partial")
+        assertTrue(
+            protocol.commitPcmConfigure(
+                permit,
+                SideEffectReceipt.PartialNeedsCleanup(permit.activationId, resource, "partial"),
+            ) is CommitDisposition.CurrentCleanupRequired,
+        )
+
+        protocol.updateApplicationCurrent("C", c.periodUid, c)
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm96", c))
+        assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(resource))
+        assertNotNull(protocol.preparePcmConfigure(successor.mutationId, adapterB, c, "pcm96"))
+    }
+
+    @Test
+    fun staleDirectActivationCleansExactResourceThenStopsBlockingSuccessor() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val stalePermit = requireNotNull(
+            protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")),
+        )
+
+        protocol.updateApplicationCurrent("C", c.periodUid, c)
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c))
+        val resource = ResourceIdentity("runtime-b-resource")
+        val stale = protocol.commitDirectStage(
+            stalePermit,
+            SideEffectReceipt.Completed(stalePermit.activationId, resource, "created", stalePermit.runtimeIdentity),
+        )
+        assertEquals(CommitDisposition.StaleCleanupRequired(resource), stale)
+        assertNull(protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-c")))
+        assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(resource))
+        assertNotNull(protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-c")))
+    }
+
+    @Test
+    fun staleStartedObservationCannotArmNewOccurrenceWithSameAdapter() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val createB = requireNotNull(protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
+        protocol.commitDirectStage(createB, completedDirect(createB, "b-create"))
+        val prefillB = requireNotNull(protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("runtime-b")))
+        protocol.commitDirectStage(prefillB, completedDirect(prefillB, "b-prefill"))
+        assertTrue(protocol.observeAdapterStarted(adapterB, b))
+
+        protocol.updateApplicationCurrent("C", c.periodUid, c)
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c))
+        assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(ResourceIdentity("b-create")))
+        assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(ResourceIdentity("b-prefill")))
+        val createC = requireNotNull(protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-c")))
+        protocol.commitDirectStage(createC, completedDirect(createC, "c-create"))
+        val prefillC = requireNotNull(protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.PREFILL, RuntimeIdentity("runtime-c")))
+        protocol.commitDirectStage(prefillC, completedDirect(prefillC, "c-prefill"))
+
+        assertNull(protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.ARM, RuntimeIdentity("runtime-c")))
+        assertTrue(protocol.observeAdapterStarted(adapterB, c))
+        assertNotNull(protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.ARM, RuntimeIdentity("runtime-c")))
+    }
+
+    @Test
+    fun directRuntimeIdentityCannotChangeBetweenStages() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-a")))
+        protocol.commitDirectStage(create, completedDirect(create, "create-a"))
+
+        assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("runtime-b")))
+        assertNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("runtime-a")))
+    }
+
+    @Test
+    fun genericBeginMutationCannotBypassAutoCandidateAdoption() {
+        val (_, protocol) = fresh()
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        assertNull(protocol.beginMutation(MutationKind.AUTO_NEXT, "B", PlaybackFamily.PCM, "pcm96", b))
+    }
+
+    @Test
+    fun seekRequiresExactDispatchBoundCausalHandle() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(PlaybackFamily.PCM, MutationId(1), adapterA, a, RuntimeIdentity("pcm-a"))
+        protocol.updateApplicationCurrent("A", a.periodUid, a)
+
+        assertNull(protocol.beginMutation(MutationKind.SEEK, "A", PlaybackFamily.PCM, "pcm96", a))
+        assertNull(
+            protocol.beginMutation(
+                MutationKind.SEEK,
+                "A",
+                PlaybackFamily.PCM,
+                "pcm96",
+                a,
+                causalHandleFactory = { id -> MutationCausalHandle(PlaybackStackId(99), id, adapterA, a, 1_000) },
+            ),
+        )
+        assertNull(
+            protocol.beginMutation(
+                MutationKind.SEEK,
+                "A",
+                PlaybackFamily.PCM,
+                "pcm96",
+                a,
+                causalHandleFactory = { id -> MutationCausalHandle(PlaybackStackId(1), id, adapterB, a, 1_000) },
+            ),
+        )
+        assertNotNull(
+            protocol.beginMutation(
+                MutationKind.SEEK,
+                "A",
+                PlaybackFamily.PCM,
+                "pcm96",
+                a,
+                causalHandleFactory = { id -> MutationCausalHandle(PlaybackStackId(1), id, adapterA, a, 1_000) },
+            ),
+        )
+    }
+
+    @Test
+    fun retiringRejectsNewAuthorityEventsUntilWriterBarrierCloses() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+        ) as CommitDisposition.CurrentPlaying
+        assertTrue(playing.writeLease.tryEnter(a, MutationId(1), adapterA, WriteKind.PCM_DATA))
+        val before = protocol.snapshot()
+
+        protocol.beginRetiring()
+        ledger.publish(PlaybackIntent.PAUSE)
+        assertFalse(protocol.registerAdapter(AdapterInstanceId(999)))
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        assertFalse(protocol.observeCandidate(CandidateOccurrence(adapterB, "B", b, PlaybackFamily.PCM, "pcm96")))
+        assertEquals(before.adoptedIntent, protocol.adoptLatestIntent())
+        protocol.updateOutputTarget(OutputTarget.UsbBound(UsbOutputGeneration(6)))
+        val retiring = protocol.snapshot()
+        assertEquals(before.applicationCurrent, retiring.applicationCurrent)
+        assertEquals(before.outputTarget, retiring.outputTarget)
+        assertEquals(before.adoptedIntent, retiring.adoptedIntent)
+        assertTrue(retiring.lifecycle is ProtocolLifecycle.Retiring)
+
+        playing.writeLease.exit()
+        assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
+    }
+
+    @Test
+    fun unrelatedAdapterCannotMintSourceRetirementReceipt() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+        ) as CommitDisposition.CurrentPlaying
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+
+        assertNull(
+            protocol.mintRetirementReceipt(
+                next.mutationId,
+                adapterB,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                FamilyProof.StackReleased("closed"),
+            ),
+        )
+        assertFalse(playing.writeLease.isRevoked())
+    }
+
+    @Test
+    fun wrongSourceFamilyOrOutputRetirementReceiptIsRejectedWithoutRevocation() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm-a"),
+        ) as CommitDisposition.CurrentPlaying
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val owned = protocol.snapshot().familyOwnership as FamilyOwnership.PcmOwned
+        val forged = SourceRetirementReceipt(
+            SideEffectReceiptId(901),
+            next.mutationId,
+            owned.ownershipId,
+            PlaybackFamily.DOP,
+            a,
+            adapterA,
+            OutputTarget.UsbBound(UsbOutputGeneration(99)),
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
+            false,
+            FamilyProof.DirectFamilyReleased("wrong-family"),
+        )
+
+        assertFalse(protocol.acceptSourceRetirement(forged))
+        assertFalse(playing.writeLease.isRevoked())
+    }
+
+    @Test
+    fun retainedPcmProofMustMatchActuallyOwnedRuntime() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        val playing = protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("real-runtime"),
+            facts = "pcm96",
+        ) as CommitDisposition.CurrentPlaying
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+
+        assertNull(
+            protocol.mintRetirementReceipt(
+                next.mutationId,
+                adapterA,
+                RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
+                FamilyProof.PcmRuntimeRetained(RuntimeIdentity("fake-runtime"), "compatible", "ordered"),
+            ),
+        )
+        assertFalse(playing.writeLease.isRevoked())
+    }
+
+    @Test
+    fun cleanupCompletionAfterOutputInvalidationOrRetiringNeverRetriesObsoleteActivation() {
+        val (ledger, outputProtocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        outputProtocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(outputProtocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val permit = requireNotNull(outputProtocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
+        val outputResource = ResourceIdentity("output-partial")
+        outputProtocol.commitPcmConfigure(
+            permit,
+            SideEffectReceipt.PartialNeedsCleanup(permit.activationId, outputResource, "partial"),
+        )
+        outputProtocol.updateOutputTarget(OutputTarget.UsbBound(UsbOutputGeneration(6)))
+        assertEquals(CommitDisposition.StaleNoEffect, outputProtocol.completeCleanup(outputResource))
+
+        val (ledger2, retiringProtocol) = fresh()
+        ledger2.publish(PlaybackIntent.PLAY)
+        retiringProtocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation2 = requireNotNull(retiringProtocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val permit2 = requireNotNull(retiringProtocol.preparePcmConfigure(mutation2.mutationId, adapterB, b, "pcm96"))
+        val retiringResource = ResourceIdentity("retiring-partial")
+        retiringProtocol.commitPcmConfigure(
+            permit2,
+            SideEffectReceipt.PartialNeedsCleanup(permit2.activationId, retiringResource, "partial"),
+        )
+        retiringProtocol.beginRetiring()
+        assertEquals(CommitDisposition.StaleNoEffect, retiringProtocol.completeCleanup(retiringResource))
+        assertEquals(ProtocolLifecycle.Retired, retiringProtocol.snapshot().lifecycle)
+    }
+
+    @Test
+    fun directPartialAndTerminalResourceOutcomesRequireCleanupBeforeRetryOrTerminal() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
+        val partialResource = ResourceIdentity("direct-partial")
+        val partial = protocol.commitDirectStage(
+            create,
+            SideEffectReceipt.PartialNeedsCleanup(create.activationId, partialResource, "partial", create.runtimeIdentity),
+        )
+        assertEquals(
+            CommitDisposition.CurrentCleanupRequired(partialResource, CleanupContinuation.RETRY_SAME_MUTATION),
+            partial,
+        )
+        assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
+        assertEquals(CommitDisposition.RetryPendingSameMutation, protocol.completeCleanup(partialResource))
+
+        val retry = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
+        val terminalResource = ResourceIdentity("direct-terminal")
+        val terminal = protocol.commitDirectStage(
+            retry,
+            SideEffectReceipt.TerminalFailure(retry.activationId, terminalResource, "failed", retry.runtimeIdentity),
+        )
+        assertEquals(
+            CommitDisposition.CurrentCleanupRequired(terminalResource, CleanupContinuation.TERMINAL),
+            terminal,
+        )
+        assertEquals(CommitDisposition.TerminalFailure, protocol.completeCleanup(terminalResource))
+        assertTrue(protocol.snapshot().inFlightActivations.isEmpty())
+    }
+
+    @Test
+    fun stalePendingDirectReceiptCleansPreviouslyCompletedStageResourcesToo() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val create = requireNotNull(
+            protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")),
+        )
+        val createResource = ResourceIdentity("stale-create")
+        assertNull(
+            protocol.commitDirectStage(
+                create,
+                SideEffectReceipt.Completed(create.activationId, createResource, "created", create.runtimeIdentity),
+            ),
+        )
+        val prefill = requireNotNull(
+            protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("runtime-b")),
+        )
+
+        protocol.updateApplicationCurrent("C", c.periodUid, c)
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c))
+        val prefillResource = ResourceIdentity("stale-prefill")
+        assertEquals(
+            CommitDisposition.StaleCleanupRequired(prefillResource),
+            protocol.commitDirectStage(
+                prefill,
+                SideEffectReceipt.Completed(prefill.activationId, prefillResource, "prefilled", prefill.runtimeIdentity),
+            ),
+        )
+        assertEquals(setOf(createResource, prefillResource), protocol.snapshot().cleanupRequirements)
+        assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(prefillResource))
+        assertEquals(setOf(createResource), protocol.snapshot().cleanupRequirements)
+        assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(createResource))
+        assertNotNull(
+            protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-c")),
+        )
+    }
+
+    @Test
+    fun directTerminalAfterCompletedStageWaitsForEveryOwnedResourceCleanup() {
+        val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val create = requireNotNull(
+            protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")),
+        )
+        val createResource = ResourceIdentity("terminal-create")
+        assertNull(
+            protocol.commitDirectStage(
+                create,
+                SideEffectReceipt.Completed(create.activationId, createResource, "created", create.runtimeIdentity),
+            ),
+        )
+        val prefill = requireNotNull(
+            protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("runtime-b")),
+        )
+        val failedResource = ResourceIdentity("terminal-prefill")
+        assertEquals(
+            CommitDisposition.CurrentCleanupRequired(failedResource, CleanupContinuation.TERMINAL),
+            protocol.commitDirectStage(
+                prefill,
+                SideEffectReceipt.TerminalFailure(prefill.activationId, failedResource, "prefill-failed", prefill.runtimeIdentity),
+            ),
+        )
+        assertEquals(setOf(createResource, failedResource), protocol.snapshot().cleanupRequirements)
+        assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(failedResource))
+        assertEquals(setOf(createResource), protocol.snapshot().cleanupRequirements)
+        assertEquals(CommitDisposition.TerminalFailure, protocol.completeCleanup(createResource))
+        assertTrue(protocol.snapshot().cleanupRequirements.isEmpty())
+        assertTrue(protocol.snapshot().inFlightActivations.isEmpty())
+    }
+
     private fun fresh(output: OutputTarget = OutputTarget.SharedPcm): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
         val ledger = PlaybackIntentLedger()
         val protocol = UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(1), output)
@@ -531,4 +1120,12 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.updateApplicationCurrent("B", occurrence.periodUid, occurrence)
         return requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", occurrence))
     }
+
+    private fun completedDirect(permit: DirectStagePermit, resource: String): SideEffectReceipt.Completed =
+        SideEffectReceipt.Completed(
+            activationId = permit.activationId,
+            resourceIdentity = ResourceIdentity(resource),
+            facts = "completed:${permit.stage}",
+            runtimeIdentity = permit.runtimeIdentity,
+        )
 }
