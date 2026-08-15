@@ -13,16 +13,22 @@ class ManualNavigationTransitionStructureTest {
         assertTrue(source.contains("private var currentApplicationPeriodUid: Any? = null"))
         assertTrue(source.contains("private var authoritativeSourcePlaybackIdentity: ManualNavigationPlaybackIdentity? = null"))
         assertFalse(source.contains("lastObservedPlaybackIdentity"))
-        assertTrue(source.contains("fun updateApplicationCurrentness(mediaId: String?, currentPeriodUid: Any?)"))
+        assertTrue(source.contains("fun updateApplicationCurrentness("))
+        assertTrue(source.contains("invalidatePlayingOccurrence: Boolean = false"))
         assertTrue(source.contains("val expectedTargetPeriodUid: Any? = null"))
         assertTrue(source.contains("val targetPlaybackIdentity: ManualNavigationPlaybackIdentity? = null"))
         assertTrue(source.contains("windowSequenceNumber"))
+        val rendererObservation = source.substringAfter("fun observePlaybackStream(")
+            .substringBefore("fun updateApplicationPlayingOccurrence(")
+        assertTrue(rendererObservation.contains("ManualNavigationPlaybackIdentity.from(mediaPeriodId)"))
+        assertFalse(rendererObservation.contains("authoritativeSourcePlaybackIdentity ="))
+        val applicationOccurrence = source.substringAfter("fun updateApplicationPlayingOccurrence(")
+            .substringBefore("fun observeDirectRetirementStop()")
         assertOrdered(
-            source.substringAfter("fun observePlaybackStream("),
+            applicationOccurrence,
             "val currentPeriodUid = currentApplicationPeriodUid",
+            "authoritativeSourcePlaybackIdentity = if",
             "identity.periodUid == currentPeriodUid",
-            "authoritativeSourcePlaybackIdentity = identity",
-            "return identity",
         )
         assertTrue(source.contains("sourcePlaybackIdentity = authoritativeSourcePlaybackIdentity"))
         assertFalse(source.contains("ExoPlayer"))
@@ -42,10 +48,14 @@ class ManualNavigationTransitionStructureTest {
             "manualNavigationTransitionBridge,",
             "val compositePlayer = MicaCompositePlayer(",
             "manualNavigationTransitionBridge = manualNavigationTransitionBridge",
-            "fun publishApplicationCurrentness(timeline: Timeline, mediaItem: MediaItem?)",
+            "fun publishApplicationCurrentness(",
             "ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(",
-            "manualNavigationTransitionBridge.updateApplicationCurrentness(mediaId, targetPeriodUid)",
+            "manualNavigationTransitionBridge.updateApplicationCurrentness(",
             "exoPlayer.addListener(object : Player.Listener",
+            "invalidatePlayingOccurrence = true",
+            "exoPlayer.addAnalyticsListener(object : AnalyticsListener",
+            "events.getEventTime(events.get(index)).currentMediaPeriodId",
+            "manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(",
         )
         assertTrue(source.contains("override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int)"))
         assertTrue(source.contains("override fun onTimelineChanged(timeline: Timeline, reason: Int)"))

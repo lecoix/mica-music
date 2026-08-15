@@ -21,7 +21,9 @@ class TransitionAwarePcmNavigationGenerationTest {
     fun readAheadBDoesNotPoisonSourceAndCanBecomeTruePcmTargetAfterCurrentnessAndRelease() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        val authoritativeA = bridge.observePlaybackStream(MediaSource.MediaPeriodId("period-A", 1L))
+        val playingA = MediaSource.MediaPeriodId("period-A", 1L)
+        bridge.updateApplicationPlayingOccurrence(playingA)
+        val authoritativeA = ManualNavigationPlaybackIdentity.from(playingA)
         val coordinator = DirectDsdTrackTransitionCoordinator()
         coordinator.beforeDirectAccept(isPlaying = true)
         val delegate = mockk<AudioSink>(relaxed = true)
@@ -47,6 +49,43 @@ class TransitionAwarePcmNavigationGenerationTest {
 
         verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
         verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
+        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
+        assertNull(bridge.snapshot())
+    }
+
+    @Test
+    fun sameUidReadAheadPcmOccurrenceCannotBecomeSourceAndRemainsLegalTarget() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "uid-A")
+        val playingA = MediaSource.MediaPeriodId("uid-A", 1L)
+        bridge.updateApplicationPlayingOccurrence(playingA)
+        val coordinator = DirectDsdTrackTransitionCoordinator()
+        coordinator.beforeDirectAccept(isPlaying = true)
+        val delegate = mockk<AudioSink>(relaxed = true)
+        val projection = ManualNavigationPlaybackPeriodProjection(bridge)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+
+        projection.onStreamChanged(MediaSource.MediaPeriodId("uid-A", 2L))
+        val epoch = bridge.publish(
+            targetMediaId = "A-repeat",
+            requestedPlaying = true,
+            sourceFamily = DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "uid-A",
+        )
+        assertEquals(1L, epoch.sourcePlaybackIdentity?.windowSequenceNumber)
+
+        sink.configure(pcm96, 0, null)
+        verify(exactly = 0) { delegate.configure(any(), any(), any()) }
+
+        coordinator.onDirectReleased(wasPaused = false)
+        bridge.updateApplicationCurrentness(
+            "A-repeat",
+            "uid-A",
+            invalidatePlayingOccurrence = true,
+        )
+        sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
+
+        verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
         assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
         assertNull(bridge.snapshot())
     }

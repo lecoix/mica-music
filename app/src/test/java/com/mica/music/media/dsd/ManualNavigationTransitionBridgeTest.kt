@@ -28,7 +28,7 @@ class ManualNavigationTransitionBridgeTest {
     fun publishSupersedesOlderEpochAndIdsIncrease() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        val source = observe(bridge, "period-A", 1)
+        val source = observePlaying(bridge, "period-A", 1)
 
         val first = bridge.publish(
             "B",
@@ -54,7 +54,7 @@ class ManualNavigationTransitionBridgeTest {
     fun directRetirementObservationDoesNotConsumeEpoch() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        observe(bridge, "period-A", 1)
+        observePlaying(bridge, "period-A", 1)
         val epoch = bridge.publish(
             "B",
             true,
@@ -70,7 +70,7 @@ class ManualNavigationTransitionBridgeTest {
     fun directDestinationRequiresLogicalTargetAndPlaybackGenerationAndCompletesOnce() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        observe(bridge, "period-A", 1)
+        observePlaying(bridge, "period-A", 1)
         val epoch = bridge.publish(
             "B",
             true,
@@ -95,7 +95,7 @@ class ManualNavigationTransitionBridgeTest {
     fun readAheadTargetDoesNotReplaceAuthoritativePlayingSource() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        val authoritativeA = observe(bridge, "period-A", 1)
+        val authoritativeA = observePlaying(bridge, "period-A", 1)
 
         // Media3 may advance the reading renderer to B while A is still the playing/current item.
         val readAheadB = observe(bridge, "period-B", 2)
@@ -111,6 +111,49 @@ class ManualNavigationTransitionBridgeTest {
         val bound = requireNotNull(bridge.bindDirectDestination(dsd128, readAheadB))
         assertEquals(readAheadB, bound.targetPlaybackIdentity)
         assertTrue(bridge.complete(bound.requestId, DirectDsdTrackTransportFamily.DOP))
+    }
+
+    @Test
+    fun sameUidFutureReadingOccurrenceCannotOverwritePlayingOccurrence() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "uid-A")
+        val playingA = observePlaying(bridge, "uid-A", 1)
+
+        observe(bridge, "uid-A", 2)
+        val epoch = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "uid-B",
+        )
+
+        assertEquals(playingA, epoch.sourcePlaybackIdentity)
+        assertEquals(1L, epoch.sourcePlaybackIdentity?.windowSequenceNumber)
+    }
+
+    @Test
+    fun repeatedSameUidReadAheadOccurrenceRemainsLegalManualTarget() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "uid-A")
+        val playingA = observePlaying(bridge, "uid-A", 1)
+        val readAheadRepeat = observe(bridge, "uid-A", 2)
+
+        val epoch = bridge.publish(
+            "A-repeat",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "uid-A",
+        )
+        assertEquals(playingA, epoch.sourcePlaybackIdentity)
+        bridge.updateApplicationCurrentness(
+            "A-repeat",
+            "uid-A",
+            invalidatePlayingOccurrence = true,
+        )
+
+        val bound = requireNotNull(bridge.bindDirectDestination(dsd128, readAheadRepeat))
+        assertEquals(readAheadRepeat, bound.targetPlaybackIdentity)
+        assertEquals(2L, bound.targetPlaybackIdentity?.windowSequenceNumber)
     }
 
     @Test
@@ -133,7 +176,7 @@ class ManualNavigationTransitionBridgeTest {
     fun applicationPeriodChangeClearsOldSourceUntilMatchingObservationArrives() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        observe(bridge, "period-A", 10)
+        observePlaying(bridge, "period-A", 10)
 
         bridge.updateApplicationCurrentness("B", "period-B")
         val withoutFreshBObservation = bridge.publish(
@@ -145,7 +188,7 @@ class ManualNavigationTransitionBridgeTest {
         assertNull(withoutFreshBObservation.sourcePlaybackIdentity)
 
         bridge.abort("test-reset")
-        val authoritativeB = observe(bridge, "period-B", 11)
+        val authoritativeB = observePlaying(bridge, "period-B", 11)
         val withFreshBObservation = bridge.publish(
             "C",
             true,
@@ -159,7 +202,7 @@ class ManualNavigationTransitionBridgeTest {
     fun rapidSupersedeRejectsStaleSameFactsPlaybackGeneration() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        observe(bridge, "period-A", 10)
+        observePlaying(bridge, "period-A", 10)
         bridge.publish(
             "B",
             true,
@@ -189,7 +232,7 @@ class ManualNavigationTransitionBridgeTest {
     fun samePeriodUidStillRequiresNewWindowSequenceOccurrence() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "shared-period")
-        val oldOccurrence = observe(bridge, "shared-period", 21)
+        val oldOccurrence = observePlaying(bridge, "shared-period", 21)
         bridge.publish(
             "A-copy",
             true,
@@ -210,7 +253,7 @@ class ManualNavigationTransitionBridgeTest {
     fun staleOrWrongFamilyCompletionFailsClosed() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        observe(bridge, "period-A", 1)
+        observePlaying(bridge, "period-A", 1)
         val epoch = bridge.publish(
             "B",
             true,
@@ -229,7 +272,7 @@ class ManualNavigationTransitionBridgeTest {
     fun pcmDestinationUsesSamePlaybackGenerationAndAbortClearsAuthority() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("D", "period-D")
-        observe(bridge, "period-D", 30)
+        observePlaying(bridge, "period-D", 30)
         val epoch = bridge.publish(
             "P",
             true,
@@ -251,7 +294,7 @@ class ManualNavigationTransitionBridgeTest {
     fun applicationThreadPublishesCurrentnessAndPlaybackThreadConsumesOnlyBridgeState() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")
-        observe(bridge, "period-A", 40)
+        observePlaying(bridge, "period-A", 40)
         val epoch = bridge.publish(
             "B",
             true,
@@ -303,6 +346,16 @@ class ManualNavigationTransitionBridgeTest {
     ): ManualNavigationPlaybackIdentity = bridge.observePlaybackStream(
         MediaSource.MediaPeriodId(periodUid, windowSequenceNumber),
     )
+
+    private fun observePlaying(
+        bridge: ManualNavigationTransitionBridge,
+        periodUid: Any,
+        windowSequenceNumber: Long,
+    ): ManualNavigationPlaybackIdentity {
+        val mediaPeriodId = MediaSource.MediaPeriodId(periodUid, windowSequenceNumber)
+        bridge.updateApplicationPlayingOccurrence(mediaPeriodId)
+        return ManualNavigationPlaybackIdentity.from(mediaPeriodId)
+    }
 
     private fun identity(periodUid: Any, windowSequenceNumber: Long) =
         ManualNavigationPlaybackIdentity(periodUid, windowSequenceNumber)

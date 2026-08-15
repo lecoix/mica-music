@@ -9,7 +9,9 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
@@ -84,7 +86,11 @@ internal object ExoPlaybackStackFactory {
             trackTransitionCoordinator = trackTransitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
         )
-        fun publishApplicationCurrentness(timeline: Timeline, mediaItem: MediaItem?) {
+        fun publishApplicationCurrentness(
+            timeline: Timeline,
+            mediaItem: MediaItem?,
+            invalidatePlayingOccurrence: Boolean = false,
+        ) {
             val mediaId = mediaItem?.mediaId
             val targetPeriodUid = mediaId?.let {
                 ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
@@ -93,15 +99,45 @@ internal object ExoPlaybackStackFactory {
                     expectedMediaId = it,
                 )
             }
-            manualNavigationTransitionBridge.updateApplicationCurrentness(mediaId, targetPeriodUid)
+            manualNavigationTransitionBridge.updateApplicationCurrentness(
+                mediaId,
+                targetPeriodUid,
+                invalidatePlayingOccurrence,
+            )
         }
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                publishApplicationCurrentness(exoPlayer.currentTimeline, mediaItem)
+                publishApplicationCurrentness(
+                    exoPlayer.currentTimeline,
+                    mediaItem,
+                    invalidatePlayingOccurrence = true,
+                )
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 publishApplicationCurrentness(timeline, exoPlayer.currentMediaItem)
+            }
+        })
+        exoPlayer.addAnalyticsListener(object : AnalyticsListener {
+            override fun onEvents(player: Player, events: AnalyticsListener.Events) {
+                var currentOccurrence: MediaSource.MediaPeriodId? = null
+                var authoritative = events.size() > 0
+                for (index in 0 until events.size()) {
+                    val mediaPeriodId = events.getEventTime(events.get(index)).currentMediaPeriodId
+                    if (mediaPeriodId == null) {
+                        authoritative = false
+                        break
+                    }
+                    if (currentOccurrence == null) {
+                        currentOccurrence = mediaPeriodId
+                    } else if (currentOccurrence != mediaPeriodId) {
+                        authoritative = false
+                        break
+                    }
+                }
+                manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(
+                    currentOccurrence.takeIf { authoritative },
+                )
             }
         })
         return ExoPlaybackStack(

@@ -68,12 +68,20 @@ class ManualNavigationTransitionBridge(
     private var authoritativeSourcePlaybackIdentity: ManualNavigationPlaybackIdentity? = null
 
     @Synchronized
-    fun updateApplicationCurrentness(mediaId: String?, currentPeriodUid: Any?) {
+    fun updateApplicationCurrentness(
+        mediaId: String?,
+        currentPeriodUid: Any?,
+        invalidatePlayingOccurrence: Boolean = false,
+    ) {
         val previousMediaId = currentMediaId
         currentMediaId = mediaId
         currentApplicationPeriodUid = currentPeriodUid
         authoritativeSourcePlaybackIdentity?.let { source ->
-            if (currentPeriodUid == null || source.periodUid != currentPeriodUid) {
+            if (
+                invalidatePlayingOccurrence ||
+                currentPeriodUid == null ||
+                source.periodUid != currentPeriodUid
+            ) {
                 authoritativeSourcePlaybackIdentity = null
                 milestone("navigationTransition=source-occurrence-cleared reason=application-period-changed")
             }
@@ -125,16 +133,27 @@ class ManualNavigationTransitionBridge(
 
     @Synchronized
     fun observePlaybackStream(mediaPeriodId: MediaSource.MediaPeriodId): ManualNavigationPlaybackIdentity {
-        val identity = ManualNavigationPlaybackIdentity.from(mediaPeriodId)
+        return ManualNavigationPlaybackIdentity.from(mediaPeriodId)
+    }
+
+    @Synchronized
+    fun updateApplicationPlayingOccurrence(mediaPeriodId: MediaSource.MediaPeriodId?) {
+        val identity = mediaPeriodId?.let(ManualNavigationPlaybackIdentity::from)
         val currentPeriodUid = currentApplicationPeriodUid
-        if (currentPeriodUid != null && identity.periodUid == currentPeriodUid) {
-            authoritativeSourcePlaybackIdentity = identity
-            milestone(
-                "navigationTransition=source-occurrence-authoritative " +
-                    "windowSequence=${identity.windowSequenceNumber}",
-            )
+        authoritativeSourcePlaybackIdentity = if (
+            identity != null &&
+            currentPeriodUid != null &&
+            identity.periodUid == currentPeriodUid
+        ) {
+            identity
+        } else {
+            null
         }
-        return identity
+        milestone(
+            "navigationTransition=source-occurrence-application " +
+                "known=${authoritativeSourcePlaybackIdentity != null} " +
+                "windowSequence=${authoritativeSourcePlaybackIdentity?.windowSequenceNumber ?: -1L}",
+        )
     }
 
     @Synchronized
