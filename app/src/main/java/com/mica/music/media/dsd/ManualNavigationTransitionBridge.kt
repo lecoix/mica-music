@@ -64,20 +64,28 @@ class ManualNavigationTransitionBridge(
     private var nextRequestId = 0L
     private var active: ManualNavigationTransitionEpoch? = null
     private var currentMediaId: String? = null
-    private var lastObservedPlaybackIdentity: ManualNavigationPlaybackIdentity? = null
+    private var currentApplicationPeriodUid: Any? = null
+    private var authoritativeSourcePlaybackIdentity: ManualNavigationPlaybackIdentity? = null
 
     @Synchronized
-    fun updateApplicationCurrentness(mediaId: String?, targetPeriodUid: Any?) {
+    fun updateApplicationCurrentness(mediaId: String?, currentPeriodUid: Any?) {
         val previousMediaId = currentMediaId
         currentMediaId = mediaId
+        currentApplicationPeriodUid = currentPeriodUid
+        authoritativeSourcePlaybackIdentity?.let { source ->
+            if (currentPeriodUid == null || source.periodUid != currentPeriodUid) {
+                authoritativeSourcePlaybackIdentity = null
+                milestone("navigationTransition=source-occurrence-cleared reason=application-period-changed")
+            }
+        }
         val epoch = active
         if (
             epoch != null &&
             epoch.targetMediaId == mediaId &&
             epoch.expectedTargetPeriodUid == null &&
-            targetPeriodUid != null
+            currentPeriodUid != null
         ) {
-            active = epoch.copy(expectedTargetPeriodUid = targetPeriodUid)
+            active = epoch.copy(expectedTargetPeriodUid = currentPeriodUid)
             milestone(
                 "navigationTransition=target-period-resolved request=${epoch.requestId} " +
                     "target=${epoch.targetMediaId}",
@@ -102,7 +110,7 @@ class ManualNavigationTransitionBridge(
             targetMediaId = targetMediaId,
             requestedPlaying = requestedPlaying,
             sourceFamily = sourceFamily,
-            sourcePlaybackIdentity = lastObservedPlaybackIdentity,
+            sourcePlaybackIdentity = authoritativeSourcePlaybackIdentity,
             expectedTargetPeriodUid = expectedTargetPeriodUid,
         )
         active = epoch
@@ -118,7 +126,14 @@ class ManualNavigationTransitionBridge(
     @Synchronized
     fun observePlaybackStream(mediaPeriodId: MediaSource.MediaPeriodId): ManualNavigationPlaybackIdentity {
         val identity = ManualNavigationPlaybackIdentity.from(mediaPeriodId)
-        lastObservedPlaybackIdentity = identity
+        val currentPeriodUid = currentApplicationPeriodUid
+        if (currentPeriodUid != null && identity.periodUid == currentPeriodUid) {
+            authoritativeSourcePlaybackIdentity = identity
+            milestone(
+                "navigationTransition=source-occurrence-authoritative " +
+                    "windowSequence=${identity.windowSequenceNumber}",
+            )
+        }
         return identity
     }
 

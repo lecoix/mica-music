@@ -92,6 +92,70 @@ class ManualNavigationTransitionBridgeTest {
     }
 
     @Test
+    fun readAheadTargetDoesNotReplaceAuthoritativePlayingSource() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        val authoritativeA = observe(bridge, "period-A", 1)
+
+        // Media3 may advance the reading renderer to B while A is still the playing/current item.
+        val readAheadB = observe(bridge, "period-B", 2)
+        val epoch = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+
+        assertEquals(authoritativeA, epoch.sourcePlaybackIdentity)
+        bridge.updateApplicationCurrentness("B", "period-B")
+        val bound = requireNotNull(bridge.bindDirectDestination(dsd128, readAheadB))
+        assertEquals(readAheadB, bound.targetPlaybackIdentity)
+        assertTrue(bridge.complete(bound.requestId, DirectDsdTrackTransportFamily.DOP))
+    }
+
+    @Test
+    fun unresolvedApplicationPeriodNeverPromotesReadingHeadToSourceAuthority() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", null)
+        observe(bridge, "period-A", 7)
+
+        val epoch = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+
+        assertNull(epoch.sourcePlaybackIdentity)
+    }
+
+    @Test
+    fun applicationPeriodChangeClearsOldSourceUntilMatchingObservationArrives() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        observe(bridge, "period-A", 10)
+
+        bridge.updateApplicationCurrentness("B", "period-B")
+        val withoutFreshBObservation = bridge.publish(
+            "C",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-C",
+        )
+        assertNull(withoutFreshBObservation.sourcePlaybackIdentity)
+
+        bridge.abort("test-reset")
+        val authoritativeB = observe(bridge, "period-B", 11)
+        val withFreshBObservation = bridge.publish(
+            "C",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-C",
+        )
+        assertEquals(authoritativeB, withFreshBObservation.sourcePlaybackIdentity)
+    }
+
+    @Test
     fun rapidSupersedeRejectsStaleSameFactsPlaybackGeneration() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")

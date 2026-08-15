@@ -10,11 +10,21 @@ class ManualNavigationTransitionStructureTest {
     fun bridgeOwnsLogicalAndPlaybackCurrentnessWithoutPlayerGetters() {
         val source = source("app/src/main/java/com/mica/music/media/dsd/ManualNavigationTransitionBridge.kt")
         assertTrue(source.contains("private var currentMediaId: String? = null"))
-        assertTrue(source.contains("private var lastObservedPlaybackIdentity: ManualNavigationPlaybackIdentity? = null"))
-        assertTrue(source.contains("fun updateApplicationCurrentness(mediaId: String?, targetPeriodUid: Any?)"))
+        assertTrue(source.contains("private var currentApplicationPeriodUid: Any? = null"))
+        assertTrue(source.contains("private var authoritativeSourcePlaybackIdentity: ManualNavigationPlaybackIdentity? = null"))
+        assertFalse(source.contains("lastObservedPlaybackIdentity"))
+        assertTrue(source.contains("fun updateApplicationCurrentness(mediaId: String?, currentPeriodUid: Any?)"))
         assertTrue(source.contains("val expectedTargetPeriodUid: Any? = null"))
         assertTrue(source.contains("val targetPlaybackIdentity: ManualNavigationPlaybackIdentity? = null"))
         assertTrue(source.contains("windowSequenceNumber"))
+        assertOrdered(
+            source.substringAfter("fun observePlaybackStream("),
+            "val currentPeriodUid = currentApplicationPeriodUid",
+            "identity.periodUid == currentPeriodUid",
+            "authoritativeSourcePlaybackIdentity = identity",
+            "return identity",
+        )
+        assertTrue(source.contains("sourcePlaybackIdentity = authoritativeSourcePlaybackIdentity"))
         assertFalse(source.contains("ExoPlayer"))
         assertFalse(source.contains("Player."))
         assertFalse(source.contains("currentMediaItem"))
