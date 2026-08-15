@@ -624,6 +624,36 @@ internal class UsbExclusiveShadowStack internal constructor(
     ) {
         coordinator.observeSafely(this, "DIRECT_RUNTIME_RELEASED") {
             val snapshot = protocol.snapshot()
+            if (snapshot.lifecycle is ProtocolLifecycle.Retiring) {
+                val receipt = protocol.mintRetiringDirectRuntimeReceipt(
+                    sourceAdapterInstanceId = adapter.id,
+                    sourceOccurrence = occurrence ?: run {
+                        coordinator.emit(
+                            this,
+                            "DIRECT_RUNTIME_RELEASED",
+                            UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
+                            adapter.id,
+                            occurrence,
+                            detail = "reason=$reason runtime=${runtimeIdentity.value} no-exact-retiring-source",
+                        )
+                        return@observeSafely
+                    },
+                    runtimeIdentity = runtimeIdentity,
+                    familyProof = com.mica.music.media.usb.protocol.FamilyProof.DirectFamilyReleased(
+                        "observed-close:${runtimeIdentity.value}:$reason",
+                    ),
+                )
+                val accepted = receipt != null && protocol.acceptRetiringDirectRuntimeReceipt(receipt)
+                coordinator.emit(
+                    this,
+                    "DIRECT_RUNTIME_RELEASED",
+                    if (accepted) UsbExclusiveShadowDecision.WOULD_PERMIT else UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
+                    adapter.id,
+                    occurrence,
+                    detail = "reason=$reason runtime=${runtimeIdentity.value} retiringReceiptAccepted=$accepted",
+                )
+                return@observeSafely
+            }
             val mutation = snapshot.mutation
             val owned = snapshot.familyOwnership as? FamilyOwnership.DopOwned
             if (

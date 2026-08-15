@@ -9,6 +9,7 @@ import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.ProtocolLifecycle
 import com.mica.music.media.usb.protocol.RuntimeIdentity
+import com.mica.music.media.usb.protocol.WriteKind
 import com.mica.music.media.usb.UsbOutputGenerationObserverFanout
 import com.mica.music.media.usb.protocol.UsbOutputGeneration
 import org.junit.Assert.assertEquals
@@ -257,6 +258,100 @@ class UsbExclusiveShadowCoordinatorTest {
     }
 
     @Test
+    fun retiringDopOwnedStackWaitsForExactDirectRuntimeReleaseBeforeRetired() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val runtime = RuntimeIdentity("direct-retiring")
+        val (stack, adapter) = committedDirectStack(coordinator, runtime)
+
+        coordinator.retireStack(stack)
+
+        assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+
+        adapter.observeDirectRuntimeReleased(a, runtime, "stack-teardown")
+
+        assertEquals(ProtocolLifecycle.Retired, stack.snapshot().lifecycle)
+        assertEquals(FamilyOwnership.None, stack.snapshot().familyOwnership)
+    }
+
+    @Test
+    fun retiringDopOwnedStackUsesCommittedSourceIdentityWithDestinationBoundSuccessor() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val runtime = RuntimeIdentity("direct-successor-source")
+        val (stack, adapter) = committedDirectStack(coordinator, runtime)
+
+        stack.observeTimelinePeriod("B", b.periodUid)
+        stack.observeApplicationMedia("B")
+        stack.observeManualNavigation("B", "successor")
+        stack.observeCurrentPlayerOccurrence("B", b)
+        adapter.observeStream(b, PlaybackFamily.DOP, "dop256")
+        val successor = requireNotNull(stack.snapshot().mutation)
+        assertTrue(successor.destinationBound)
+        assertEquals(b, successor.targetOccurrence)
+
+        coordinator.retireStack(stack)
+        assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+
+        adapter.observeDirectRuntimeReleased(a, runtime, "successor-teardown")
+
+        assertEquals(ProtocolLifecycle.Retired, stack.snapshot().lifecycle)
+        assertEquals(FamilyOwnership.None, stack.snapshot().familyOwnership)
+    }
+
+    @Test
+    fun wrongDirectRuntimeReleaseEvidenceCannotRetireDopOwnedStack() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val runtime = RuntimeIdentity("direct-exact-source")
+        val (stack, adapter) = committedDirectStack(coordinator, runtime)
+        val wrongAdapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+
+        coordinator.retireStack(stack)
+        wrongAdapter.observeDirectRuntimeReleased(a, runtime, "wrong-adapter")
+        adapter.observeDirectRuntimeReleased(b, runtime, "wrong-occurrence")
+        adapter.observeDirectRuntimeReleased(a, RuntimeIdentity("wrong-runtime"), "wrong-runtime")
+
+        assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+        assertTrue(
+            coordinator.diagnosticsSnapshot().count {
+                it.rawEventKind == "DIRECT_RUNTIME_RELEASED" &&
+                    it.decision == UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE
+            } >= 3,
+        )
+
+        adapter.observeDirectRuntimeReleased(a, runtime, "exact-release")
+
+        assertEquals(ProtocolLifecycle.Retired, stack.snapshot().lifecycle)
+    }
+
+    @Test
+    fun exactDirectReleaseBeforeLeaseDrainWaitsAndThenRetires() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val runtime = RuntimeIdentity("direct-release-before-drain")
+        val (stack, adapter) = committedDirectStack(coordinator, runtime)
+        val owned = stack.snapshot().familyOwnership as FamilyOwnership.DopOwned
+        assertTrue(
+            owned.writeLease.tryEnter(
+                owned.occurrence,
+                owned.mutationId,
+                owned.adapterInstanceId,
+                WriteKind.DOP_CONTENT,
+            ),
+        )
+
+        coordinator.retireStack(stack)
+        adapter.observeDirectRuntimeReleased(a, runtime, "release-before-drain")
+
+        assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+
+        owned.writeLease.exit()
+
+        assertEquals(ProtocolLifecycle.Retired, stack.snapshot().lifecycle)
+        assertEquals(FamilyOwnership.None, stack.snapshot().familyOwnership)
+    }
+
+    @Test
     fun generationFanoutPublishesNativeExactlyOnceBeforeObserversAndSurvivesObserverFailure() {
         val order = mutableListOf<String>()
         val failures = mutableListOf<Long>()
@@ -287,5 +382,27 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeCurrentPlayerOccurrence("B", b)
         adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
         assertNotNull(stack.snapshot().mutation)
+    }
+
+    private fun committedDirectStack(
+        coordinator: UsbExclusiveShadowCoordinator,
+        runtime: RuntimeIdentity,
+    ): Pair<UsbExclusiveShadowStack, UsbExclusiveShadowAdapter> {
+        coordinator.publishSemanticIntent(true)
+        val stack = coordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(5)))
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+
+        stack.observeTimelinePeriod("A", a.periodUid)
+        stack.observeApplicationMedia("A")
+        stack.observeManualNavigation("A", "seed-direct")
+        stack.observeCurrentPlayerOccurrence("A", a)
+        adapter.observeStream(a, PlaybackFamily.DOP, "dop128")
+        adapter.observeDirectStage(a, DirectStage.CREATE_RUNTIME, runtime, completed = true)
+        adapter.observeDirectStage(a, DirectStage.PREFILL, runtime, completed = true)
+        adapter.observeDirectStarted(a)
+        adapter.observeDirectStage(a, DirectStage.ARM, runtime, completed = true)
+        adapter.observeDirectStage(a, DirectStage.SOURCE_ACCEPT, runtime, completed = true)
+        check(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+        return stack to adapter
     }
 }

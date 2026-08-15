@@ -341,6 +341,8 @@ class UsbExclusivePlaybackProtocol(
     private val activations = linkedMapOf<ActivationId, ActivationRecord>()
     private val cleanupRequirements = linkedMapOf<ResourceIdentity, CleanupRequirement>()
     private var directActivation: DirectActivationState? = null
+    private var retiringDirectRuntimeRelease: RetiringDirectRuntimeRelease? = null
+    private var issuedRetiringDirectRuntimeReceipt: SourceRetirementReceipt? = null
 
     private data class StartedAuthority(
         val mutationId: MutationId,
@@ -356,6 +358,19 @@ class UsbExclusivePlaybackProtocol(
         val family: PlaybackFamily,
         val outputTarget: OutputTarget,
         val kind: ActivationKind,
+    )
+
+    /**
+     * Teardown evidence for a committed Direct family survives the source mutation epoch.
+     * The committed mutation id is provenance, not a new mutation authority.
+     */
+    private data class RetiringDirectRuntimeRelease(
+        val sourceFamilyOwnershipId: FamilyOwnershipId,
+        val sourceMutationId: MutationId,
+        val sourceOccurrence: PlaybackOccurrence,
+        val sourceAdapterInstanceId: AdapterInstanceId,
+        val runtimeIdentity: RuntimeIdentity,
+        val outputTarget: OutputTarget,
     )
 
     private enum class ActivationKind { PCM_CONFIGURE, RETAINED_PCM, DIRECT }
@@ -644,6 +659,85 @@ class UsbExclusivePlaybackProtocol(
         nextReceiptId += 1
         issuedRetirementReceiptsByMutation[mutationId] = candidate
         return candidate
+    }
+
+    /**
+     * Mints the exact Direct-family release receipt after the stack has entered Retiring.
+     * This is deliberately separate from the mutation-epoch receipt path: a committed source
+     * may already have been followed by a destination-bound successor epoch.
+     */
+    @Synchronized
+    fun mintRetiringDirectRuntimeReceipt(
+        sourceAdapterInstanceId: AdapterInstanceId,
+        sourceOccurrence: PlaybackOccurrence,
+        runtimeIdentity: RuntimeIdentity,
+        familyProof: FamilyProof.DirectFamilyReleased,
+    ): SourceRetirementReceipt? {
+        if (lifecycle !is ProtocolLifecycle.Retiring || familyProof.proof.isBlank()) return null
+        val pending = retiringDirectRuntimeRelease ?: return null
+        val owned = familyOwnership as? FamilyOwnership.DopOwned ?: return null
+        val lease = owned.writeLease
+        if (!retiringDirectRuntimeMatchesLocked(pending, owned, sourceAdapterInstanceId, sourceOccurrence, runtimeIdentity)) return null
+        if (!lease.isRevoked()) return null
+
+        issuedRetiringDirectRuntimeReceipt?.let { issued ->
+            return issued.takeIf {
+                it.sourceFamilyOwnershipId == pending.sourceFamilyOwnershipId &&
+                    it.sourceOccurrence == pending.sourceOccurrence &&
+                    it.sourceAdapterInstanceId == pending.sourceAdapterInstanceId &&
+                    it.outputTarget == pending.outputTarget &&
+                    it.familyProof == familyProof
+            }
+        }
+
+        val receipt = SourceRetirementReceipt(
+            receiptId = SideEffectReceiptId(nextReceiptId + 1),
+            retiringMutationId = pending.sourceMutationId,
+            sourceFamilyOwnershipId = pending.sourceFamilyOwnershipId,
+            sourceFamily = PlaybackFamily.DOP,
+            sourceOccurrence = pending.sourceOccurrence,
+            sourceAdapterInstanceId = pending.sourceAdapterInstanceId,
+            outputTarget = pending.outputTarget,
+            scope = RetirementScope.FAMILY_RUNTIME_RELEASED,
+            semanticPausedAtRetirement = ledger.snapshot().desired == PlaybackIntent.PAUSE,
+            familyProof = familyProof,
+        )
+        nextReceiptId += 1
+        issuedRetiringDirectRuntimeReceipt = receipt
+        return receipt
+    }
+
+    /**
+     * Accepts only the receipt issued by the teardown-specific Direct release seam. It clears
+     * the old family authority before reevaluating Retiring, so no successor can write through it.
+     */
+    @Synchronized
+    fun acceptRetiringDirectRuntimeReceipt(receipt: SourceRetirementReceipt): Boolean {
+        if (lifecycle !is ProtocolLifecycle.Retiring || issuedRetiringDirectRuntimeReceipt != receipt) return false
+        val pending = retiringDirectRuntimeRelease ?: return false
+        val owned = familyOwnership as? FamilyOwnership.DopOwned ?: return false
+        val proof = receipt.familyProof as? FamilyProof.DirectFamilyReleased ?: return false
+        if (
+            receipt.scope != RetirementScope.FAMILY_RUNTIME_RELEASED ||
+                receipt.sourceFamily != PlaybackFamily.DOP ||
+                receipt.retiringMutationId != pending.sourceMutationId ||
+                !retiringDirectRuntimeMatchesLocked(
+                    pending,
+                    owned,
+                    receipt.sourceAdapterInstanceId,
+                    receipt.sourceOccurrence ?: return false,
+                    pending.runtimeIdentity,
+                ) ||
+                receipt.familyProof != proof ||
+                !owned.writeLease.isRevoked() ||
+                !owned.writeLease.isDrained()
+        ) return false
+
+        issuedRetiringDirectRuntimeReceipt = null
+        retiringDirectRuntimeRelease = null
+        familyOwnership = FamilyOwnership.None
+        reevaluateRetiringLocked()
+        return true
     }
 
     @Synchronized
@@ -1029,6 +1123,16 @@ class UsbExclusivePlaybackProtocol(
         familyOwnership.writeLeaseOrNull()?.revoke()
         reclassifyUncommittedAuthorityLocked(retiring = true)
         lifecycle = ProtocolLifecycle.Retiring(activations.keys.toSet())
+        retiringDirectRuntimeRelease = (familyOwnership as? FamilyOwnership.DopOwned)?.let { owned ->
+            RetiringDirectRuntimeRelease(
+                sourceFamilyOwnershipId = owned.ownershipId,
+                sourceMutationId = owned.mutationId,
+                sourceOccurrence = owned.occurrence,
+                sourceAdapterInstanceId = owned.adapterInstanceId,
+                runtimeIdentity = owned.runtimeIdentity,
+                outputTarget = owned.writeLease.identity.outputTarget,
+            )
+        }
         reevaluateRetiringLocked()
     }
 
@@ -1224,17 +1328,41 @@ class UsbExclusivePlaybackProtocol(
     private fun reevaluateRetiringLocked() {
         if (lifecycle !is ProtocolLifecycle.Retiring) return
         val committedLeaseDrained = familyOwnership.writeLeaseOrNull()?.isDrained() ?: true
-        lifecycle = if (activations.isEmpty() && cleanupRequirements.isEmpty() && committedLeaseDrained) {
+        lifecycle = if (
+            activations.isEmpty() &&
+                cleanupRequirements.isEmpty() &&
+                committedLeaseDrained &&
+                retiringDirectRuntimeRelease == null
+        ) {
             ProtocolLifecycle.Retired
         } else {
             ProtocolLifecycle.Retiring(activations.keys.toSet())
         }
     }
 
+    private fun retiringDirectRuntimeMatchesLocked(
+        pending: RetiringDirectRuntimeRelease,
+        owned: FamilyOwnership.DopOwned,
+        sourceAdapterInstanceId: AdapterInstanceId,
+        sourceOccurrence: PlaybackOccurrence,
+        runtimeIdentity: RuntimeIdentity,
+    ): Boolean =
+        pending.sourceFamilyOwnershipId == owned.ownershipId &&
+            pending.sourceMutationId == owned.mutationId &&
+            pending.sourceOccurrence == owned.occurrence &&
+            pending.sourceAdapterInstanceId == owned.adapterInstanceId &&
+            pending.runtimeIdentity == owned.runtimeIdentity &&
+            pending.outputTarget == owned.writeLease.identity.outputTarget &&
+            sourceAdapterInstanceId == pending.sourceAdapterInstanceId &&
+            sourceOccurrence == pending.sourceOccurrence &&
+            runtimeIdentity == pending.runtimeIdentity
+
     private fun onCommittedWriteLeaseDrained(ownershipId: FamilyOwnershipId) {
         synchronized(this) {
             if (familyOwnership.ownershipIdOrNull() == ownershipId) {
-                reevaluateRetiringLocked()
+                issuedRetiringDirectRuntimeReceipt?.let { receipt ->
+                    acceptRetiringDirectRuntimeReceipt(receipt)
+                } ?: reevaluateRetiringLocked()
             }
         }
     }
