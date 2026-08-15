@@ -51,6 +51,49 @@ class ManualNavigationTransitionBridgeTest {
     }
 
     @Test
+    fun resumeGrantIsScopedToLatestPausedRequestAndConsumedOnce() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        val first = bridge.publish(
+            "B",
+            false,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+
+        assertEquals(first.requestId, bridge.grantResumeForActivePausedRequest())
+        assertTrue(bridge.hasResumeGrant(first.requestId))
+        assertTrue(bridge.consumeResumeGrant(first.requestId))
+        assertFalse(bridge.hasResumeGrant(first.requestId))
+        assertFalse(bridge.consumeResumeGrant(first.requestId))
+
+        assertEquals(first.requestId, bridge.grantResumeForActivePausedRequest())
+        val second = bridge.publish(
+            "C",
+            false,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-C",
+        )
+        assertFalse(bridge.hasResumeGrant(first.requestId))
+        assertFalse(bridge.hasResumeGrant(second.requestId))
+        assertEquals(second.requestId, bridge.grantResumeForActivePausedRequest())
+        assertTrue(bridge.hasResumeGrant(second.requestId))
+    }
+
+    @Test
+    fun playingRequestCannotReceivePausedResumeGrantAndAbortClearsGrant() {
+        val bridge = ManualNavigationTransitionBridge()
+        val playing = bridge.publish("B", true, DirectDsdTrackTransportFamily.DOP)
+        assertNull(bridge.grantResumeForActivePausedRequest())
+        assertFalse(bridge.hasResumeGrant(playing.requestId))
+
+        val paused = bridge.publish("C", false, DirectDsdTrackTransportFamily.DOP)
+        assertEquals(paused.requestId, bridge.grantResumeForActivePausedRequest())
+        bridge.abort("rebuild")
+        assertFalse(bridge.hasResumeGrant(paused.requestId))
+    }
+
+    @Test
     fun directRetirementObservationDoesNotConsumeEpoch() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")

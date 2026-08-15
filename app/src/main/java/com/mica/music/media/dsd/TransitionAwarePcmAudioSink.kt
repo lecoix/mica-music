@@ -29,7 +29,6 @@ internal class TransitionAwarePcmAudioSink(
     )
 
     private var pendingConfiguration: PendingConfiguration? = null
-    private var playRequestedWhilePending = false
 
     override fun configure(
         inputFormat: Format,
@@ -58,7 +57,6 @@ internal class TransitionAwarePcmAudioSink(
             return
         }
         pendingConfiguration = null
-        playRequestedWhilePending = false
         transitionCoordinator.onPcmActivity()
         transitionCoordinator.beforePcmAccept(isPlaying = navigationEpoch?.requestedPlaying ?: true)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
@@ -77,7 +75,7 @@ internal class TransitionAwarePcmAudioSink(
         presentationTimeUs: Long,
         encodedAccessUnitCount: Int,
     ): Boolean {
-        if (pendingConfiguration != null && !activatePendingConfiguration(resumeAuthority = false)) return false
+        if (pendingConfiguration != null && !activatePendingConfiguration()) return false
         transitionCoordinator.onPcmActivity()
         transitionCoordinator.beforePcmAccept(isPlaying = true)
         return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
@@ -85,11 +83,7 @@ internal class TransitionAwarePcmAudioSink(
 
     override fun play() {
         transitionCoordinator.onPcmPlayState(paused = false)
-        if (pendingConfiguration != null) {
-            playRequestedWhilePending = true
-            if (!activatePendingConfiguration(resumeAuthority = true)) return
-            return
-        }
+        if (pendingConfiguration != null) return
         transitionCoordinator.onPcmActivity()
         super.play()
     }
@@ -101,55 +95,59 @@ internal class TransitionAwarePcmAudioSink(
 
     override fun flush() {
         pendingConfiguration = null
-        playRequestedWhilePending = false
         super.flush()
         transitionCoordinator.onPcmFlushPotentialRelease()
     }
 
     override fun reset() {
         pendingConfiguration = null
-        playRequestedWhilePending = false
         super.reset()
         transitionCoordinator.onPcmReleased()
     }
 
     override fun release() {
         pendingConfiguration = null
-        playRequestedWhilePending = false
         super.release()
         transitionCoordinator.onPcmReleased()
     }
 
-    private fun activatePendingConfiguration(resumeAuthority: Boolean): Boolean {
+    private fun activatePendingConfiguration(): Boolean {
         val pending = pendingConfiguration ?: return true
-        if (pending.requiresResumeAuthority && !resumeAuthority) return false
         if (transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP) return false
-        pending.navigationRequestId?.let { requestId ->
+
+        val requestId = pending.navigationRequestId
+        if (pending.requiresResumeAuthority) {
+            if (requestId == null || !manualNavigationTransitionBridge.hasResumeGrant(requestId)) return false
+        }
+        if (requestId != null) {
             val bound = manualNavigationTransitionBridge.bindPcmDestination(
                 pending.format,
                 pending.playbackIdentity,
             ) ?: return false
             if (bound.requestId != requestId) return false
         }
+        if (pending.requiresResumeAuthority) {
+            checkNotNull(requestId)
+            if (!manualNavigationTransitionBridge.consumeResumeGrant(requestId)) return false
+        }
+
         transitionCoordinator.onPcmActivity()
-        transitionCoordinator.beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)
+        transitionCoordinator.beforePcmAccept(
+            isPlaying = if (pending.requiresResumeAuthority) true else pending.navigationRequestedPlaying,
+        )
         super.configure(
             pending.format,
             pending.specifiedBufferSize,
             pending.outputChannels,
         )
         pendingConfiguration = null
-        pending.navigationRequestId?.let { requestId ->
+        requestId?.let {
             check(
                 manualNavigationTransitionBridge.complete(
-                    requestId,
+                    it,
                     DirectDsdTrackTransportFamily.PCM,
                 ),
             ) { "PCM navigation acceptance for stale destination epoch" }
-        }
-        if (playRequestedWhilePending) {
-            playRequestedWhilePending = false
-            super.play()
         }
         return true
     }

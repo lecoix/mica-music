@@ -75,6 +75,32 @@ class ManualNavigationTransitionStructureTest {
     }
 
     @Test
+    fun applicationResumeGrantPrecedesUnderlyingExoPlayDispatch() {
+        val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
+        val direct = source.substringAfter("fun playExoDirect()")
+            .substringBefore("fun pauseExoDirect()")
+        assertOrdered(
+            direct,
+            "grantManualNavigationResumeAuthority()",
+            "exoPlayer.play()",
+        )
+        val play = source.substringAfter("override fun play()")
+            .substringBefore("override fun pause()")
+        assertOrdered(
+            play,
+            "grantManualNavigationResumeAuthority()",
+            "playbackCoordinator?.playCurrent() ?: super.play()",
+        )
+        val playWhenReady = source.substringAfter("override fun setPlayWhenReady(playWhenReady: Boolean)")
+            .substringBefore("override fun play()")
+        assertOrdered(
+            playWhenReady,
+            "if (playWhenReady) grantManualNavigationResumeAuthority()",
+            "playbackCoordinator?.playCurrent() ?: super.setPlayWhenReady(true)",
+        )
+    }
+
+    @Test
     fun qaSelectIndexUsesCanonicalPlayerSeekAndNeverDefaultPositionBypass() {
         val source = source("app/src/main/java/com/mica/music/media/MicaMediaService.kt")
         val body = source.substringAfter("DebugPlaybackControl.SELECT_INDEX ->")
@@ -173,10 +199,12 @@ class ManualNavigationTransitionStructureTest {
         val activation = source.substringAfter("private fun activatePendingConfiguration(")
         assertOrdered(
             activation,
+            "hasResumeGrant(requestId)",
             "bindPcmDestination(",
             "pending.playbackIdentity",
             "bound.requestId != requestId",
-            "beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)",
+            "consumeResumeGrant(requestId)",
+            "beforePcmAccept(",
             "super.configure(",
             "manualNavigationTransitionBridge.complete(",
         )

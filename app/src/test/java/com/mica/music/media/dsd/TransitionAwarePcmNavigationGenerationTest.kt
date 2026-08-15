@@ -91,6 +91,104 @@ class TransitionAwarePcmNavigationGenerationTest {
     }
 
     @Test
+    fun pausedDopToPcmActivatesFromRequestScopedGrantInHandleBufferBeforeSinkPlay() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        bridge.updateApplicationPlayingOccurrence(MediaSource.MediaPeriodId("period-A", 1L))
+        val coordinator = DirectDsdTrackTransitionCoordinator()
+        coordinator.beforeDirectAccept(isPlaying = true)
+        coordinator.onDirectPlayState(paused = true)
+        coordinator.onDirectReleased(wasPaused = true)
+
+        val epoch = bridge.publish(
+            targetMediaId = "B",
+            requestedPlaying = false,
+            sourceFamily = DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+        bridge.updateApplicationCurrentness("B", "period-B", invalidatePlayingOccurrence = true)
+
+        val delegate = mockk<AudioSink>(relaxed = true)
+        val projection = ManualNavigationPlaybackPeriodProjection(bridge)
+        projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        sink.configure(pcm96, 0, null)
+
+        repeat(3) {
+            assertEquals(false, sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1))
+        }
+        verify(exactly = 0) { delegate.configure(any(), any(), any()) }
+        verify(exactly = 0) { delegate.handleBuffer(any(), any(), any()) }
+        verify(exactly = 0) { delegate.play() }
+        assertEquals(epoch.requestId, bridge.snapshot()?.requestId)
+
+        assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
+
+        verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
+        verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
+        verify(exactly = 0) { delegate.play() }
+        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
+        assertNull(bridge.snapshot())
+
+        sink.play()
+        verify(exactly = 1) { delegate.play() }
+    }
+
+    @Test
+    fun earlyResumeGrantWaitsForExactTargetCurrentnessBeforeActivation() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        val coordinator = DirectDsdTrackTransitionCoordinator()
+        coordinator.beforeDirectAccept(isPlaying = true)
+        coordinator.onDirectPlayState(paused = true)
+        coordinator.onDirectReleased(wasPaused = true)
+        val epoch = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP, "period-B")
+        val delegate = mockk<AudioSink>(relaxed = true)
+        val projection = ManualNavigationPlaybackPeriodProjection(bridge)
+        projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        sink.configure(pcm96, 0, null)
+
+        assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        assertEquals(false, sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1))
+        verify(exactly = 0) { delegate.configure(any(), any(), any()) }
+        assertEquals(epoch.requestId, bridge.snapshot()?.requestId)
+
+        bridge.updateApplicationCurrentness("B", "period-B", invalidatePlayingOccurrence = true)
+        sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
+        verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
+        verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
+        assertNull(bridge.snapshot())
+    }
+
+    @Test
+    fun staleResumeGrantCannotAuthorizeSupersedingPcmRequest() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        val coordinator = DirectDsdTrackTransitionCoordinator()
+        coordinator.beforeDirectAccept(isPlaying = true)
+        coordinator.onDirectPlayState(paused = true)
+        coordinator.onDirectReleased(wasPaused = true)
+        val delegate = mockk<AudioSink>(relaxed = true)
+        val projection = ManualNavigationPlaybackPeriodProjection(bridge)
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+
+        val b = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP, "period-B")
+        bridge.updateApplicationCurrentness("B", "period-B")
+        projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
+        sink.configure(pcm96, 0, null)
+        assertEquals(b.requestId, bridge.grantResumeForActivePausedRequest())
+
+        val c = bridge.publish("C", false, DirectDsdTrackTransportFamily.DOP, "period-C")
+        bridge.updateApplicationCurrentness("C", "period-C")
+        assertEquals(false, sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1))
+        verify(exactly = 0) { delegate.configure(any(), any(), any()) }
+        assertEquals(c.requestId, bridge.snapshot()?.requestId)
+        assertNull(bridge.snapshot()?.targetPlaybackIdentity)
+    }
+
+    @Test
     fun staleBConfigureCannotAcceptLatestCAndTrueCReplacesPendingGeneration() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")

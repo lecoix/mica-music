@@ -66,6 +66,7 @@ class ManualNavigationTransitionBridge(
     private var currentMediaId: String? = null
     private var currentApplicationPeriodUid: Any? = null
     private var authoritativeSourcePlaybackIdentity: ManualNavigationPlaybackIdentity? = null
+    private var resumeGrantRequestId: Long? = null
 
     @Synchronized
     fun updateApplicationCurrentness(
@@ -113,6 +114,7 @@ class ManualNavigationTransitionBridge(
     ): ManualNavigationTransitionEpoch {
         require(targetMediaId.isNotBlank())
         val previous = active
+        resumeGrantRequestId = null
         val epoch = ManualNavigationTransitionEpoch(
             requestId = ++nextRequestId,
             targetMediaId = targetMediaId,
@@ -129,6 +131,29 @@ class ManualNavigationTransitionBridge(
                 "superseded=${previous?.requestId ?: -1L}",
         )
         return epoch
+    }
+
+    @Synchronized
+    fun grantResumeForActivePausedRequest(): Long? {
+        val epoch = active ?: return null
+        if (epoch.requestedPlaying) return null
+        if (resumeGrantRequestId != epoch.requestId) {
+            resumeGrantRequestId = epoch.requestId
+            milestone("navigationTransition=resume-granted request=${epoch.requestId}")
+        }
+        return epoch.requestId
+    }
+
+    @Synchronized
+    fun hasResumeGrant(requestId: Long): Boolean =
+        active?.requestId == requestId && resumeGrantRequestId == requestId
+
+    @Synchronized
+    fun consumeResumeGrant(requestId: Long): Boolean {
+        if (!hasResumeGrant(requestId)) return false
+        resumeGrantRequestId = null
+        milestone("navigationTransition=resume-grant-consumed request=$requestId")
+        return true
     }
 
     @Synchronized
@@ -219,6 +244,7 @@ class ManualNavigationTransitionBridge(
         if (epoch.targetPlaybackIdentity == null) return false
         if (currentMediaId != epoch.targetMediaId) return false
         active = null
+        resumeGrantRequestId = null
         milestone("navigationTransition=completed request=$requestId family=$family")
         return true
     }
@@ -227,6 +253,7 @@ class ManualNavigationTransitionBridge(
     fun cancel(requestId: Long, reason: String): Boolean {
         if (active?.requestId != requestId) return false
         active = null
+        resumeGrantRequestId = null
         milestone("navigationTransition=cancelled request=$requestId reason=$reason")
         return true
     }
@@ -235,6 +262,7 @@ class ManualNavigationTransitionBridge(
     fun abort(reason: String) {
         val epoch = active ?: return
         active = null
+        resumeGrantRequestId = null
         milestone("navigationTransition=aborted request=${epoch.requestId} reason=$reason")
     }
 

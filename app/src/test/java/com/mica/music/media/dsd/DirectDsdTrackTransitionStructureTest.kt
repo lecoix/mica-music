@@ -154,7 +154,7 @@ class DirectDsdTrackTransitionStructureTest {
     }
 
     @Test
-    fun pausedDopToPcmCachesConfigureAndOpensOnlyFromPlayResume() {
+    fun pausedDopToPcmRequiresRequestScopedGrantAndActivatesFromHandleBuffer() {
         val source = source(
             "src/main/java/com/mica/music/media/dsd/TransitionAwarePcmAudioSink.kt",
             "app/src/main/java/com/mica/music/media/dsd/TransitionAwarePcmAudioSink.kt",
@@ -163,24 +163,24 @@ class DirectDsdTrackTransitionStructureTest {
             source,
             "shouldDeferPcmUntilResume()",
             "pendingConfiguration = PendingConfiguration(",
-            "activatePendingConfiguration(resumeAuthority = false)",
-            "override fun play()",
+            "override fun handleBuffer(",
+            "activatePendingConfiguration()",
         )
         val playBody = source.substringAfter("override fun play()")
             .substringBefore("override fun pause()")
-        assertOrdered(
-            playBody,
-            "playRequestedWhilePending = true",
-            "activatePendingConfiguration(resumeAuthority = true)",
-        )
+        assertTrue(playBody.contains("if (pendingConfiguration != null) return"))
+        assertTrue(!playBody.contains("activatePendingConfiguration"))
         val activation = source.substringAfter("private fun activatePendingConfiguration(")
         assertOrdered(
             activation,
-            "pending.requiresResumeAuthority && !resumeAuthority",
-            "activeFamily == DirectDsdTrackTransportFamily.DOP",
-            "beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)",
+            "hasResumeGrant(requestId)",
+            "bindPcmDestination(",
+            "if (bound.requestId != requestId) return false",
+            "consumeResumeGrant(requestId)",
+            "beforePcmAccept(",
             "super.configure(",
             "pendingConfiguration = null",
+            "manualNavigationTransitionBridge.complete(",
         )
     }
 
