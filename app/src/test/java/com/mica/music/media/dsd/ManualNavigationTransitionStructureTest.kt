@@ -75,6 +75,32 @@ class ManualNavigationTransitionStructureTest {
     }
 
     @Test
+    fun applicationPauseRevokesGrantBeforeUnderlyingPauseDispatch() {
+        val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
+        val direct = source.substringAfter("fun pauseExoDirect()")
+            .substringBefore("override fun setPlayWhenReady")
+        assertOrdered(
+            direct,
+            "revokeManualNavigationResumeAuthority()",
+            "exoPlayer.pause()",
+        )
+        val playWhenReady = source.substringAfter("override fun setPlayWhenReady(playWhenReady: Boolean)")
+            .substringBefore("override fun play()")
+        assertOrdered(
+            playWhenReady,
+            "revokeManualNavigationResumeAuthority()",
+            "super.setPlayWhenReady(false)",
+        )
+        val pause = source.substringAfter("override fun pause()")
+            .substringBefore("override fun seekTo(positionMs: Long)")
+        assertOrdered(
+            pause,
+            "revokeManualNavigationResumeAuthority()",
+            "super.pause()",
+        )
+    }
+
+    @Test
     fun applicationResumeGrantPrecedesUnderlyingExoPlayDispatch() {
         val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
         val direct = source.substringAfter("fun playExoDirect()")

@@ -279,12 +279,16 @@ class MicaCompositePlayer(
     }
 
     fun pauseExoDirect() {
+        revokeManualNavigationResumeAuthority()
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         exoPlayer.pause()
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
-        if (!playWhenReady) DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
+        if (!playWhenReady) {
+            revokeManualNavigationResumeAuthority()
+            DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
+        }
         if (playWhenReady) grantManualNavigationResumeAuthority()
         onPlaybackIntentChanged?.invoke(playWhenReady)
         if (playWhenReady) {
@@ -301,6 +305,7 @@ class MicaCompositePlayer(
     }
 
     override fun pause() {
+        revokeManualNavigationResumeAuthority()
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         onPlaybackIntentChanged?.invoke(false)
         super.pause()
@@ -357,6 +362,10 @@ class MicaCompositePlayer(
 
     private fun grantManualNavigationResumeAuthority() {
         manualNavigationTransitionBridge.grantResumeForActivePausedRequest()
+    }
+
+    private fun revokeManualNavigationResumeAuthority() {
+        manualNavigationTransitionBridge.revokeResumeGrantForActivePausedRequest()
     }
 
     private fun publishManualNavigation(

@@ -81,6 +81,35 @@ class ManualNavigationTransitionBridgeTest {
     }
 
     @Test
+    fun repauseRevokesOnlyCurrentPausedGrantAndAllowsSameRequestToGrantAgain() {
+        val bridge = ManualNavigationTransitionBridge()
+        val epoch = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP)
+
+        assertNull(bridge.revokeResumeGrantForActivePausedRequest())
+        assertEquals(epoch, bridge.snapshot())
+        assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        assertEquals(epoch.requestId, bridge.revokeResumeGrantForActivePausedRequest())
+        assertFalse(bridge.hasResumeGrant(epoch.requestId))
+        assertEquals(epoch, bridge.snapshot())
+        assertNull(bridge.revokeResumeGrantForActivePausedRequest())
+        assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        assertTrue(bridge.hasResumeGrant(epoch.requestId))
+    }
+
+    @Test
+    fun repauseCannotRevokeSupersedingRequestWithoutItsOwnGrant() {
+        val bridge = ManualNavigationTransitionBridge()
+        val first = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP)
+        assertEquals(first.requestId, bridge.grantResumeForActivePausedRequest())
+        val second = bridge.publish("C", false, DirectDsdTrackTransportFamily.DOP)
+
+        assertNull(bridge.revokeResumeGrantForActivePausedRequest())
+        assertEquals(second, bridge.snapshot())
+        assertFalse(bridge.hasResumeGrant(first.requestId))
+        assertFalse(bridge.hasResumeGrant(second.requestId))
+    }
+
+    @Test
     fun playingRequestCannotReceivePausedResumeGrantAndAbortClearsGrant() {
         val bridge = ManualNavigationTransitionBridge()
         val playing = bridge.publish("B", true, DirectDsdTrackTransportFamily.DOP)

@@ -136,6 +136,40 @@ class TransitionAwarePcmNavigationGenerationTest {
     }
 
     @Test
+    fun repauseRevokesGrantedPausedPcmUntilSameRequestIsExplicitlyResumedAgain() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        val coordinator = DirectDsdTrackTransitionCoordinator()
+        coordinator.beforeDirectAccept(isPlaying = true)
+        coordinator.onDirectPlayState(paused = true)
+        coordinator.onDirectReleased(wasPaused = true)
+        val epoch = bridge.publish("B", false, DirectDsdTrackTransportFamily.DOP, "period-B")
+        bridge.updateApplicationCurrentness("B", "period-B", invalidatePlayingOccurrence = true)
+        val delegate = mockk<AudioSink>(relaxed = true)
+        val projection = ManualNavigationPlaybackPeriodProjection(bridge)
+        projection.onStreamChanged(MediaSource.MediaPeriodId("period-B", 2L))
+        val sink = TransitionAwarePcmAudioSink(delegate, coordinator, bridge, projection)
+        sink.configure(pcm96, 0, null)
+
+        assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        assertEquals(epoch.requestId, bridge.revokeResumeGrantForActivePausedRequest())
+        repeat(3) {
+            assertEquals(false, sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1))
+        }
+        verify(exactly = 0) { delegate.configure(any(), any(), any()) }
+        verify(exactly = 0) { delegate.handleBuffer(any(), any(), any()) }
+        assertEquals(epoch.requestId, bridge.snapshot()?.requestId)
+        assertEquals(2L, bridge.snapshot()?.targetPlaybackIdentity?.windowSequenceNumber)
+
+        assertEquals(epoch.requestId, bridge.grantResumeForActivePausedRequest())
+        sink.handleBuffer(ByteBuffer.allocate(0), 0L, 1)
+        verify(exactly = 1) { delegate.configure(pcm96, 0, null) }
+        verify(exactly = 1) { delegate.handleBuffer(any(), 0L, 1) }
+        assertEquals(DirectDsdTrackTransportFamily.PCM, coordinator.snapshot().activeFamily)
+        assertNull(bridge.snapshot())
+    }
+
+    @Test
     fun earlyResumeGrantWaitsForExactTargetCurrentnessBeforeActivation() {
         val bridge = ManualNavigationTransitionBridge()
         bridge.updateApplicationCurrentness("A", "period-A")

@@ -145,6 +145,16 @@ class ManualNavigationTransitionBridge(
     }
 
     @Synchronized
+    fun revokeResumeGrantForActivePausedRequest(): Long? {
+        val epoch = active ?: return null
+        if (epoch.requestedPlaying) return null
+        if (resumeGrantRequestId != epoch.requestId) return null
+        resumeGrantRequestId = null
+        milestone("navigationTransition=resume-grant-revoked request=${epoch.requestId}")
+        return epoch.requestId
+    }
+
+    @Synchronized
     fun hasResumeGrant(requestId: Long): Boolean =
         active?.requestId == requestId && resumeGrantRequestId == requestId
 
