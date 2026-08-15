@@ -139,6 +139,13 @@ private data class PendingFreshDirectDestination(
     val startedAuthorityObserved: Boolean,
     val navigationRequestId: Long? = null,
     val navigationFacts: ManualNavigationDestinationFacts? = null,
+    val navigationPlaybackIdentity: ManualNavigationPlaybackIdentity? = null,
+)
+
+private data class PendingManualNavigationBoundary(
+    val requestId: Long,
+    val format: Format,
+    val playbackIdentity: ManualNavigationPlaybackIdentity,
 )
 
 /**
@@ -171,6 +178,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private var lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
     private var nextFreshTransitionEpochId = 0L
     private var pendingFreshDirectDestination: PendingFreshDirectDestination? = null
+    private var pendingManualNavigationBoundary: PendingManualNavigationBoundary? = null
     private var navigationRetirementRequestedPaused = false
 
     override fun getName(): String = NAME
@@ -186,6 +194,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
         if (ended || pauseGapActive) return
+        if (!resumePendingManualNavigationBoundary()) return
         if (!refreshPendingNavigationBinding()) return
         pendingFreshDirectDestination?.let { pending ->
             if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) return
@@ -340,12 +349,15 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private fun refreshPendingNavigationBinding(): Boolean {
         val pending = pendingFreshDirectDestination ?: return true
         val requestId = pending.navigationRequestId ?: return true
-        if (pending.navigationFacts != null) return true
         val bridge = manualNavigationTransitionBridge ?: return false
         val activeNavigation = bridge.snapshot() ?: return false
         if (activeNavigation.requestId != requestId) return false
+        val playbackIdentity = pending.navigationPlaybackIdentity ?: return false
+        pending.navigationFacts?.let { navigationFacts ->
+            return bridge.isCurrentDestination(requestId, navigationFacts, playbackIdentity)
+        }
         val facts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
-        val bound = bridge.bindDirectDestination(facts) ?: return false
+        val bound = bridge.bindDirectDestination(facts, playbackIdentity) ?: return false
         if (bound.requestId != requestId) return false
         val navigationFacts = checkNotNull(bound.targetFacts)
         val active = pump
@@ -401,6 +413,112 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         }
         pendingFreshDirectDestination = pending.copy(navigationFacts = navigationFacts)
         return true
+    }
+
+    private fun resumePendingManualNavigationBoundary(): Boolean {
+        val pendingBoundary = pendingManualNavigationBoundary ?: return true
+        val bridge = manualNavigationTransitionBridge ?: return false
+        val activeNavigation = bridge.snapshot() ?: return false
+        if (activeNavigation.requestId != pendingBoundary.requestId) return false
+        val facts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pendingBoundary.format))
+        val bound = bridge.bindDirectDestination(facts, pendingBoundary.playbackIdentity) ?: return false
+        if (bound.requestId != pendingBoundary.requestId) return false
+        pendingManualNavigationBoundary = null
+
+        pendingFreshDirectDestination?.let { pending ->
+            pump?.let { pendingPump ->
+                check(!pendingPump.isPlaybackArmed()) { "accepted Direct runtime still marked pending" }
+                closePump("manual-navigation-boundary-replaced-pending")
+                milestone("trackTransition=PENDING_RUNTIME_RETIRED epoch=${pending.epochId}")
+            }
+            bindPendingFreshDestination(
+                pendingBoundary.format,
+                requiresStartedAuthority = !bound.requestedPlaying,
+                replacement = true,
+                navigationEpoch = bound,
+                navigationPlaybackIdentity = pendingBoundary.playbackIdentity,
+            )
+            return true
+        }
+
+        applyBoundManualNavigationDestination(
+            pendingBoundary.format,
+            facts,
+            bound,
+            pendingBoundary.playbackIdentity,
+        )
+        return true
+    }
+
+    private fun applyBoundManualNavigationDestination(
+        newFormat: Format,
+        newFacts: DsfExtractorPacketFacts,
+        navigationEpoch: ManualNavigationTransitionEpoch,
+        playbackIdentity: ManualNavigationPlaybackIdentity,
+    ) {
+        val active = pump
+        val navigationPlaying = navigationEpoch.requestedPlaying
+        if (active != null) {
+            val navigationMode = DirectDsdTrackTransitionPolicy.decide(
+                active.facts,
+                newFacts,
+                navigationPlaying,
+            )
+            if (navigationMode == DirectDsdTrackTransitionMode.RETAINED_SAME_PLAN) {
+                milestone(
+                    "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=$navigationPlaying " +
+                        "sourceRate=${active.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
+                        "navigationRequest=${navigationEpoch.requestId}",
+                )
+                val (discardedCanonicalBytes, result) = active.transitionRetainedSource(newFacts)
+                check(result.feederPendingZero && result.sourceResetApplied)
+                currentFormat = newFormat
+                resetTrackSourceCounters()
+                milestone(
+                    "trackTransition=NEW_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz} " +
+                        "discardedRendererCanonical=$discardedCanonicalBytes navigationRequest=${navigationEpoch.requestId}",
+                )
+                if (!navigationPlaying) {
+                    active.startPauseGapLiveness()
+                    pauseGapActive = true
+                    transitionCoordinator?.onDirectPlayState(paused = true)
+                    milestone("trackTransition=PAUSE_GAP_REESTABLISHED_AFTER_BOUNDARY")
+                } else {
+                    transitionCoordinator?.onDirectPlayState(paused = false)
+                }
+                check(
+                    manualNavigationTransitionBridge?.complete(
+                        navigationEpoch.requestId,
+                        DirectDsdTrackTransportFamily.DOP,
+                    ) == true,
+                ) { "retained Direct navigation completion lost currentness" }
+                milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=true")
+                return
+            }
+
+            milestone(
+                "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=$navigationPlaying " +
+                    "sourceRate=${active.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
+                    "navigationRequest=${navigationEpoch.requestId}",
+            )
+            active.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            closePump("manual-navigation-fresh")
+            transitionCoordinator?.onDirectReleased(wasPaused = !navigationPlaying)
+            milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED navigationRequest=${navigationEpoch.requestId}")
+        } else {
+            transitionCoordinator?.completePcmReleaseForDirectHandoff()
+        }
+        bindPendingFreshDestination(
+            newFormat,
+            requiresStartedAuthority = !navigationPlaying,
+            replacement = false,
+            navigationEpoch = navigationEpoch,
+            navigationPlaybackIdentity = playbackIdentity,
+        )
+        milestone(
+            "trackTransition=MANUAL_NAVIGATION_DESTINATION_PENDING request=${navigationEpoch.requestId} " +
+                "playing=$navigationPlaying family=DOP",
+        )
     }
 
     private fun openPumpIfNeeded(facts: DsfExtractorPacketFacts): DirectDsdRendererPump {
@@ -471,8 +589,13 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         check(active.facts == pendingFacts) { "fresh Direct arm for stale destination epoch" }
         pending.navigationRequestId?.let { requestId ->
             val navigationFacts = checkNotNull(pending.navigationFacts)
+            val playbackIdentity = checkNotNull(pending.navigationPlaybackIdentity)
             check(
-                manualNavigationTransitionBridge?.isCurrentDestination(requestId, navigationFacts) == true,
+                manualNavigationTransitionBridge?.isCurrentDestination(
+                    requestId,
+                    navigationFacts,
+                    playbackIdentity,
+                ) == true,
             ) { "fresh Direct arm for stale manual-navigation epoch" }
         }
         active.armPlayback()
@@ -506,11 +629,30 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         val newFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(newFormat))
         val active = pump
         val playing = state == Renderer.STATE_STARTED
-        val navigationEpoch = manualNavigationTransitionBridge?.bindDirectDestination(newFacts)
+        val playbackIdentity = manualNavigationTransitionBridge?.observePlaybackStream(mediaPeriodId)
+        val navigationEpoch = playbackIdentity?.let {
+            manualNavigationTransitionBridge?.bindDirectDestination(newFacts, it)
+        }
         val navigationSnapshot = manualNavigationTransitionBridge?.snapshot()
+        if (navigationEpoch == null && navigationSnapshot != null && playbackIdentity != null) {
+            pendingManualNavigationBoundary = PendingManualNavigationBoundary(
+                requestId = navigationSnapshot.requestId,
+                format = newFormat,
+                playbackIdentity = playbackIdentity,
+            )
+            milestone(
+                "trackTransition=MANUAL_NAVIGATION_WAIT_PLAYBACK_IDENTITY request=${navigationSnapshot.requestId} " +
+                    "playing=${navigationSnapshot.requestedPlaying} family=DOP " +
+                    "windowSequence=${playbackIdentity.windowSequenceNumber}",
+            )
+            return
+        }
+        if (navigationEpoch != null) {
+            pendingManualNavigationBoundary = null
+        }
         pendingFreshDirectDestination?.let { pending ->
             val pendingPump = pump
-            if (pendingPump != null && pending.navigationFacts != null) {
+            if (pendingPump != null) {
                 check(!pendingPump.isPlaybackArmed()) { "accepted Direct runtime still marked pending" }
                 closePump("track-pending-destination-replaced")
                 milestone("trackTransition=PENDING_RUNTIME_RETIRED epoch=${pending.epochId}")
@@ -521,83 +663,16 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 requiresStartedAuthority = !playing || effectiveNavigationEpoch?.requestedPlaying == false,
                 replacement = true,
                 navigationEpoch = effectiveNavigationEpoch,
-            )
-            return
-        }
-        if (navigationEpoch == null && navigationSnapshot != null) {
-            bindPendingFreshDestination(
-                newFormat,
-                requiresStartedAuthority = !navigationSnapshot.requestedPlaying,
-                replacement = false,
-                navigationEpoch = navigationSnapshot,
-            )
-            milestone(
-                "trackTransition=MANUAL_NAVIGATION_WAIT_CURRENTNESS request=${navigationSnapshot.requestId} " +
-                    "playing=${navigationSnapshot.requestedPlaying} family=DOP",
+                navigationPlaybackIdentity = playbackIdentity,
             )
             return
         }
         if (navigationEpoch != null) {
-            val navigationPlaying = navigationEpoch.requestedPlaying
-            if (active != null) {
-                val navigationMode = DirectDsdTrackTransitionPolicy.decide(
-                    active.facts,
-                    newFacts,
-                    navigationPlaying,
-                )
-                if (navigationMode == DirectDsdTrackTransitionMode.RETAINED_SAME_PLAN) {
-                    milestone(
-                        "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=$navigationPlaying " +
-                            "sourceRate=${active.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
-                            "navigationRequest=${navigationEpoch.requestId}",
-                    )
-                    val (discardedCanonicalBytes, result) = active.transitionRetainedSource(newFacts)
-                    check(result.feederPendingZero && result.sourceResetApplied)
-                    currentFormat = newFormat
-                    resetTrackSourceCounters()
-                    milestone(
-                        "trackTransition=NEW_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz} " +
-                            "discardedRendererCanonical=$discardedCanonicalBytes navigationRequest=${navigationEpoch.requestId}",
-                    )
-                    if (!navigationPlaying) {
-                        active.startPauseGapLiveness()
-                        pauseGapActive = true
-                        transitionCoordinator?.onDirectPlayState(paused = true)
-                        milestone("trackTransition=PAUSE_GAP_REESTABLISHED_AFTER_BOUNDARY")
-                    } else {
-                        transitionCoordinator?.onDirectPlayState(paused = false)
-                    }
-                    check(
-                        manualNavigationTransitionBridge?.complete(
-                            navigationEpoch.requestId,
-                            DirectDsdTrackTransportFamily.DOP,
-                        ) == true,
-                    ) { "retained Direct navigation completion lost currentness" }
-                    milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=true")
-                    return
-                }
-
-                milestone(
-                    "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=$navigationPlaying " +
-                        "sourceRate=${active.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
-                        "navigationRequest=${navigationEpoch.requestId}",
-                )
-                active.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
-                closePump("manual-navigation-fresh")
-                transitionCoordinator?.onDirectReleased(wasPaused = !navigationPlaying)
-                milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED navigationRequest=${navigationEpoch.requestId}")
-            } else {
-                transitionCoordinator?.completePcmReleaseForDirectHandoff()
-            }
-            bindPendingFreshDestination(
+            applyBoundManualNavigationDestination(
                 newFormat,
-                requiresStartedAuthority = !navigationPlaying,
-                replacement = false,
-                navigationEpoch = navigationEpoch,
-            )
-            milestone(
-                "trackTransition=MANUAL_NAVIGATION_DESTINATION_PENDING request=${navigationEpoch.requestId} " +
-                    "playing=$navigationPlaying family=DOP",
+                newFacts,
+                navigationEpoch,
+                checkNotNull(playbackIdentity),
             )
             return
         }
@@ -713,6 +788,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         requiresStartedAuthority: Boolean,
         replacement: Boolean,
         navigationEpoch: ManualNavigationTransitionEpoch? = null,
+        navigationPlaybackIdentity: ManualNavigationPlaybackIdentity? = null,
     ) {
         val previous = pendingFreshDirectDestination
         val facts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(format))
@@ -723,6 +799,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             startedAuthorityObserved = false,
             navigationRequestId = navigationEpoch?.requestId,
             navigationFacts = navigationEpoch?.targetFacts,
+            navigationPlaybackIdentity = navigationPlaybackIdentity,
         )
         currentFormat = format
         pendingFreshDirectDestination = next
@@ -910,6 +987,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
         pendingFreshDirectDestination = null
+        pendingManualNavigationBoundary = null
         currentFormat = null
         inputEosSeen = false
         ended = false
@@ -928,6 +1006,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
         pendingFreshDirectDestination = null
+        pendingManualNavigationBoundary = null
         currentFormat = null
         inputEosSeen = false
         ended = false

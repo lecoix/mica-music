@@ -1,7 +1,7 @@
 package com.mica.music.media.dsd
 
 import androidx.media3.common.Format
-import com.mica.music.media.dsd.DsdSourceBitOrder
+import androidx.media3.exoplayer.source.MediaSource
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,16 +18,33 @@ class ManualNavigationTransitionBridgeTest {
         channelCount = 2,
         sourceBitOrder = DsdSourceBitOrder.LSB_FIRST,
     )
+    private val pcm96 = Format.Builder()
+        .setSampleMimeType("audio/raw")
+        .setSampleRate(96_000)
+        .setChannelCount(2)
+        .build()
 
     @Test
     fun publishSupersedesOlderEpochAndIdsIncrease() {
         val bridge = ManualNavigationTransitionBridge()
-        bridge.updateCurrentMediaId("A")
+        bridge.updateApplicationCurrentness("A", "period-A")
+        val source = observe(bridge, "period-A", 1)
 
-        val first = bridge.publish("B", true, DirectDsdTrackTransportFamily.DOP)
-        val second = bridge.publish("C", true, DirectDsdTrackTransportFamily.DOP)
+        val first = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+        val second = bridge.publish(
+            "C",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-C",
+        )
 
         assertTrue(second.requestId > first.requestId)
+        assertEquals(source, second.sourcePlaybackIdentity)
         assertEquals(second, bridge.snapshot())
         assertFalse(bridge.cancel(first.requestId, "stale"))
         assertEquals(second, bridge.snapshot())
@@ -36,36 +53,108 @@ class ManualNavigationTransitionBridgeTest {
     @Test
     fun directRetirementObservationDoesNotConsumeEpoch() {
         val bridge = ManualNavigationTransitionBridge()
-        bridge.updateCurrentMediaId("B")
-        val epoch = bridge.publish("B", true, DirectDsdTrackTransportFamily.DOP)
+        bridge.updateApplicationCurrentness("A", "period-A")
+        observe(bridge, "period-A", 1)
+        val epoch = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
 
         assertEquals(epoch, bridge.observeDirectRetirementStop())
         assertEquals(epoch, bridge.snapshot())
     }
 
     @Test
-    fun directDestinationBindsOnlyAfterLogicalTargetIsCurrentAndCompletesOnce() {
+    fun directDestinationRequiresLogicalTargetAndPlaybackGenerationAndCompletesOnce() {
         val bridge = ManualNavigationTransitionBridge()
-        bridge.updateCurrentMediaId("A")
-        val epoch = bridge.publish("B", true, DirectDsdTrackTransportFamily.DOP)
+        bridge.updateApplicationCurrentness("A", "period-A")
+        observe(bridge, "period-A", 1)
+        val epoch = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+        val target = identity("period-B", 2)
 
-        assertNull(bridge.bindDirectDestination(dsd128))
-        bridge.updateCurrentMediaId("B")
-        val bound = requireNotNull(bridge.bindDirectDestination(dsd128))
+        assertNull(bridge.bindDirectDestination(dsd128, target))
+        bridge.updateApplicationCurrentness("B", "period-B")
+        val bound = requireNotNull(bridge.bindDirectDestination(dsd128, target))
         val facts = requireNotNull(bound.targetFacts)
         assertEquals(epoch.requestId, bound.requestId)
-        assertTrue(bridge.isCurrentDestination(bound.requestId, facts))
+        assertEquals(target, bound.targetPlaybackIdentity)
+        assertTrue(bridge.isCurrentDestination(bound.requestId, facts, target))
         assertTrue(bridge.complete(bound.requestId, DirectDsdTrackTransportFamily.DOP))
         assertNull(bridge.snapshot())
         assertFalse(bridge.complete(bound.requestId, DirectDsdTrackTransportFamily.DOP))
     }
 
     @Test
+    fun rapidSupersedeRejectsStaleSameFactsPlaybackGeneration() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "period-A")
+        observe(bridge, "period-A", 10)
+        bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+        val latest = bridge.publish(
+            "C",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-C",
+        )
+        bridge.updateApplicationCurrentness("C", "period-C")
+
+        val staleB = identity("period-B", 11)
+        assertNull(bridge.bindDirectDestination(dsd128, staleB))
+        assertNull(bridge.snapshot()?.targetFacts)
+        assertNull(bridge.snapshot()?.targetPlaybackIdentity)
+
+        val trueC = identity("period-C", 12)
+        val bound = requireNotNull(bridge.bindDirectDestination(dsd128, trueC))
+        assertEquals(latest.requestId, bound.requestId)
+        assertEquals(trueC, bound.targetPlaybackIdentity)
+    }
+
+    @Test
+    fun samePeriodUidStillRequiresNewWindowSequenceOccurrence() {
+        val bridge = ManualNavigationTransitionBridge()
+        bridge.updateApplicationCurrentness("A", "shared-period")
+        val oldOccurrence = observe(bridge, "shared-period", 21)
+        bridge.publish(
+            "A-copy",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "shared-period",
+        )
+        bridge.updateApplicationCurrentness("A-copy", "shared-period")
+
+        assertNull(bridge.bindDirectDestination(dsd128, oldOccurrence))
+        val newOccurrence = identity("shared-period", 22)
+        assertEquals(
+            newOccurrence,
+            requireNotNull(bridge.bindDirectDestination(dsd128, newOccurrence)).targetPlaybackIdentity,
+        )
+    }
+
+    @Test
     fun staleOrWrongFamilyCompletionFailsClosed() {
         val bridge = ManualNavigationTransitionBridge()
-        bridge.updateCurrentMediaId("B")
-        val epoch = bridge.publish("B", true, DirectDsdTrackTransportFamily.DOP)
-        val bound = requireNotNull(bridge.bindDirectDestination(dsd128))
+        bridge.updateApplicationCurrentness("A", "period-A")
+        observe(bridge, "period-A", 1)
+        val epoch = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+        bridge.updateApplicationCurrentness("B", "period-B")
+        val bound = requireNotNull(bridge.bindDirectDestination(dsd128, identity("period-B", 2)))
 
         assertFalse(bridge.complete(epoch.requestId + 1, DirectDsdTrackTransportFamily.DOP))
         assertFalse(bridge.complete(bound.requestId, DirectDsdTrackTransportFamily.PCM))
@@ -73,18 +162,22 @@ class ManualNavigationTransitionBridgeTest {
     }
 
     @Test
-    fun pcmDestinationUsesSameEpochAndAbortClearsAuthority() {
+    fun pcmDestinationUsesSamePlaybackGenerationAndAbortClearsAuthority() {
         val bridge = ManualNavigationTransitionBridge()
-        bridge.updateCurrentMediaId("P")
-        val epoch = bridge.publish("P", true, DirectDsdTrackTransportFamily.DOP)
-        val pcm = Format.Builder()
-            .setSampleMimeType("audio/raw")
-            .setSampleRate(96_000)
-            .setChannelCount(2)
-            .build()
+        bridge.updateApplicationCurrentness("D", "period-D")
+        observe(bridge, "period-D", 30)
+        val epoch = bridge.publish(
+            "P",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-P",
+        )
+        bridge.updateApplicationCurrentness("P", "period-P")
+        val target = identity("period-P", 31)
 
-        val bound = requireNotNull(bridge.bindPcmDestination(pcm))
+        val bound = requireNotNull(bridge.bindPcmDestination(pcm96, target))
         assertEquals(epoch.requestId, bound.requestId)
+        assertEquals(target, bound.targetPlaybackIdentity)
         assertEquals(DirectDsdTrackTransportFamily.PCM, bound.targetFacts?.family)
         bridge.abort("stack-rebuild")
         assertNull(bridge.snapshot())
@@ -93,8 +186,15 @@ class ManualNavigationTransitionBridgeTest {
     @Test
     fun applicationThreadPublishesCurrentnessAndPlaybackThreadConsumesOnlyBridgeState() {
         val bridge = ManualNavigationTransitionBridge()
-        bridge.updateCurrentMediaId("A")
-        val epoch = bridge.publish("B", true, DirectDsdTrackTransportFamily.DOP)
+        bridge.updateApplicationCurrentness("A", "period-A")
+        observe(bridge, "period-A", 40)
+        val epoch = bridge.publish(
+            "B",
+            true,
+            DirectDsdTrackTransportFamily.DOP,
+            expectedTargetPeriodUid = "period-B",
+        )
+        val target = identity("period-B", 41)
         val firstPlaybackResult = AtomicReference<ManualNavigationTransitionEpoch?>()
         val secondPlaybackResult = AtomicReference<ManualNavigationTransitionEpoch?>()
         val failure = AtomicReference<Throwable?>()
@@ -103,26 +203,26 @@ class ManualNavigationTransitionBridgeTest {
 
         val playbackThread = Thread({
             try {
-                firstPlaybackResult.set(bridge.bindDirectDestination(dsd128))
+                firstPlaybackResult.set(bridge.bindDirectDestination(dsd128, target))
                 firstDone.countDown()
                 check(applicationDone.await(5, TimeUnit.SECONDS))
-                val bound = bridge.bindDirectDestination(dsd128)
+                val bound = bridge.bindDirectDestination(dsd128, target)
                 secondPlaybackResult.set(bound)
                 val facts = requireNotNull(bound?.targetFacts)
-                check(bridge.isCurrentDestination(epoch.requestId, facts))
+                check(bridge.isCurrentDestination(epoch.requestId, facts, target))
                 check(bridge.complete(epoch.requestId, DirectDsdTrackTransportFamily.DOP))
             } catch (error: Throwable) {
                 failure.set(error)
             }
-        }, "directive64-playback-thread")
+        }, "directive65-playback-thread")
         playbackThread.start()
 
         assertTrue(firstDone.await(5, TimeUnit.SECONDS))
         assertNull(firstPlaybackResult.get())
         val applicationThread = Thread({
-            bridge.updateCurrentMediaId("B")
+            bridge.updateApplicationCurrentness("B", "period-B")
             applicationDone.countDown()
-        }, "directive64-application-thread")
+        }, "directive65-application-thread")
         applicationThread.start()
         applicationThread.join(5_000)
         playbackThread.join(5_000)
@@ -131,4 +231,15 @@ class ManualNavigationTransitionBridgeTest {
         assertEquals(epoch.requestId, secondPlaybackResult.get()?.requestId)
         assertNull(bridge.snapshot())
     }
+
+    private fun observe(
+        bridge: ManualNavigationTransitionBridge,
+        periodUid: Any,
+        windowSequenceNumber: Long,
+    ): ManualNavigationPlaybackIdentity = bridge.observePlaybackStream(
+        MediaSource.MediaPeriodId(periodUid, windowSequenceNumber),
+    )
+
+    private fun identity(periodUid: Any, windowSequenceNumber: Long) =
+        ManualNavigationPlaybackIdentity(periodUid, windowSequenceNumber)
 }

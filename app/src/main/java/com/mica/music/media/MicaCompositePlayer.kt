@@ -10,6 +10,7 @@ import com.mica.music.media.dsd.DirectDsdSeekDiscontinuityCoordinator
 import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.ManualNavigationTransitionEpoch
+import com.mica.music.media.dsd.ManualNavigationTimelinePeriodResolver
 import com.mica.music.util.DiagnosticLog
 import java.util.Locale
 
@@ -134,7 +135,16 @@ class MicaCompositePlayer(
         val switchingItem = targetId != null &&
             (safeIndex != exoPlayer.currentMediaItemIndex || targetId != exoPlayer.currentMediaItem?.mediaId)
         val navigationEpoch = if (switchingItem) {
-            publishManualNavigation(targetId, playWhenReady, "start-existing")
+            publishManualNavigation(
+                targetId,
+                playWhenReady,
+                "start-existing",
+                expectedTargetPeriodUid = ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
+                    exoPlayer.currentTimeline,
+                    safeIndex,
+                    targetId,
+                ),
+            )
         } else {
             null
         }
@@ -182,7 +192,16 @@ class MicaCompositePlayer(
         val switchingItem = targetId != null &&
             (safeIndex != exoPlayer.currentMediaItemIndex || targetId != exoPlayer.currentMediaItem?.mediaId)
         val navigationEpoch = if (switchingItem) {
-            publishManualNavigation(targetId, requestedPlaying = false, seam = "select-existing-without-playback")
+            publishManualNavigation(
+                targetId,
+                requestedPlaying = false,
+                seam = "select-existing-without-playback",
+                expectedTargetPeriodUid = ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
+                    exoPlayer.currentTimeline,
+                    safeIndex,
+                    targetId,
+                ),
+            )
         } else {
             null
         }
@@ -337,16 +356,19 @@ class MicaCompositePlayer(
         targetMediaId: String,
         requestedPlaying: Boolean,
         seam: String,
+        expectedTargetPeriodUid: Any? = null,
     ): ManualNavigationTransitionEpoch {
         val epoch = manualNavigationTransitionBridge.publish(
             targetMediaId = targetMediaId,
             requestedPlaying = requestedPlaying,
             sourceFamily = trackTransitionCoordinator.snapshot().activeFamily,
+            expectedTargetPeriodUid = expectedTargetPeriodUid,
         )
         DiagnosticLog.event(
             "TrackNavigation",
             "dispatch seam=$seam request=${epoch.requestId} target=$targetMediaId " +
-                "playing=$requestedPlaying source=${epoch.sourceFamily}",
+                "playing=$requestedPlaying source=${epoch.sourceFamily} " +
+                "targetPeriodKnown=${epoch.expectedTargetPeriodUid != null}",
         )
         return epoch
     }

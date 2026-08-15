@@ -5,6 +5,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -13,6 +14,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
+import com.mica.music.media.dsd.ManualNavigationTimelinePeriodResolver
 
 @UnstableApi
 internal data class ExoPlaybackStack(
@@ -82,9 +84,24 @@ internal object ExoPlaybackStackFactory {
             trackTransitionCoordinator = trackTransitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
         )
+        fun publishApplicationCurrentness(timeline: Timeline, mediaItem: MediaItem?) {
+            val mediaId = mediaItem?.mediaId
+            val targetPeriodUid = mediaId?.let {
+                ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
+                    timeline = timeline,
+                    windowIndex = exoPlayer.currentMediaItemIndex,
+                    expectedMediaId = it,
+                )
+            }
+            manualNavigationTransitionBridge.updateApplicationCurrentness(mediaId, targetPeriodUid)
+        }
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                manualNavigationTransitionBridge.updateCurrentMediaId(mediaItem?.mediaId)
+                publishApplicationCurrentness(exoPlayer.currentTimeline, mediaItem)
+            }
+
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                publishApplicationCurrentness(timeline, exoPlayer.currentMediaItem)
             }
         })
         return ExoPlaybackStack(

@@ -7,10 +7,14 @@ import java.io.File
 
 class ManualNavigationTransitionStructureTest {
     @Test
-    fun bridgeOwnsLogicalCurrentnessAndNeverCallsPlayerGetters() {
+    fun bridgeOwnsLogicalAndPlaybackCurrentnessWithoutPlayerGetters() {
         val source = source("app/src/main/java/com/mica/music/media/dsd/ManualNavigationTransitionBridge.kt")
         assertTrue(source.contains("private var currentMediaId: String? = null"))
-        assertTrue(source.contains("fun updateCurrentMediaId(mediaId: String?)"))
+        assertTrue(source.contains("private var lastObservedPlaybackIdentity: ManualNavigationPlaybackIdentity? = null"))
+        assertTrue(source.contains("fun updateApplicationCurrentness(mediaId: String?, targetPeriodUid: Any?)"))
+        assertTrue(source.contains("val expectedTargetPeriodUid: Any? = null"))
+        assertTrue(source.contains("val targetPlaybackIdentity: ManualNavigationPlaybackIdentity? = null"))
+        assertTrue(source.contains("windowSequenceNumber"))
         assertFalse(source.contains("ExoPlayer"))
         assertFalse(source.contains("Player."))
         assertFalse(source.contains("currentMediaItem"))
@@ -19,7 +23,7 @@ class ManualNavigationTransitionStructureTest {
     }
 
     @Test
-    fun exoStackSharesOneNavigationBridgeAcrossPlayerAndRenderers() {
+    fun applicationListenerPublishesResolvedSinglePeriodCurrentness() {
         val source = source("app/src/main/java/com/mica/music/media/ExoPlaybackStack.kt")
         assertOrdered(
             source,
@@ -28,19 +32,24 @@ class ManualNavigationTransitionStructureTest {
             "manualNavigationTransitionBridge,",
             "val compositePlayer = MicaCompositePlayer(",
             "manualNavigationTransitionBridge = manualNavigationTransitionBridge",
+            "fun publishApplicationCurrentness(timeline: Timeline, mediaItem: MediaItem?)",
+            "ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(",
+            "manualNavigationTransitionBridge.updateApplicationCurrentness(mediaId, targetPeriodUid)",
             "exoPlayer.addListener(object : Player.Listener",
-            "manualNavigationTransitionBridge.updateCurrentMediaId(mediaItem?.mediaId)",
         )
+        assertTrue(source.contains("override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int)"))
+        assertTrue(source.contains("override fun onTimelineChanged(timeline: Timeline, reason: Int)"))
     }
 
     @Test
-    fun productNavigationPublishesBeforeIndexedExoSeek() {
+    fun existingQueueNavigationPublishesTargetPeriodBeforeIndexedSeek() {
         val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
         val body = source.substringAfter("fun startExistingItem(")
             .substringBefore("fun selectExistingWithoutPlayback")
         assertOrdered(
             body,
-            "publishManualNavigation",
+            "publishManualNavigation(",
+            "expectedTargetPeriodUid = ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(",
             "exoPlayer.seekTo(safeIndex, safePositionMs)",
         )
     }
@@ -71,13 +80,31 @@ class ManualNavigationTransitionStructureTest {
     }
 
     @Test
-    fun freshDirectNavigationCompletesOnlyAfterCurrentnessArmAndCoordinatorAccept() {
+    fun directStreamGenerationObservedBeforeNavigationBinding() {
+        val source = source("app/src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt")
+        val body = source.substringAfter("override fun onStreamChanged(")
+            .substringBefore("transitionCoordinator?.completePcmReleaseForDirectHandoff()")
+        assertOrdered(
+            body,
+            "observePlaybackStream(mediaPeriodId)",
+            "bindDirectDestination(newFacts, it)",
+            "val navigationSnapshot = manualNavigationTransitionBridge?.snapshot()",
+            "if (navigationEpoch == null && navigationSnapshot != null && playbackIdentity != null)",
+        )
+        val waiting = body.substringAfter("if (navigationEpoch == null && navigationSnapshot != null && playbackIdentity != null)")
+            .substringBefore("if (navigationEpoch != null)")
+        assertOrdered(waiting, "MANUAL_NAVIGATION_WAIT_PLAYBACK_IDENTITY", "return")
+    }
+
+    @Test
+    fun freshDirectNavigationCompletesOnlyAfterGenerationCurrentnessArmAndCoordinatorAccept() {
         val source = source("app/src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt")
         val body = source.substringAfter("private fun maybeArmAfterFreshTrackTransition(")
             .substringBefore("override fun onStreamChanged(")
         assertOrdered(
             body,
-            "isCurrentDestination(requestId, navigationFacts)",
+            "val playbackIdentity = checkNotNull(pending.navigationPlaybackIdentity)",
+            "isCurrentDestination(",
             "active.armPlayback()",
             "transitionCoordinator?.beforeDirectAccept(isPlaying = true)",
             "manualNavigationTransitionBridge?.complete(",
@@ -87,27 +114,8 @@ class ManualNavigationTransitionStructureTest {
     }
 
     @Test
-    fun directNavigationWaitsForBridgeOwnedCurrentnessInsteadOfFallingThroughInitial() {
+    fun directRenderWaitsForExactPlaybackGenerationBeforeSourceDrain() {
         val source = source("app/src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt")
-        val streamChanged = source.substringAfter("override fun onStreamChanged(")
-            .substringBefore("private fun resetTrackSourceCounters()")
-        assertOrdered(
-            streamChanged,
-            "val navigationEpoch = manualNavigationTransitionBridge?.bindDirectDestination(newFacts)",
-            "val navigationSnapshot = manualNavigationTransitionBridge?.snapshot()",
-            "if (navigationEpoch == null && navigationSnapshot != null)",
-        )
-        val waiting = streamChanged.substringAfter("if (navigationEpoch == null && navigationSnapshot != null)")
-            .substringBefore("if (navigationEpoch != null)")
-        assertOrdered(
-            waiting,
-            "trackTransition=MANUAL_NAVIGATION_WAIT_CURRENTNESS",
-            "return",
-        )
-        assertTrue(
-            streamChanged.indexOf("if (navigationEpoch == null && navigationSnapshot != null)") <
-                streamChanged.indexOf("DirectDsdTrackTransitionPolicy.decide"),
-        )
         val render = source.substringAfter("override fun render(positionUs: Long, elapsedRealtimeUs: Long)")
             .substringBefore("private fun renderDrainStep")
         assertOrdered(
@@ -115,45 +123,80 @@ class ManualNavigationTransitionStructureTest {
             "refreshPendingNavigationBinding()",
             "drainLoop.drain",
         )
+        val refresh = source.substringAfter("private fun refreshPendingNavigationBinding()")
+            .substringBefore("private fun openPumpIfNeeded")
+        assertOrdered(
+            refresh,
+            "val playbackIdentity = pending.navigationPlaybackIdentity ?: return false",
+            "bridge.isCurrentDestination(requestId, navigationFacts, playbackIdentity)",
+            "bridge.bindDirectDestination(facts, playbackIdentity)",
+        )
     }
 
     @Test
-    fun pcmNavigationCompletesOnlyAfterFamilyAcceptanceAndConfiguration() {
+    fun pcmConfigureFreezesRendererProjectedGenerationBeforeAcceptance() {
         val source = source("app/src/main/java/com/mica/music/media/dsd/TransitionAwarePcmAudioSink.kt")
         val body = source.substringAfter("override fun configure(")
             .substringBefore("override fun handleBuffer")
         assertOrdered(
             body,
-            "bindPcmDestination(inputFormat)",
-            "activeFamily == DirectDsdTrackTransportFamily.DOP",
+            "val playbackIdentity = playbackPeriodProjection.snapshot()",
+            "bindPcmDestination(inputFormat, playbackIdentity)",
+            "val navigationSnapshot = manualNavigationTransitionBridge.snapshot()",
+            "pendingConfiguration = PendingConfiguration(",
+            "playbackIdentity = playbackIdentity",
+            "return",
             "beforePcmAccept(",
+            "super.configure(",
+            "manualNavigationTransitionBridge.complete(",
+        )
+        val activation = source.substringAfter("private fun activatePendingConfiguration(")
+        assertOrdered(
+            activation,
+            "bindPcmDestination(",
+            "pending.playbackIdentity",
+            "bound.requestId != requestId",
+            "beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)",
             "super.configure(",
             "manualNavigationTransitionBridge.complete(",
         )
     }
 
     @Test
-    fun pcmNavigationWaitsForLogicalCurrentnessBeforeFamilyAcceptance() {
-        val source = source("app/src/main/java/com/mica/music/media/dsd/TransitionAwarePcmAudioSink.kt")
-        val configure = source.substringAfter("override fun configure(")
-            .substringBefore("override fun handleBuffer")
+    fun ffmpegAndPlatformRenderersProjectPeriodBeforeSinkCanConfigure() {
+        val ffmpeg = source("third_party/media3-ffmpeg-decoder/src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.java")
+        val ffmpegStream = ffmpeg.substringAfter("protected void onStreamChanged(")
+            .substringBefore("protected @C.FormatSupport int supportsFormatInternal")
         assertOrdered(
-            configure,
-            "bindPcmDestination(inputFormat)",
-            "val navigationSnapshot = manualNavigationTransitionBridge.snapshot()",
-            "navigationEpoch == null && navigationSnapshot != null",
-            "pendingConfiguration = PendingConfiguration(",
-            "return",
-            "beforePcmAccept(",
+            ffmpegStream,
+            "streamPeriodObserver.onStreamChanged(mediaPeriodId)",
+            "super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId)",
         )
-        val activation = source.substringAfter("private fun activatePendingConfiguration(")
+
+        val platform = source("app/src/main/java/com/mica/music/media/PeriodAwareMediaCodecAudioRenderer.kt")
+        val platformStream = platform.substringAfter("override fun onStreamChanged(")
+            .substringBefore("override fun onDisabled()")
         assertOrdered(
-            activation,
-            "bindPcmDestination(pending.format)",
-            "bound.requestId != requestId",
-            "beforePcmAccept(isPlaying = pending.navigationRequestedPlaying)",
-            "super.configure(",
-            "manualNavigationTransitionBridge.complete(",
+            platformStream,
+            "playbackPeriodProjection.onStreamChanged(mediaPeriodId)",
+            "super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId)",
+        )
+    }
+
+    @Test
+    fun rendererFactoryKeepsPeriodProjectionPerRendererAndReplacesPlatformInPlace() {
+        val source = source("app/src/main/java/com/mica/music/media/MicaRenderersFactory.kt")
+        assertTrue(source.contains("val dsdPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
+        assertTrue(source.contains("val pcmPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
+        assertTrue(source.contains("FfmpegAudioRenderer.StreamPeriodObserver(dsdPeriodProjection::onStreamChanged)"))
+        assertTrue(source.contains("FfmpegAudioRenderer.StreamPeriodObserver(pcmPeriodProjection::onStreamChanged)"))
+        val replace = source.substringAfter("private fun replacePlatformAudioRenderer(")
+            .substringBefore("private fun buildUnifiedFixedChain")
+        assertOrdered(
+            replace,
+            "out.indexOfFirst",
+            "out[index] = PeriodAwareMediaCodecAudioRenderer(",
+            "platformPlaybackPeriodProjection",
         )
     }
 
@@ -182,7 +225,7 @@ class ManualNavigationTransitionStructureTest {
     }
 
     private fun source(path: String): String {
-        val candidates = listOf(path, path.removePrefix("app/"))
+        val candidates = listOf(path, path.removePrefix("app/"), "../$path")
         return candidates.asSequence().map(::File).firstOrNull(File::isFile)?.readText()
             ?: error("source file missing: ${candidates.joinToString()}")
     }

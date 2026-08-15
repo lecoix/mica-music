@@ -2,6 +2,8 @@ package com.mica.music.media.dsd
 
 import android.util.Log
 import androidx.media3.common.Format
+import androidx.media3.common.Timeline
+import androidx.media3.exoplayer.source.MediaSource
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 
 data class ManualNavigationDestinationFacts(
@@ -11,13 +13,45 @@ data class ManualNavigationDestinationFacts(
     val formatIdentity: String,
 )
 
+data class ManualNavigationPlaybackIdentity(
+    val periodUid: Any,
+    val windowSequenceNumber: Long,
+) {
+    companion object {
+        fun from(mediaPeriodId: MediaSource.MediaPeriodId): ManualNavigationPlaybackIdentity =
+            ManualNavigationPlaybackIdentity(
+                periodUid = mediaPeriodId.periodUid,
+                windowSequenceNumber = mediaPeriodId.windowSequenceNumber,
+            )
+    }
+}
+
 data class ManualNavigationTransitionEpoch(
     val requestId: Long,
     val targetMediaId: String,
     val requestedPlaying: Boolean,
     val sourceFamily: DirectDsdTrackTransportFamily,
+    val sourcePlaybackIdentity: ManualNavigationPlaybackIdentity? = null,
+    val expectedTargetPeriodUid: Any? = null,
+    val targetPlaybackIdentity: ManualNavigationPlaybackIdentity? = null,
     val targetFacts: ManualNavigationDestinationFacts? = null,
 )
+
+object ManualNavigationTimelinePeriodResolver {
+    fun resolveSinglePeriodUid(
+        timeline: Timeline,
+        windowIndex: Int,
+        expectedMediaId: String,
+    ): Any? {
+        if (windowIndex !in 0 until timeline.windowCount) return null
+        val window = timeline.getWindow(windowIndex, Timeline.Window())
+        if (window.mediaItem.mediaId != expectedMediaId) return null
+        if (window.firstPeriodIndex != window.lastPeriodIndex) return null
+        val period = timeline.getPeriod(window.firstPeriodIndex, Timeline.Period(), true)
+        if (period.windowIndex != windowIndex || period.isPlaceholder) return null
+        return period.uid
+    }
+}
 
 /**
  * Per-Exo-stack authority for explicit cross-item navigation that may retire/recreate renderers.
@@ -30,12 +64,28 @@ class ManualNavigationTransitionBridge(
     private var nextRequestId = 0L
     private var active: ManualNavigationTransitionEpoch? = null
     private var currentMediaId: String? = null
+    private var lastObservedPlaybackIdentity: ManualNavigationPlaybackIdentity? = null
 
     @Synchronized
-    fun updateCurrentMediaId(mediaId: String?) {
-        if (currentMediaId == mediaId) return
+    fun updateApplicationCurrentness(mediaId: String?, targetPeriodUid: Any?) {
+        val previousMediaId = currentMediaId
         currentMediaId = mediaId
-        milestone("navigationTransition=current-media target=${mediaId ?: "none"}")
+        val epoch = active
+        if (
+            epoch != null &&
+            epoch.targetMediaId == mediaId &&
+            epoch.expectedTargetPeriodUid == null &&
+            targetPeriodUid != null
+        ) {
+            active = epoch.copy(expectedTargetPeriodUid = targetPeriodUid)
+            milestone(
+                "navigationTransition=target-period-resolved request=${epoch.requestId} " +
+                    "target=${epoch.targetMediaId}",
+            )
+        }
+        if (previousMediaId != mediaId) {
+            milestone("navigationTransition=current-media target=${mediaId ?: "none"}")
+        }
     }
 
     @Synchronized
@@ -43,6 +93,7 @@ class ManualNavigationTransitionBridge(
         targetMediaId: String,
         requestedPlaying: Boolean,
         sourceFamily: DirectDsdTrackTransportFamily,
+        expectedTargetPeriodUid: Any? = null,
     ): ManualNavigationTransitionEpoch {
         require(targetMediaId.isNotBlank())
         val previous = active
@@ -51,14 +102,24 @@ class ManualNavigationTransitionBridge(
             targetMediaId = targetMediaId,
             requestedPlaying = requestedPlaying,
             sourceFamily = sourceFamily,
+            sourcePlaybackIdentity = lastObservedPlaybackIdentity,
+            expectedTargetPeriodUid = expectedTargetPeriodUid,
         )
         active = epoch
         milestone(
             "navigationTransition=published request=${epoch.requestId} target=${epoch.targetMediaId} " +
                 "playing=${epoch.requestedPlaying} source=${epoch.sourceFamily} " +
+                "targetPeriodKnown=${epoch.expectedTargetPeriodUid != null} " +
                 "superseded=${previous?.requestId ?: -1L}",
         )
         return epoch
+    }
+
+    @Synchronized
+    fun observePlaybackStream(mediaPeriodId: MediaSource.MediaPeriodId): ManualNavigationPlaybackIdentity {
+        val identity = ManualNavigationPlaybackIdentity.from(mediaPeriodId)
+        lastObservedPlaybackIdentity = identity
+        return identity
     }
 
     @Synchronized
@@ -70,35 +131,46 @@ class ManualNavigationTransitionBridge(
     }
 
     @Synchronized
-    fun bindDirectDestination(facts: DsfExtractorPacketFacts): ManualNavigationTransitionEpoch? =
-        bindDestination(
-            ManualNavigationDestinationFacts(
-                family = DirectDsdTrackTransportFamily.DOP,
-                sampleRateHz = facts.sourceSampleRateHz,
-                channelCount = facts.channelCount,
-                formatIdentity = "dsf:${facts.sourceSampleRateHz}:${facts.channelCount}:${facts.sourceBitOrder}",
-            ),
-        )
+    fun bindDirectDestination(
+        facts: DsfExtractorPacketFacts,
+        playbackIdentity: ManualNavigationPlaybackIdentity,
+    ): ManualNavigationTransitionEpoch? = bindDestination(
+        ManualNavigationDestinationFacts(
+            family = DirectDsdTrackTransportFamily.DOP,
+            sampleRateHz = facts.sourceSampleRateHz,
+            channelCount = facts.channelCount,
+            formatIdentity = "dsf:${facts.sourceSampleRateHz}:${facts.channelCount}:${facts.sourceBitOrder}",
+        ),
+        playbackIdentity,
+    )
 
     @Synchronized
-    fun bindPcmDestination(format: Format): ManualNavigationTransitionEpoch? =
-        bindDestination(
+    fun bindPcmDestination(
+        format: Format,
+        playbackIdentity: ManualNavigationPlaybackIdentity?,
+    ): ManualNavigationTransitionEpoch? {
+        if (playbackIdentity == null) return null
+        return bindDestination(
             ManualNavigationDestinationFacts(
                 family = DirectDsdTrackTransportFamily.PCM,
                 sampleRateHz = format.sampleRate,
                 channelCount = format.channelCount,
                 formatIdentity = format.sampleMimeType ?: format.codecs ?: "pcm",
             ),
+            playbackIdentity,
         )
+    }
 
     @Synchronized
     fun isCurrentDestination(
         requestId: Long,
         facts: ManualNavigationDestinationFacts,
+        playbackIdentity: ManualNavigationPlaybackIdentity,
     ): Boolean {
         val epoch = active ?: return false
         return epoch.requestId == requestId &&
             epoch.targetFacts == facts &&
+            epoch.targetPlaybackIdentity == playbackIdentity &&
             currentMediaId == epoch.targetMediaId
     }
 
@@ -110,6 +182,7 @@ class ManualNavigationTransitionBridge(
         val epoch = active ?: return false
         if (epoch.requestId != requestId) return false
         if (epoch.targetFacts?.family != family) return false
+        if (epoch.targetPlaybackIdentity == null) return false
         if (currentMediaId != epoch.targetMediaId) return false
         active = null
         milestone("navigationTransition=completed request=$requestId family=$family")
@@ -134,22 +207,27 @@ class ManualNavigationTransitionBridge(
     @Synchronized
     fun snapshot(): ManualNavigationTransitionEpoch? = active
 
-    @Synchronized
-    fun isTargetCurrent(requestId: Long): Boolean {
-        val epoch = active ?: return false
-        return epoch.requestId == requestId && currentMediaId == epoch.targetMediaId
-    }
-
     private fun bindDestination(
         facts: ManualNavigationDestinationFacts,
+        playbackIdentity: ManualNavigationPlaybackIdentity,
     ): ManualNavigationTransitionEpoch? {
         val epoch = active ?: return null
         if (currentMediaId != epoch.targetMediaId) return null
-        val bound = epoch.copy(targetFacts = facts)
+        val expectedPeriodUid = epoch.expectedTargetPeriodUid ?: return null
+        if (expectedPeriodUid != playbackIdentity.periodUid) return null
+        if (epoch.sourcePlaybackIdentity == playbackIdentity) return null
+        val targetPlaybackIdentity = epoch.targetPlaybackIdentity
+        if (targetPlaybackIdentity != null && targetPlaybackIdentity != playbackIdentity) return null
+        if (epoch.targetFacts != null && epoch.targetFacts != facts) return null
+        val bound = epoch.copy(
+            targetPlaybackIdentity = targetPlaybackIdentity ?: playbackIdentity,
+            targetFacts = facts,
+        )
         active = bound
         milestone(
             "navigationTransition=destination-bound request=${bound.requestId} " +
-                "family=${facts.family} rate=${facts.sampleRateHz} channels=${facts.channelCount}",
+                "family=${facts.family} rate=${facts.sampleRateHz} channels=${facts.channelCount} " +
+                "windowSequence=${playbackIdentity.windowSequenceNumber}",
         )
         return bound
     }

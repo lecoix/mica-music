@@ -30,15 +30,22 @@ import androidx.media3.common.util.TraceUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.decoder.CryptoConfig;
+import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.AudioSink.SinkFormatSupport;
 import androidx.media3.exoplayer.audio.DecoderAudioRenderer;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
+import androidx.media3.exoplayer.source.MediaSource;
 
 /** Decodes and renders audio using FFmpeg. */
 @UnstableApi
 public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioDecoder> {
+
+  /** Optional Mica seam for projecting the authoritative playback-period identity before decode. */
+  public interface StreamPeriodObserver {
+    void onStreamChanged(MediaSource.MediaPeriodId mediaPeriodId);
+  }
 
   private static final String TAG = "FfmpegAudioRenderer";
 
@@ -53,6 +60,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
   @Nullable private final String micaRole;
   @Nullable private final FfmpegFormatPolicy micaPolicy;
   private final boolean preferPcm32ForHighResolution;
+  @Nullable private final StreamPeriodObserver streamPeriodObserver;
 
   public FfmpegAudioRenderer() {
     this(/* eventHandler= */ null, /* eventListener= */ null);
@@ -128,15 +136,48 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       @Nullable String micaRole,
       @Nullable FfmpegFormatPolicy micaPolicy,
       boolean preferPcm32ForHighResolution) {
+    this(
+        eventHandler,
+        eventListener,
+        audioSink,
+        micaRole,
+        micaPolicy,
+        preferPcm32ForHighResolution,
+        /* streamPeriodObserver= */ null);
+  }
+
+  /** Mica navigation-generation constructor; old constructors retain identical behaviour. */
+  public FfmpegAudioRenderer(
+      @Nullable Handler eventHandler,
+      @Nullable AudioRendererEventListener eventListener,
+      AudioSink audioSink,
+      @Nullable String micaRole,
+      @Nullable FfmpegFormatPolicy micaPolicy,
+      boolean preferPcm32ForHighResolution,
+      @Nullable StreamPeriodObserver streamPeriodObserver) {
     super(eventHandler, eventListener, audioSink);
     this.micaRole = micaRole;
     this.micaPolicy = micaPolicy;
     this.preferPcm32ForHighResolution = preferPcm32ForHighResolution;
+    this.streamPeriodObserver = streamPeriodObserver;
   }
 
   @Override
   public String getName() {
     return micaRole == null ? TAG : TAG + "[" + micaRole + "]";
+  }
+
+  @Override
+  protected void onStreamChanged(
+      Format[] formats,
+      long startPositionUs,
+      long offsetUs,
+      MediaSource.MediaPeriodId mediaPeriodId)
+      throws ExoPlaybackException {
+    if (streamPeriodObserver != null) {
+      streamPeriodObserver.onStreamChanged(mediaPeriodId);
+    }
+    super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
   }
 
   @Override

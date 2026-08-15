@@ -15,6 +15,8 @@ internal class TransitionAwarePcmAudioSink(
     delegate: AudioSink,
     private val transitionCoordinator: DirectDsdTrackTransitionCoordinator,
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
+    private val playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection =
+        ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge),
 ) : ForwardingAudioSink(delegate) {
     private data class PendingConfiguration(
         val format: Format,
@@ -23,6 +25,7 @@ internal class TransitionAwarePcmAudioSink(
         val requiresResumeAuthority: Boolean,
         val navigationRequestId: Long?,
         val navigationRequestedPlaying: Boolean,
+        val playbackIdentity: ManualNavigationPlaybackIdentity?,
     )
 
     private var pendingConfiguration: PendingConfiguration? = null
@@ -33,7 +36,8 @@ internal class TransitionAwarePcmAudioSink(
         specifiedBufferSize: Int,
         outputChannels: IntArray?,
     ) {
-        val navigationEpoch = manualNavigationTransitionBridge.bindPcmDestination(inputFormat)
+        val playbackIdentity = playbackPeriodProjection.snapshot()
+        val navigationEpoch = manualNavigationTransitionBridge.bindPcmDestination(inputFormat, playbackIdentity)
         val navigationSnapshot = manualNavigationTransitionBridge.snapshot()
         val requiresResumeAuthority = transitionCoordinator.shouldDeferPcmUntilResume()
         if (
@@ -49,9 +53,12 @@ internal class TransitionAwarePcmAudioSink(
                 requiresResumeAuthority = requiresResumeAuthority,
                 navigationRequestId = effectiveNavigationEpoch?.requestId,
                 navigationRequestedPlaying = effectiveNavigationEpoch?.requestedPlaying ?: true,
+                playbackIdentity = playbackIdentity,
             )
             return
         }
+        pendingConfiguration = null
+        playRequestedWhilePending = false
         transitionCoordinator.onPcmActivity()
         transitionCoordinator.beforePcmAccept(isPlaying = navigationEpoch?.requestedPlaying ?: true)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
@@ -118,7 +125,10 @@ internal class TransitionAwarePcmAudioSink(
         if (pending.requiresResumeAuthority && !resumeAuthority) return false
         if (transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP) return false
         pending.navigationRequestId?.let { requestId ->
-            val bound = manualNavigationTransitionBridge.bindPcmDestination(pending.format) ?: return false
+            val bound = manualNavigationTransitionBridge.bindPcmDestination(
+                pending.format,
+                pending.playbackIdentity,
+            ) ?: return false
             if (bound.requestId != requestId) return false
         }
         transitionCoordinator.onPcmActivity()
