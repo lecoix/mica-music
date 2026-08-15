@@ -3,6 +3,8 @@ package com.mica.music.media.dsd
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
 import java.nio.ByteBuffer
 
 /**
@@ -17,6 +19,7 @@ internal class TransitionAwarePcmAudioSink(
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
     private val playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection =
         ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge),
+    private val shadowAdapter: UsbExclusiveShadowAdapter? = null,
 ) : ForwardingAudioSink(delegate) {
     private data class PendingConfiguration(
         val format: Format,
@@ -36,6 +39,11 @@ internal class TransitionAwarePcmAudioSink(
         outputChannels: IntArray?,
     ) {
         val playbackIdentity = playbackPeriodProjection.snapshot()
+        val shadowOccurrence = UsbExclusiveShadowMedia3Facts.occurrence(playbackIdentity)
+        shadowAdapter?.observePcmConfigureAttempt(
+            shadowOccurrence,
+            UsbExclusiveShadowMedia3Facts.audio(inputFormat, "pcm-configure"),
+        )
         val navigationEpoch = manualNavigationTransitionBridge.bindPcmDestination(inputFormat, playbackIdentity)
         val navigationSnapshot = manualNavigationTransitionBridge.snapshot()
         val requiresResumeAuthority = transitionCoordinator.shouldDeferPcmUntilResume()
@@ -60,6 +68,7 @@ internal class TransitionAwarePcmAudioSink(
         transitionCoordinator.onPcmActivity()
         transitionCoordinator.beforePcmAccept(isPlaying = navigationEpoch?.requestedPlaying ?: true)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
+        shadowAdapter?.observePcmConfigureCompleted(shadowOccurrence)
         navigationEpoch?.let {
             check(
                 manualNavigationTransitionBridge.complete(
@@ -139,6 +148,9 @@ internal class TransitionAwarePcmAudioSink(
             pending.format,
             pending.specifiedBufferSize,
             pending.outputChannels,
+        )
+        shadowAdapter?.observePcmConfigureCompleted(
+            UsbExclusiveShadowMedia3Facts.occurrence(pending.playbackIdentity),
         )
         pendingConfiguration = null
         requestId?.let {

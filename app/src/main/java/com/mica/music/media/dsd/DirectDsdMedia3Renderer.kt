@@ -11,6 +11,12 @@ import androidx.media3.exoplayer.RendererCapabilities
 import androidx.media3.exoplayer.source.MediaSource
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.dsf.DsfFormat
+import com.mica.music.media.usb.protocol.DirectStage
+import com.mica.music.media.usb.protocol.PlaybackFamily
+import com.mica.music.media.usb.protocol.PlaybackOccurrence
+import com.mica.music.media.usb.protocol.RuntimeIdentity
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
 
 object DirectDsdMedia3FormatPolicy {
     private val prototypeRates = setOf(2_822_400, 5_644_800)
@@ -159,6 +165,11 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private val transitionCoordinator: DirectDsdTrackTransitionCoordinator? = null,
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge? = null,
 ) : BaseRenderer(C.TRACK_TYPE_AUDIO) {
+    private var shadowAdapter: UsbExclusiveShadowAdapter? = null
+    internal fun installUsbExclusiveShadowAdapter(adapter: UsbExclusiveShadowAdapter?) {
+        shadowAdapter = adapter
+    }
+
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
     private val drainLoop = DirectDsdRenderDrainLoop(MAX_SOURCE_READS_PER_RENDER)
     private val timing = DirectDsdRenderTimingAccumulator(monotonicClock)
@@ -167,6 +178,12 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private var nextSessionGeneration = 0L
     private var activeSessionGeneration: DirectDsdSessionGeneration? = null
     private var currentFormat: Format? = null
+    private var shadowOccurrence: PlaybackOccurrence? = null
+    private var shadowRuntimeOccurrence: PlaybackOccurrence? = null
+    private var shadowRuntimeIdentity: RuntimeIdentity? = null
+    private var shadowPrefillReported = false
+    private var shadowArmReported = false
+    private var shadowSourceAcceptReported = false
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
     private var ended = false
@@ -529,9 +546,23 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             rendererGeneration = rendererGeneration,
             sessionGeneration = ++nextSessionGeneration,
         )
+        val shadowRuntime = RuntimeIdentity(
+            "direct:$rendererGeneration:${sessionGeneration.sessionGeneration}",
+        )
         return freshPump.also {
             pump = freshPump
             activeSessionGeneration = sessionGeneration
+            shadowRuntimeOccurrence = shadowOccurrence
+            shadowRuntimeIdentity = shadowRuntime
+            shadowPrefillReported = false
+            shadowArmReported = false
+            shadowSourceAcceptReported = false
+            shadowAdapter?.observeDirectStage(
+                shadowOccurrence,
+                DirectStage.CREATE_RUNTIME,
+                shadowRuntime,
+                completed = true,
+            )
             DirectDsdSeekDiscontinuityCoordinator.activateSession(sessionGeneration)
             check(
                 DirectDsdTeardownQuiescenceCoordinator.register(sessionGeneration) {
@@ -557,13 +588,49 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         }
     }
 
+    private fun observeShadowPrefillIfReady(active: DirectDsdRendererPump) {
+        if (shadowPrefillReported || !active.isStartupPrefillReady()) return
+        val runtime = shadowRuntimeIdentity ?: return
+        shadowPrefillReported = true
+        shadowAdapter?.observeDirectStage(
+            shadowOccurrence,
+            DirectStage.PREFILL,
+            runtime,
+            completed = true,
+        )
+    }
+
+    private fun observeShadowArmAndSourceAccept() {
+        val runtime = shadowRuntimeIdentity ?: return
+        if (!shadowArmReported) {
+            shadowArmReported = true
+            shadowAdapter?.observeDirectStage(
+                shadowOccurrence,
+                DirectStage.ARM,
+                runtime,
+                completed = true,
+            )
+        }
+        if (!shadowSourceAcceptReported) {
+            shadowSourceAcceptReported = true
+            shadowAdapter?.observeDirectStage(
+                shadowOccurrence,
+                DirectStage.SOURCE_ACCEPT,
+                runtime,
+                completed = true,
+            )
+        }
+    }
+
     private fun maybeArmAfterPlayingReset(active: DirectDsdRendererPump, sampleTimeUs: Long?): Boolean {
         val resetPositionUs = positionResetState.postResetArmPositionUsIfReady(
             startupReady = active.isStartupPrefillReady(),
             playbackArmed = active.isPlaybackArmed(),
         ) ?: return false
+        observeShadowPrefillIfReady(active)
         active.armPlayback()
         check(active.isPlaybackArmed())
+        observeShadowArmAndSourceAccept()
         positionResetState.markPostResetArmed(resetPositionUs)
         milestone(
             "renderer=post-reset-arm positionUs=$resetPositionUs " +
@@ -598,8 +665,10 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 ) == true,
             ) { "fresh Direct arm for stale manual-navigation epoch" }
         }
+        observeShadowPrefillIfReady(active)
         active.armPlayback()
         check(active.isPlaybackArmed())
+        observeShadowArmAndSourceAccept()
         transitionCoordinator?.beforeDirectAccept(isPlaying = true)
         pending.navigationRequestId?.let { requestId ->
             check(
@@ -627,6 +696,14 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     ) {
         val newFormat = formats.firstOrNull { DirectDsdMedia3FormatPolicy.factsOrNull(it) != null } ?: return
         val newFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(newFormat))
+        val rawOccurrence = UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId)
+        shadowOccurrence = rawOccurrence
+        shadowAdapter?.observeStream(
+            rawOccurrence,
+            PlaybackFamily.DOP,
+            UsbExclusiveShadowMedia3Facts.audio(newFormat, "direct-dop") +
+                ";sourceRate=${newFacts.sourceSampleRateHz};bitOrder=${newFacts.sourceBitOrder}",
+        )
         val active = pump
         val playing = state == Renderer.STATE_STARTED
         val playbackIdentity = manualNavigationTransitionBridge?.observePlaybackStream(mediaPeriodId)
@@ -833,6 +910,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     override fun onStarted() {
         try {
+            shadowAdapter?.observeDirectStarted(shadowOccurrence)
             transitionCoordinator?.onDirectPlayState(paused = false)
             pendingFreshDirectDestination?.let { pending ->
                 if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) {
@@ -870,6 +948,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 }
             } else {
                 check(active.isStartupPrefillReady()) { "Direct DSD renderer started before startup prefill" }
+                observeShadowPrefillIfReady(active)
                 val armedFromPlayingReset = maybeArmAfterPlayingReset(active, sampleTimeUs = null)
                 if (!armedFromPlayingReset) {
                     val armedFromTrackTransition = maybeArmAfterFreshTrackTransition(active, sampleTimeUs = null)
@@ -878,6 +957,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                         check(active.isPlaybackArmed())
                     }
                 }
+                if (active.isPlaybackArmed()) observeShadowArmAndSourceAccept()
                 milestone("renderer=started armed=true resumed=false postReset=$armedFromPlayingReset")
             }
         } catch (error: Throwable) {
@@ -891,6 +971,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     override fun onStopped() {
         try {
+            shadowAdapter?.observeDirectStopped(shadowOccurrence)
             val navigationRetirement = manualNavigationTransitionBridge?.observeDirectRetirementStop()
             if (navigationRetirement != null) {
                 navigationRetirementRequestedPaused = !navigationRetirement.requestedPlaying
@@ -950,6 +1031,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         val oldArmed = oldPump?.isPlaybackArmed() == true
         val streamOffsetUs = getStreamOffsetUs()
         val sourcePositionUs = positionUs - streamOffsetUs
+        shadowAdapter?.observeDirectPositionReset(shadowOccurrence, sourcePositionUs)
         val seekDecision = activeSessionGeneration?.let { sessionGeneration ->
             DirectDsdSeekDiscontinuityCoordinator.consumePositionReset(
                 session = sessionGeneration,
@@ -1022,6 +1104,8 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private fun closePump(reason: String) {
         val closingPump = pump
         val closingGeneration = activeSessionGeneration
+        val closingShadowOccurrence = shadowRuntimeOccurrence
+        val closingShadowRuntime = shadowRuntimeIdentity
         pump = null
         activeSessionGeneration = null
         closingGeneration?.let { generation ->
@@ -1030,7 +1114,19 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         }
         try {
             closingPump?.close()
+            if (closingPump != null && closingShadowRuntime != null) {
+                shadowAdapter?.observeDirectRuntimeReleased(
+                    closingShadowOccurrence,
+                    closingShadowRuntime,
+                    reason,
+                )
+            }
         } finally {
+            shadowRuntimeOccurrence = null
+            shadowRuntimeIdentity = null
+            shadowPrefillReported = false
+            shadowArmReported = false
+            shadowSourceAcceptReported = false
             milestone("renderer=close reason=$reason")
         }
     }

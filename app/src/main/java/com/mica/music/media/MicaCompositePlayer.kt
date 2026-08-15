@@ -11,6 +11,7 @@ import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.ManualNavigationTransitionEpoch
 import com.mica.music.media.dsd.ManualNavigationTimelinePeriodResolver
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowStack
 import com.mica.music.util.DiagnosticLog
 import java.util.Locale
 
@@ -34,6 +35,11 @@ class MicaCompositePlayer(
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
     private val beforePlaybackStart: () -> Unit = {},
 ) : ForwardingPlayer(exoPlayer) {
+
+    private var shadowStack: UsbExclusiveShadowStack? = null
+    internal fun installUsbExclusiveShadowStack(stack: UsbExclusiveShadowStack?) {
+        shadowStack = stack
+    }
 
     private var requestedVolume = 1f
     private var replayGainVolume = 1f
@@ -153,6 +159,9 @@ class MicaCompositePlayer(
             exoPlayer.playWhenReady = false
         }
         beforePlaybackStart()
+        if (safeIndex == exoPlayer.currentMediaItemIndex) {
+            shadowStack?.observeSeekDispatch(safePositionMs * 1_000L)
+        }
         val seekIntent = if (
             playWhenReady && exoPlayer.isPlaying && safeIndex == exoPlayer.currentMediaItemIndex
         ) {
@@ -313,6 +322,7 @@ class MicaCompositePlayer(
 
     override fun seekTo(positionMs: Long) {
         val safePositionMs = positionMs.coerceAtLeast(0L)
+        shadowStack?.observeSeekDispatch(safePositionMs * 1_000L)
         val seekIntent = if (exoPlayer.isPlaying) {
             DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek(safePositionMs)
         } else {
@@ -374,12 +384,14 @@ class MicaCompositePlayer(
         seam: String,
         expectedTargetPeriodUid: Any? = null,
     ): ManualNavigationTransitionEpoch {
+        shadowStack?.observeManualNavigation(targetMediaId, seam)
         val epoch = manualNavigationTransitionBridge.publish(
             targetMediaId = targetMediaId,
             requestedPlaying = requestedPlaying,
             sourceFamily = trackTransitionCoordinator.snapshot().activeFamily,
             expectedTargetPeriodUid = expectedTargetPeriodUid,
         )
+        shadowStack?.observeLegacyNavigationCorrelation(epoch.requestId)
         DiagnosticLog.event(
             "TrackNavigation",
             "dispatch seam=$seam request=${epoch.requestId} target=$targetMediaId " +

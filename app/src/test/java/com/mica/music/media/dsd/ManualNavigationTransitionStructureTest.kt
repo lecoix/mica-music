@@ -243,7 +243,7 @@ class ManualNavigationTransitionStructureTest {
             .substringBefore("protected @C.FormatSupport int supportsFormatInternal")
         assertOrdered(
             ffmpegStream,
-            "streamPeriodObserver.onStreamChanged(mediaPeriodId)",
+            "streamPeriodObserver.onStreamChanged(formats, mediaPeriodId)",
             "super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId)",
         )
 
@@ -262,8 +262,10 @@ class ManualNavigationTransitionStructureTest {
         val source = source("app/src/main/java/com/mica/music/media/MicaRenderersFactory.kt")
         assertTrue(source.contains("val dsdPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
         assertTrue(source.contains("val pcmPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
-        assertTrue(source.contains("FfmpegAudioRenderer.StreamPeriodObserver(dsdPeriodProjection::onStreamChanged)"))
-        assertTrue(source.contains("FfmpegAudioRenderer.StreamPeriodObserver(pcmPeriodProjection::onStreamChanged)"))
+        assertTrue(source.contains("ffmpegDsdShadowAdapter?.observeStream("))
+        assertTrue(source.contains("dsdPeriodProjection.onStreamChanged(mediaPeriodId)"))
+        assertTrue(source.contains("ffmpegPcmShadowAdapter?.observeStream("))
+        assertTrue(source.contains("pcmPeriodProjection.onStreamChanged(mediaPeriodId)"))
         val replace = source.substringAfter("private fun replacePlatformAudioRenderer(")
             .substringBefore("private fun buildUnifiedFixedChain")
         assertOrdered(

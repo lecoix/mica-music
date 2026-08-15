@@ -44,7 +44,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
 
   /** Optional Mica seam for projecting the authoritative playback-period identity before decode. */
   public interface StreamPeriodObserver {
-    void onStreamChanged(MediaSource.MediaPeriodId mediaPeriodId);
+    void onStreamChanged(Format[] formats, MediaSource.MediaPeriodId mediaPeriodId);
   }
 
   private static final String TAG = "FfmpegAudioRenderer";
@@ -175,7 +175,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       MediaSource.MediaPeriodId mediaPeriodId)
       throws ExoPlaybackException {
     if (streamPeriodObserver != null) {
-      streamPeriodObserver.onStreamChanged(mediaPeriodId);
+      streamPeriodObserver.onStreamChanged(formats, mediaPeriodId);
     }
     super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
   }

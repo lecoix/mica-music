@@ -19,6 +19,11 @@ import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.ManualNavigationPlaybackPeriodProjection
 import com.mica.music.media.dsd.TransitionAwarePcmAudioSink
+import com.mica.music.media.usb.protocol.PlaybackFamily
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapterKind
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowStack
 import java.util.ArrayList
 
 @UnstableApi
@@ -27,10 +32,23 @@ internal class MicaRenderersFactory(
     private val outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
     private val trackTransitionCoordinator: DirectDsdTrackTransitionCoordinator = DirectDsdTrackTransitionCoordinator(),
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
+    private val shadowStack: UsbExclusiveShadowStack? = null,
 ) : DefaultRenderersFactory(context) {
 
     private val platformPlaybackPeriodProjection =
         ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)
+    private val platformShadowAdapter: UsbExclusiveShadowAdapter? by lazy {
+        shadowStack?.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+    }
+    private val ffmpegPcmShadowAdapter: UsbExclusiveShadowAdapter? by lazy {
+        shadowStack?.newAdapter(UsbExclusiveShadowAdapterKind.FFMPEG_PCM)
+    }
+    private val ffmpegDsdShadowAdapter: UsbExclusiveShadowAdapter? by lazy {
+        shadowStack?.newAdapter(UsbExclusiveShadowAdapterKind.FFMPEG_DSD_PCM)
+    }
+    private val directShadowAdapter: UsbExclusiveShadowAdapter? by lazy {
+        shadowStack?.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+    }
 
     private val alacBlockingSelector = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
         if (mimeType == MimeTypes.AUDIO_ALAC) {
@@ -69,6 +87,7 @@ internal class MicaRenderersFactory(
                     enableFloatOutput = enableFloatOutput,
                 ),
                 platformPlaybackPeriodProjection,
+                platformShadowAdapter,
             )
         }
         val processorChain = buildUnifiedFixedChain(context)
@@ -85,6 +104,7 @@ internal class MicaRenderersFactory(
                 .setAudioProcessorChain(processorChain)
                 .build(),
             platformPlaybackPeriodProjection,
+            platformShadowAdapter,
         )
     }
 
@@ -158,6 +178,7 @@ internal class MicaRenderersFactory(
             context,
             trackTransitionCoordinator,
             manualNavigationTransitionBridge,
+            directShadowAdapter,
         )?.let(out::add)
         val dsdPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)
         out.add(
@@ -168,7 +189,14 @@ internal class MicaRenderersFactory(
                 "DsdOnly",
                 MicaRendererSupportPolicies.dsdOnly,
                 false,
-                FfmpegAudioRenderer.StreamPeriodObserver(dsdPeriodProjection::onStreamChanged),
+                FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId ->
+                    ffmpegDsdShadowAdapter?.observeStream(
+                        UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
+                        PlaybackFamily.PCM,
+                        UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "ffmpeg-dsd-pcm"),
+                    )
+                    dsdPeriodProjection.onStreamChanged(mediaPeriodId)
+                },
             ),
         )
         val pcmPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)
@@ -180,7 +208,14 @@ internal class MicaRenderersFactory(
                 "PcmOnly",
                 MicaRendererSupportPolicies.pcmOnly,
                 outputPath.usbOutputRequest != null,
-                FfmpegAudioRenderer.StreamPeriodObserver(pcmPeriodProjection::onStreamChanged),
+                FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId ->
+                    ffmpegPcmShadowAdapter?.observeStream(
+                        UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
+                        PlaybackFamily.PCM,
+                        UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "ffmpeg-pcm"),
+                    )
+                    pcmPeriodProjection.onStreamChanged(mediaPeriodId)
+                },
             ),
         )
         super.buildAudioRenderers(
@@ -209,7 +244,11 @@ internal class MicaRenderersFactory(
         playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection,
     ): AudioSink {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return transitionAwarePcmSink(buildUsbDirectDsdSink(context), playbackPeriodProjection)
+            return transitionAwarePcmSink(
+                buildUsbDirectDsdSink(context),
+                playbackPeriodProjection,
+                ffmpegDsdShadowAdapter,
+            )
         }
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled
         val chain = MicaAudioProcessorChain(
@@ -242,6 +281,7 @@ internal class MicaRenderersFactory(
                 .setAudioProcessorChain(chain)
                 .build(),
             playbackPeriodProjection,
+            ffmpegDsdShadowAdapter,
         )
     }
 
@@ -264,6 +304,7 @@ internal class MicaRenderersFactory(
                     enableFloatOutput = true,
                 ),
                 playbackPeriodProjection,
+                ffmpegPcmShadowAdapter,
             )
         }
         val chain = MicaAudioProcessorChain(
@@ -287,18 +328,21 @@ internal class MicaRenderersFactory(
         return transitionAwarePcmSink(
             MicaFloatDspAudioSink(inner, MicaEqualizerSpectrumTap()),
             playbackPeriodProjection,
+            ffmpegPcmShadowAdapter,
         )
     }
 
     private fun transitionAwarePcmSink(
         delegate: AudioSink,
         playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection,
+        shadowAdapter: UsbExclusiveShadowAdapter?,
     ): AudioSink =
         TransitionAwarePcmAudioSink(
             delegate,
             trackTransitionCoordinator,
             manualNavigationTransitionBridge,
             playbackPeriodProjection,
+            shadowAdapter,
         )
 
     private fun replacePlatformAudioRenderer(
@@ -321,6 +365,7 @@ internal class MicaRenderersFactory(
             eventListener,
             audioSink,
             platformPlaybackPeriodProjection,
+            platformShadowAdapter,
         )
     }
 

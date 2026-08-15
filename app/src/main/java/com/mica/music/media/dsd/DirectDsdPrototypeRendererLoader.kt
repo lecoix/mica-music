@@ -3,6 +3,7 @@ package com.mica.music.media.dsd
 import android.content.Context
 import androidx.media3.exoplayer.Renderer
 import com.mica.music.BuildConfig
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
 
 internal object DirectDsdPrototypeRendererLoader {
     private const val FACTORY_CLASS =
@@ -12,6 +13,7 @@ internal object DirectDsdPrototypeRendererLoader {
         context: Context,
         transitionCoordinator: DirectDsdTrackTransitionCoordinator,
         manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
+        shadowAdapter: UsbExclusiveShadowAdapter?,
     ): Renderer? {
         if (!BuildConfig.DEBUG) return null
         return runCatching {
@@ -21,12 +23,14 @@ internal object DirectDsdPrototypeRendererLoader {
                 Context::class.java,
                 DirectDsdTrackTransitionCoordinator::class.java,
                 ManualNavigationTransitionBridge::class.java,
+                Any::class.java,
             )
             method.invoke(
                 null,
                 context,
                 transitionCoordinator,
                 manualNavigationTransitionBridge,
+                shadowAdapter,
             ) as? Renderer
         }.getOrElse { error ->
             throw IllegalStateException("Debug Direct DSD renderer factory is unavailable", error)

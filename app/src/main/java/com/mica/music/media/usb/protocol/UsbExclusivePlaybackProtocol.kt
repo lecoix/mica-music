@@ -67,6 +67,7 @@ data class MutationEpoch(
     val targetOccurrence: PlaybackOccurrence?,
     val targetFamily: PlaybackFamily,
     val targetFacts: String,
+    val destinationBound: Boolean = true,
     val causalHandle: MutationCausalHandle? = null,
     val sourceRetirement: SourceRetirementReceipt? = null,
 )
@@ -460,6 +461,60 @@ class UsbExclusivePlaybackProtocol(
         )
     }
 
+    /**
+     * Raw manual-navigation staging seam. A mutation identity is minted before Exo dispatch while
+     * renderer destination facts are still unknown. No activation authority exists until the same
+     * mutation is later bound by an exact raw stream observation.
+     */
+    @Synchronized
+    fun beginManualMutationUnbound(
+        targetMediaId: String,
+        requestAlias: RequestAlias? = null,
+    ): MutationEpoch? {
+        if (lifecycle !is ProtocolLifecycle.Active || targetMediaId.isBlank()) return null
+        val source = familyOwnership
+        val id = MutationId(nextMutationId + 1)
+        issuedRetirementReceiptsByMutation.clear()
+        nextMutationId = id.value
+        reclassifyUncommittedAuthorityLocked(retiring = false)
+        return MutationEpoch(
+            mutationId = id,
+            kind = MutationKind.MANUAL,
+            requestAlias = requestAlias,
+            sourceOwnershipId = source.ownershipIdOrNull(),
+            sourceOccurrence = source.occurrenceOrNull(),
+            targetMediaId = targetMediaId,
+            targetOccurrence = null,
+            targetFamily = PlaybackFamily.PCM,
+            targetFacts = "",
+            destinationBound = false,
+        ).also { mutation = it }
+    }
+
+    @Synchronized
+    fun bindManualDestination(
+        mutationId: MutationId,
+        targetFamily: PlaybackFamily,
+        targetFacts: String,
+        occurrence: PlaybackOccurrence,
+    ): Boolean {
+        if (lifecycle !is ProtocolLifecycle.Active || targetFacts.isBlank()) return false
+        val epoch = mutation ?: return false
+        if (epoch.mutationId != mutationId || epoch.kind != MutationKind.MANUAL) return false
+        if (epoch.destinationBound) {
+            return epoch.targetFamily == targetFamily &&
+                epoch.targetFacts == targetFacts &&
+                epoch.targetOccurrence == occurrence
+        }
+        mutation = epoch.copy(
+            targetOccurrence = occurrence,
+            targetFamily = targetFamily,
+            targetFacts = targetFacts,
+            destinationBound = true,
+        )
+        return true
+    }
+
     private fun beginMutationLocked(
         kind: MutationKind,
         targetMediaId: String,
@@ -519,6 +574,7 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun acceptSourceRetirement(receipt: SourceRetirementReceipt): Boolean {
         val epoch = mutation ?: return false
+        if (!epoch.destinationBound) return false
         val owned = familyOwnership
         val issued = issuedRetirementReceiptsByMutation[epoch.mutationId] ?: return false
         if (
@@ -545,6 +601,7 @@ class UsbExclusivePlaybackProtocol(
         familyProof: FamilyProof,
     ): SourceRetirementReceipt? {
         val epoch = mutation ?: return null
+        if (!epoch.destinationBound) return null
         val owned = familyOwnership
         if (
             lifecycle !is ProtocolLifecycle.Active ||
@@ -992,29 +1049,6 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun currentWriteLease(): ActiveWriteLease? = familyOwnership.writeLeaseOrNull()
 
-    @Synchronized
-    internal fun installOwnedFamilyForModel(
-        family: PlaybackFamily,
-        mutationId: MutationId,
-        adapterInstanceId: AdapterInstanceId,
-        occurrence: PlaybackOccurrence,
-        runtimeIdentity: RuntimeIdentity,
-        facts: String = "model",
-    ): CommitDisposition {
-        check(lifecycle is ProtocolLifecycle.Active)
-        mutation = MutationEpoch(mutationId, MutationKind.MANUAL, null, null, null, "model", occurrence, family, facts)
-        if (mutationId.value > nextMutationId) nextMutationId = mutationId.value
-        return commitFamilyLocked(
-            family,
-            mutationId,
-            adapterInstanceId,
-            occurrence,
-            runtimeIdentity,
-            facts,
-            ActivationId(++nextActivationId),
-        )
-    }
-
     private fun canPrepareLocked(
         mutationId: MutationId,
         adapterInstanceId: AdapterInstanceId,
@@ -1025,6 +1059,7 @@ class UsbExclusivePlaybackProtocol(
     ): Boolean {
         if (lifecycle !is ProtocolLifecycle.Active || adapterInstanceId !in adapters) return false
         val epoch = mutation ?: return false
+        if (!epoch.destinationBound) return false
         if (epoch.mutationId != mutationId || epoch.targetFamily != family || epoch.targetFacts != facts || epoch.targetOccurrence != occurrence) return false
         if (applicationCurrent.mediaId != epoch.targetMediaId || applicationCurrent.occurrence != occurrence) return false
         if (epoch.sourceOwnershipId != null) {

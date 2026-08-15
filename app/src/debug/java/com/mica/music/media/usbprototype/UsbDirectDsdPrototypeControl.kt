@@ -8,6 +8,7 @@ import com.mica.music.media.dsd.DirectDsdMedia3Renderer
 import com.mica.music.media.dsd.DirectDsdSystemMonotonicClock
 import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
+import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
 import java.io.File
 
 object UsbDirectDsdPrototypeControl {
@@ -33,6 +34,7 @@ object UsbDirectDsdPrototypeRendererFactory {
         context: Context,
         transitionCoordinator: DirectDsdTrackTransitionCoordinator,
         manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
+        shadowAdapter: Any?,
     ): Renderer? {
         if (!UsbDirectDsdPrototypeControl.isEnabled()) return null
         val appContext = context.applicationContext
@@ -45,7 +47,7 @@ object UsbDirectDsdPrototypeRendererFactory {
             monotonicClock = clock,
             transitionCoordinator = transitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
-        )
+        ).also { it.installUsbExclusiveShadowAdapter(shadowAdapter as? UsbExclusiveShadowAdapter) }
     }
 }
 

@@ -1,5 +1,6 @@
 package com.mica.music.media.usb
 
+import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantLock
@@ -480,13 +481,23 @@ internal class UsbOutputCleanupLease internal constructor(
 }
 
 internal object UsbOutputRuntime {
-    private val generationPublisher = AtomicReference<(Long) -> Unit>({})
+    private val generationFanout = UsbOutputGenerationObserverFanout { generation, error ->
+        DiagnosticLog.event(
+            "UsbExclusiveShadow",
+            "event=USB_GENERATION_OBSERVER_FAILURE generation=$generation " +
+                "error=${error.javaClass.simpleName}",
+        )
+    }
     val owner = UsbOutputSessionOwner(
-        onGenerationPublished = { generation -> generationPublisher.get()(generation) },
+        onGenerationPublished = generationFanout::publish,
     )
 
     /** Debug SK02 adapter installs the Native generation bridge; release keeps the no-op bridge. */
     fun installGenerationPublisher(publisher: (Long) -> Unit) {
-        generationPublisher.set(publisher)
+        generationFanout.installPublisher(publisher)
     }
+
+    /** Read-only observer fan-out. Removing/throwing observers cannot change owner publication. */
+    fun installGenerationObserver(observer: (Long) -> Unit): () -> Unit =
+        generationFanout.installObserver(observer)
 }
