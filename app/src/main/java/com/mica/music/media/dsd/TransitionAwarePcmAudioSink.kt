@@ -3,7 +3,10 @@ package com.mica.music.media.dsd
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
-import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
+import com.mica.music.media.usb.protocol.CommitDisposition
+import com.mica.music.media.usb.protocol.PlaybackOccurrence
+import com.mica.music.media.usb.protocol.WriteKind
+import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
 import java.nio.ByteBuffer
 
@@ -19,7 +22,7 @@ internal class TransitionAwarePcmAudioSink(
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
     private val playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection =
         ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge),
-    private val shadowAdapter: UsbExclusiveShadowAdapter? = null,
+    private val playbackAdapter: UsbExclusivePlaybackAdapter? = null,
 ) : ForwardingAudioSink(delegate) {
     private data class PendingConfiguration(
         val format: Format,
@@ -39,13 +42,44 @@ internal class TransitionAwarePcmAudioSink(
         outputChannels: IntArray?,
     ) {
         val playbackIdentity = playbackPeriodProjection.snapshot()
-        val shadowOccurrence = UsbExclusiveShadowMedia3Facts.occurrence(playbackIdentity)
-        shadowAdapter?.observePcmConfigureAttempt(
-            shadowOccurrence,
-            UsbExclusiveShadowMedia3Facts.audio(inputFormat, "pcm-configure"),
-        )
+        val playbackOccurrence = UsbExclusiveShadowMedia3Facts.occurrence(playbackIdentity)
+        val configureFacts = UsbExclusiveShadowMedia3Facts.audio(inputFormat, "pcm-configure")
         val navigationEpoch = manualNavigationTransitionBridge.bindPcmDestination(inputFormat, playbackIdentity)
         val navigationSnapshot = manualNavigationTransitionBridge.snapshot()
+
+        // M3 production path: a protocol permit must exist before the delegate is touched. A
+        // denied permit is retained as a deferred configuration and never falls through to the
+        // legacy coordinator as an authority.
+        playbackAdapter?.let { adapter ->
+            val permit = adapter.preparePcmConfigure(playbackOccurrence, configureFacts)
+            if (permit == null) {
+                pendingConfiguration = PendingConfiguration(
+                    format = inputFormat,
+                    specifiedBufferSize = specifiedBufferSize,
+                    outputChannels = outputChannels?.copyOf(),
+                    requiresResumeAuthority = false,
+                    navigationRequestId = navigationEpoch?.requestId ?: navigationSnapshot?.requestId,
+                    navigationRequestedPlaying = navigationEpoch?.requestedPlaying
+                        ?: navigationSnapshot?.requestedPlaying
+                        ?: true,
+                    playbackIdentity = playbackIdentity,
+                )
+                return
+            }
+            pendingConfiguration = null
+            configureWithProtocol(
+                adapter = adapter,
+                permit = permit,
+                occurrence = playbackOccurrence,
+                inputFormat = inputFormat,
+                specifiedBufferSize = specifiedBufferSize,
+                outputChannels = outputChannels,
+                facts = configureFacts,
+            )
+            navigationEpoch?.let { completeNavigationProjection(it.requestId) }
+            return
+        }
+
         val requiresResumeAuthority = transitionCoordinator.shouldDeferPcmUntilResume()
         if (
             transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP ||
@@ -68,7 +102,6 @@ internal class TransitionAwarePcmAudioSink(
         transitionCoordinator.onPcmActivity()
         transitionCoordinator.beforePcmAccept(isPlaying = navigationEpoch?.requestedPlaying ?: true)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
-        shadowAdapter?.observePcmConfigureCompleted(shadowOccurrence)
         navigationEpoch?.let {
             check(
                 manualNavigationTransitionBridge.complete(
@@ -85,43 +118,100 @@ internal class TransitionAwarePcmAudioSink(
         encodedAccessUnitCount: Int,
     ): Boolean {
         if (pendingConfiguration != null && !activatePendingConfiguration()) return false
+        playbackAdapter?.let { adapter ->
+            val identity = playbackPeriodProjection.snapshot()
+            val occurrence = UsbExclusiveShadowMedia3Facts.occurrence(identity) ?: return false
+            var lease = adapter.tryEnterWrite(occurrence, WriteKind.PCM_DATA)
+            if (lease == null) {
+                // A reusable decoder/sink may advance the exact occurrence without another
+                // configure callback. The adapter may mint a retained handoff only after the
+                // raw target stream proof and old lease drain are both exact; otherwise this
+                // remains fail-closed and no B bytes reach the delegate.
+                adapter.prepareRetainedPcmHandoff(occurrence)?.let { permit ->
+                    val disposition = adapter.commitRetainedPcmHandoff(permit)
+                    if (disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
+                        lease = adapter.tryEnterWrite(occurrence, WriteKind.PCM_DATA)
+                    }
+                }
+            }
+            lease ?: return false
+            return try {
+                super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            } finally {
+                lease.exit()
+            }
+        }
         transitionCoordinator.onPcmActivity()
         transitionCoordinator.beforePcmAccept(isPlaying = true)
         return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
     }
 
     override fun play() {
-        transitionCoordinator.onPcmPlayState(paused = false)
+        if (playbackAdapter == null) transitionCoordinator.onPcmPlayState(paused = false)
         if (pendingConfiguration != null) return
+        if (playbackAdapter != null) {
+            super.play()
+            return
+        }
         transitionCoordinator.onPcmActivity()
         super.play()
     }
 
     override fun pause() {
-        transitionCoordinator.onPcmPlayState(paused = true)
+        if (playbackAdapter == null) transitionCoordinator.onPcmPlayState(paused = true)
         super.pause()
     }
 
     override fun flush() {
         pendingConfiguration = null
         super.flush()
-        transitionCoordinator.onPcmFlushPotentialRelease()
+        if (playbackAdapter == null) transitionCoordinator.onPcmFlushPotentialRelease()
     }
 
     override fun reset() {
         pendingConfiguration = null
         super.reset()
-        transitionCoordinator.onPcmReleased()
+        playbackAdapter?.observePcmRuntimeReleased(
+            UsbExclusiveShadowMedia3Facts.occurrence(playbackPeriodProjection.snapshot()),
+            "reset",
+        )
+        if (playbackAdapter == null) transitionCoordinator.onPcmReleased()
     }
 
     override fun release() {
         pendingConfiguration = null
         super.release()
-        transitionCoordinator.onPcmReleased()
+        playbackAdapter?.observePcmRuntimeReleased(
+            UsbExclusiveShadowMedia3Facts.occurrence(playbackPeriodProjection.snapshot()),
+            "release",
+        )
+        if (playbackAdapter == null) transitionCoordinator.onPcmReleased()
     }
 
     private fun activatePendingConfiguration(): Boolean {
         val pending = pendingConfiguration ?: return true
+        playbackAdapter?.let { adapter ->
+            val occurrence = UsbExclusiveShadowMedia3Facts.occurrence(pending.playbackIdentity) ?: return false
+            val permit = adapter.preparePcmConfigure(occurrence, "pcm-pending-configure") ?: return false
+            try {
+                super.configure(pending.format, pending.specifiedBufferSize, pending.outputChannels)
+            } catch (error: Throwable) {
+                adapter.failPcmConfigure(permit, "configure:${error.javaClass.simpleName}")
+                throw error
+            }
+            val disposition = adapter.commitPcmConfigure(
+                permit,
+                occurrence,
+                com.mica.music.media.usb.protocol.ResourceIdentity("pcm-configure-${permit.activationId.value}"),
+                "protocol-configure-complete",
+            )
+            check(disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
+                "PCM protocol rejected pending configure receipt: $disposition"
+            }
+            pendingConfiguration = null
+            pending.navigationRequestId?.let(::completeNavigationProjection)
+            return true
+        }
         if (transitionCoordinator.snapshot().activeFamily == DirectDsdTrackTransportFamily.DOP) return false
 
         val requestId = pending.navigationRequestId
@@ -149,9 +239,6 @@ internal class TransitionAwarePcmAudioSink(
             pending.specifiedBufferSize,
             pending.outputChannels,
         )
-        shadowAdapter?.observePcmConfigureCompleted(
-            UsbExclusiveShadowMedia3Facts.occurrence(pending.playbackIdentity),
-        )
         pendingConfiguration = null
         requestId?.let {
             check(
@@ -162,5 +249,38 @@ internal class TransitionAwarePcmAudioSink(
             ) { "PCM navigation acceptance for stale destination epoch" }
         }
         return true
+    }
+
+    private fun configureWithProtocol(
+        adapter: UsbExclusivePlaybackAdapter,
+        permit: com.mica.music.media.usb.protocol.PcmConfigurePermit,
+        occurrence: PlaybackOccurrence?,
+        inputFormat: Format,
+        specifiedBufferSize: Int,
+        outputChannels: IntArray?,
+        facts: String,
+    ) {
+        try {
+            super.configure(inputFormat, specifiedBufferSize, outputChannels)
+        } catch (error: Throwable) {
+            adapter.failPcmConfigure(permit, "configure:${error.javaClass.simpleName}")
+            throw error
+        }
+        val disposition = adapter.commitPcmConfigure(
+            permit,
+            occurrence,
+            com.mica.music.media.usb.protocol.ResourceIdentity("pcm-configure-${permit.activationId.value}"),
+            facts,
+        )
+        check(disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
+            "PCM protocol rejected configure receipt: $disposition"
+        }
+    }
+
+    private fun completeNavigationProjection(requestId: Long) {
+        manualNavigationTransitionBridge.complete(
+            requestId,
+            DirectDsdTrackTransportFamily.PCM,
+        )
     }
 }

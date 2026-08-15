@@ -21,7 +21,7 @@ class DirectDsdTrackTransitionStructureTest {
             retained,
             "trackTransition=PAUSE_GAP_STOPPED",
             "trackTransition=OLD_SOURCE_INTAKE_CLOSED",
-            "activePump.transitionRetainedSource(newFacts)",
+            "transitionRetainedSourceWithProtocol(activePump, newFacts)",
             "trackTransition=NEW_SOURCE_FACTS_BOUND",
             "trackTransition=PAUSE_GAP_REESTABLISHED_AFTER_BOUNDARY",
         )
@@ -83,7 +83,7 @@ class DirectDsdTrackTransitionStructureTest {
             .substringBefore("override fun onStreamChanged(")
         assertOrdered(
             arm,
-            "active.armPlayback()",
+            "observeShadowArmAndSourceAccept(active)",
             "trackTransition=FRESH_RUNTIME_ARMED",
             "trackTransition=QUALIFIED_STARTED_PREFILL_ARM_COMPLETE",
             "trackTransition=NEW_SOURCE_ACCEPT_ALLOWED",
@@ -161,7 +161,7 @@ class DirectDsdTrackTransitionStructureTest {
         )
         assertOrdered(
             source,
-            "shouldDeferPcmUntilResume()",
+            "preparePcmConfigure(",
             "pendingConfiguration = PendingConfiguration(",
             "override fun handleBuffer(",
             "activatePendingConfiguration()",
@@ -173,14 +173,10 @@ class DirectDsdTrackTransitionStructureTest {
         val activation = source.substringAfter("private fun activatePendingConfiguration(")
         assertOrdered(
             activation,
-            "hasResumeGrant(requestId)",
-            "bindPcmDestination(",
-            "if (bound.requestId != requestId) return false",
-            "consumeResumeGrant(requestId)",
-            "beforePcmAccept(",
+            "preparePcmConfigure(",
             "super.configure(",
+            "commitPcmConfigure(",
             "pendingConfiguration = null",
-            "manualNavigationTransitionBridge.complete(",
         )
     }
 

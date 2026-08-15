@@ -50,8 +50,9 @@ import com.mica.music.media.usb.UsbRecoveryCoordinator
 import com.mica.music.media.usb.UsbRecoveryEpoch
 import com.mica.music.media.usb.UsbRecoveryRequestResult
 import com.mica.music.media.usb.UsbRecoveryTrigger
-import com.mica.music.media.usb.shadow.UsbExclusiveShadowCoordinator
-import com.mica.music.media.usb.shadow.UsbExclusiveShadowStack
+import com.mica.music.media.usb.protocol.PlaybackIntent
+import com.mica.music.media.usb.shadow.UsbExclusivePlaybackCoordinator
+import com.mica.music.media.usb.shadow.UsbExclusivePlaybackStack
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,8 +78,9 @@ class MicaMediaService : MediaSessionService() {
     private var carBluetoothLyricsSession: CarBluetoothLyricsSession? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
     private var usbResumePlaybackRequested = false
-    private val usbExclusiveShadowCoordinator = UsbExclusiveShadowCoordinator()
-    private var activeShadowStack: UsbExclusiveShadowStack? = null
+    /** Single service-lifetime ledger/coordinator for all candidate and published stacks. */
+    private val usbExclusivePlaybackCoordinator = UsbExclusivePlaybackCoordinator()
+    private var activePlaybackStack: UsbExclusivePlaybackStack? = null
     private var unregisterUsbShadowGenerationObserver: (() -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
@@ -137,13 +139,13 @@ class MicaMediaService : MediaSessionService() {
         PcmDeliveryExperiment.logActiveExperiments()
         spectrumAnalyzerStateOwner = SpectrumAnalyzerStateOwner(this).also { it.start() }
         unregisterUsbShadowGenerationObserver =
-            UsbOutputRuntime.installGenerationObserver(usbExclusiveShadowCoordinator::observeUsbGeneration)
+            UsbOutputRuntime.installGenerationObserver(usbExclusivePlaybackCoordinator::observeUsbGeneration)
 
-        val stack = ExoPlaybackStackFactory.build(this, activeOutputPath, usbExclusiveShadowCoordinator)
+        val stack = ExoPlaybackStackFactory.build(this, activeOutputPath, usbExclusivePlaybackCoordinator)
         exoPlayer = stack.exoPlayer
         compositePlayer = stack.compositePlayer
-        activeShadowStack = stack.shadowStack
-        stack.shadowStack?.let(usbExclusiveShadowCoordinator::publishStack)
+        activePlaybackStack = stack.playbackStack
+        stack.playbackStack?.let(usbExclusivePlaybackCoordinator::publishStack)
         usbResumePlaybackRequested = stack.compositePlayer.playWhenReady
         installUsbPlaybackIntentObserver(stack.compositePlayer)
         replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
@@ -257,10 +259,13 @@ class MicaMediaService : MediaSessionService() {
                 )
             },
             buildCandidate = { target, _ ->
-                ExoPlaybackStackFactory.build(this, target, usbExclusiveShadowCoordinator)
+                ExoPlaybackStackFactory.build(this, target, usbExclusivePlaybackCoordinator)
             },
             stageCandidate = { _, snapshot, candidate ->
-                snapshot.stageInto(candidate.compositePlayer)
+                // Staging is technical quiesce, not a semantic PAUSE. Bypass the forwarding
+                // player command path so the service ledger cannot be rewritten by the inert
+                // candidate's playWhenReady=false setup.
+                snapshot.stageInto(candidate.exoPlayer)
             },
             retirePublished = { _, _ -> retirePublishedPlaybackStack() },
             publishCandidate = ::publishRebuiltPlaybackStack,
@@ -333,9 +338,11 @@ class MicaMediaService : MediaSessionService() {
         audioOffloadCircuitBreaker = null
         mediaSession?.release()
         mediaSession = null
+        activePlaybackStack?.let(usbExclusivePlaybackCoordinator::retireStack)
         exoPlayer?.release()
         exoPlayer = null
         compositePlayer = null
+        activePlaybackStack = null
         clearListener()
         super.onDestroy()
     }
@@ -1242,14 +1249,21 @@ class MicaMediaService : MediaSessionService() {
             "UsbOutputRebuild",
             "barrier=activate target=${target.outputMode}",
         )
-        snapshot.activate(candidate.compositePlayer, resumePlayback = false)
+        // Activation is also technical until the candidate protocol re-adopts the current
+        // service intent. Do not route the inert false through MicaCompositePlayer.setPlayWhenReady.
+        snapshot.activate(candidate.exoPlayer, resumePlayback = false)
         checkNotNull(mediaSession) { "MediaSession is not active" }
             .setPlayer(candidate.compositePlayer)
-        candidate.compositePlayer.playWhenReady = snapshot.playWhenReady
+        val restoredIntent = checkNotNull(candidate.playbackStack) {
+            "Rebuilt playback stack must have a production protocol"
+        }.restoreAfterTechnicalQuiesce()
+        val resumePlayback = restoredIntent.desired == PlaybackIntent.PLAY
+        candidate.exoPlayer.playWhenReady = resumePlayback
+        usbResumePlaybackRequested = resumePlayback
         exoPlayer = candidate.exoPlayer
         compositePlayer = candidate.compositePlayer
-        activeShadowStack = candidate.shadowStack
-        candidate.shadowStack?.let(usbExclusiveShadowCoordinator::publishStack)
+        activePlaybackStack = candidate.playbackStack
+        candidate.playbackStack?.let(usbExclusivePlaybackCoordinator::publishStack)
         activeOutputPath = target
         installPlayerScopedBindings(candidate)
         val expectedIndex = snapshot.currentIndex
@@ -1280,10 +1294,11 @@ class MicaMediaService : MediaSessionService() {
             "UsbOutputRebuild",
             "barrier=retire-start from=$previousMode",
         )
-        activeShadowStack?.let(usbExclusiveShadowCoordinator::retireStack)
+        activePlaybackStack?.let(usbExclusivePlaybackCoordinator::retireStack)
         previousComposite.abortManualNavigation("playback-stack-retire")
         previousComposite.onPlaybackIntentChanged = null
-        previousComposite.playWhenReady = false
+        // Technical execution suppression must not publish semantic PAUSE through the composite.
+        previousExo.playWhenReady = false
         releasePlayerScopedBindings(previousExo)
         try {
             previousExo.release()
@@ -1296,7 +1311,7 @@ class MicaMediaService : MediaSessionService() {
         }
         exoPlayer = null
         compositePlayer = null
-        activeShadowStack = null
+        activePlaybackStack = null
         DiagnosticLog.event(
             "UsbOutputRebuild",
             "barrier=retire-complete from=$previousMode usbPhase=${UsbOutputRuntime.owner.facts.phase}",
@@ -1305,7 +1320,6 @@ class MicaMediaService : MediaSessionService() {
 
     private fun installUsbPlaybackIntentObserver(player: MicaCompositePlayer) {
         player.onPlaybackIntentChanged = { resumePlaybackRequested ->
-            usbExclusiveShadowCoordinator.publishSemanticIntent(resumePlaybackRequested)
             usbResumePlaybackRequested = resumePlaybackRequested
             playbackStateCoordinator?.onExplicitPlaybackIntent(resumePlaybackRequested)
             if (!resumePlaybackRequested) UsbOutputLifecycleRuntime.clearRecovery()

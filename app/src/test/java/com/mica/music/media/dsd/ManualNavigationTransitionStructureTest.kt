@@ -177,9 +177,8 @@ class ManualNavigationTransitionStructureTest {
             body,
             "val playbackIdentity = checkNotNull(pending.navigationPlaybackIdentity)",
             "isCurrentDestination(",
-            "active.armPlayback()",
-            "transitionCoordinator?.beforeDirectAccept(isPlaying = true)",
-            "manualNavigationTransitionBridge?.complete(",
+            "observeShadowArmAndSourceAccept(active)",
+            "completeNavigationProjection(",
             "pendingFreshDirectDestination = null",
             "trackTransition=NEW_SOURCE_ACCEPT_ALLOWED",
         )
@@ -218,21 +217,14 @@ class ManualNavigationTransitionStructureTest {
             "pendingConfiguration = PendingConfiguration(",
             "playbackIdentity = playbackIdentity",
             "return",
-            "beforePcmAccept(",
-            "super.configure(",
-            "manualNavigationTransitionBridge.complete(",
+            "configureWithProtocol(",
         )
         val activation = source.substringAfter("private fun activatePendingConfiguration(")
         assertOrdered(
             activation,
-            "hasResumeGrant(requestId)",
-            "bindPcmDestination(",
-            "pending.playbackIdentity",
-            "bound.requestId != requestId",
-            "consumeResumeGrant(requestId)",
-            "beforePcmAccept(",
+            "preparePcmConfigure(",
             "super.configure(",
-            "manualNavigationTransitionBridge.complete(",
+            "commitPcmConfigure(",
         )
     }
 
@@ -262,9 +254,9 @@ class ManualNavigationTransitionStructureTest {
         val source = source("app/src/main/java/com/mica/music/media/MicaRenderersFactory.kt")
         assertTrue(source.contains("val dsdPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
         assertTrue(source.contains("val pcmPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)"))
-        assertTrue(source.contains("ffmpegDsdShadowAdapter?.observeStream("))
+        assertTrue(source.contains("ffmpegDsdPlaybackAdapter?.observeStream("))
         assertTrue(source.contains("dsdPeriodProjection.onStreamChanged(mediaPeriodId)"))
-        assertTrue(source.contains("ffmpegPcmShadowAdapter?.observeStream("))
+        assertTrue(source.contains("ffmpegPcmPlaybackAdapter?.observeStream("))
         assertTrue(source.contains("pcmPeriodProjection.onStreamChanged(mediaPeriodId)"))
         val replace = source.substringAfter("private fun replacePlatformAudioRenderer(")
             .substringBefore("private fun buildUnifiedFixedChain")
@@ -280,12 +272,18 @@ class ManualNavigationTransitionStructureTest {
     fun stackRetirementAndServiceDestroyAbortExternalNavigation() {
         val source = source("app/src/main/java/com/mica/music/media/MicaMediaService.kt")
         assertTrue(source.contains("compositePlayer?.abortManualNavigation(\"service-destroy\")"))
+        assertOrdered(
+            source.substringAfter("override fun onDestroy()"),
+            "activePlaybackStack?.let(usbExclusivePlaybackCoordinator::retireStack)",
+            "exoPlayer?.release()",
+        )
         val retire = source.substringAfter("private fun retirePublishedPlaybackStack()")
             .substringBefore("private fun installUsbPlaybackIntentObserver")
         assertOrdered(
             retire,
             "barrier=retire-start",
             "previousComposite.abortManualNavigation(\"playback-stack-retire\")",
+            "previousExo.playWhenReady = false",
             "previousExo.release()",
         )
     }

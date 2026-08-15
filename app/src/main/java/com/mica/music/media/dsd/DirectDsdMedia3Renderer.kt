@@ -12,10 +12,16 @@ import androidx.media3.exoplayer.source.MediaSource
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.dsf.DsfFormat
 import com.mica.music.media.usb.protocol.DirectStage
+import com.mica.music.media.usb.protocol.CommitDisposition
 import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
+import com.mica.music.media.usb.protocol.DirectStagePermit
+import com.mica.music.media.usb.protocol.FamilyOwnership
+import com.mica.music.media.usb.protocol.PlaybackIntent
+import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.RuntimeIdentity
-import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
+import com.mica.music.media.usb.protocol.SideEffectReceipt
+import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
 
 object DirectDsdMedia3FormatPolicy {
@@ -165,9 +171,14 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private val transitionCoordinator: DirectDsdTrackTransitionCoordinator? = null,
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge? = null,
 ) : BaseRenderer(C.TRACK_TYPE_AUDIO) {
-    private var shadowAdapter: UsbExclusiveShadowAdapter? = null
-    internal fun installUsbExclusiveShadowAdapter(adapter: UsbExclusiveShadowAdapter?) {
-        shadowAdapter = adapter
+    private var playbackAdapter: UsbExclusivePlaybackAdapter? = null
+    internal fun installUsbExclusivePlaybackAdapter(adapter: UsbExclusivePlaybackAdapter?) {
+        playbackAdapter = adapter
+    }
+
+    /** Compatibility entry point for the debug prototype loader; it installs the same adapter. */
+    internal fun installUsbExclusiveShadowAdapter(adapter: UsbExclusivePlaybackAdapter?) {
+        installUsbExclusivePlaybackAdapter(adapter)
     }
 
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
@@ -184,6 +195,8 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private var shadowPrefillReported = false
     private var shadowArmReported = false
     private var shadowSourceAcceptReported = false
+    private var directPrefillPermit: DirectStagePermit? = null
+    private var directAuthorityAccepted = false
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
     private var ended = false
@@ -260,7 +273,11 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private fun renderDrainStep(positionUs: Long): DirectDsdDrainStepResult {
         val activePump = pump
         if (activePump != null && !activePump.canAcceptPacket()) {
-            timing.measurePump { activePump.pump() }
+            val write = timing.measurePump { pumpWithProtocol(activePump) }
+            if (write == null) {
+                timing.onTermination(DirectDsdDrainTermination.PENDING_TAIL)
+                return DirectDsdDrainStepResult(false, false, DirectDsdDrainAction.YIELD)
+            }
             maybeArmAfterPlayingReset(activePump, sampleTimeUs = null)
             if (!activePump.canAcceptPacket()) {
                 timing.onTermination(DirectDsdDrainTermination.PENDING_TAIL)
@@ -335,7 +352,10 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                                 "packetBytes=${packet.size}",
                         )
                     }
-                    timing.measurePump { active.pump() }
+                    val write = timing.measurePump { pumpWithProtocol(active) }
+                    if (write == null) {
+                        return DirectDsdDrainStepResult(true, false, DirectDsdDrainAction.YIELD)
+                    }
                     maybeArmAfterPlayingReset(active, sampleTimeUs = inputBuffer.timeUs)
                     maybeArmAfterFreshTrackTransition(active, sampleTimeUs = inputBuffer.timeUs)
                     DirectDsdDrainStepResult(
@@ -363,8 +383,68 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             ?: error("Retained Direct DSD format is no longer authoritative")
     }
 
+    /**
+     * Gates every real Direct transport write. Before SOURCE_ACCEPT the stage permit covers the
+     * startup prefill; afterwards the committed protocol lease covers content writes.
+     */
+    private fun pumpWithProtocol(active: DirectDsdRendererPump): DirectDsdTransportWriteResult? {
+        val adapter = playbackAdapter ?: return active.pump()
+        val runtime = shadowRuntimeIdentity ?: return null
+        if (!directAuthorityAccepted) {
+            if (directPrefillPermit == null) {
+                directPrefillPermit = adapter.prepareDirectStage(
+                    shadowOccurrence,
+                    DirectStage.PREFILL,
+                    runtime,
+                ) ?: return null
+            }
+            val result = active.pump()
+            observeShadowPrefillIfReady(active)
+            return result
+        }
+        val occurrence = shadowOccurrence ?: return null
+        val lease = adapter.tryEnterWrite(occurrence, com.mica.music.media.usb.protocol.WriteKind.DOP_CONTENT)
+            ?: return null
+        return try {
+            active.pump()
+        } finally {
+            lease.exit()
+        }
+    }
+
+    /** Gates a retained DOP source reset with the protocol's exact old/new occurrence permit. */
+    private fun transitionRetainedSourceWithProtocol(
+        active: DirectDsdRendererPump,
+        newFacts: DsfExtractorPacketFacts,
+    ): Pair<Int, DirectDsdRetainedSourceTransitionResult> {
+        val adapter = playbackAdapter ?: return active.transitionRetainedSource(newFacts)
+        val runtime = shadowRuntimeIdentity ?: error("retained Direct transition without runtime identity")
+        val permit = adapter.prepareRetainedDirectHandoff(
+            shadowRuntimeOccurrence,
+            shadowOccurrence,
+            runtime,
+        ) ?: error("Direct protocol denied retained source handoff before carrier reset")
+        val result = active.transitionRetainedSource(newFacts)
+        val disposition = adapter.commitRetainedDirectHandoff(
+            permit,
+            SideEffectReceipt.Completed(
+                permit.activationId,
+                ResourceIdentity("$runtime:retained-${permit.targetOccurrence.windowSequenceNumber}"),
+                "direct-retained-source-reset",
+                runtime,
+            ),
+        )
+        check(disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
+            "Direct protocol rejected retained handoff receipt: $disposition"
+        }
+        // The next retained handoff must prove ownership from this committed source.
+        shadowRuntimeOccurrence = shadowOccurrence
+        return result
+    }
+
     private fun refreshPendingNavigationBinding(): Boolean {
         val pending = pendingFreshDirectDestination ?: return true
+        if (playbackAdapter != null) return protocolDestinationCurrent()
         val requestId = pending.navigationRequestId ?: return true
         val bridge = manualNavigationTransitionBridge ?: return false
         val activeNavigation = bridge.snapshot() ?: return false
@@ -394,7 +474,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                         "sourceRate=${active.facts.sourceSampleRateHz} newRate=${facts.sourceSampleRateHz} " +
                         "navigationRequest=$requestId currentnessDeferred=true",
                 )
-                val (discardedCanonicalBytes, result) = active.transitionRetainedSource(facts)
+                val (discardedCanonicalBytes, result) = transitionRetainedSourceWithProtocol(active, facts)
                 check(result.feederPendingZero && result.sourceResetApplied)
                 currentFormat = pending.format
                 resetTrackSourceCounters()
@@ -406,21 +486,19 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 if (!activeNavigation.requestedPlaying) {
                     active.startPauseGapLiveness()
                     pauseGapActive = true
-                    transitionCoordinator?.onDirectPlayState(paused = true)
+                    if (playbackAdapter == null) transitionCoordinator?.onDirectPlayState(paused = true)
                     milestone("trackTransition=PAUSE_GAP_REESTABLISHED_AFTER_BOUNDARY")
                 } else {
-                    transitionCoordinator?.onDirectPlayState(paused = false)
+                    if (playbackAdapter == null) transitionCoordinator?.onDirectPlayState(paused = false)
                 }
-                check(
-                    bridge.complete(requestId, DirectDsdTrackTransportFamily.DOP),
-                ) { "retained Direct navigation completion lost currentness" }
+                completeNavigationProjection(requestId)
                 pendingFreshDirectDestination = null
                 milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=true")
                 return true
             }
             active.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
             closePump("manual-navigation-currentness-fresh")
-            transitionCoordinator?.onDirectReleased(wasPaused = !activeNavigation.requestedPlaying)
+            if (playbackAdapter == null) transitionCoordinator?.onDirectReleased(wasPaused = !activeNavigation.requestedPlaying)
             milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED navigationRequest=$requestId currentnessDeferred=true")
         } else {
             milestone(
@@ -434,6 +512,10 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     private fun resumePendingManualNavigationBoundary(): Boolean {
         val pendingBoundary = pendingManualNavigationBoundary ?: return true
+        if (playbackAdapter != null && protocolDestinationCurrent()) {
+            pendingManualNavigationBoundary = null
+            return true
+        }
         val bridge = manualNavigationTransitionBridge ?: return false
         val activeNavigation = bridge.snapshot() ?: return false
         if (activeNavigation.requestId != pendingBoundary.requestId) return false
@@ -487,7 +569,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                         "sourceRate=${active.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
                         "navigationRequest=${navigationEpoch.requestId}",
                 )
-                val (discardedCanonicalBytes, result) = active.transitionRetainedSource(newFacts)
+                val (discardedCanonicalBytes, result) = transitionRetainedSourceWithProtocol(active, newFacts)
                 check(result.feederPendingZero && result.sourceResetApplied)
                 currentFormat = newFormat
                 resetTrackSourceCounters()
@@ -498,17 +580,12 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 if (!navigationPlaying) {
                     active.startPauseGapLiveness()
                     pauseGapActive = true
-                    transitionCoordinator?.onDirectPlayState(paused = true)
+                    if (playbackAdapter == null) transitionCoordinator?.onDirectPlayState(paused = true)
                     milestone("trackTransition=PAUSE_GAP_REESTABLISHED_AFTER_BOUNDARY")
                 } else {
-                    transitionCoordinator?.onDirectPlayState(paused = false)
+                    if (playbackAdapter == null) transitionCoordinator?.onDirectPlayState(paused = false)
                 }
-                check(
-                    manualNavigationTransitionBridge?.complete(
-                        navigationEpoch.requestId,
-                        DirectDsdTrackTransportFamily.DOP,
-                    ) == true,
-                ) { "retained Direct navigation completion lost currentness" }
+                completeNavigationProjection(navigationEpoch.requestId)
                 milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP retained=true")
                 return
             }
@@ -520,10 +597,10 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             )
             active.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
             closePump("manual-navigation-fresh")
-            transitionCoordinator?.onDirectReleased(wasPaused = !navigationPlaying)
+            if (playbackAdapter == null) transitionCoordinator?.onDirectReleased(wasPaused = !navigationPlaying)
             milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED navigationRequest=${navigationEpoch.requestId}")
         } else {
-            transitionCoordinator?.completePcmReleaseForDirectHandoff()
+            if (playbackAdapter == null) transitionCoordinator?.completePcmReleaseForDirectHandoff()
         }
         bindPendingFreshDestination(
             newFormat,
@@ -540,29 +617,59 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     private fun openPumpIfNeeded(facts: DsfExtractorPacketFacts): DirectDsdRendererPump {
         pump?.let { return it }
-        val session = sessionFactory.open(facts)
-        val freshPump = DirectDsdRendererPump(facts, session)
         val sessionGeneration = DirectDsdSessionGeneration(
             rendererGeneration = rendererGeneration,
             sessionGeneration = ++nextSessionGeneration,
         )
-        val shadowRuntime = RuntimeIdentity(
+        val runtimeIdentity = RuntimeIdentity(
             "direct:$rendererGeneration:${sessionGeneration.sessionGeneration}",
         )
+        val createPermit = playbackAdapter?.prepareDirectStage(
+            shadowOccurrence,
+            DirectStage.CREATE_RUNTIME,
+            runtimeIdentity,
+        ) ?: if (playbackAdapter != null) {
+            error("Direct protocol denied CREATE_RUNTIME before sessionFactory.open")
+        } else {
+            null
+        }
+        val session = try {
+            sessionFactory.open(facts)
+        } catch (error: Throwable) {
+            createPermit?.let { permit ->
+                playbackAdapter?.commitDirectStage(
+                    permit,
+                    SideEffectReceipt.NotStarted(permit.activationId),
+                )
+            }
+            throw error
+        }
+        val freshPump = DirectDsdRendererPump(facts, session)
+        if (createPermit != null) {
+            val disposition = checkNotNull(playbackAdapter).commitDirectStage(
+                createPermit,
+                SideEffectReceipt.Completed(
+                    createPermit.activationId,
+                    ResourceIdentity("$runtimeIdentity:create"),
+                    "direct-runtime-created",
+                    runtimeIdentity,
+                ),
+            )
+            check(disposition == null) {
+                freshPump.close()
+                "Direct protocol rejected CREATE_RUNTIME receipt: $disposition"
+            }
+        }
         return freshPump.also {
             pump = freshPump
             activeSessionGeneration = sessionGeneration
             shadowRuntimeOccurrence = shadowOccurrence
-            shadowRuntimeIdentity = shadowRuntime
+            shadowRuntimeIdentity = runtimeIdentity
             shadowPrefillReported = false
             shadowArmReported = false
             shadowSourceAcceptReported = false
-            shadowAdapter?.observeDirectStage(
-                shadowOccurrence,
-                DirectStage.CREATE_RUNTIME,
-                shadowRuntime,
-                completed = true,
-            )
+            directPrefillPermit = null
+            directAuthorityAccepted = false
             DirectDsdSeekDiscontinuityCoordinator.activateSession(sessionGeneration)
             check(
                 DirectDsdTeardownQuiescenceCoordinator.register(sessionGeneration) {
@@ -591,35 +698,79 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     private fun observeShadowPrefillIfReady(active: DirectDsdRendererPump) {
         if (shadowPrefillReported || !active.isStartupPrefillReady()) return
         val runtime = shadowRuntimeIdentity ?: return
+        val adapter = playbackAdapter
+        if (adapter != null) {
+            val permit = directPrefillPermit ?: adapter.prepareDirectStage(
+                shadowOccurrence,
+                DirectStage.PREFILL,
+                runtime,
+            ) ?: error("Direct protocol denied PREFILL completion")
+            val disposition = adapter.commitDirectStage(
+                permit,
+                SideEffectReceipt.Completed(
+                    permit.activationId,
+                    ResourceIdentity("$runtime:prefill"),
+                    "direct-startup-prefill-ready",
+                    runtime,
+                ),
+            )
+            check(disposition == null) {
+                "Direct protocol rejected PREFILL receipt: $disposition"
+            }
+            directPrefillPermit = null
+        }
         shadowPrefillReported = true
-        shadowAdapter?.observeDirectStage(
-            shadowOccurrence,
-            DirectStage.PREFILL,
-            runtime,
-            completed = true,
-        )
     }
 
-    private fun observeShadowArmAndSourceAccept() {
+    private fun observeShadowArmAndSourceAccept(active: DirectDsdRendererPump) {
         val runtime = shadowRuntimeIdentity ?: return
-        if (!shadowArmReported) {
+        if (shadowArmReported && shadowSourceAcceptReported) return
+        val adapter = playbackAdapter
+        if (adapter == null) {
+            active.armPlayback()
+            check(active.isPlaybackArmed())
             shadowArmReported = true
-            shadowAdapter?.observeDirectStage(
-                shadowOccurrence,
-                DirectStage.ARM,
-                runtime,
-                completed = true,
-            )
-        }
-        if (!shadowSourceAcceptReported) {
             shadowSourceAcceptReported = true
-            shadowAdapter?.observeDirectStage(
-                shadowOccurrence,
-                DirectStage.SOURCE_ACCEPT,
-                runtime,
-                completed = true,
-            )
+            return
         }
+        val armPermit = adapter.prepareDirectStage(
+            shadowOccurrence,
+            DirectStage.ARM,
+            runtime,
+        ) ?: error("Direct protocol denied ARM before transport arm")
+        active.armPlayback()
+        check(active.isPlaybackArmed())
+        val armDisposition = adapter.commitDirectStage(
+            armPermit,
+            SideEffectReceipt.Completed(
+                armPermit.activationId,
+                ResourceIdentity("$runtime:arm"),
+                "direct-runtime-armed",
+                runtime,
+            ),
+        )
+        check(armDisposition == null) { "Direct protocol rejected ARM receipt: $armDisposition" }
+        shadowArmReported = true
+
+        val sourcePermit = adapter.prepareDirectStage(
+            shadowOccurrence,
+            DirectStage.SOURCE_ACCEPT,
+            runtime,
+        ) ?: error("Direct protocol denied SOURCE_ACCEPT after ARM")
+        val sourceDisposition = adapter.commitDirectStage(
+            sourcePermit,
+            SideEffectReceipt.Completed(
+                sourcePermit.activationId,
+                ResourceIdentity("$runtime:source-accept"),
+                "direct-source-accepted",
+                runtime,
+            ),
+        )
+        check(sourceDisposition is CommitDisposition.CurrentPlaying || sourceDisposition is CommitDisposition.CurrentPaused) {
+            "Direct protocol rejected SOURCE_ACCEPT receipt: $sourceDisposition"
+        }
+        directAuthorityAccepted = true
+        shadowSourceAcceptReported = true
     }
 
     private fun maybeArmAfterPlayingReset(active: DirectDsdRendererPump, sampleTimeUs: Long?): Boolean {
@@ -628,9 +779,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             playbackArmed = active.isPlaybackArmed(),
         ) ?: return false
         observeShadowPrefillIfReady(active)
-        active.armPlayback()
-        check(active.isPlaybackArmed())
-        observeShadowArmAndSourceAccept()
+        observeShadowArmAndSourceAccept(active)
         positionResetState.markPostResetArmed(resetPositionUs)
         milestone(
             "renderer=post-reset-arm positionUs=$resetPositionUs " +
@@ -654,30 +803,23 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         }
         val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
         check(active.facts == pendingFacts) { "fresh Direct arm for stale destination epoch" }
-        pending.navigationRequestId?.let { requestId ->
-            val navigationFacts = checkNotNull(pending.navigationFacts)
-            val playbackIdentity = checkNotNull(pending.navigationPlaybackIdentity)
-            check(
-                manualNavigationTransitionBridge?.isCurrentDestination(
-                    requestId,
-                    navigationFacts,
-                    playbackIdentity,
-                ) == true,
-            ) { "fresh Direct arm for stale manual-navigation epoch" }
+        if (playbackAdapter == null) {
+            pending.navigationRequestId?.let { requestId ->
+                val navigationFacts = checkNotNull(pending.navigationFacts)
+                val playbackIdentity = checkNotNull(pending.navigationPlaybackIdentity)
+                check(
+                    manualNavigationTransitionBridge?.isCurrentDestination(
+                        requestId,
+                        navigationFacts,
+                        playbackIdentity,
+                    ) == true,
+                ) { "fresh Direct arm for stale manual-navigation epoch" }
+            }
         }
         observeShadowPrefillIfReady(active)
-        active.armPlayback()
-        check(active.isPlaybackArmed())
-        observeShadowArmAndSourceAccept()
-        transitionCoordinator?.beforeDirectAccept(isPlaying = true)
-        pending.navigationRequestId?.let { requestId ->
-            check(
-                manualNavigationTransitionBridge?.complete(
-                    requestId,
-                    DirectDsdTrackTransportFamily.DOP,
-                ) == true,
-            ) { "Direct navigation acceptance for stale destination epoch" }
-        }
+        observeShadowArmAndSourceAccept(active)
+        if (playbackAdapter == null) transitionCoordinator?.beforeDirectAccept(isPlaying = true)
+        pending.navigationRequestId?.let { requestId -> completeNavigationProjection(requestId) }
         pendingFreshDirectDestination = null
         milestone(
             "trackTransition=FRESH_RUNTIME_ARMED sampleTimeUs=${sampleTimeUs ?: -1L} " +
@@ -698,7 +840,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         val newFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(newFormat))
         val rawOccurrence = UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId)
         shadowOccurrence = rawOccurrence
-        shadowAdapter?.observeStream(
+        playbackAdapter?.observeStream(
             rawOccurrence,
             PlaybackFamily.DOP,
             UsbExclusiveShadowMedia3Facts.audio(newFormat, "direct-dop") +
@@ -754,13 +896,25 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             return
         }
 
-        transitionCoordinator?.completePcmReleaseForDirectHandoff()
+        if (playbackAdapter == null) transitionCoordinator?.completePcmReleaseForDirectHandoff()
         val transitionMode = DirectDsdTrackTransitionPolicy.decide(active?.facts, newFacts, playing)
         if (transitionMode == DirectDsdTrackTransitionMode.INITIAL) {
-            val familySnapshot = transitionCoordinator?.snapshot()
-            val pcmHandoff = familySnapshot?.lastReleasedFamily == DirectDsdTrackTransportFamily.PCM
-            val pcmHandoffWasPaused = pcmHandoff && familySnapshot?.lastReleasedWasPaused == true
-            if (pcmHandoffWasPaused || (!playing && transitionCoordinator?.shouldDeferDirectUntilResume() == true)) {
+            val protocolSnapshot = playbackAdapter?.snapshot()
+            val pcmHandoff = if (protocolSnapshot != null) {
+                protocolSnapshot.familyOwnership is FamilyOwnership.PcmOwned
+            } else {
+                transitionCoordinator?.snapshot()?.lastReleasedFamily == DirectDsdTrackTransportFamily.PCM
+            }
+            val protocolPaused = protocolSnapshot?.adoptedIntent?.desired == PlaybackIntent.PAUSE
+            val pcmHandoffWasPaused = if (protocolSnapshot != null) {
+                pcmHandoff && protocolPaused
+            } else {
+                pcmHandoff && transitionCoordinator?.snapshot()?.lastReleasedWasPaused == true
+            }
+            if (
+                pcmHandoffWasPaused ||
+                (!playing && (protocolPaused || (playbackAdapter == null && transitionCoordinator?.shouldDeferDirectUntilResume() == true)))
+            ) {
                 bindPendingFreshDestination(newFormat, requiresStartedAuthority = true, replacement = false)
                 milestone("trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
                 milestone("trackTransition=FRESH_DIRECT_DEFERRED family=PCM_TO_DOP")
@@ -775,7 +929,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 milestone("trackTransition=NEW_DSD_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
                 return
             }
-            transitionCoordinator?.beforeDirectAccept(playing)
+            if (playbackAdapter == null) transitionCoordinator?.beforeDirectAccept(playing)
             currentFormat = newFormat
             milestone("trackTransition=NEW_SOURCE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
             milestone("trackTransition=NEW_SOURCE_ACCEPT_ALLOWED family=DOP")
@@ -795,7 +949,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                     "sourceRate=${activePump.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
                     "startPositionUs=$startPositionUs offsetUs=$offsetUs",
             )
-            val (discardedCanonicalBytes, result) = activePump.transitionRetainedSource(newFacts)
+            val (discardedCanonicalBytes, result) = transitionRetainedSourceWithProtocol(activePump, newFacts)
             check(result.feederPendingZero && result.sourceResetApplied)
             currentFormat = newFormat
             resetTrackSourceCounters()
@@ -826,7 +980,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
             closePump("track-reconfigure-paused-deferred")
             milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
-            transitionCoordinator?.onDirectReleased(wasPaused = true)
+            if (playbackAdapter == null) transitionCoordinator?.onDirectReleased(wasPaused = true)
             bindPendingFreshDestination(newFormat, requiresStartedAuthority = true, replacement = false)
             milestone("trackTransition=PENDING_DESTINATION_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
             milestone("trackTransition=FRESH_DIRECT_DEFERRED")
@@ -844,7 +998,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
         closePump("track-reconfigure")
         milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
-        transitionCoordinator?.onDirectReleased(wasPaused = false)
+        if (playbackAdapter == null) transitionCoordinator?.onDirectReleased(wasPaused = false)
         bindPendingFreshDestination(newFormat, requiresStartedAuthority = false, replacement = false)
         milestone("trackTransition=NEW_RATE_FACTS_BOUND sourceRate=${newFacts.sourceSampleRateHz}")
     }
@@ -898,6 +1052,28 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         lastDrainMilestoneElapsedRealtimeUs = Long.MIN_VALUE
     }
 
+    /** Compatibility projection only; protocol stage/ownership acceptance is authoritative. */
+    private fun completeNavigationProjection(requestId: Long) {
+        val completed = manualNavigationTransitionBridge?.complete(
+            requestId,
+            DirectDsdTrackTransportFamily.DOP,
+        ) == true
+        if (!completed) {
+            milestone("navigationTransition=compatibility-projection-stale request=$requestId")
+        }
+    }
+
+    private fun protocolDestinationCurrent(): Boolean {
+        val adapter = playbackAdapter ?: return true
+        val occurrence = shadowOccurrence ?: return false
+        val snapshot = adapter.snapshot()
+        val mutation = snapshot.mutation ?: return false
+        return mutation.destinationBound &&
+            mutation.targetFamily == PlaybackFamily.DOP &&
+            mutation.targetOccurrence == occurrence &&
+            snapshot.applicationCurrent.occurrence == occurrence
+    }
+
     override fun isReady(): Boolean {
         pendingFreshDirectDestination?.let { pending ->
             if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) return true
@@ -910,8 +1086,12 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     override fun onStarted() {
         try {
-            shadowAdapter?.observeDirectStarted(shadowOccurrence)
-            transitionCoordinator?.onDirectPlayState(paused = false)
+            playbackAdapter?.let { adapter ->
+                check(adapter.acceptDirectStarted(shadowOccurrence)) {
+                    "Direct protocol rejected STARTED authority evidence"
+                }
+            }
+            if (playbackAdapter == null) transitionCoordinator?.onDirectPlayState(paused = false)
             pendingFreshDirectDestination?.let { pending ->
                 if (pending.requiresStartedAuthority && !pending.startedAuthorityObserved) {
                     val pendingFacts = checkNotNull(DirectDsdMedia3FormatPolicy.factsOrNull(pending.format))
@@ -953,11 +1133,10 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 if (!armedFromPlayingReset) {
                     val armedFromTrackTransition = maybeArmAfterFreshTrackTransition(active, sampleTimeUs = null)
                     if (!armedFromTrackTransition) {
-                        active.armPlayback()
-                        check(active.isPlaybackArmed())
+                        observeShadowArmAndSourceAccept(active)
                     }
                 }
-                if (active.isPlaybackArmed()) observeShadowArmAndSourceAccept()
+                if (active.isPlaybackArmed()) observeShadowArmAndSourceAccept(active)
                 milestone("renderer=started armed=true resumed=false postReset=$armedFromPlayingReset")
             }
         } catch (error: Throwable) {
@@ -971,7 +1150,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
 
     override fun onStopped() {
         try {
-            shadowAdapter?.observeDirectStopped(shadowOccurrence)
+            playbackAdapter?.observeDirectStopped(shadowOccurrence)
             val navigationRetirement = manualNavigationTransitionBridge?.observeDirectRetirementStop()
             if (navigationRetirement != null) {
                 navigationRetirementRequestedPaused = !navigationRetirement.requestedPlaying
@@ -983,7 +1162,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
                 )
                 return
             }
-            transitionCoordinator?.onDirectPlayState(paused = true)
+            if (playbackAdapter == null) transitionCoordinator?.onDirectPlayState(paused = true)
             pendingFreshDirectDestination?.let { pending ->
                 val deferredPump = pump
                 if (deferredPump != null) {
@@ -1031,7 +1210,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         val oldArmed = oldPump?.isPlaybackArmed() == true
         val streamOffsetUs = getStreamOffsetUs()
         val sourcePositionUs = positionUs - streamOffsetUs
-        shadowAdapter?.observeDirectPositionReset(shadowOccurrence, sourcePositionUs)
+        playbackAdapter?.observeDirectPositionReset(shadowOccurrence, sourcePositionUs)
         val seekDecision = activeSessionGeneration?.let { sessionGeneration ->
             DirectDsdSeekDiscontinuityCoordinator.consumePositionReset(
                 session = sessionGeneration,
@@ -1066,7 +1245,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     override fun onDisabled() {
         val wasPausedGap = pauseGapActive || navigationRetirementRequestedPaused
         closePump("disabled")
-        transitionCoordinator?.onDirectReleased(wasPausedGap)
+        if (playbackAdapter == null) transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
         pendingFreshDirectDestination = null
         pendingManualNavigationBoundary = null
@@ -1085,7 +1264,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
     override fun onReset() {
         val wasPausedGap = pauseGapActive || navigationRetirementRequestedPaused
         closePump("reset")
-        transitionCoordinator?.onDirectReleased(wasPausedGap)
+        if (playbackAdapter == null) transitionCoordinator?.onDirectReleased(wasPausedGap)
         positionResetState.clear()
         pendingFreshDirectDestination = null
         pendingManualNavigationBoundary = null
@@ -1115,7 +1294,7 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
         try {
             closingPump?.close()
             if (closingPump != null && closingShadowRuntime != null) {
-                shadowAdapter?.observeDirectRuntimeReleased(
+                playbackAdapter?.observeDirectRuntimeReleased(
                     closingShadowOccurrence,
                     closingShadowRuntime,
                     reason,
@@ -1127,6 +1306,8 @@ class DirectDsdMedia3Renderer @JvmOverloads constructor(
             shadowPrefillReported = false
             shadowArmReported = false
             shadowSourceAcceptReported = false
+            directPrefillPermit = null
+            directAuthorityAccepted = false
             milestone("renderer=close reason=$reason")
         }
     }

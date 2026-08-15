@@ -11,7 +11,7 @@ import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.ManualNavigationTransitionEpoch
 import com.mica.music.media.dsd.ManualNavigationTimelinePeriodResolver
-import com.mica.music.media.usb.shadow.UsbExclusiveShadowStack
+import com.mica.music.media.usb.shadow.UsbExclusivePlaybackStack
 import com.mica.music.util.DiagnosticLog
 import java.util.Locale
 
@@ -36,9 +36,14 @@ class MicaCompositePlayer(
     private val beforePlaybackStart: () -> Unit = {},
 ) : ForwardingPlayer(exoPlayer) {
 
-    private var shadowStack: UsbExclusiveShadowStack? = null
-    internal fun installUsbExclusiveShadowStack(stack: UsbExclusiveShadowStack?) {
-        shadowStack = stack
+    private var playbackStack: UsbExclusivePlaybackStack? = null
+    internal fun installUsbExclusivePlaybackStack(stack: UsbExclusivePlaybackStack?) {
+        playbackStack = stack
+    }
+
+    /** Compatibility entry point; it installs the same single production protocol stack. */
+    internal fun installUsbExclusiveShadowStack(stack: UsbExclusivePlaybackStack?) {
+        installUsbExclusivePlaybackStack(stack)
     }
 
     private var requestedVolume = 1f
@@ -97,6 +102,7 @@ class MicaCompositePlayer(
         playWhenReady: Boolean = true,
     ) {
         val safeIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+        if (!publishProtocolIntent(playWhenReady)) return
         val targetId = mediaItems.getOrNull(safeIndex)?.mediaId
         val currentId = currentMediaItem?.mediaId
         val switchingItem = currentId != null && targetId != null && targetId != currentId
@@ -137,6 +143,7 @@ class MicaCompositePlayer(
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
         val safePositionMs = positionMs.coerceAtLeast(0L)
+        if (!publishProtocolIntent(playWhenReady)) return
         val targetId = runCatching { exoPlayer.getMediaItemAt(safeIndex) }.getOrNull()?.mediaId
         val switchingItem = targetId != null &&
             (safeIndex != exoPlayer.currentMediaItemIndex || targetId != exoPlayer.currentMediaItem?.mediaId)
@@ -154,14 +161,17 @@ class MicaCompositePlayer(
         } else {
             null
         }
+        if (safeIndex == exoPlayer.currentMediaItemIndex &&
+            playbackStack != null && playbackStack?.beginSeek(safePositionMs * 1_000L) == null
+        ) {
+            DiagnosticLog.event("UsbExclusiveProtocol", "seek-rejected-before-exo targetMs=$safePositionMs")
+            return
+        }
         if (!playWhenReady) {
             DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
             exoPlayer.playWhenReady = false
         }
         beforePlaybackStart()
-        if (safeIndex == exoPlayer.currentMediaItemIndex) {
-            shadowStack?.observeSeekDispatch(safePositionMs * 1_000L)
-        }
         val seekIntent = if (
             playWhenReady && exoPlayer.isPlaying && safeIndex == exoPlayer.currentMediaItemIndex
         ) {
@@ -197,6 +207,7 @@ class MicaCompositePlayer(
     fun selectExistingWithoutPlayback(index: Int, positionMs: Long = 0L) {
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
+        if (!publishProtocolIntent(false)) return
         val targetId = runCatching { exoPlayer.getMediaItemAt(safeIndex) }.getOrNull()?.mediaId
         val switchingItem = targetId != null &&
             (safeIndex != exoPlayer.currentMediaItemIndex || targetId != exoPlayer.currentMediaItem?.mediaId)
@@ -235,6 +246,7 @@ class MicaCompositePlayer(
         if (mediaItems.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
         val targetId = mediaItems[safeIndex].mediaId
+        if (!publishProtocolIntent(false)) return
         val switchingItem = targetId != exoPlayer.currentMediaItem?.mediaId
         val navigationEpoch = if (switchingItem) {
             publishManualNavigation(targetId, requestedPlaying = false, seam = "select-without-playback")
@@ -282,18 +294,21 @@ class MicaCompositePlayer(
     }
 
     fun playExoDirect() {
+        if (!publishProtocolIntent(true)) return
         grantManualNavigationResumeAuthority()
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         exoPlayer.play()
     }
 
     fun pauseExoDirect() {
+        if (!publishProtocolIntent(false)) return
         revokeManualNavigationResumeAuthority()
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         exoPlayer.pause()
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
+        if (!publishProtocolIntent(playWhenReady)) return
         if (!playWhenReady) {
             revokeManualNavigationResumeAuthority()
             DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
@@ -308,12 +323,14 @@ class MicaCompositePlayer(
     }
 
     override fun play() {
+        if (!publishProtocolIntent(true)) return
         grantManualNavigationResumeAuthority()
         onPlaybackIntentChanged?.invoke(true)
         playbackCoordinator?.playCurrent() ?: super.play()
     }
 
     override fun pause() {
+        if (!publishProtocolIntent(false)) return
         revokeManualNavigationResumeAuthority()
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
         onPlaybackIntentChanged?.invoke(false)
@@ -322,7 +339,10 @@ class MicaCompositePlayer(
 
     override fun seekTo(positionMs: Long) {
         val safePositionMs = positionMs.coerceAtLeast(0L)
-        shadowStack?.observeSeekDispatch(safePositionMs * 1_000L)
+        if (playbackStack != null && playbackStack?.beginSeek(safePositionMs * 1_000L) == null) {
+            DiagnosticLog.event("UsbExclusiveProtocol", "seek-rejected-before-exo targetMs=$safePositionMs")
+            return
+        }
         val seekIntent = if (exoPlayer.isPlaying) {
             DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek(safePositionMs)
         } else {
@@ -346,24 +366,88 @@ class MicaCompositePlayer(
     }
 
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
-        playbackCoordinator?.onSelectMediaItem(mediaItemIndex, positionMs)
-            ?: super.seekTo(mediaItemIndex, positionMs)
+        playbackCoordinator?.let {
+            it.onSelectMediaItem(mediaItemIndex, positionMs)
+            return
+        }
+        val targetId = runCatching { exoPlayer.getMediaItemAt(mediaItemIndex).mediaId }.getOrNull()
+        if (playbackStack != null) {
+            if (targetId == null) {
+                DiagnosticLog.event("UsbExclusiveProtocol", "indexed-seek-rejected-before-exo target=$mediaItemIndex")
+                return
+            }
+            if (targetId != exoPlayer.currentMediaItem?.mediaId) {
+                publishManualNavigation(targetId, playWhenReady, "seek-index")
+            } else if (playbackStack?.beginSeek(positionMs.coerceAtLeast(0L) * 1_000L) == null) {
+                DiagnosticLog.event("UsbExclusiveProtocol", "indexed-seek-rejected-before-exo target=$mediaItemIndex")
+                return
+            }
+        }
+        super.seekTo(mediaItemIndex, positionMs)
     }
 
     override fun seekToNextMediaItem() {
-        playbackCoordinator?.onSkipToNext() ?: super.seekToNextMediaItem()
+        playbackCoordinator?.let {
+            it.onSkipToNext()
+            return
+        }
+        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.nextMediaItemIndex).mediaId }.getOrNull()
+        if (playbackStack != null) {
+            if (targetId == null) {
+                DiagnosticLog.event("UsbExclusiveProtocol", "next-seek-rejected-before-exo")
+                return
+            }
+            publishManualNavigation(targetId, playWhenReady, "next-media-item")
+        }
+        super.seekToNextMediaItem()
     }
 
     override fun seekToPreviousMediaItem() {
-        playbackCoordinator?.onSkipToPrevious() ?: super.seekToPreviousMediaItem()
+        playbackCoordinator?.let {
+            it.onSkipToPrevious()
+            return
+        }
+        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.previousMediaItemIndex).mediaId }.getOrNull()
+        if (playbackStack != null) {
+            if (targetId == null) {
+                DiagnosticLog.event("UsbExclusiveProtocol", "previous-seek-rejected-before-exo")
+                return
+            }
+            publishManualNavigation(targetId, playWhenReady, "previous-media-item")
+        }
+        super.seekToPreviousMediaItem()
     }
 
     override fun seekToPrevious() {
-        playbackCoordinator?.onSkipToPrevious() ?: super.seekToPrevious()
+        playbackCoordinator?.let {
+            it.onSkipToPrevious()
+            return
+        }
+        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.previousMediaItemIndex).mediaId }.getOrNull()
+        if (playbackStack != null) {
+            if (targetId == null) {
+                DiagnosticLog.event("UsbExclusiveProtocol", "previous-seek-rejected-before-exo")
+                return
+            }
+            publishManualNavigation(targetId, playWhenReady, "previous")
+        }
+        super.seekToPrevious()
     }
 
     override fun seekToNext() {
-        playbackCoordinator?.onSkipToNext() ?: super.seekToNext()
+        playbackCoordinator?.let {
+            it.onSkipToNext()
+            return
+        }
+        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.nextMediaItemIndex).mediaId }.getOrNull()
+        if (playbackStack != null) {
+            if (targetId == null) {
+                DiagnosticLog.event("UsbExclusiveProtocol", "next-seek-rejected-before-exo")
+                return
+            }
+            publishManualNavigation(targetId, playWhenReady, "next")
+        }
+        super.seekToNext()
     }
 
     internal fun abortManualNavigation(reason: String) {
@@ -371,11 +455,11 @@ class MicaCompositePlayer(
     }
 
     private fun grantManualNavigationResumeAuthority() {
-        manualNavigationTransitionBridge.grantResumeForActivePausedRequest()
+        if (playbackStack == null) manualNavigationTransitionBridge.grantResumeForActivePausedRequest()
     }
 
     private fun revokeManualNavigationResumeAuthority() {
-        manualNavigationTransitionBridge.revokeResumeGrantForActivePausedRequest()
+        if (playbackStack == null) manualNavigationTransitionBridge.revokeResumeGrantForActivePausedRequest()
     }
 
     private fun publishManualNavigation(
@@ -384,14 +468,16 @@ class MicaCompositePlayer(
         seam: String,
         expectedTargetPeriodUid: Any? = null,
     ): ManualNavigationTransitionEpoch {
-        shadowStack?.observeManualNavigation(targetMediaId, seam)
+        if (playbackStack != null && playbackStack?.beginManualNavigation(targetMediaId, seam) == null) {
+            error("USB playback protocol rejected manual navigation before Exo dispatch: $seam/$targetMediaId")
+        }
         val epoch = manualNavigationTransitionBridge.publish(
             targetMediaId = targetMediaId,
             requestedPlaying = requestedPlaying,
             sourceFamily = trackTransitionCoordinator.snapshot().activeFamily,
             expectedTargetPeriodUid = expectedTargetPeriodUid,
         )
-        shadowStack?.observeLegacyNavigationCorrelation(epoch.requestId)
+        playbackStack?.observeLegacyNavigationCorrelation(epoch.requestId)
         DiagnosticLog.event(
             "TrackNavigation",
             "dispatch seam=$seam request=${epoch.requestId} target=$targetMediaId " +
@@ -400,4 +486,7 @@ class MicaCompositePlayer(
         )
         return epoch
     }
+
+    private fun publishProtocolIntent(playing: Boolean): Boolean =
+        playbackStack?.publishSemanticIntent(playing) ?: true
 }

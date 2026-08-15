@@ -13,7 +13,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.MediaSource
 import com.mica.music.media.dsd.ManualNavigationPlaybackPeriodProjection
 import com.mica.music.media.usb.protocol.PlaybackFamily
-import com.mica.music.media.usb.shadow.UsbExclusiveShadowAdapter
+import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
 
 @UnstableApi
@@ -26,7 +26,7 @@ internal class PeriodAwareMediaCodecAudioRenderer(
     eventListener: AudioRendererEventListener,
     audioSink: AudioSink,
     private val playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection,
-    private val shadowAdapter: UsbExclusiveShadowAdapter? = null,
+    private val playbackAdapter: UsbExclusivePlaybackAdapter? = null,
 ) : MediaCodecAudioRenderer(
     context,
     codecAdapterFactory,
@@ -43,7 +43,7 @@ internal class PeriodAwareMediaCodecAudioRenderer(
         offsetUs: Long,
         mediaPeriodId: MediaSource.MediaPeriodId,
     ) {
-        shadowAdapter?.observeStream(
+        playbackAdapter?.observeStream(
             UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
             PlaybackFamily.PCM,
             UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "platform-pcm"),

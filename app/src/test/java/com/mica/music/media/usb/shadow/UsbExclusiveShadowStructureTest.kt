@@ -25,20 +25,19 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("private fun resolveTargetPeriodUid")
         assertOrdered(
             manual,
-            "shadowStack?.observeManualNavigation(targetMediaId, seam)",
+            "playbackStack?.beginManualNavigation(targetMediaId, seam)",
             "manualNavigationTransitionBridge.publish(",
-            "shadowStack?.observeLegacyNavigationCorrelation(epoch.requestId)",
+            "playbackStack?.observeLegacyNavigationCorrelation(epoch.requestId)",
         )
         val seek = source.substringAfter("override fun seekTo(positionMs: Long)")
             .substringBefore("override fun seekTo(mediaItemIndex")
         assertOrdered(
             seek,
-            "shadowStack?.observeSeekDispatch",
+            "playbackStack?.beginSeek",
             "DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek",
             "super.seekTo(safePositionMs)",
         )
-        assertFalse(source.contains("if (shadowStack"))
-        assertFalse(source.contains("return shadowStack"))
+        assertFalse(source.contains("return playbackStack"))
         val directPlay = source.substringAfter("fun playExoDirect()")
             .substringBefore("fun pauseExoDirect()")
         val directPause = source.substringAfter("fun pauseExoDirect()")
@@ -54,16 +53,16 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("exoPlayer.addListener")
         assertOrdered(
             currentness,
-            "shadowStack?.observeTimelinePeriod",
+            "playbackStack?.observeTimelinePeriod",
             "manualNavigationTransitionBridge.updateApplicationCurrentness(",
         )
         val itemTransition = source.substringAfter("override fun onMediaItemTransition")
             .substringBefore("override fun onTimelineChanged")
-        assertOrdered(itemTransition, "shadowStack?.observeApplicationMedia", "publishApplicationCurrentness(")
+        assertOrdered(itemTransition, "playbackStack?.observeApplicationMedia", "publishApplicationCurrentness(")
         val analytics = source.substringAfter("exoPlayer.addAnalyticsListener")
         assertOrdered(
             analytics,
-            "shadowStack?.observeCurrentPlayerOccurrence(",
+            "playbackStack?.observeCurrentPlayerOccurrence(",
             "manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(",
         )
     }
@@ -74,7 +73,7 @@ class UsbExclusiveShadowStructureTest {
         val platformStream = platform.substringAfter("override fun onStreamChanged(")
         assertOrdered(
             platformStream,
-            "shadowAdapter?.observeStream(",
+            "playbackAdapter?.observeStream(",
             "playbackPeriodProjection.onStreamChanged(mediaPeriodId)",
             "super.onStreamChanged(",
         )
@@ -82,12 +81,12 @@ class UsbExclusiveShadowStructureTest {
         val factory = source("app/src/main/java/com/mica/music/media/MicaRenderersFactory.kt")
         assertOrdered(
             factory,
-            "ffmpegDsdShadowAdapter?.observeStream(",
+            "ffmpegDsdPlaybackAdapter?.observeStream(",
             "dsdPeriodProjection.onStreamChanged(mediaPeriodId)",
         )
         assertOrdered(
             factory,
-            "ffmpegPcmShadowAdapter?.observeStream(",
+            "ffmpegPcmPlaybackAdapter?.observeStream(",
             "pcmPeriodProjection.onStreamChanged(mediaPeriodId)",
         )
         val ffmpeg = source("third_party/media3-ffmpeg-decoder/src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.java")
@@ -99,11 +98,15 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("override fun handleBuffer")
         assertOrdered(
             configure,
-            "shadowAdapter?.observePcmConfigureAttempt(",
             "manualNavigationTransitionBridge.bindPcmDestination",
-            "transitionCoordinator.beforePcmAccept",
+            "preparePcmConfigure(",
+            "configureWithProtocol(",
+        )
+        val protocolConfigure = sink.substringAfter("private fun configureWithProtocol(")
+        assertOrdered(
+            protocolConfigure,
             "super.configure(inputFormat, specifiedBufferSize, outputChannels)",
-            "shadowAdapter?.observePcmConfigureCompleted(shadowOccurrence)",
+            "commitPcmConfigure(",
         )
     }
 
@@ -114,28 +117,28 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("override fun onPositionReset")
         assertOrdered(
             stream,
-            "shadowAdapter?.observeStream(",
+            "playbackAdapter?.observeStream(",
             "manualNavigationTransitionBridge?.observePlaybackStream(mediaPeriodId)",
         )
         val started = direct.substringAfter("override fun onStarted()")
             .substringBefore("override fun onStopped()")
         assertOrdered(
             started,
-            "shadowAdapter?.observeDirectStarted(shadowOccurrence)",
+            "acceptDirectStarted(shadowOccurrence)",
             "transitionCoordinator?.onDirectPlayState(paused = false)",
         )
         val stopped = direct.substringAfter("override fun onStopped()")
             .substringBefore("override fun onPositionReset")
         assertOrdered(
             stopped,
-            "shadowAdapter?.observeDirectStopped(shadowOccurrence)",
+            "playbackAdapter?.observeDirectStopped(shadowOccurrence)",
             "manualNavigationTransitionBridge?.observeDirectRetirementStop()",
         )
         val reset = direct.substringAfter("override fun onPositionReset")
             .substringBefore("override fun onDisabled")
         assertOrdered(
             reset,
-            "shadowAdapter?.observeDirectPositionReset(shadowOccurrence, sourcePositionUs)",
+            "playbackAdapter?.observeDirectPositionReset(shadowOccurrence, sourcePositionUs)",
             "DirectDsdSeekDiscontinuityCoordinator.consumePositionReset(",
             "closePump(\"position-reset:${'$'}positionUs\")",
         )
@@ -144,29 +147,28 @@ class UsbExclusiveShadowStructureTest {
         assertOrdered(
             close,
             "closingPump?.close()",
-            "shadowAdapter?.observeDirectRuntimeReleased(",
+            "playbackAdapter?.observeDirectRuntimeReleased(",
         )
     }
 
     @Test
     fun serviceOwnsOneLedgerAndPublishesSemanticIntentBeforeExistingUsbBookkeeping() {
         val service = source("app/src/main/java/com/mica/music/media/MicaMediaService.kt")
-        assertTrue(service.contains("private val usbExclusiveShadowCoordinator = UsbExclusiveShadowCoordinator()"))
-        assertTrue(service.contains("ExoPlaybackStackFactory.build(this, activeOutputPath, usbExclusiveShadowCoordinator)"))
-        assertTrue(service.contains("ExoPlaybackStackFactory.build(this, target, usbExclusiveShadowCoordinator)"))
+        assertTrue(service.contains("private val usbExclusivePlaybackCoordinator = UsbExclusivePlaybackCoordinator()"))
+        assertTrue(service.contains("ExoPlaybackStackFactory.build(this, activeOutputPath, usbExclusivePlaybackCoordinator)"))
+        assertTrue(service.contains("ExoPlaybackStackFactory.build(this, target, usbExclusivePlaybackCoordinator)"))
         val candidateBuild = service.substringAfter("buildCandidate = { target, _ ->")
             .substringBefore("stageCandidate =")
         assertFalse(candidateBuild.contains("observeSharedPcmOutput"))
         assertFalse(candidateBuild.contains("observeUnavailableOutput"))
-        assertTrue(service.contains("candidate.shadowStack?.let(usbExclusiveShadowCoordinator::publishStack)"))
+        assertTrue(service.contains("candidate.playbackStack?.let(usbExclusivePlaybackCoordinator::publishStack)"))
         val factory = source("app/src/main/java/com/mica/music/media/ExoPlaybackStack.kt")
         assertTrue(factory.contains("OutputTarget.SharedPcm"))
         assertTrue(factory.contains("OutputTarget.Unavailable"))
-        assertTrue(factory.contains("shadowCoordinator?.createStack(shadowInitialOutput)"))
+        assertTrue(factory.contains("playbackCoordinator?.createStack(initialOutputTarget)"))
         val intent = service.substringAfter("private fun installUsbPlaybackIntentObserver")
         assertOrdered(
             intent,
-            "usbExclusiveShadowCoordinator.publishSemanticIntent(resumePlaybackRequested)",
             "usbResumePlaybackRequested = resumePlaybackRequested",
             "playbackStateCoordinator?.onExplicitPlaybackIntent",
         )
@@ -174,10 +176,16 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("private fun installUsbPlaybackIntentObserver")
         assertOrdered(
             retire,
-            "activeShadowStack?.let(usbExclusiveShadowCoordinator::retireStack)",
+            "activePlaybackStack?.let(usbExclusivePlaybackCoordinator::retireStack)",
             "previousComposite.abortManualNavigation(\"playback-stack-retire\")",
+            "previousExo.playWhenReady = false",
             "previousExo.release()",
         )
+        assertTrue(service.contains("snapshot.stageInto(candidate.exoPlayer)"))
+        assertTrue(service.contains("snapshot.activate(candidate.exoPlayer, resumePlayback = false)"))
+        assertTrue(service.contains("restoreAfterTechnicalQuiesce()"))
+        assertTrue(service.contains("candidate.exoPlayer.playWhenReady = resumePlayback"))
+        assertFalse(service.contains("candidate.compositePlayer.playWhenReady = snapshot.playWhenReady"))
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.mica.music.media.usb.shadow
 
 import com.mica.music.media.usb.protocol.DirectStage
+import com.mica.music.media.usb.protocol.CommitDisposition
 import com.mica.music.media.usb.protocol.FamilyOwnership
 import com.mica.music.media.usb.protocol.MutationKind
 import com.mica.music.media.usb.protocol.OutputTarget
@@ -8,7 +9,9 @@ import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.ProtocolLifecycle
+import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.RuntimeIdentity
+import com.mica.music.media.usb.protocol.SideEffectReceipt
 import com.mica.music.media.usb.protocol.WriteKind
 import com.mica.music.media.usb.UsbOutputGenerationObserverFanout
 import com.mica.music.media.usb.protocol.UsbOutputGeneration
@@ -36,6 +39,8 @@ class UsbExclusiveShadowCoordinatorTest {
         // changes the service-lifetime ledger.
         coordinator.publishSemanticIntent(false)
         coordinator.retireStack(old)
+        assertFalse(old.publishSemanticIntent(true))
+        assertEquals(PlaybackIntent.PAUSE, coordinator.ledger.snapshot().desired)
         val replacement = coordinator.createStack()
 
         assertEquals(PlaybackIntent.PAUSE, replacement.snapshot().adoptedIntent.desired)
@@ -352,6 +357,146 @@ class UsbExclusiveShadowCoordinatorTest {
     }
 
     @Test
+    fun productionRetainedDirectHandoffRequiresExactSourceAndCommitsOneSuccessorLease() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        coordinator.publishSemanticIntent(true)
+        val stack = coordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(8)))
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+        val wrongAdapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+        val runtime = RuntimeIdentity("direct-retained-production")
+
+        bindManualDirectDestination(stack, adapter, "A", a, "dop128", runtime)
+        val sourceOwnership = stack.snapshot().familyOwnership as FamilyOwnership.DopOwned
+
+        stack.observeTimelinePeriod("B", b.periodUid)
+        stack.observeApplicationMedia("B")
+        requireNotNull(stack.beginManualNavigation("B", "production-retained"))
+        stack.observeCurrentPlayerOccurrence("B", b)
+        adapter.observeStream(b, PlaybackFamily.DOP, "dop256")
+
+        assertNull(adapter.prepareRetainedDirectHandoff(b, b, runtime))
+        assertNull(wrongAdapter.prepareRetainedDirectHandoff(a, b, runtime))
+        assertNull(adapter.prepareRetainedDirectHandoff(a, b, RuntimeIdentity("wrong-runtime")))
+
+        val permit = requireNotNull(adapter.prepareRetainedDirectHandoff(a, b, runtime))
+        assertTrue(sourceOwnership.writeLease.isRevoked())
+        val disposition = adapter.commitRetainedDirectHandoff(
+            permit,
+            SideEffectReceipt.Completed(
+                permit.activationId,
+                ResourceIdentity("direct-retained-reset-b"),
+                "test-retained-reset",
+                runtime,
+            ),
+        )
+
+        assertTrue(disposition is CommitDisposition.CurrentPlaying)
+        val successor = stack.snapshot().familyOwnership as FamilyOwnership.DopOwned
+        assertEquals(b, successor.occurrence)
+        assertEquals(adapter.id, successor.adapterInstanceId)
+        assertEquals(runtime, successor.runtimeIdentity)
+        assertNotEquals(sourceOwnership.ownershipId, successor.ownershipId)
+        assertTrue(successor.writeLease.tryEnter(b, successor.mutationId, adapter.id, WriteKind.DOP_CONTENT))
+        successor.writeLease.exit()
+    }
+
+    @Test
+    fun productionRetainedDirectPermitBecomesStaleAfterBSupersedeAndCUsesItsOwnExactHandoff() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        coordinator.publishSemanticIntent(true)
+        val stack = coordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(9)))
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+        val runtime = RuntimeIdentity("direct-retained-superseded")
+
+        bindManualDirectDestination(stack, adapter, "A", a, "dop128", runtime)
+        stack.observeTimelinePeriod("B", b.periodUid)
+        stack.observeApplicationMedia("B")
+        requireNotNull(stack.beginManualNavigation("B", "B"))
+        stack.observeCurrentPlayerOccurrence("B", b)
+        adapter.observeStream(b, PlaybackFamily.DOP, "dop256")
+        val bPermit = requireNotNull(adapter.prepareRetainedDirectHandoff(a, b, runtime))
+
+        stack.observeTimelinePeriod("C", c.periodUid)
+        stack.observeApplicationMedia("C")
+        requireNotNull(stack.beginManualNavigation("C", "C"))
+        stack.observeCurrentPlayerOccurrence("C", c)
+        adapter.observeStream(c, PlaybackFamily.DOP, "dop512")
+
+        assertEquals(
+            CommitDisposition.StaleNoEffect,
+            adapter.commitRetainedDirectHandoff(
+                bPermit,
+                SideEffectReceipt.Completed(
+                    bPermit.activationId,
+                    ResourceIdentity("direct-retained-reset-b-stale"),
+                    "test-stale-B",
+                    runtime,
+                ),
+            ),
+        )
+        assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+        assertEquals(a, (stack.snapshot().familyOwnership as FamilyOwnership.DopOwned).occurrence)
+        val cPermit = requireNotNull(adapter.prepareRetainedDirectHandoff(a, c, runtime))
+        assertNotEquals(bPermit.activationId, cPermit.activationId)
+        assertTrue(
+            adapter.commitRetainedDirectHandoff(
+                cPermit,
+                SideEffectReceipt.Completed(
+                    cPermit.activationId,
+                    ResourceIdentity("direct-retained-reset-c"),
+                    "test-C",
+                    runtime,
+                ),
+            ) is CommitDisposition.CurrentPlaying,
+        )
+        assertEquals(c, (stack.snapshot().familyOwnership as FamilyOwnership.DopOwned).occurrence)
+    }
+
+    @Test
+    fun productionRetainedPcmHandoffRequiresRawTargetProofAndOldLeaseDrain() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        coordinator.publishSemanticIntent(true)
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.FFMPEG_PCM)
+
+        stack.observeTimelinePeriod("A", a.periodUid)
+        stack.observeApplicationMedia("A")
+        requireNotNull(stack.beginManualNavigation("A", "pcm-seed"))
+        stack.observeCurrentPlayerOccurrence("A", a)
+        adapter.observeStream(a, PlaybackFamily.PCM, "pcm96")
+        val configure = requireNotNull(adapter.preparePcmConfigure(a, "sink-format"))
+        assertTrue(
+            adapter.commitPcmConfigure(
+                configure,
+                a,
+                ResourceIdentity("pcm-runtime"),
+                "sink-configured",
+            ) is CommitDisposition.CurrentPlaying,
+        )
+        val source = stack.snapshot().familyOwnership as FamilyOwnership.PcmOwned
+        assertTrue(source.writeLease.tryEnter(a, source.mutationId, adapter.id, WriteKind.PCM_DATA))
+
+        stack.observeTimelinePeriod("B", b.periodUid)
+        stack.observeApplicationMedia("B")
+        requireNotNull(stack.beginManualNavigation("B", "pcm-retained"))
+        stack.observeCurrentPlayerOccurrence("B", b)
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        assertNull(adapter.prepareRetainedPcmHandoff(c))
+        assertNull(adapter.prepareRetainedPcmHandoff(b))
+        assertTrue(source.writeLease.isRevoked())
+
+        source.writeLease.exit()
+        val permit = requireNotNull(adapter.prepareRetainedPcmHandoff(b))
+        val disposition = adapter.commitRetainedPcmHandoff(permit)
+        assertTrue(disposition is CommitDisposition.CurrentPlaying)
+        val successor = stack.snapshot().familyOwnership as FamilyOwnership.PcmOwned
+        assertEquals(b, successor.occurrence)
+        assertNotEquals(source.ownershipId, successor.ownershipId)
+        assertTrue(successor.writeLease.tryEnter(b, successor.mutationId, adapter.id, WriteKind.PCM_DATA))
+        successor.writeLease.exit()
+    }
+
+    @Test
     fun generationFanoutPublishesNativeExactlyOnceBeforeObserversAndSurvivesObserverFailure() {
         val order = mutableListOf<String>()
         val failures = mutableListOf<Long>()
@@ -404,5 +549,59 @@ class UsbExclusiveShadowCoordinatorTest {
         adapter.observeDirectStage(a, DirectStage.SOURCE_ACCEPT, runtime, completed = true)
         check(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
         return stack to adapter
+    }
+
+    private fun bindManualDirectDestination(
+        stack: UsbExclusiveShadowStack,
+        adapter: UsbExclusiveShadowAdapter,
+        mediaId: String,
+        occurrence: PlaybackOccurrence,
+        facts: String,
+        runtime: RuntimeIdentity,
+    ) {
+        stack.observeTimelinePeriod(mediaId, occurrence.periodUid)
+        stack.observeApplicationMedia(mediaId)
+        requireNotNull(stack.beginManualNavigation(mediaId, "production-seed"))
+        stack.observeCurrentPlayerOccurrence(mediaId, occurrence)
+        adapter.observeStream(occurrence, PlaybackFamily.DOP, facts)
+        for (stage in listOf(DirectStage.CREATE_RUNTIME, DirectStage.PREFILL)) {
+            val permit = requireNotNull(adapter.prepareDirectStage(occurrence, stage, runtime))
+            assertNull(
+                adapter.commitDirectStage(
+                    permit,
+                    SideEffectReceipt.Completed(
+                        permit.activationId,
+                        ResourceIdentity("$runtime-${stage.name.lowercase()}"),
+                        "test-${stage.name.lowercase()}",
+                        runtime,
+                    ),
+                ),
+            )
+        }
+        assertTrue(adapter.acceptDirectStarted(occurrence))
+        val arm = requireNotNull(adapter.prepareDirectStage(occurrence, DirectStage.ARM, runtime))
+        assertNull(
+            adapter.commitDirectStage(
+                arm,
+                SideEffectReceipt.Completed(
+                    arm.activationId,
+                    ResourceIdentity("$runtime-arm"),
+                    "test-arm",
+                    runtime,
+                ),
+            ),
+        )
+        val source = requireNotNull(adapter.prepareDirectStage(occurrence, DirectStage.SOURCE_ACCEPT, runtime))
+        assertTrue(
+            adapter.commitDirectStage(
+                source,
+                SideEffectReceipt.Completed(
+                    source.activationId,
+                    ResourceIdentity("$runtime-source"),
+                    "test-source",
+                    runtime,
+                ),
+            ) is CommitDisposition.CurrentPlaying,
+        )
     }
 }
