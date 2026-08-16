@@ -6,6 +6,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.mica.music.media.dsd.DirectDsdSeekDiscontinuityCoordinator
 import com.mica.music.media.dsd.DirectDsdSessionGeneration
 import com.mica.music.media.usb.protocol.FamilyOwnership
+import com.mica.music.media.usb.protocol.PlaybackIntent
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -153,7 +154,7 @@ class MicaCompositePlayerCommandRoutingTest {
         assertNotNull(DirectDsdSeekDiscontinuityCoordinator.publishPlayingSeek(5_000L))
         val player = MicaCompositePlayer(exo, testPlaybackStack())
 
-        player.pauseExoDirect()
+        player.dispatchSemanticPause()
 
         assertNull(DirectDsdSeekDiscontinuityCoordinator.pendingForTest())
         verify(exactly = 1) { exo.pause() }
@@ -231,12 +232,17 @@ class MicaCompositePlayerCommandRoutingTest {
     }
 
     @Test
-    fun flushPlaybackPipeline_stopsSeeksAndResumes() {
+    fun t1TechnicalFlushUnchangedPlayKeepsRevisionAndRestoresPlay() {
         val exo = mockk<ExoPlayer>(relaxed = true)
-        val player = MicaCompositePlayer(exo, testPlaybackStack())
+        val stack = testPlaybackStack()
+        assertTrue(stack.publishSemanticIntent(true))
+        val before = stack.snapshot().adoptedIntent
+        val player = MicaCompositePlayer(exo, stack)
 
-        player.flushPlaybackPipeline(positionMs = 12_345L, resumePlayback = true)
+        val restored = requireNotNull(player.flushPlaybackPipeline(positionMs = 12_345L))
 
+        assertEquals(before.revision, restored.revision)
+        assertEquals(PlaybackIntent.PLAY, restored.desired)
         verifySequence {
             exo.playWhenReady = false
             exo.stop()
@@ -244,6 +250,144 @@ class MicaCompositePlayerCommandRoutingTest {
             exo.prepare()
             exo.playWhenReady = true
         }
+    }
+
+    @Test
+    fun t2PlayToPauseDuringTechnicalWindowRestoresLatestPause() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        assertTrue(stack.publishSemanticIntent(true))
+        val play = stack.snapshot().adoptedIntent
+        every { exo.stop() } answers { stack.publishSemanticIntent(false) }
+        val player = MicaCompositePlayer(exo, stack)
+
+        val restored = requireNotNull(player.flushPlaybackPipeline(2_000L))
+
+        assertEquals(PlaybackIntent.PAUSE, restored.desired)
+        assertTrue(restored.revision.value > play.revision.value)
+        verify(exactly = 2) { exo.playWhenReady = false }
+        verify(exactly = 0) { exo.playWhenReady = true }
+    }
+
+    @Test
+    fun t3PauseToPlayDuringTechnicalWindowRestoresLatestPlay() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        val pause = stack.snapshot().adoptedIntent
+        every { exo.stop() } answers { stack.publishSemanticIntent(true) }
+        val player = MicaCompositePlayer(exo, stack)
+
+        val restored = requireNotNull(player.flushPlaybackPipeline(3_000L))
+
+        assertEquals(PlaybackIntent.PLAY, restored.desired)
+        assertTrue(restored.revision.value > pause.revision.value)
+        verify(exactly = 1) { exo.playWhenReady = true }
+    }
+
+    @Test
+    fun t4PlayPausePlayBeforeRestoreUsesLatestPlay() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        assertTrue(stack.publishSemanticIntent(true))
+        val r1 = stack.snapshot().adoptedIntent.revision.value
+        every { exo.stop() } answers { stack.publishSemanticIntent(false) }
+        every { exo.seekTo(4_000L) } answers { stack.publishSemanticIntent(true) }
+        val player = MicaCompositePlayer(exo, stack)
+
+        val restored = requireNotNull(player.flushPlaybackPipeline(4_000L))
+
+        assertEquals(PlaybackIntent.PLAY, restored.desired)
+        assertEquals(r1 + 2L, restored.revision.value)
+        verify(exactly = 1) { exo.playWhenReady = true }
+    }
+
+    @Test
+    fun t5PausePlayPauseBeforeRestoreUsesLatestPause() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        val r1 = stack.snapshot().adoptedIntent.revision.value
+        every { exo.stop() } answers { stack.publishSemanticIntent(true) }
+        every { exo.seekTo(5_000L) } answers { stack.publishSemanticIntent(false) }
+        val player = MicaCompositePlayer(exo, stack)
+
+        val restored = requireNotNull(player.flushPlaybackPipeline(5_000L))
+
+        assertEquals(PlaybackIntent.PAUSE, restored.desired)
+        assertEquals(r1 + 2L, restored.revision.value)
+        verify(exactly = 2) { exo.playWhenReady = false }
+        verify(exactly = 0) { exo.playWhenReady = true }
+    }
+
+    @Test
+    fun t6DuplicateSemanticPlayDuringWindowIsLedgerIdempotent() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        assertTrue(stack.publishSemanticIntent(true))
+        val r1 = stack.snapshot().adoptedIntent.revision
+        every { exo.stop() } answers { stack.publishSemanticIntent(true) }
+        val player = MicaCompositePlayer(exo, stack)
+
+        val restored = requireNotNull(player.flushPlaybackPipeline(6_000L))
+
+        assertEquals(r1, restored.revision)
+        assertEquals(PlaybackIntent.PLAY, restored.desired)
+    }
+
+    @Test
+    fun t10InactiveStackAtRestoreCannotRegrantPlay() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        assertTrue(stack.publishSemanticIntent(true))
+        every { exo.stop() } answers { stack.protocol.beginRetiring() }
+        val player = MicaCompositePlayer(exo, stack)
+
+        val restored = player.flushPlaybackPipeline(10_000L)
+
+        assertNull(restored)
+        verify(exactly = 2) { exo.playWhenReady = false }
+        verify(exactly = 0) { exo.playWhenReady = true }
+    }
+    @Test
+    fun t8SemanticDirectHelpersPublishBeforeExoAndNotifyBookkeeping() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        every { exo.playbackState } returns Player.STATE_READY
+        val stack = testPlaybackStack()
+        val intents = mutableListOf<Boolean>()
+        val player = MicaCompositePlayer(exo, stack).also {
+            it.onPlaybackIntentChanged = intents::add
+        }
+        every { exo.play() } answers {
+            assertEquals(PlaybackIntent.PLAY, stack.snapshot().adoptedIntent.desired)
+            assertEquals(listOf(true), intents)
+        }
+        every { exo.pause() } answers {
+            assertEquals(PlaybackIntent.PAUSE, stack.snapshot().adoptedIntent.desired)
+            assertEquals(listOf(true, false), intents)
+        }
+
+        player.dispatchSemanticPlay()
+        player.dispatchSemanticPause()
+
+        assertEquals(listOf(true, false), intents)
+        verify(exactly = 1) { exo.play() }
+        verify(exactly = 1) { exo.pause() }
+    }
+
+    @Test
+    fun t9TechnicalFlushNeverPublishesSemanticIntentOrBookkeeping() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val stack = testPlaybackStack()
+        assertTrue(stack.publishSemanticIntent(true))
+        val before = stack.snapshot().adoptedIntent
+        var explicitCallbacks = 0
+        val player = MicaCompositePlayer(exo, stack).also {
+            it.onPlaybackIntentChanged = { explicitCallbacks++ }
+        }
+
+        val restored = requireNotNull(player.flushPlaybackPipeline(9_000L))
+
+        assertEquals(before, restored)
+        assertEquals(0, explicitCallbacks)
     }
 
     @Test

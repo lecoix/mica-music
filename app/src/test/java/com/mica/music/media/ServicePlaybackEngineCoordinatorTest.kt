@@ -6,6 +6,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ExoPlaybackException
+import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
@@ -23,6 +24,32 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class ServicePlaybackEngineCoordinatorTest {
 
+    @Test
+    fun t8ServiceSemanticPlayPauseRoutesThroughLedgerBeforeExoDispatch() {
+        val exo = mockk<ExoPlayer>(relaxed = true)
+        val rawItem = MediaItem.Builder().setMediaId("raw-semantic-route").build()
+        every { exo.currentMediaItem } returns rawItem
+        every { exo.playbackState } returns Player.STATE_READY
+        val stack = testPlaybackStack()
+        val player = MicaCompositePlayer(exo, stack)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        every { exo.play() } answers {
+            assertEquals(PlaybackIntent.PLAY, stack.snapshot().adoptedIntent.desired)
+        }
+        every { exo.pause() } answers {
+            assertEquals(PlaybackIntent.PAUSE, stack.snapshot().adoptedIntent.desired)
+        }
+
+        coordinator.playCurrent()
+        coordinator.onPause()
+
+        assertEquals(PlaybackIntent.PAUSE, stack.snapshot().adoptedIntent.desired)
+        verify(exactly = 1) { exo.play() }
+        verify(exactly = 1) { exo.pause() }
+    }
     @Test
     fun playbackStateControlsSpectrumClockWithoutAnActiveRequest() {
         val player = MicaCompositePlayer(mockExoWithQueue(emptyList(), currentIndex = 0), testPlaybackStack())

@@ -22,7 +22,7 @@ import org.robolectric.RobolectricTestRunner
 class ServicePlaybackStateCoordinatorTest {
 
     @Test
-    fun explicitPlayBeforeRestoreCompletionRemainsPlaying() {
+    fun t7RuntimeObservationCannotOverrideExplicitPlayBeforeRestoreCompletion() {
         val store = mockk<ServicePlaybackStateStore>(relaxed = true)
         val handler = mockk<Handler>(relaxed = true)
         val player = mockk<Player>(relaxed = true)
@@ -54,6 +54,7 @@ class ServicePlaybackStateCoordinatorTest {
         // intent before the delayed timeline can change the underlying playWhenReady.
         player.play()
         coordinator.onExplicitPlaybackIntent(true)
+        listener.captured.onPlayWhenReadyChanged(false, 0)
         every { player.mediaItemCount } returns 1
         every { player.getMediaItemAt(0) } returns MediaItem.Builder().setMediaId("one").build()
         every { player.currentMediaItem } returns MediaItem.Builder().setMediaId("one").build()
@@ -107,6 +108,48 @@ class ServicePlaybackStateCoordinatorTest {
         listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
 
         verify(exactly = 1) { player.playWhenReady = false }
+        coordinator.release()
+    }
+
+    @Test
+    fun technicalPlayWhenReadyObservationDoesNotOverwriteExplicitRestoreIntent() {
+        val store = mockk<ServicePlaybackStateStore>(relaxed = true)
+        val handler = mockk<Handler>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val snapshot = ServicePlaybackSnapshot(
+            queueSongIds = listOf("one"),
+            currentIndex = 0,
+            positionMs = 5_000L,
+            repeatMode = Player.REPEAT_MODE_OFF,
+            shuffleEnabled = false,
+            playWhenReady = false,
+            qualityMode = AudioQualityMode.HIFI,
+            playbackTuning = PlaybackTuning(),
+        )
+
+        every { store.load() } returns snapshot
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.mediaItemCount } returns 0
+
+        val coordinator = ServicePlaybackStateCoordinator(
+            player = player,
+            store = store,
+            handler = handler,
+            initialQualityMode = AudioQualityMode.HIFI,
+        )
+        coordinator.start()
+        coordinator.onExplicitPlaybackIntent(true)
+
+        listener.captured.onPlayWhenReadyChanged(false, 0)
+
+        every { player.mediaItemCount } returns 1
+        every { player.getMediaItemAt(0) } returns MediaItem.Builder().setMediaId("one").build()
+        every { player.currentMediaItem } returns MediaItem.Builder().setMediaId("one").build()
+        every { player.currentPosition } returns 5_000L
+        listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
+
+        verify(exactly = 1) { player.playWhenReady = true }
         coordinator.release()
     }
 

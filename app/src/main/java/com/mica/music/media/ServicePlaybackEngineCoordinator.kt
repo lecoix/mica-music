@@ -64,7 +64,7 @@ internal class ServicePlaybackEngineCoordinator(
     fun playCurrent() {
         val item = player.currentMediaItem ?: return
         val song = SongMediaItemCodec.decode(item) ?: run {
-            player.playExoDirect()
+            player.dispatchSemanticPlay()
             return
         }
         val active = requestState.activeRequest
@@ -77,7 +77,7 @@ internal class ServicePlaybackEngineCoordinator(
         if (active?.songId == song.id &&
             active.sourceRevision == sourceRevision
         ) {
-            player.playExoDirect()
+            player.dispatchSemanticPlay()
             return
         }
         start(song, player.currentMediaItemIndex, player.currentPosition)
@@ -88,7 +88,7 @@ internal class ServicePlaybackEngineCoordinator(
     }
 
     override fun onPause() {
-        player.pauseExoDirect()
+        player.dispatchSemanticPause()
     }
 
     override fun onSeekTo(positionMs: Long) {

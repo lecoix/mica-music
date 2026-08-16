@@ -6,6 +6,50 @@ import org.junit.Test
 import java.io.File
 
 class UsbExclusiveShadowStructureTest {
+
+    @Test
+    fun technicalIntentRoutingUsesFenceAndRuntimeObservationNeverPublishesSemanticIntent() {
+        val composite = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
+        val flush = composite.substringAfter("fun flushPlaybackPipeline(positionMs: Long)")
+            .substringBefore("fun playbackQueueSnapshot")
+        assertOrdered(
+            flush,
+            "playbackStack.captureTechnicalIntentFence()",
+            "setTechnicalExecutionPlaying(false)",
+            "exoPlayer.stop()",
+            "exoPlayer.seekTo(positionMs.coerceAtLeast(0L))",
+            "exoPlayer.prepare()",
+            "playbackStack.restoreAfterTechnicalQuiesce(intentFence)",
+            "setTechnicalExecutionPlaying(latestIntent?.desired == PlaybackIntent.PLAY)",
+        )
+        assertFalse(flush.contains("resumePlayback"))
+        assertFalse(flush.contains("playWhenReady"))
+
+        val technicalHelper = composite.substringAfter("private fun setTechnicalExecutionPlaying")
+            .substringBefore("private fun prepareQueueMutation")
+        assertTrue(technicalHelper.contains("exoPlayer.playWhenReady = playing"))
+        assertFalse(technicalHelper.contains("publishProtocolIntent"))
+        assertFalse(technicalHelper.contains("onPlaybackIntentChanged"))
+
+        val state = source("app/src/main/java/com/mica/music/media/ServicePlaybackStateCoordinator.kt")
+        val runtimeObservation = state.substringAfter("override fun onPlayWhenReadyChanged")
+            .substringBefore("override fun onRepeatModeChanged")
+        assertTrue(runtimeObservation.contains("persistCursor(force = true)"))
+        assertFalse(runtimeObservation.contains("onExplicitPlaybackIntent"))
+
+        val service = source("app/src/main/java/com/mica/music/media/MicaMediaService.kt")
+        val serviceFlush = service.substringAfter("private fun flushAudioPipeline(reason: String)")
+            .substringBefore("private fun installAudioPipelineCoordinator")
+        assertTrue(serviceFlush.contains("player.flushPlaybackPipeline(positionMs)"))
+        assertFalse(serviceFlush.contains("shouldResume"))
+        assertFalse(serviceFlush.contains("player.playWhenReady"))
+
+        val engine = source("app/src/main/java/com/mica/music/media/ServicePlaybackEngineCoordinator.kt")
+        assertTrue(engine.contains("player.dispatchSemanticPlay()"))
+        assertTrue(engine.contains("player.dispatchSemanticPause()"))
+        assertFalse(engine.contains("playExoDirect"))
+        assertFalse(engine.contains("pauseExoDirect"))
+    }
     @Test
     fun mainProtocolHasNoOwnershipFabricationSeam() {
         val main = source("app/src/main/java/com/mica/music/media/usb/protocol/UsbExclusivePlaybackProtocol.kt")
@@ -38,12 +82,12 @@ class UsbExclusiveShadowStructureTest {
             "super.seekTo(safePositionMs)",
         )
         assertFalse(source.contains("return playbackStack"))
-        val directPlay = source.substringAfter("fun playExoDirect()")
-            .substringBefore("fun pauseExoDirect()")
-        val directPause = source.substringAfter("fun pauseExoDirect()")
+        val directPlay = source.substringAfter("fun dispatchSemanticPlay()")
+            .substringBefore("fun dispatchSemanticPause()")
+        val directPause = source.substringAfter("fun dispatchSemanticPause()")
             .substringBefore("override fun setPlayWhenReady")
-        assertFalse(directPlay.contains("onPlaybackIntentChanged"))
-        assertFalse(directPause.contains("onPlaybackIntentChanged"))
+        assertOrdered(directPlay, "publishProtocolIntent(true)", "onPlaybackIntentChanged?.invoke(true)", "exoPlayer.play()")
+        assertOrdered(directPause, "publishProtocolIntent(false)", "onPlaybackIntentChanged?.invoke(false)", "exoPlayer.pause()")
     }
 
     @Test

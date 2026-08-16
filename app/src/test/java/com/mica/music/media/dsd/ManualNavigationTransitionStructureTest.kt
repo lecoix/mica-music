@@ -79,7 +79,7 @@ class ManualNavigationTransitionStructureTest {
     @Test
     fun applicationPausePublishesProtocolIntentBeforeUnderlyingPauseDispatch() {
         val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
-        val direct = source.substringAfter("fun pauseExoDirect()")
+        val direct = source.substringAfter("fun dispatchSemanticPause()")
             .substringBefore("override fun setPlayWhenReady")
         assertOrdered(
             direct,
@@ -105,8 +105,8 @@ class ManualNavigationTransitionStructureTest {
     @Test
     fun applicationResumeIntentPrecedesUnderlyingExoPlayDispatch() {
         val source = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
-        val direct = source.substringAfter("fun playExoDirect()")
-            .substringBefore("fun pauseExoDirect()")
+        val direct = source.substringAfter("fun dispatchSemanticPlay()")
+            .substringBefore("fun dispatchSemanticPause()")
         assertOrdered(
             direct,
             "publishProtocolIntent(true)",

@@ -29,6 +29,7 @@ import com.mica.music.media.usb.protocol.RetainedPcmHandoffPermit
 import com.mica.music.media.usb.protocol.RuntimeIdentity
 import com.mica.music.media.usb.protocol.SideEffectReceipt
 import com.mica.music.media.usb.protocol.IntentSnapshot
+import com.mica.music.media.usb.protocol.IntentRevision
 import com.mica.music.media.usb.protocol.UsbExclusivePlaybackProtocol
 import com.mica.music.media.usb.protocol.UsbExclusiveProtocolSnapshot
 import com.mica.music.media.usb.protocol.UsbOutputGeneration
@@ -474,15 +475,21 @@ internal class UsbExclusiveShadowStack internal constructor(
             snapshot.adoptedIntent.desired == if (playing) PlaybackIntent.PLAY else PlaybackIntent.PAUSE
     }
 
+    /** Captures semantic-intent revision before a publication-free technical execution window. */
+    fun captureTechnicalIntentFence(): IntentRevision = protocol.captureTechnicalIntentFence()
+
     /**
-     * Technical stack staging must re-adopt the current service intent before restoring Exo
-     * execution. The caller deliberately applies the resulting execution bit to the underlying
-     * Exo player, so this seam cannot publish a synthetic semantic PAUSE while staging.
+     * Re-adopts the latest service intent at the end of a technical execution window. The captured
+     * revision is only a fence/provenance value; it is never a resume grant.
      */
-    fun restoreAfterTechnicalQuiesce(): IntentSnapshot {
-        val fence = protocol.captureTechnicalIntentFence()
-        return protocol.restoreAfterTechnicalQuiesce(fence)
+    fun restoreAfterTechnicalQuiesce(fence: IntentRevision): IntentSnapshot? {
+        val latest = protocol.restoreAfterTechnicalQuiesce(fence)
+        return latest.takeIf { protocol.snapshot().lifecycle is ProtocolLifecycle.Active }
     }
+
+    /** Existing rebuild seam: no technical window is open here, so capture immediately before adopt. */
+    fun restoreAfterTechnicalQuiesce(): IntentSnapshot =
+        protocol.restoreAfterTechnicalQuiesce(captureTechnicalIntentFence())
 
     fun currentTopologyEpoch(): PlaybackTopologyEpoch = topologyEpoch
 

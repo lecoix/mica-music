@@ -56,7 +56,8 @@ internal class ServicePlaybackStateCoordinator(
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            onExplicitPlaybackIntent(playWhenReady)
+            // Runtime execution observation only. Canonical semantic PLAY/PAUSE enters through
+            // the explicit composite/service command callback seam.
             persistCursor(force = true)
         }
 

@@ -559,6 +559,30 @@ class UsbExclusivePlaybackProtocolTest {
     }
 
     @Test
+    fun technicalRestoreCannotRegrantPlayAfterProtocolLeavesActiveLifecycle() {
+        val (ledger, protocol) = fresh()
+        val fence = protocol.captureTechnicalIntentFence()
+        protocol.beginRetiring()
+        val laterPlay = ledger.publish(PlaybackIntent.PLAY)
+
+        val restored = protocol.restoreAfterTechnicalQuiesce(fence)
+
+        assertFalse(protocol.snapshot().lifecycle is ProtocolLifecycle.Active)
+        assertEquals(PlaybackIntent.PAUSE, restored.desired)
+        assertTrue(restored.revision.value < laterPlay.revision.value)
+        assertNull(
+            protocol.beginMutation(
+                MutationKind.MANUAL,
+                "B",
+                PlaybackFamily.PCM,
+                "pcm96",
+                b,
+                destinationAdapterInstanceId = adapterB,
+            ),
+        )
+    }
+
+    @Test
     fun outputTargetsAreAlgebraicallyDistinctAndUnavailableCannotActivate() {
         val ledger = PlaybackIntentLedger()
         ledger.publish(PlaybackIntent.PLAY)

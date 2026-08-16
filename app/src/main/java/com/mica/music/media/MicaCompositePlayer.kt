@@ -11,6 +11,8 @@ import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.ManualNavigationTransitionEpoch
 import com.mica.music.media.dsd.ManualNavigationTimelinePeriodResolver
+import com.mica.music.media.usb.protocol.IntentSnapshot
+import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.media.usb.shadow.PlaybackTopologyMutationReservation
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackStack
 import com.mica.music.media.usb.shadow.UsbExclusiveAuthorityObservation
@@ -512,14 +514,20 @@ class MicaCompositePlayer internal constructor(
         queueRevision++
     }
 
-    /** Stops, seeks, and re-prepares playback to flush processor state (does not rebuild the sink). */
-    fun flushPlaybackPipeline(positionMs: Long, resumePlayback: Boolean) {
+    /**
+     * Publication-free technical quiesce. The captured revision is only a fence; restore always
+     * re-reads/adopts the latest ledger state immediately before underlying Exo execution changes.
+     */
+    fun flushPlaybackPipeline(positionMs: Long): IntentSnapshot? {
+        val intentFence = playbackStack.captureTechnicalIntentFence()
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
-        exoPlayer.playWhenReady = false
+        setTechnicalExecutionPlaying(false)
         exoPlayer.stop()
         exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
         exoPlayer.prepare()
-        exoPlayer.playWhenReady = resumePlayback
+        val latestIntent = playbackStack.restoreAfterTechnicalQuiesce(intentFence)
+        setTechnicalExecutionPlaying(latestIntent?.desired == PlaybackIntent.PLAY)
+        return latestIntent
     }
 
     fun playbackQueueSnapshot(): PlaybackQueueSnapshot {
@@ -539,15 +547,19 @@ class MicaCompositePlayer internal constructor(
         startExistingItem(safe, currentPosition, playWhenReady)
     }
 
-    fun playExoDirect() {
+    /** Canonical semantic PLAY command: publish ledger edge before underlying Exo dispatch. */
+    fun dispatchSemanticPlay() {
         if (!publishProtocolIntent(true)) return
+        onPlaybackIntentChanged?.invoke(true)
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         exoPlayer.play()
     }
 
-    fun pauseExoDirect() {
+    /** Canonical semantic PAUSE command: publish ledger edge before underlying Exo dispatch. */
+    fun dispatchSemanticPause() {
         if (!publishProtocolIntent(false)) return
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
+        onPlaybackIntentChanged?.invoke(false)
         exoPlayer.pause()
     }
 
@@ -743,6 +755,11 @@ class MicaCompositePlayer internal constructor(
 
     private fun publishProtocolIntent(playing: Boolean): Boolean =
         playbackStack.publishSemanticIntent(playing)
+
+    /** Technical execution control only; deliberately cannot publish semantic intent. */
+    private fun setTechnicalExecutionPlaying(playing: Boolean) {
+        exoPlayer.playWhenReady = playing
+    }
 
     private fun prepareQueueMutation(
         targetMediaId: String?,

@@ -1540,11 +1540,12 @@ class MicaMediaService : MediaSessionService() {
         val player = compositePlayer ?: return
         if (player.playbackState == Player.STATE_IDLE) return
         val positionMs = player.currentPosition
-        val shouldResume = player.playWhenReady
-        player.flushPlaybackPipeline(positionMs, resumePlayback = shouldResume)
+        val restoredIntent = player.flushPlaybackPipeline(positionMs)
         DiagnosticLog.event(
             "AudioPipeline",
-            "pipeline-flush reason=$reason pos=$positionMs resume=$shouldResume",
+            "pipeline-flush reason=$reason pos=$positionMs " +
+                "restore=${restoredIntent?.desired ?: "inactive"} " +
+                "revision=${restoredIntent?.revision?.value ?: -1L}",
         )
     }
 
