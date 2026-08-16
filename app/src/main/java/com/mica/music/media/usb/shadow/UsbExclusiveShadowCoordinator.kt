@@ -15,7 +15,9 @@ import com.mica.music.media.usb.protocol.MutationId
 import com.mica.music.media.usb.protocol.MutationKind
 import com.mica.music.media.usb.protocol.MutationEpoch
 import com.mica.music.media.usb.protocol.OutputTarget
+import com.mica.music.media.usb.protocol.PcmAudioGeometry
 import com.mica.music.media.usb.protocol.PcmConfigurePermit
+import com.mica.music.media.usb.protocol.PcmRetirementPermit
 import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.media.usb.protocol.PlaybackIntentLedger
@@ -78,6 +80,7 @@ internal data class PlaybackTopologyPeriodFact(
 )
 
 private const val MAX_QUARANTINED_RAW_STREAMS = 128
+private val UNKNOWN_PCM_GEOMETRY = PcmAudioGeometry(-1, -1, -1, null)
 
 internal sealed interface UsbExclusiveAuthorityObservation {
     data object Accepted : UsbExclusiveAuthorityObservation
@@ -1181,6 +1184,7 @@ internal class UsbExclusiveShadowStack internal constructor(
         occurrence: PlaybackOccurrence?,
         resourceIdentity: ResourceIdentity,
         facts: String,
+        geometry: PcmAudioGeometry,
     ): CommitDisposition {
         if (occurrence != permit.occurrence) return CommitDisposition.StaleNoEffect
         val result = protocol.commitPcmConfigure(
@@ -1190,6 +1194,7 @@ internal class UsbExclusiveShadowStack internal constructor(
                 resourceIdentity,
                 facts,
             ),
+            geometry,
         )
         coordinator.emit(
             this,
@@ -1214,6 +1219,7 @@ internal class UsbExclusiveShadowStack internal constructor(
     ): CommitDisposition = protocol.commitPcmConfigure(
         permit,
         SideEffectReceipt.TerminalFailure(permit.activationId, resourceIdentity, failure),
+        UNKNOWN_PCM_GEOMETRY,
     ).also { result ->
         coordinator.emit(
             this,
@@ -1225,10 +1231,11 @@ internal class UsbExclusiveShadowStack internal constructor(
         )
     }
 
-    internal fun prepareRetainedPcmHandoff(
+    internal fun preparePcmRetainedRetirement(
         adapter: UsbExclusiveShadowAdapter,
         occurrence: PlaybackOccurrence?,
-    ): RetainedPcmHandoffPermit? {
+        geometry: PcmAudioGeometry,
+    ): PcmRetirementPermit? {
         if (occurrence == null) return null
         val before = protocol.snapshot()
         val owned = before.familyOwnership as? FamilyOwnership.PcmOwned ?: return null
@@ -1244,34 +1251,28 @@ internal class UsbExclusiveShadowStack internal constructor(
             mutation.sourceOwnershipId != owned.ownershipId ||
             owned.adapterInstanceId != adapter.id
         ) return null
+        return protocol.preparePcmSourceRetirement(
+            mutationId = mutation.mutationId,
+            sourceAdapterInstanceId = adapter.id,
+            targetOccurrence = occurrence,
+            targetGeometry = geometry,
+            scope = RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
+        )
+    }
 
-        val retirement = mutation.sourceRetirement ?: run {
-            val receipt = protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapter.id,
-                RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
-                FamilyProof.PcmRuntimeRetained(
-                    runtimeIdentity = owned.runtimeIdentity,
-                    compatibilityFacts = observed.facts,
-                    tailOrderingProof =
-                        "pcm-adapter-lease-drained:${owned.occurrence.windowSequenceNumber}->${occurrence.windowSequenceNumber}",
-                ),
-            ) ?: return null
-            if (!protocol.acceptSourceRetirement(receipt)) return null
-            protocol.snapshot().mutation?.sourceRetirement ?: return null
-        }
-        val proof = retirement.familyProof as? FamilyProof.PcmRuntimeRetained ?: return null
-        if (
-            retirement.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED ||
-            proof.runtimeIdentity != owned.runtimeIdentity ||
-            proof.compatibilityFacts != observed.facts ||
-            proof.tailOrderingProof.isBlank()
-        ) return null
+    internal fun completePcmRetainedRetirement(
+        adapter: UsbExclusiveShadowAdapter,
+        retirement: PcmRetirementPermit,
+        proof: FamilyProof.PcmRuntimeRetained,
+    ): RetainedPcmHandoffPermit? {
+        if (retirement.source.adapterInstanceId != adapter.id) return null
+        if (!protocol.completePcmRetirement(retirement, proof)) return null
+        val occurrence = retirement.targetOccurrence ?: return null
         return protocol.prepareRetainedPcmHandoff(
-            mutation.mutationId,
+            retirement.retiringMutationId,
             adapter.id,
             occurrence,
-            owned.runtimeIdentity,
+            retirement.source.runtimeIdentity,
         )
     }
 
@@ -1306,31 +1307,44 @@ internal class UsbExclusiveShadowStack internal constructor(
         resourceIdentity: ResourceIdentity,
     ): CommitDisposition? = protocol.completeCleanup(adapter.id, activationId, resourceIdentity)
 
-    /** Exact PCM runtime teardown seam used by sink reset/release after the delegate side effect. */
-    internal fun observePcmRuntimeReleased(
+    /** Freezes an active PCM source for a real delegate reset before successor configure. */
+    internal fun preparePcmFullRelease(
         adapter: UsbExclusiveShadowAdapter,
-        occurrence: PlaybackOccurrence?,
-        reason: String,
-    ): Boolean {
+        targetOccurrence: PlaybackOccurrence?,
+        targetGeometry: PcmAudioGeometry,
+    ): PcmRetirementPermit? {
         val snapshot = protocol.snapshot()
-        val owned = snapshot.familyOwnership as? FamilyOwnership.PcmOwned ?: return false
-        val mutation = snapshot.mutation ?: return false
+        val owned = snapshot.familyOwnership as? FamilyOwnership.PcmOwned ?: return null
+        val mutation = snapshot.mutation ?: return null
         if (
-            occurrence == null ||
+            targetOccurrence == null ||
             owned.adapterInstanceId != adapter.id ||
-            owned.occurrence != occurrence ||
             mutation.sourceOwnershipId != owned.ownershipId ||
+            mutation.targetOccurrence != targetOccurrence ||
             mutation.sourceRetirement != null
-        ) return false
-        val receipt = protocol.mintRetirementReceipt(
-            mutation.mutationId,
-            adapter.id,
-            com.mica.music.media.usb.protocol.RetirementScope.FAMILY_RUNTIME_RELEASED,
-            com.mica.music.media.usb.protocol.FamilyProof.StackReleased(
-                "observed-pcm-close:${owned.runtimeIdentity.value}:$reason",
-            ),
-        ) ?: return false
-        return protocol.acceptSourceRetirement(receipt)
+        ) return null
+        return protocol.preparePcmSourceRetirement(
+            mutationId = mutation.mutationId,
+            sourceAdapterInstanceId = adapter.id,
+            targetOccurrence = targetOccurrence,
+            targetGeometry = targetGeometry,
+            scope = RetirementScope.FAMILY_RUNTIME_RELEASED,
+        )
+    }
+
+    /** Freezes the exact PCM source already fenced by stack Retiring. */
+    internal fun prepareRetiringPcmFullRelease(
+        adapter: UsbExclusiveShadowAdapter,
+    ): PcmRetirementPermit? = protocol.prepareRetiringPcmRuntimeRelease(adapter.id)
+
+    /** Accepts only a sink-issued typed proof for the exact frozen PCM source. */
+    internal fun completePcmFullRelease(
+        adapter: UsbExclusiveShadowAdapter,
+        retirement: PcmRetirementPermit,
+        proof: FamilyProof.PcmFamilyReleased,
+    ): Boolean {
+        if (retirement.source.adapterInstanceId != adapter.id) return false
+        return protocol.completePcmRetirement(retirement, proof)
     }
 
     /** Enters the committed data-plane lease and returns the exact object that must be exited. */
@@ -1499,6 +1513,7 @@ internal class UsbExclusiveShadowStack internal constructor(
                     ResourceIdentity("shadow-pcm-${permit.activationId.value}"),
                     "observed-legacy-configure-success",
                 ),
+                UNKNOWN_PCM_GEOMETRY,
             )
             coordinator.emit(
                 this,
@@ -1753,7 +1768,8 @@ internal class UsbExclusiveShadowAdapter internal constructor(
         occurrence: PlaybackOccurrence?,
         resourceIdentity: ResourceIdentity,
         facts: String,
-    ): CommitDisposition = stack.commitPcmConfigure(this, permit, occurrence, resourceIdentity, facts)
+        geometry: PcmAudioGeometry,
+    ): CommitDisposition = stack.commitPcmConfigure(this, permit, occurrence, resourceIdentity, facts, geometry)
 
     fun failPcmConfigure(
         permit: PcmConfigurePermit,
@@ -1770,14 +1786,31 @@ internal class UsbExclusiveShadowAdapter internal constructor(
         resourceIdentity: ResourceIdentity,
     ): CommitDisposition? = stack.completeCleanup(this, activationId, resourceIdentity)
 
-    fun prepareRetainedPcmHandoff(occurrence: PlaybackOccurrence?): RetainedPcmHandoffPermit? =
-        stack.prepareRetainedPcmHandoff(this, occurrence)
+    fun preparePcmRetainedRetirement(
+        occurrence: PlaybackOccurrence?,
+        geometry: PcmAudioGeometry,
+    ): PcmRetirementPermit? = stack.preparePcmRetainedRetirement(this, occurrence, geometry)
+
+    fun completePcmRetainedRetirement(
+        retirement: PcmRetirementPermit,
+        proof: FamilyProof.PcmRuntimeRetained,
+    ): RetainedPcmHandoffPermit? = stack.completePcmRetainedRetirement(this, retirement, proof)
 
     fun commitRetainedPcmHandoff(permit: RetainedPcmHandoffPermit): CommitDisposition =
         stack.commitRetainedPcmHandoff(this, permit)
 
-    fun observePcmRuntimeReleased(occurrence: PlaybackOccurrence?, reason: String): Boolean =
-        stack.observePcmRuntimeReleased(this, occurrence, reason)
+    fun preparePcmFullRelease(
+        targetOccurrence: PlaybackOccurrence?,
+        targetGeometry: PcmAudioGeometry,
+    ): PcmRetirementPermit? = stack.preparePcmFullRelease(this, targetOccurrence, targetGeometry)
+
+    fun prepareRetiringPcmFullRelease(): PcmRetirementPermit? =
+        stack.prepareRetiringPcmFullRelease(this)
+
+    fun completePcmFullRelease(
+        retirement: PcmRetirementPermit,
+        proof: FamilyProof.PcmFamilyReleased,
+    ): Boolean = stack.completePcmFullRelease(this, retirement, proof)
 
     /** Enters the one committed lease; callers must exit the returned lease in a finally block. */
     fun tryEnterWrite(occurrence: PlaybackOccurrence, writeKind: WriteKind): ActiveWriteLease? =

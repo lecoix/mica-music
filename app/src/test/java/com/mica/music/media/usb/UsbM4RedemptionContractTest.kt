@@ -5,6 +5,7 @@ import com.mica.music.media.usb.protocol.CommitDisposition
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.FamilyOwnership
 import com.mica.music.media.usb.protocol.OutputTarget
+import com.mica.music.media.usb.protocol.PcmAudioGeometry
 import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.ResourceIdentity
@@ -304,6 +305,7 @@ class UsbM4RedemptionContractTest {
             harness.occurrence,
             ResourceIdentity("pcm-runtime"),
             "delegate-configured",
+            PcmAudioGeometry(96_000, 2, 0x20000000, null),
         )
         assertTrue(disposition is CommitDisposition.CurrentPlaying)
         return requireNotNull(

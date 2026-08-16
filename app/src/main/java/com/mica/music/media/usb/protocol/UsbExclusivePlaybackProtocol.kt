@@ -13,6 +13,39 @@ data class RuntimeIdentity(val value: String)
 data class RequestAlias(val value: Long)
 data class TopologyReservationId(val value: Long)
 
+data class PcmAudioGeometry(
+    val sampleRate: Int,
+    val channelCount: Int,
+    val pcmEncoding: Int,
+    val outputChannels: List<Int>?,
+)
+
+enum class PcmDelegateTerminal { RESET_COMPLETED, RELEASE_COMPLETED }
+
+data class PcmTailOrderingProof(
+    val sourceOccurrence: PlaybackOccurrence,
+    val targetOccurrence: PlaybackOccurrence,
+    val sinkBoundarySequence: Long,
+)
+
+data class PcmPhysicalSourceIdentity(
+    val familyOwnershipId: FamilyOwnershipId,
+    val mutationId: MutationId,
+    val occurrence: PlaybackOccurrence,
+    val adapterInstanceId: AdapterInstanceId,
+    val runtimeIdentity: RuntimeIdentity,
+    val outputTarget: OutputTarget,
+    val geometry: PcmAudioGeometry,
+)
+
+data class PcmRetirementPermit(
+    val retiringMutationId: MutationId,
+    val source: PcmPhysicalSourceIdentity,
+    val scope: RetirementScope,
+    val targetOccurrence: PlaybackOccurrence?,
+    val targetGeometry: PcmAudioGeometry?,
+)
+
 enum class PlaybackFamily { PCM, DOP }
 enum class MutationKind { MANUAL, AUTO_NEXT, SEEK, OUTPUT_REBUILD }
 enum class WriteKind { PCM_DATA, DOP_CONTENT, DOP_GAP }
@@ -92,10 +125,18 @@ data class MutationEpoch(
 )
 
 sealed interface FamilyProof {
+    data class PcmFamilyReleased(
+        val runtimeIdentity: RuntimeIdentity,
+        val sourceGeometry: PcmAudioGeometry,
+        val terminal: PcmDelegateTerminal,
+        val sinkBoundarySequence: Long,
+    ) : FamilyProof
+
     data class PcmRuntimeRetained(
         val runtimeIdentity: RuntimeIdentity,
-        val compatibilityFacts: String,
-        val tailOrderingProof: String,
+        val sourceGeometry: PcmAudioGeometry,
+        val targetGeometry: PcmAudioGeometry,
+        val tailOrdering: PcmTailOrderingProof,
     ) : FamilyProof
 
     data class DirectFamilyReleased(val proof: String) : FamilyProof
@@ -219,6 +260,7 @@ sealed interface FamilyOwnership {
         val semanticPaused: Boolean,
         val runtimeIdentity: RuntimeIdentity,
         val facts: String,
+        val geometry: PcmAudioGeometry,
         val writeLease: ActiveWriteLease,
     ) : FamilyOwnership
 
@@ -377,6 +419,9 @@ class UsbExclusivePlaybackProtocol(
     private val activations = linkedMapOf<ActivationId, ActivationRecord>()
     private val cleanupRequirements = linkedMapOf<ResourceIdentity, CleanupRequirement>()
     private var directActivation: DirectActivationState? = null
+    private var preparedPcmRetirement: PcmRetirementPermit? = null
+    private var retiringPcmRuntimeRelease: RetiringPcmRuntimeRelease? = null
+    private var issuedRetiringPcmRuntimeReceipt: SourceRetirementReceipt? = null
     private var retiringDirectRuntimeRelease: RetiringDirectRuntimeRelease? = null
     private var issuedRetiringDirectRuntimeReceipt: SourceRetirementReceipt? = null
     private var nextTopologyReservationId = 0L
@@ -396,6 +441,12 @@ class UsbExclusivePlaybackProtocol(
         val family: PlaybackFamily,
         val outputTarget: OutputTarget,
         val kind: ActivationKind,
+    )
+
+    /** Frozen PCM physical identity that must be proved terminal before Retired. */
+    private data class RetiringPcmRuntimeRelease(
+        val source: PcmPhysicalSourceIdentity,
+        val observedFamilyProof: FamilyProof.PcmFamilyReleased? = null,
     )
 
     /**
@@ -596,6 +647,7 @@ class UsbExclusivePlaybackProtocol(
         ) return false
         val plan = transaction.plan
         issuedRetirementReceiptsByMutation.clear()
+        preparedPcmRetirement = null
         reclassifyUncommittedAuthorityLocked(retiring = false)
         startedAuthorities.clear()
         candidates.clear()
@@ -770,6 +822,7 @@ class UsbExclusivePlaybackProtocol(
         val source = familyOwnership
         val id = MutationId(nextMutationId + 1)
         issuedRetirementReceiptsByMutation.clear()
+        preparedPcmRetirement = null
         nextMutationId = id.value
         reclassifyUncommittedAuthorityLocked(retiring = false)
         return MutationEpoch(
@@ -859,6 +912,7 @@ class UsbExclusivePlaybackProtocol(
             null
         }
         issuedRetirementReceiptsByMutation.clear()
+        preparedPcmRetirement = null
         nextMutationId = id.value
         reclassifyUncommittedAuthorityLocked(retiring = false)
         val epoch = MutationEpoch(
@@ -903,6 +957,7 @@ class UsbExclusivePlaybackProtocol(
         if (!lease.isRevoked() || !lease.isDrained()) return false
         issuedRetirementReceiptsByMutation.remove(epoch.mutationId)
         mutation = epoch.copy(sourceRetirement = receipt)
+        if (owned is FamilyOwnership.PcmOwned) preparedPcmRetirement = null
         if (receipt.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED) {
             familyOwnership = FamilyOwnership.None
         }
@@ -927,6 +982,16 @@ class UsbExclusivePlaybackProtocol(
         val ownershipId = owned.ownershipIdOrNull() ?: return null
         val occurrence = owned.occurrenceOrNull()
         val lease = owned.writeLeaseOrNull() ?: return null
+        if (owned is FamilyOwnership.PcmOwned) {
+            val prepared = preparedPcmRetirement ?: return null
+            if (
+                prepared.retiringMutationId != mutationId ||
+                prepared.source != pcmSourceIdentityLocked(owned) ||
+                prepared.source.adapterInstanceId != sourceAdapterInstanceId ||
+                prepared.scope != scope ||
+                !pcmProofMatchesPermitLocked(prepared, familyProof)
+            ) return null
+        }
 
         issuedRetirementReceiptsByMutation[mutationId]?.let { issued ->
             if (
@@ -1065,7 +1130,11 @@ class UsbExclusivePlaybackProtocol(
     }
 
     @Synchronized
-    fun commitPcmConfigure(permit: PcmConfigurePermit, receipt: SideEffectReceipt): CommitDisposition {
+    fun commitPcmConfigure(
+        permit: PcmConfigurePermit,
+        receipt: SideEffectReceipt,
+        geometry: PcmAudioGeometry,
+    ): CommitDisposition {
         return commitActivationLocked(permit.activationId, permit.mutationId, permit.adapterInstanceId, permit.occurrence, PlaybackFamily.PCM, receipt) {
             commitFamilyLocked(
                 PlaybackFamily.PCM,
@@ -1075,7 +1144,106 @@ class UsbExclusivePlaybackProtocol(
                 RuntimeIdentity("pcm:${receipt.resourceIdentityOrNull()?.value ?: "configured"}"),
                 permit.facts,
                 permit.activationId,
+                pcmGeometry = geometry,
             )
+        }
+    }
+
+    /**
+     * Closes the exact committed PCM source before a physical full-release or retained boundary.
+     * The returned permit freezes the old ownership/runtime/output/geometry identity before the
+     * delegate side effect or first successor write can occur.
+     */
+    @Synchronized
+    fun preparePcmSourceRetirement(
+        mutationId: MutationId,
+        sourceAdapterInstanceId: AdapterInstanceId,
+        targetOccurrence: PlaybackOccurrence,
+        targetGeometry: PcmAudioGeometry,
+        scope: RetirementScope,
+    ): PcmRetirementPermit? {
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null) return null
+        if (scope == RetirementScope.STACK_TEARDOWN_RELEASED) return null
+        val epoch = mutation ?: return null
+        val owned = familyOwnership as? FamilyOwnership.PcmOwned ?: return null
+        if (
+            epoch.mutationId != mutationId ||
+            !epoch.destinationBound ||
+            epoch.sourceOwnershipId != owned.ownershipId ||
+            epoch.sourceOccurrence != owned.occurrence ||
+            epoch.targetOccurrence != targetOccurrence ||
+            owned.adapterInstanceId != sourceAdapterInstanceId ||
+            epoch.sourceRetirement != null
+        ) return null
+        if (
+            scope == RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED &&
+            (epoch.targetFamily != PlaybackFamily.PCM || targetGeometry != owned.geometry)
+        ) return null
+
+        val source = pcmSourceIdentityLocked(owned)
+        val candidate = PcmRetirementPermit(
+            retiringMutationId = mutationId,
+            source = source,
+            scope = scope,
+            targetOccurrence = targetOccurrence,
+            targetGeometry = targetGeometry,
+        )
+        preparedPcmRetirement?.let { return it.takeIf { prepared -> prepared == candidate } }
+        owned.writeLease.revoke()
+        if (!owned.writeLease.isDrained()) return null
+        preparedPcmRetirement = candidate
+        return candidate
+    }
+
+    /** Freezes the stack-teardown PCM source that beginRetiring() already revoked. */
+    @Synchronized
+    fun prepareRetiringPcmRuntimeRelease(sourceAdapterInstanceId: AdapterInstanceId): PcmRetirementPermit? {
+        if (lifecycle !is ProtocolLifecycle.Retiring) return null
+        val pending = retiringPcmRuntimeRelease ?: return null
+        val owned = familyOwnership as? FamilyOwnership.PcmOwned ?: return null
+        if (
+            pending.source != pcmSourceIdentityLocked(owned) ||
+            sourceAdapterInstanceId != pending.source.adapterInstanceId ||
+            !owned.writeLease.isRevoked() ||
+            !owned.writeLease.isDrained()
+        ) return null
+        return PcmRetirementPermit(
+            retiringMutationId = pending.source.mutationId,
+            source = pending.source,
+            scope = RetirementScope.STACK_TEARDOWN_RELEASED,
+            targetOccurrence = null,
+            targetGeometry = null,
+        )
+    }
+
+    /** Accepts only sink/runtime-issued typed PCM physical proof for the exact prepared source. */
+    @Synchronized
+    fun completePcmRetirement(
+        permit: PcmRetirementPermit,
+        proof: FamilyProof,
+    ): Boolean {
+        if (!pcmProofMatchesPermitLocked(permit, proof)) return false
+        return when (permit.scope) {
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
+            -> {
+                if (lifecycle !is ProtocolLifecycle.Active || preparedPcmRetirement != permit) return false
+                val receipt = mintRetirementReceipt(
+                    permit.retiringMutationId,
+                    permit.source.adapterInstanceId,
+                    permit.scope,
+                    proof,
+                ) ?: return false
+                val accepted = acceptSourceRetirement(receipt)
+                if (accepted) preparedPcmRetirement = null
+                accepted
+            }
+            RetirementScope.STACK_TEARDOWN_RELEASED -> {
+                if (lifecycle !is ProtocolLifecycle.Retiring) return false
+                val pcmProof = proof as? FamilyProof.PcmFamilyReleased ?: return false
+                val receipt = mintRetiringPcmRuntimeReceiptLocked(pcmProof) ?: return false
+                acceptRetiringPcmRuntimeReceiptLocked(receipt)
+            }
         }
     }
 
@@ -1091,7 +1259,12 @@ class UsbExclusivePlaybackProtocol(
         val retirement = epoch.sourceRetirement ?: return null
         if (retirement.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED) return null
         val proof = retirement.familyProof as? FamilyProof.PcmRuntimeRetained ?: return null
-        if (proof.runtimeIdentity != runtimeIdentity || hasConflictingCleanupOrActivationLocked()) return null
+        if (
+            proof.runtimeIdentity != runtimeIdentity ||
+            proof.targetGeometry != proof.sourceGeometry ||
+            proof.tailOrdering.targetOccurrence != occurrence ||
+            hasConflictingCleanupOrActivationLocked()
+        ) return null
         val activationId = ActivationId(++nextActivationId)
         activations[activationId] = ActivationRecord(activationId, mutationId, adapterInstanceId, occurrence, PlaybackFamily.PCM, outputTarget, ActivationKind.RETAINED_PCM)
         return RetainedPcmHandoffPermit(activationId, mutationId, adapterInstanceId, occurrence, runtimeIdentity, outputTarget)
@@ -1106,15 +1279,18 @@ class UsbExclusivePlaybackProtocol(
             return CommitDisposition.StaleNoEffect
         }
         activations.remove(permit.activationId)
-        val facts = mutation?.targetFacts ?: return CommitDisposition.StaleNoEffect
+        val epoch = mutation ?: return CommitDisposition.StaleNoEffect
+        val proof = epoch.sourceRetirement?.familyProof as? FamilyProof.PcmRuntimeRetained
+            ?: return CommitDisposition.StaleNoEffect
         val result = commitFamilyLocked(
             PlaybackFamily.PCM,
             permit.mutationId,
             permit.adapterInstanceId,
             permit.occurrence,
             permit.runtimeIdentity,
-            facts,
+            epoch.targetFacts,
             permit.activationId,
+            pcmGeometry = proof.targetGeometry,
         )
         updateRetiringBarrierLocked(permit.activationId)
         return result
@@ -1595,6 +1771,7 @@ class UsbExclusivePlaybackProtocol(
         if (lifecycle !is ProtocolLifecycle.Active) return
         if (outputTarget != target) {
             issuedRetirementReceiptsByMutation.clear()
+            preparedPcmRetirement = null
             familyOwnership.writeLeaseOrNull()?.revoke()
             reclassifyUncommittedAuthorityLocked(retiring = false)
             outputTarget = target
@@ -1623,9 +1800,14 @@ class UsbExclusivePlaybackProtocol(
     private fun beginRetiringLocked() {
         if (lifecycle !is ProtocolLifecycle.Active) return
         issuedRetirementReceiptsByMutation.clear()
+        preparedPcmRetirement = null
+        issuedRetiringPcmRuntimeReceipt = null
         familyOwnership.writeLeaseOrNull()?.revoke()
         reclassifyUncommittedAuthorityLocked(retiring = true)
         lifecycle = ProtocolLifecycle.Retiring(activations.keys.toSet())
+        retiringPcmRuntimeRelease = (familyOwnership as? FamilyOwnership.PcmOwned)?.let { owned ->
+            RetiringPcmRuntimeRelease(pcmSourceIdentityLocked(owned))
+        }
         retiringDirectRuntimeRelease = (familyOwnership as? FamilyOwnership.DopOwned)?.let { owned ->
             RetiringDirectRuntimeRelease(
                 sourceFamilyOwnershipId = owned.ownershipId,
@@ -1778,6 +1960,7 @@ class UsbExclusivePlaybackProtocol(
         runtimeIdentity: RuntimeIdentity,
         facts: String,
         activationId: ActivationId,
+        pcmGeometry: PcmAudioGeometry? = null,
     ): CommitDisposition {
         adoptLatestIntent()
         familyOwnership.writeLeaseOrNull()?.let { previous ->
@@ -1790,7 +1973,17 @@ class UsbExclusivePlaybackProtocol(
         lease.updateSemanticPaused(paused)
         lease.setOnDrained { onCommittedWriteLeaseDrained(ownershipId) }
         familyOwnership = when (family) {
-            PlaybackFamily.PCM -> FamilyOwnership.PcmOwned(ownershipId, mutationId, occurrence, adapterInstanceId, paused, runtimeIdentity, facts, lease)
+            PlaybackFamily.PCM -> FamilyOwnership.PcmOwned(
+                ownershipId,
+                mutationId,
+                occurrence,
+                adapterInstanceId,
+                paused,
+                runtimeIdentity,
+                facts,
+                checkNotNull(pcmGeometry) { "PCM ownership requires exact audio geometry" },
+                lease,
+            )
             PlaybackFamily.DOP -> FamilyOwnership.DopOwned(ownershipId, mutationId, occurrence, adapterInstanceId, paused, runtimeIdentity, facts, lease)
         }
         mutation = null
@@ -1887,12 +2080,117 @@ class UsbExclusivePlaybackProtocol(
             activations.isEmpty() &&
                 cleanupRequirements.isEmpty() &&
                 committedLeaseDrained &&
+                retiringPcmRuntimeRelease == null &&
                 retiringDirectRuntimeRelease == null
         ) {
             ProtocolLifecycle.Retired
         } else {
             ProtocolLifecycle.Retiring(activations.keys.toSet())
         }
+    }
+
+    private fun pcmSourceIdentityLocked(owned: FamilyOwnership.PcmOwned): PcmPhysicalSourceIdentity =
+        PcmPhysicalSourceIdentity(
+            familyOwnershipId = owned.ownershipId,
+            mutationId = owned.mutationId,
+            occurrence = owned.occurrence,
+            adapterInstanceId = owned.adapterInstanceId,
+            runtimeIdentity = owned.runtimeIdentity,
+            outputTarget = owned.writeLease.identity.outputTarget,
+            geometry = owned.geometry,
+        )
+
+    private fun pcmProofMatchesPermitLocked(permit: PcmRetirementPermit, proof: FamilyProof): Boolean =
+        when (permit.scope) {
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED -> {
+                val retained = proof as? FamilyProof.PcmRuntimeRetained ?: return false
+                retained.runtimeIdentity == permit.source.runtimeIdentity &&
+                    retained.sourceGeometry == permit.source.geometry &&
+                    retained.targetGeometry == permit.targetGeometry &&
+                    retained.sourceGeometry == retained.targetGeometry &&
+                    retained.tailOrdering.sourceOccurrence == permit.source.occurrence &&
+                    retained.tailOrdering.targetOccurrence == permit.targetOccurrence &&
+                    retained.tailOrdering.sinkBoundarySequence > 0L
+            }
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
+            RetirementScope.STACK_TEARDOWN_RELEASED,
+            -> {
+                val released = proof as? FamilyProof.PcmFamilyReleased ?: return false
+                released.runtimeIdentity == permit.source.runtimeIdentity &&
+                    released.sourceGeometry == permit.source.geometry &&
+                    released.sinkBoundarySequence > 0L
+            }
+        }
+
+    private fun mintRetiringPcmRuntimeReceiptLocked(
+        proof: FamilyProof.PcmFamilyReleased,
+    ): SourceRetirementReceipt? {
+        if (lifecycle !is ProtocolLifecycle.Retiring) return null
+        val pending = retiringPcmRuntimeRelease ?: return null
+        val owned = familyOwnership as? FamilyOwnership.PcmOwned ?: return null
+        val lease = owned.writeLease
+        if (
+            pending.source != pcmSourceIdentityLocked(owned) ||
+            proof.runtimeIdentity != pending.source.runtimeIdentity ||
+            proof.sourceGeometry != pending.source.geometry ||
+            proof.sinkBoundarySequence <= 0L ||
+            !lease.isRevoked()
+        ) return null
+        if (!lease.isDrained()) {
+            retiringPcmRuntimeRelease = pending.copy(observedFamilyProof = proof)
+            return null
+        }
+        issuedRetiringPcmRuntimeReceipt?.let { issued ->
+            return issued.takeIf {
+                it.sourceFamilyOwnershipId == pending.source.familyOwnershipId &&
+                    it.sourceOccurrence == pending.source.occurrence &&
+                    it.sourceAdapterInstanceId == pending.source.adapterInstanceId &&
+                    it.outputTarget == pending.source.outputTarget &&
+                    it.familyProof == proof
+            }
+        }
+        val receipt = SourceRetirementReceipt(
+            receiptId = SideEffectReceiptId(nextReceiptId + 1),
+            retiringMutationId = pending.source.mutationId,
+            sourceFamilyOwnershipId = pending.source.familyOwnershipId,
+            sourceFamily = PlaybackFamily.PCM,
+            sourceOccurrence = pending.source.occurrence,
+            sourceAdapterInstanceId = pending.source.adapterInstanceId,
+            outputTarget = pending.source.outputTarget,
+            scope = RetirementScope.STACK_TEARDOWN_RELEASED,
+            semanticPausedAtRetirement = ledger.snapshot().desired == PlaybackIntent.PAUSE,
+            familyProof = pending.observedFamilyProof ?: proof,
+        )
+        nextReceiptId += 1
+        issuedRetiringPcmRuntimeReceipt = receipt
+        return receipt
+    }
+
+    private fun acceptRetiringPcmRuntimeReceiptLocked(receipt: SourceRetirementReceipt): Boolean {
+        if (lifecycle !is ProtocolLifecycle.Retiring || issuedRetiringPcmRuntimeReceipt != receipt) return false
+        val pending = retiringPcmRuntimeRelease ?: return false
+        val owned = familyOwnership as? FamilyOwnership.PcmOwned ?: return false
+        val proof = receipt.familyProof as? FamilyProof.PcmFamilyReleased ?: return false
+        if (
+            pending.source != pcmSourceIdentityLocked(owned) ||
+            receipt.scope != RetirementScope.STACK_TEARDOWN_RELEASED ||
+            receipt.sourceFamily != PlaybackFamily.PCM ||
+            receipt.retiringMutationId != pending.source.mutationId ||
+            receipt.sourceFamilyOwnershipId != pending.source.familyOwnershipId ||
+            receipt.sourceOccurrence != pending.source.occurrence ||
+            receipt.sourceAdapterInstanceId != pending.source.adapterInstanceId ||
+            receipt.outputTarget != pending.source.outputTarget ||
+            proof.runtimeIdentity != pending.source.runtimeIdentity ||
+            proof.sourceGeometry != pending.source.geometry ||
+            proof.sinkBoundarySequence <= 0L ||
+            !owned.writeLease.isRevoked() ||
+            !owned.writeLease.isDrained()
+        ) return false
+        issuedRetiringPcmRuntimeReceipt = null
+        retiringPcmRuntimeRelease = null
+        familyOwnership = FamilyOwnership.None
+        reevaluateRetiringLocked()
+        return true
     }
 
     private fun retiringDirectRuntimeMatchesLocked(
@@ -1915,6 +2213,13 @@ class UsbExclusivePlaybackProtocol(
     private fun onCommittedWriteLeaseDrained(ownershipId: FamilyOwnershipId) {
         synchronized(this) {
             if (familyOwnership.ownershipIdOrNull() == ownershipId) {
+                if (issuedRetiringPcmRuntimeReceipt == null && retiringPcmRuntimeRelease?.observedFamilyProof != null) {
+                    mintRetiringPcmRuntimeReceiptLocked(retiringPcmRuntimeRelease!!.observedFamilyProof!!)
+                }
+                issuedRetiringPcmRuntimeReceipt?.let { receipt ->
+                    acceptRetiringPcmRuntimeReceiptLocked(receipt)
+                    return@synchronized
+                }
                 if (issuedRetiringDirectRuntimeReceipt == null && retiringDirectRuntimeRelease?.observedFamilyProof != null) {
                     mintRetiringDirectRuntimeReceipt(
                         sourceAdapterInstanceId = retiringDirectRuntimeRelease!!.sourceAdapterInstanceId,
@@ -1989,10 +2294,16 @@ class UsbExclusivePlaybackProtocol(
                     receipt.scope == RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED &&
                         epoch.targetFamily == PlaybackFamily.PCM &&
                         proof.runtimeIdentity == owned.runtimeIdentity &&
-                        proof.compatibilityFacts.isNotBlank() &&
-                        proof.tailOrderingProof.isNotBlank()
-                is FamilyProof.StackReleased ->
-                    receipt.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED && proof.proof.isNotBlank()
+                        proof.sourceGeometry == owned.geometry &&
+                        proof.targetGeometry == owned.geometry &&
+                        proof.tailOrdering.sourceOccurrence == owned.occurrence &&
+                        proof.tailOrdering.targetOccurrence == epoch.targetOccurrence &&
+                        proof.tailOrdering.sinkBoundarySequence > 0L
+                is FamilyProof.PcmFamilyReleased ->
+                    receipt.scope == RetirementScope.FAMILY_RUNTIME_RELEASED &&
+                        proof.runtimeIdentity == owned.runtimeIdentity &&
+                        proof.sourceGeometry == owned.geometry &&
+                        proof.sinkBoundarySequence > 0L
                 else -> false
             }
             is FamilyOwnership.DopOwned -> when (val proof = receipt.familyProof) {
@@ -2018,9 +2329,8 @@ class UsbExclusivePlaybackProtocol(
         PlaybackFamily.PCM -> when (receipt.scope) {
             RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED ->
                 epoch.targetFamily == PlaybackFamily.PCM && receipt.familyProof is FamilyProof.PcmRuntimeRetained
-            RetirementScope.FAMILY_RUNTIME_RELEASED,
-            RetirementScope.STACK_TEARDOWN_RELEASED,
-            -> receipt.familyProof is FamilyProof.StackReleased
+            RetirementScope.FAMILY_RUNTIME_RELEASED -> receipt.familyProof is FamilyProof.PcmFamilyReleased
+            RetirementScope.STACK_TEARDOWN_RELEASED -> receipt.familyProof is FamilyProof.PcmFamilyReleased
         }
         PlaybackFamily.DOP -> when (receipt.scope) {
             RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED ->

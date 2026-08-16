@@ -1,5 +1,17 @@
 package com.mica.music.media.usb.protocol
 
+internal val TEST_PCM_GEOMETRY = PcmAudioGeometry(
+    sampleRate = 96_000,
+    channelCount = 2,
+    pcmEncoding = 0x20000000,
+    outputChannels = null,
+)
+
+internal fun UsbExclusivePlaybackProtocol.commitPcmConfigure(
+    permit: PcmConfigurePermit,
+    receipt: SideEffectReceipt,
+): CommitDisposition = commitPcmConfigure(permit, receipt, TEST_PCM_GEOMETRY)
+
 /**
  * Test-only ownership seeding through the same public permit/receipt transactions used by M1.
  * Production source intentionally exposes no family-ownership fabrication seam.
@@ -11,6 +23,7 @@ internal fun UsbExclusivePlaybackProtocol.installOwnedFamilyForModel(
     occurrence: PlaybackOccurrence,
     runtimeIdentity: RuntimeIdentity,
     facts: String = "model",
+    geometry: PcmAudioGeometry = TEST_PCM_GEOMETRY,
 ): CommitDisposition {
     val ledgerField = UsbExclusivePlaybackProtocol::class.java.getDeclaredField("ledger").apply {
         isAccessible = true
@@ -50,6 +63,7 @@ internal fun UsbExclusivePlaybackProtocol.installOwnedFamilyForModel(
                     ResourceIdentity(resourceValue),
                     "fixture-configured",
                 ),
+                geometry,
             )
         }
         PlaybackFamily.DOP -> {

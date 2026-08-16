@@ -176,14 +176,14 @@ class UsbExclusivePlaybackProtocolTest {
         )
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
-        val retirement = requireNotNull(
-            protocol.mintRetirementReceipt(
-                first.mutationId,
-                adapterB,
-                RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
-                FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm:runtime"), "compatible", "tail-drained"),
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            first.mutationId,
+            adapterB,
+            b,
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
         )
+        val retirement = mintPreparedPcmReceipt(protocol, retirementPermit, pcmRetainedProof(retirementPermit, b))
         assertTrue(protocol.acceptSourceRetirement(retirement))
         val permit = requireNotNull(protocol.preparePcmConfigure(first.mutationId, adapterB, b, "pcm96"))
         val seek = requireNotNull(
@@ -305,14 +305,14 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(protocol.observeCandidate(CandidateOccurrence(adapterB, "B", b, PlaybackFamily.PCM, "pcm")))
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(protocol.adoptAutoCandidate("B", b))
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
-                FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm:runtime"), "compatible", "tail-drained"),
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
         )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmRetainedProof(retirementPermit, b))
         assertTrue(protocol.acceptSourceRetirement(receipt))
         assertTrue(leaseA.isRevoked())
         val permit = requireNotNull(protocol.prepareRetainedPcmHandoff(mutation.mutationId, adapterB, b, RuntimeIdentity("pcm:runtime")))
@@ -336,14 +336,14 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm", b, destinationAdapterInstanceId = adapterB))
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
-                FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm:runtime"), "compatible", "tail-drained"),
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
         )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmRetainedProof(retirementPermit, b))
         assertTrue(receipt.semanticPausedAtRetirement)
         assertTrue(protocol.acceptSourceRetirement(receipt))
         val permit = requireNotNull(protocol.prepareRetainedPcmHandoff(mutation.mutationId, adapterB, b, RuntimeIdentity("pcm:runtime")))
@@ -365,7 +365,14 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val bMutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm", b, destinationAdapterInstanceId = adapterB))
-        val receipt = requireNotNull(protocol.mintRetirementReceipt(bMutation.mutationId, adapterA, RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED, FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm:runtime"), "compatible", "tail")))
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            bMutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
+        )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmRetainedProof(retirementPermit, b))
         assertTrue(protocol.acceptSourceRetirement(receipt))
         val permitB = requireNotNull(protocol.prepareRetainedPcmHandoff(bMutation.mutationId, adapterB, b, RuntimeIdentity("pcm:runtime")))
         protocol.registerAdapter(adapterC)
@@ -406,7 +413,14 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
-        val receipt = requireNotNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.StackReleased("pcm-released")))
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
+        )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmReleasedProof(retirementPermit))
         assertTrue(protocol.acceptSourceRetirement(receipt))
         assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("dop-b")))
         ledger.publish(PlaybackIntent.PLAY)
@@ -615,9 +629,25 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
-        assertNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.StackReleased("closed")))
+        assertNull(
+            protocol.preparePcmSourceRetirement(
+                mutation.mutationId,
+                adapterA,
+                b,
+                TEST_PCM_GEOMETRY,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+            ),
+        )
+        assertTrue(installed.writeLease.isRevoked())
         installed.writeLease.exit()
-        val receipt = requireNotNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.StackReleased("closed")))
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
+        )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmReleasedProof(retirementPermit))
         val wrong = receipt.copy(sourceFamilyOwnershipId = FamilyOwnershipId(999))
         assertFalse(protocol.acceptSourceRetirement(wrong))
         assertTrue(protocol.acceptSourceRetirement(receipt))
@@ -684,6 +714,10 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
 
         playing.writeLease.exit()
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
+        val retirement = requireNotNull(protocol.prepareRetiringPcmRuntimeRelease(adapterA))
+        assertTrue(protocol.completePcmRetirement(retirement, pcmReleasedProof(retirement)))
         assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
     }
 
@@ -876,7 +910,7 @@ class UsbExclusivePlaybackProtocolTest {
             outputTarget = OutputTarget.SharedPcm,
             scope = RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
             semanticPausedAtRetirement = false,
-            familyProof = FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm-a"), "compatible", "ordered"),
+            familyProof = FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm-a"), TEST_PCM_GEOMETRY, TEST_PCM_GEOMETRY, PcmTailOrderingProof(a, b, 1L)),
         )
 
         assertFalse(protocol.acceptSourceRetirement(forged))
@@ -1045,6 +1079,9 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(retiring.lifecycle is ProtocolLifecycle.Retiring)
 
         playing.writeLease.exit()
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        val retirement = requireNotNull(protocol.prepareRetiringPcmRuntimeRelease(adapterA))
+        assertTrue(protocol.completePcmRetirement(retirement, pcmReleasedProof(retirement)))
         assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
     }
 
@@ -1127,7 +1164,7 @@ class UsbExclusivePlaybackProtocolTest {
                 next.mutationId,
                 adapterA,
                 RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
-                FamilyProof.PcmRuntimeRetained(RuntimeIdentity("fake-runtime"), "compatible", "ordered"),
+                FamilyProof.PcmRuntimeRetained(RuntimeIdentity("fake-runtime"), TEST_PCM_GEOMETRY, TEST_PCM_GEOMETRY, PcmTailOrderingProof(a, b, 1L)),
             ),
         )
         assertFalse(playing.writeLease.isRevoked())
@@ -1288,15 +1325,15 @@ class UsbExclusivePlaybackProtocolTest {
         val mutation = requireNotNull(
             protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
-        val proof = FamilyProof.StackReleased("closed")
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                proof,
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
         )
+        val proof = pcmReleasedProof(retirementPermit)
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, proof)
         assertFalse(receipt.semanticPausedAtRetirement)
 
         ledger.publish(PlaybackIntent.PAUSE)
@@ -1336,14 +1373,14 @@ class UsbExclusivePlaybackProtocolTest {
         val mutation = requireNotNull(
             protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                FamilyProof.StackReleased("closed"),
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
         )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmReleasedProof(retirementPermit))
         assertTrue(receipt.semanticPausedAtRetirement)
 
         ledger.publish(PlaybackIntent.PLAY)
@@ -1369,14 +1406,14 @@ class UsbExclusivePlaybackProtocolTest {
         val mutation = requireNotNull(
             protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                FamilyProof.StackReleased("closed"),
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
         )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmReleasedProof(retirementPermit))
         val ownershipBefore = protocol.snapshot().familyOwnership
 
         assertFalse(protocol.acceptSourceRetirement(receipt.copy(semanticPausedAtRetirement = true)))
@@ -1402,14 +1439,14 @@ class UsbExclusivePlaybackProtocolTest {
         val mutation = requireNotNull(
             protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB),
         )
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                FamilyProof.StackReleased("closed"),
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
         )
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, pcmReleasedProof(retirementPermit))
 
         assertFalse(protocol.acceptSourceRetirement(receipt.copy(receiptId = SideEffectReceiptId(999))))
         assertFalse(protocol.acceptSourceRetirement(receipt.copy(sourceAdapterInstanceId = adapterB)))
@@ -1463,15 +1500,15 @@ class UsbExclusivePlaybackProtocolTest {
         val mutation = requireNotNull(
             protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
-        val proof = FamilyProof.StackReleased("closed")
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                proof,
-            ),
+        val retirementPermit = preparePcmRetirement(
+            protocol,
+            mutation.mutationId,
+            adapterA,
+            b,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
         )
+        val proof = pcmReleasedProof(retirementPermit)
+        val receipt = mintPreparedPcmReceipt(protocol, retirementPermit, proof)
         assertTrue(protocol.acceptSourceRetirement(receipt))
 
         ledger.publish(PlaybackIntent.PAUSE)
@@ -1662,6 +1699,64 @@ class UsbExclusivePlaybackProtocolTest {
             ),
         )
     }
+
+    private fun preparePcmRetirement(
+        protocol: UsbExclusivePlaybackProtocol,
+        mutationId: MutationId,
+        sourceAdapter: AdapterInstanceId,
+        targetOccurrence: PlaybackOccurrence,
+        scope: RetirementScope,
+        targetGeometry: PcmAudioGeometry = TEST_PCM_GEOMETRY,
+    ): PcmRetirementPermit = requireNotNull(
+        protocol.preparePcmSourceRetirement(
+            mutationId = mutationId,
+            sourceAdapterInstanceId = sourceAdapter,
+            targetOccurrence = targetOccurrence,
+            targetGeometry = targetGeometry,
+            scope = scope,
+        ),
+    )
+
+    private fun pcmReleasedProof(
+        permit: PcmRetirementPermit,
+        runtimeIdentity: RuntimeIdentity = permit.source.runtimeIdentity,
+        sequence: Long = 1L,
+    ): FamilyProof.PcmFamilyReleased = FamilyProof.PcmFamilyReleased(
+        runtimeIdentity = runtimeIdentity,
+        sourceGeometry = permit.source.geometry,
+        terminal = PcmDelegateTerminal.RESET_COMPLETED,
+        sinkBoundarySequence = sequence,
+    )
+
+    private fun pcmRetainedProof(
+        permit: PcmRetirementPermit,
+        targetOccurrence: PlaybackOccurrence = requireNotNull(permit.targetOccurrence),
+        runtimeIdentity: RuntimeIdentity = permit.source.runtimeIdentity,
+        targetGeometry: PcmAudioGeometry = requireNotNull(permit.targetGeometry),
+        sequence: Long = 1L,
+    ): FamilyProof.PcmRuntimeRetained = FamilyProof.PcmRuntimeRetained(
+        runtimeIdentity = runtimeIdentity,
+        sourceGeometry = permit.source.geometry,
+        targetGeometry = targetGeometry,
+        tailOrdering = PcmTailOrderingProof(
+            sourceOccurrence = permit.source.occurrence,
+            targetOccurrence = targetOccurrence,
+            sinkBoundarySequence = sequence,
+        ),
+    )
+
+    private fun mintPreparedPcmReceipt(
+        protocol: UsbExclusivePlaybackProtocol,
+        permit: PcmRetirementPermit,
+        proof: FamilyProof,
+    ): SourceRetirementReceipt = requireNotNull(
+        protocol.mintRetirementReceipt(
+            mutationId = permit.retiringMutationId,
+            sourceAdapterInstanceId = permit.source.adapterInstanceId,
+            scope = permit.scope,
+            familyProof = proof,
+        ),
+    )
 
     private fun completedDirect(permit: DirectStagePermit, resource: String): SideEffectReceipt.Completed =
         SideEffectReceipt.Completed(

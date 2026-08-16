@@ -3,8 +3,11 @@ package com.mica.music.media.usb.shadow
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.CommitDisposition
 import com.mica.music.media.usb.protocol.FamilyOwnership
+import com.mica.music.media.usb.protocol.FamilyProof
 import com.mica.music.media.usb.protocol.MutationKind
 import com.mica.music.media.usb.protocol.OutputTarget
+import com.mica.music.media.usb.protocol.PcmAudioGeometry
+import com.mica.music.media.usb.protocol.PcmTailOrderingProof
 import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
@@ -1190,12 +1193,14 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeCurrentPlayerOccurrence("A", a)
         adapter.observeStream(a, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
         val configure = requireNotNull(adapter.preparePcmConfigure(a, "sink-format"))
+        val geometry = PcmAudioGeometry(96_000, 2, 0x20000000, null)
         assertTrue(
             adapter.commitPcmConfigure(
                 configure,
                 a,
                 ResourceIdentity("pcm-runtime"),
                 "sink-configured",
+                geometry,
             ) is CommitDisposition.CurrentPlaying,
         )
         val source = stack.snapshot().familyOwnership as FamilyOwnership.PcmOwned
@@ -1206,12 +1211,23 @@ class UsbExclusiveShadowCoordinatorTest {
         requireNotNull(stack.beginManualNavigation("B", "pcm-retained"))
         stack.observeCurrentPlayerOccurrence("B", b)
         adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
-        assertNull(adapter.prepareRetainedPcmHandoff(c))
-        assertNull(adapter.prepareRetainedPcmHandoff(b))
+        assertNull(adapter.preparePcmRetainedRetirement(c, geometry))
+        assertNull(adapter.preparePcmRetainedRetirement(b, geometry))
         assertTrue(source.writeLease.isRevoked())
 
         source.writeLease.exit()
-        val permit = requireNotNull(adapter.prepareRetainedPcmHandoff(b))
+        val retirement = requireNotNull(adapter.preparePcmRetainedRetirement(b, geometry))
+        val permit = requireNotNull(
+            adapter.completePcmRetainedRetirement(
+                retirement,
+                FamilyProof.PcmRuntimeRetained(
+                    runtimeIdentity = retirement.source.runtimeIdentity,
+                    sourceGeometry = retirement.source.geometry,
+                    targetGeometry = geometry,
+                    tailOrdering = PcmTailOrderingProof(retirement.source.occurrence, b, 1L),
+                ),
+            ),
+        )
         val disposition = adapter.commitRetainedPcmHandoff(permit)
         assertTrue(disposition is CommitDisposition.CurrentPlaying)
         val successor = stack.snapshot().familyOwnership as FamilyOwnership.PcmOwned
