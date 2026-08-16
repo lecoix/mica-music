@@ -26,6 +26,7 @@ import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapterKind
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackStack
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
+import com.mica.music.media.usb.shadow.producerHandle
 import java.util.ArrayList
 
 @UnstableApi
@@ -199,11 +200,12 @@ internal class MicaRenderersFactory(
                 "DsdOnly",
                 MicaRendererSupportPolicies.dsdOnly,
                 false,
-                FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId ->
+                FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId, sampleStream ->
                     ffmpegDsdPlaybackAdapter.observeStream(
                         UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
                         PlaybackFamily.PCM,
                         UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "ffmpeg-dsd-pcm"),
+                        producerHandle = sampleStream.producerHandle(),
                     )
                     dsdPeriodProjection.onStreamChanged(mediaPeriodId)
                 },
@@ -218,11 +220,12 @@ internal class MicaRenderersFactory(
                 "PcmOnly",
                 MicaRendererSupportPolicies.pcmOnly,
                 outputPath.usbOutputRequest != null,
-                FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId ->
+                FfmpegAudioRenderer.StreamPeriodObserver { formats, mediaPeriodId, sampleStream ->
                     ffmpegPcmPlaybackAdapter.observeStream(
                         UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
                         PlaybackFamily.PCM,
                         UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "ffmpeg-pcm"),
+                        producerHandle = sampleStream.producerHandle(),
                     )
                     pcmPeriodProjection.onStreamChanged(mediaPeriodId)
                 },

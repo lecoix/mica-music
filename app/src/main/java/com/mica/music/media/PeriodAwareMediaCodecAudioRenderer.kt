@@ -15,6 +15,7 @@ import com.mica.music.media.dsd.ManualNavigationPlaybackPeriodProjection
 import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
+import com.mica.music.media.usb.shadow.producerHandle
 
 @UnstableApi
 internal class PeriodAwareMediaCodecAudioRenderer(
@@ -47,6 +48,7 @@ internal class PeriodAwareMediaCodecAudioRenderer(
             UsbExclusiveShadowMedia3Facts.occurrence(mediaPeriodId),
             PlaybackFamily.PCM,
             UsbExclusiveShadowMedia3Facts.audio(formats.firstOrNull(), "platform-pcm"),
+            producerHandle = getStream().producerHandle(),
         )
         playbackPeriodProjection.onStreamChanged(mediaPeriodId)
         super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId)

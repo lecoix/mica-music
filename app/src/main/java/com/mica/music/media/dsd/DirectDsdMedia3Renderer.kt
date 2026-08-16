@@ -28,6 +28,7 @@ import com.mica.music.media.usb.UsbP2RedemptionContext
 import com.mica.music.media.usb.sharedPcmUsbP2RedemptionContext
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
+import com.mica.music.media.usb.shadow.producerHandle
 import java.util.concurrent.locks.ReentrantLock
 
 object DirectDsdMedia3FormatPolicy {
@@ -1179,6 +1180,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             PlaybackFamily.DOP,
             UsbExclusiveShadowMedia3Facts.audio(newFormat, "direct-dop") +
                 ";sourceRate=${newFacts.sourceSampleRateHz};bitOrder=${newFacts.sourceBitOrder}",
+            producerHandle = getStream().producerHandle(),
         )
         val active = pump
         val playing = state == Renderer.STATE_STARTED

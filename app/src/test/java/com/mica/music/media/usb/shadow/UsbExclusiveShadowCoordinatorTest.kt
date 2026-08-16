@@ -433,6 +433,101 @@ class UsbExclusiveShadowCoordinatorTest {
     }
 
     @Test
+    fun delayedReleasedHandleMustNotBindSuccessorAfterSameOccurrenceReuse() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        val occurrence = PlaybackOccurrence("reused-period", 77)
+        val mapping = listOf(PlaybackTopologyPeriodFact(0, "same-media", occurrence.periodUid))
+        val e1 = stack.currentTopologyToken()
+
+        stack.observeTimelineSnapshot(mapping, reason = 0, producerToken = e1)
+        stack.observeApplicationMedia("same-media", 0, e1)
+        stack.observeEventTimeCurrent(0, "same-media", occurrence, e1)
+        val h1 = requireNotNull(
+            stack.streamProducerHandles.capture(
+                stack.streamProducerHandles.newSourceInstanceId(),
+                e1,
+                occurrence,
+            ),
+        )
+        adapter.observeStream(occurrence, PlaybackFamily.PCM, "OLD-E1-FACTS", producerHandle = h1)
+        assertEquals("OLD-E1-FACTS", requireNotNull(stack.snapshot().mutation).targetFacts)
+        assertTrue(requireNotNull(stack.snapshot().mutation).destinationBound)
+
+        stack.streamProducerHandles.release(h1)
+
+        val reservation = requireNotNull(
+            stack.preparePlaybackTopologyMutation("true-source-replace", targetMediaId = "same-media"),
+        )
+        assertTrue(
+            stack.stageTopologyManualNavigation(
+                reservation,
+                "same-media",
+                targetWindowIndex = 0,
+                expectedPeriodUid = occurrence.periodUid,
+            ),
+        )
+        assertTrue(
+            stack.observeTimelineSnapshot(mapping, reason = 0, producerToken = reservation.producerToken) is
+                UsbExclusiveAuthorityObservation.Accepted,
+        )
+        stack.observeApplicationMedia("same-media", 0, reservation.producerToken)
+        assertTrue(
+            stack.markPlaybackTopologyDispatchSucceeded(reservation) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+        assertTrue(stack.commitPlaybackTopologyMutation(reservation) is UsbExclusiveAuthorityObservation.Accepted)
+        val e2 = reservation.producerToken
+        assertNotEquals(e1, e2)
+        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
+
+        val h2 = requireNotNull(
+            stack.streamProducerHandles.capture(
+                stack.streamProducerHandles.newSourceInstanceId(),
+                e2,
+                occurrence,
+            ),
+        )
+        assertNotEquals(h1.periodInstanceId, h2.periodInstanceId)
+
+        val delayed = adapter.observeStream(
+            occurrence,
+            PlaybackFamily.PCM,
+            "OLD-E1-FACTS",
+            producerHandle = h1,
+        )
+        assertTrue(delayed is UsbExclusiveAuthorityObservation.Rejected)
+        val afterOld = requireNotNull(stack.snapshot().mutation)
+        assertFalse(afterOld.destinationBound)
+        assertTrue(afterOld.targetFacts != "OLD-E1-FACTS")
+
+        adapter.observeStream(occurrence, PlaybackFamily.PCM, "OLD-E1-FACTS")
+        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
+
+        val wrong = PlaybackOccurrence("other-period", 9)
+        adapter.observeStream(wrong, PlaybackFamily.PCM, "wrong-handle", producerHandle = h2)
+        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
+
+        val duplicateLive = requireNotNull(
+            stack.streamProducerHandles.capture(
+                stack.streamProducerHandles.newSourceInstanceId(),
+                e2,
+                occurrence,
+            ),
+        )
+        assertNotEquals(h2.periodInstanceId, duplicateLive.periodInstanceId)
+        assertEquals(h2, stack.streamProducerHandles.redeem(h2.periodInstanceId))
+        assertEquals(duplicateLive, stack.streamProducerHandles.redeem(duplicateLive.periodInstanceId))
+
+        adapter.observeStream(occurrence, PlaybackFamily.PCM, "NEW-E2-FACTS", producerHandle = h2)
+        stack.observeEventTimeCurrent(0, "same-media", occurrence, e2)
+        val bound = requireNotNull(stack.snapshot().mutation)
+        assertTrue(bound.destinationBound)
+        assertEquals(occurrence, bound.targetOccurrence)
+        assertEquals("NEW-E2-FACTS", bound.targetFacts)
+    }
+
+    @Test
     fun delayedOldTimelineBeforeTrueSuccessorTimelineStaysInOldProducerPartition() {
         val coordinator = UsbExclusiveShadowCoordinator { }
         val stack = coordinator.createStack()

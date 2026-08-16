@@ -1,5 +1,9 @@
+@file:UnstableApi
+
 package com.mica.music.media.usb.shadow
 
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.source.SampleStream
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.PlaybackStackId
 
@@ -11,8 +15,8 @@ internal value class StreamPeriodInstanceId(val value: Long)
 
 /**
  * Immutable causal carrier captured when Media3 assigns an exact MediaPeriodId to one stamped
- * MediaSource. Renderer callbacks may redeem only an exact active occurrence; ambiguity or missing
- * capture remains fail-closed and is never repaired from period/timeline uniqueness later.
+ * MediaSource. Renderer callbacks may use only the handle/opaque id attached to that stream
+ * assignment; occurrence-only lookup is never an authority path.
  */
 internal data class StreamProducerHandle(
     val stackId: PlaybackStackId,
@@ -21,6 +25,21 @@ internal data class StreamProducerHandle(
     val sourceInstanceId: StreamSourceInstanceId,
     val periodInstanceId: StreamPeriodInstanceId,
 )
+
+@UnstableApi
+internal class StreamProducerHandleSampleStream(
+    val handle: StreamProducerHandle,
+    val delegate: SampleStream,
+) : SampleStream by delegate
+
+@UnstableApi
+internal fun SampleStream?.producerHandle(): StreamProducerHandle? {
+    var current = this
+    while (current is StreamProducerHandleSampleStream) {
+        return current.handle
+    }
+    return null
+}
 
 internal class StreamProducerHandleRegistry(
     private val stackId: PlaybackStackId,
@@ -54,8 +73,8 @@ internal class StreamProducerHandleRegistry(
     }
 
     @Synchronized
-    fun redeem(occurrence: PlaybackOccurrence): StreamProducerHandle? =
-        active.values.singleOrNull { it.occurrence == occurrence }
+    fun redeem(periodInstanceId: StreamPeriodInstanceId): StreamProducerHandle? =
+        active[periodInstanceId]
 
     @Synchronized
     fun release(handle: StreamProducerHandle) {

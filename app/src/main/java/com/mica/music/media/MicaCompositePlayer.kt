@@ -197,15 +197,13 @@ class MicaCompositePlayer internal constructor(
             it.subList(fromIndex, effectiveToIndex).clear()
         }
         val oldCurrentIndex = exoPlayer.currentMediaItemIndex
-        val removedCount = effectiveToIndex - fromIndex
         val removedCurrent = oldCurrentIndex in fromIndex until effectiveToIndex
-        val replacementIndex = when {
-            expected.isEmpty() -> 0
-            removedCurrent -> fromIndex.coerceAtMost(expected.lastIndex)
-            oldCurrentIndex >= effectiveToIndex -> oldCurrentIndex - removedCount
-            oldCurrentIndex >= 0 -> oldCurrentIndex
-            else -> 0
-        }.coerceIn(0, (expected.size - 1).coerceAtLeast(0))
+        val replacementIndex = Media3PlaylistIndexSemantics.currentIndexAfterRemove(
+            queueSize = current.size,
+            currentIndex = oldCurrentIndex,
+            fromIndex = fromIndex,
+            effectiveToIndex = effectiveToIndex,
+        )
         val targetMediaId = if (removedCurrent && expected.isNotEmpty()) expected[replacementIndex].mediaId else null
         dispatchCanonicalTopologyReplacement(
             seam = "remove-media-items",

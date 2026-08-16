@@ -5,6 +5,7 @@ import com.mica.music.media.usb.protocol.PlaybackStackId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 class StreamProducerHandleRegistryTest {
@@ -14,34 +15,44 @@ class StreamProducerHandleRegistryTest {
     private val e2 = PlaybackTopologyProducerToken(stackId, PlaybackTopologyEpoch(2))
 
     @Test
-    fun delayedOldOccurrenceRedeemsItsCapturedProducerAfterNewerProducerExists() {
-        val oldOccurrence = PlaybackOccurrence("period-same-media", 301)
-        val newOccurrence = PlaybackOccurrence("period-same-media", 302)
-        val oldSource = registry.newSourceInstanceId()
-        val newSource = registry.newSourceInstanceId()
-        val old = requireNotNull(registry.capture(oldSource, e1, oldOccurrence))
-        val fresh = requireNotNull(registry.capture(newSource, e2, newOccurrence))
+    fun delayedOldHandleKeepsCapturedProducerAfterNewerSameOccurrenceExists() {
+        val occurrence = PlaybackOccurrence("period-same-media", 77)
+        val old = requireNotNull(registry.capture(registry.newSourceInstanceId(), e1, occurrence))
+        val fresh = requireNotNull(registry.capture(registry.newSourceInstanceId(), e2, occurrence))
 
-        assertEquals(old, registry.redeem(oldOccurrence))
-        assertEquals(e1, registry.redeem(oldOccurrence)?.producerToken)
-        assertEquals(fresh, registry.redeem(newOccurrence))
-        assertEquals(e2, registry.redeem(newOccurrence)?.producerToken)
+        assertEquals(old, registry.redeem(old.periodInstanceId))
+        assertEquals(e1, registry.redeem(old.periodInstanceId)?.producerToken)
+        assertEquals(fresh, registry.redeem(fresh.periodInstanceId))
+        assertEquals(e2, registry.redeem(fresh.periodInstanceId)?.producerToken)
         assertNotEquals(old.periodInstanceId, fresh.periodInstanceId)
+        assertNotEquals(old.sourceInstanceId, fresh.sourceInstanceId)
     }
 
     @Test
-    fun duplicateExactOccurrenceAcrossProducerInstancesIsFailClosedUntilOneReleases() {
+    fun releaseThenReuseSameOccurrenceDoesNotTransferOldHandleIdentity() {
         val occurrence = PlaybackOccurrence("reused-period", 77)
-        val first = requireNotNull(
-            registry.capture(registry.newSourceInstanceId(), e1, occurrence),
-        )
-        val second = requireNotNull(
-            registry.capture(registry.newSourceInstanceId(), e2, occurrence),
-        )
+        val first = requireNotNull(registry.capture(registry.newSourceInstanceId(), e1, occurrence))
+        registry.release(first)
+        assertNull(registry.redeem(first.periodInstanceId))
 
-        assertNull(registry.redeem(occurrence))
+        val second = requireNotNull(registry.capture(registry.newSourceInstanceId(), e2, occurrence))
+        assertNull(registry.redeem(first.periodInstanceId))
+        assertEquals(second, registry.redeem(second.periodInstanceId))
+        assertNotEquals(first.periodInstanceId, second.periodInstanceId)
+        assertSame(e1, first.producerToken)
+        assertEquals(e2, second.producerToken)
+    }
+
+    @Test
+    fun duplicateExactOccurrenceLiveHandlesRemainDistinctByPeriodInstance() {
+        val occurrence = PlaybackOccurrence("reused-period", 77)
+        val first = requireNotNull(registry.capture(registry.newSourceInstanceId(), e1, occurrence))
+        val second = requireNotNull(registry.capture(registry.newSourceInstanceId(), e2, occurrence))
+        assertEquals(first, registry.redeem(first.periodInstanceId))
+        assertEquals(second, registry.redeem(second.periodInstanceId))
         registry.release(second)
-        assertEquals(first, registry.redeem(occurrence))
+        assertEquals(first, registry.redeem(first.periodInstanceId))
+        assertNull(registry.redeem(second.periodInstanceId))
     }
 
     @Test
@@ -49,10 +60,10 @@ class StreamProducerHandleRegistryTest {
         val occurrence = PlaybackOccurrence("period-a", 9)
         val source = registry.newSourceInstanceId()
         val handle = requireNotNull(registry.capture(source, e1, occurrence))
-        assertEquals(handle, registry.redeem(occurrence))
+        assertEquals(handle, registry.redeem(handle.periodInstanceId))
 
         registry.releaseSource(source)
-        assertNull(registry.redeem(occurrence))
+        assertNull(registry.redeem(handle.periodInstanceId))
         assertNull(
             registry.capture(
                 registry.newSourceInstanceId(),

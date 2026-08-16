@@ -1815,10 +1815,23 @@ internal class UsbExclusiveShadowAdapter internal constructor(
         family: PlaybackFamily,
         facts: String,
         producerToken: PlaybackTopologyProducerToken? = null,
+        producerHandle: StreamProducerHandle? = null,
     ): UsbExclusiveAuthorityObservation {
-        val exactProducer = producerToken
-            ?: stack.streamProducerHandles.redeem(occurrence)?.producerToken
+        val exactProducer = exactStreamProducerToken(occurrence, producerToken, producerHandle)
         return stack.observeRawStream(this, occurrence, family, facts, exactProducer)
+    }
+
+    private fun exactStreamProducerToken(
+        occurrence: PlaybackOccurrence,
+        producerToken: PlaybackTopologyProducerToken?,
+        producerHandle: StreamProducerHandle?,
+    ): PlaybackTopologyProducerToken? {
+        if (producerHandle != null) {
+            return producerHandle.takeIf {
+                it.stackId == stack.protocol.stackId && it.occurrence == occurrence
+            }?.producerToken
+        }
+        return producerToken
     }
 
     fun observePcmConfigureAttempt(occurrence: PlaybackOccurrence?, facts: String) {

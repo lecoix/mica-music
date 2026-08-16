@@ -37,6 +37,7 @@ import androidx.media3.exoplayer.audio.AudioSink.SinkFormatSupport;
 import androidx.media3.exoplayer.audio.DecoderAudioRenderer;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.SampleStream;
 
 /** Decodes and renders audio using FFmpeg. */
 @UnstableApi
@@ -44,7 +45,8 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
 
   /** Optional Mica seam for projecting the authoritative playback-period identity before decode. */
   public interface StreamPeriodObserver {
-    void onStreamChanged(Format[] formats, MediaSource.MediaPeriodId mediaPeriodId);
+    void onStreamChanged(
+        Format[] formats, MediaSource.MediaPeriodId mediaPeriodId, @Nullable SampleStream stream);
   }
 
   private static final String TAG = "FfmpegAudioRenderer";
@@ -175,7 +177,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       MediaSource.MediaPeriodId mediaPeriodId)
       throws ExoPlaybackException {
     if (streamPeriodObserver != null) {
-      streamPeriodObserver.onStreamChanged(formats, mediaPeriodId);
+      streamPeriodObserver.onStreamChanged(formats, mediaPeriodId, getStream());
     }
     super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId);
   }

@@ -231,7 +231,7 @@ class ManualNavigationTransitionStructureTest {
             .substringBefore("protected @C.FormatSupport int supportsFormatInternal")
         assertOrdered(
             ffmpegStream,
-            "streamPeriodObserver.onStreamChanged(formats, mediaPeriodId)",
+            "streamPeriodObserver.onStreamChanged(formats, mediaPeriodId, getStream())",
             "super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId)",
         )
 

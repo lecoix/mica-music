@@ -99,24 +99,23 @@ class UsbExclusiveShadowStructureTest {
         assertOrdered(
             platformStream,
             "playbackAdapter.observeStream(",
+            "producerHandle = getStream().producerHandle()",
             "playbackPeriodProjection.onStreamChanged(mediaPeriodId)",
             "super.onStreamChanged(",
         )
 
         val factory = source("app/src/main/java/com/mica/music/media/MicaRenderersFactory.kt")
-        assertOrdered(
-            factory,
-            "ffmpegDsdPlaybackAdapter.observeStream(",
-            "dsdPeriodProjection.onStreamChanged(mediaPeriodId)",
-        )
-        assertOrdered(
-            factory,
-            "ffmpegPcmPlaybackAdapter.observeStream(",
-            "pcmPeriodProjection.onStreamChanged(mediaPeriodId)",
-        )
+        val ffmpegDsdObserver = factory.substringAfter("ffmpegDsdPlaybackAdapter.observeStream(")
+            .substringBefore("dsdPeriodProjection.onStreamChanged(mediaPeriodId)")
+        assertTrue(ffmpegDsdObserver.contains("producerHandle = sampleStream.producerHandle()"))
+        assertTrue(factory.contains("dsdPeriodProjection.onStreamChanged(mediaPeriodId)"))
+        val ffmpegPcmObserver = factory.substringAfter("ffmpegPcmPlaybackAdapter.observeStream(")
+            .substringBefore("pcmPeriodProjection.onStreamChanged(mediaPeriodId)")
+        assertTrue(ffmpegPcmObserver.contains("producerHandle = sampleStream.producerHandle()"))
+        assertTrue(factory.contains("pcmPeriodProjection.onStreamChanged(mediaPeriodId)"))
         val ffmpeg = source("third_party/media3-ffmpeg-decoder/src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.java")
-        assertTrue(ffmpeg.contains("void onStreamChanged(Format[] formats, MediaSource.MediaPeriodId mediaPeriodId);"))
-        assertTrue(ffmpeg.contains("streamPeriodObserver.onStreamChanged(formats, mediaPeriodId);"))
+        assertTrue(ffmpeg.contains("@Nullable SampleStream stream"))
+        assertTrue(ffmpeg.contains("streamPeriodObserver.onStreamChanged(formats, mediaPeriodId, getStream());"))
 
         val sink = source("app/src/main/java/com/mica/music/media/dsd/TransitionAwarePcmAudioSink.kt")
         val configure = sink.substringAfter("override fun configure(")
@@ -143,6 +142,7 @@ class UsbExclusiveShadowStructureTest {
         assertOrdered(
             stream,
             "playbackAdapter.observeStream(",
+            "producerHandle = getStream().producerHandle()",
             "manualNavigationTransitionBridge.observePlaybackStream(mediaPeriodId)",
         )
         val started = direct.substringAfter("override fun onStarted()")
@@ -337,6 +337,7 @@ class UsbExclusiveShadowStructureTest {
             removeBulk,
             "require(fromIndex >= 0 && toIndex >= fromIndex)",
             "val effectiveToIndex = toIndex.coerceAtMost(current.size)",
+            "Media3PlaylistIndexSemantics.currentIndexAfterRemove(",
             "dispatchCanonicalTopologyReplacement(",
             "seam = \"remove-media-items\"",
         )
@@ -428,20 +429,29 @@ class UsbExclusiveShadowStructureTest {
             "override fun createPeriod(",
             "streamProducerHandles.capture(",
             "occurrence = UsbExclusiveShadowMedia3Facts.occurrence(id)",
+            "StreamProducerHandleMediaPeriod(period, handle)",
         )
+        assertTrue(mediaSource.contains("StreamProducerHandleSampleStream(handle, inner)"))
         val handleRegistry = source("app/src/main/java/com/mica/music/media/usb/shadow/StreamProducerHandleRegistry.kt")
         assertTrue(handleRegistry.contains("data class StreamProducerHandle("))
         assertTrue(handleRegistry.contains("val producerToken: PlaybackTopologyProducerToken"))
         assertTrue(handleRegistry.contains("val occurrence: PlaybackOccurrence"))
         assertTrue(handleRegistry.contains("val sourceInstanceId: StreamSourceInstanceId"))
         assertTrue(handleRegistry.contains("val periodInstanceId: StreamPeriodInstanceId"))
-        assertTrue(handleRegistry.contains("active.values.singleOrNull { it.occurrence == occurrence }"))
+        assertTrue(handleRegistry.contains("fun redeem(periodInstanceId: StreamPeriodInstanceId)"))
+        assertFalse(handleRegistry.contains("active.values.singleOrNull { it.occurrence == occurrence }"))
+        assertFalse(handleRegistry.contains("fun redeem(occurrence: PlaybackOccurrence)"))
 
         val adapter = coordinator.substringAfter("internal class UsbExclusiveShadowAdapter")
         assertOrdered(
             adapter,
-            "stack.streamProducerHandles.redeem(occurrence)?.producerToken",
+            "producerHandle: StreamProducerHandle? = null",
+            "exactStreamProducerToken(occurrence, producerToken, producerHandle)",
             "stack.observeRawStream(this, occurrence, family, facts, exactProducer)",
+        )
+        assertFalse(adapter.contains("streamProducerHandles.redeem(occurrence)"))
+        assertTrue(
+            adapter.contains("it.stackId == stack.protocol.stackId && it.occurrence == occurrence"),
         )
         assertFalse(coordinator.contains("scopeUnscopedRawStreams"))
         assertFalse(coordinator.contains("scopeExactUnscopedRawStreams"))
