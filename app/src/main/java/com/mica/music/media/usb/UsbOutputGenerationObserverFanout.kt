@@ -33,3 +33,25 @@ internal class UsbOutputGenerationObserverFanout(
         return { observers -= observer }
     }
 }
+
+/** Read-only post-publication facts fan-out. Observer failures cannot affect P2 owner state. */
+internal class UsbOutputFactsObserverFanout(
+    private val onObserverFailure: (PlaybackOutputFacts, Throwable) -> Unit = { _, _ -> },
+) {
+    private val observers = CopyOnWriteArrayList<(PlaybackOutputFacts) -> Unit>()
+
+    fun publish(facts: PlaybackOutputFacts) {
+        observers.forEach { observer ->
+            try {
+                observer(facts)
+            } catch (error: Throwable) {
+                onObserverFailure(facts, error)
+            }
+        }
+    }
+
+    fun installObserver(observer: (PlaybackOutputFacts) -> Unit): () -> Unit {
+        observers += observer
+        return { observers -= observer }
+    }
+}

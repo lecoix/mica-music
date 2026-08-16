@@ -62,8 +62,11 @@ class MicaCompositePlayer internal constructor(
         startIndex: Int,
         startPositionMs: Long,
     ) {
+        if (!advancePlaybackTopology("set-media-items")) return
+        val safeIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
         prepareQueueMutation(
-            targetMediaId = mediaItems.getOrNull(startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0)))?.mediaId,
+            targetMediaId = mediaItems.getOrNull(safeIndex)?.mediaId,
+            targetWindowIndex = safeIndex.takeIf { mediaItems.isNotEmpty() },
             requestedPlaying = exoPlayer.playWhenReady,
             seam = "set-media-items",
         )
@@ -80,31 +83,40 @@ class MicaCompositePlayer internal constructor(
     }
 
     override fun addMediaItem(index: Int, mediaItem: MediaItem) {
+        if (!advancePlaybackTopology("add-media-item")) return
         super.addMediaItem(index, mediaItem)
         queueRevision++
     }
 
     override fun moveMediaItem(currentIndex: Int, newIndex: Int) {
+        if (!advancePlaybackTopology("move-media-item")) return
         super.moveMediaItem(currentIndex, newIndex)
         queueRevision++
     }
 
     override fun removeMediaItem(index: Int) {
+        if (!advancePlaybackTopology("remove-media-item")) return
         if (index == exoPlayer.currentMediaItemIndex) {
             val target = runCatching {
                 when {
-                    index + 1 < exoPlayer.mediaItemCount -> exoPlayer.getMediaItemAt(index + 1)
-                    index > 0 -> exoPlayer.getMediaItemAt(index - 1)
+                    index + 1 < exoPlayer.mediaItemCount -> index to exoPlayer.getMediaItemAt(index + 1)
+                    index > 0 -> (index - 1) to exoPlayer.getMediaItemAt(index - 1)
                     else -> null
                 }
             }.getOrNull()
-            prepareQueueMutation(target?.mediaId, exoPlayer.playWhenReady, "remove-current-media-item")
+            prepareQueueMutation(
+                targetMediaId = target?.second?.mediaId,
+                targetWindowIndex = target?.first,
+                requestedPlaying = exoPlayer.playWhenReady,
+                seam = "remove-current-media-item",
+            )
         }
         super.removeMediaItem(index)
         queueRevision++
     }
 
     override fun clearMediaItems() {
+        if (!advancePlaybackTopology("clear-media-items")) return
         check(playbackStack.beginQueueClear()) {
             "USB playback protocol rejected queue clear before Exo dispatch"
         }
@@ -113,8 +125,14 @@ class MicaCompositePlayer internal constructor(
     }
 
     override fun replaceMediaItem(index: Int, mediaItem: MediaItem) {
+        if (!advancePlaybackTopology("replace-media-item")) return
         if (index == exoPlayer.currentMediaItemIndex) {
-            prepareQueueMutation(mediaItem.mediaId, exoPlayer.playWhenReady, "replace-current-media-item")
+            prepareQueueMutation(
+                mediaItem.mediaId,
+                index,
+                exoPlayer.playWhenReady,
+                "replace-current-media-item",
+            )
         }
         super.replaceMediaItem(index, mediaItem)
         queueRevision++
@@ -131,7 +149,8 @@ class MicaCompositePlayer internal constructor(
         val targetId = mediaItems.getOrNull(safeIndex)?.mediaId
         val currentId = currentMediaItem?.mediaId
         val switchingItem = currentId != null && targetId != null && targetId != currentId
-        val navigationEpoch = prepareQueueMutation(targetId, playWhenReady, "start-exo-playback")
+        if (!advancePlaybackTopology("start-exo-playback")) return
+        val navigationEpoch = prepareQueueMutation(targetId, safeIndex, playWhenReady, "start-exo-playback")
         val prevItems = mediaItemCount
         val setStartedNs = SystemClock.elapsedRealtimeNanos()
         try {
@@ -173,6 +192,7 @@ class MicaCompositePlayer internal constructor(
                 targetId,
                 playWhenReady,
                 "start-existing",
+                targetWindowIndex = safeIndex,
                 expectedTargetPeriodUid = ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
                     exoPlayer.currentTimeline,
                     safeIndex,
@@ -237,6 +257,7 @@ class MicaCompositePlayer internal constructor(
                 targetId,
                 requestedPlaying = false,
                 seam = "select-existing-without-playback",
+                targetWindowIndex = safeIndex,
                 expectedTargetPeriodUid = ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
                     exoPlayer.currentTimeline,
                     safeIndex,
@@ -268,8 +289,10 @@ class MicaCompositePlayer internal constructor(
         val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
         val targetId = mediaItems[safeIndex].mediaId
         if (!publishProtocolIntent(false)) return
+        if (!advancePlaybackTopology("select-without-playback")) return
         val navigationEpoch = prepareQueueMutation(
             targetMediaId = targetId,
+            targetWindowIndex = safeIndex,
             requestedPlaying = false,
             seam = "select-without-playback",
         )
@@ -390,7 +413,17 @@ class MicaCompositePlayer internal constructor(
             return
         }
         if (targetId != exoPlayer.currentMediaItem?.mediaId) {
-            publishManualNavigation(targetId, playWhenReady, "seek-index")
+            publishManualNavigation(
+                targetId,
+                playWhenReady,
+                "seek-index",
+                targetWindowIndex = mediaItemIndex,
+                expectedTargetPeriodUid = ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
+                    exoPlayer.currentTimeline,
+                    mediaItemIndex,
+                    targetId,
+                ),
+            )
         } else if (playbackStack.beginSeek(positionMs.coerceAtLeast(0L) * 1_000L) == null) {
             DiagnosticLog.event("UsbExclusiveProtocol", "indexed-seek-rejected-before-exo target=$mediaItemIndex")
             return
@@ -403,12 +436,13 @@ class MicaCompositePlayer internal constructor(
             it.onSkipToNext()
             return
         }
-        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.nextMediaItemIndex).mediaId }.getOrNull()
+        val targetIndex = exoPlayer.nextMediaItemIndex
+        val targetId = runCatching { exoPlayer.getMediaItemAt(targetIndex).mediaId }.getOrNull()
         if (targetId == null) {
             DiagnosticLog.event("UsbExclusiveProtocol", "next-seek-rejected-before-exo")
             return
         }
-        publishManualNavigation(targetId, playWhenReady, "next-media-item")
+        publishManualNavigation(targetId, playWhenReady, "next-media-item", targetWindowIndex = targetIndex)
         super.seekToNextMediaItem()
     }
 
@@ -417,12 +451,13 @@ class MicaCompositePlayer internal constructor(
             it.onSkipToPrevious()
             return
         }
-        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.previousMediaItemIndex).mediaId }.getOrNull()
+        val targetIndex = exoPlayer.previousMediaItemIndex
+        val targetId = runCatching { exoPlayer.getMediaItemAt(targetIndex).mediaId }.getOrNull()
         if (targetId == null) {
             DiagnosticLog.event("UsbExclusiveProtocol", "previous-seek-rejected-before-exo")
             return
         }
-        publishManualNavigation(targetId, playWhenReady, "previous-media-item")
+        publishManualNavigation(targetId, playWhenReady, "previous-media-item", targetWindowIndex = targetIndex)
         super.seekToPreviousMediaItem()
     }
 
@@ -431,12 +466,13 @@ class MicaCompositePlayer internal constructor(
             it.onSkipToPrevious()
             return
         }
-        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.previousMediaItemIndex).mediaId }.getOrNull()
+        val targetIndex = exoPlayer.previousMediaItemIndex
+        val targetId = runCatching { exoPlayer.getMediaItemAt(targetIndex).mediaId }.getOrNull()
         if (targetId == null) {
             DiagnosticLog.event("UsbExclusiveProtocol", "previous-seek-rejected-before-exo")
             return
         }
-        publishManualNavigation(targetId, playWhenReady, "previous")
+        publishManualNavigation(targetId, playWhenReady, "previous", targetWindowIndex = targetIndex)
         super.seekToPrevious()
     }
 
@@ -445,12 +481,13 @@ class MicaCompositePlayer internal constructor(
             it.onSkipToNext()
             return
         }
-        val targetId = runCatching { exoPlayer.getMediaItemAt(exoPlayer.nextMediaItemIndex).mediaId }.getOrNull()
+        val targetIndex = exoPlayer.nextMediaItemIndex
+        val targetId = runCatching { exoPlayer.getMediaItemAt(targetIndex).mediaId }.getOrNull()
         if (targetId == null) {
             DiagnosticLog.event("UsbExclusiveProtocol", "next-seek-rejected-before-exo")
             return
         }
-        publishManualNavigation(targetId, playWhenReady, "next")
+        publishManualNavigation(targetId, playWhenReady, "next", targetWindowIndex = targetIndex)
         super.seekToNext()
     }
 
@@ -462,9 +499,17 @@ class MicaCompositePlayer internal constructor(
         targetMediaId: String,
         requestedPlaying: Boolean,
         seam: String,
+        targetWindowIndex: Int? = null,
         expectedTargetPeriodUid: Any? = null,
     ): ManualNavigationTransitionEpoch {
-        if (playbackStack.beginManualNavigation(targetMediaId, seam) == null) {
+        if (
+            playbackStack.beginManualNavigation(
+                targetMediaId,
+                seam,
+                targetWindowIndex,
+                expectedTargetPeriodUid,
+            ) == null
+        ) {
             error("USB playback protocol rejected manual navigation before Exo dispatch: $seam/$targetMediaId")
         }
         val epoch = manualNavigationTransitionBridge.publish(
@@ -488,6 +533,7 @@ class MicaCompositePlayer internal constructor(
 
     private fun prepareQueueMutation(
         targetMediaId: String?,
+        targetWindowIndex: Int? = null,
         requestedPlaying: Boolean,
         seam: String,
     ): ManualNavigationTransitionEpoch? {
@@ -500,6 +546,23 @@ class MicaCompositePlayer internal constructor(
         check(targetMediaId.isNotBlank()) {
             "USB playback protocol rejected unbound queue destination before Exo dispatch: $seam"
         }
-        return publishManualNavigation(targetMediaId, requestedPlaying, seam)
+        return publishManualNavigation(
+            targetMediaId,
+            requestedPlaying,
+            seam,
+            targetWindowIndex = targetWindowIndex,
+        )
+    }
+
+    private fun advancePlaybackTopology(seam: String): Boolean {
+        val result = playbackStack.advancePlaybackTopology(seam)
+        val accepted = result is com.mica.music.media.usb.shadow.UsbExclusiveAuthorityObservation.Accepted
+        if (!accepted) {
+            DiagnosticLog.event(
+                "UsbExclusiveProtocol",
+                "topology-advance-rejected-before-exo seam=$seam result=$result",
+            )
+        }
+        return accepted
     }
 }

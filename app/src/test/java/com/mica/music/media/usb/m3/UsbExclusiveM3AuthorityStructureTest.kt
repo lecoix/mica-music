@@ -80,7 +80,7 @@ class UsbExclusiveM3AuthorityStructureTest {
         )
         assertOrdered(
             composite.substringAfter("private fun publishManualNavigation("),
-            "playbackStack.beginManualNavigation(targetMediaId, seam)",
+            "playbackStack.beginManualNavigation(",
             "manualNavigationTransitionBridge.publish(",
         )
         val direct = source("app/src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt")

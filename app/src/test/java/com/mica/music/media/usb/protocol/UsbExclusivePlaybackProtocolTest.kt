@@ -139,7 +139,14 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterC)
         protocol.updateApplicationCurrent("C", c.periodUid, c)
         val cMutation = requireNotNull(
-            protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm96", c),
+            protocol.beginMutation(
+                MutationKind.MANUAL,
+                "C",
+                PlaybackFamily.PCM,
+                "pcm96",
+                c,
+                destinationAdapterInstanceId = adapterC,
+            ),
         )
         val resource = ResourceIdentity("stale-b")
 
@@ -456,7 +463,16 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterA)
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val mutation = requireNotNull(
+            protocol.beginMutation(
+                MutationKind.MANUAL,
+                "B",
+                PlaybackFamily.DOP,
+                "dop128",
+                b,
+                destinationAdapterInstanceId = adapterB,
+            ),
+        )
         assertFalse(protocol.observeAdapterStarted(adapterA, b))
         val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
         protocol.commitDirectStage(create, completedDirect(create, "runtime-b-create"))

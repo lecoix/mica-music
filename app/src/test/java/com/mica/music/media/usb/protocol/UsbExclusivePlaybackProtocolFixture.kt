@@ -30,6 +30,7 @@ internal fun UsbExclusivePlaybackProtocol.installOwnedFamilyForModel(
             targetFamily = family,
             targetFacts = facts,
             targetOccurrence = occurrence,
+            destinationAdapterInstanceId = adapterInstanceId,
         ),
     )
     check(mutation.mutationId == mutationId) {

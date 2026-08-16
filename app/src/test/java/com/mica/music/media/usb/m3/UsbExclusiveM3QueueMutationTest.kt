@@ -24,6 +24,11 @@ class UsbExclusiveM3QueueMutationTest {
         stack.observeCurrentPlayerOccurrence("same-media", firstOccurrence)
         assertEquals(firstOccurrence, stack.snapshot().mutation?.targetOccurrence)
 
+        // A true queue replacement advances the app-owned topology epoch before Exo dispatch.
+        // Old seq1 operands therefore cannot bind the replacement mutation.
+        stack.advancePlaybackTopology("test-replacement")
+        stack.observeTimelinePeriod("same-media", periodUid)
+        stack.observeApplicationMedia("same-media")
         val secondEpoch = requireNotNull(stack.beginManualNavigation("same-media", "test-replacement"))
         val secondOccurrence = PlaybackOccurrence(periodUid, 2L)
         adapter.observeStream(secondOccurrence, PlaybackFamily.PCM, "pcm-target")

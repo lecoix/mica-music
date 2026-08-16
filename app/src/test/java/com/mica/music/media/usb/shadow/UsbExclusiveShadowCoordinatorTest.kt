@@ -13,7 +13,13 @@ import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.RuntimeIdentity
 import com.mica.music.media.usb.protocol.SideEffectReceipt
 import com.mica.music.media.usb.protocol.WriteKind
+import com.mica.music.media.usb.PlaybackOutputFacts
+import com.mica.music.media.usb.UsbAudioDeviceIdentity
+import com.mica.music.media.usb.UsbAudioRuntimeHandle
 import com.mica.music.media.usb.UsbOutputGenerationObserverFanout
+import com.mica.music.media.usb.UsbOutputPhase
+import com.mica.music.media.usb.UsbOutputRequest
+import com.mica.music.media.usb.UsbPermissionState
 import com.mica.music.media.usb.protocol.UsbOutputGeneration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -133,6 +139,277 @@ class UsbExclusiveShadowCoordinatorTest {
     }
 
     @Test
+    fun streamAndTimelineArrivalOrdersConvergeWithoutDuplicateStream() {
+        fun run(streamFirst: Boolean): Triple<MutationKind, PlaybackOccurrence, Long> {
+            val coordinator = UsbExclusiveShadowCoordinator { }
+            coordinator.publishSemanticIntent(true)
+            val stack = coordinator.createStack()
+            val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+            val mutation = requireNotNull(
+                stack.beginManualNavigation(
+                    targetMediaId = "B",
+                    seam = "arrival-order",
+                    targetWindowIndex = 0,
+                    expectedPeriodUid = b.periodUid,
+                ),
+            )
+            val mapping = listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid))
+            if (streamFirst) {
+                adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+                stack.observeTimelineSnapshot(mapping, reason = 0)
+            } else {
+                stack.observeTimelineSnapshot(mapping, reason = 0)
+                adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+            }
+            val bound = requireNotNull(stack.snapshot().mutation)
+            assertEquals(mutation.mutationId, bound.mutationId)
+            assertTrue(bound.destinationBound)
+            assertEquals(adapter.id, bound.destinationAdapterInstanceId)
+            assertEquals(b, bound.targetOccurrence)
+            assertEquals("pcm96", bound.targetFacts)
+
+            // Repeated raw/timeline callbacks are idempotent and cannot mint a second mutation.
+            adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+            stack.observeTimelineSnapshot(mapping, reason = 0)
+            assertEquals(mutation.mutationId, requireNotNull(stack.snapshot().mutation).mutationId)
+            return Triple(bound.kind, requireNotNull(bound.targetOccurrence), bound.mutationId.value)
+        }
+
+        val streamThenPeriod = run(streamFirst = true)
+        val periodThenStream = run(streamFirst = false)
+        assertEquals(streamThenPeriod.first, periodThenStream.first)
+        assertEquals(streamThenPeriod.second, periodThenStream.second)
+    }
+
+    @Test
+    fun unresolvedBAndCCoexistOnSameAdapterAndSupersedeChoosesOnlyC() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.FFMPEG_PCM)
+
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+        val bMutation = requireNotNull(stack.beginManualNavigation("B", "first", targetWindowIndex = 0))
+        val cMutation = requireNotNull(stack.beginManualNavigation("C", "supersede", targetWindowIndex = 1))
+        assertNotEquals(bMutation.mutationId, cMutation.mutationId)
+        assertFalse(cMutation.destinationBound)
+
+        stack.observeTimelineSnapshot(
+            listOf(
+                PlaybackTopologyPeriodFact(0, "B", b.periodUid),
+                PlaybackTopologyPeriodFact(1, "C", c.periodUid),
+            ),
+            reason = 0,
+        )
+        val current = requireNotNull(stack.snapshot().mutation)
+        assertEquals(cMutation.mutationId, current.mutationId)
+        assertTrue(current.destinationBound)
+        assertEquals(c, current.targetOccurrence)
+        assertEquals("pcm-c", current.targetFacts)
+    }
+
+    @Test
+    fun duplicateMediaIdsUseWindowAndExpectedPeriodInsteadOfFirstMatch() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        stack.observeTimelineSnapshot(
+            listOf(
+                PlaybackTopologyPeriodFact(0, "dup", b.periodUid),
+                PlaybackTopologyPeriodFact(1, "dup", c.periodUid),
+            ),
+            reason = 0,
+        )
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+
+        val mutation = requireNotNull(
+            stack.beginManualNavigation(
+                targetMediaId = "dup",
+                seam = "duplicate-media-id",
+                targetWindowIndex = 1,
+                expectedPeriodUid = c.periodUid,
+            ),
+        )
+        val bound = requireNotNull(stack.snapshot().mutation)
+        assertEquals(mutation.mutationId, bound.mutationId)
+        assertEquals(c, bound.targetOccurrence)
+        assertEquals("pcm-c", bound.targetFacts)
+    }
+
+    @Test
+    fun samePeriodUidDifferentWindowSequenceWaitsForExactEventTimeOccurrence() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        val seq1 = PlaybackOccurrence("same-period", 11)
+        val seq2 = PlaybackOccurrence("same-period", 12)
+        stack.observeTimelineSnapshot(
+            listOf(PlaybackTopologyPeriodFact(0, "B", "same-period")),
+            reason = 0,
+        )
+        adapter.observeStream(seq1, PlaybackFamily.PCM, "pcm-same")
+        adapter.observeStream(seq2, PlaybackFamily.PCM, "pcm-same")
+        val mutation = requireNotNull(
+            stack.beginManualNavigation(
+                "B",
+                "same-period-two-occurrences",
+                targetWindowIndex = 0,
+                expectedPeriodUid = "same-period",
+            ),
+        )
+        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
+
+        stack.observeApplicationMedia("B", 0)
+        stack.observeEventTimeCurrent(0, "B", seq2)
+        val bound = requireNotNull(stack.snapshot().mutation)
+        assertEquals(mutation.mutationId, bound.mutationId)
+        assertTrue(bound.destinationBound)
+        assertEquals(seq2, bound.targetOccurrence)
+    }
+
+    @Test
+    fun topologyAdvanceRetiresOldOperandsWhileMetadataSnapshotsPreserveEpoch() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        val mapping = listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid))
+        stack.observeTimelineSnapshot(mapping, reason = 0)
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        val oldEpoch = stack.currentTopologyEpoch()
+
+        assertTrue(stack.advancePlaybackTopology("replace-queue") is UsbExclusiveAuthorityObservation.Accepted)
+        val newEpoch = stack.currentTopologyEpoch()
+        assertNotEquals(oldEpoch, newEpoch)
+        val mutation = requireNotNull(stack.beginManualNavigation("B", "after-advance", targetWindowIndex = 0))
+        stack.observeTimelineSnapshot(mapping, reason = 0)
+        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
+
+        // Metadata/source-update style repeated snapshots do not create a new topology epoch.
+        stack.observeTimelineSnapshot(mapping, reason = 1)
+        stack.observeTimelineSnapshot(mapping, reason = 2)
+        assertEquals(newEpoch, stack.currentTopologyEpoch())
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        val bound = requireNotNull(stack.snapshot().mutation)
+        assertEquals(mutation.mutationId, bound.mutationId)
+        assertTrue(bound.destinationBound)
+    }
+
+    @Test
+    fun eventTimeFactsNeverHybridizeWithDifferentApplicationCurrent() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        coordinator.publishSemanticIntent(true)
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        stack.observeTimelineSnapshot(
+            listOf(
+                PlaybackTopologyPeriodFact(0, "B", b.periodUid),
+                PlaybackTopologyPeriodFact(1, "C", c.periodUid),
+            ),
+            reason = 0,
+        )
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+        stack.observeApplicationMedia("C", 1)
+
+        val mismatched = stack.observeEventTimeCurrent(0, "B", b)
+        assertTrue(mismatched is UsbExclusiveAuthorityObservation.InsufficientEvidence)
+        assertEquals("C", stack.snapshot().applicationCurrent.mediaId)
+        assertNull(stack.snapshot().applicationCurrent.occurrence)
+        assertNull(stack.snapshot().mutation)
+
+        val missing = stack.observeEventTimeCurrent(null, null, null)
+        assertTrue(missing is UsbExclusiveAuthorityObservation.InsufficientEvidence)
+        assertNull(stack.snapshot().applicationCurrent.occurrence)
+
+        val exact = stack.observeEventTimeCurrent(1, "C", c)
+        assertTrue(exact is UsbExclusiveAuthorityObservation.Accepted)
+        assertEquals(c, stack.snapshot().applicationCurrent.occurrence)
+        assertEquals(c, requireNotNull(stack.snapshot().mutation).targetOccurrence)
+    }
+
+    @Test
+    fun destinationAdapterProvenanceRejectsOtherAdapterPrepareAndDirectStage() {
+        val pcmCoordinator = UsbExclusiveShadowCoordinator { }
+        pcmCoordinator.publishSemanticIntent(true)
+        val pcmStack = pcmCoordinator.createStack()
+        val pcmA = pcmStack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        val pcmB = pcmStack.newAdapter(UsbExclusiveShadowAdapterKind.FFMPEG_PCM)
+        pcmStack.observeTimelineSnapshot(listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid)), reason = 0)
+        pcmStack.beginManualNavigation("B", "adapter-pcm", targetWindowIndex = 0)
+        pcmA.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        pcmStack.observeApplicationMedia("B", 0)
+        pcmStack.observeEventTimeCurrent(0, "B", b)
+        assertEquals(pcmA.id, requireNotNull(pcmStack.snapshot().mutation).destinationAdapterInstanceId)
+        assertNull(pcmB.preparePcmConfigure(b, "pcm96"))
+        assertNotNull(pcmA.preparePcmConfigure(b, "pcm96"))
+
+        val directCoordinator = UsbExclusiveShadowCoordinator { }
+        directCoordinator.publishSemanticIntent(true)
+        bindUsableUsb(directCoordinator, 51)
+        val directStack = directCoordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(51)))
+        val directA = directStack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+        val directB = directStack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
+        directStack.observeTimelineSnapshot(listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid)), reason = 0)
+        directStack.beginManualNavigation("B", "adapter-direct", targetWindowIndex = 0)
+        directA.observeStream(b, PlaybackFamily.DOP, "dop128")
+        directStack.observeApplicationMedia("B", 0)
+        directStack.observeEventTimeCurrent(0, "B", b)
+        val runtime = RuntimeIdentity("adapter-provenance")
+        assertEquals(directA.id, requireNotNull(directStack.snapshot().mutation).destinationAdapterInstanceId)
+        assertNull(directB.prepareDirectStage(b, DirectStage.CREATE_RUNTIME, runtime))
+        assertNotNull(directA.prepareDirectStage(b, DirectStage.CREATE_RUNTIME, runtime))
+    }
+
+    @Test
+    fun generationAndNonActiveFactsStayUnavailableUntilExactActiveSession() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack(OutputTarget.Unavailable)
+        coordinator.publishStack(stack)
+        val device = UsbAudioDeviceIdentity(1, 3, "staged")
+        val base = PlaybackOutputFacts(
+            generation = 61,
+            request = UsbOutputRequest(device),
+            runtimeHandle = UsbAudioRuntimeHandle(8),
+            attached = true,
+            permission = UsbPermissionState.GRANTED,
+            claimed = true,
+            exclusive = true,
+            signalExact = true,
+        )
+        coordinator.observeUsbGeneration(61)
+        assertEquals(OutputTarget.Unavailable, stack.snapshot().outputTarget)
+        coordinator.observeUsbFacts(base.copy(phase = UsbOutputPhase.OPENING))
+        assertEquals(OutputTarget.Unavailable, stack.snapshot().outputTarget)
+        coordinator.observeUsbFacts(base.copy(phase = UsbOutputPhase.ACTIVE))
+        assertEquals(OutputTarget.UsbBound(UsbOutputGeneration(61)), stack.snapshot().outputTarget)
+        coordinator.observeUsbGeneration(62)
+        assertEquals(OutputTarget.Unavailable, stack.snapshot().outputTarget)
+    }
+
+    @Test
+    fun authorityFailureIsTypedAndCannotLeavePermitForRelatedSideEffect() {
+        val coordinator = UsbExclusiveShadowCoordinator(
+            authorityFaultInjector = { event ->
+                if (event == "RENDERER_STREAM") error("injected-authority-failure")
+            },
+            diagnosticSink = { },
+        )
+        coordinator.publishSemanticIntent(true)
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        stack.observeTimelineSnapshot(listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid)), reason = 0)
+        stack.beginManualNavigation("B", "fault", targetWindowIndex = 0)
+        stack.observeApplicationMedia("B", 0)
+        stack.observeEventTimeCurrent(0, "B", b)
+
+        val result = adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        assertTrue(result is UsbExclusiveAuthorityObservation.Failed)
+        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
+        assertNull(adapter.preparePcmConfigure(b, "pcm96"))
+    }
+
+    @Test
     fun actualRendererRolesReceiveDistinctAdapterIdentities() {
         val coordinator = UsbExclusiveShadowCoordinator { }
         val stack = coordinator.createStack()
@@ -175,19 +452,20 @@ class UsbExclusiveShadowCoordinatorTest {
     }
 
     @Test
-    fun candidateOutputIsLocalUntilPublicationAndRealUsbGenerationDoesNotRewriteSharedStack() {
+    fun candidateOutputNeedsActiveFactsAndGenerationNeverRewritesSharedStack() {
         val coordinator = UsbExclusiveShadowCoordinator { }
         val publishedShared = coordinator.createStack(OutputTarget.SharedPcm)
         coordinator.publishStack(publishedShared)
         val usbCandidate = coordinator.createStack(OutputTarget.Unavailable)
 
-        assertEquals(OutputTarget.SharedPcm, publishedShared.snapshot().outputTarget)
-        assertEquals(OutputTarget.Unavailable, usbCandidate.snapshot().outputTarget)
-
         coordinator.observeUsbGeneration(42)
         assertEquals(OutputTarget.SharedPcm, publishedShared.snapshot().outputTarget)
-        assertEquals(OutputTarget.UsbBound(UsbOutputGeneration(42)), usbCandidate.snapshot().outputTarget)
+        assertEquals(OutputTarget.Unavailable, usbCandidate.snapshot().outputTarget)
         assertEquals(OutputTarget.SharedPcm, coordinator.createStack().snapshot().outputTarget)
+
+        bindUsableUsb(coordinator, 42)
+        assertEquals(OutputTarget.SharedPcm, publishedShared.snapshot().outputTarget)
+        assertEquals(OutputTarget.UsbBound(UsbOutputGeneration(42)), usbCandidate.snapshot().outputTarget)
 
         coordinator.retireStack(publishedShared)
         coordinator.publishStack(usbCandidate)
@@ -198,12 +476,14 @@ class UsbExclusiveShadowCoordinatorTest {
     }
 
     @Test
-    fun outputGenerationUsesObservedP2ValueAndRetiringStackRejectsNewAuthority() {
+    fun outputGenerationInvalidatesUntilExactActiveFactsAndRetiringRejectsAuthority() {
         val coordinator = UsbExclusiveShadowCoordinator { }
         coordinator.publishSemanticIntent(true)
         val old = coordinator.createStack(OutputTarget.Unavailable)
         coordinator.publishStack(old)
         coordinator.observeUsbGeneration(37)
+        assertEquals(OutputTarget.Unavailable, old.snapshot().outputTarget)
+        bindUsableUsb(coordinator, 37)
         assertEquals(OutputTarget.UsbBound(UsbOutputGeneration(37)), old.snapshot().outputTarget)
 
         coordinator.retireStack(old)
@@ -219,6 +499,7 @@ class UsbExclusiveShadowCoordinatorTest {
     fun directSeekSourceAcceptRequiresExactRawResetBarrierAndObservedRuntimeRelease() {
         val coordinator = UsbExclusiveShadowCoordinator { }
         coordinator.publishSemanticIntent(true)
+        bindUsableUsb(coordinator, 5)
         val stack = coordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         coordinator.publishStack(stack)
         val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
@@ -360,6 +641,7 @@ class UsbExclusiveShadowCoordinatorTest {
     fun productionRetainedDirectHandoffRequiresExactSourceAndCommitsOneSuccessorLease() {
         val coordinator = UsbExclusiveShadowCoordinator { }
         coordinator.publishSemanticIntent(true)
+        bindUsableUsb(coordinator, 8)
         val stack = coordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(8)))
         val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
         val wrongAdapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
@@ -404,6 +686,7 @@ class UsbExclusiveShadowCoordinatorTest {
     fun productionRetainedDirectPermitBecomesStaleAfterBSupersedeAndCUsesItsOwnExactHandoff() {
         val coordinator = UsbExclusiveShadowCoordinator { }
         coordinator.publishSemanticIntent(true)
+        bindUsableUsb(coordinator, 9)
         val stack = coordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(9)))
         val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
         val runtime = RuntimeIdentity("direct-retained-superseded")
@@ -531,11 +814,30 @@ class UsbExclusiveShadowCoordinatorTest {
         assertNotNull(stack.snapshot().mutation)
     }
 
+    private fun bindUsableUsb(coordinator: UsbExclusiveShadowCoordinator, generation: Long) {
+        val device = UsbAudioDeviceIdentity(1, 2, "test-device")
+        coordinator.observeUsbGeneration(generation)
+        coordinator.observeUsbFacts(
+            PlaybackOutputFacts(
+                generation = generation,
+                phase = UsbOutputPhase.ACTIVE,
+                request = UsbOutputRequest(device),
+                runtimeHandle = UsbAudioRuntimeHandle(7),
+                attached = true,
+                permission = UsbPermissionState.GRANTED,
+                claimed = true,
+                exclusive = true,
+                signalExact = true,
+            ),
+        )
+    }
+
     private fun committedDirectStack(
         coordinator: UsbExclusiveShadowCoordinator,
         runtime: RuntimeIdentity,
     ): Pair<UsbExclusiveShadowStack, UsbExclusiveShadowAdapter> {
         coordinator.publishSemanticIntent(true)
+        bindUsableUsb(coordinator, 5)
         val stack = coordinator.createStack(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
 

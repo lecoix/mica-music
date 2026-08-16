@@ -25,7 +25,7 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("private fun resolveTargetPeriodUid")
         assertOrdered(
             manual,
-            "playbackStack.beginManualNavigation(targetMediaId, seam)",
+            "playbackStack.beginManualNavigation(",
             "manualNavigationTransitionBridge.publish(",
             "playbackStack.observeLegacyNavigationCorrelation(epoch.requestId)",
         )
@@ -50,21 +50,33 @@ class UsbExclusiveShadowStructureTest {
     fun applicationCurrentnessRawHooksPrecedeLegacyBridge() {
         val source = source("app/src/main/java/com/mica/music/media/ExoPlaybackStack.kt")
         val currentness = source.substringAfter("fun publishApplicationCurrentness(")
-            .substringBefore("exoPlayer.addListener")
+            .substringBefore("fun topologyFacts")
         assertOrdered(
             currentness,
-            "playbackStack.observeTimelinePeriod",
+            "playbackStack.observeApplicationMedia(mediaId, windowIndex)",
+            "ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(",
             "manualNavigationTransitionBridge.updateApplicationCurrentness(",
         )
         val itemTransition = source.substringAfter("override fun onMediaItemTransition")
             .substringBefore("override fun onTimelineChanged")
-        assertOrdered(itemTransition, "playbackStack.observeApplicationMedia", "publishApplicationCurrentness(")
+        assertTrue(itemTransition.contains("publishApplicationCurrentness("))
+        val timeline = source.substringAfter("override fun onTimelineChanged")
+            .substringBefore("exoPlayer.addAnalyticsListener")
+        assertOrdered(
+            timeline,
+            "playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason)",
+            "publishApplicationCurrentness(timeline, exoPlayer.currentMediaItem)",
+        )
+        assertFalse(timeline.contains("advancePlaybackTopology"))
         val analytics = source.substringAfter("exoPlayer.addAnalyticsListener")
         assertOrdered(
             analytics,
-            "playbackStack.observeCurrentPlayerOccurrence(",
+            "eventTime.currentWindowIndex",
+            "eventTimeMediaId(eventTime.currentTimeline, it)",
+            "playbackStack.observeEventTimeCurrent(",
             "manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(",
         )
+        assertFalse(analytics.contains("player.currentMediaItem"))
     }
 
     @Test
@@ -186,6 +198,61 @@ class UsbExclusiveShadowStructureTest {
     }
 
     @Test
+    fun applicationTopologyAdvancePrecedesCanonicalTopologyDispatchAndTimelineCannotAdvanceIt() {
+        val composite = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
+        val setItems = composite.substringAfter("override fun setMediaItems(")
+            .substringBefore("override fun addMediaItem")
+        assertOrdered(
+            setItems,
+            "advancePlaybackTopology(\"set-media-items\")",
+            "prepareQueueMutation(",
+            "super.setMediaItems(mediaItems, startIndex, startPositionMs)",
+        )
+        val start = composite.substringAfter("fun startExoPlayback(")
+            .substringBefore("fun startExistingItem")
+        assertOrdered(
+            start,
+            "advancePlaybackTopology(\"start-exo-playback\")",
+            "prepareQueueMutation(",
+            "exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))",
+        )
+        val stack = source("app/src/main/java/com/mica/music/media/ExoPlaybackStack.kt")
+        val timeline = stack.substringAfter("override fun onTimelineChanged")
+            .substringBefore("exoPlayer.addAnalyticsListener")
+        assertTrue(timeline.contains("playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason)"))
+        assertFalse(timeline.contains("advancePlaybackTopology"))
+    }
+
+    @Test
+    fun destinationAdapterAndUsbAvailabilityAreExplicitAuthorityFacts() {
+        val protocol = source("app/src/main/java/com/mica/music/media/usb/protocol/UsbExclusivePlaybackProtocol.kt")
+        assertTrue(protocol.contains("val destinationAdapterInstanceId: AdapterInstanceId? = null"))
+        assertTrue(protocol.contains("epoch.destinationAdapterInstanceId != adapterInstanceId"))
+        assertTrue(protocol.contains("destinationAdapterInstanceId = candidate.adapterInstanceId"))
+
+        val coordinator = source("app/src/main/java/com/mica/music/media/usb/shadow/UsbExclusiveShadowCoordinator.kt")
+        val generation = coordinator.substringAfter("fun observeUsbGeneration(generation: Long)")
+            .substringBefore("fun observeUsbFacts")
+        assertTrue(generation.contains("OutputTarget.Unavailable"))
+        assertFalse(generation.contains("OutputTarget.UsbBound"))
+        val facts = coordinator.substringAfter("fun observeUsbFacts(facts: PlaybackOutputFacts)")
+            .substringBefore("fun observeSharedPcmOutput")
+        assertTrue(facts.contains("facts.usableUsbTarget()"))
+        val usable = coordinator.substringAfter("private fun PlaybackOutputFacts.usableUsbTarget")
+            .substringBefore("private companion object")
+        listOf(
+            "phase != UsbOutputPhase.ACTIVE",
+            "permission != UsbPermissionState.GRANTED",
+            "!attached",
+            "!claimed",
+            "!exclusive",
+            "!signalExact",
+            "runtimeHandle == null",
+            "request == null",
+        ).forEach { assertTrue("missing USB usability proof $it", usable.contains(it)) }
+    }
+
+    @Test
     fun p2GenerationPublisherRemainsFirstAndShadowObserverIsExceptionIsolated() {
         val fanout = source("app/src/main/java/com/mica/music/media/usb/UsbOutputGenerationObserverFanout.kt")
         assertOrdered(
@@ -196,10 +263,19 @@ class UsbExclusiveShadowStructureTest {
             "onObserverFailure(generation, error)",
         )
         val ownerSource = source("app/src/main/java/com/mica/music/media/usb/UsbOutputSessionOwner.kt")
+        val publishFor = ownerSource.substringAfter("private fun publishFor(token: UsbOutputRequestToken")
+            .substringBefore("internal fun cleanupLeaseForCurrentThread")
+        assertOrdered(
+            publishFor,
+            "factsRef.set(next)",
+            "afterFactsPublication(next)",
+        )
         val runtime = ownerSource.substringAfter("internal object UsbOutputRuntime")
         assertTrue(runtime.contains("onGenerationPublished = generationFanout::publish"))
+        assertTrue(runtime.contains("afterFactsPublication = factsFanout::publish"))
         assertTrue(runtime.contains("generationFanout.installPublisher(publisher)"))
         assertTrue(runtime.contains("generationFanout.installObserver(observer)"))
+        assertTrue(runtime.contains("factsFanout.installObserver(observer)"))
     }
 
     @Test

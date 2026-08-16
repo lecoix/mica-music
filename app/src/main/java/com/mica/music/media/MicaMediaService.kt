@@ -82,6 +82,7 @@ class MicaMediaService : MediaSessionService() {
     private val usbExclusivePlaybackCoordinator = UsbExclusivePlaybackCoordinator()
     private var activePlaybackStack: UsbExclusivePlaybackStack? = null
     private var unregisterUsbShadowGenerationObserver: (() -> Unit)? = null
+    private var unregisterUsbPlaybackFactsObserver: (() -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
@@ -140,6 +141,8 @@ class MicaMediaService : MediaSessionService() {
         spectrumAnalyzerStateOwner = SpectrumAnalyzerStateOwner(this).also { it.start() }
         unregisterUsbShadowGenerationObserver =
             UsbOutputRuntime.installGenerationObserver(usbExclusivePlaybackCoordinator::observeUsbGeneration)
+        unregisterUsbPlaybackFactsObserver =
+            UsbOutputRuntime.installFactsObserver(usbExclusivePlaybackCoordinator::observeUsbFacts)
 
         val stack = ExoPlaybackStackFactory.build(this, activeOutputPath, usbExclusivePlaybackCoordinator)
         exoPlayer = stack.exoPlayer
@@ -305,6 +308,8 @@ class MicaMediaService : MediaSessionService() {
         DebugPlaybackControlRuntime.clear()
         unregisterUsbShadowGenerationObserver?.invoke()
         unregisterUsbShadowGenerationObserver = null
+        unregisterUsbPlaybackFactsObserver?.invoke()
+        unregisterUsbPlaybackFactsObserver = null
         playbackRouteMonitor?.release()
         playbackRouteMonitor = null
         unregisterLyricsPreferenceListener?.invoke()

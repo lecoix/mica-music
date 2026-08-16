@@ -67,6 +67,7 @@ data class MutationEpoch(
     val targetOccurrence: PlaybackOccurrence?,
     val targetFamily: PlaybackFamily,
     val targetFacts: String,
+    val destinationAdapterInstanceId: AdapterInstanceId? = null,
     val destinationBound: Boolean = true,
     val causalHandle: MutationCausalHandle? = null,
     val sourceRetirement: SourceRetirementReceipt? = null,
@@ -474,6 +475,7 @@ class UsbExclusivePlaybackProtocol(
             targetFamily = sourceFamily,
             targetFacts = sourceFacts,
             targetOccurrence = sourceOccurrence,
+            destinationAdapterInstanceId = source.adapterInstanceIdOrNull(),
         )
         lease?.revoke()
         applicationCurrent = ApplicationCurrent(null, null, null)
@@ -489,12 +491,20 @@ class UsbExclusivePlaybackProtocol(
     }
 
     @Synchronized
+    fun clearObservedCandidates(): Boolean {
+        if (lifecycle !is ProtocolLifecycle.Active) return false
+        candidates.clear()
+        return true
+    }
+
+    @Synchronized
     fun beginMutation(
         kind: MutationKind,
         targetMediaId: String,
         targetFamily: PlaybackFamily,
         targetFacts: String,
         targetOccurrence: PlaybackOccurrence? = null,
+        destinationAdapterInstanceId: AdapterInstanceId? = null,
         requestAlias: RequestAlias? = null,
         causalHandleFactory: ((MutationId) -> MutationCausalHandle)? = null,
     ): MutationEpoch? {
@@ -506,6 +516,7 @@ class UsbExclusivePlaybackProtocol(
             targetFamily = targetFamily,
             targetFacts = targetFacts,
             targetOccurrence = targetOccurrence,
+            destinationAdapterInstanceId = destinationAdapterInstanceId,
             requestAlias = requestAlias,
             causalHandleFactory = causalHandleFactory,
         )
@@ -522,6 +533,7 @@ class UsbExclusivePlaybackProtocol(
             targetFamily = candidate.family,
             targetFacts = candidate.facts,
             targetOccurrence = occurrence,
+            destinationAdapterInstanceId = candidate.adapterInstanceId,
         )
     }
 
@@ -558,15 +570,21 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun bindManualDestination(
         mutationId: MutationId,
+        destinationAdapterInstanceId: AdapterInstanceId,
         targetFamily: PlaybackFamily,
         targetFacts: String,
         occurrence: PlaybackOccurrence,
     ): Boolean {
-        if (lifecycle !is ProtocolLifecycle.Active || targetFacts.isBlank()) return false
+        if (
+            lifecycle !is ProtocolLifecycle.Active ||
+            targetFacts.isBlank() ||
+            destinationAdapterInstanceId !in adapters
+        ) return false
         val epoch = mutation ?: return false
         if (epoch.mutationId != mutationId || epoch.kind != MutationKind.MANUAL) return false
         if (epoch.destinationBound) {
-            return epoch.targetFamily == targetFamily &&
+            return epoch.destinationAdapterInstanceId == destinationAdapterInstanceId &&
+                epoch.targetFamily == targetFamily &&
                 epoch.targetFacts == targetFacts &&
                 epoch.targetOccurrence == occurrence
         }
@@ -574,6 +592,7 @@ class UsbExclusivePlaybackProtocol(
             targetOccurrence = occurrence,
             targetFamily = targetFamily,
             targetFacts = targetFacts,
+            destinationAdapterInstanceId = destinationAdapterInstanceId,
             destinationBound = true,
         )
         return true
@@ -585,11 +604,26 @@ class UsbExclusivePlaybackProtocol(
         targetFamily: PlaybackFamily,
         targetFacts: String,
         targetOccurrence: PlaybackOccurrence?,
+        destinationAdapterInstanceId: AdapterInstanceId? = null,
         requestAlias: RequestAlias? = null,
         causalHandleFactory: ((MutationId) -> MutationCausalHandle)? = null,
     ): MutationEpoch? {
         val source = familyOwnership
         val id = MutationId(nextMutationId + 1)
+        val resolvedDestinationAdapter = if (kind == MutationKind.SEEK) {
+            source.adapterInstanceIdOrNull()
+        } else {
+            destinationAdapterInstanceId ?: run {
+                val sourceAdapter = source.adapterInstanceIdOrNull()
+                val nonSourceAdapters = adapters.filterNot { it == sourceAdapter }
+                when {
+                    nonSourceAdapters.size == 1 -> nonSourceAdapters.single()
+                    nonSourceAdapters.isEmpty() && sourceAdapter != null -> sourceAdapter
+                    sourceAdapter == null && adapters.size == 1 -> adapters.single()
+                    else -> null
+                }
+            }
+        }
         val causalHandle = if (kind == MutationKind.SEEK) {
             val ownedAdapter = source.adapterInstanceIdOrNull() ?: return null
             val ownedOccurrence = source.occurrenceOrNull() ?: return null
@@ -602,9 +636,12 @@ class UsbExclusivePlaybackProtocol(
                 handle.targetSourcePositionUs < 0L ||
                 targetOccurrence != ownedOccurrence
             ) return null
+            if (destinationAdapterInstanceId != null && destinationAdapterInstanceId != ownedAdapter) return null
             handle
         } else {
             if (causalHandleFactory != null) return null
+            if (targetOccurrence != null && resolvedDestinationAdapter == null) return null
+            if (resolvedDestinationAdapter != null && resolvedDestinationAdapter !in adapters) return null
             null
         }
         issuedRetirementReceiptsByMutation.clear()
@@ -620,6 +657,7 @@ class UsbExclusivePlaybackProtocol(
             targetOccurrence = targetOccurrence,
             targetFamily = targetFamily,
             targetFacts = targetFacts,
+            destinationAdapterInstanceId = causalHandle?.adapterInstanceId ?: resolvedDestinationAdapter,
             causalHandle = causalHandle,
         )
         mutation = epoch
@@ -1399,6 +1437,7 @@ class UsbExclusivePlaybackProtocol(
         if (lifecycle !is ProtocolLifecycle.Active || adapterInstanceId !in adapters) return false
         val epoch = mutation ?: return false
         if (!epoch.destinationBound) return false
+        if (epoch.destinationAdapterInstanceId != adapterInstanceId) return false
         if (epoch.mutationId != mutationId || epoch.targetFamily != family || epoch.targetFacts != facts || epoch.targetOccurrence != occurrence) return false
         if (applicationCurrent.mediaId != epoch.targetMediaId || applicationCurrent.occurrence != occurrence) return false
         if (epoch.sourceOwnershipId != null) {

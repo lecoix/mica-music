@@ -54,7 +54,9 @@ class ManualNavigationTransitionStructureTest {
             "exoPlayer.addListener(object : Player.Listener",
             "invalidatePlayingOccurrence = true",
             "exoPlayer.addAnalyticsListener(object : AnalyticsListener",
-            "events.getEventTime(events.get(index)).currentMediaPeriodId",
+            "val eventTime = events.getEventTime(events.get(index))",
+            "eventTime.currentMediaPeriodId",
+            "playbackStack.observeEventTimeCurrent(",
             "manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(",
         )
         assertTrue(source.contains("override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int)"))

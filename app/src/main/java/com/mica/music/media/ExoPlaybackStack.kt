@@ -18,6 +18,7 @@ import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.ManualNavigationTimelinePeriodResolver
 import com.mica.music.media.usb.protocol.OutputTarget
+import com.mica.music.media.usb.shadow.PlaybackTopologyPeriodFact
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackCoordinator
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackStack
@@ -110,6 +111,8 @@ internal object ExoPlaybackStackFactory {
             invalidatePlayingOccurrence: Boolean = false,
         ) {
             val mediaId = mediaItem?.mediaId
+            val windowIndex = exoPlayer.currentMediaItemIndex.takeIf { it >= 0 }
+            playbackStack.observeApplicationMedia(mediaId, windowIndex)
             val targetPeriodUid = mediaId?.let {
                 ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
                     timeline = timeline,
@@ -117,16 +120,32 @@ internal object ExoPlaybackStackFactory {
                     expectedMediaId = it,
                 )
             }
-            if (mediaId != null) playbackStack.observeTimelinePeriod(mediaId, targetPeriodUid)
             manualNavigationTransitionBridge.updateApplicationCurrentness(
                 mediaId,
                 targetPeriodUid,
                 invalidatePlayingOccurrence,
             )
         }
+
+        fun topologyFacts(timeline: Timeline): List<PlaybackTopologyPeriodFact> =
+            (0 until timeline.windowCount).mapNotNull { index ->
+                val mediaId = runCatching {
+                    timeline.getWindow(index, Timeline.Window()).mediaItem.mediaId
+                }.getOrNull() ?: return@mapNotNull null
+                val periodUid = ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
+                    timeline,
+                    index,
+                    mediaId,
+                ) ?: return@mapNotNull null
+                PlaybackTopologyPeriodFact(index, mediaId, periodUid)
+            }
+
+        fun eventTimeMediaId(timeline: Timeline, windowIndex: Int): String? {
+            if (windowIndex !in 0 until timeline.windowCount) return null
+            return runCatching { timeline.getWindow(windowIndex, Timeline.Window()).mediaItem.mediaId }.getOrNull()
+        }
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                playbackStack.observeApplicationMedia(mediaItem?.mediaId)
                 publishApplicationCurrentness(
                     exoPlayer.currentTimeline,
                     mediaItem,
@@ -135,47 +154,40 @@ internal object ExoPlaybackStackFactory {
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                val limit = minOf(exoPlayer.mediaItemCount, timeline.windowCount)
-                for (index in 0 until limit) {
-                    val item = runCatching { exoPlayer.getMediaItemAt(index) }.getOrNull() ?: continue
-                    playbackStack.observeTimelinePeriod(
-                        item.mediaId,
-                        ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
-                            timeline,
-                            index,
-                            item.mediaId,
-                        ),
-                    )
-                }
+                playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason)
                 publishApplicationCurrentness(timeline, exoPlayer.currentMediaItem)
             }
         })
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
             override fun onEvents(player: Player, events: AnalyticsListener.Events) {
-                var currentOccurrence: MediaSource.MediaPeriodId? = null
-                var authoritative = events.size() > 0
-                for (index in 0 until events.size()) {
-                    val mediaPeriodId = events.getEventTime(events.get(index)).currentMediaPeriodId
-                    if (mediaPeriodId == null) {
-                        authoritative = false
-                        break
-                    }
-                    if (currentOccurrence == null) {
-                        currentOccurrence = mediaPeriodId
-                    } else if (currentOccurrence != mediaPeriodId) {
-                        authoritative = false
-                        break
-                    }
+                data class EventOwnedCurrent(
+                    val windowIndex: Int?,
+                    val mediaId: String?,
+                    val mediaPeriodId: MediaSource.MediaPeriodId?,
+                )
+
+                val eventOwnedFacts = (0 until events.size()).map { index ->
+                    val eventTime = events.getEventTime(events.get(index))
+                    val eventWindowIndex = eventTime.currentWindowIndex.takeIf { it >= 0 }
+                    EventOwnedCurrent(
+                        windowIndex = eventWindowIndex,
+                        mediaId = eventWindowIndex?.let {
+                            eventTimeMediaId(eventTime.currentTimeline, it)
+                        },
+                        mediaPeriodId = eventTime.currentMediaPeriodId,
+                    )
                 }
-                playbackStack.observeCurrentPlayerOccurrence(
-                    player.currentMediaItem?.mediaId,
-                    currentOccurrence
-                        ?.takeIf { authoritative }
-                        ?.let(UsbExclusiveShadowMedia3Facts::occurrence),
+                val exact = eventOwnedFacts.firstOrNull()?.takeIf { first ->
+                    first.mediaPeriodId != null && eventOwnedFacts.all { it == first }
+                }
+                playbackStack.observeEventTimeCurrent(
+                    exact?.windowIndex,
+                    exact?.mediaId,
+                    exact?.mediaPeriodId?.let(UsbExclusiveShadowMedia3Facts::occurrence),
                 )
-                manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(
-                    currentOccurrence.takeIf { authoritative },
-                )
+
+                val legacyCurrentOccurrence = exact?.mediaPeriodId
+                manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(legacyCurrentOccurrence)
             }
         })
         return ExoPlaybackStack(

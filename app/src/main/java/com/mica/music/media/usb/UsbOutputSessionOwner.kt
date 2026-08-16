@@ -31,6 +31,7 @@ private sealed interface UsbDeviceDetachClaim {
 internal class UsbOutputSessionOwner(
     private val onGenerationPublished: (Long) -> Unit = {},
     private val beforeFactsPublication: (PlaybackOutputFacts) -> Unit = {},
+    private val afterFactsPublication: (PlaybackOutputFacts) -> Unit = {},
 ) {
     private val generation = AtomicLong(0L)
     private val generationPublicationLock = Any()
@@ -584,6 +585,7 @@ internal class UsbOutputSessionOwner(
             if (!isCurrent(token)) throw StaleUsbOutputRequestException(token.value)
             factsRef.set(next)
         }
+        afterFactsPublication(next)
     }
 
     private fun cleanupLease(): UsbOutputCleanupLease {
@@ -661,8 +663,16 @@ internal object UsbOutputRuntime {
                 "error=${error.javaClass.simpleName}",
         )
     }
+    private val factsFanout = UsbOutputFactsObserverFanout { facts, error ->
+        DiagnosticLog.event(
+            "UsbExclusiveShadow",
+            "event=USB_FACTS_OBSERVER_FAILURE generation=${facts.generation} phase=${facts.phase} " +
+                "error=${error.javaClass.simpleName}",
+        )
+    }
     val owner = UsbOutputSessionOwner(
         onGenerationPublished = generationFanout::publish,
+        afterFactsPublication = factsFanout::publish,
     )
 
     /** Debug SK02 adapter installs the Native generation bridge; release keeps the no-op bridge. */
@@ -673,4 +683,8 @@ internal object UsbOutputRuntime {
     /** Read-only observer fan-out. Removing/throwing observers cannot change owner publication. */
     fun installGenerationObserver(observer: (Long) -> Unit): () -> Unit =
         generationFanout.installObserver(observer)
+
+    /** Current owner facts publish only after the P2 state is committed. */
+    fun installFactsObserver(observer: (PlaybackOutputFacts) -> Unit): () -> Unit =
+        factsFanout.installObserver(observer)
 }
