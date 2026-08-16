@@ -56,6 +56,17 @@ internal enum class UsbExclusiveShadowDecision {
 @JvmInline
 internal value class PlaybackTopologyEpoch(val value: Long)
 
+internal data class PlaybackTopologyProducerToken(
+    val stackId: PlaybackStackId,
+    val epoch: PlaybackTopologyEpoch,
+)
+
+internal data class PlaybackTopologyMutationReservation(
+    val producerToken: PlaybackTopologyProducerToken,
+    val baseToken: PlaybackTopologyProducerToken,
+    val seam: String,
+)
+
 internal data class PlaybackTopologyPeriodFact(
     val windowIndex: Int,
     val mediaId: String,
@@ -100,6 +111,7 @@ internal class UsbExclusiveShadowCoordinator(
     private var nextAdapterId = 0L
     private var nextEventSequence = 0L
     private var currentOutputTarget: OutputTarget = OutputTarget.SharedPcm
+    private var currentObservedP2Generation: Long? = null
     private var latestUsbFacts: PlaybackOutputFacts? = null
     private val stacks = linkedMapOf<PlaybackStackId, UsbExclusiveShadowStack>()
     private val diagnostics = ArrayDeque<UsbExclusiveShadowDiagnostic>()
@@ -107,11 +119,14 @@ internal class UsbExclusiveShadowCoordinator(
     @Synchronized
     fun createStack(initialOutputTarget: OutputTarget = currentOutputTarget): UsbExclusiveShadowStack {
         val id = PlaybackStackId(++nextStackId)
+        val usableLatestFacts = latestUsbFacts?.takeIf { facts ->
+            currentObservedP2Generation != null && facts.generation == currentObservedP2Generation
+        }
         val effectiveInitialOutput = when (initialOutputTarget) {
             OutputTarget.SharedPcm -> OutputTarget.SharedPcm
             OutputTarget.Unavailable,
             is OutputTarget.UsbBound,
-            -> latestUsbFacts?.usableUsbTarget() ?: OutputTarget.Unavailable
+            -> usableLatestFacts?.usableUsbTarget() ?: OutputTarget.Unavailable
         }
         val stack = UsbExclusiveShadowStack(
             coordinator = this,
@@ -176,7 +191,18 @@ internal class UsbExclusiveShadowCoordinator(
 
     @Synchronized
     fun observeUsbGeneration(generation: Long) {
-        latestUsbFacts = latestUsbFacts?.copy(generation = generation, phase = UsbOutputPhase.REQUESTED)
+        val previous = currentObservedP2Generation
+        if (previous != null && generation < previous) {
+            emit(
+                null,
+                "USB_GENERATION_STALE",
+                UsbExclusiveShadowDecision.STALE_DROP,
+                detail = "observed=$generation current=$previous",
+            )
+            return
+        }
+        currentObservedP2Generation = generation
+        if (latestUsbFacts?.generation != generation) latestUsbFacts = null
         stacks.values.forEach { stack ->
             val snapshot = stack.protocol.snapshot()
             if (snapshot.lifecycle is ProtocolLifecycle.Active && snapshot.outputTarget != OutputTarget.SharedPcm) {
@@ -194,6 +220,20 @@ internal class UsbExclusiveShadowCoordinator(
 
     @Synchronized
     fun observeUsbFacts(facts: PlaybackOutputFacts) {
+        val currentGeneration = currentObservedP2Generation
+        if (currentGeneration == null || facts.generation != currentGeneration) {
+            stacks.values.forEach { stack ->
+                if (stack.protocol.snapshot().lifecycle is ProtocolLifecycle.Active) {
+                    emit(
+                        stack,
+                        "USB_OUTPUT_FACTS_STALE",
+                        UsbExclusiveShadowDecision.STALE_DROP,
+                        detail = "factsGeneration=${facts.generation} currentGeneration=${currentGeneration ?: -1L}",
+                    )
+                }
+            }
+            return
+        }
         latestUsbFacts = facts
         val usable = facts.usableUsbTarget()
         val target: OutputTarget = usable ?: OutputTarget.Unavailable
@@ -344,8 +384,10 @@ internal class UsbExclusiveShadowStack internal constructor(
     internal val protocol: UsbExclusivePlaybackProtocol,
 ) {
     private var topologyEpoch = PlaybackTopologyEpoch(1)
-    private var applicationTopologyMutationPending = true
-    private val periodFacts = linkedMapOf<Int, PlaybackTopologyPeriodFact>()
+    private var nextTopologyEpochValue = topologyEpoch.value
+    private val periodFactsByEpoch = linkedMapOf<PlaybackTopologyEpoch, LinkedHashMap<Int, PlaybackTopologyPeriodFact>>()
+    private val periodUidLastObservedEpoch = linkedMapOf<Any, PlaybackTopologyEpoch>()
+    private val ambiguousPeriodUids = linkedSetOf<Any>()
     private val pendingPcm = linkedMapOf<AdapterInstanceId, PcmConfigurePermit>()
     private val pendingDirect = linkedMapOf<AdapterInstanceId, DirectStagePermit>()
     private val directSeekCarrierBarriers = linkedMapOf<AdapterInstanceId, Pair<MutationId, PlaybackOccurrence>>()
@@ -360,6 +402,14 @@ internal class UsbExclusiveShadowStack internal constructor(
         val key: RawStreamKey,
         val family: PlaybackFamily,
         val facts: String,
+    )
+
+    private data class UnscopedRawStreamObservation(
+        val adapterInstanceId: AdapterInstanceId,
+        val occurrence: PlaybackOccurrence,
+        val family: PlaybackFamily,
+        val facts: String,
+        val reservationEpochAtDelivery: PlaybackTopologyEpoch?,
     )
 
     private data class ApplicationMediaFact(
@@ -383,11 +433,31 @@ internal class UsbExclusiveShadowStack internal constructor(
         val expectedPeriodUid: Any?,
     )
 
+    private data class StagedTopologyManualDestination(
+        val targetMediaId: String,
+        val targetWindowIndex: Int?,
+        val expectedPeriodUid: Any?,
+    )
+
+    private data class PendingTopologyMutation(
+        val reservation: PlaybackTopologyMutationReservation,
+        var stagedManualDestination: StagedTopologyManualDestination? = null,
+        var queueClear: Boolean = false,
+    )
+
     private val rawStreams = linkedMapOf<RawStreamKey, RawStreamObservation>()
-    private var applicationMediaFact = ApplicationMediaFact(topologyEpoch, null, null)
-    private var eventTimeCurrentFact = EventTimeCurrentFact(topologyEpoch, null, null, null)
+    private val unscopedRawStreams = linkedMapOf<Pair<AdapterInstanceId, PlaybackOccurrence>, UnscopedRawStreamObservation>()
+    private val applicationMediaFacts = linkedMapOf<PlaybackTopologyEpoch, ApplicationMediaFact>()
+    private val eventTimeCurrentFacts = linkedMapOf<PlaybackTopologyEpoch, EventTimeCurrentFact>()
     private var manualDestinationExpectation: ManualDestinationExpectation? = null
+    private var pendingTopologyMutation: PendingTopologyMutation? = null
     private var latestLegacyNavigationCorrelation: Long? = null
+
+    init {
+        periodFactsByEpoch[topologyEpoch] = linkedMapOf()
+        applicationMediaFacts[topologyEpoch] = ApplicationMediaFact(topologyEpoch, null, null)
+        eventTimeCurrentFacts[topologyEpoch] = EventTimeCurrentFact(topologyEpoch, null, null, null)
+    }
 
     fun newAdapter(kind: UsbExclusiveShadowAdapterKind): UsbExclusiveShadowAdapter =
         coordinator.newAdapter(this, kind)
@@ -412,29 +482,143 @@ internal class UsbExclusiveShadowStack internal constructor(
 
     fun currentTopologyEpoch(): PlaybackTopologyEpoch = topologyEpoch
 
-    /** Application-owned topology boundary. It must run before the corresponding Exo dispatch. */
-    fun advancePlaybackTopology(seam: String): UsbExclusiveAuthorityObservation =
-        coordinator.observeAuthority(this, "TOPOLOGY_ADVANCE") {
-            if (protocol.snapshot().lifecycle !is ProtocolLifecycle.Active) {
-                return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
-            }
-            topologyEpoch = PlaybackTopologyEpoch(topologyEpoch.value + 1)
-            applicationTopologyMutationPending = true
-            periodFacts.clear()
-            rawStreams.clear()
-            manualDestinationExpectation = null
-            applicationMediaFact = ApplicationMediaFact(topologyEpoch, null, null)
-            eventTimeCurrentFact = EventTimeCurrentFact(topologyEpoch, null, null, null)
-            protocol.clearObservedCandidates()
-            protocol.updateApplicationCurrent(null, null, null)
-            coordinator.emit(
-                this,
-                "TOPOLOGY_ADVANCE",
-                UsbExclusiveShadowDecision.RAW_OBSERVED,
-                detail = "epoch=${topologyEpoch.value} seam=$seam",
-            )
-            UsbExclusiveAuthorityObservation.Accepted
+    fun currentTopologyToken(): PlaybackTopologyProducerToken =
+        PlaybackTopologyProducerToken(protocol.snapshot().stackId, topologyEpoch)
+
+    /**
+     * Reserves producer provenance before the real application mutation without changing current
+     * authority. Callers must commit only after the canonical Exo topology dispatch succeeds, or
+     * abort on any pre-dispatch/dispatch failure. No framework/native side effect is held under a
+     * coordinator lock by this transaction.
+     */
+    fun preparePlaybackTopologyMutation(seam: String): PlaybackTopologyMutationReservation? {
+        if (protocol.snapshot().lifecycle !is ProtocolLifecycle.Active) return null
+        if (pendingTopologyMutation != null) return null
+        val base = currentTopologyToken()
+        val reservedEpoch = PlaybackTopologyEpoch(++nextTopologyEpochValue)
+        val reservation = PlaybackTopologyMutationReservation(
+            producerToken = PlaybackTopologyProducerToken(base.stackId, reservedEpoch),
+            baseToken = base,
+            seam = seam,
+        )
+        pendingTopologyMutation = PendingTopologyMutation(reservation)
+        periodFactsByEpoch.putIfAbsent(reservedEpoch, linkedMapOf())
+        applicationMediaFacts.putIfAbsent(reservedEpoch, ApplicationMediaFact(reservedEpoch, null, null))
+        eventTimeCurrentFacts.putIfAbsent(reservedEpoch, EventTimeCurrentFact(reservedEpoch, null, null, null))
+        coordinator.emit(
+            this,
+            "TOPOLOGY_PREPARE",
+            UsbExclusiveShadowDecision.RAW_OBSERVED,
+            detail = "base=${base.epoch.value} reserved=${reservedEpoch.value} seam=$seam",
+        )
+        return reservation
+    }
+
+    fun stageTopologyManualNavigation(
+        reservation: PlaybackTopologyMutationReservation,
+        targetMediaId: String,
+        targetWindowIndex: Int? = null,
+        expectedPeriodUid: Any? = null,
+    ): Boolean {
+        val pending = pendingTopologyMutation ?: return false
+        if (pending.reservation != reservation || targetMediaId.isBlank() || pending.queueClear) return false
+        pending.stagedManualDestination = StagedTopologyManualDestination(
+            targetMediaId,
+            targetWindowIndex,
+            expectedPeriodUid,
+        )
+        return true
+    }
+
+    fun stageTopologyQueueClear(reservation: PlaybackTopologyMutationReservation): Boolean {
+        val pending = pendingTopologyMutation ?: return false
+        if (pending.reservation != reservation || pending.stagedManualDestination != null) return false
+        if (!protocol.canBeginQueueClear()) return false
+        pending.queueClear = true
+        return true
+    }
+
+    fun commitPlaybackTopologyMutation(
+        reservation: PlaybackTopologyMutationReservation,
+    ): UsbExclusiveAuthorityObservation = coordinator.observeAuthority(this, "TOPOLOGY_COMMIT") {
+        val pending = pendingTopologyMutation
+            ?: return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+        if (
+            pending.reservation != reservation ||
+            reservation.baseToken != currentTopologyToken() ||
+            reservation.producerToken.stackId != protocol.snapshot().stackId
+        ) return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+        if (protocol.snapshot().lifecycle !is ProtocolLifecycle.Active) {
+            return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
         }
+
+        val stagedManual = pending.stagedManualDestination
+        val stagedMutation = when {
+            pending.queueClear -> {
+                if (!protocol.beginQueueClear()) {
+                    return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+                }
+                null
+            }
+            stagedManual != null -> protocol.beginManualMutationUnbound(stagedManual.targetMediaId)
+                ?: return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+            else -> null
+        }
+
+        topologyEpoch = reservation.producerToken.epoch
+        pendingTopologyMutation = null
+        manualDestinationExpectation = stagedManual?.let { target ->
+            ManualDestinationExpectation(
+                mutationId = requireNotNull(stagedMutation).mutationId,
+                topologyEpoch = topologyEpoch,
+                targetMediaId = target.targetMediaId,
+                targetWindowIndex = target.targetWindowIndex,
+                expectedPeriodUid = target.expectedPeriodUid,
+            )
+        }
+        protocol.clearObservedCandidates()
+        if (!pending.queueClear) protocol.updateApplicationCurrent(null, null, null)
+        scopeUnscopedRawStreams()
+        reconcileRawObservations()
+        pruneHeavyTopologyFacts()
+        coordinator.emit(
+            this,
+            "TOPOLOGY_COMMIT",
+            UsbExclusiveShadowDecision.RAW_OBSERVED,
+            detail = "epoch=${topologyEpoch.value} seam=${reservation.seam}",
+        )
+        UsbExclusiveAuthorityObservation.Accepted
+    }
+
+    fun abortPlaybackTopologyMutation(
+        reservation: PlaybackTopologyMutationReservation,
+        reason: String,
+    ): UsbExclusiveAuthorityObservation = coordinator.observeAuthority(this, "TOPOLOGY_ABORT") {
+        val pending = pendingTopologyMutation
+            ?: return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+        if (pending.reservation != reservation) return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+        val abortedEpoch = reservation.producerToken.epoch
+        pendingTopologyMutation = null
+        periodFactsByEpoch.remove(abortedEpoch)
+        applicationMediaFacts.remove(abortedEpoch)
+        eventTimeCurrentFacts.remove(abortedEpoch)
+        rawStreams.entries.removeAll { it.key.topologyEpoch == abortedEpoch }
+        unscopedRawStreams.entries.removeAll { it.value.reservationEpochAtDelivery == abortedEpoch }
+        coordinator.emit(
+            this,
+            "TOPOLOGY_ABORT",
+            UsbExclusiveShadowDecision.STALE_DROP,
+            detail = "reserved=${abortedEpoch.value} current=${topologyEpoch.value} seam=${reservation.seam} reason=$reason",
+        )
+        UsbExclusiveAuthorityObservation.Accepted
+    }
+
+    /** Compatibility/test seam. Production topology mutations use prepare/commit/abort. */
+    fun advancePlaybackTopology(seam: String): UsbExclusiveAuthorityObservation {
+        val reservation = preparePlaybackTopologyMutation(seam)
+            ?: return UsbExclusiveAuthorityObservation.Rejected
+        return commitPlaybackTopologyMutation(reservation)
+    }
 
     /** Mints the manual mutation before Exo dispatch and retains exact target queue provenance. */
     fun beginManualNavigation(
@@ -559,15 +743,29 @@ internal class UsbExclusiveShadowStack internal constructor(
     fun observeApplicationMedia(
         mediaId: String?,
         windowIndex: Int? = null,
+        producerToken: PlaybackTopologyProducerToken = currentTopologyToken(),
     ): UsbExclusiveAuthorityObservation = coordinator.observeAuthority(this, "APPLICATION_MEDIA") {
-        applicationMediaFact = ApplicationMediaFact(topologyEpoch, mediaId, windowIndex)
-        protocol.updateApplicationCurrent(mediaId, null, null)
-        reconcileRawObservations()
+        val epoch = acceptedObservationEpoch(producerToken)
+        if (epoch == null) {
+            coordinator.emit(
+                this,
+                "APPLICATION_MEDIA",
+                UsbExclusiveShadowDecision.STALE_DROP,
+                detail = "mediaId=${mediaId ?: "none"} window=${windowIndex ?: -1} producer=${producerToken.epoch.value} current=${topologyEpoch.value}",
+            )
+            return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+        }
+        applicationMediaFacts[epoch] = ApplicationMediaFact(epoch, mediaId, windowIndex)
+        if (epoch == topologyEpoch) {
+            protocol.updateApplicationCurrent(mediaId, null, null)
+            scopeUnscopedRawStreams()
+            reconcileRawObservations()
+        }
         coordinator.emit(
             this,
             "APPLICATION_MEDIA",
             UsbExclusiveShadowDecision.RAW_OBSERVED,
-            detail = "mediaId=${mediaId ?: "none"} window=${windowIndex ?: -1} topology=${topologyEpoch.value}",
+            detail = "mediaId=${mediaId ?: "none"} window=${windowIndex ?: -1} producer=${epoch.value} current=${topologyEpoch.value}",
         )
         UsbExclusiveAuthorityObservation.Accepted
     }
@@ -576,54 +774,93 @@ internal class UsbExclusiveShadowStack internal constructor(
     fun observeTimelineSnapshot(
         facts: List<PlaybackTopologyPeriodFact>,
         reason: Int,
+        producerToken: PlaybackTopologyProducerToken = currentTopologyToken(),
     ): UsbExclusiveAuthorityObservation = coordinator.observeAuthority(this, "TIMELINE_SNAPSHOT") {
         val normalized = facts.distinctBy { it.windowIndex }.sortedBy { it.windowIndex }
         val incoming = normalized.associateBy { it.windowIndex }
-        val existing = periodFacts.toMap()
-        if (!applicationTopologyMutationPending && existing.isNotEmpty() && incoming != existing) {
+        recordKnownPeriodUids(producerToken.epoch, incoming.values)
+        val epoch = acceptedObservationEpoch(producerToken)
+        if (epoch == null) {
+            coordinator.emit(
+                this,
+                "TIMELINE_SNAPSHOT",
+                UsbExclusiveShadowDecision.STALE_DROP,
+                detail = "producer=${producerToken.epoch.value} current=${topologyEpoch.value} reason=$reason windows=${incoming.size}",
+            )
+            return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+        }
+        val existing = periodFactsByEpoch.getOrPut(epoch) { linkedMapOf() }
+        val conflicts = existing.any { (index, fact) -> incoming[index]?.let { it != fact } == true } ||
+            incoming.any { (index, fact) -> existing[index]?.let { it != fact } == true }
+        if (conflicts) {
             coordinator.emit(
                 this,
                 "TIMELINE_SNAPSHOT",
                 UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
-                detail = "unexpected-structural-change topology=${topologyEpoch.value} reason=$reason",
+                detail = "unexpected-structural-change producer=${epoch.value} current=${topologyEpoch.value} reason=$reason",
             )
             return@observeAuthority UsbExclusiveAuthorityObservation.InsufficientEvidence
         }
-        if (applicationTopologyMutationPending || existing.isEmpty()) {
-            periodFacts.clear()
-            periodFacts.putAll(incoming)
-            applicationTopologyMutationPending = false
-        }
-        reconcileRawObservations()
+        // Placeholder/partial realization is monotonic inside one producer topology: later exact
+        // mappings may fill previously unresolved windows but may not rewrite an existing fact.
+        incoming.forEach { (index, fact) -> existing.putIfAbsent(index, fact) }
+        scopeUnscopedRawStreams()
+        if (epoch == topologyEpoch) reconcileRawObservations()
         coordinator.emit(
             this,
             "TIMELINE_SNAPSHOT",
             UsbExclusiveShadowDecision.RAW_OBSERVED,
-            detail = "topology=${topologyEpoch.value} reason=$reason windows=${incoming.size}",
+            detail = "producer=${epoch.value} current=${topologyEpoch.value} reason=$reason windows=${incoming.size}",
         )
         UsbExclusiveAuthorityObservation.Accepted
     }
 
     /** Compatibility/test seam; production publishes an exact full timeline snapshot. */
-    fun observeTimelinePeriod(mediaId: String, periodUid: Any?) {
+    fun observeTimelinePeriod(
+        mediaId: String,
+        periodUid: Any?,
+        producerToken: PlaybackTopologyProducerToken = currentTopologyToken(),
+    ) {
         if (periodUid == null) return
+        val epoch = acceptedObservationEpoch(producerToken) ?: return
+        val periodFacts = periodFactsByEpoch.getOrPut(epoch) { linkedMapOf() }
         val existing = periodFacts.values.firstOrNull { it.mediaId == mediaId && it.periodUid == periodUid }
         if (existing == null) {
             val index = (periodFacts.keys.maxOrNull() ?: -1) + 1
             periodFacts[index] = PlaybackTopologyPeriodFact(index, mediaId, periodUid)
         }
-        applicationTopologyMutationPending = false
-        reconcileRawObservations()
+        recordKnownPeriodUids(epoch, periodFacts.values)
+        scopeUnscopedRawStreams()
+        if (epoch == topologyEpoch) reconcileRawObservations()
     }
 
     fun observeEventTimeCurrent(
         windowIndex: Int?,
         mediaId: String?,
         occurrence: PlaybackOccurrence?,
+        producerToken: PlaybackTopologyProducerToken = currentTopologyToken(),
     ): UsbExclusiveAuthorityObservation = coordinator.observeAuthority(this, "CURRENT_PLAYER_EVENT_TIME") {
-        eventTimeCurrentFact = EventTimeCurrentFact(topologyEpoch, mediaId, windowIndex, occurrence)
+        val epoch = acceptedObservationEpoch(producerToken)
+        if (epoch == null) {
+            occurrence?.let { staleOccurrence ->
+                unscopedRawStreams.entries.removeAll { it.key.second == staleOccurrence }
+            }
+            coordinator.emit(
+                this,
+                "CURRENT_PLAYER_EVENT_TIME",
+                UsbExclusiveShadowDecision.STALE_DROP,
+                occurrence = occurrence,
+                detail = "producer=${producerToken.epoch.value} current=${topologyEpoch.value} mediaId=${mediaId ?: "none"} window=${windowIndex ?: -1}",
+            )
+            return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+        }
+        eventTimeCurrentFacts[epoch] = EventTimeCurrentFact(epoch, mediaId, windowIndex, occurrence)
+        occurrence?.let { scopeExactUnscopedRawStreams(it, epoch) }
+        if (epoch != topologyEpoch) {
+            return@observeAuthority UsbExclusiveAuthorityObservation.Accepted
+        }
         if (occurrence == null) {
-            protocol.updateApplicationCurrent(applicationMediaFact.mediaId, null, null)
+            protocol.updateApplicationCurrent(applicationMediaFacts[topologyEpoch]?.mediaId, null, null)
         }
         val result = reconcileRawObservations()
         coordinator.emit(
@@ -631,17 +868,23 @@ internal class UsbExclusiveShadowStack internal constructor(
             "CURRENT_PLAYER_EVENT_TIME",
             if (occurrence != null && result) UsbExclusiveShadowDecision.RAW_OBSERVED else UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
             occurrence = occurrence,
-            detail = "mediaId=${mediaId ?: "none"} window=${windowIndex ?: -1} topology=${topologyEpoch.value}",
+            detail = "mediaId=${mediaId ?: "none"} window=${windowIndex ?: -1} producer=${epoch.value} current=${topologyEpoch.value}",
         )
         if (occurrence != null && result) UsbExclusiveAuthorityObservation.Accepted else UsbExclusiveAuthorityObservation.InsufficientEvidence
     }
 
     /** Compatibility seam for deterministic tests; no global Player getter is consulted. */
     fun observeCurrentPlayerOccurrence(mediaId: String?, occurrence: PlaybackOccurrence?) {
+        val periodFacts = periodFactsByEpoch[topologyEpoch].orEmpty()
         val mapping = occurrence?.let { occ ->
             periodFacts.values.singleOrNull { it.periodUid == occ.periodUid && (mediaId == null || it.mediaId == mediaId) }
         }
-        observeEventTimeCurrent(mapping?.windowIndex, mediaId ?: mapping?.mediaId, occurrence)
+        observeEventTimeCurrent(
+            mapping?.windowIndex,
+            mediaId ?: mapping?.mediaId,
+            occurrence,
+            currentTopologyToken(),
+        )
     }
 
     fun snapshot(): UsbExclusiveProtocolSnapshot = protocol.snapshot()
@@ -651,31 +894,60 @@ internal class UsbExclusiveShadowStack internal constructor(
         occurrence: PlaybackOccurrence,
         family: PlaybackFamily,
         facts: String,
+        producerToken: PlaybackTopologyProducerToken? = null,
     ): UsbExclusiveAuthorityObservation = coordinator.observeAuthority(this, "RENDERER_STREAM") {
-        val key = RawStreamKey(adapter.id, occurrence, topologyEpoch)
-        val observation = RawStreamObservation(key, family, facts)
-        val previous = rawStreams[key]
-        if (previous != null && previous != observation) {
-            coordinator.emit(
-                this,
-                "RENDERER_STREAM",
-                UsbExclusiveShadowDecision.DIVERGENCE,
+        if (producerToken != null) {
+            val epoch = acceptedObservationEpoch(producerToken)
+            if (epoch == null) {
+                coordinator.emit(
+                    this,
+                    "RENDERER_STREAM",
+                    UsbExclusiveShadowDecision.STALE_DROP,
+                    adapter.id,
+                    occurrence,
+                    detail = "producer=${producerToken.epoch.value} current=${topologyEpoch.value}",
+                )
+                return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+            }
+            if (!storeScopedRawStream(adapter.id, occurrence, family, facts, epoch)) {
+                return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+            }
+        } else {
+            val unscopedKey = adapter.id to occurrence
+            val observation = UnscopedRawStreamObservation(
                 adapter.id,
                 occurrence,
-                detail = "same-key-conflicting-stream-facts topology=${topologyEpoch.value}",
+                family,
+                facts,
+                pendingTopologyMutation?.reservation?.producerToken?.epoch,
             )
-            return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+            val previous = unscopedRawStreams[unscopedKey]
+            if (previous != null && (previous.family != family || previous.facts != facts)) {
+                coordinator.emit(
+                    this,
+                    "RENDERER_STREAM",
+                    UsbExclusiveShadowDecision.DIVERGENCE,
+                    adapter.id,
+                    occurrence,
+                    detail = "same-unscoped-key-conflicting-stream-facts",
+                )
+                return@observeAuthority UsbExclusiveAuthorityObservation.Rejected
+            }
+            if (previous == null) unscopedRawStreams[unscopedKey] = observation
+            scopeUnscopedRawStreams()
         }
-        rawStreams[key] = observation
         val joined = reconcileRawObservations()
+        val scopedEpochs = rawStreams.keys
+            .filter { it.adapterInstanceId == adapter.id && it.occurrence == occurrence }
+            .map { it.topologyEpoch.value }
         coordinator.emit(
             this,
             "RENDERER_STREAM",
-            UsbExclusiveShadowDecision.RAW_OBSERVED,
+            if (scopedEpochs.isEmpty()) UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE else UsbExclusiveShadowDecision.RAW_OBSERVED,
             adapter.id,
             occurrence,
             latestLegacyNavigationCorrelation,
-            "kind=${adapter.kind} family=$family joined=$joined topology=${topologyEpoch.value} facts=${facts.take(160)}",
+            "kind=${adapter.kind} family=$family joined=$joined producer=${producerToken?.epoch?.value ?: -1L} scoped=$scopedEpochs current=${topologyEpoch.value} facts=${facts.take(160)}",
         )
         val after = protocol.snapshot()
         if (after.familyOwnership !is FamilyOwnership.None &&
@@ -693,9 +965,123 @@ internal class UsbExclusiveShadowStack internal constructor(
         UsbExclusiveAuthorityObservation.Accepted
     }
 
+    private fun acceptedObservationEpoch(token: PlaybackTopologyProducerToken): PlaybackTopologyEpoch? {
+        if (token.stackId != protocol.snapshot().stackId) return null
+        if (token.epoch == topologyEpoch) return topologyEpoch
+        val pendingEpoch = pendingTopologyMutation?.reservation?.producerToken?.epoch
+        return token.epoch.takeIf { it == pendingEpoch }
+    }
+
+    private fun recordKnownPeriodUids(
+        epoch: PlaybackTopologyEpoch,
+        facts: Collection<PlaybackTopologyPeriodFact>,
+    ) {
+        facts.forEach { fact ->
+            val previous = periodUidLastObservedEpoch.put(fact.periodUid, epoch)
+            if (previous != null && previous != epoch) ambiguousPeriodUids += fact.periodUid
+        }
+    }
+
+    private fun pruneHeavyTopologyFacts() {
+        val keep = buildSet {
+            add(topologyEpoch)
+            pendingTopologyMutation?.reservation?.producerToken?.epoch?.let(::add)
+        }
+        periodFactsByEpoch.keys.retainAll(keep)
+        applicationMediaFacts.keys.retainAll(keep)
+        eventTimeCurrentFacts.keys.retainAll(keep)
+        rawStreams.entries.removeAll { it.key.topologyEpoch !in keep }
+    }
+
+    private fun storeScopedRawStream(
+        adapterInstanceId: AdapterInstanceId,
+        occurrence: PlaybackOccurrence,
+        family: PlaybackFamily,
+        facts: String,
+        epoch: PlaybackTopologyEpoch,
+    ): Boolean {
+        val key = RawStreamKey(adapterInstanceId, occurrence, epoch)
+        val observation = RawStreamObservation(key, family, facts)
+        val previous = rawStreams[key]
+        if (previous != null && previous != observation) {
+            coordinator.emit(
+                this,
+                "RENDERER_STREAM",
+                UsbExclusiveShadowDecision.DIVERGENCE,
+                adapterInstanceId,
+                occurrence,
+                detail = "same-key-conflicting-stream-facts producer=${epoch.value}",
+            )
+            return false
+        }
+        rawStreams[key] = observation
+        return true
+    }
+
+    private fun scopeExactUnscopedRawStreams(
+        occurrence: PlaybackOccurrence,
+        epoch: PlaybackTopologyEpoch,
+    ) {
+        val entries = unscopedRawStreams.entries.filter { it.key.second == occurrence }
+        entries.forEach { entry ->
+            val observation = entry.value
+            if (storeScopedRawStream(
+                    observation.adapterInstanceId,
+                    observation.occurrence,
+                    observation.family,
+                    observation.facts,
+                    epoch,
+                )
+            ) {
+                unscopedRawStreams.remove(entry.key)
+            }
+        }
+    }
+
+    private fun scopeUnscopedRawStreams() {
+        if (unscopedRawStreams.isEmpty()) return
+        val acceptedEpochs = buildSet {
+            add(topologyEpoch)
+            pendingTopologyMutation?.reservation?.producerToken?.epoch?.let(::add)
+        }
+        val entries = unscopedRawStreams.entries.toList()
+        entries.forEach { entry ->
+            val observation = entry.value
+            val exactEventEpochs = eventTimeCurrentFacts.values
+                .filter { it.topologyEpoch in acceptedEpochs && it.occurrence == observation.occurrence }
+                .map { it.topologyEpoch }
+                .distinct()
+            val periodCandidates = acceptedEpochs.filter { epoch ->
+                periodFactsByEpoch[epoch].orEmpty().values.any {
+                    it.periodUid == observation.occurrence.periodUid
+                }
+            }
+            val epoch = when {
+                exactEventEpochs.size == 1 -> exactEventEpochs.single()
+                exactEventEpochs.isNotEmpty() -> null
+                observation.occurrence.periodUid !in ambiguousPeriodUids &&
+                    periodCandidates.size == 1 &&
+                    periodUidLastObservedEpoch[observation.occurrence.periodUid] == periodCandidates.single() ->
+                    periodCandidates.single()
+                else -> null
+            } ?: return@forEach
+            if (storeScopedRawStream(
+                    observation.adapterInstanceId,
+                    observation.occurrence,
+                    observation.family,
+                    observation.facts,
+                    epoch,
+                )
+            ) {
+                unscopedRawStreams.remove(entry.key)
+            }
+        }
+    }
+
     private fun reconcileRawObservations(): Boolean {
         if (protocol.snapshot().lifecycle !is ProtocolLifecycle.Active) return false
         var changed = false
+        val periodFacts = periodFactsByEpoch[topologyEpoch].orEmpty()
         val currentEpochStreams = rawStreams.values.filter { it.key.topologyEpoch == topologyEpoch }
         val expectation = manualDestinationExpectation?.takeIf { it.topologyEpoch == topologyEpoch }
         val mutation = protocol.snapshot().mutation
@@ -714,9 +1100,8 @@ internal class UsbExclusiveShadowStack internal constructor(
                 }
                 mappings.size == 1
             }
-            val exactEvent = eventTimeCurrentFact.takeIf { event ->
-                event.topologyEpoch == topologyEpoch &&
-                    event.occurrence != null &&
+            val exactEvent = eventTimeCurrentFacts[topologyEpoch]?.takeIf { event ->
+                event.occurrence != null &&
                     (event.mediaId == null || event.mediaId == expectation.targetMediaId) &&
                     (expectation.targetWindowIndex == null || event.windowIndex == expectation.targetWindowIndex)
             }
@@ -752,8 +1137,8 @@ internal class UsbExclusiveShadowStack internal constructor(
             }
         }
 
-        val app = applicationMediaFact.takeIf { it.topologyEpoch == topologyEpoch }
-        val event = eventTimeCurrentFact.takeIf { it.topologyEpoch == topologyEpoch }
+        val app = applicationMediaFacts[topologyEpoch]
+        val event = eventTimeCurrentFacts[topologyEpoch]
         if (app != null && event != null && event.occurrence != null) {
             val mapping = event.windowIndex?.let(periodFacts::get)
             val exact = mapping != null &&
@@ -1462,7 +1847,9 @@ internal class UsbExclusiveShadowAdapter internal constructor(
         occurrence: PlaybackOccurrence,
         family: PlaybackFamily,
         facts: String,
-    ): UsbExclusiveAuthorityObservation = stack.observeRawStream(this, occurrence, family, facts)
+        producerToken: PlaybackTopologyProducerToken? = null,
+    ): UsbExclusiveAuthorityObservation =
+        stack.observeRawStream(this, occurrence, family, facts, producerToken)
 
     fun observePcmConfigureAttempt(occurrence: PlaybackOccurrence?, facts: String) {
         stack.observePcmConfigureAttempt(this, occurrence, facts)

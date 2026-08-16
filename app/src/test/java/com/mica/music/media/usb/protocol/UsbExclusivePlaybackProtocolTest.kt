@@ -175,7 +175,7 @@ class UsbExclusivePlaybackProtocolTest {
             facts = "pcm96",
         )
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         val retirement = requireNotNull(
             protocol.mintRetirementReceipt(
                 first.mutationId,
@@ -215,7 +215,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         ledger.publish(PlaybackIntent.PLAY)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         val permit = requireNotNull(protocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
 
         protocol.updateOutputTarget(OutputTarget.UsbBound(UsbOutputGeneration(6)))
@@ -240,7 +240,7 @@ class UsbExclusivePlaybackProtocolTest {
 
         protocol.beginRetiring()
         assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
-        assertNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm96", c))
+        assertNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm96", c, destinationAdapterInstanceId = adapterB))
         val resource = ResourceIdentity("retiring")
         assertEquals(
             CommitDisposition.RetiringCleanupRequired(resource),
@@ -279,7 +279,7 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(protocol.observeCandidate(CandidateOccurrence(adapterB, "B", b, PlaybackFamily.PCM, "same")))
         protocol.updateApplicationCurrent("C", c.periodUid, c)
         assertNull(protocol.adoptAutoCandidate("B", b))
-        val cMutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "same", c))
+        val cMutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "same", c, destinationAdapterInstanceId = adapterB))
         assertEquals("C", cMutation.targetMediaId)
         assertEquals(b, protocol.snapshot().candidates.single().occurrence)
     }
@@ -335,7 +335,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.adoptLatestIntent()
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm", b, destinationAdapterInstanceId = adapterB))
         val receipt = requireNotNull(
             protocol.mintRetirementReceipt(
                 mutation.mutationId,
@@ -364,13 +364,13 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.installOwnedFamilyForModel(PlaybackFamily.PCM, MutationId(1), adapterA, a, RuntimeIdentity("pcm:runtime"))
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val bMutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm", b))
+        val bMutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm", b, destinationAdapterInstanceId = adapterB))
         val receipt = requireNotNull(protocol.mintRetirementReceipt(bMutation.mutationId, adapterA, RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED, FamilyProof.PcmRuntimeRetained(RuntimeIdentity("pcm:runtime"), "compatible", "tail")))
         assertTrue(protocol.acceptSourceRetirement(receipt))
         val permitB = requireNotNull(protocol.prepareRetainedPcmHandoff(bMutation.mutationId, adapterB, b, RuntimeIdentity("pcm:runtime")))
         protocol.registerAdapter(adapterC)
         protocol.updateApplicationCurrent("C", c.periodUid, c)
-        protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm", c)
+        protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm", c, destinationAdapterInstanceId = adapterC)
 
         assertEquals(CommitDisposition.StaleNoEffect, protocol.commitRetainedPcmHandoff(permitB))
         assertFalse(permitB.occurrence == c)
@@ -386,7 +386,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.adoptLatestIntent()
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         val receipt = requireNotNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.DirectFamilyReleased("zero-pending")))
         assertTrue(receipt.semanticPausedAtRetirement)
         assertTrue(protocol.acceptSourceRetirement(receipt))
@@ -405,7 +405,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.adoptLatestIntent()
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val receipt = requireNotNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.StackReleased("pcm-released")))
         assertTrue(protocol.acceptSourceRetirement(receipt))
         assertNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("dop-b")))
@@ -421,13 +421,13 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.installOwnedFamilyForModel(PlaybackFamily.DOP, MutationId(1), adapterA, a, RuntimeIdentity("carrier"), facts = "dop128")
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val samePlan = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val samePlan = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val retained = requireNotNull(protocol.mintRetirementReceipt(samePlan.mutationId, adapterA, RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED, FamilyProof.DirectRuntimeRetained(RuntimeIdentity("carrier"), "same-plan")))
         assertTrue(protocol.acceptSourceRetirement(retained))
         assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.DopOwned)
 
         protocol.updateApplicationCurrent("C", c.periodUid, c)
-        val changed = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop64", c))
+        val changed = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop64", c, destinationAdapterInstanceId = adapterB))
         val released = requireNotNull(protocol.mintRetirementReceipt(changed.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.DirectFamilyReleased("rate-change")))
         assertTrue(protocol.acceptSourceRetirement(released))
         assertEquals(FamilyOwnership.None, protocol.snapshot().familyOwnership)
@@ -439,7 +439,7 @@ class UsbExclusivePlaybackProtocolTest {
         ledger.publish(PlaybackIntent.PLAY)
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
 
         val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("dop-b")))
         ledger.publish(PlaybackIntent.PAUSE)
@@ -565,19 +565,19 @@ class UsbExclusivePlaybackProtocolTest {
         val shared = UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(1), OutputTarget.SharedPcm)
         shared.registerAdapter(adapterB)
         shared.updateApplicationCurrent("B", b.periodUid, b)
-        val sharedMutation = requireNotNull(shared.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val sharedMutation = requireNotNull(shared.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         assertNotNull(shared.preparePcmConfigure(sharedMutation.mutationId, adapterB, b, "pcm96"))
 
         val usb = UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(2), OutputTarget.UsbBound(UsbOutputGeneration(7)))
         usb.registerAdapter(adapterB)
         usb.updateApplicationCurrent("B", b.periodUid, b)
-        val usbMutation = requireNotNull(usb.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val usbMutation = requireNotNull(usb.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         assertTrue(requireNotNull(usb.preparePcmConfigure(usbMutation.mutationId, adapterB, b, "pcm96")).outputTarget is OutputTarget.UsbBound)
 
         val unavailable = UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(3), OutputTarget.Unavailable)
         unavailable.registerAdapter(adapterB)
         unavailable.updateApplicationCurrent("B", b.periodUid, b)
-        val unavailableMutation = requireNotNull(unavailable.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val unavailableMutation = requireNotNull(unavailable.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         assertNull(unavailable.preparePcmConfigure(unavailableMutation.mutationId, adapterB, b, "pcm96"))
     }
 
@@ -590,7 +590,7 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(installed.writeLease.tryEnter(a, MutationId(1), adapterA, WriteKind.PCM_DATA))
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         assertNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.StackReleased("closed")))
         installed.writeLease.exit()
         val receipt = requireNotNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.StackReleased("closed")))
@@ -736,7 +736,7 @@ class UsbExclusivePlaybackProtocolTest {
         )
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val successor = requireNotNull(
-            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b),
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB),
         )
         assertTrue(successor.destinationBound)
 
@@ -811,7 +811,7 @@ class UsbExclusivePlaybackProtocolTest {
             facts = "dop128",
         ) as CommitDisposition.CurrentPlaying
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
 
         assertNull(
             protocol.mintRetirementReceipt(
@@ -840,7 +840,7 @@ class UsbExclusivePlaybackProtocolTest {
             facts = "pcm96",
         ) as CommitDisposition.CurrentPlaying
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         val owned = protocol.snapshot().familyOwnership as FamilyOwnership.PcmOwned
         val forged = SourceRetirementReceipt(
             receiptId = SideEffectReceiptId(900),
@@ -866,7 +866,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh()
         ledger.publish(PlaybackIntent.PLAY)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         val permit = requireNotNull(protocol.preparePcmConfigure(first.mutationId, adapterB, b, "pcm96"))
         val resource = ResourceIdentity("pcm-partial")
         assertTrue(
@@ -877,7 +877,7 @@ class UsbExclusivePlaybackProtocolTest {
         )
 
         protocol.updateApplicationCurrent("C", c.periodUid, c)
-        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm96", c))
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.PCM, "pcm96", c, destinationAdapterInstanceId = adapterB))
         assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(resource))
         assertNotNull(protocol.preparePcmConfigure(successor.mutationId, adapterB, c, "pcm96"))
     }
@@ -887,13 +887,13 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         ledger.publish(PlaybackIntent.PLAY)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val stalePermit = requireNotNull(
             protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")),
         )
 
         protocol.updateApplicationCurrent("C", c.periodUid, c)
-        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c))
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c, destinationAdapterInstanceId = adapterB))
         val resource = ResourceIdentity("runtime-b-resource")
         val stale = protocol.commitDirectStage(
             stalePermit,
@@ -910,7 +910,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         ledger.publish(PlaybackIntent.PLAY)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val createB = requireNotNull(protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
         protocol.commitDirectStage(createB, completedDirect(createB, "b-create"))
         val prefillB = requireNotNull(protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.PREFILL, RuntimeIdentity("runtime-b")))
@@ -918,7 +918,7 @@ class UsbExclusivePlaybackProtocolTest {
         assertTrue(protocol.observeAdapterStarted(adapterB, b))
 
         protocol.updateApplicationCurrent("C", c.periodUid, c)
-        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c))
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c, destinationAdapterInstanceId = adapterB))
         assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(ResourceIdentity("b-create")))
         assertEquals(CommitDisposition.StaleNoEffect, protocol.completeCleanup(ResourceIdentity("b-prefill")))
         val createC = requireNotNull(protocol.prepareDirectStage(successor.mutationId, adapterB, c, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-c")))
@@ -936,7 +936,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         ledger.publish(PlaybackIntent.PLAY)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-a")))
         protocol.commitDirectStage(create, completedDirect(create, "create-a"))
 
@@ -1037,7 +1037,7 @@ class UsbExclusivePlaybackProtocolTest {
             RuntimeIdentity("pcm-a"),
         ) as CommitDisposition.CurrentPlaying
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
 
         assertNull(
             protocol.mintRetirementReceipt(
@@ -1063,7 +1063,7 @@ class UsbExclusivePlaybackProtocolTest {
             RuntimeIdentity("pcm-a"),
         ) as CommitDisposition.CurrentPlaying
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val owned = protocol.snapshot().familyOwnership as FamilyOwnership.PcmOwned
         val forged = SourceRetirementReceipt(
             SideEffectReceiptId(901),
@@ -1096,7 +1096,7 @@ class UsbExclusivePlaybackProtocolTest {
             facts = "pcm96",
         ) as CommitDisposition.CurrentPlaying
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val next = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
 
         assertNull(
             protocol.mintRetirementReceipt(
@@ -1114,7 +1114,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, outputProtocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         ledger.publish(PlaybackIntent.PLAY)
         outputProtocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(outputProtocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val mutation = requireNotNull(outputProtocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         val permit = requireNotNull(outputProtocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
         val outputResource = ResourceIdentity("output-partial")
         outputProtocol.commitPcmConfigure(
@@ -1127,7 +1127,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger2, retiringProtocol) = fresh()
         ledger2.publish(PlaybackIntent.PLAY)
         retiringProtocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation2 = requireNotNull(retiringProtocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b))
+        val mutation2 = requireNotNull(retiringProtocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
         val permit2 = requireNotNull(retiringProtocol.preparePcmConfigure(mutation2.mutationId, adapterB, b, "pcm96"))
         val retiringResource = ResourceIdentity("retiring-partial")
         retiringProtocol.commitPcmConfigure(
@@ -1144,7 +1144,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         ledger.publish(PlaybackIntent.PLAY)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val create = requireNotNull(protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")))
         val partialResource = ResourceIdentity("direct-partial")
         val partial = protocol.commitDirectStage(
@@ -1177,7 +1177,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         ledger.publish(PlaybackIntent.PLAY)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val first = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val create = requireNotNull(
             protocol.prepareDirectStage(first.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")),
         )
@@ -1193,7 +1193,7 @@ class UsbExclusivePlaybackProtocolTest {
         )
 
         protocol.updateApplicationCurrent("C", c.periodUid, c)
-        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c))
+        val successor = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop128", c, destinationAdapterInstanceId = adapterB))
         val prefillResource = ResourceIdentity("stale-prefill")
         assertEquals(
             CommitDisposition.StaleCleanupRequired(prefillResource),
@@ -1216,7 +1216,7 @@ class UsbExclusivePlaybackProtocolTest {
         val (ledger, protocol) = fresh(OutputTarget.UsbBound(UsbOutputGeneration(5)))
         ledger.publish(PlaybackIntent.PLAY)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b))
+        val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
         val create = requireNotNull(
             protocol.prepareDirectStage(mutation.mutationId, adapterB, b, DirectStage.CREATE_RUNTIME, RuntimeIdentity("runtime-b")),
         )
@@ -1262,7 +1262,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(
-            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
         val proof = FamilyProof.StackReleased("closed")
         val receipt = requireNotNull(
@@ -1310,7 +1310,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(
-            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
         val receipt = requireNotNull(
             protocol.mintRetirementReceipt(
@@ -1343,7 +1343,7 @@ class UsbExclusivePlaybackProtocolTest {
         )
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(
-            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
         val receipt = requireNotNull(
             protocol.mintRetirementReceipt(
@@ -1376,7 +1376,7 @@ class UsbExclusivePlaybackProtocolTest {
         )
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(
-            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b),
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB),
         )
         val receipt = requireNotNull(
             protocol.mintRetirementReceipt(
@@ -1437,7 +1437,7 @@ class UsbExclusivePlaybackProtocolTest {
         )
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(
-            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b),
+            protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB),
         )
         val proof = FamilyProof.StackReleased("closed")
         val receipt = requireNotNull(
@@ -1463,6 +1463,27 @@ class UsbExclusivePlaybackProtocolTest {
         assertFalse(requireNotNull(protocol.snapshot().mutation?.sourceRetirement).semanticPausedAtRetirement)
     }
 
+    @Test
+    fun nonSeekMutationCannotInferDestinationAdapterFromRegistryCardinality() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+
+        assertNull(
+            protocol.beginMutation(
+                MutationKind.MANUAL,
+                "B",
+                PlaybackFamily.PCM,
+                "pcm96",
+                b,
+                destinationAdapterInstanceId = null,
+            ),
+        )
+        val unbound = requireNotNull(protocol.beginManualMutationUnbound("B"))
+        assertFalse(unbound.destinationBound)
+        assertNull(protocol.preparePcmConfigure(unbound.mutationId, adapterB, b, "pcm96"))
+    }
+
     private fun fresh(output: OutputTarget = OutputTarget.SharedPcm): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
         val ledger = PlaybackIntentLedger()
         val protocol = UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(1), output)
@@ -1477,7 +1498,16 @@ class UsbExclusivePlaybackProtocolTest {
     ): MutationEpoch {
         protocol.registerAdapter(adapter)
         protocol.updateApplicationCurrent("B", occurrence.periodUid, occurrence)
-        return requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", occurrence))
+        return requireNotNull(
+            protocol.beginMutation(
+                MutationKind.MANUAL,
+                "B",
+                PlaybackFamily.PCM,
+                "pcm96",
+                occurrence,
+                destinationAdapterInstanceId = adapter,
+            ),
+        )
     }
 
     private fun completedDirect(permit: DirectStagePermit, resource: String): SideEffectReceipt.Completed =

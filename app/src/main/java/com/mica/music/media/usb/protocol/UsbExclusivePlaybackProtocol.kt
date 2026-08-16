@@ -456,11 +456,24 @@ class UsbExclusivePlaybackProtocol(
      * observed; no successor activation can be prepared because application currentness is empty.
      */
     @Synchronized
-    fun beginQueueClear(): Boolean {
+    fun canBeginQueueClear(): Boolean {
         if (lifecycle !is ProtocolLifecycle.Active || activations.isNotEmpty() || cleanupRequirements.isNotEmpty()) return false
         val source = familyOwnership
         val lease = source.writeLeaseOrNull()
         if (lease != null && !lease.isDrained()) return false
+        if (source is FamilyOwnership.None) return true
+        val adapter = source.adapterInstanceIdOrNull() ?: return false
+        return source.familyOrNull() != null &&
+            source.factsOrNull() != null &&
+            source.occurrenceOrNull() != null &&
+            adapter in adapters
+    }
+
+    @Synchronized
+    fun beginQueueClear(): Boolean {
+        if (!canBeginQueueClear()) return false
+        val source = familyOwnership
+        val lease = source.writeLeaseOrNull()
         if (source is FamilyOwnership.None) {
             mutation = null
             applicationCurrent = ApplicationCurrent(null, null, null)
@@ -613,16 +626,10 @@ class UsbExclusivePlaybackProtocol(
         val resolvedDestinationAdapter = if (kind == MutationKind.SEEK) {
             source.adapterInstanceIdOrNull()
         } else {
-            destinationAdapterInstanceId ?: run {
-                val sourceAdapter = source.adapterInstanceIdOrNull()
-                val nonSourceAdapters = adapters.filterNot { it == sourceAdapter }
-                when {
-                    nonSourceAdapters.size == 1 -> nonSourceAdapters.single()
-                    nonSourceAdapters.isEmpty() && sourceAdapter != null -> sourceAdapter
-                    sourceAdapter == null && adapters.size == 1 -> adapters.single()
-                    else -> null
-                }
-            }
+            // Adapter registration proves only lifecycle membership. For every non-SEEK bound
+            // destination, exact adapter authority must be supplied by renderer/candidate stream
+            // provenance (or a separately modeled handoff); registry cardinality is never proof.
+            destinationAdapterInstanceId
         }
         val causalHandle = if (kind == MutationKind.SEEK) {
             val ownedAdapter = source.adapterInstanceIdOrNull() ?: return null

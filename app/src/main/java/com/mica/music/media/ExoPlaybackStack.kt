@@ -55,6 +55,7 @@ internal object ExoPlaybackStackFactory {
             OutputTarget.Unavailable
         }
         val playbackStack = playbackCoordinator.createStack(initialOutputTarget)
+        val topologyProvenance = PlaybackTopologyMedia3Provenance(playbackStack.currentTopologyToken())
         val renderersFactory = MicaRenderersFactory(
             context,
             outputPath,
@@ -104,6 +105,7 @@ internal object ExoPlaybackStackFactory {
             trackTransitionCoordinator = trackTransitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
             playbackStack = playbackStack,
+            topologyProvenance = topologyProvenance,
         )
         fun publishApplicationCurrentness(
             timeline: Timeline,
@@ -112,7 +114,9 @@ internal object ExoPlaybackStackFactory {
         ) {
             val mediaId = mediaItem?.mediaId
             val windowIndex = exoPlayer.currentMediaItemIndex.takeIf { it >= 0 }
-            playbackStack.observeApplicationMedia(mediaId, windowIndex)
+            val producerToken = topologyProvenance.resolve(timeline)
+                ?: topologyProvenance.producerTokenOf(mediaItem)
+            producerToken?.let { playbackStack.observeApplicationMedia(mediaId, windowIndex, it) }
             val targetPeriodUid = mediaId?.let {
                 ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
                     timeline = timeline,
@@ -154,7 +158,9 @@ internal object ExoPlaybackStackFactory {
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason)
+                topologyProvenance.resolve(timeline)?.let { producerToken ->
+                    playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason, producerToken)
+                }
                 publishApplicationCurrentness(timeline, exoPlayer.currentMediaItem)
             }
         })
@@ -164,6 +170,7 @@ internal object ExoPlaybackStackFactory {
                     val windowIndex: Int?,
                     val mediaId: String?,
                     val mediaPeriodId: MediaSource.MediaPeriodId?,
+                    val producerToken: com.mica.music.media.usb.shadow.PlaybackTopologyProducerToken?,
                 )
 
                 val eventOwnedFacts = (0 until events.size()).map { index ->
@@ -175,16 +182,23 @@ internal object ExoPlaybackStackFactory {
                             eventTimeMediaId(eventTime.currentTimeline, it)
                         },
                         mediaPeriodId = eventTime.currentMediaPeriodId,
+                        producerToken = topologyProvenance.resolve(eventTime.currentTimeline),
                     )
                 }
                 val exact = eventOwnedFacts.firstOrNull()?.takeIf { first ->
-                    first.mediaPeriodId != null && eventOwnedFacts.all { it == first }
+                    first.mediaPeriodId != null &&
+                        first.producerToken != null &&
+                        eventOwnedFacts.all { it == first }
                 }
-                playbackStack.observeEventTimeCurrent(
-                    exact?.windowIndex,
-                    exact?.mediaId,
-                    exact?.mediaPeriodId?.let(UsbExclusiveShadowMedia3Facts::occurrence),
-                )
+                val batchProducer = eventOwnedFacts.mapNotNull { it.producerToken }.distinct().singleOrNull()
+                batchProducer?.let { producerToken ->
+                    playbackStack.observeEventTimeCurrent(
+                        exact?.windowIndex,
+                        exact?.mediaId,
+                        exact?.mediaPeriodId?.let(UsbExclusiveShadowMedia3Facts::occurrence),
+                        producerToken,
+                    )
+                }
 
                 val legacyCurrentOccurrence = exact?.mediaPeriodId
                 manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(legacyCurrentOccurrence)
