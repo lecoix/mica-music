@@ -66,10 +66,15 @@ class MicaCompositePlayer internal constructor(
         startIndex: Int,
         startPositionMs: Long,
     ) {
-        val reservation = reserveTopologyMutation("set-media-items") ?: return
+        val safeIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+        val targetMediaId = mediaItems.getOrNull(safeIndex)?.mediaId
+        val reservation = reserveTopologyMutation(
+            "set-media-items",
+            targetMediaId = targetMediaId,
+            queueClear = mediaItems.isEmpty(),
+        ) ?: return
         val taggedItems = topologyProvenance.tagForProducer(mediaItems, reservation.producerToken)
         if (!prepareTopologyProvenance(reservation, taggedItems)) return
-        val safeIndex = startIndex.coerceIn(0, (taggedItems.size - 1).coerceAtLeast(0))
         val navigationEpoch = prepareQueueMutation(
             targetMediaId = taggedItems.getOrNull(safeIndex)?.mediaId,
             targetWindowIndex = safeIndex.takeIf { taggedItems.isNotEmpty() },
@@ -81,7 +86,7 @@ class MicaCompositePlayer internal constructor(
             super.setMediaItems(taggedItems, startIndex, startPositionMs)
         } catch (error: Throwable) {
             navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "set-media-items-error") }
-            abortTopologyMutation(reservation, "exo-dispatch-error")
+            markTopologyDispatchUncertain(reservation, "set-media-items-exception")
             throw error
         }
         check(commitTopologyMutation(reservation)) { "USB playback topology commit failed after setMediaItems" }
@@ -96,87 +101,126 @@ class MicaCompositePlayer internal constructor(
         setMediaItems(listOf(mediaItem), 0, startPositionMs)
     }
 
-    override fun addMediaItem(index: Int, mediaItem: MediaItem) {
-        val reservation = reserveTopologyMutation("add-media-item") ?: return
-        val tagged = topologyProvenance.tagForProducer(mediaItem, reservation.producerToken)
-        val expected = currentQueueItems().toMutableList()
-        try {
-            expected.add(index, tagged)
-        } catch (error: Throwable) {
-            abortTopologyMutation(reservation, "invalid-index")
-            throw error
+    override fun setMediaItems(mediaItems: List<MediaItem>) {
+        setMediaItems(mediaItems, 0, 0L)
+    }
+
+    override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
+        if (resetPosition || mediaItems.isEmpty()) {
+            setMediaItems(mediaItems, 0, 0L)
+        } else {
+            val index = exoPlayer.currentMediaItemIndex.coerceIn(0, mediaItems.lastIndex)
+            setMediaItems(mediaItems, index, exoPlayer.currentPosition.coerceAtLeast(0L))
         }
-        if (!prepareTopologyProvenance(reservation, expected)) return
-        try {
-            super.addMediaItem(index, tagged)
-        } catch (error: Throwable) {
-            abortTopologyMutation(reservation, "exo-dispatch-error")
-            throw error
-        }
-        check(commitTopologyMutation(reservation)) { "USB playback topology commit failed after addMediaItem" }
+    }
+
+    override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) {
+        setMediaItems(
+            listOf(mediaItem),
+            0,
+            if (resetPosition) 0L else exoPlayer.currentPosition.coerceAtLeast(0L),
+        )
+    }
+
+    override fun addMediaItem(mediaItem: MediaItem) {
+        addMediaItem(exoPlayer.mediaItemCount, mediaItem)
+    }
+
+    override fun addMediaItems(mediaItems: List<MediaItem>) {
+        addMediaItems(exoPlayer.mediaItemCount, mediaItems)
+    }
+
+    override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) {
+        require(index >= 0)
+        if (mediaItems.isEmpty()) return
+        val current = currentQueueItems()
+        val insertionIndex = index.coerceAtMost(current.size)
+        val expected = current.toMutableList().also { it.addAll(insertionIndex, mediaItems) }
+        val oldCurrentIndex = exoPlayer.currentMediaItemIndex
+        val replacementIndex = when {
+            current.isEmpty() || oldCurrentIndex < 0 -> 0
+            insertionIndex <= oldCurrentIndex -> oldCurrentIndex + mediaItems.size
+            else -> oldCurrentIndex
+        }.coerceIn(0, expected.lastIndex)
+        dispatchCanonicalTopologyReplacement(
+            seam = "add-media-items",
+            expectedItems = expected,
+            replacementIndex = replacementIndex,
+            replacementPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L),
+        )
         queueRevision++
     }
 
+    override fun addMediaItem(index: Int, mediaItem: MediaItem) {
+        addMediaItems(index, listOf(mediaItem))
+    }
+
     override fun moveMediaItem(currentIndex: Int, newIndex: Int) {
+        if (currentIndex != newIndex) moveMediaItems(currentIndex, currentIndex + 1, newIndex)
+    }
+
+    override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int) {
+        require(fromIndex >= 0 && fromIndex <= toIndex && newIndex >= 0)
         val current = currentQueueItems()
-        val expected = current.toMutableList()
-        try {
-            val moved = expected.removeAt(currentIndex)
-            expected.add(newIndex, moved)
-        } catch (error: Throwable) {
-            throw error
-        }
-        val reservation = reserveTopologyMutation("move-media-item") ?: return
-        if (!prepareTopologyProvenance(reservation, expected)) return
-        try {
-            super.moveMediaItem(currentIndex, newIndex)
-        } catch (error: Throwable) {
-            abortTopologyMutation(reservation, "exo-dispatch-error")
-            throw error
-        }
-        check(commitTopologyMutation(reservation)) { "USB playback topology commit failed after moveMediaItem" }
+        val effectiveToIndex = toIndex.coerceAtMost(current.size)
+        if (fromIndex >= current.size || fromIndex == effectiveToIndex) return
+        val movedCount = effectiveToIndex - fromIndex
+        val effectiveNewIndex = newIndex.coerceAtMost(current.size - movedCount)
+        if (fromIndex == effectiveNewIndex) return
+        val indexed = current.mapIndexed { index, item -> index to item }.toMutableList()
+        val moved = indexed.subList(fromIndex, effectiveToIndex).toList()
+        indexed.subList(fromIndex, effectiveToIndex).clear()
+        indexed.addAll(effectiveNewIndex, moved)
+        val oldCurrentIndex = exoPlayer.currentMediaItemIndex
+        val replacementIndex = indexed.indexOfFirst { it.first == oldCurrentIndex }
+            .takeIf { it >= 0 }
+            ?: 0
+        dispatchCanonicalTopologyReplacement(
+            seam = "move-media-items",
+            expectedItems = indexed.map { it.second },
+            replacementIndex = replacementIndex,
+            replacementPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L),
+        )
         queueRevision++
     }
 
     override fun removeMediaItem(index: Int) {
+        removeMediaItems(index, index + 1)
+    }
+
+    override fun removeMediaItems(fromIndex: Int, toIndex: Int) {
+        require(fromIndex >= 0 && toIndex >= fromIndex)
         val current = currentQueueItems()
-        val expected = current.toMutableList()
-        try {
-            expected.removeAt(index)
-        } catch (error: Throwable) {
-            throw error
+        val effectiveToIndex = toIndex.coerceAtMost(current.size)
+        if (fromIndex >= current.size || fromIndex == effectiveToIndex) return
+        val expected = current.toMutableList().also {
+            it.subList(fromIndex, effectiveToIndex).clear()
         }
-        val reservation = reserveTopologyMutation("remove-media-item") ?: return
-        if (!prepareTopologyProvenance(reservation, expected)) return
-        val navigationEpoch = if (index == exoPlayer.currentMediaItemIndex) {
-            val target = when {
-                expected.isEmpty() -> null
-                index < expected.size -> index to expected[index]
-                else -> expected.lastIndex to expected.last()
-            }
-            prepareQueueMutation(
-                targetMediaId = target?.second?.mediaId,
-                targetWindowIndex = target?.first,
-                requestedPlaying = exoPlayer.playWhenReady,
-                seam = "remove-current-media-item",
-                topologyReservation = reservation,
-            )
-        } else {
-            null
-        }
-        try {
-            super.removeMediaItem(index)
-        } catch (error: Throwable) {
-            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "remove-media-item-error") }
-            abortTopologyMutation(reservation, "exo-dispatch-error")
-            throw error
-        }
-        check(commitTopologyMutation(reservation)) { "USB playback topology commit failed after removeMediaItem" }
+        val oldCurrentIndex = exoPlayer.currentMediaItemIndex
+        val removedCount = effectiveToIndex - fromIndex
+        val removedCurrent = oldCurrentIndex in fromIndex until effectiveToIndex
+        val replacementIndex = when {
+            expected.isEmpty() -> 0
+            removedCurrent -> fromIndex.coerceAtMost(expected.lastIndex)
+            oldCurrentIndex >= effectiveToIndex -> oldCurrentIndex - removedCount
+            oldCurrentIndex >= 0 -> oldCurrentIndex
+            else -> 0
+        }.coerceIn(0, (expected.size - 1).coerceAtLeast(0))
+        val targetMediaId = if (removedCurrent && expected.isNotEmpty()) expected[replacementIndex].mediaId else null
+        dispatchCanonicalTopologyReplacement(
+            seam = "remove-media-items",
+            expectedItems = expected,
+            replacementIndex = replacementIndex,
+            replacementPositionMs = if (removedCurrent) 0L else exoPlayer.currentPosition.coerceAtLeast(0L),
+            targetMediaId = targetMediaId,
+            targetWindowIndex = replacementIndex.takeIf { targetMediaId != null },
+            queueClear = expected.isEmpty(),
+        )
         queueRevision++
     }
 
     override fun clearMediaItems() {
-        val reservation = reserveTopologyMutation("clear-media-items") ?: return
+        val reservation = reserveTopologyMutation("clear-media-items", queueClear = true) ?: return
         if (!prepareTopologyProvenance(reservation, emptyList())) return
         check(playbackStack.stageTopologyQueueClear(reservation)) {
             abortTopologyMutation(reservation, "queue-clear-stage-rejected")
@@ -185,7 +229,7 @@ class MicaCompositePlayer internal constructor(
         try {
             super.clearMediaItems()
         } catch (error: Throwable) {
-            abortTopologyMutation(reservation, "exo-dispatch-error")
+            markTopologyDispatchUncertain(reservation, "clear-media-items-exception")
             throw error
         }
         check(commitTopologyMutation(reservation)) { "USB playback topology commit failed after clearMediaItems" }
@@ -193,36 +237,51 @@ class MicaCompositePlayer internal constructor(
     }
 
     override fun replaceMediaItem(index: Int, mediaItem: MediaItem) {
-        val previous = exoPlayer.getMediaItemAt(index)
-        if (topologyProvenance.playbackSourceEquivalent(previous, mediaItem)) {
-            super.replaceMediaItem(index, topologyProvenance.preserveProducerTag(previous, mediaItem))
+        replaceMediaItems(index, index + 1, listOf(mediaItem))
+    }
+
+    override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>) {
+        require(fromIndex >= 0 && toIndex >= fromIndex)
+        val current = currentQueueItems()
+        if (fromIndex > current.size) return
+        val effectiveToIndex = toIndex.coerceAtMost(current.size)
+        if (fromIndex == effectiveToIndex && mediaItems.isEmpty()) return
+        val expected = current.toMutableList().also {
+            it.subList(fromIndex, effectiveToIndex).clear()
+            it.addAll(fromIndex, mediaItems)
+        }
+        if (topologyProvenance.queuePlaybackSourceEquivalent(current, expected)) {
+            expected.indices.forEach { index ->
+                val refreshed = topologyProvenance.preserveProducerTag(current[index], expected[index])
+                if (refreshed != current[index]) super.replaceMediaItem(index, refreshed)
+            }
             queueRevision++
             return
         }
 
-        val reservation = reserveTopologyMutation("replace-media-item") ?: return
-        val tagged = topologyProvenance.tagForProducer(mediaItem, reservation.producerToken)
-        val expected = currentQueueItems().toMutableList().also { it[index] = tagged }
-        if (!prepareTopologyProvenance(reservation, expected)) return
-        val navigationEpoch = if (index == exoPlayer.currentMediaItemIndex) {
-            prepareQueueMutation(
-                tagged.mediaId,
-                index,
-                exoPlayer.playWhenReady,
-                "replace-current-media-item",
-                topologyReservation = reservation,
-            )
-        } else {
-            null
-        }
-        try {
-            super.replaceMediaItem(index, tagged)
-        } catch (error: Throwable) {
-            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "replace-media-item-error") }
-            abortTopologyMutation(reservation, "exo-dispatch-error")
-            throw error
-        }
-        check(commitTopologyMutation(reservation)) { "USB playback topology commit failed after replaceMediaItem" }
+        val oldCurrentIndex = exoPlayer.currentMediaItemIndex
+        val replacedCurrent = oldCurrentIndex in fromIndex until effectiveToIndex
+        val removedCount = effectiveToIndex - fromIndex
+        val replacementIndex = when {
+            expected.isEmpty() -> 0
+            current.isEmpty() -> 0
+            replacedCurrent && mediaItems.isNotEmpty() ->
+                fromIndex + (oldCurrentIndex - fromIndex).coerceAtMost(mediaItems.lastIndex)
+            replacedCurrent -> fromIndex.coerceAtMost(expected.lastIndex)
+            oldCurrentIndex >= effectiveToIndex -> oldCurrentIndex - removedCount + mediaItems.size
+            oldCurrentIndex >= 0 -> oldCurrentIndex
+            else -> 0
+        }.coerceIn(0, (expected.size - 1).coerceAtLeast(0))
+        val targetMediaId = if (replacedCurrent && expected.isNotEmpty()) expected[replacementIndex].mediaId else null
+        dispatchCanonicalTopologyReplacement(
+            seam = "replace-media-items",
+            expectedItems = expected,
+            replacementIndex = replacementIndex,
+            replacementPositionMs = if (replacedCurrent) 0L else exoPlayer.currentPosition.coerceAtLeast(0L),
+            targetMediaId = targetMediaId,
+            targetWindowIndex = replacementIndex.takeIf { targetMediaId != null },
+            queueClear = expected.isEmpty(),
+        )
         queueRevision++
     }
 
@@ -233,40 +292,58 @@ class MicaCompositePlayer internal constructor(
         playWhenReady: Boolean = true,
     ) {
         val safeIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+        val currentItems = currentQueueItems()
+        if (topologyProvenance.queuePlaybackSourceEquivalent(currentItems, mediaItems)) {
+            currentItems.indices.forEach { index ->
+                val refreshed = topologyProvenance.preserveProducerTag(currentItems[index], mediaItems[index])
+                if (refreshed != currentItems[index]) super.replaceMediaItem(index, refreshed)
+            }
+            startExistingItem(safeIndex, startPositionMs, playWhenReady)
+            return
+        }
+
         if (!publishProtocolIntent(playWhenReady)) return
         val targetId = mediaItems.getOrNull(safeIndex)?.mediaId
         val currentId = currentMediaItem?.mediaId
         val switchingItem = currentId != null && targetId != null && targetId != currentId
-        val reservation = reserveTopologyMutation("start-exo-playback") ?: return
+        val reservation = reserveTopologyMutation(
+            "start-exo-playback",
+            targetMediaId = targetId,
+            queueClear = mediaItems.isEmpty(),
+        ) ?: return
         val taggedItems = topologyProvenance.tagForProducer(mediaItems, reservation.producerToken)
         if (!prepareTopologyProvenance(reservation, taggedItems)) return
         val navigationEpoch = prepareQueueMutation(
             targetId,
-            safeIndex,
+            safeIndex.takeIf { taggedItems.isNotEmpty() },
             playWhenReady,
             "start-exo-playback",
             topologyReservation = reservation,
         )
         val prevItems = mediaItemCount
         val setStartedNs = SystemClock.elapsedRealtimeNanos()
-        var dispatched = false
         try {
             if (switchingItem && exoPlayer.playbackState != Player.STATE_IDLE) {
                 exoPlayer.stop()
             }
             beforePlaybackStart()
-            exoPlayer.setMediaItems(taggedItems, safeIndex, startPositionMs.coerceAtLeast(0L))
-            dispatched = true
-            check(commitTopologyMutation(reservation)) {
-                "USB playback topology commit failed after startExoPlayback setMediaItems"
-            }
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = playWhenReady
         } catch (error: Throwable) {
-            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "start-exo-playback-error") }
-            if (!dispatched) abortTopologyMutation(reservation, "exo-dispatch-error")
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "start-exo-playback-pre-dispatch-error") }
+            abortTopologyMutation(reservation, "pre-dispatch-error")
             throw error
         }
+        try {
+            exoPlayer.setMediaItems(taggedItems, safeIndex, startPositionMs.coerceAtLeast(0L))
+        } catch (error: Throwable) {
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "start-exo-playback-dispatch-error") }
+            markTopologyDispatchUncertain(reservation, "start-exo-playback-set-items-exception")
+            throw error
+        }
+        check(commitTopologyMutation(reservation)) {
+            "USB playback topology commit failed after startExoPlayback setMediaItems"
+        }
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = playWhenReady
         val setMs = (SystemClock.elapsedRealtimeNanos() - setStartedNs) / 1_000_000.0
         DiagnosticLog.event(
             "QueueSync",
@@ -389,9 +466,22 @@ class MicaCompositePlayer internal constructor(
     ) {
         if (mediaItems.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
+        val currentItems = currentQueueItems()
+        if (topologyProvenance.queuePlaybackSourceEquivalent(currentItems, mediaItems)) {
+            currentItems.indices.forEach { index ->
+                val refreshed = topologyProvenance.preserveProducerTag(currentItems[index], mediaItems[index])
+                if (refreshed != currentItems[index]) super.replaceMediaItem(index, refreshed)
+            }
+            selectExistingWithoutPlayback(safeIndex, startPositionMs)
+            return
+        }
+
         val targetId = mediaItems[safeIndex].mediaId
         if (!publishProtocolIntent(false)) return
-        val reservation = reserveTopologyMutation("select-without-playback") ?: return
+        val reservation = reserveTopologyMutation(
+            "select-without-playback",
+            targetMediaId = targetId,
+        ) ?: return
         val taggedItems = topologyProvenance.tagForProducer(mediaItems, reservation.producerToken)
         if (!prepareTopologyProvenance(reservation, taggedItems)) return
         val navigationEpoch = prepareQueueMutation(
@@ -402,21 +492,25 @@ class MicaCompositePlayer internal constructor(
             topologyReservation = reservation,
         )
         DirectDsdSeekDiscontinuityCoordinator.cancelForPlaybackPause()
-        var dispatched = false
         try {
             exoPlayer.pause()
             if (exoPlayer.playbackState != Player.STATE_IDLE) exoPlayer.stop()
-            exoPlayer.setMediaItems(taggedItems, safeIndex, startPositionMs.coerceAtLeast(0L))
-            dispatched = true
-            check(commitTopologyMutation(reservation)) {
-                "USB playback topology commit failed after selectWithoutPlayback setMediaItems"
-            }
-            exoPlayer.playWhenReady = false
         } catch (error: Throwable) {
-            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "select-without-playback-error") }
-            if (!dispatched) abortTopologyMutation(reservation, "exo-dispatch-error")
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "select-without-playback-pre-dispatch-error") }
+            abortTopologyMutation(reservation, "pre-dispatch-error")
             throw error
         }
+        try {
+            exoPlayer.setMediaItems(taggedItems, safeIndex, startPositionMs.coerceAtLeast(0L))
+        } catch (error: Throwable) {
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "select-without-playback-dispatch-error") }
+            markTopologyDispatchUncertain(reservation, "select-without-playback-set-items-exception")
+            throw error
+        }
+        check(commitTopologyMutation(reservation)) {
+            "USB playback topology commit failed after selectWithoutPlayback setMediaItems"
+        }
+        exoPlayer.playWhenReady = false
         queueRevision++
     }
 
@@ -686,8 +780,60 @@ class MicaCompositePlayer internal constructor(
     private fun currentQueueItems(): List<MediaItem> =
         List(exoPlayer.mediaItemCount, exoPlayer::getMediaItemAt)
 
-    private fun reserveTopologyMutation(seam: String): PlaybackTopologyMutationReservation? {
-        val reservation = playbackStack.preparePlaybackTopologyMutation(seam)
+    private fun dispatchCanonicalTopologyReplacement(
+        seam: String,
+        expectedItems: List<MediaItem>,
+        replacementIndex: Int,
+        replacementPositionMs: Long,
+        targetMediaId: String? = null,
+        targetWindowIndex: Int? = null,
+        queueClear: Boolean = expectedItems.isEmpty(),
+    ) {
+        val reservation = reserveTopologyMutation(seam, targetMediaId, queueClear) ?: return
+        val taggedItems = topologyProvenance.tagForProducer(expectedItems, reservation.producerToken)
+        if (!prepareTopologyProvenance(reservation, taggedItems)) return
+        val navigationEpoch = when {
+            queueClear -> prepareQueueMutation(
+                targetMediaId = null,
+                requestedPlaying = exoPlayer.playWhenReady,
+                seam = seam,
+                topologyReservation = reservation,
+            )
+            targetMediaId != null -> prepareQueueMutation(
+                targetMediaId = targetMediaId,
+                targetWindowIndex = targetWindowIndex,
+                requestedPlaying = exoPlayer.playWhenReady,
+                seam = seam,
+                topologyReservation = reservation,
+            )
+            else -> null
+        }
+        try {
+            if (queueClear) {
+                super.clearMediaItems()
+            } else {
+                super.setMediaItems(
+                    taggedItems,
+                    replacementIndex.coerceIn(0, taggedItems.lastIndex),
+                    replacementPositionMs.coerceAtLeast(0L),
+                )
+            }
+        } catch (error: Throwable) {
+            navigationEpoch?.let { manualNavigationTransitionBridge.cancel(it.requestId, "$seam-error") }
+            markTopologyDispatchUncertain(reservation, "$seam-exception")
+            throw error
+        }
+        check(commitTopologyMutation(reservation)) {
+            "USB playback topology commit failed after $seam"
+        }
+    }
+
+    private fun reserveTopologyMutation(
+        seam: String,
+        targetMediaId: String? = null,
+        queueClear: Boolean = false,
+    ): PlaybackTopologyMutationReservation? {
+        val reservation = playbackStack.preparePlaybackTopologyMutation(seam, targetMediaId, queueClear)
         if (reservation == null) {
             DiagnosticLog.event("UsbExclusiveProtocol", "topology-prepare-rejected seam=$seam")
         }
@@ -704,25 +850,19 @@ class MicaCompositePlayer internal constructor(
     }
 
     private fun commitTopologyMutation(reservation: PlaybackTopologyMutationReservation): Boolean {
-        if (!topologyProvenance.canCommit(reservation)) {
-            DiagnosticLog.event(
-                "UsbExclusiveProtocol",
-                "topology-producer-precommit-rejected seam=${reservation.seam}",
-            )
-            abortTopologyMutation(reservation, "producer-precommit-rejected")
-            return false
+        check(topologyProvenance.canCommit(reservation)) {
+            "Playback topology producer reservation changed after Media3 dispatch: ${reservation.seam}"
+        }
+        val dispatched = playbackStack.markPlaybackTopologyDispatchSucceeded(reservation)
+        check(dispatched is UsbExclusiveAuthorityObservation.Accepted) {
+            "USB playback topology dispatch marker rejected after successful Media3 call: ${reservation.seam}/$dispatched"
         }
         val protocolResult = playbackStack.commitPlaybackTopologyMutation(reservation)
-        if (protocolResult !is UsbExclusiveAuthorityObservation.Accepted) {
-            DiagnosticLog.event(
-                "UsbExclusiveProtocol",
-                "topology-commit-rejected seam=${reservation.seam} result=$protocolResult",
-            )
-            abortTopologyMutation(reservation, "protocol-commit-rejected")
-            return false
+        check(protocolResult is UsbExclusiveAuthorityObservation.Accepted) {
+            "USB playback topology monotonic commit rejected after successful Media3 call: ${reservation.seam}/$protocolResult"
         }
         check(topologyProvenance.commit(reservation)) {
-            "Playback topology producer commit changed after successful precommit: ${reservation.seam}"
+            "Playback topology producer commit changed after protocol commit: ${reservation.seam}"
         }
         return true
     }
@@ -733,5 +873,16 @@ class MicaCompositePlayer internal constructor(
     ) {
         topologyProvenance.abort(reservation)
         playbackStack.abortPlaybackTopologyMutation(reservation, reason)
+    }
+
+    private fun markTopologyDispatchUncertain(
+        reservation: PlaybackTopologyMutationReservation,
+        reason: String,
+    ) {
+        playbackStack.markPlaybackTopologyDispatchUncertain(reservation, reason)
+        DiagnosticLog.event(
+            "UsbExclusiveProtocol",
+            "topology-dispatch-uncertain seam=${reservation.seam} reason=$reason",
+        )
     }
 }

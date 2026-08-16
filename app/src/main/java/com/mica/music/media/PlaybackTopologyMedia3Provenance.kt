@@ -8,12 +8,13 @@ import com.mica.music.media.usb.shadow.PlaybackTopologyMutationReservation
 import com.mica.music.media.usb.shadow.PlaybackTopologyProducerToken
 
 /**
- * Carries the app-owned playback-topology provenance through Media3's asynchronous Timeline and
- * MediaItem callbacks. Presentation [MediaMetadata] is deliberately excluded from source identity.
+ * App-owned producer provenance carried by the Media3 representation itself.
  *
- * A pending record exists before canonical Exo dispatch so callbacks emitted synchronously by that
- * dispatch already resolve to the reserved token. Commit/abort only changes which record remains
- * authoritative; neither operation calls into Exo or holds a framework/native side effect.
+ * The producer token is deliberately excluded from playback-source equivalence. A real topology
+ * mutation stamps the whole resulting queue with one token before Exo dispatch, while a
+ * presentation-only update preserves the existing stamp. Callback attribution is extracted only
+ * from that callback's own stamped representation; structural timeline history is never an epoch
+ * classifier.
  */
 @UnstableApi
 internal class PlaybackTopologyMedia3Provenance(
@@ -24,26 +25,20 @@ internal class PlaybackTopologyMedia3Provenance(
         val originalTag: Any?,
     )
 
-    private data class TimelineIdentity(
-        val items: List<MediaItem>,
-    )
-
     private var currentToken: PlaybackTopologyProducerToken = initialToken
-    private val committed = linkedMapOf<PlaybackTopologyProducerToken, TimelineIdentity>()
-    private val pending = linkedMapOf<PlaybackTopologyProducerToken, TimelineIdentity>()
-
-    init {
-        committed[initialToken] = TimelineIdentity(emptyList())
-    }
+    private var pendingReservation: PlaybackTopologyMutationReservation? = null
 
     fun currentToken(): PlaybackTopologyProducerToken = currentToken
 
     fun playbackSourceEquivalent(left: MediaItem, right: MediaItem): Boolean =
         sourceComparable(left) == sourceComparable(right)
 
+    fun queuePlaybackSourceEquivalent(left: List<MediaItem>, right: List<MediaItem>): Boolean =
+        left.size == right.size && left.indices.all { playbackSourceEquivalent(left[it], right[it]) }
+
     fun preserveProducerTag(previous: MediaItem, replacement: MediaItem): MediaItem {
-        val tag = previous.localConfiguration?.tag
-        return replacement.buildUpon().setTag(tag).build()
+        val producerTag = previous.localConfiguration?.tag
+        return replacement.buildUpon().setTag(producerTag).build()
     }
 
     fun tagForProducer(item: MediaItem, token: PlaybackTopologyProducerToken): MediaItem =
@@ -59,52 +54,61 @@ internal class PlaybackTopologyMedia3Provenance(
     fun producerTokenOf(item: MediaItem?): PlaybackTopologyProducerToken? =
         (item?.localConfiguration?.tag as? ProducerTag)?.token
 
+    fun producerTokenOf(items: List<MediaItem>): PlaybackTopologyProducerToken? {
+        if (items.isEmpty()) return null
+        var token: PlaybackTopologyProducerToken? = null
+        items.forEach { item ->
+            val itemToken = producerTokenOf(item) ?: return null
+            val previous = token
+            if (previous != null && previous != itemToken) return null
+            token = itemToken
+        }
+        return token
+    }
+
+    /**
+     * Extracts one exact producer token from a callback-owned non-empty Timeline. Tokenless or
+     * mixed queues are intentionally not attributable; no structural comparison/history fallback
+     * is allowed.
+     */
+    fun producerTokenOf(timeline: Timeline): PlaybackTopologyProducerToken? {
+        if (timeline.windowCount <= 0) return null
+        return producerTokenOf(
+            (0 until timeline.windowCount).map { index ->
+                timeline.getWindow(index, Timeline.Window()).mediaItem
+            },
+        )
+    }
+
+    /**
+     * Installs only producer-side pending state. The protocol reservation is the authority gate;
+     * this method merely proves that every resulting queue item already carries its reserved token.
+     */
     fun prepare(
         reservation: PlaybackTopologyMutationReservation,
         expectedItems: List<MediaItem>,
     ): Boolean {
-        if (reservation.baseToken != currentToken) return false
-        if (pending.isNotEmpty()) return false
-        pending[reservation.producerToken] = TimelineIdentity(expectedItems.map(::producerComparable))
+        if (reservation.baseToken != currentToken || pendingReservation != null) return false
+        if (expectedItems.any { producerTokenOf(it) != reservation.producerToken }) return false
+        pendingReservation = reservation
         return true
     }
 
     fun canCommit(reservation: PlaybackTopologyMutationReservation): Boolean =
-        reservation.baseToken == currentToken && reservation.producerToken in pending
+        pendingReservation == reservation && reservation.baseToken == currentToken
 
     fun commit(reservation: PlaybackTopologyMutationReservation): Boolean {
         if (!canCommit(reservation)) return false
-        val identity = pending.remove(reservation.producerToken) ?: return false
-        committed[reservation.producerToken] = identity
+        pendingReservation = null
         currentToken = reservation.producerToken
-        while (committed.size > MAX_COMMITTED_HISTORY) {
-            val oldest = committed.keys.firstOrNull { it != currentToken } ?: break
-            committed.remove(oldest)
-        }
         return true
     }
 
-    fun abort(reservation: PlaybackTopologyMutationReservation): Boolean =
-        pending.remove(reservation.producerToken) != null
-
-    fun resolve(timeline: Timeline): PlaybackTopologyProducerToken? {
-        val identity = timelineIdentity(timeline)
-        val matches = buildList {
-            pending.forEach { (token, expected) -> if (expected == identity) add(token) }
-            committed.forEach { (token, expected) -> if (expected == identity) add(token) }
-        }.distinct()
-        return matches.singleOrNull()
+    fun abort(reservation: PlaybackTopologyMutationReservation): Boolean {
+        if (pendingReservation != reservation) return false
+        pendingReservation = null
+        return true
     }
-
-    fun queueIdentityEquivalent(left: List<MediaItem>, right: List<MediaItem>): Boolean =
-        TimelineIdentity(left.map(::producerComparable)) ==
-            TimelineIdentity(right.map(::producerComparable))
-
-    private fun timelineIdentity(timeline: Timeline): TimelineIdentity = TimelineIdentity(
-        (0 until timeline.windowCount).map { index ->
-            producerComparable(timeline.getWindow(index, Timeline.Window()).mediaItem)
-        },
-    )
 
     private fun originalTag(item: MediaItem): Any? =
         when (val tag = item.localConfiguration?.tag) {
@@ -117,13 +121,4 @@ internal class PlaybackTopologyMedia3Provenance(
             .setMediaMetadata(MediaMetadata.EMPTY)
             .setTag(originalTag(item))
             .build()
-
-    private fun producerComparable(item: MediaItem): MediaItem =
-        item.buildUpon()
-            .setMediaMetadata(MediaMetadata.EMPTY)
-            .build()
-
-    private companion object {
-        const val MAX_COMMITTED_HISTORY = 8
-    }
 }

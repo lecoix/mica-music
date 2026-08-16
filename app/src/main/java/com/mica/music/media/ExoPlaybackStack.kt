@@ -63,9 +63,13 @@ internal object ExoPlaybackStackFactory {
             manualNavigationTransitionBridge,
             playbackStack,
         )
-        val mediaSourceFactory = DefaultMediaSourceFactory(
-            dataSourceFactory,
-            MicaExtractorsFactory.create(),
+        val mediaSourceFactory = PlaybackTopologyMediaSourceFactory(
+            delegate = DefaultMediaSourceFactory(
+                dataSourceFactory,
+                MicaExtractorsFactory.create(),
+            ),
+            provenance = topologyProvenance,
+            streamProducerHandles = playbackStack.streamProducerHandles,
         )
         val playbackAudioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -110,12 +114,11 @@ internal object ExoPlaybackStackFactory {
         fun publishApplicationCurrentness(
             timeline: Timeline,
             mediaItem: MediaItem?,
+            producerToken: com.mica.music.media.usb.shadow.PlaybackTopologyProducerToken?,
             invalidatePlayingOccurrence: Boolean = false,
         ) {
             val mediaId = mediaItem?.mediaId
             val windowIndex = exoPlayer.currentMediaItemIndex.takeIf { it >= 0 }
-            val producerToken = topologyProvenance.resolve(timeline)
-                ?: topologyProvenance.producerTokenOf(mediaItem)
             producerToken?.let { playbackStack.observeApplicationMedia(mediaId, windowIndex, it) }
             val targetPeriodUid = mediaId?.let {
                 ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(
@@ -153,15 +156,20 @@ internal object ExoPlaybackStackFactory {
                 publishApplicationCurrentness(
                     exoPlayer.currentTimeline,
                     mediaItem,
+                    topologyProvenance.producerTokenOf(mediaItem),
                     invalidatePlayingOccurrence = true,
                 )
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                topologyProvenance.resolve(timeline)?.let { producerToken ->
+                val producerToken = topologyProvenance.producerTokenOf(timeline)
+                producerToken?.let {
                     playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason, producerToken)
                 }
-                publishApplicationCurrentness(timeline, exoPlayer.currentMediaItem)
+                val currentIndex = exoPlayer.currentMediaItemIndex
+                val callbackMediaItem = currentIndex.takeIf { it in 0 until timeline.windowCount }
+                    ?.let { timeline.getWindow(it, Timeline.Window()).mediaItem }
+                publishApplicationCurrentness(timeline, callbackMediaItem, producerToken)
             }
         })
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
@@ -182,7 +190,7 @@ internal object ExoPlaybackStackFactory {
                             eventTimeMediaId(eventTime.currentTimeline, it)
                         },
                         mediaPeriodId = eventTime.currentMediaPeriodId,
-                        producerToken = topologyProvenance.resolve(eventTime.currentTimeline),
+                        producerToken = topologyProvenance.producerTokenOf(eventTime.currentTimeline),
                     )
                 }
                 val exact = eventOwnedFacts.firstOrNull()?.takeIf { first ->

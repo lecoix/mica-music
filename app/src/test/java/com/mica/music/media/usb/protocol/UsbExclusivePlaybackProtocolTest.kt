@@ -1484,6 +1484,135 @@ class UsbExclusivePlaybackProtocolTest {
         assertNull(protocol.preparePcmConfigure(unbound.mutationId, adapterB, b, "pcm96"))
     }
 
+    @Test
+    fun topologyFencePreventsQueueClearActivationRaceAndCommitUsesReservedPlan() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val oldMutation = requireNotNull(
+            protocol.beginMutation(
+                MutationKind.MANUAL,
+                "B",
+                PlaybackFamily.PCM,
+                "pcm96",
+                b,
+                destinationAdapterInstanceId = adapterB,
+            ),
+        )
+
+        val reservation = requireNotNull(
+            protocol.reserveTopologyMutation("clear-race", TopologyCommitKind.QUEUE_CLEAR),
+        )
+        assertEquals(TopologyTransactionPhase.RESERVED_FENCED, protocol.snapshot().topologyTransaction?.phase)
+        assertNull(protocol.preparePcmConfigure(oldMutation.mutationId, adapterB, b, "pcm96"))
+        assertNull(protocol.beginManualMutationUnbound("C"))
+        assertFalse(protocol.observeAdapterStarted(adapterB, b))
+
+        assertTrue(protocol.markTopologyDispatchSucceeded(reservation))
+        assertTrue(protocol.commitTopologyMutation(reservation))
+        assertNull(protocol.snapshot().topologyTransaction)
+        assertEquals(null, protocol.snapshot().applicationCurrent.mediaId)
+        assertNull(protocol.snapshot().mutation)
+        assertFalse(protocol.commitTopologyMutation(reservation))
+    }
+
+    @Test
+    fun topologyFenceDeniesNewWriteLeaseAdmissionWhileExistingOwnerRemainsCaptured() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.registerAdapter(adapterA)
+        protocol.installOwnedFamilyForModel(
+            PlaybackFamily.PCM,
+            MutationId(1),
+            adapterA,
+            a,
+            RuntimeIdentity("pcm:topology-fence"),
+            facts = "pcm96",
+        )
+        val before = requireNotNull(protocol.tryEnterWrite(adapterA, a, WriteKind.PCM_DATA))
+        before.exit()
+
+        val reservation = requireNotNull(
+            protocol.reserveTopologyMutation("write-fence", TopologyCommitKind.TOPOLOGY_ONLY),
+        )
+        assertNull(protocol.tryEnterWrite(adapterA, a, WriteKind.PCM_DATA))
+        assertTrue(protocol.abortTopologyMutation(reservation))
+
+        val after = requireNotNull(protocol.tryEnterWrite(adapterA, a, WriteKind.PCM_DATA))
+        after.exit()
+    }
+
+    @Test
+    fun topologyReservationAbortPreservesOldAuthorityAndSupersedingOwnerIsRejected() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        val old = requireNotNull(protocol.beginManualMutationUnbound("B"))
+
+        val first = requireNotNull(
+            protocol.reserveTopologyMutation("first", TopologyCommitKind.TOPOLOGY_ONLY),
+        )
+        assertNull(protocol.reserveTopologyMutation("second", TopologyCommitKind.TOPOLOGY_ONLY))
+        assertEquals(old.mutationId, protocol.snapshot().mutation?.mutationId)
+        assertTrue(protocol.abortTopologyMutation(first))
+        assertEquals(old.mutationId, protocol.snapshot().mutation?.mutationId)
+        assertFalse(protocol.abortTopologyMutation(first))
+        assertNotNull(protocol.reserveTopologyMutation("third", TopologyCommitKind.TOPOLOGY_ONLY))
+    }
+
+    @Test
+    fun topologyFenceAllowsIntentAndOutputInvalidationWithoutMakingCommitFallible() {
+        val ledger = PlaybackIntentLedger()
+        val protocol = UsbExclusivePlaybackProtocol(
+            ledger,
+            PlaybackStackId(1),
+            OutputTarget.UsbBound(UsbOutputGeneration(61)),
+        )
+        val reservation = requireNotNull(
+            protocol.reserveTopologyMutation("output-change", TopologyCommitKind.TOPOLOGY_ONLY),
+        )
+        ledger.publish(PlaybackIntent.PAUSE)
+        assertEquals(PlaybackIntent.PAUSE, protocol.adoptLatestIntent().desired)
+        protocol.updateOutputTarget(OutputTarget.UsbBound(UsbOutputGeneration(62)))
+        assertTrue(protocol.markTopologyDispatchSucceeded(reservation))
+        assertTrue(protocol.commitTopologyMutation(reservation))
+        assertEquals(OutputTarget.UsbBound(UsbOutputGeneration(62)), protocol.snapshot().outputTarget)
+    }
+
+    @Test
+    fun retirementLatchesUntilTopologyTransactionResolves() {
+        val (_, protocol) = fresh()
+        val reservation = requireNotNull(
+            protocol.reserveTopologyMutation("retire-during-dispatch", TopologyCommitKind.TOPOLOGY_ONLY),
+        )
+        protocol.beginRetiring()
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Active)
+        assertTrue(requireNotNull(protocol.snapshot().topologyTransaction).retirementLatched)
+        assertTrue(protocol.markTopologyDispatchSucceeded(reservation))
+        assertTrue(protocol.commitTopologyMutation(reservation))
+        assertFalse(protocol.snapshot().lifecycle is ProtocolLifecycle.Active)
+        assertNull(protocol.snapshot().topologyTransaction)
+    }
+
+    @Test
+    fun uncertainTopologyDispatchStaysFencedUntilRetirementBoundary() {
+        val (_, protocol) = fresh()
+        val reservation = requireNotNull(
+            protocol.reserveTopologyMutation("uncertain", TopologyCommitKind.MANUAL_TARGET, "B"),
+        )
+        assertTrue(protocol.markTopologyDispatchUncertain(reservation))
+        assertEquals(
+            TopologyTransactionPhase.RECONCILIATION_REQUIRED,
+            protocol.snapshot().topologyTransaction?.phase,
+        )
+        assertNull(protocol.beginManualMutationUnbound("C"))
+        assertFalse(protocol.abortTopologyMutation(reservation))
+        assertFalse(protocol.markTopologyDispatchSucceeded(reservation))
+        protocol.beginRetiring()
+        assertNull(protocol.snapshot().topologyTransaction)
+        assertFalse(protocol.snapshot().lifecycle is ProtocolLifecycle.Active)
+    }
+
     private fun fresh(output: OutputTarget = OutputTarget.SharedPcm): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
         val ledger = PlaybackIntentLedger()
         val protocol = UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(1), output)

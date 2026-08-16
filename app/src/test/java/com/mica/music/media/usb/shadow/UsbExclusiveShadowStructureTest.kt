@@ -53,33 +53,43 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("fun topologyFacts")
         assertOrdered(
             currentness,
-            "val producerToken = topologyProvenance.resolve(timeline)",
-            "?: topologyProvenance.producerTokenOf(mediaItem)",
             "producerToken?.let { playbackStack.observeApplicationMedia(mediaId, windowIndex, it) }",
             "ManualNavigationTimelinePeriodResolver.resolveSinglePeriodUid(",
             "manualNavigationTransitionBridge.updateApplicationCurrentness(",
         )
+        assertFalse(currentness.contains("topologyProvenance.resolve("))
+
         val itemTransition = source.substringAfter("override fun onMediaItemTransition")
             .substringBefore("override fun onTimelineChanged")
-        assertTrue(itemTransition.contains("publishApplicationCurrentness("))
+        assertOrdered(
+            itemTransition,
+            "topologyProvenance.producerTokenOf(mediaItem)",
+            "invalidatePlayingOccurrence = true",
+        )
+
         val timeline = source.substringAfter("override fun onTimelineChanged")
             .substringBefore("exoPlayer.addAnalyticsListener")
         assertOrdered(
             timeline,
-            "topologyProvenance.resolve(timeline)?.let { producerToken ->",
+            "val producerToken = topologyProvenance.producerTokenOf(timeline)",
             "playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason, producerToken)",
-            "publishApplicationCurrentness(timeline, exoPlayer.currentMediaItem)",
+            "val callbackMediaItem",
+            "publishApplicationCurrentness(timeline, callbackMediaItem, producerToken)",
         )
         assertFalse(timeline.contains("advancePlaybackTopology"))
+        assertFalse(timeline.contains("topologyProvenance.resolve("))
+
         val analytics = source.substringAfter("exoPlayer.addAnalyticsListener")
         assertOrdered(
             analytics,
             "eventTime.currentWindowIndex",
             "eventTimeMediaId(eventTime.currentTimeline, it)",
+            "topologyProvenance.producerTokenOf(eventTime.currentTimeline)",
             "playbackStack.observeEventTimeCurrent(",
             "manualNavigationTransitionBridge.updateApplicationPlayingOccurrence(",
         )
         assertFalse(analytics.contains("player.currentMediaItem"))
+        assertFalse(analytics.contains("topologyProvenance.resolve("))
     }
 
     @Test
@@ -204,50 +214,181 @@ class UsbExclusiveShadowStructureTest {
     fun applicationTopologyTransactionSurroundsCanonicalDispatchAndTimelineCannotAdvanceIt() {
         val composite = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
         val setItems = composite.substringAfter("override fun setMediaItems(")
-            .substringBefore("override fun addMediaItem")
+            .substringBefore("override fun setMediaItem(mediaItem: MediaItem)")
         assertOrdered(
             setItems,
-            "reserveTopologyMutation(\"set-media-items\")",
-            "topologyProvenance.tagForProducer",
+            "reserveTopologyMutation(",
+            "\"set-media-items\"",
+            "topologyProvenance.tagForProducer(mediaItems, reservation.producerToken)",
             "prepareTopologyProvenance(reservation, taggedItems)",
             "prepareQueueMutation(",
             "super.setMediaItems(taggedItems, startIndex, startPositionMs)",
             "commitTopologyMutation(reservation)",
         )
-        assertTrue(setItems.contains("abortTopologyMutation(reservation, \"exo-dispatch-error\")"))
+        assertTrue(setItems.contains("markTopologyDispatchUncertain(reservation, \"set-media-items-exception\")"))
+        assertFalse(setItems.contains("abortTopologyMutation(reservation, \"exo-dispatch-error\")"))
+
         val queuePrepare = composite.substringAfter("private fun prepareQueueMutation(")
             .substringBefore("private fun currentQueueItems")
-        assertOrdered(
-            queuePrepare,
-            "topologyReservation?.let(playbackStack::stageTopologyQueueClear)",
-            "topologyReservation?.let { abortTopologyMutation(it, \"queue-mutation-prepare-error\") }",
-        )
+        assertTrue(queuePrepare.contains("topologyReservation?.let(playbackStack::stageTopologyQueueClear)"))
+        assertTrue(queuePrepare.contains("abortTopologyMutation(it, \"queue-mutation-prepare-error\")"))
 
-        val replace = composite.substringAfter("override fun replaceMediaItem(")
+        val commit = composite.substringAfter("private fun commitTopologyMutation(")
+            .substringBefore("private fun abortTopologyMutation(")
+        assertOrdered(
+            commit,
+            "topologyProvenance.canCommit(reservation)",
+            "playbackStack.markPlaybackTopologyDispatchSucceeded(reservation)",
+            "playbackStack.commitPlaybackTopologyMutation(reservation)",
+            "topologyProvenance.commit(reservation)",
+        )
+        assertFalse(commit.contains("beginQueueClear("))
+        assertFalse(commit.contains("beginManualMutationUnbound("))
+
+        val replace = composite.substringAfter("override fun replaceMediaItems(")
             .substringBefore("fun startExoPlayback")
         assertOrdered(
             replace,
-            "topologyProvenance.playbackSourceEquivalent(previous, mediaItem)",
-            "topologyProvenance.preserveProducerTag(previous, mediaItem)",
-            "return",
-            "reserveTopologyMutation(\"replace-media-item\")",
+            "topologyProvenance.queuePlaybackSourceEquivalent(current, expected)",
+            "topologyProvenance.preserveProducerTag(current[index], expected[index])",
+            "dispatchCanonicalTopologyReplacement(",
+            "seam = \"replace-media-items\"",
         )
+        assertTrue(replace.contains("queueRevision++\n            return\n        }"))
+
+        val canonicalHelper = composite.substringAfter("private fun dispatchCanonicalTopologyReplacement(")
+            .substringBefore("private fun reserveTopologyMutation(")
+        assertOrdered(
+            canonicalHelper,
+            "reserveTopologyMutation(seam, targetMediaId, queueClear)",
+            "topologyProvenance.tagForProducer(expectedItems, reservation.producerToken)",
+            "prepareTopologyProvenance(reservation, taggedItems)",
+            "super.setMediaItems(",
+            "commitTopologyMutation(reservation)",
+        )
+        listOf("add-media-items", "move-media-items", "remove-media-items", "replace-media-items").forEach { seam ->
+            assertTrue("missing canonical full-queue seam $seam", composite.contains("seam = \"$seam\""))
+        }
 
         val start = composite.substringAfter("fun startExoPlayback(")
             .substringBefore("fun startExistingItem")
         assertOrdered(
             start,
-            "reserveTopologyMutation(\"start-exo-playback\")",
+            "topologyProvenance.queuePlaybackSourceEquivalent(currentItems, mediaItems)",
+            "startExistingItem(safeIndex, startPositionMs, playWhenReady)",
+            "reserveTopologyMutation(",
+            "\"start-exo-playback\"",
+            "topologyProvenance.tagForProducer(mediaItems, reservation.producerToken)",
             "prepareTopologyProvenance(reservation, taggedItems)",
-            "prepareQueueMutation(",
             "exoPlayer.setMediaItems(taggedItems, safeIndex, startPositionMs.coerceAtLeast(0L))",
             "commitTopologyMutation(reservation)",
         )
+
         val stack = source("app/src/main/java/com/mica/music/media/ExoPlaybackStack.kt")
         val timeline = stack.substringAfter("override fun onTimelineChanged")
             .substringBefore("exoPlayer.addAnalyticsListener")
         assertTrue(timeline.contains("playbackStack.observeTimelineSnapshot(topologyFacts(timeline), reason, producerToken)"))
         assertFalse(timeline.contains("advancePlaybackTopology"))
+        assertFalse(timeline.contains("topologyProvenance.resolve("))
+    }
+
+    @Test
+    fun canonicalTopologySeamsDelegateAndFenceBeforeFullQueueDispatch() {
+        val composite = source("app/src/main/java/com/mica/music/media/MicaCompositePlayer.kt")
+
+        val addSingle = composite.substringAfter("override fun addMediaItem(index: Int, mediaItem: MediaItem)")
+            .substringBefore("override fun moveMediaItem")
+        assertTrue(addSingle.contains("addMediaItems(index, listOf(mediaItem))"))
+        val moveSingle = composite.substringAfter("override fun moveMediaItem(currentIndex: Int, newIndex: Int)")
+            .substringBefore("override fun moveMediaItems")
+        assertTrue(moveSingle.contains("moveMediaItems(currentIndex, currentIndex + 1, newIndex)"))
+        val removeSingle = composite.substringAfter("override fun removeMediaItem(index: Int)")
+            .substringBefore("override fun removeMediaItems")
+        assertTrue(removeSingle.contains("removeMediaItems(index, index + 1)"))
+        val replaceSingle = composite.substringAfter("override fun replaceMediaItem(index: Int, mediaItem: MediaItem)")
+            .substringBefore("override fun replaceMediaItems")
+        assertTrue(replaceSingle.contains("replaceMediaItems(index, index + 1, listOf(mediaItem))"))
+
+        val addBulk = composite.substringAfter("override fun addMediaItems(index: Int, mediaItems: List<MediaItem>)")
+            .substringBefore("override fun addMediaItem(index: Int")
+        assertOrdered(
+            addBulk,
+            "require(index >= 0)",
+            "val insertionIndex = index.coerceAtMost(current.size)",
+            "dispatchCanonicalTopologyReplacement(",
+            "seam = \"add-media-items\"",
+        )
+
+        val moveBulk = composite.substringAfter("override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int)")
+            .substringBefore("override fun removeMediaItem")
+        assertOrdered(
+            moveBulk,
+            "require(fromIndex >= 0 && fromIndex <= toIndex && newIndex >= 0)",
+            "val effectiveToIndex = toIndex.coerceAtMost(current.size)",
+            "val effectiveNewIndex = newIndex.coerceAtMost(current.size - movedCount)",
+            "indexed.addAll(effectiveNewIndex, moved)",
+            "dispatchCanonicalTopologyReplacement(",
+            "seam = \"move-media-items\"",
+        )
+
+        val removeBulk = composite.substringAfter("override fun removeMediaItems(fromIndex: Int, toIndex: Int)")
+            .substringBefore("override fun clearMediaItems")
+        assertOrdered(
+            removeBulk,
+            "require(fromIndex >= 0 && toIndex >= fromIndex)",
+            "val effectiveToIndex = toIndex.coerceAtMost(current.size)",
+            "dispatchCanonicalTopologyReplacement(",
+            "seam = \"remove-media-items\"",
+        )
+
+        val replaceBulk = composite.substringAfter("override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>)")
+            .substringBefore("fun startExoPlayback")
+        assertOrdered(
+            replaceBulk,
+            "require(fromIndex >= 0 && toIndex >= fromIndex)",
+            "if (fromIndex > current.size) return",
+            "val effectiveToIndex = toIndex.coerceAtMost(current.size)",
+            "topologyProvenance.queuePlaybackSourceEquivalent(current, expected)",
+            "topologyProvenance.preserveProducerTag(current[index], expected[index])",
+            "dispatchCanonicalTopologyReplacement(",
+            "seam = \"replace-media-items\"",
+        )
+
+        val clear = composite.substringAfter("override fun clearMediaItems()")
+            .substringBefore("override fun replaceMediaItem")
+        assertOrdered(
+            clear,
+            "reserveTopologyMutation(\"clear-media-items\", queueClear = true)",
+            "prepareTopologyProvenance(reservation, emptyList())",
+            "playbackStack.stageTopologyQueueClear(reservation)",
+            "super.clearMediaItems()",
+            "markTopologyDispatchUncertain(reservation, \"clear-media-items-exception\")",
+            "commitTopologyMutation(reservation)",
+        )
+
+        val selectReplacement = composite.substringAfter("fun selectWithoutPlayback(")
+            .substringBefore("override fun seekTo(mediaItemIndex")
+        assertOrdered(
+            selectReplacement,
+            "topologyProvenance.queuePlaybackSourceEquivalent(currentItems, mediaItems)",
+            "selectExistingWithoutPlayback(safeIndex, startPositionMs)",
+            "reserveTopologyMutation(",
+            "\"select-without-playback\"",
+            "targetMediaId = targetId",
+            "topologyProvenance.tagForProducer(mediaItems, reservation.producerToken)",
+            "prepareTopologyProvenance(reservation, taggedItems)",
+            "prepareQueueMutation(",
+            "exoPlayer.setMediaItems(taggedItems, safeIndex, startPositionMs.coerceAtLeast(0L))",
+            "markTopologyDispatchUncertain(reservation, \"select-without-playback-set-items-exception\")",
+            "commitTopologyMutation(reservation)",
+        )
+        assertTrue(
+            selectReplacement.contains(
+                "selectExistingWithoutPlayback(safeIndex, startPositionMs)\n            return",
+            ),
+        )
+        assertTrue(selectReplacement.contains("abortTopologyMutation(reservation, \"pre-dispatch-error\")"))
+        assertFalse(selectReplacement.contains("if (!dispatched) abortTopologyMutation"))
     }
 
     @Test
@@ -274,7 +415,38 @@ class UsbExclusiveShadowStructureTest {
         val provenance = source("app/src/main/java/com/mica/music/media/PlaybackTopologyMedia3Provenance.kt")
         assertTrue(provenance.contains("setMediaMetadata(MediaMetadata.EMPTY)"))
         assertTrue(provenance.contains("fun preserveProducerTag(previous: MediaItem, replacement: MediaItem)"))
-        assertTrue(provenance.contains("fun resolve(timeline: Timeline): PlaybackTopologyProducerToken?"))
+        assertTrue(provenance.contains("fun producerTokenOf(items: List<MediaItem>): PlaybackTopologyProducerToken?"))
+        assertTrue(provenance.contains("fun producerTokenOf(timeline: Timeline): PlaybackTopologyProducerToken?"))
+        assertFalse(provenance.contains("TimelineIdentity"))
+        assertFalse(provenance.contains("fun resolve("))
+        assertFalse(provenance.contains("MAX_COMMITTED_HISTORY"))
+
+        val mediaSource = source("app/src/main/java/com/mica/music/media/PlaybackTopologyMediaSourceFactory.kt")
+        assertOrdered(
+            mediaSource,
+            "provenance.producerTokenOf(mediaItem)",
+            "override fun createPeriod(",
+            "streamProducerHandles.capture(",
+            "occurrence = UsbExclusiveShadowMedia3Facts.occurrence(id)",
+        )
+        val handleRegistry = source("app/src/main/java/com/mica/music/media/usb/shadow/StreamProducerHandleRegistry.kt")
+        assertTrue(handleRegistry.contains("data class StreamProducerHandle("))
+        assertTrue(handleRegistry.contains("val producerToken: PlaybackTopologyProducerToken"))
+        assertTrue(handleRegistry.contains("val occurrence: PlaybackOccurrence"))
+        assertTrue(handleRegistry.contains("val sourceInstanceId: StreamSourceInstanceId"))
+        assertTrue(handleRegistry.contains("val periodInstanceId: StreamPeriodInstanceId"))
+        assertTrue(handleRegistry.contains("active.values.singleOrNull { it.occurrence == occurrence }"))
+
+        val adapter = coordinator.substringAfter("internal class UsbExclusiveShadowAdapter")
+        assertOrdered(
+            adapter,
+            "stack.streamProducerHandles.redeem(occurrence)?.producerToken",
+            "stack.observeRawStream(this, occurrence, family, facts, exactProducer)",
+        )
+        assertFalse(coordinator.contains("scopeUnscopedRawStreams"))
+        assertFalse(coordinator.contains("scopeExactUnscopedRawStreams"))
+        assertFalse(coordinator.contains("periodUidLastObservedEpoch"))
+        assertFalse(coordinator.contains("ambiguousPeriodUids"))
         val usable = coordinator.substringAfter("private fun PlaybackOutputFacts.usableUsbTarget")
             .substringBefore("private companion object")
         listOf(

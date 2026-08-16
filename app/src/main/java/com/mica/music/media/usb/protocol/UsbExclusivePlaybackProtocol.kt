@@ -11,6 +11,7 @@ data class SideEffectReceiptId(val value: Long)
 data class PlaybackOccurrence(val periodUid: Any, val windowSequenceNumber: Long)
 data class RuntimeIdentity(val value: String)
 data class RequestAlias(val value: Long)
+data class TopologyReservationId(val value: Long)
 
 enum class PlaybackFamily { PCM, DOP }
 enum class MutationKind { MANUAL, AUTO_NEXT, SEEK, OUTPUT_REBUILD }
@@ -22,6 +23,23 @@ enum class RetirementScope {
 }
 enum class CleanupContinuation { RETRY_SAME_MUTATION, TERMINAL }
 enum class DirectStage { CREATE_RUNTIME, PREFILL, ARM, SOURCE_ACCEPT }
+enum class TopologyCommitKind { TOPOLOGY_ONLY, MANUAL_TARGET, QUEUE_CLEAR }
+enum class TopologyTransactionPhase { RESERVED_FENCED, DISPATCHED, RECONCILIATION_REQUIRED }
+
+data class ProtocolTopologyReservation(
+    val reservationId: TopologyReservationId,
+    val stackId: PlaybackStackId,
+    val seam: String,
+    val kind: TopologyCommitKind,
+    val targetMediaId: String?,
+    val reservedMutationId: MutationId?,
+)
+
+data class TopologyTransactionSnapshot(
+    val reservation: ProtocolTopologyReservation,
+    val phase: TopologyTransactionPhase,
+    val retirementLatched: Boolean,
+)
 
 sealed interface OutputTarget {
     data object SharedPcm : OutputTarget
@@ -328,6 +346,7 @@ data class UsbExclusiveProtocolSnapshot(
     val candidates: Set<CandidateOccurrence>,
     val inFlightActivations: Set<ActivationId>,
     val cleanupRequirements: Set<ResourceIdentity>,
+    val topologyTransaction: TopologyTransactionSnapshot?,
 )
 
 /**
@@ -360,6 +379,8 @@ class UsbExclusivePlaybackProtocol(
     private var directActivation: DirectActivationState? = null
     private var retiringDirectRuntimeRelease: RetiringDirectRuntimeRelease? = null
     private var issuedRetiringDirectRuntimeReceipt: SourceRetirementReceipt? = null
+    private var nextTopologyReservationId = 0L
+    private var topologyTransaction: TopologyTransaction? = null
 
     private data class StartedAuthority(
         val mutationId: MutationId,
@@ -392,6 +413,31 @@ class UsbExclusivePlaybackProtocol(
         val observedFamilyProof: FamilyProof.DirectFamilyReleased? = null,
     )
 
+    private data class CapturedTopologySource(
+        val ownershipId: FamilyOwnershipId,
+        val mutationId: MutationId,
+        val occurrence: PlaybackOccurrence,
+        val adapterInstanceId: AdapterInstanceId,
+        val family: PlaybackFamily,
+        val facts: String,
+        val runtimeIdentity: RuntimeIdentity,
+        val writeLease: ActiveWriteLease,
+    )
+
+    private data class TopologyCommitPlan(
+        val kind: TopologyCommitKind,
+        val targetMediaId: String?,
+        val reservedMutationId: MutationId?,
+        val capturedSource: CapturedTopologySource?,
+    )
+
+    private data class TopologyTransaction(
+        val reservation: ProtocolTopologyReservation,
+        val plan: TopologyCommitPlan,
+        var phase: TopologyTransactionPhase = TopologyTransactionPhase.RESERVED_FENCED,
+        var retirementLatched: Boolean = false,
+    )
+
     private enum class ActivationKind { PCM_CONFIGURE, RETAINED_PCM, RETAINED_DIRECT, DIRECT }
 
     @Synchronized
@@ -403,7 +449,7 @@ class UsbExclusivePlaybackProtocol(
 
     @Synchronized
     fun observeAdapterStarted(adapterInstanceId: AdapterInstanceId, occurrence: PlaybackOccurrence): Boolean {
-        if (lifecycle !is ProtocolLifecycle.Active || adapterInstanceId !in adapters) return false
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null || adapterInstanceId !in adapters) return false
         val currentMutation = mutation ?: return false
         if (currentMutation.targetOccurrence != occurrence) return false
         val direct = directActivation ?: return false
@@ -444,6 +490,161 @@ class UsbExclusivePlaybackProtocol(
     fun restoreAfterTechnicalQuiesce(@Suppress("UNUSED_PARAMETER") captured: IntentRevision): IntentSnapshot =
         if (lifecycle is ProtocolLifecycle.Active) adoptLatestIntent() else adoptedIntent
 
+    /**
+     * Acquires the one protocol-owned topology fence. This is the only fallible authority gate for
+     * a real application topology side effect: all state needed by the later commit is captured
+     * here, before the caller leaves the protocol lock to invoke Media3.
+     */
+    @Synchronized
+    fun reserveTopologyMutation(
+        seam: String,
+        kind: TopologyCommitKind,
+        targetMediaId: String? = null,
+    ): ProtocolTopologyReservation? {
+        if (
+            lifecycle !is ProtocolLifecycle.Active ||
+            topologyTransaction != null ||
+            activations.isNotEmpty() ||
+            cleanupRequirements.isNotEmpty()
+        ) return null
+        if (seam.isBlank()) return null
+        if (kind == TopologyCommitKind.MANUAL_TARGET && targetMediaId.isNullOrBlank()) return null
+        if (kind != TopologyCommitKind.MANUAL_TARGET && targetMediaId != null) return null
+
+        val source = captureTopologySourceLocked()
+        if (kind == TopologyCommitKind.QUEUE_CLEAR && familyOwnership !is FamilyOwnership.None && source == null) {
+            return null
+        }
+        if (kind == TopologyCommitKind.QUEUE_CLEAR && source?.writeLease?.isDrained() == false) {
+            return null
+        }
+        val reservedMutationId = when {
+            kind == TopologyCommitKind.MANUAL_TARGET -> MutationId(++nextMutationId)
+            kind == TopologyCommitKind.QUEUE_CLEAR && source != null -> MutationId(++nextMutationId)
+            else -> null
+        }
+        val reservation = ProtocolTopologyReservation(
+            reservationId = TopologyReservationId(++nextTopologyReservationId),
+            stackId = stackId,
+            seam = seam,
+            kind = kind,
+            targetMediaId = targetMediaId,
+            reservedMutationId = reservedMutationId,
+        )
+        topologyTransaction = TopologyTransaction(
+            reservation = reservation,
+            plan = TopologyCommitPlan(kind, targetMediaId, reservedMutationId, source),
+        )
+        return reservation
+    }
+
+    /** Records that the canonical Media3 topology side effect returned successfully. */
+    @Synchronized
+    fun markTopologyDispatchSucceeded(reservation: ProtocolTopologyReservation): Boolean {
+        val transaction = topologyTransaction ?: return false
+        if (
+            transaction.reservation != reservation ||
+            transaction.phase != TopologyTransactionPhase.RESERVED_FENCED
+        ) return false
+        transaction.phase = TopologyTransactionPhase.DISPATCHED
+        return true
+    }
+
+    /**
+     * Ordinary abort is legal only while the transaction is still pre-dispatch and the caller can
+     * prove no topology side effect occurred.
+     */
+    @Synchronized
+    fun abortTopologyMutation(reservation: ProtocolTopologyReservation): Boolean {
+        val transaction = topologyTransaction ?: return false
+        if (
+            transaction.reservation != reservation ||
+            transaction.phase != TopologyTransactionPhase.RESERVED_FENCED
+        ) return false
+        finishTopologyTransactionLocked(transaction.retirementLatched)
+        return true
+    }
+
+    /**
+     * A thrown/unknown Media3 result after dispatch has started may not be rewritten as a clean
+     * abort. Keep the fence installed, revoke current write authority, and wait for the existing
+     * stack retirement/rebuild boundary to reconcile the unknown topology.
+     */
+    @Synchronized
+    fun markTopologyDispatchUncertain(reservation: ProtocolTopologyReservation): Boolean {
+        val transaction = topologyTransaction ?: return false
+        if (
+            transaction.reservation != reservation ||
+            transaction.phase != TopologyTransactionPhase.RESERVED_FENCED
+        ) return false
+        transaction.phase = TopologyTransactionPhase.RECONCILIATION_REQUIRED
+        familyOwnership.writeLeaseOrNull()?.revoke()
+        startedAuthorities.clear()
+        return true
+    }
+
+    /**
+     * Monotonic post-dispatch commit. No live canBegin/begin predicate is evaluated here: the
+     * commit consumes only the exact plan captured while acquiring the fence.
+     */
+    @Synchronized
+    fun commitTopologyMutation(reservation: ProtocolTopologyReservation): Boolean {
+        val transaction = topologyTransaction ?: return false
+        if (
+            transaction.reservation != reservation ||
+            transaction.phase != TopologyTransactionPhase.DISPATCHED
+        ) return false
+        val plan = transaction.plan
+        issuedRetirementReceiptsByMutation.clear()
+        reclassifyUncommittedAuthorityLocked(retiring = false)
+        startedAuthorities.clear()
+        candidates.clear()
+
+        mutation = when (plan.kind) {
+            TopologyCommitKind.TOPOLOGY_ONLY -> null
+            TopologyCommitKind.MANUAL_TARGET -> {
+                val id = checkNotNull(plan.reservedMutationId)
+                MutationEpoch(
+                    mutationId = id,
+                    kind = MutationKind.MANUAL,
+                    requestAlias = null,
+                    sourceOwnershipId = plan.capturedSource?.ownershipId,
+                    sourceOccurrence = plan.capturedSource?.occurrence,
+                    targetMediaId = checkNotNull(plan.targetMediaId),
+                    targetOccurrence = null,
+                    targetFamily = PlaybackFamily.PCM,
+                    targetFacts = "",
+                    destinationAdapterInstanceId = null,
+                    destinationBound = false,
+                )
+            }
+            TopologyCommitKind.QUEUE_CLEAR -> {
+                applicationCurrent = ApplicationCurrent(null, null, null)
+                val source = plan.capturedSource
+                if (source == null) {
+                    null
+                } else {
+                    source.writeLease.revoke()
+                    MutationEpoch(
+                        mutationId = checkNotNull(plan.reservedMutationId),
+                        kind = MutationKind.MANUAL,
+                        requestAlias = null,
+                        sourceOwnershipId = source.ownershipId,
+                        sourceOccurrence = source.occurrence,
+                        targetMediaId = "__queue_clear__:${plan.reservedMutationId.value}",
+                        targetOccurrence = source.occurrence,
+                        targetFamily = source.family,
+                        targetFacts = source.facts,
+                        destinationAdapterInstanceId = source.adapterInstanceId,
+                        destinationBound = true,
+                    )
+                }
+            }
+        }
+        finishTopologyTransactionLocked(transaction.retirementLatched)
+        return true
+    }
+
     @Synchronized
     fun updateApplicationCurrent(mediaId: String?, periodUid: Any?, occurrence: PlaybackOccurrence?) {
         if (lifecycle !is ProtocolLifecycle.Active) return
@@ -457,7 +658,12 @@ class UsbExclusivePlaybackProtocol(
      */
     @Synchronized
     fun canBeginQueueClear(): Boolean {
-        if (lifecycle !is ProtocolLifecycle.Active || activations.isNotEmpty() || cleanupRequirements.isNotEmpty()) return false
+        if (
+            lifecycle !is ProtocolLifecycle.Active ||
+            topologyTransaction != null ||
+            activations.isNotEmpty() ||
+            cleanupRequirements.isNotEmpty()
+        ) return false
         val source = familyOwnership
         val lease = source.writeLeaseOrNull()
         if (lease != null && !lease.isDrained()) return false
@@ -521,7 +727,7 @@ class UsbExclusivePlaybackProtocol(
         requestAlias: RequestAlias? = null,
         causalHandleFactory: ((MutationId) -> MutationCausalHandle)? = null,
     ): MutationEpoch? {
-        if (lifecycle !is ProtocolLifecycle.Active) return null
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null) return null
         if (kind == MutationKind.AUTO_NEXT) return null
         return beginMutationLocked(
             kind = kind,
@@ -537,7 +743,7 @@ class UsbExclusivePlaybackProtocol(
 
     @Synchronized
     fun adoptAutoCandidate(mediaId: String, occurrence: PlaybackOccurrence): MutationEpoch? {
-        if (lifecycle !is ProtocolLifecycle.Active) return null
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null) return null
         if (applicationCurrent.mediaId != mediaId || applicationCurrent.occurrence != occurrence) return null
         val candidate = candidates.singleOrNull { it.mediaId == mediaId && it.occurrence == occurrence } ?: return null
         return beginMutationLocked(
@@ -560,7 +766,7 @@ class UsbExclusivePlaybackProtocol(
         targetMediaId: String,
         requestAlias: RequestAlias? = null,
     ): MutationEpoch? {
-        if (lifecycle !is ProtocolLifecycle.Active || targetMediaId.isBlank()) return null
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null || targetMediaId.isBlank()) return null
         val source = familyOwnership
         val id = MutationId(nextMutationId + 1)
         issuedRetirementReceiptsByMutation.clear()
@@ -590,6 +796,7 @@ class UsbExclusivePlaybackProtocol(
     ): Boolean {
         if (
             lifecycle !is ProtocolLifecycle.Active ||
+            topologyTransaction != null ||
             targetFacts.isBlank() ||
             destinationAdapterInstanceId !in adapters
         ) return false
@@ -674,7 +881,7 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun bindTargetOccurrence(mutationId: MutationId, occurrence: PlaybackOccurrence): Boolean {
         val epoch = mutation ?: return false
-        if (lifecycle !is ProtocolLifecycle.Active || epoch.mutationId != mutationId) return false
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null || epoch.mutationId != mutationId) return false
         if (applicationCurrent.mediaId != epoch.targetMediaId || applicationCurrent.occurrence != occurrence) return false
         mutation = epoch.copy(targetOccurrence = occurrence)
         return true
@@ -925,6 +1132,7 @@ class UsbExclusivePlaybackProtocol(
         val owned = familyOwnership as? FamilyOwnership.DopOwned ?: return null
         if (
             lifecycle !is ProtocolLifecycle.Active ||
+            topologyTransaction != null ||
             adapterInstanceId !in adapters ||
             !epoch.destinationBound ||
             epoch.mutationId != mutationId ||
@@ -1399,6 +1607,21 @@ class UsbExclusivePlaybackProtocol(
     @Synchronized
     fun beginRetiring() {
         if (lifecycle !is ProtocolLifecycle.Active) return
+        val transaction = topologyTransaction
+        if (transaction != null) {
+            if (transaction.phase == TopologyTransactionPhase.RECONCILIATION_REQUIRED) {
+                topologyTransaction = null
+                beginRetiringLocked()
+            } else {
+                transaction.retirementLatched = true
+            }
+            return
+        }
+        beginRetiringLocked()
+    }
+
+    private fun beginRetiringLocked() {
+        if (lifecycle !is ProtocolLifecycle.Active) return
         issuedRetirementReceiptsByMutation.clear()
         familyOwnership.writeLeaseOrNull()?.revoke()
         reclassifyUncommittedAuthorityLocked(retiring = true)
@@ -1428,10 +1651,61 @@ class UsbExclusivePlaybackProtocol(
         candidates = candidates.toSet(),
         inFlightActivations = activations.keys.toSet(),
         cleanupRequirements = cleanupRequirements.keys.toSet(),
+        topologyTransaction = topologyTransaction?.let {
+            TopologyTransactionSnapshot(it.reservation, it.phase, it.retirementLatched)
+        },
     )
 
     @Synchronized
     fun currentWriteLease(): ActiveWriteLease? = familyOwnership.writeLeaseOrNull()
+
+    /**
+     * Atomically gates a new data-plane admission with the protocol-owned topology fence. Existing
+     * entered writers may still drain and exit, but no new write admission may start while a
+     * topology transaction is outside the protocol lock.
+     */
+    @Synchronized
+    fun tryEnterWrite(
+        adapterInstanceId: AdapterInstanceId,
+        occurrence: PlaybackOccurrence,
+        writeKind: WriteKind,
+    ): ActiveWriteLease? {
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null) return null
+        val lease = familyOwnership.writeLeaseOrNull() ?: return null
+        if (lease.identity.adapterInstanceId != adapterInstanceId || lease.identity.occurrence != occurrence) return null
+        return lease.takeIf {
+            it.tryEnter(occurrence, lease.identity.mutationId, adapterInstanceId, writeKind)
+        }
+    }
+
+    private fun captureTopologySourceLocked(): CapturedTopologySource? = when (val source = familyOwnership) {
+        FamilyOwnership.None -> null
+        is FamilyOwnership.PcmOwned -> CapturedTopologySource(
+            source.ownershipId,
+            source.mutationId,
+            source.occurrence,
+            source.adapterInstanceId,
+            PlaybackFamily.PCM,
+            source.facts,
+            source.runtimeIdentity,
+            source.writeLease,
+        )
+        is FamilyOwnership.DopOwned -> CapturedTopologySource(
+            source.ownershipId,
+            source.mutationId,
+            source.occurrence,
+            source.adapterInstanceId,
+            PlaybackFamily.DOP,
+            source.facts,
+            source.runtimeIdentity,
+            source.writeLease,
+        )
+    }
+
+    private fun finishTopologyTransactionLocked(retirementLatched: Boolean) {
+        topologyTransaction = null
+        if (retirementLatched) beginRetiringLocked()
+    }
 
     private fun canPrepareLocked(
         mutationId: MutationId,
@@ -1441,7 +1715,7 @@ class UsbExclusivePlaybackProtocol(
         facts: String,
         requirePlay: Boolean,
     ): Boolean {
-        if (lifecycle !is ProtocolLifecycle.Active || adapterInstanceId !in adapters) return false
+        if (lifecycle !is ProtocolLifecycle.Active || topologyTransaction != null || adapterInstanceId !in adapters) return false
         val epoch = mutation ?: return false
         if (!epoch.destinationBound) return false
         if (epoch.destinationAdapterInstanceId != adapterInstanceId) return false

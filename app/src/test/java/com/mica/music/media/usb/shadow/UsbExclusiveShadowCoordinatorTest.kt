@@ -77,7 +77,7 @@ class UsbExclusiveShadowCoordinatorTest {
         )
 
         stack.observeCurrentPlayerOccurrence("B", b)
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
         val bound = requireNotNull(stack.snapshot().mutation)
         assertEquals(unbound.mutationId, bound.mutationId)
         assertTrue(bound.destinationBound)
@@ -100,10 +100,10 @@ class UsbExclusiveShadowCoordinatorTest {
         assertNotEquals(first.mutationId, second.mutationId)
         assertFalse(second.destinationBound)
 
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b", stack.currentTopologyToken())
         assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
         stack.observeTimelinePeriod("C", c.periodUid)
-        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c", stack.currentTopologyToken())
         val current = requireNotNull(stack.snapshot().mutation)
         assertEquals(second.mutationId, current.mutationId)
         assertEquals(c, current.targetOccurrence)
@@ -119,7 +119,7 @@ class UsbExclusiveShadowCoordinatorTest {
 
         stack.observeTimelinePeriod("B", b.periodUid)
         stack.observeTimelinePeriod("C", c.periodUid)
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b", stack.currentTopologyToken())
         assertNull(stack.snapshot().mutation)
         assertEquals(1, stack.snapshot().candidates.size)
 
@@ -129,7 +129,7 @@ class UsbExclusiveShadowCoordinatorTest {
         assertEquals(MutationKind.AUTO_NEXT, bMutation.kind)
         assertEquals(b, bMutation.targetOccurrence)
 
-        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c", stack.currentTopologyToken())
         assertEquals(bMutation.mutationId, requireNotNull(stack.snapshot().mutation).mutationId)
         stack.observeApplicationMedia("C")
         stack.observeCurrentPlayerOccurrence("C", c)
@@ -155,11 +155,11 @@ class UsbExclusiveShadowCoordinatorTest {
             )
             val mapping = listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid))
             if (streamFirst) {
-                adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+                adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
                 stack.observeTimelineSnapshot(mapping, reason = 0)
             } else {
                 stack.observeTimelineSnapshot(mapping, reason = 0)
-                adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+                adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
             }
             val bound = requireNotNull(stack.snapshot().mutation)
             assertEquals(mutation.mutationId, bound.mutationId)
@@ -169,7 +169,7 @@ class UsbExclusiveShadowCoordinatorTest {
             assertEquals("pcm96", bound.targetFacts)
 
             // Repeated raw/timeline callbacks are idempotent and cannot mint a second mutation.
-            adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+            adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
             stack.observeTimelineSnapshot(mapping, reason = 0)
             assertEquals(mutation.mutationId, requireNotNull(stack.snapshot().mutation).mutationId)
             return Triple(bound.kind, requireNotNull(bound.targetOccurrence), bound.mutationId.value)
@@ -187,8 +187,8 @@ class UsbExclusiveShadowCoordinatorTest {
         val stack = coordinator.createStack()
         val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.FFMPEG_PCM)
 
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
-        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b", stack.currentTopologyToken())
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c", stack.currentTopologyToken())
         val bMutation = requireNotNull(stack.beginManualNavigation("B", "first", targetWindowIndex = 0))
         val cMutation = requireNotNull(stack.beginManualNavigation("C", "supersede", targetWindowIndex = 1))
         assertNotEquals(bMutation.mutationId, cMutation.mutationId)
@@ -220,8 +220,8 @@ class UsbExclusiveShadowCoordinatorTest {
             ),
             reason = 0,
         )
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
-        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b", stack.currentTopologyToken())
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c", stack.currentTopologyToken())
 
         val mutation = requireNotNull(
             stack.beginManualNavigation(
@@ -248,8 +248,8 @@ class UsbExclusiveShadowCoordinatorTest {
             listOf(PlaybackTopologyPeriodFact(0, "B", "same-period")),
             reason = 0,
         )
-        adapter.observeStream(seq1, PlaybackFamily.PCM, "pcm-same")
-        adapter.observeStream(seq2, PlaybackFamily.PCM, "pcm-same")
+        adapter.observeStream(seq1, PlaybackFamily.PCM, "pcm-same", stack.currentTopologyToken())
+        adapter.observeStream(seq2, PlaybackFamily.PCM, "pcm-same", stack.currentTopologyToken())
         val mutation = requireNotNull(
             stack.beginManualNavigation(
                 "B",
@@ -275,7 +275,7 @@ class UsbExclusiveShadowCoordinatorTest {
         val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
         val mapping = listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid))
         stack.observeTimelineSnapshot(mapping, reason = 0)
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
         val oldEpoch = stack.currentTopologyEpoch()
 
         assertTrue(stack.advancePlaybackTopology("replace-queue") is UsbExclusiveAuthorityObservation.Accepted)
@@ -312,7 +312,7 @@ class UsbExclusiveShadowCoordinatorTest {
         adapter.observeStream(oldOccurrence, PlaybackFamily.PCM, "pcm-old", oldToken)
         assertEquals(oldOccurrence, stack.snapshot().applicationCurrent.occurrence)
 
-        val reservation = requireNotNull(stack.preparePlaybackTopologyMutation("true-source-replace"))
+        val reservation = requireNotNull(stack.preparePlaybackTopologyMutation("true-source-replace", targetMediaId = "same-media"))
         assertTrue(
             stack.stageTopologyManualNavigation(
                 reservation,
@@ -333,6 +333,9 @@ class UsbExclusiveShadowCoordinatorTest {
                 UsbExclusiveAuthorityObservation.Accepted,
         )
         stack.observeApplicationMedia("same-media", 0, reservation.producerToken)
+        assertTrue(
+            stack.markPlaybackTopologyDispatchSucceeded(reservation) is UsbExclusiveAuthorityObservation.Accepted,
+        )
         assertTrue(stack.commitPlaybackTopologyMutation(reservation) is UsbExclusiveAuthorityObservation.Accepted)
         assertEquals(reservation.producerToken.epoch, stack.currentTopologyEpoch())
         assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
@@ -348,15 +351,157 @@ class UsbExclusiveShadowCoordinatorTest {
         val lateOldTimeline = stack.observeTimelineSnapshot(mapping, reason = 2, producerToken = oldToken)
         assertTrue(lateOldTimeline is UsbExclusiveAuthorityObservation.Rejected)
 
-        // The successor stream is also ambiguous by reused period alone; its exact E+1 EventTime
-        // supplies the immutable producer context and closes the stored join without a repeat.
+        // A tokenless successor-looking stream remains quarantined even after exact E+1 EventTime.
         adapter.observeStream(newOccurrence, PlaybackFamily.PCM, "pcm-new")
-        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
         stack.observeEventTimeCurrent(0, "same-media", newOccurrence, reservation.producerToken)
+        assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
+
+        // Only a fresh stream carrying its immutable producer handle may close the E+1 join.
+        adapter.observeStream(
+            newOccurrence,
+            PlaybackFamily.PCM,
+            "pcm-new",
+            reservation.producerToken,
+        )
         val bound = requireNotNull(stack.snapshot().mutation)
         assertTrue(bound.destinationBound)
         assertEquals(newOccurrence, bound.targetOccurrence)
         assertEquals("pcm-new", bound.targetFacts)
+    }
+
+    @Test
+    fun oldTokenlessStreamWithNoOldPeriodMapNeverPromotesIntoSuccessorEpoch() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        val sharedPeriod = "placeholder-period-never-mapped-in-old-epoch"
+        val lateOldOccurrence = PlaybackOccurrence(sharedPeriod, 301)
+        val freshOccurrence = PlaybackOccurrence(sharedPeriod, 302)
+
+        // The old producer never publishes a period mapping for sharedPeriod. This is exactly the
+        // missing-old-companion-fact boundary: absence must never become permission to assign a
+        // later token to a delayed renderer callback.
+        val reservation = requireNotNull(
+            stack.preparePlaybackTopologyMutation(
+                "missing-old-period-map-replacement",
+                targetMediaId = "same-media",
+            ),
+        )
+        assertTrue(
+            stack.stageTopologyManualNavigation(
+                reservation,
+                "same-media",
+                targetWindowIndex = 0,
+                expectedPeriodUid = sharedPeriod,
+            ),
+        )
+        assertTrue(
+            stack.observeTimelineSnapshot(
+                listOf(PlaybackTopologyPeriodFact(0, "same-media", sharedPeriod)),
+                reason = 0,
+                producerToken = reservation.producerToken,
+            ) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+        assertTrue(
+            stack.markPlaybackTopologyDispatchSucceeded(reservation) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+        assertTrue(
+            stack.commitPlaybackTopologyMutation(reservation) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+        stack.observeApplicationMedia("same-media", 0, reservation.producerToken)
+
+        // The delayed old callback has no immutable handle/token. Even though E+1 is the only
+        // epoch with a known period mapping, it remains quarantined permanently.
+        adapter.observeStream(lateOldOccurrence, PlaybackFamily.PCM, "pcm-old-no-map")
+        stack.observeEventTimeCurrent(0, "same-media", lateOldOccurrence, reservation.producerToken)
+        val pending = requireNotNull(stack.snapshot().mutation)
+        assertFalse(pending.destinationBound)
+        assertNull(pending.targetOccurrence)
+
+        // A genuinely E+1 stream with its exact producer carrier still closes normally.
+        adapter.observeStream(
+            freshOccurrence,
+            PlaybackFamily.PCM,
+            "pcm-fresh",
+            reservation.producerToken,
+        )
+        stack.observeEventTimeCurrent(0, "same-media", freshOccurrence, reservation.producerToken)
+        val bound = requireNotNull(stack.snapshot().mutation)
+        assertTrue(bound.destinationBound)
+        assertEquals(freshOccurrence, bound.targetOccurrence)
+        assertEquals("pcm-fresh", bound.targetFacts)
+    }
+
+    @Test
+    fun delayedOldTimelineBeforeTrueSuccessorTimelineStaysInOldProducerPartition() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
+        val oldToken = stack.currentTopologyToken()
+        val oldPeriod = "old-period"
+        val newPeriod = "new-period"
+        val newOccurrence = PlaybackOccurrence(newPeriod, 402)
+
+        stack.observeTimelineSnapshot(
+            listOf(PlaybackTopologyPeriodFact(0, "same-media", oldPeriod)),
+            reason = 0,
+            producerToken = oldToken,
+        )
+        val reservation = requireNotNull(
+            stack.preparePlaybackTopologyMutation(
+                "delayed-old-timeline-before-successor",
+                targetMediaId = "same-media",
+            ),
+        )
+        assertTrue(
+            stack.stageTopologyManualNavigation(
+                reservation,
+                "same-media",
+                targetWindowIndex = 0,
+                expectedPeriodUid = newPeriod,
+            ),
+        )
+
+        // Delayed E arrives first. It may only update E's still-valid partition while E+1 is
+        // reserved; it cannot populate or conflict with the pending E+1 partition.
+        assertTrue(
+            stack.observeTimelineSnapshot(
+                listOf(PlaybackTopologyPeriodFact(0, "same-media", oldPeriod)),
+                reason = 1,
+                producerToken = oldToken,
+            ) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+        assertTrue(
+            stack.observeTimelineSnapshot(
+                listOf(PlaybackTopologyPeriodFact(0, "same-media", newPeriod)),
+                reason = 2,
+                producerToken = reservation.producerToken,
+            ) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+        assertTrue(
+            stack.markPlaybackTopologyDispatchSucceeded(reservation) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+        assertTrue(
+            stack.commitPlaybackTopologyMutation(reservation) is UsbExclusiveAuthorityObservation.Accepted,
+        )
+
+        // Once E+1 commits, E is stale and cannot overwrite the true successor snapshot.
+        assertTrue(
+            stack.observeTimelineSnapshot(
+                listOf(PlaybackTopologyPeriodFact(0, "same-media", oldPeriod)),
+                reason = 3,
+                producerToken = oldToken,
+            ) is UsbExclusiveAuthorityObservation.Rejected,
+        )
+        stack.observeApplicationMedia("same-media", 0, reservation.producerToken)
+        adapter.observeStream(
+            newOccurrence,
+            PlaybackFamily.PCM,
+            "pcm-new",
+            reservation.producerToken,
+        )
+        stack.observeEventTimeCurrent(0, "same-media", newOccurrence, reservation.producerToken)
+        assertEquals(newOccurrence, requireNotNull(stack.snapshot().mutation).targetOccurrence)
     }
 
     @Test
@@ -376,7 +521,7 @@ class UsbExclusiveShadowCoordinatorTest {
         adapter.observeStream(oldOccurrence, PlaybackFamily.PCM, "pcm-a", oldToken)
         val priorMutation = requireNotNull(stack.snapshot().mutation)
 
-        val aborted = requireNotNull(stack.preparePlaybackTopologyMutation("dispatch-will-fail"))
+        val aborted = requireNotNull(stack.preparePlaybackTopologyMutation("dispatch-will-fail", targetMediaId = "B"))
         assertTrue(stack.stageTopologyManualNavigation(aborted, "B", 0, "new-period"))
         stack.observeTimelineSnapshot(
             listOf(PlaybackTopologyPeriodFact(0, "B", "new-period")),
@@ -399,12 +544,15 @@ class UsbExclusiveShadowCoordinatorTest {
             ) is UsbExclusiveAuthorityObservation.Rejected,
         )
 
-        val committed = requireNotNull(stack.preparePlaybackTopologyMutation("dispatch-succeeds"))
+        val committed = requireNotNull(stack.preparePlaybackTopologyMutation("dispatch-succeeds", targetMediaId = "B"))
         assertTrue(stack.stageTopologyManualNavigation(committed, "B", 0, "new-period"))
         stack.observeTimelineSnapshot(
             listOf(PlaybackTopologyPeriodFact(0, "B", "new-period")),
             reason = 0,
             producerToken = committed.producerToken,
+        )
+        assertTrue(
+            stack.markPlaybackTopologyDispatchSucceeded(committed) is UsbExclusiveAuthorityObservation.Accepted,
         )
         assertTrue(stack.commitPlaybackTopologyMutation(committed) is UsbExclusiveAuthorityObservation.Accepted)
         assertEquals(committed.producerToken, stack.currentTopologyToken())
@@ -419,7 +567,7 @@ class UsbExclusiveShadowCoordinatorTest {
         val adapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
         val occurrence = PlaybackOccurrence("aborted-period", 88)
 
-        val aborted = requireNotNull(stack.preparePlaybackTopologyMutation("aborted-source"))
+        val aborted = requireNotNull(stack.preparePlaybackTopologyMutation("aborted-source", targetMediaId = "B"))
         assertTrue(stack.stageTopologyManualNavigation(aborted, "B", 0, occurrence.periodUid))
         // No timeline/EventTime exists yet, so this remains intentionally unscoped until abort.
         adapter.observeStream(occurrence, PlaybackFamily.PCM, "pcm-aborted")
@@ -428,12 +576,15 @@ class UsbExclusiveShadowCoordinatorTest {
                 UsbExclusiveAuthorityObservation.Accepted,
         )
 
-        val replacement = requireNotNull(stack.preparePlaybackTopologyMutation("replacement-source"))
+        val replacement = requireNotNull(stack.preparePlaybackTopologyMutation("replacement-source", targetMediaId = "B"))
         assertTrue(stack.stageTopologyManualNavigation(replacement, "B", 0, occurrence.periodUid))
         stack.observeTimelineSnapshot(
             listOf(PlaybackTopologyPeriodFact(0, "B", occurrence.periodUid)),
             reason = 0,
             producerToken = replacement.producerToken,
+        )
+        assertTrue(
+            stack.markPlaybackTopologyDispatchSucceeded(replacement) is UsbExclusiveAuthorityObservation.Accepted,
         )
         assertTrue(stack.commitPlaybackTopologyMutation(replacement) is UsbExclusiveAuthorityObservation.Accepted)
         stack.observeApplicationMedia("B", 0, replacement.producerToken)
@@ -441,7 +592,12 @@ class UsbExclusiveShadowCoordinatorTest {
         assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
 
         // Only a fresh post-abort observation may close the replacement topology.
-        adapter.observeStream(occurrence, PlaybackFamily.PCM, "pcm-replacement")
+        adapter.observeStream(
+            occurrence,
+            PlaybackFamily.PCM,
+            "pcm-replacement",
+            replacement.producerToken,
+        )
         val bound = requireNotNull(stack.snapshot().mutation)
         assertTrue(bound.destinationBound)
         assertEquals("pcm-replacement", bound.targetFacts)
@@ -497,8 +653,8 @@ class UsbExclusiveShadowCoordinatorTest {
             ),
             reason = 0,
         )
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b")
-        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm-b", stack.currentTopologyToken())
+        adapter.observeStream(c, PlaybackFamily.PCM, "pcm-c", stack.currentTopologyToken())
         stack.observeApplicationMedia("C", 1)
 
         val mismatched = stack.observeEventTimeCurrent(0, "B", b)
@@ -526,7 +682,7 @@ class UsbExclusiveShadowCoordinatorTest {
         val pcmB = pcmStack.newAdapter(UsbExclusiveShadowAdapterKind.FFMPEG_PCM)
         pcmStack.observeTimelineSnapshot(listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid)), reason = 0)
         pcmStack.beginManualNavigation("B", "adapter-pcm", targetWindowIndex = 0)
-        pcmA.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        pcmA.observeStream(b, PlaybackFamily.PCM, "pcm96", pcmStack.currentTopologyToken())
         pcmStack.observeApplicationMedia("B", 0)
         pcmStack.observeEventTimeCurrent(0, "B", b)
         assertEquals(pcmA.id, requireNotNull(pcmStack.snapshot().mutation).destinationAdapterInstanceId)
@@ -541,7 +697,7 @@ class UsbExclusiveShadowCoordinatorTest {
         val directB = directStack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
         directStack.observeTimelineSnapshot(listOf(PlaybackTopologyPeriodFact(0, "B", b.periodUid)), reason = 0)
         directStack.beginManualNavigation("B", "adapter-direct", targetWindowIndex = 0)
-        directA.observeStream(b, PlaybackFamily.DOP, "dop128")
+        directA.observeStream(b, PlaybackFamily.DOP, "dop128", directStack.currentTopologyToken())
         directStack.observeApplicationMedia("B", 0)
         directStack.observeEventTimeCurrent(0, "B", b)
         val runtime = RuntimeIdentity("adapter-provenance")
@@ -592,7 +748,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("B", 0)
         stack.observeEventTimeCurrent(0, "B", b)
 
-        val result = adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        val result = adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
         assertTrue(result is UsbExclusiveAuthorityObservation.Failed)
         assertFalse(requireNotNull(stack.snapshot().mutation).destinationBound)
         assertNull(adapter.preparePcmConfigure(b, "pcm96"))
@@ -621,7 +777,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("B")
         stack.observeManualNavigation("B", "select")
         stack.observeCurrentPlayerOccurrence("B", b)
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
 
         adapter.observePcmConfigureAttempt(b, "raw-sink-format")
         assertEquals(1, stack.snapshot().inFlightActivations.size)
@@ -698,7 +854,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("A")
         stack.observeManualNavigation("A", "seed-direct")
         stack.observeCurrentPlayerOccurrence("A", a)
-        adapter.observeStream(a, PlaybackFamily.DOP, "dop128")
+        adapter.observeStream(a, PlaybackFamily.DOP, "dop128", stack.currentTopologyToken())
         adapter.observeDirectStage(a, DirectStage.CREATE_RUNTIME, sourceRuntime, completed = true)
         adapter.observeDirectStage(a, DirectStage.PREFILL, sourceRuntime, completed = true)
         adapter.observeDirectStarted(a)
@@ -759,7 +915,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("B")
         stack.observeManualNavigation("B", "successor")
         stack.observeCurrentPlayerOccurrence("B", b)
-        adapter.observeStream(b, PlaybackFamily.DOP, "dop256")
+        adapter.observeStream(b, PlaybackFamily.DOP, "dop256", stack.currentTopologyToken())
         val successor = requireNotNull(stack.snapshot().mutation)
         assertTrue(successor.destinationBound)
         assertEquals(b, successor.targetOccurrence)
@@ -843,7 +999,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("B")
         requireNotNull(stack.beginManualNavigation("B", "production-retained"))
         stack.observeCurrentPlayerOccurrence("B", b)
-        adapter.observeStream(b, PlaybackFamily.DOP, "dop256")
+        adapter.observeStream(b, PlaybackFamily.DOP, "dop256", stack.currentTopologyToken())
 
         assertNull(adapter.prepareRetainedDirectHandoff(b, b, runtime))
         assertNull(wrongAdapter.prepareRetainedDirectHandoff(a, b, runtime))
@@ -885,14 +1041,14 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("B")
         requireNotNull(stack.beginManualNavigation("B", "B"))
         stack.observeCurrentPlayerOccurrence("B", b)
-        adapter.observeStream(b, PlaybackFamily.DOP, "dop256")
+        adapter.observeStream(b, PlaybackFamily.DOP, "dop256", stack.currentTopologyToken())
         val bPermit = requireNotNull(adapter.prepareRetainedDirectHandoff(a, b, runtime))
 
         stack.observeTimelinePeriod("C", c.periodUid)
         stack.observeApplicationMedia("C")
         requireNotNull(stack.beginManualNavigation("C", "C"))
         stack.observeCurrentPlayerOccurrence("C", c)
-        adapter.observeStream(c, PlaybackFamily.DOP, "dop512")
+        adapter.observeStream(c, PlaybackFamily.DOP, "dop512", stack.currentTopologyToken())
 
         val staleResource = ResourceIdentity("direct-retained-reset-b-stale")
         assertEquals(
@@ -937,7 +1093,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("A")
         requireNotNull(stack.beginManualNavigation("A", "pcm-seed"))
         stack.observeCurrentPlayerOccurrence("A", a)
-        adapter.observeStream(a, PlaybackFamily.PCM, "pcm96")
+        adapter.observeStream(a, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
         val configure = requireNotNull(adapter.preparePcmConfigure(a, "sink-format"))
         assertTrue(
             adapter.commitPcmConfigure(
@@ -954,7 +1110,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("B")
         requireNotNull(stack.beginManualNavigation("B", "pcm-retained"))
         stack.observeCurrentPlayerOccurrence("B", b)
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
         assertNull(adapter.prepareRetainedPcmHandoff(c))
         assertNull(adapter.prepareRetainedPcmHandoff(b))
         assertTrue(source.writeLease.isRevoked())
@@ -999,7 +1155,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeTimelinePeriod("B", b.periodUid)
         stack.observeApplicationMedia("B")
         stack.observeCurrentPlayerOccurrence("B", b)
-        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96")
+        adapter.observeStream(b, PlaybackFamily.PCM, "pcm96", stack.currentTopologyToken())
         assertNotNull(stack.snapshot().mutation)
     }
 
@@ -1034,7 +1190,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia("A")
         stack.observeManualNavigation("A", "seed-direct")
         stack.observeCurrentPlayerOccurrence("A", a)
-        adapter.observeStream(a, PlaybackFamily.DOP, "dop128")
+        adapter.observeStream(a, PlaybackFamily.DOP, "dop128", stack.currentTopologyToken())
         adapter.observeDirectStage(a, DirectStage.CREATE_RUNTIME, runtime, completed = true)
         adapter.observeDirectStage(a, DirectStage.PREFILL, runtime, completed = true)
         adapter.observeDirectStarted(a)
@@ -1056,7 +1212,7 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeApplicationMedia(mediaId)
         requireNotNull(stack.beginManualNavigation(mediaId, "production-seed"))
         stack.observeCurrentPlayerOccurrence(mediaId, occurrence)
-        adapter.observeStream(occurrence, PlaybackFamily.DOP, facts)
+        adapter.observeStream(occurrence, PlaybackFamily.DOP, facts, stack.currentTopologyToken())
         for (stage in listOf(DirectStage.CREATE_RUNTIME, DirectStage.PREFILL)) {
             val permit = requireNotNull(adapter.prepareDirectStage(occurrence, stage, runtime))
             assertNull(

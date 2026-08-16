@@ -20,7 +20,12 @@ class UsbExclusiveM3QueueMutationTest {
 
         val firstEpoch = requireNotNull(stack.beginManualNavigation("same-media", "test-first"))
         val firstOccurrence = PlaybackOccurrence(periodUid, 1L)
-        adapter.observeStream(firstOccurrence, PlaybackFamily.PCM, "pcm-target")
+        adapter.observeStream(
+            firstOccurrence,
+            PlaybackFamily.PCM,
+            "pcm-target",
+            stack.currentTopologyToken(),
+        )
         stack.observeCurrentPlayerOccurrence("same-media", firstOccurrence)
         assertEquals(firstOccurrence, stack.snapshot().mutation?.targetOccurrence)
 
@@ -31,7 +36,7 @@ class UsbExclusiveM3QueueMutationTest {
         stack.observeApplicationMedia("same-media")
         val secondEpoch = requireNotNull(stack.beginManualNavigation("same-media", "test-replacement"))
         val secondOccurrence = PlaybackOccurrence(periodUid, 2L)
-        adapter.observeStream(secondOccurrence, PlaybackFamily.PCM, "pcm-target")
+        adapter.observeStream(secondOccurrence, PlaybackFamily.PCM, "pcm-target", stack.currentTopologyToken())
         stack.observeCurrentPlayerOccurrence("same-media", secondOccurrence)
 
         assertNotEquals(firstEpoch.mutationId, secondEpoch.mutationId)
