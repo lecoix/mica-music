@@ -20,6 +20,8 @@ import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.dsd.ManualNavigationPlaybackPeriodProjection
 import com.mica.music.media.dsd.TransitionAwarePcmAudioSink
 import com.mica.music.media.usb.protocol.PlaybackFamily
+import com.mica.music.media.usb.UsbOutputRuntime
+import com.mica.music.media.usb.UsbP2RedemptionContext
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapterKind
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackStack
@@ -34,6 +36,11 @@ internal class MicaRenderersFactory(
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
     private val playbackStack: UsbExclusivePlaybackStack,
 ) : DefaultRenderersFactory(context) {
+
+    private val usbP2RedemptionContext = UsbP2RedemptionContext(
+        owner = UsbOutputRuntime.owner,
+        request = outputPath.usbOutputRequest,
+    )
 
     private val platformPlaybackPeriodProjection =
         ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)
@@ -88,6 +95,7 @@ internal class MicaRenderersFactory(
                 ),
                 platformPlaybackPeriodProjection,
                 platformPlaybackAdapter,
+                usbP2RedemptionContext,
             )
         }
         val processorChain = buildUnifiedFixedChain(context)
@@ -105,6 +113,7 @@ internal class MicaRenderersFactory(
                 .build(),
             platformPlaybackPeriodProjection,
             platformPlaybackAdapter,
+            usbP2RedemptionContext,
         )
     }
 
@@ -179,6 +188,7 @@ internal class MicaRenderersFactory(
             trackTransitionCoordinator,
             manualNavigationTransitionBridge,
             directPlaybackAdapter,
+            usbP2RedemptionContext,
         )?.let(out::add)
         val dsdPeriodProjection = ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge)
         out.add(
@@ -248,6 +258,7 @@ internal class MicaRenderersFactory(
                 buildUsbDirectDsdSink(context),
                 playbackPeriodProjection,
                 ffmpegDsdPlaybackAdapter,
+                usbP2RedemptionContext,
             )
         }
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled
@@ -282,6 +293,7 @@ internal class MicaRenderersFactory(
                 .build(),
             playbackPeriodProjection,
             ffmpegDsdPlaybackAdapter,
+            usbP2RedemptionContext,
         )
     }
 
@@ -305,6 +317,7 @@ internal class MicaRenderersFactory(
                 ),
                 playbackPeriodProjection,
                 ffmpegPcmPlaybackAdapter,
+                usbP2RedemptionContext,
             )
         }
         val chain = MicaAudioProcessorChain(
@@ -329,6 +342,7 @@ internal class MicaRenderersFactory(
             MicaFloatDspAudioSink(inner, MicaEqualizerSpectrumTap()),
             playbackPeriodProjection,
             ffmpegPcmPlaybackAdapter,
+            usbP2RedemptionContext,
         )
     }
 
@@ -336,6 +350,7 @@ internal class MicaRenderersFactory(
         delegate: AudioSink,
         playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection,
         playbackAdapter: UsbExclusivePlaybackAdapter,
+        usbP2RedemptionContext: UsbP2RedemptionContext,
     ): AudioSink =
         TransitionAwarePcmAudioSink(
             delegate,
@@ -343,6 +358,7 @@ internal class MicaRenderersFactory(
             manualNavigationTransitionBridge,
             playbackPeriodProjection,
             playbackAdapter,
+            usbP2RedemptionContext,
         )
 
     private fun replacePlatformAudioRenderer(
@@ -422,7 +438,11 @@ internal class MicaRenderersFactory(
             enableAudioOutputPlaybackParameters = false,
             processorNames = chain.processorNamesForDiagnostics(),
         )
-        val provider = UsbHostOutputAdapter.createProvider(context, outputPath)
+        val provider = UsbHostOutputAdapter.createProvider(
+            context,
+            outputPath,
+            usbP2RedemptionContext,
+        )
         return DefaultAudioSink.Builder(context)
             // Keep high-resolution integer decoder output as float. The SK02 prototype provider
             // accepts it only when every float maps exactly to signed PCM24; it fails closed

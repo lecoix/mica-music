@@ -39,6 +39,9 @@ internal class UsbOutputSessionOwner(
     @Volatile
     private var activeSession: UsbOutputSession? = null
     private var activeRequest: UsbOutputRequest? = null
+    private val pendingRedemptions = linkedMapOf<UsbOutputRequestToken, UsbOutputRedemptionBinding>()
+    private var openingRedemption: UsbOutputRedemptionBinding? = null
+    private var activeRedemption: UsbOutputRedemptionBinding? = null
 
     val facts: PlaybackOutputFacts
         get() = factsRef.get()
@@ -52,6 +55,112 @@ internal class UsbOutputSessionOwner(
     fun invalidate(): Long = publishNextGeneration().value
 
     fun isCurrent(token: UsbOutputRequestToken): Boolean = generation.get() == token.value
+
+    /** Reserves one exact owner generation for a protocol stack before its first USB side effect. */
+    internal fun reserveRedemption(request: UsbOutputRequest): UsbOutputRedemptionBinding {
+        val token = publishNextGeneration()
+        transportLock.lock()
+        return try {
+            val binding = synchronized(generationPublicationLock) {
+                check(generation.get() == token.value) {
+                    "USB redemption reservation was superseded before the owner seam"
+                }
+                invalidateRedemptionsLocked()
+                activeSession?.let { session ->
+                    publishFor(
+                        token,
+                        facts.copy(generation = token.value, phase = UsbOutputPhase.RELEASING),
+                    )
+                    session.release(cleanupLease(), "redemption-replaced")
+                    activeSession = null
+                    activeRequest = null
+                }
+                val binding = UsbOutputRedemptionBinding(request, token, this)
+                pendingRedemptions[token] = binding
+                binding
+            }
+            binding
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    internal fun <T : UsbOutputSession> consumeRedemption(
+        binding: UsbOutputRedemptionBinding,
+        open: (UsbOutputRequestLease) -> T,
+    ): T {
+        transportLock.lock()
+        return try {
+            check(pendingRedemptions[binding.token] === binding) {
+                "USB redemption is not the current pending reservation"
+            }
+            replaceLocked(binding.token, binding.request, binding, open)
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    internal fun isBindingCurrent(binding: UsbOutputRedemptionBinding): Boolean {
+        transportLock.lock()
+        return try {
+            isCurrent(binding.token) &&
+                ((pendingRedemptions[binding.token] === binding) ||
+                    (openingRedemption === binding) ||
+                    (activeRedemption === binding))
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    internal fun ensureRequestBinding(
+        binding: UsbOutputRedemptionBinding,
+        lease: UsbOutputRequestLease,
+    ) {
+        transportLock.lock()
+        try {
+            if (!isCurrent(binding.token)) {
+                throw StaleUsbOutputRequestException(binding.token.value)
+            }
+            check(
+                pendingRedemptions[binding.token] === binding || openingRedemption === binding,
+            )
+            check(lease.token == binding.token) { "USB request lease does not match binding" }
+            lease.ensureCurrent()
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    internal fun isBindingLeaseCurrent(
+        binding: UsbOutputRedemptionBinding,
+        lease: com.mica.music.media.usb.protocol.ActiveWriteLease,
+    ): Boolean {
+        transportLock.lock()
+        return try {
+            isCurrent(binding.token) && activeRedemption === binding &&
+                activeSession != null && lease.identity.outputTarget == binding.target
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    internal fun ensureActiveBinding(
+        binding: UsbOutputRedemptionBinding,
+        session: UsbOutputSession,
+        lease: UsbOutputRequestLease,
+    ) {
+        transportLock.lock()
+        try {
+            check(activeRedemption === binding && activeSession === session)
+            if (!isCurrent(binding.token)) {
+                throw StaleUsbOutputRequestException(binding.token.value)
+            }
+            check(lease.token == binding.token)
+            lease.ensureCurrent()
+        } finally {
+            transportLock.unlock()
+        }
+    }
 
     fun <T> withTransport(
         token: UsbOutputRequestToken,
@@ -79,6 +188,24 @@ internal class UsbOutputSessionOwner(
             val token = UsbOutputRequestToken(activeGeneration)
             if (!isCurrent(token)) return null
             block(UsbOutputRequestLease(token, this))
+        } finally {
+            transportLock.unlock()
+        }
+    }
+
+    /**
+     * Runs identity-scoped teardown for an active session under the frozen cleanup lease. The
+     * generation may already be stale: cleanup is allowed to drain the exact old session, while
+     * content callbacks continue to require [withActiveSession] and the current generation.
+     */
+    internal fun <T> withActiveSessionCleanup(
+        session: UsbOutputSession,
+        block: (UsbOutputCleanupLease) -> T,
+    ): T? {
+        transportLock.lock()
+        return try {
+            if (activeSession !== session) return null
+            block(cleanupLease())
         } finally {
             transportLock.unlock()
         }
@@ -117,6 +244,9 @@ internal class UsbOutputSessionOwner(
         val token = publishNextGeneration()
         transportLock.lock()
         try {
+            check(invalidateRedemptionsLocked(token)) {
+                "USB permission request was superseded before the owner seam"
+            }
             val lease = UsbOutputRequestLease(token, this)
             lease.ensureCurrent()
             activeSession?.let { session ->
@@ -220,7 +350,7 @@ internal class UsbOutputSessionOwner(
         val token = (claim as UsbDeviceDetachClaim.Current).token
         transportLock.lock()
         return try {
-            if (!isCurrent(token)) return UsbDeviceDetachDisposition.STALE_RUNTIME
+            if (!invalidateRedemptionsLocked(token)) return UsbDeviceDetachDisposition.STALE_RUNTIME
             val previous = facts
             if (previous.runtimeHandle != runtimeHandle || !previous.attached) {
                 return UsbDeviceDetachDisposition.STALE_RUNTIME
@@ -267,7 +397,7 @@ internal class UsbOutputSessionOwner(
         val token = publishNextGeneration()
         transportLock.lock()
         return try {
-            if (!isCurrent(token)) return false
+            if (!invalidateRedemptionsLocked(token)) return false
             activeSession?.let { session ->
                 publishFor(
                     token,
@@ -305,67 +435,93 @@ internal class UsbOutputSessionOwner(
         val token = publishNextGeneration()
         transportLock.lock()
         try {
-            val requestLease = UsbOutputRequestLease(token, this)
-            requestLease.ensureCurrent()
-            publishFor(
-                token,
-                PlaybackOutputFacts(
-                    generation = token.value,
-                    phase = UsbOutputPhase.REQUESTED,
-                    request = request,
-                ),
-            )
-
-            activeSession?.let { session ->
-                publishFor(
-                    token,
-                    facts.copy(generation = token.value, phase = UsbOutputPhase.RELEASING),
-                )
-                session.release(cleanupLease(), "replaced")
-                activeSession = null
-                activeRequest = null
+            check(invalidateRedemptionsLocked(token)) {
+                "USB replacement was superseded before the owner seam"
             }
-            requestLease.ensureCurrent()
-            publishFor(token, facts.copy(phase = UsbOutputPhase.OPENING))
-
-            val opened = try {
-                open(requestLease)
-            } catch (error: Throwable) {
-                if (isCurrent(token)) {
-                    runCatching {
-                        publishFor(
-                            token,
-                            facts.copy(
-                                phase = UsbOutputPhase.FAILED,
-                                failure = UsbOutputFailure(
-                                    stage = "open",
-                                    message = error.message ?: error::class.java.simpleName,
-                                ),
-                            ),
-                        )
-                    }
-                }
-                throw error
-            }
-
-            if (!isCurrent(token)) {
-                opened.release(cleanupLease(), "superseded-after-open")
-                throw StaleUsbOutputRequestException(token.value)
-            }
-            activeSession = opened
-            activeRequest = request
-            publishFor(
-                token,
-                opened.activeFacts.copy(
-                    generation = token.value,
-                    phase = UsbOutputPhase.ACTIVE,
-                    request = request,
-                ),
-            )
-            return opened
+            return replaceLocked(token, request, null, open)
         } finally {
             transportLock.unlock()
         }
+    }
+
+    private fun <T : UsbOutputSession> replaceLocked(
+        token: UsbOutputRequestToken,
+        request: UsbOutputRequest,
+        binding: UsbOutputRedemptionBinding?,
+        open: (UsbOutputRequestLease) -> T,
+    ): T {
+        check(transportLock.isHeldByCurrentThread)
+        val requestLease = UsbOutputRequestLease(token, this)
+        requestLease.ensureCurrent()
+        if (binding != null) {
+            check(pendingRedemptions[token] === binding)
+            pendingRedemptions.remove(token)
+            openingRedemption = binding
+        }
+        publishFor(
+            token,
+            PlaybackOutputFacts(
+                generation = token.value,
+                phase = UsbOutputPhase.REQUESTED,
+                request = request,
+            ),
+        )
+
+        activeSession?.let { session ->
+            publishFor(
+                token,
+                facts.copy(generation = token.value, phase = UsbOutputPhase.RELEASING),
+            )
+            session.release(cleanupLease(), "replaced")
+            activeSession = null
+            activeRequest = null
+            activeRedemption = null
+        }
+        requestLease.ensureCurrent()
+        publishFor(token, facts.copy(phase = UsbOutputPhase.OPENING))
+
+        val opened = try {
+            open(requestLease)
+        } catch (error: Throwable) {
+            openingRedemption = null
+            binding?.invalidateFromOwner()
+            if (isCurrent(token)) {
+                runCatching {
+                    publishFor(
+                        token,
+                        facts.copy(
+                            phase = UsbOutputPhase.FAILED,
+                            failure = UsbOutputFailure(
+                                stage = "open",
+                                message = error.message ?: error::class.java.simpleName,
+                            ),
+                        ),
+                    )
+                }
+            }
+            throw error
+        }
+
+        if (!isCurrent(token)) {
+            openingRedemption = null
+            opened.release(cleanupLease(), "superseded-after-open")
+            binding?.invalidateFromOwner()
+            throw StaleUsbOutputRequestException(token.value)
+        }
+        activeSession = opened
+        activeRequest = request
+        activeRedemption = binding
+        openingRedemption = null
+        binding?.attachActiveSession(opened)
+        publishFor(
+            token,
+            opened.activeFacts.copy(
+                generation = token.value,
+                phase = UsbOutputPhase.ACTIVE,
+                request = request,
+            ),
+        )
+        return opened
     }
 
     fun restart(session: UsbOutputSession) {
@@ -373,6 +529,7 @@ internal class UsbOutputSessionOwner(
         try {
             check(activeSession === session) { "Cannot restart a stale USB output session" }
             val token = publishNextGeneration()
+            activeRedemption?.rotateTo(token)
             val lease = UsbOutputRequestLease(token, this)
             lease.ensureCurrent()
             session.restart(lease)
@@ -402,6 +559,8 @@ internal class UsbOutputSessionOwner(
             session.release(cleanupLease(), reason)
             activeSession = null
             activeRequest = null
+            activeRedemption?.invalidateFromOwner()
+            activeRedemption = null
             if (isCurrent(token)) {
                 publishFor(token, PlaybackOutputFacts(generation = token.value))
             }
@@ -433,6 +592,20 @@ internal class UsbOutputSessionOwner(
     }
 
     internal fun cleanupLeaseForCurrentThread(): UsbOutputCleanupLease = cleanupLease()
+
+    private fun invalidateRedemptionsLocked(expectedToken: UsbOutputRequestToken? = null): Boolean {
+        check(transportLock.isHeldByCurrentThread)
+        return synchronized(generationPublicationLock) {
+            if (expectedToken != null && generation.get() != expectedToken.value) return@synchronized false
+            pendingRedemptions.values.forEach(UsbOutputRedemptionBinding::invalidateFromOwner)
+            pendingRedemptions.clear()
+            openingRedemption?.invalidateFromOwner()
+            openingRedemption = null
+            activeRedemption?.invalidateFromOwner()
+            activeRedemption = null
+            true
+        }
+    }
 }
 
 @JvmInline

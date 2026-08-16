@@ -53,7 +53,7 @@ class UsbDirectDsdPauseLivenessSupportTest {
                 ),
             ),
         ) { openingLease ->
-            authority = UsbDirectDsdSinkIoAuthority(openingLease)
+            authority = UsbDirectDsdSinkIoAuthority(openingLease) { }
             object : UsbOutputSession {
                 override val activeFacts = PlaybackOutputFacts()
 

@@ -66,7 +66,7 @@ class DirectDsdTrackTransitionStructureTest {
             deferred,
             "trackTransition=PAUSE_GAP_STOPPED",
             "trackTransition=OLD_SOURCE_INTAKE_CLOSED",
-            "activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)",
+            "prepareFreshTrackTransitionWithP2(activePump, DoPCarrierSessionReset.RECONFIGURE)",
             "trackTransition=OLD_DIRECT_RUNTIME_RELEASED",
             "trackTransition=PENDING_DESTINATION_FACTS_BOUND",
             "trackTransition=FRESH_DIRECT_DEFERRED",
@@ -146,7 +146,7 @@ class DirectDsdTrackTransitionStructureTest {
         ).substringBefore("private fun resetTrackSourceCounters()")
         assertOrdered(
             playingFresh,
-            "activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)",
+            "prepareFreshTrackTransitionWithP2(activePump, DoPCarrierSessionReset.RECONFIGURE)",
             "closePump(\"track-reconfigure\")",
             "trackTransition=OLD_DIRECT_RUNTIME_RELEASED",
             "trackTransition=NEW_RATE_FACTS_BOUND",

@@ -22,8 +22,13 @@ import com.mica.music.media.usb.protocol.ProtocolLifecycle
 import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.RuntimeIdentity
 import com.mica.music.media.usb.protocol.SideEffectReceipt
+import com.mica.music.media.usb.protocol.WriteKind
+import com.mica.music.media.usb.UsbOutputSessionOwner
+import com.mica.music.media.usb.UsbP2RedemptionContext
+import com.mica.music.media.usb.sharedPcmUsbP2RedemptionContext
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
+import java.util.concurrent.locks.ReentrantLock
 
 object DirectDsdMedia3FormatPolicy {
     private val prototypeRates = setOf(2_822_400, 5_644_800)
@@ -162,6 +167,106 @@ private data class PendingManualNavigationBoundary(
 )
 
 /**
+ * One Direct runtime's instance-scoped bridge to the production protocol and P2 owner.  PREFILL
+ * is covered by the exact DirectStage permit held by the renderer; CONTENT/GAP require the
+ * committed ActiveWriteLease immediately before the feeder/native callback.
+ */
+private class DirectDsdProtocolWriteAuthority(
+    private val playbackAdapter: UsbExclusivePlaybackAdapter,
+    private val redemptionContext: UsbP2RedemptionContext,
+    private val occurrence: PlaybackOccurrence,
+    private val runtimeIdentity: RuntimeIdentity,
+) : DirectDsdWriteAuthority {
+    private val scopeLock = ReentrantLock()
+    private var activationStage: DirectStage? = null
+    private var activationDepth = 0
+    private var retainedHandoffDepth = 0
+    private var activeWriteKind: WriteKind? = null
+
+    override fun <T> withActivationStage(stage: DirectStage, block: () -> T): T {
+        check(stage == DirectStage.PREFILL) { "Only Direct PREFILL may carry startup data" }
+        scopeLock.lock()
+        return try {
+            if (activationStage == null) activationStage = stage
+            check(activationStage == stage) { "Direct activation scope changed while nested" }
+            activationDepth++
+            block()
+        } finally {
+            activationDepth--
+            if (activationDepth == 0) activationStage = null
+            scopeLock.unlock()
+        }
+    }
+
+    override fun <T> withWrite(kind: WriteKind, block: () -> T): T {
+        check(scopeLock.tryLock()) { "Direct write authority escaped its owning callback thread" }
+        val previousWriteKind = activeWriteKind
+        activeWriteKind = kind
+        return try {
+            if (activationStage != null || retainedHandoffDepth > 0) {
+                check(activationStage == null || activationStage == DirectStage.PREFILL)
+                return block()
+            }
+            if (redemptionContext.prepareProtocolBinding() == null) {
+                // A pure SharedPcm test/fake has no USB side effect to redeem. The real USB
+                // session factory rejects this context before opening a device.
+                return block()
+            }
+            ensureRuntimeCurrent()
+            val lease = playbackAdapter.tryEnterWrite(occurrence, kind)
+                ?: error("Direct protocol denied $kind for the exact runtime")
+            try {
+                val target = redemptionContext.currentBinding().target
+                redemptionContext.withProtocolWrite(target, lease, kind, block)
+            } finally {
+                lease.exit()
+            }
+        } finally {
+            activeWriteKind = previousWriteKind
+            scopeLock.unlock()
+        }
+    }
+
+    override fun <T> withRetainedHandoff(block: () -> T): T {
+        scopeLock.lock()
+        return try {
+            retainedHandoffDepth++
+            block()
+        } finally {
+            retainedHandoffDepth--
+            scopeLock.unlock()
+        }
+    }
+
+    override fun requireNativeIoAllowed() {
+        check(scopeLock.tryLock()) { "Direct native I/O escaped its owning callback thread" }
+        try {
+            if (activationStage != null || retainedHandoffDepth > 0) {
+                check(activationStage == null || activationStage == DirectStage.PREFILL)
+                return
+            }
+            if (redemptionContext.prepareProtocolBinding() == null) return
+            ensureRuntimeCurrent()
+            redemptionContext.requireProtocolWrite(
+                redemptionContext.currentBinding().target,
+                checkNotNull(activeWriteKind) { "Direct native I/O has no exact write kind" },
+            )
+        } finally {
+            scopeLock.unlock()
+        }
+    }
+
+    private fun ensureRuntimeCurrent() {
+        val ownership = playbackAdapter.snapshot().familyOwnership as? FamilyOwnership.DopOwned
+        check(
+            ownership != null &&
+                ownership.occurrence == occurrence &&
+                ownership.runtimeIdentity == runtimeIdentity,
+        ) { "Direct write runtime identity is not the current protocol-owned runtime" }
+    }
+}
+
+/**
  * Raw DSF renderer used only by the QA Direct-DSD prototype gate.
  * It consumes extractor packets before FFmpeg and owns no PCM sink or decoder.
  */
@@ -172,6 +277,8 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
     private val monotonicClock: DirectDsdMonotonicClock = DirectDsdSystemMonotonicClock,
     private val transitionCoordinator: DirectDsdTrackTransitionCoordinator = DirectDsdTrackTransitionCoordinator(),
     private val manualNavigationTransitionBridge: ManualNavigationTransitionBridge = ManualNavigationTransitionBridge(),
+    private val usbP2RedemptionContext: UsbP2RedemptionContext =
+        sharedPcmUsbP2RedemptionContext(UsbOutputSessionOwner()),
 ) : BaseRenderer(C.TRACK_TYPE_AUDIO) {
     private val inputBuffer = DecoderInputBuffer(DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_NORMAL)
     private val drainLoop = DirectDsdRenderDrainLoop(MAX_SOURCE_READS_PER_RENDER)
@@ -189,6 +296,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
     private var shadowSourceAcceptReported = false
     private var directPrefillPermit: DirectStagePermit? = null
     private var directAuthorityAccepted = false
+    private var directWriteAuthority: DirectDsdWriteAuthority = DirectDsdSharedPcmWriteAuthority
     private var pump: DirectDsdRendererPump? = null
     private var inputEosSeen = false
     private var ended = false
@@ -281,7 +389,16 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             }
         }
         if (inputEosSeen) {
-            if (activePump == null || activePump.signalEndOfStream()) {
+            val finished = if (activePump == null) {
+                true
+            } else if (directAuthorityAccepted) {
+                directWriteAuthority.withWrite(WriteKind.DOP_CONTENT) {
+                    activePump.signalEndOfStream()
+                }
+            } else {
+                activePump.signalEndOfStream()
+            }
+            if (finished) {
                 ended = true
                 timing.onTermination(DirectDsdDrainTermination.TERMINAL)
                 milestone("renderer=eos positionUs=$positionUs")
@@ -391,8 +508,11 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                 ) ?: return null
             }
             val permit = checkNotNull(directPrefillPermit)
+            usbP2RedemptionContext.ensurePermitTarget(permit.outputTarget)
             val result = try {
-                active.pump()
+                directWriteAuthority.withActivationStage(DirectStage.PREFILL) {
+                    active.pump()
+                }
             } catch (error: Throwable) {
                 failDirectStageAfterSideEffect(
                     adapter = adapter,
@@ -408,7 +528,9 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         val lease = adapter.tryEnterWrite(occurrence, com.mica.music.media.usb.protocol.WriteKind.DOP_CONTENT)
             ?: return null
         return try {
-            active.pump()
+            directWriteAuthority.withWrite(WriteKind.DOP_CONTENT) {
+                active.pump()
+            }
         } finally {
             lease.exit()
         }
@@ -426,9 +548,12 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             shadowOccurrence,
             runtime,
         ) ?: error("Direct protocol denied retained source handoff before carrier reset")
+        usbP2RedemptionContext.ensurePermitTarget(permit.outputTarget)
         val resource = ResourceIdentity("$runtime:retained-${permit.targetOccurrence.windowSequenceNumber}")
         val result = try {
-            active.transitionRetainedSource(newFacts)
+            directWriteAuthority.withRetainedHandoff {
+                active.transitionRetainedSource(newFacts)
+            }
         } catch (error: Throwable) {
             failRetainedDirectHandoffAfterSideEffect(
                 adapter = adapter,
@@ -454,6 +579,14 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         shadowRuntimeOccurrence = shadowOccurrence
         return result
     }
+
+    private fun prepareFreshTrackTransitionWithP2(
+        active: DirectDsdRendererPump,
+        reason: DoPCarrierSessionReset,
+    ): Pair<Int, DirectDsdFreshTransitionPreparationResult> =
+        directWriteAuthority.withRetainedHandoff {
+            active.prepareFreshTrackTransition(reason)
+        }
 
     private fun refreshPendingNavigationBinding(): Boolean {
         val pending = pendingFreshDirectDestination ?: return true
@@ -510,7 +643,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                     "sourceRate=${active.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz} " +
                     "navigationRequest=${navigationEpoch.requestId}",
             )
-            active.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            prepareFreshTrackTransitionWithP2(active, DoPCarrierSessionReset.RECONFIGURE)
             closePump("manual-navigation-fresh")
             milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED navigationRequest=${navigationEpoch.requestId}")
         }
@@ -536,13 +669,21 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         val runtimeIdentity = RuntimeIdentity(
             "direct:$rendererGeneration:${sessionGeneration.sessionGeneration}",
         )
+        usbP2RedemptionContext.prepareProtocolBinding()
         val createPermit = playbackAdapter.prepareDirectStage(
             shadowOccurrence,
             DirectStage.CREATE_RUNTIME,
             runtimeIdentity,
         ) ?: error("Direct protocol denied CREATE_RUNTIME before sessionFactory.open")
+        usbP2RedemptionContext.ensurePermitTarget(createPermit.outputTarget)
+        val writeAuthority = DirectDsdProtocolWriteAuthority(
+            playbackAdapter = playbackAdapter,
+            redemptionContext = usbP2RedemptionContext,
+            occurrence = checkNotNull(shadowOccurrence),
+            runtimeIdentity = runtimeIdentity,
+        )
         val session = try {
-            sessionFactory.open(facts)
+            sessionFactory.open(facts, writeAuthority)
         } catch (error: Throwable) {
             try {
                 playbackAdapter.commitDirectStage(
@@ -597,6 +738,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             shadowSourceAcceptReported = false
             directPrefillPermit = null
             directAuthorityAccepted = false
+            directWriteAuthority = writeAuthority
             DirectDsdSeekDiscontinuityCoordinator.activateSession(sessionGeneration)
             check(
                 DirectDsdTeardownQuiescenceCoordinator.register(sessionGeneration) {
@@ -632,6 +774,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             DirectStage.PREFILL,
             runtime,
         ) ?: error("Direct protocol denied PREFILL completion")
+        usbP2RedemptionContext.ensurePermitTarget(permit.outputTarget)
         val disposition = adapter.commitDirectStage(
             permit,
             SideEffectReceipt.Completed(
@@ -671,6 +814,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                 DirectStage.ARM,
                 runtime,
             ) ?: error("Direct protocol denied ARM before transport arm")
+            usbP2RedemptionContext.ensurePermitTarget(armPermit.outputTarget)
             try {
                 active.armPlayback()
                 check(active.isPlaybackArmed())
@@ -712,6 +856,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             DirectStage.SOURCE_ACCEPT,
             runtime,
         ) ?: error("Direct protocol denied SOURCE_ACCEPT after ARM")
+        usbP2RedemptionContext.ensurePermitTarget(sourcePermit.outputTarget)
         val sourceDisposition = adapter.commitDirectStage(
             sourcePermit,
             SideEffectReceipt.Completed(
@@ -1156,7 +1301,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                 "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=false " +
                     "sourceRate=${activePump.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz}",
             )
-            activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            prepareFreshTrackTransitionWithP2(activePump, DoPCarrierSessionReset.RECONFIGURE)
             closePump("track-reconfigure-paused-deferred")
             milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
             bindPendingFreshDestination(newFormat, requiresStartedAuthority = true, replacement = false)
@@ -1173,7 +1318,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             "trackTransition=OLD_SOURCE_INTAKE_CLOSED playing=true " +
                 "sourceRate=${activePump.facts.sourceSampleRateHz} newRate=${newFacts.sourceSampleRateHz}",
         )
-        activePump.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+        prepareFreshTrackTransitionWithP2(activePump, DoPCarrierSessionReset.RECONFIGURE)
         closePump("track-reconfigure")
         milestone("trackTransition=OLD_DIRECT_RUNTIME_RELEASED")
         bindPendingFreshDestination(newFormat, requiresStartedAuthority = false, replacement = false)
@@ -1477,6 +1622,7 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             shadowSourceAcceptReported = false
             directPrefillPermit = null
             directAuthorityAccepted = false
+            directWriteAuthority = DirectDsdSharedPcmWriteAuthority
             milestone("renderer=close reason=$reason")
         }
     }

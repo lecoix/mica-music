@@ -64,7 +64,7 @@ class DirectDsdMedia3FormatPolicyTest {
         assertTrue(renderBody.contains("readSource(holder, inputBuffer, 0)"))
         assertTrue(renderBody.contains("val format = checkNotNull(holder.format)"))
         assertTrue(renderBody.contains("DirectDsdMedia3FormatPolicy.factsOrNull(format)"))
-        assertTrue(renderBody.contains("sessionFactory.open(facts)"))
+        assertTrue(renderBody.contains("sessionFactory.open(facts, writeAuthority)"))
     }
 
     @Test

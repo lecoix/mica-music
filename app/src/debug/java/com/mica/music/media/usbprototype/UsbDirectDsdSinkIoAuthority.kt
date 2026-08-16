@@ -13,6 +13,7 @@ import com.mica.music.media.usb.UsbOutputRequestLease
  */
 internal class UsbDirectDsdSinkIoAuthority(
     private val activeRequestLease: UsbOutputRequestLease,
+    private val beforeContentIo: () -> Unit,
 ) {
     private val lock = Any()
 
@@ -27,6 +28,7 @@ internal class UsbDirectDsdSinkIoAuthority(
             check(!closed) { "Direct DSD Native sink I/O after authority close" }
             cleanupLease
         }
+        if (cleanup == null) beforeContentIo()
         return if (cleanup != null) cleanup.io(block) else activeRequestLease.io(block)
     }
 

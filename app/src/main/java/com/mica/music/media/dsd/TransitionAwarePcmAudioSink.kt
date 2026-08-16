@@ -8,6 +8,9 @@ import com.mica.music.media.usb.protocol.PcmConfigurePermit
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.WriteKind
+import com.mica.music.media.usb.UsbOutputSessionOwner
+import com.mica.music.media.usb.UsbP2RedemptionContext
+import com.mica.music.media.usb.sharedPcmUsbP2RedemptionContext
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusiveShadowMedia3Facts
 import java.nio.ByteBuffer
@@ -25,6 +28,8 @@ internal class TransitionAwarePcmAudioSink(
     private val playbackPeriodProjection: ManualNavigationPlaybackPeriodProjection =
         ManualNavigationPlaybackPeriodProjection(manualNavigationTransitionBridge),
     private val playbackAdapter: UsbExclusivePlaybackAdapter,
+    private val usbP2RedemptionContext: UsbP2RedemptionContext =
+        sharedPcmUsbP2RedemptionContext(UsbOutputSessionOwner()),
 ) : ForwardingAudioSink(delegate) {
     private data class PendingConfiguration(
         val format: Format,
@@ -46,6 +51,7 @@ internal class TransitionAwarePcmAudioSink(
         val configureFacts = UsbExclusiveShadowMedia3Facts.audio(inputFormat, "pcm-configure")
         val navigationEpoch = manualNavigationTransitionBridge.bindPcmDestination(inputFormat, playbackIdentity)
         val navigationSnapshot = manualNavigationTransitionBridge.snapshot()
+        usbP2RedemptionContext.prepareProtocolBinding()
 
         // M3 production path: a protocol permit must exist before the delegate is touched. A
         // denied permit is retained as a deferred configuration and never falls through to the
@@ -61,6 +67,7 @@ internal class TransitionAwarePcmAudioSink(
             )
             return
         }
+        usbP2RedemptionContext.ensurePermitTarget(permit.outputTarget)
         pendingConfiguration = null
         val accepted = configureWithProtocol(
             adapter = playbackAdapter,
@@ -96,6 +103,7 @@ internal class TransitionAwarePcmAudioSink(
             // raw target stream proof and old lease drain are both exact; otherwise this
             // remains fail-closed and no B bytes reach the delegate.
             playbackAdapter.prepareRetainedPcmHandoff(occurrence)?.let { permit ->
+                usbP2RedemptionContext.ensurePermitTarget(permit.outputTarget)
                 val disposition = playbackAdapter.commitRetainedPcmHandoff(permit)
                 if (disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
                     lease = playbackAdapter.tryEnterWrite(occurrence, WriteKind.PCM_DATA)
@@ -103,8 +111,23 @@ internal class TransitionAwarePcmAudioSink(
             }
         }
         lease ?: return false
+        val target = usbP2RedemptionContext.prepareProtocolBinding()
+        if (target != null && lease.identity.outputTarget != target) {
+            lease.exit()
+            return false
+        }
         return try {
-            super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            if (target == null) {
+                super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            } else {
+                usbP2RedemptionContext.withProtocolWrite(
+                    target,
+                    lease,
+                    WriteKind.PCM_DATA,
+                ) {
+                    super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+                }
+            }
         } finally {
             lease.exit()
         }
@@ -145,7 +168,9 @@ internal class TransitionAwarePcmAudioSink(
     private fun activatePendingConfiguration(): Boolean {
         val pending = pendingConfiguration ?: return true
         val occurrence = UsbExclusiveShadowMedia3Facts.occurrence(pending.playbackIdentity) ?: return false
+        usbP2RedemptionContext.prepareProtocolBinding()
         val permit = playbackAdapter.preparePcmConfigure(occurrence, "pcm-pending-configure") ?: return false
+        usbP2RedemptionContext.ensurePermitTarget(permit.outputTarget)
         val resourceIdentity = ResourceIdentity("pcm-configure-${permit.activationId.value}")
         try {
             super.configure(pending.format, pending.specifiedBufferSize, pending.outputChannels)

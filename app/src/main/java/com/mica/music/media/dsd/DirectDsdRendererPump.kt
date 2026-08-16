@@ -4,6 +4,7 @@ import com.mica.music.media.dsf.DsfExtractorPacketCanonicalizer
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.ResourceIdentity
+import com.mica.music.media.usb.protocol.WriteKind
 
 data class DirectDsdTransportWriteResult(
     val canonicalBytesConsumed: Int,
@@ -18,6 +19,28 @@ data class DirectDsdFreshTransitionPreparationResult(
     val feederPendingZero: Boolean,
     val carrierResetApplied: Boolean,
 )
+
+/**
+ * Instance-scoped bridge for Direct feeder/native writes.  The default stage method is used by
+ * pure/fake sessions; the production USB implementation overrides it to hold the exact stage
+ * permit while PREFILL is being emitted.
+ */
+interface DirectDsdWriteAuthority {
+    fun <T> withWrite(kind: WriteKind, block: () -> T): T
+
+    fun <T> withActivationStage(stage: DirectStage, block: () -> T): T = block()
+
+    /** Holds the exact retained-handoff/reset permit while already-accepted carrier drains. */
+    fun <T> withRetainedHandoff(block: () -> T): T = block()
+
+    /** Called immediately before the first native feeder write, including GAP writes. */
+    fun requireNativeIoAllowed() = Unit
+}
+
+/** Explicit no-USB authority for pure renderer/model fakes; it cannot redeem or open a device. */
+internal object DirectDsdSharedPcmWriteAuthority : DirectDsdWriteAuthority {
+    override fun <T> withWrite(kind: WriteKind, block: () -> T): T = block()
+}
 
 interface DirectDsdTransportSession : AutoCloseable {
     val facts: DsfExtractorPacketFacts
@@ -52,12 +75,23 @@ interface DirectDsdTransportSession : AutoCloseable {
         reason: DoPCarrierSessionReset,
     ): DirectDsdFreshTransitionPreparationResult
 
+    /** Runs exact stage cleanup under the transport's cleanup-only authority. */
+    fun <T> withCleanup(block: () -> T): T = block()
+
+    /** True only when this runtime has already completed its own exact owner-scoped teardown. */
+    fun isExactCleanupComplete(): Boolean = false
+
     /** Returns true only when end-of-stream state is clean and transport can finish. */
     fun finishEndOfStream(): Boolean
 }
 
 fun interface DirectDsdTransportSessionFactory {
     fun open(facts: DsfExtractorPacketFacts): DirectDsdTransportSession
+
+    fun open(
+        facts: DsfExtractorPacketFacts,
+        writeAuthority: DirectDsdWriteAuthority,
+    ): DirectDsdTransportSession = open(facts)
 }
 
 data class DirectDsdRendererPumpSnapshot(
@@ -200,6 +234,7 @@ class DirectDsdRendererPump(
      */
     fun cleanupExactResources(resources: Set<ResourceIdentity>): Set<ResourceIdentity> {
         require(resources.isNotEmpty()) { "Direct cleanup requires an exact resource identity" }
+        if (session.isExactCleanupComplete()) return resources
         val closesRetainedRuntime = resources.any { resource ->
             resource.value.contains(":retained-")
         }
@@ -221,7 +256,9 @@ class DirectDsdRendererPump(
             close()
         } else {
             check(!closed) { "Direct stage cleanup after runtime close" }
-            val result = session.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            val result = session.withCleanup {
+                session.prepareFreshTrackTransition(DoPCarrierSessionReset.RECONFIGURE)
+            }
             check(result.feederPendingZero && result.carrierResetApplied) {
                 "Direct exact stage cleanup did not reach carrier barrier"
             }

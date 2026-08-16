@@ -31,13 +31,17 @@ import com.mica.music.media.usb.UsbGenericPcmSelectionResult
 import com.mica.music.media.usb.UsbOutputCleanupLease
 import com.mica.music.media.usb.UsbOutputLifecycleRuntime
 import com.mica.music.media.usb.UsbOutputPhase
-import com.mica.music.media.usb.UsbOutputRequest
 import com.mica.music.media.usb.UsbOutputRequestLease
 import com.mica.music.media.usb.UsbOutputRequestToken
 import com.mica.music.media.usb.UsbOutputRuntime
 import com.mica.music.media.usb.UsbOutputSession
 import com.mica.music.media.usb.UsbPcmEncoding
 import com.mica.music.media.usb.UsbPcmFormat
+import com.mica.music.media.usb.UsbOutputSessionOwner
+import com.mica.music.media.usb.UsbP2RedemptionContext
+import com.mica.music.media.usb.UsbOutputRedemptionBinding
+import com.mica.music.media.usb.sharedPcmUsbP2RedemptionContext
+import com.mica.music.media.usb.protocol.WriteKind
 import com.mica.music.media.usb.UsbPermissionState
 import com.mica.music.media.usb.UsbPotentialAudioDevice
 import com.mica.music.media.usb.UsbPotentialAudioDiscoveryResult
@@ -74,7 +78,15 @@ private const val USB_START_PREFILL_MILLIS = 20L
  */
 @UnstableApi
 /** SK02-only production provider. Availability is build-time; user intent remains default-off. */
-class UsbSk02AudioOutputProvider(context: Context) : AudioOutputProvider {
+internal class UsbSk02AudioOutputProvider(
+    context: Context,
+    private val redemptionContext: UsbP2RedemptionContext,
+) : AudioOutputProvider {
+    /** Compatibility constructor is deliberately non-redeeming and therefore fail-closed. */
+    constructor(context: Context) : this(
+        context,
+        sharedPcmUsbP2RedemptionContext(UsbOutputSessionOwner()),
+    )
     private val appContext = context.applicationContext
     private val listeners = CopyOnWriteArraySet<AudioOutputProvider.Listener>()
 
@@ -140,7 +152,7 @@ class UsbSk02AudioOutputProvider(context: Context) : AudioOutputProvider {
     override fun getAudioOutput(config: AudioOutputProvider.OutputConfig): AudioOutput {
         return try {
             UsbOutputRuntime.installGenerationPublisher(UsbSk02NativePrototype::publishGeneration)
-            UsbSk02Media3SessionOwner.open(appContext, config)
+            UsbSk02Media3SessionOwner.open(appContext, config, redemptionContext)
         } catch (error: Exception) {
             throw AudioOutputProvider.InitializationException(error)
         }
@@ -173,19 +185,21 @@ private object UsbSk02Media3SessionOwner {
     fun open(
         context: Context,
         config: AudioOutputProvider.OutputConfig,
+        redemptionContext: UsbP2RedemptionContext,
     ): UsbSk02AudioOutput {
         val sourceFormat = config.toUsbPcmFormat()
         val manager = context.getSystemService(UsbManager::class.java)
-        val target = selectTarget(manager)
-        val candidate = target.candidate
-        val identity = target.identity
-        val output = UsbProvenReconnectTargetRuntime.publishAfterSuccessfulOpen(identity) {
-            UsbOutputRuntime.owner.replace(
-                request = UsbOutputRequest(
-                    device = identity,
-                    sourceFormat = sourceFormat,
-                ),
-            ) { lease ->
+        return redemptionContext.consumeCurrent { binding, lease ->
+            binding.ensureRequestLease(lease)
+            val target = selectTarget(manager, lease)
+            val candidate = target.candidate
+            val identity = target.identity
+            check(binding.request.device == identity) {
+                "USB provider target does not match the reserved P2 device identity"
+            }
+            check(binding.request.signalPolicy == com.mica.music.media.usb.UsbSignalPolicy.EXACT_ONLY)
+            val output = UsbProvenReconnectTargetRuntime.publishAfterSuccessfulOpen(identity) {
+                binding.ensureRequestLease(lease)
                 UsbSk02AudioOutput.open(
                     context = context,
                     config = config,
@@ -193,18 +207,23 @@ private object UsbSk02Media3SessionOwner {
                     candidate = candidate,
                     expectedIdentity = identity,
                     lease = lease,
+                    redemptionContext = redemptionContext,
+                    redemptionBinding = binding,
                 )
             }
+            DiagnosticLog.event(
+                "UsbExclusivePrototype",
+                "reconnect target=published-after-production-open " +
+                    "vendorId=${identity.vendorId} productId=${identity.productId} bcdDevice=${identity.bcdDevice}",
+            )
+            output
         }
-        DiagnosticLog.event(
-            "UsbExclusivePrototype",
-            "reconnect target=published-after-production-open " +
-                "vendorId=${identity.vendorId} productId=${identity.productId} bcdDevice=${identity.bcdDevice}",
-        )
-        return output
     }
 
-    private fun selectTarget(manager: UsbManager): SelectedTarget {
+    private fun selectTarget(
+        manager: UsbManager,
+        lease: UsbOutputRequestLease,
+    ): SelectedTarget {
         val existingFacts = UsbOutputRuntime.owner.facts
         val reconnectExpected = if (
             UsbOutputLifecycleRuntime.hasInterruptedUsbIntent() &&
@@ -226,7 +245,7 @@ private object UsbSk02Media3SessionOwner {
                 productId = expectedIdentity.productId,
                 permission = UsbPermissionState.GRANTED,
             )
-            val observedIdentity = preflightIdentity(manager, candidate)
+            val observedIdentity = preflightIdentity(manager, candidate, lease)
             val conflicts = UsbStableIdentityPolicy.conflicts(expectedIdentity, observedIdentity)
             check(conflicts.isEmpty()) {
                 "Stable reconnect identity changed before production open: $conflicts"
@@ -247,20 +266,21 @@ private object UsbSk02Media3SessionOwner {
                 error("Multiple potential USB Audio devices are attached; explicit DAC selection is required")
             is UsbPotentialAudioDiscoveryResult.OnePermittedCandidate -> discovery.candidate
         }
-        return SelectedTarget(candidate, preflightIdentity(manager, candidate))
+        return SelectedTarget(candidate, preflightIdentity(manager, candidate, lease))
     }
 
     private fun preflightIdentity(
         manager: UsbManager,
         candidate: UsbPotentialAudioDevice,
+        lease: UsbOutputRequestLease,
     ): UsbAudioDeviceIdentity {
         val device = AndroidUsbAudioDiscovery.resolve(manager, candidate)
             ?: error("Discovered USB Audio device disappeared before identity preflight")
         check(manager.hasPermission(device)) { "USB Audio permission disappeared before identity preflight" }
-        val connection = manager.openDevice(device)
+        val connection = lease.io { manager.openDevice(device) }
             ?: error("Unable to open discovered USB Audio device for identity preflight")
         return try {
-            when (val result = AndroidUsbRuntimeFactsProvider.acquire(device, connection)) {
+            when (val result = lease.io { AndroidUsbRuntimeFactsProvider.acquire(device, connection) }) {
                 is UsbRuntimeFactsResult.Ready -> result.facts.identity
                 is UsbRuntimeFactsResult.Rejected -> error(
                     "USB runtime facts rejected during identity preflight: " +
@@ -268,7 +288,7 @@ private object UsbSk02Media3SessionOwner {
                 )
             }
         } finally {
-            connection.close()
+            lease.io { connection.close() }
         }
     }
 
@@ -304,6 +324,8 @@ private class UsbSk02AudioOutput private constructor(
     private val runtimeHandle: UsbAudioRuntimeHandle,
     private val negotiatedFormat: UsbPcmFormat,
     initialLease: UsbOutputRequestLease,
+    private val redemptionContext: UsbP2RedemptionContext,
+    private val redemptionBinding: UsbOutputRedemptionBinding,
 ) : AudioOutput, UsbOutputSession {
     private val listeners = CopyOnWriteArraySet<AudioOutput.Listener>()
     private var generation = initialLease.token
@@ -332,11 +354,16 @@ private class UsbSk02AudioOutput private constructor(
         )
 
     init {
-        nativeHandle = initialLease.io { createNative(generation) }
+        redemptionBinding.ensureRequestLease(initialLease)
+        nativeHandle = initialLease.io {
+            redemptionBinding.ensureRequestLease(initialLease)
+            createNative(generation)
+        }
     }
 
     override fun play() {
         UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            redemptionBinding.ensureActiveSession(this, lease)
             requestedPlaying = true
             resumeSequence++
             resumeRequestedAtNs = SystemClock.elapsedRealtimeNanos()
@@ -360,6 +387,7 @@ private class UsbSk02AudioOutput private constructor(
 
     override fun pause() {
         UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            redemptionBinding.ensureActiveSession(this, lease)
             requestedPlaying = false
             DiagnosticLog.event(
                 "UsbResumeTiming",
@@ -375,8 +403,10 @@ private class UsbSk02AudioOutput private constructor(
         encodedAccessUnitCount: Int,
         presentationTimeUs: Long,
     ): Boolean = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+        redemptionBinding.ensureActiveSession(this, lease)
         checkNativeError(lease)
         if (!buffer.hasRemaining()) return@withActiveSession true
+        redemptionContext.requireProtocolWrite(redemptionBinding.target, WriteKind.PCM_DATA)
         val writtenInputBytes = when (inputEncoding) {
             C.ENCODING_PCM_16BIT -> writePcm16(buffer, lease)
             C.ENCODING_PCM_FLOAT -> writeExactFloatAsPcm32(buffer, lease)
@@ -404,6 +434,7 @@ private class UsbSk02AudioOutput private constructor(
     override fun flush() {
         UsbSk02Media3SessionOwner.restart(this)
         UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            redemptionBinding.ensureActiveSession(this, lease)
             positionNotified = false
             lastUnderrunBytes = 0
             applyPlayingState(lease)
@@ -418,6 +449,7 @@ private class UsbSk02AudioOutput private constructor(
 
     override fun setVolume(volume: Float) {
         UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+            redemptionBinding.ensureActiveSession(this, lease)
             this.volume = volume
             // Never apply digital gain. Non-unity volume stops source consumption.
             applyPlayingState(lease)
@@ -432,12 +464,14 @@ private class UsbSk02AudioOutput private constructor(
     override fun getSampleRate(): Int = sampleRate
     override fun getBufferSizeInFrames(): Long = sampleRate.toLong() * 2L
     override fun getPositionUs(): Long = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+        redemptionBinding.ensureActiveSession(this, lease)
         lease.io { UsbSk02NativePrototype.getMedia3CompletedFrames(nativeHandle) } *
             C.MICROS_PER_SECOND / sampleRate
     } ?: 0L
 
     override fun getPlaybackParameters(): PlaybackParameters = PlaybackParameters.DEFAULT
     override fun isStalled(): Boolean = UsbOutputRuntime.owner.withActiveSession(this) { lease ->
+        redemptionBinding.ensureActiveSession(this, lease)
         nativeHandle == 0L ||
             lease.io { UsbSk02NativePrototype.getMedia3ErrorCode(nativeHandle) } != 0
     } ?: true
@@ -458,6 +492,7 @@ private class UsbSk02AudioOutput private constructor(
     override fun setPreferredDevice(preferredDevice: AudioDeviceInfo?) = Unit
 
     override fun restart(lease: UsbOutputRequestLease) {
+        redemptionBinding.ensureActiveSession(this, lease)
         if (nativeHandle != 0L) {
             lease.io { UsbSk02NativePrototype.destroyMedia3Stream(nativeHandle) }
             nativeHandle = 0L
@@ -857,8 +892,11 @@ private class UsbSk02AudioOutput private constructor(
             candidate: UsbPotentialAudioDevice,
             expectedIdentity: UsbAudioDeviceIdentity,
             lease: UsbOutputRequestLease,
+            redemptionContext: UsbP2RedemptionContext,
+            redemptionBinding: UsbOutputRedemptionBinding,
         ): UsbSk02AudioOutput {
             val manager = context.getSystemService(UsbManager::class.java)
+            redemptionBinding.ensureRequestLease(lease)
             val target = AndroidUsbAudioDiscovery.resolve(manager, candidate)
                 ?: error("Discovered USB Audio device disappeared before production open")
             lease.ensureCurrent()
@@ -874,7 +912,9 @@ private class UsbSk02AudioOutput private constructor(
             var selectedClockSourceId: Int? = null
             var originalClockHz: Int? = null
             try {
-                val runtime = when (val result = AndroidUsbRuntimeFactsProvider.acquire(target, connection)) {
+                val runtime = when (val result = lease.io {
+                    AndroidUsbRuntimeFactsProvider.acquire(target, connection)
+                }) {
                     is UsbRuntimeFactsResult.Ready -> result.facts
                     is UsbRuntimeFactsResult.Rejected -> error(
                         "USB runtime facts rejected: ${result.rejection.code}: ${result.rejection.detail}",
@@ -985,6 +1025,8 @@ private class UsbSk02AudioOutput private constructor(
                     runtimeHandle = runtime.runtimeHandle,
                     negotiatedFormat = decision.deviceFormat,
                     initialLease = lease,
+                    redemptionContext = redemptionContext,
+                    redemptionBinding = redemptionBinding,
                 ).also {
                     DiagnosticLog.event(
                         "UsbExclusivePrototype",

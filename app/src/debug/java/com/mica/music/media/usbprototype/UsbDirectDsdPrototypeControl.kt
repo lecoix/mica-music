@@ -9,6 +9,7 @@ import com.mica.music.media.dsd.DirectDsdSystemMonotonicClock
 import com.mica.music.media.dsd.DirectDsdTrackTransitionCoordinator
 import com.mica.music.media.dsd.ManualNavigationTransitionBridge
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
+import com.mica.music.media.usb.UsbP2RedemptionContext
 import java.io.File
 
 object UsbDirectDsdPrototypeControl {
@@ -30,27 +31,36 @@ object UsbDirectDsdPrototypeControl {
 
 object UsbDirectDsdPrototypeRendererFactory {
     @JvmStatic
-    fun create(
+    @JvmName("create")
+    internal fun create(
         context: Context,
         transitionCoordinator: DirectDsdTrackTransitionCoordinator,
         manualNavigationTransitionBridge: ManualNavigationTransitionBridge,
         playbackAdapter: Any,
+        redemptionContext: UsbP2RedemptionContext,
     ): Renderer? {
         if (!UsbDirectDsdPrototypeControl.isEnabled()) return null
         val adapter = checkNotNull(playbackAdapter as? UsbExclusivePlaybackAdapter) {
             "M3 Direct renderer requires its production playback adapter"
         }
+        val p2RedemptionContext = redemptionContext
         val appContext = context.applicationContext
         val publish: (String) -> Unit = { UsbDirectDsdPrototypeEvidence.record(appContext, it) }
         val clock = DirectDsdSystemMonotonicClock
         publish("directDsd=renderer-created")
         return DirectDsdMedia3Renderer(
-            sessionFactory = UsbDirectDsdTransportSessionFactory(appContext, publish, clock),
+            sessionFactory = UsbDirectDsdTransportSessionFactory(
+                appContext,
+                publish,
+                clock,
+                p2RedemptionContext,
+            ),
             playbackAdapter = adapter,
             milestone = publish,
             monotonicClock = clock,
             transitionCoordinator = transitionCoordinator,
             manualNavigationTransitionBridge = manualNavigationTransitionBridge,
+            usbP2RedemptionContext = p2RedemptionContext,
         )
     }
 }
