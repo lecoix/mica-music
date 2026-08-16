@@ -390,7 +390,17 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                     runtime,
                 ) ?: return null
             }
-            val result = active.pump()
+            val permit = checkNotNull(directPrefillPermit)
+            val result = try {
+                active.pump()
+            } catch (error: Throwable) {
+                failDirectStageAfterSideEffect(
+                    adapter = adapter,
+                    permit = permit,
+                    active = active,
+                    original = error,
+                )
+            }
             observeShadowPrefillIfReady(active)
             return result
         }
@@ -416,12 +426,23 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             shadowOccurrence,
             runtime,
         ) ?: error("Direct protocol denied retained source handoff before carrier reset")
-        val result = active.transitionRetainedSource(newFacts)
+        val resource = ResourceIdentity("$runtime:retained-${permit.targetOccurrence.windowSequenceNumber}")
+        val result = try {
+            active.transitionRetainedSource(newFacts)
+        } catch (error: Throwable) {
+            failRetainedDirectHandoffAfterSideEffect(
+                adapter = adapter,
+                permit = permit,
+                active = active,
+                resource = resource,
+                original = error,
+            )
+        }
         val disposition = adapter.commitRetainedDirectHandoff(
             permit,
             SideEffectReceipt.Completed(
                 permit.activationId,
-                ResourceIdentity("$runtime:retained-${permit.targetOccurrence.windowSequenceNumber}"),
+                resource,
                 "direct-retained-source-reset",
                 runtime,
             ),
@@ -523,13 +544,34 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         val session = try {
             sessionFactory.open(facts)
         } catch (error: Throwable) {
-            playbackAdapter.commitDirectStage(
-                createPermit,
-                SideEffectReceipt.NotStarted(createPermit.activationId),
-            )
+            try {
+                playbackAdapter.commitDirectStage(
+                    createPermit,
+                    SideEffectReceipt.NotStarted(createPermit.activationId),
+                )
+            } catch (commitError: Throwable) {
+                if (commitError !== error) error.addSuppressed(commitError)
+            }
             throw error
         }
-        val freshPump = DirectDsdRendererPump(facts, session)
+        val freshPump = try {
+            DirectDsdRendererPump(facts, session)
+        } catch (error: Throwable) {
+            val sessionClosed = try {
+                session.close()
+                true
+            } catch (cleanupError: Throwable) {
+                if (cleanupError !== error) error.addSuppressed(cleanupError)
+                false
+            }
+            failDirectStageAfterSideEffectWithoutPump(
+                adapter = playbackAdapter,
+                permit = createPermit,
+                resource = ResourceIdentity("$runtimeIdentity:create"),
+                cleanupCompleted = sessionClosed,
+                original = error,
+            )
+        }
         val disposition = playbackAdapter.commitDirectStage(
             createPermit,
             SideEffectReceipt.Completed(
@@ -629,8 +671,17 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                 DirectStage.ARM,
                 runtime,
             ) ?: error("Direct protocol denied ARM before transport arm")
-            active.armPlayback()
-            check(active.isPlaybackArmed())
+            try {
+                active.armPlayback()
+                check(active.isPlaybackArmed())
+            } catch (error: Throwable) {
+                failDirectStageAfterSideEffect(
+                    adapter = adapter,
+                    permit = armPermit,
+                    active = active,
+                    original = error,
+                )
+            }
             val armDisposition = adapter.commitDirectStage(
                 armPermit,
                 SideEffectReceipt.Completed(
@@ -690,6 +741,125 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
 
     private enum class DirectCommitOutcome { PROGRESSED, RETRY, REJECTED }
 
+    /**
+     * Converts an uncertain post-permit Direct side effect into the existing typed terminal
+     * receipt/cleanup path. The transport error remains the primary failure; protocol or
+     * owner-scoped cleanup failures are suppressed onto it and cannot reopen authority.
+     */
+    private fun failDirectStageAfterSideEffect(
+        adapter: UsbExclusivePlaybackAdapter,
+        permit: DirectStagePermit,
+        active: DirectDsdRendererPump,
+        original: Throwable,
+    ): Nothing {
+        try {
+            val disposition = checkNotNull(
+                adapter.commitDirectStage(
+                    permit,
+                    SideEffectReceipt.TerminalFailure(
+                        activationId = permit.activationId,
+                        resourceIdentity = ResourceIdentity("${permit.runtimeIdentity}:${permit.stage.resourceSuffix()}"),
+                        failure = "${original.javaClass.name}:${original.message ?: "no-message"}",
+                        runtimeIdentity = permit.runtimeIdentity,
+                    ),
+                ),
+            ) { "Direct ${permit.stage} failure receipt was not accepted" }
+            resolveDirectCommit(adapter, permit, disposition, active)
+        } catch (cleanupError: Throwable) {
+            if (cleanupError !== original) original.addSuppressed(cleanupError)
+        } finally {
+            if (permit.stage == DirectStage.PREFILL && directPrefillPermit == permit) {
+                directPrefillPermit = null
+            }
+        }
+        throw original
+    }
+
+    /** Handles CREATE_RUNTIME post-open failures before a renderer pump exists to clean them. */
+    private fun failDirectStageAfterSideEffectWithoutPump(
+        adapter: UsbExclusivePlaybackAdapter,
+        permit: DirectStagePermit,
+        resource: ResourceIdentity,
+        cleanupCompleted: Boolean,
+        original: Throwable,
+    ): Nothing {
+        try {
+            val disposition = checkNotNull(
+                adapter.commitDirectStage(
+                    permit,
+                    SideEffectReceipt.TerminalFailure(
+                        activationId = permit.activationId,
+                        resourceIdentity = resource,
+                        failure = "${original.javaClass.name}:${original.message ?: "no-message"}",
+                        runtimeIdentity = permit.runtimeIdentity,
+                    ),
+                ),
+            ) { "Direct CREATE_RUNTIME failure receipt was not accepted" }
+            if (
+                disposition is CommitDisposition.CurrentCleanupRequired ||
+                disposition is CommitDisposition.StaleCleanupRequired ||
+                disposition is CommitDisposition.RetiringCleanupRequired
+            ) {
+                check(cleanupCompleted) {
+                    "Direct CREATE_RUNTIME cleanup failed before completeCleanup"
+                }
+                val requirements = adapter.cleanupRequirements(permit.activationId)
+                check(requirements.map { it.resourceIdentity }.toSet() == setOf(resource)) {
+                    "Direct CREATE_RUNTIME cleanup escaped exact resource ownership"
+                }
+                var continuation: CommitDisposition? = null
+                requirements.asReversed().forEach { requirement ->
+                    continuation = adapter.completeCleanup(permit.activationId, requirement.resourceIdentity)
+                }
+                check(
+                    continuation == CommitDisposition.TerminalFailure ||
+                        continuation == CommitDisposition.StaleNoEffect,
+                ) { "unexpected Direct CREATE_RUNTIME cleanup continuation: $continuation" }
+            } else {
+                check(
+                    disposition == CommitDisposition.TerminalFailure ||
+                        disposition == CommitDisposition.StaleNoEffect,
+                ) { "Direct CREATE_RUNTIME failure bypassed cleanup: $disposition" }
+            }
+        } catch (cleanupError: Throwable) {
+            if (cleanupError !== original) original.addSuppressed(cleanupError)
+        }
+        throw original
+    }
+
+    /** Fails a retained runtime handoff closed after the carrier/source reset may be partial. */
+    private fun failRetainedDirectHandoffAfterSideEffect(
+        adapter: UsbExclusivePlaybackAdapter,
+        permit: com.mica.music.media.usb.protocol.DirectRetainedHandoffPermit,
+        active: DirectDsdRendererPump,
+        resource: ResourceIdentity,
+        original: Throwable,
+    ): Nothing {
+        try {
+            val disposition = adapter.commitRetainedDirectHandoff(
+                permit,
+                SideEffectReceipt.TerminalFailure(
+                    activationId = permit.activationId,
+                    resourceIdentity = resource,
+                    failure = "${original.javaClass.name}:${original.message ?: "no-message"}",
+                    runtimeIdentity = permit.runtimeIdentity,
+                ),
+            )
+            resolveRetainedDirectCommit(adapter, permit, disposition, active)
+            adapter.observeDirectRuntimeReleased(
+                permit.sourceOccurrence,
+                permit.runtimeIdentity,
+                "retained-handoff-failure",
+            )
+            check(adapter.snapshot().familyOwnership is FamilyOwnership.None) {
+                "retained Direct failure did not release the exact old runtime family"
+            }
+        } catch (cleanupError: Throwable) {
+            if (cleanupError !== original) original.addSuppressed(cleanupError)
+        }
+        throw original
+    }
+
     /** Cleans every exact requirement before allowing the protocol continuation to advance. */
     private fun resolveDirectCommit(
         adapter: UsbExclusivePlaybackAdapter,
@@ -742,6 +912,47 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         }
     }
 
+    /** Completes the one exact retained-handoff resource before observing family release. */
+    private fun resolveRetainedDirectCommit(
+        adapter: UsbExclusivePlaybackAdapter,
+        permit: com.mica.music.media.usb.protocol.DirectRetainedHandoffPermit,
+        disposition: CommitDisposition,
+        active: DirectDsdRendererPump,
+    ) {
+        if (
+            disposition is CommitDisposition.CurrentCleanupRequired ||
+            disposition is CommitDisposition.StaleCleanupRequired ||
+            disposition is CommitDisposition.RetiringCleanupRequired
+        ) {
+            val requirements = adapter.cleanupRequirements(permit.activationId)
+            check(requirements.isNotEmpty()) {
+                "retained Direct cleanup disposition has no owner-scoped requirements: $disposition"
+            }
+            val exactResources = requirements.map { it.resourceIdentity }.toSet()
+            check(active.cleanupExactResources(exactResources) == exactResources) {
+                "retained Direct cleanup did not prove every exact resource identity"
+            }
+            var continuation: CommitDisposition? = null
+            requirements.asReversed().forEach { requirement ->
+                continuation = adapter.completeCleanup(permit.activationId, requirement.resourceIdentity)
+            }
+            check(
+                continuation == CommitDisposition.TerminalFailure ||
+                    continuation == CommitDisposition.StaleNoEffect,
+            ) { "unexpected retained Direct cleanup continuation: $continuation" }
+        } else {
+            check(
+                disposition == CommitDisposition.TerminalFailure ||
+                    disposition == CommitDisposition.StaleNoEffect,
+            ) { "retained Direct failure receipt bypassed cleanup: $disposition" }
+        }
+        val snapshot = adapter.snapshot()
+        check(permit.activationId !in snapshot.inFlightActivations) {
+            "retained Direct failure left its activation in flight"
+        }
+        check(snapshot.cleanupRequirements.isEmpty()) { "retained Direct failure left cleanup pending" }
+    }
+
     private fun directStageStillCurrent(
         adapter: UsbExclusivePlaybackAdapter,
         permit: DirectStagePermit,
@@ -756,6 +967,13 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
             mutation.targetFamily == PlaybackFamily.DOP &&
             mutation.targetOccurrence == permit.occurrence &&
             snapshot.applicationCurrent.occurrence == permit.occurrence
+    }
+
+    private fun DirectStage.resourceSuffix(): String = when (this) {
+        DirectStage.CREATE_RUNTIME -> "create"
+        DirectStage.PREFILL -> "prefill"
+        DirectStage.ARM -> "arm"
+        DirectStage.SOURCE_ACCEPT -> "source-accept"
     }
 
     private fun maybeArmAfterPlayingReset(active: DirectDsdRendererPump, sampleTimeUs: Long?): Boolean {

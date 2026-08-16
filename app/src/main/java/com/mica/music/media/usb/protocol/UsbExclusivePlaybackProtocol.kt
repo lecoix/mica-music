@@ -929,40 +929,93 @@ class UsbExclusivePlaybackProtocol(
         if (
             record.kind != ActivationKind.RETAINED_DIRECT ||
             receipt.activationId != permit.activationId ||
-            receipt !is SideEffectReceipt.Completed ||
-            receipt.runtimeIdentity != permit.runtimeIdentity
+            record.mutationId != permit.mutationId ||
+            record.adapterInstanceId != permit.adapterInstanceId ||
+            record.occurrence != permit.targetOccurrence ||
+            record.outputTarget != permit.outputTarget ||
+            !receiptRuntimeMatchesRetainedDirectPermit(receipt, permit)
         ) return CommitDisposition.StaleNoEffect
         val epoch = mutation
         val owned = familyOwnership as? FamilyOwnership.DopOwned
         if (
-            epoch == null ||
-            owned == null ||
-            lifecycle !is ProtocolLifecycle.Active ||
-            epoch.mutationId != permit.mutationId ||
-            epoch.targetOccurrence != permit.targetOccurrence ||
-            epoch.sourceOwnershipId != owned.ownershipId ||
-            owned.occurrence != permit.sourceOccurrence ||
-            owned.adapterInstanceId != permit.adapterInstanceId ||
-            owned.runtimeIdentity != permit.runtimeIdentity ||
-            outputTarget != permit.outputTarget ||
-            !owned.writeLease.isRevoked() ||
-            !owned.writeLease.isDrained()
-        ) {
-            activations.remove(permit.activationId)
-            return CommitDisposition.StaleNoEffect
+            owned != null &&
+                (owned.occurrence != permit.sourceOccurrence ||
+                    owned.adapterInstanceId != permit.adapterInstanceId ||
+                    owned.runtimeIdentity != permit.runtimeIdentity)
+        ) return CommitDisposition.StaleNoEffect
+        val current =
+            epoch != null &&
+                owned != null &&
+                lifecycle is ProtocolLifecycle.Active &&
+                epoch.destinationBound &&
+                epoch.mutationId == permit.mutationId &&
+                epoch.targetOccurrence == permit.targetOccurrence &&
+                epoch.sourceRetirement == null &&
+                epoch.sourceOwnershipId == owned.ownershipId &&
+                applicationCurrent.occurrence == permit.targetOccurrence &&
+                owned.occurrence == permit.sourceOccurrence &&
+                owned.adapterInstanceId == permit.adapterInstanceId &&
+                owned.runtimeIdentity == permit.runtimeIdentity &&
+                outputTarget == permit.outputTarget &&
+                owned.writeLease.isRevoked() &&
+                owned.writeLease.isDrained()
+        val retiring = lifecycle is ProtocolLifecycle.Retiring
+        return when (receipt) {
+            is SideEffectReceipt.NotStarted -> {
+                activations.remove(permit.activationId)
+                updateRetiringBarrierLocked(permit.activationId)
+                if (current && !retiring) {
+                    CommitDisposition.RetryPendingSameMutation
+                } else {
+                    CommitDisposition.StaleNoEffect
+                }
+            }
+            is SideEffectReceipt.Completed -> if (retiring || !current) {
+                requireCleanupLocked(
+                    record = record,
+                    resourceIdentity = receipt.resourceIdentity,
+                    continuation = null,
+                    retiring = retiring,
+                    stale = !retiring,
+                )
+            } else {
+                activations.remove(permit.activationId)
+                val result = commitFamilyLocked(
+                    PlaybackFamily.DOP,
+                    permit.mutationId,
+                    permit.adapterInstanceId,
+                    permit.targetOccurrence,
+                    permit.runtimeIdentity,
+                    checkNotNull(epoch).targetFacts,
+                    permit.activationId,
+                )
+                updateRetiringBarrierLocked(permit.activationId)
+                result
+            }
+            is SideEffectReceipt.PartialNeedsCleanup -> requireCleanupLocked(
+                record = record,
+                resourceIdentity = receipt.resourceIdentity,
+                continuation = CleanupContinuation.TERMINAL.takeIf { current && !retiring },
+                retiring = retiring,
+                stale = !current && !retiring,
+            )
+            is SideEffectReceipt.TerminalFailure -> {
+                val resource = receipt.resourceIdentity
+                if (resource == null) {
+                    activations.remove(permit.activationId)
+                    updateRetiringBarrierLocked(permit.activationId)
+                    if (current && !retiring) CommitDisposition.TerminalFailure else CommitDisposition.StaleNoEffect
+                } else {
+                    requireCleanupLocked(
+                        record = record,
+                        resourceIdentity = resource,
+                        continuation = CleanupContinuation.TERMINAL.takeIf { current && !retiring },
+                        retiring = retiring,
+                        stale = !current && !retiring,
+                    )
+                }
+            }
         }
-        activations.remove(permit.activationId)
-        val result = commitFamilyLocked(
-            PlaybackFamily.DOP,
-            permit.mutationId,
-            permit.adapterInstanceId,
-            permit.targetOccurrence,
-            permit.runtimeIdentity,
-            epoch.targetFacts,
-            permit.activationId,
-        )
-        updateRetiringBarrierLocked(permit.activationId)
-        return result
     }
 
     @Synchronized
@@ -1251,6 +1304,7 @@ class UsbExclusivePlaybackProtocol(
         if (!preserveDirectRetry) {
             activations.remove(requirement.activationId)
             if (directActivation?.activationId == requirement.activationId) directActivation = null
+            startedAuthorities.entries.removeAll { it.value.activationId == requirement.activationId }
         }
         updateRetiringBarrierLocked(requirement.activationId)
         return disposition
@@ -1571,6 +1625,17 @@ class UsbExclusivePlaybackProtocol(
             is SideEffectReceipt.TerminalFailure ->
                 receipt.resourceIdentity == null || receipt.runtimeIdentity == permit.runtimeIdentity
         }
+
+    private fun receiptRuntimeMatchesRetainedDirectPermit(
+        receipt: SideEffectReceipt,
+        permit: DirectRetainedHandoffPermit,
+    ): Boolean = when (receipt) {
+        is SideEffectReceipt.NotStarted -> true
+        is SideEffectReceipt.Completed -> receipt.runtimeIdentity == permit.runtimeIdentity
+        is SideEffectReceipt.PartialNeedsCleanup -> receipt.runtimeIdentity == permit.runtimeIdentity
+        is SideEffectReceipt.TerminalFailure ->
+            receipt.resourceIdentity == null || receipt.runtimeIdentity == permit.runtimeIdentity
+    }
 
     private fun retirementReceiptMatchesLocked(
         epoch: MutationEpoch,

@@ -422,18 +422,20 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeCurrentPlayerOccurrence("C", c)
         adapter.observeStream(c, PlaybackFamily.DOP, "dop512")
 
+        val staleResource = ResourceIdentity("direct-retained-reset-b-stale")
         assertEquals(
-            CommitDisposition.StaleNoEffect,
+            CommitDisposition.StaleCleanupRequired(staleResource),
             adapter.commitRetainedDirectHandoff(
                 bPermit,
                 SideEffectReceipt.Completed(
                     bPermit.activationId,
-                    ResourceIdentity("direct-retained-reset-b-stale"),
+                    staleResource,
                     "test-stale-B",
                     runtime,
                 ),
             ),
         )
+        assertEquals(CommitDisposition.StaleNoEffect, adapter.completeCleanup(bPermit.activationId, staleResource))
         assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
         assertEquals(a, (stack.snapshot().familyOwnership as FamilyOwnership.DopOwned).occurrence)
         val cPermit = requireNotNull(adapter.prepareRetainedDirectHandoff(a, c, runtime))

@@ -200,7 +200,12 @@ class DirectDsdRendererPump(
      */
     fun cleanupExactResources(resources: Set<ResourceIdentity>): Set<ResourceIdentity> {
         require(resources.isNotEmpty()) { "Direct cleanup requires an exact resource identity" }
-        val stages = resources.map { resource ->
+        val closesRetainedRuntime = resources.any { resource ->
+            resource.value.contains(":retained-")
+        }
+        val stages = resources.filterNot { resource ->
+            resource.value.contains(":retained-")
+        }.map { resource ->
             when {
                 resource.value.endsWith(":create") -> DirectStage.CREATE_RUNTIME
                 resource.value.endsWith(":prefill") -> DirectStage.PREFILL
@@ -209,7 +214,7 @@ class DirectDsdRendererPump(
                 else -> error("unknown Direct cleanup resource ${resource.value}")
             }
         }.toSet()
-        if (DirectStage.CREATE_RUNTIME in stages || closed) {
+        if (closesRetainedRuntime || DirectStage.CREATE_RUNTIME in stages || closed) {
             // A late receipt can arrive after this owning runtime was already closed by the
             // exact teardown seam. The closed pump is itself the proof that its runtime-scoped
             // stage resources have been torn down; do not reset a successor or reopen it.
@@ -235,8 +240,8 @@ class DirectDsdRendererPump(
 
     override fun close() {
         if (closed) return
-        closed = true
         session.close()
+        closed = true
     }
 
     private fun pendingBytes(): Int = pending.size - pendingOffset
