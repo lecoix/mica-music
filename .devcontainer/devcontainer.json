@@ -1,6 +1,6 @@
 {
   "name": "Mica Cloud Worker",
-  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "forwardPorts": [8765],
   "portsAttributes": {
     "8765": {
