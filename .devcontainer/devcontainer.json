@@ -1,0 +1,12 @@
+{
+  "name": "Mica Cloud Worker",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": {
+      "label": "Mica Cloud AgentDock",
+      "onAutoForward": "silent"
+    }
+  },
+  "postStartCommand": "bash .devcontainer/mica-cloud-agentdock.sh"
+}
