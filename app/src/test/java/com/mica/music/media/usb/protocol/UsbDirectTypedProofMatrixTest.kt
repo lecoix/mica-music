@@ -115,7 +115,8 @@ class UsbDirectTypedProofMatrixTest {
 
     @Test
     fun t5RetainedRedOrMissingProofDoesNotCommitSuccessor() {
-        val (_, protocol) = ownedDirect()
+        val endpoint = FakeDirectPhysicalEndpoint(retained = null)
+        val (_, protocol) = ownedDirect(endpoint)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(
             protocol.beginMutation(
@@ -136,8 +137,6 @@ class UsbDirectTypedProofMatrixTest {
                 RuntimeIdentity("direct-a"),
             ),
         )
-        val missing = FakeDirectPhysicalEndpoint(retained = null)
-        check(protocol.attachDirectPhysicalEndpoint(adapterA, RuntimeIdentity("direct-a"), missing))
         assertEquals(
             CommitDisposition.StaleNoEffect,
             protocol.commitRetainedDirectHandoff(
@@ -150,7 +149,7 @@ class UsbDirectTypedProofMatrixTest {
                 ),
             ),
         )
-        missing.retained = greenDirectRetainedFacts(markerContinuityRetained = false)
+        endpoint.retained = greenDirectRetainedFacts(markerContinuityRetained = false)
         assertEquals(
             CommitDisposition.StaleNoEffect,
             protocol.commitRetainedDirectHandoff(
@@ -394,7 +393,33 @@ class UsbDirectTypedProofMatrixTest {
         )
     }
 
-    private fun ownedDirect(): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
+    @Test
+    fun t13ReplacementEndpointCannotOverwriteBoundRuntime() {
+        val (_, protocol) = ownedDirect()
+        protocol.updateApplicationCurrent("B", b.periodUid, b)
+        requireNotNull(
+            protocol.beginMutation(
+                MutationKind.MANUAL,
+                "B",
+                PlaybackFamily.DOP,
+                "dop256",
+                b,
+                destinationAdapterInstanceId = adapterB,
+            ),
+        )
+        assertFalse(
+            protocol.attachDirectPhysicalEndpoint(
+                adapterA,
+                RuntimeIdentity("direct-a"),
+                FakeDirectPhysicalEndpoint(fullRelease = greenDirectFullReleaseFacts()),
+            ),
+        )
+        assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+    }
+
+    private fun ownedDirect(
+        endpoint: FakeDirectPhysicalEndpoint = FakeDirectPhysicalEndpoint(),
+    ): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
         val (ledger, protocol) = fresh()
         ledger.publish(PlaybackIntent.PLAY)
         protocol.registerAdapter(adapterA)
@@ -406,6 +431,7 @@ class UsbDirectTypedProofMatrixTest {
             a,
             RuntimeIdentity("direct-a"),
             facts = "dop128",
+            directEndpoint = endpoint,
         )
         protocol.updateApplicationCurrent("A", a.periodUid, a)
         return ledger to protocol
@@ -494,6 +520,7 @@ class UsbDirectFullReleaseRedTableTest(
             a,
             RuntimeIdentity("direct-a"),
             facts = "dop128",
+            directEndpoint = FakeDirectPhysicalEndpoint(fullRelease = facts),
         )
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(
@@ -507,11 +534,12 @@ class UsbDirectFullReleaseRedTableTest(
             ),
         )
         assertFalse(label, facts.isFullyGreen())
-        check(
+        assertFalse(
+            label,
             protocol.attachDirectPhysicalEndpoint(
                 adapterA,
                 RuntimeIdentity("direct-a"),
-                FakeDirectPhysicalEndpoint(fullRelease = facts),
+                FakeDirectPhysicalEndpoint(fullRelease = greenDirectFullReleaseFacts()),
             ),
         )
         assertFalse(label, protocol.completeOwnedDirectRelease(adapterA, RuntimeIdentity("direct-a")))

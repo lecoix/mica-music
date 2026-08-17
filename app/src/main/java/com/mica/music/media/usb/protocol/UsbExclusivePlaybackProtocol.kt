@@ -78,11 +78,12 @@ data class DirectRetainedCarrierFacts(
 
 /**
  * Exact Direct runtime endpoint registered by the transition owner. Physical full-release and
- * retained facts may only be read from this endpoint; callers cannot inject FamilyProof values.
+ * retained facts are produced only when the owner invokes these operations; callers cannot inject
+ * FamilyProof values or swap a different instance onto a bound runtime.
  */
 interface DirectPhysicalRuntimeEndpoint {
-    fun fullReleaseFactsAfterClose(): DirectFullReleaseFacts?
-    fun retainedCarrierFactsAfterTransition(): DirectRetainedCarrierFacts?
+    fun ownerPerformFullRelease(): DirectFullReleaseFacts?
+    fun ownerPerformRetainedTransition(): DirectRetainedCarrierFacts?
 }
 
 data class PcmPhysicalSourceIdentity(
@@ -1153,6 +1154,8 @@ class UsbExclusivePlaybackProtocol(
             activation.adapterInstanceId == adapterInstanceId &&
             activation.runtimeIdentity == runtimeIdentity
         if (!matchesOwned && !matchesActivation) return false
+        val bound = directPhysicalEndpoint
+        if (bound != null && bound !== endpoint) return false
         directPhysicalEndpoint = endpoint
         directPhysicalEndpointAdapter = adapterInstanceId
         directPhysicalEndpointRuntime = runtimeIdentity
@@ -1203,7 +1206,7 @@ class UsbExclusivePlaybackProtocol(
             owned.adapterInstanceId != sourceAdapterInstanceId ||
             owned.runtimeIdentity != runtimeIdentity
         ) return null
-        val facts = endpoint.fullReleaseFactsAfterClose() ?: return null
+        val facts = endpoint.ownerPerformFullRelease() ?: return null
         if (!facts.isFullyGreen()) return null
         return FamilyProof.DirectFamilyReleased(
             runtimeIdentity = owned.runtimeIdentity,
@@ -1223,7 +1226,7 @@ class UsbExclusivePlaybackProtocol(
             directPhysicalEndpointAdapter != permit.adapterInstanceId ||
             directPhysicalEndpointRuntime != permit.runtimeIdentity
         ) return null
-        val facts = endpoint.retainedCarrierFactsAfterTransition() ?: return null
+        val facts = endpoint.ownerPerformRetainedTransition() ?: return null
         val proof = FamilyProof.DirectRuntimeRetained(
             runtimeIdentity = permit.runtimeIdentity,
             sourceOccurrence = permit.sourceOccurrence,

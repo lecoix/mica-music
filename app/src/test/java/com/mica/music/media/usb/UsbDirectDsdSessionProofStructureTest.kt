@@ -81,6 +81,8 @@ class UsbDirectDsdSessionProofStructureTest {
         assertTrue(protocol.contains("if (owned is FamilyOwnership.DopOwned) return null"))
         assertTrue(protocol.contains("private fun mintRetiringDirectRuntimeReceipt"))
         assertTrue(protocol.contains("private fun acceptRetiringDirectRuntimeReceipt"))
+        assertTrue(protocol.contains("fun ownerPerformFullRelease"))
+        assertTrue(protocol.contains("if (bound != null && bound !== endpoint) return false"))
         assertTrue(protocol.contains("fun completeDirectFamilyReleaseFromEndpoint"))
         assertTrue(protocol.contains("fun completeRetiringDirectFamilyReleaseFromEndpoint"))
         assertTrue(protocol.contains("tryPublishSeekBarrierFromAcceptedRetirementLocked"))

@@ -24,6 +24,7 @@ internal fun UsbExclusivePlaybackProtocol.installOwnedFamilyForModel(
     runtimeIdentity: RuntimeIdentity,
     facts: String = "model",
     geometry: PcmAudioGeometry = TEST_PCM_GEOMETRY,
+    directEndpoint: FakeDirectPhysicalEndpoint = FakeDirectPhysicalEndpoint(),
 ): CommitDisposition {
     val ledgerField = UsbExclusivePlaybackProtocol::class.java.getDeclaredField("ledger").apply {
         isAccessible = true
@@ -96,7 +97,7 @@ internal fun UsbExclusivePlaybackProtocol.installOwnedFamilyForModel(
                 attachDirectPhysicalEndpoint(
                     adapterInstanceId,
                     runtimeIdentity,
-                    FakeDirectPhysicalEndpoint(),
+                    directEndpoint,
                 ),
             )
             accepted
@@ -165,8 +166,8 @@ internal class FakeDirectPhysicalEndpoint(
     var fullRelease: DirectFullReleaseFacts? = greenDirectFullReleaseFacts(),
     var retained: DirectRetainedCarrierFacts? = greenDirectRetainedFacts(),
 ) : DirectPhysicalRuntimeEndpoint {
-    override fun fullReleaseFactsAfterClose(): DirectFullReleaseFacts? = fullRelease
-    override fun retainedCarrierFactsAfterTransition(): DirectRetainedCarrierFacts? = retained
+    override fun ownerPerformFullRelease(): DirectFullReleaseFacts? = fullRelease
+    override fun ownerPerformRetainedTransition(): DirectRetainedCarrierFacts? = retained
 }
 
 internal fun UsbExclusivePlaybackProtocol.completeOwnedDirectRelease(

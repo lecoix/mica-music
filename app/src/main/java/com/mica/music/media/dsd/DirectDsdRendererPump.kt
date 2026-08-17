@@ -297,9 +297,12 @@ class DirectDsdRendererPump(
 
     fun typedFullReleaseFacts(): DirectFullReleaseFacts? = mintedFullReleaseFacts
 
-    override fun fullReleaseFactsAfterClose(): DirectFullReleaseFacts? = mintedFullReleaseFacts
+    override fun ownerPerformFullRelease(): DirectFullReleaseFacts? {
+        close()
+        return mintedFullReleaseFacts
+    }
 
-    override fun retainedCarrierFactsAfterTransition(): DirectRetainedCarrierFacts? = mintedRetainedFacts
+    override fun ownerPerformRetainedTransition(): DirectRetainedCarrierFacts? = mintedRetainedFacts
 
     override fun close() {
         if (closed) return
