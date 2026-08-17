@@ -64,12 +64,40 @@ class UsbDirectDsdSessionProofStructureTest {
         val close = source.substringAfter("private fun closePump(reason: String)")
         assertOrdered(
             close,
-            "closingOwned = playbackAdapter.snapshot().familyOwnership as? FamilyOwnership.DopOwned",
             "closingPump?.close()",
-            "closingPump.typedFullReleaseFacts()",
-            "FamilyProof.DirectFamilyReleased(",
             "observeDirectRuntimeReleased(",
         )
+        assertFalse(close.contains("FamilyProof.DirectFamilyReleased("))
+        assertFalse(close.contains("typedFullReleaseFacts()"))
+    }
+
+    @Test
+    fun optionBRemovesPublicDirectProofAndSeekBarrierInjection() {
+        val protocol = source(
+            "src/main/java/com/mica/music/media/usb/protocol/UsbExclusivePlaybackProtocol.kt",
+            "app/src/main/java/com/mica/music/media/usb/protocol/UsbExclusivePlaybackProtocol.kt",
+        )
+        assertFalse(protocol.contains("fun publishDirectSeekBarrier"))
+        assertTrue(protocol.contains("if (owned is FamilyOwnership.DopOwned) return null"))
+        assertTrue(protocol.contains("private fun mintRetiringDirectRuntimeReceipt"))
+        assertTrue(protocol.contains("private fun acceptRetiringDirectRuntimeReceipt"))
+        assertTrue(protocol.contains("fun completeDirectFamilyReleaseFromEndpoint"))
+        assertTrue(protocol.contains("fun completeRetiringDirectFamilyReleaseFromEndpoint"))
+        assertTrue(protocol.contains("tryPublishSeekBarrierFromAcceptedRetirementLocked"))
+        val renderer = source(
+            "src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+            "app/src/main/java/com/mica/music/media/dsd/DirectDsdMedia3Renderer.kt",
+        )
+        assertFalse(renderer.contains("FamilyProof.DirectFamilyReleased("))
+        assertFalse(renderer.contains("FamilyProof.DirectRuntimeRetained("))
+        val coordinator = source(
+            "src/main/java/com/mica/music/media/usb/shadow/UsbExclusiveShadowCoordinator.kt",
+            "app/src/main/java/com/mica/music/media/usb/shadow/UsbExclusiveShadowCoordinator.kt",
+        )
+        assertFalse(coordinator.contains("FamilyProof.DirectFamilyReleased("))
+        assertFalse(coordinator.contains("FamilyProof.DirectRuntimeRetained("))
+        assertTrue(coordinator.contains("completeDirectFamilyReleaseFromEndpoint("))
+        assertTrue(coordinator.contains("completeRetiringDirectFamilyReleaseFromEndpoint("))
     }
 
     private fun assertOrdered(body: String, vararg tokens: String) {

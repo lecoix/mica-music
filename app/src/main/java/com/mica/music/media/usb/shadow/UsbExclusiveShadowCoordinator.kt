@@ -8,6 +8,7 @@ import com.mica.music.media.usb.protocol.CleanupRequirement
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.DirectStagePermit
 import com.mica.music.media.usb.protocol.DirectRetainedHandoffPermit
+import com.mica.music.media.usb.protocol.DirectPhysicalRuntimeEndpoint
 import com.mica.music.media.usb.protocol.FamilyProof
 import com.mica.music.media.usb.protocol.FamilyOwnership
 import com.mica.music.media.usb.protocol.MutationCausalHandle
@@ -1432,9 +1433,8 @@ internal class UsbExclusiveShadowStack internal constructor(
         adapter: UsbExclusiveShadowAdapter,
         permit: DirectRetainedHandoffPermit,
         receipt: SideEffectReceipt,
-        retainedProof: FamilyProof.DirectRuntimeRetained? = null,
     ): CommitDisposition {
-        val result = protocol.commitRetainedDirectHandoff(permit, receipt, retainedProof)
+        val result = protocol.commitRetainedDirectHandoff(permit, receipt)
         coordinator.emit(
             this,
             "DIRECT_RETAINED_HANDOFF_RECEIPT",
@@ -1648,18 +1648,10 @@ internal class UsbExclusiveShadowStack internal constructor(
         adapter: UsbExclusiveShadowAdapter,
         occurrence: PlaybackOccurrence?,
         runtimeIdentity: RuntimeIdentity,
-        proof: FamilyProof.DirectFamilyReleased?,
         reason: String = "runtime-released",
     ) {
         coordinator.observeSafely(this, "DIRECT_RUNTIME_RELEASED") {
-            if (
-                proof == null ||
-                !proof.isTerminal() ||
-                occurrence == null ||
-                proof.runtimeIdentity != runtimeIdentity ||
-                proof.sourceOccurrence != occurrence ||
-                proof.adapterInstanceId != adapter.id
-            ) {
+            if (occurrence == null) {
                 coordinator.emit(
                     this,
                     "DIRECT_RUNTIME_RELEASED",
@@ -1672,13 +1664,11 @@ internal class UsbExclusiveShadowStack internal constructor(
             }
             val snapshot = protocol.snapshot()
             if (snapshot.lifecycle is ProtocolLifecycle.Retiring) {
-                val receipt = protocol.mintRetiringDirectRuntimeReceipt(
+                val accepted = protocol.completeRetiringDirectFamilyReleaseFromEndpoint(
                     sourceAdapterInstanceId = adapter.id,
                     sourceOccurrence = occurrence,
                     runtimeIdentity = runtimeIdentity,
-                    familyProof = proof,
                 )
-                val accepted = receipt != null && protocol.acceptRetiringDirectRuntimeReceipt(receipt)
                 coordinator.emit(
                     this,
                     "DIRECT_RUNTIME_RELEASED",
@@ -1711,13 +1701,11 @@ internal class UsbExclusiveShadowStack internal constructor(
                 )
                 return@observeSafely
             }
-            val receipt = protocol.mintRetirementReceipt(
+            val accepted = protocol.completeDirectFamilyReleaseFromEndpoint(
                 mutation.mutationId,
                 adapter.id,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                proof,
+                runtimeIdentity,
             )
-            val accepted = receipt != null && protocol.acceptSourceRetirement(receipt)
             coordinator.emit(
                 this,
                 "DIRECT_RUNTIME_RELEASED",
@@ -1842,11 +1830,15 @@ internal class UsbExclusiveShadowAdapter internal constructor(
         runtimeIdentity,
     )
 
+    fun attachDirectPhysicalEndpoint(
+        runtimeIdentity: RuntimeIdentity,
+        endpoint: DirectPhysicalRuntimeEndpoint,
+    ): Boolean = stack.protocol.attachDirectPhysicalEndpoint(id, runtimeIdentity, endpoint)
+
     fun commitRetainedDirectHandoff(
         permit: DirectRetainedHandoffPermit,
         receipt: SideEffectReceipt,
-        retainedProof: FamilyProof.DirectRuntimeRetained? = null,
-    ): CommitDisposition = stack.commitRetainedDirectHandoff(this, permit, receipt, retainedProof)
+    ): CommitDisposition = stack.commitRetainedDirectHandoff(this, permit, receipt)
 
     fun observeStream(
         occurrence: PlaybackOccurrence,
@@ -1907,9 +1899,8 @@ internal class UsbExclusiveShadowAdapter internal constructor(
     fun observeDirectRuntimeReleased(
         occurrence: PlaybackOccurrence?,
         runtimeIdentity: RuntimeIdentity,
-        proof: FamilyProof.DirectFamilyReleased?,
         reason: String = "runtime-released",
     ) {
-        stack.observeDirectRuntimeReleased(this, occurrence, runtimeIdentity, proof, reason)
+        stack.observeDirectRuntimeReleased(this, occurrence, runtimeIdentity, reason)
     }
 }

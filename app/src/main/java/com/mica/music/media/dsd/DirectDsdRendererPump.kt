@@ -3,6 +3,8 @@ package com.mica.music.media.dsd
 import com.mica.music.media.dsf.DsfExtractorPacketCanonicalizer
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.usb.protocol.DirectFullReleaseFacts
+import com.mica.music.media.usb.protocol.DirectPhysicalRuntimeEndpoint
+import com.mica.music.media.usb.protocol.DirectRetainedCarrierFacts
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.WriteKind
@@ -119,13 +121,14 @@ data class DirectDsdRendererPumpSnapshot(
 class DirectDsdRendererPump(
     facts: DsfExtractorPacketFacts,
     private val session: DirectDsdTransportSession,
-) : AutoCloseable {
+) : AutoCloseable, DirectPhysicalRuntimeEndpoint {
     var facts: DsfExtractorPacketFacts = facts
         private set
     private var pending = ByteArray(0)
     private var pendingOffset = 0
     private var pendingPacketTimeUs: Long? = null
     private var mintedFullReleaseFacts: DirectFullReleaseFacts? = null
+    private var mintedRetainedFacts: DirectRetainedCarrierFacts? = null
     private var offeredPackets = 0L
     private var consumedPackets = 0L
     private var committedBytes = 0L
@@ -212,6 +215,14 @@ class DirectDsdRendererPump(
         check(result.feederPendingZero && result.sourceResetApplied) {
             "retained Direct DSD source transition did not reach pending-zero reset"
         }
+        mintedRetainedFacts = DirectRetainedCarrierFacts(
+            feederPendingZero = result.feederPendingZero,
+            p5PendingPackedZero = result.p5PendingPackedZero,
+            p5PendingPartialZero = result.p5PendingPartialZero,
+            p5PendingHalfZero = result.p5PendingHalfZero,
+            sourceResetApplied = result.sourceResetApplied,
+            markerContinuityRetained = result.markerContinuityRetained,
+        )
         facts = newFacts
         offeredPackets = 0L
         consumedPackets = 0L
@@ -285,6 +296,10 @@ class DirectDsdRendererPump(
     )
 
     fun typedFullReleaseFacts(): DirectFullReleaseFacts? = mintedFullReleaseFacts
+
+    override fun fullReleaseFactsAfterClose(): DirectFullReleaseFacts? = mintedFullReleaseFacts
+
+    override fun retainedCarrierFactsAfterTransition(): DirectRetainedCarrierFacts? = mintedRetainedFacts
 
     override fun close() {
         if (closed) return

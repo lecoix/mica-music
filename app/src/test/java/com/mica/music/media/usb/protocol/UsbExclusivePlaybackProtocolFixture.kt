@@ -91,7 +91,15 @@ internal fun UsbExclusivePlaybackProtocol.installOwnedFamilyForModel(
             check(complete(DirectStage.PREFILL) == null)
             check(observeAdapterStarted(adapterInstanceId, occurrence))
             check(complete(DirectStage.ARM) == null)
-            requireNotNull(complete(DirectStage.SOURCE_ACCEPT))
+            val accepted = requireNotNull(complete(DirectStage.SOURCE_ACCEPT))
+            check(
+                attachDirectPhysicalEndpoint(
+                    adapterInstanceId,
+                    runtimeIdentity,
+                    FakeDirectPhysicalEndpoint(),
+                ),
+            )
+            accepted
         }
     }
 
@@ -152,6 +160,22 @@ internal fun greenDirectRetainedFacts(
     sourceResetApplied = sourceResetApplied,
     markerContinuityRetained = markerContinuityRetained,
 )
+
+internal class FakeDirectPhysicalEndpoint(
+    var fullRelease: DirectFullReleaseFacts? = greenDirectFullReleaseFacts(),
+    var retained: DirectRetainedCarrierFacts? = greenDirectRetainedFacts(),
+) : DirectPhysicalRuntimeEndpoint {
+    override fun fullReleaseFactsAfterClose(): DirectFullReleaseFacts? = fullRelease
+    override fun retainedCarrierFactsAfterTransition(): DirectRetainedCarrierFacts? = retained
+}
+
+internal fun UsbExclusivePlaybackProtocol.completeOwnedDirectRelease(
+    adapter: AdapterInstanceId,
+    runtime: RuntimeIdentity,
+): Boolean {
+    val mutationId = snapshot().mutation?.mutationId ?: return false
+    return completeDirectFamilyReleaseFromEndpoint(mutationId, adapter, runtime)
+}
 
 internal fun UsbExclusivePlaybackProtocol.typedDirectReleased(
     runtime: RuntimeIdentity,

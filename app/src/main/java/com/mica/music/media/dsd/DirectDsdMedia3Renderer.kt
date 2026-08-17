@@ -17,8 +17,6 @@ import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.DirectStagePermit
 import com.mica.music.media.usb.protocol.FamilyOwnership
-import com.mica.music.media.usb.protocol.DirectRetainedCarrierFacts
-import com.mica.music.media.usb.protocol.FamilyProof
 import com.mica.music.media.usb.protocol.OutputTarget
 import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.media.usb.protocol.ProtocolLifecycle
@@ -571,22 +569,6 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                 original = error,
             )
         }
-        val retainedProof = FamilyProof.DirectRuntimeRetained(
-            runtimeIdentity = runtime,
-            sourceOccurrence = permit.sourceOccurrence,
-            targetOccurrence = permit.targetOccurrence,
-            adapterInstanceId = permit.adapterInstanceId,
-            outputTarget = permit.outputTarget,
-            sourceGeneration = (permit.outputTarget as? OutputTarget.UsbBound)?.generation?.value ?: 0L,
-            facts = DirectRetainedCarrierFacts(
-                feederPendingZero = result.second.feederPendingZero,
-                p5PendingPackedZero = result.second.p5PendingPackedZero,
-                p5PendingPartialZero = result.second.p5PendingPartialZero,
-                p5PendingHalfZero = result.second.p5PendingHalfZero,
-                sourceResetApplied = result.second.sourceResetApplied,
-                markerContinuityRetained = result.second.markerContinuityRetained,
-            ),
-        )
         val disposition = adapter.commitRetainedDirectHandoff(
             permit,
             SideEffectReceipt.Completed(
@@ -595,7 +577,6 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                 "direct-retained-source-reset",
                 runtime,
             ),
-            retainedProof,
         )
         check(disposition is CommitDisposition.CurrentPlaying || disposition is CommitDisposition.CurrentPaused) {
             "Direct protocol rejected retained handoff receipt: $disposition"
@@ -755,6 +736,9 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         }
         return freshPump.also {
             pump = freshPump
+            check(playbackAdapter.attachDirectPhysicalEndpoint(runtimeIdentity, freshPump)) {
+                "Direct protocol rejected exact runtime endpoint after CREATE_RUNTIME"
+            }
             activeSessionGeneration = sessionGeneration
             shadowRuntimeOccurrence = shadowOccurrence
             shadowRuntimeIdentity = runtimeIdentity
@@ -1018,22 +1002,9 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
                 ),
             )
             resolveRetainedDirectCommit(adapter, permit, disposition, active)
-            val facts = active.typedFullReleaseFacts()
-            val proof = if (facts != null && facts.isFullyGreen()) {
-                FamilyProof.DirectFamilyReleased(
-                    runtimeIdentity = permit.runtimeIdentity,
-                    sourceOccurrence = permit.sourceOccurrence,
-                    adapterInstanceId = permit.adapterInstanceId,
-                    outputTarget = permit.outputTarget,
-                    facts = facts,
-                )
-            } else {
-                null
-            }
             adapter.observeDirectRuntimeReleased(
                 permit.sourceOccurrence,
                 permit.runtimeIdentity,
-                proof,
                 "retained-handoff-failure",
             )
             check(adapter.snapshot().familyOwnership is FamilyOwnership.None) {
@@ -1640,9 +1611,6 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         val closingGeneration = activeSessionGeneration
         val closingShadowOccurrence = shadowRuntimeOccurrence
         val closingShadowRuntime = shadowRuntimeIdentity
-        val closingOwned = playbackAdapter.snapshot().familyOwnership as? FamilyOwnership.DopOwned
-        val closingAdapterId = closingOwned?.adapterInstanceId
-        val closingOutputTarget = playbackAdapter.snapshot().outputTarget
         pump = null
         activeSessionGeneration = null
         closingGeneration?.let { generation ->
@@ -1652,27 +1620,9 @@ class DirectDsdMedia3Renderer @JvmOverloads internal constructor(
         try {
             closingPump?.close()
             if (closingPump != null && closingShadowRuntime != null) {
-                val facts = closingPump.typedFullReleaseFacts()
-                val proof = if (
-                    facts != null &&
-                    facts.isFullyGreen() &&
-                    closingShadowOccurrence != null &&
-                    closingAdapterId != null
-                ) {
-                    FamilyProof.DirectFamilyReleased(
-                        runtimeIdentity = closingShadowRuntime,
-                        sourceOccurrence = closingShadowOccurrence,
-                        adapterInstanceId = closingAdapterId,
-                        outputTarget = closingOutputTarget,
-                        facts = facts,
-                    )
-                } else {
-                    null
-                }
                 playbackAdapter.observeDirectRuntimeReleased(
                     closingShadowOccurrence,
                     closingShadowRuntime,
-                    proof,
                     reason,
                 )
             }

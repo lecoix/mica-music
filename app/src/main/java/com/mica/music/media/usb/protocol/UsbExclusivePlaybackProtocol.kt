@@ -76,6 +76,15 @@ data class DirectRetainedCarrierFacts(
             markerContinuityRetained
 }
 
+/**
+ * Exact Direct runtime endpoint registered by the transition owner. Physical full-release and
+ * retained facts may only be read from this endpoint; callers cannot inject FamilyProof values.
+ */
+interface DirectPhysicalRuntimeEndpoint {
+    fun fullReleaseFactsAfterClose(): DirectFullReleaseFacts?
+    fun retainedCarrierFactsAfterTransition(): DirectRetainedCarrierFacts?
+}
+
 data class PcmPhysicalSourceIdentity(
     val familyOwnershipId: FamilyOwnershipId,
     val mutationId: MutationId,
@@ -506,6 +515,9 @@ class UsbExclusivePlaybackProtocol(
     private var issuedRetiringDirectRuntimeReceipt: SourceRetirementReceipt? = null
     private var pendingDirectSeekReset: PendingDirectSeekReset? = null
     private var satisfiedDirectSeekMutationId: MutationId? = null
+    private var directPhysicalEndpoint: DirectPhysicalRuntimeEndpoint? = null
+    private var directPhysicalEndpointAdapter: AdapterInstanceId? = null
+    private var directPhysicalEndpointRuntime: RuntimeIdentity? = null
     private var nextTopologyReservationId = 0L
     private var topologyTransaction: TopologyTransaction? = null
 
@@ -514,6 +526,7 @@ class UsbExclusivePlaybackProtocol(
         val adapterInstanceId: AdapterInstanceId,
         val sourceOccurrence: PlaybackOccurrence,
         val sourcePositionUs: Long,
+        val runtimeIdentity: RuntimeIdentity,
     )
 
     private data class StartedAuthority(
@@ -1051,10 +1064,9 @@ class UsbExclusivePlaybackProtocol(
         if (owned is FamilyOwnership.PcmOwned) preparedPcmRetirement = null
         if (receipt.scope != RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED) {
             familyOwnership = FamilyOwnership.None
+            clearDirectPhysicalEndpointLocked()
         }
-        (receipt.familyProof as? FamilyProof.DirectFamilyReleased)?.let { proof ->
-            publishDirectSeekBarrierLocked(proof)
-        }
+        tryPublishSeekBarrierFromAcceptedRetirementLocked()
         return true
     }
 
@@ -1068,6 +1080,7 @@ class UsbExclusivePlaybackProtocol(
         val epoch = mutation ?: return null
         if (!epoch.destinationBound) return null
         val owned = familyOwnership
+        if (owned is FamilyOwnership.DopOwned) return null
         if (
             lifecycle !is ProtocolLifecycle.Active ||
             epoch.mutationId != mutationId ||
@@ -1124,13 +1137,161 @@ class UsbExclusivePlaybackProtocol(
         return candidate
     }
 
+    @Synchronized
+    fun attachDirectPhysicalEndpoint(
+        adapterInstanceId: AdapterInstanceId,
+        runtimeIdentity: RuntimeIdentity,
+        endpoint: DirectPhysicalRuntimeEndpoint,
+    ): Boolean {
+        if (adapterInstanceId !in adapters) return false
+        val owned = familyOwnership as? FamilyOwnership.DopOwned
+        val activation = directActivation
+        val matchesOwned = owned != null &&
+            owned.adapterInstanceId == adapterInstanceId &&
+            owned.runtimeIdentity == runtimeIdentity
+        val matchesActivation = activation != null &&
+            activation.adapterInstanceId == adapterInstanceId &&
+            activation.runtimeIdentity == runtimeIdentity
+        if (!matchesOwned && !matchesActivation) return false
+        directPhysicalEndpoint = endpoint
+        directPhysicalEndpointAdapter = adapterInstanceId
+        directPhysicalEndpointRuntime = runtimeIdentity
+        return true
+    }
+
+    @Synchronized
+    fun completeDirectFamilyReleaseFromEndpoint(
+        mutationId: MutationId,
+        sourceAdapterInstanceId: AdapterInstanceId,
+        runtimeIdentity: RuntimeIdentity,
+    ): Boolean {
+        val proof = ownerIssuedDirectReleaseProofLocked(sourceAdapterInstanceId, runtimeIdentity) ?: return false
+        val receipt = mintOwnerIssuedDirectRetirementLocked(
+            mutationId,
+            sourceAdapterInstanceId,
+            RetirementScope.FAMILY_RUNTIME_RELEASED,
+            proof,
+        ) ?: return false
+        return acceptSourceRetirement(receipt)
+    }
+
+    @Synchronized
+    fun completeRetiringDirectFamilyReleaseFromEndpoint(
+        sourceAdapterInstanceId: AdapterInstanceId,
+        sourceOccurrence: PlaybackOccurrence,
+        runtimeIdentity: RuntimeIdentity,
+    ): Boolean {
+        val proof = ownerIssuedDirectReleaseProofLocked(sourceAdapterInstanceId, runtimeIdentity) ?: return false
+        val receipt = mintRetiringDirectRuntimeReceipt(
+            sourceAdapterInstanceId,
+            sourceOccurrence,
+            runtimeIdentity,
+            proof,
+        ) ?: return false
+        return acceptRetiringDirectRuntimeReceipt(receipt)
+    }
+
+    private fun ownerIssuedDirectReleaseProofLocked(
+        sourceAdapterInstanceId: AdapterInstanceId,
+        runtimeIdentity: RuntimeIdentity,
+    ): FamilyProof.DirectFamilyReleased? {
+        val owned = familyOwnership as? FamilyOwnership.DopOwned ?: return null
+        val endpoint = directPhysicalEndpoint ?: return null
+        if (
+            directPhysicalEndpointAdapter != sourceAdapterInstanceId ||
+            directPhysicalEndpointRuntime != runtimeIdentity ||
+            owned.adapterInstanceId != sourceAdapterInstanceId ||
+            owned.runtimeIdentity != runtimeIdentity
+        ) return null
+        val facts = endpoint.fullReleaseFactsAfterClose() ?: return null
+        if (!facts.isFullyGreen()) return null
+        return FamilyProof.DirectFamilyReleased(
+            runtimeIdentity = owned.runtimeIdentity,
+            sourceOccurrence = owned.occurrence,
+            adapterInstanceId = owned.adapterInstanceId,
+            outputTarget = owned.writeLease.identity.outputTarget,
+            facts = facts,
+        )
+    }
+
+    private fun ownerIssuedDirectRetainedProofLocked(
+        permit: DirectRetainedHandoffPermit,
+        owned: FamilyOwnership.DopOwned,
+    ): FamilyProof.DirectRuntimeRetained? {
+        val endpoint = directPhysicalEndpoint ?: return null
+        if (
+            directPhysicalEndpointAdapter != permit.adapterInstanceId ||
+            directPhysicalEndpointRuntime != permit.runtimeIdentity
+        ) return null
+        val facts = endpoint.retainedCarrierFactsAfterTransition() ?: return null
+        val proof = FamilyProof.DirectRuntimeRetained(
+            runtimeIdentity = permit.runtimeIdentity,
+            sourceOccurrence = permit.sourceOccurrence,
+            targetOccurrence = permit.targetOccurrence,
+            adapterInstanceId = permit.adapterInstanceId,
+            outputTarget = permit.outputTarget,
+            sourceGeneration = directOwnedGenerationLocked(owned),
+            facts = facts,
+        )
+        return proof.takeIf { it.isAcceptable() }
+    }
+
+    private fun mintOwnerIssuedDirectRetirementLocked(
+        mutationId: MutationId,
+        sourceAdapterInstanceId: AdapterInstanceId,
+        scope: RetirementScope,
+        familyProof: FamilyProof,
+    ): SourceRetirementReceipt? {
+        val epoch = mutation ?: return null
+        if (!epoch.destinationBound) return null
+        val owned = familyOwnership as? FamilyOwnership.DopOwned ?: return null
+        if (
+            lifecycle !is ProtocolLifecycle.Active ||
+            epoch.mutationId != mutationId ||
+            epoch.sourceRetirement != null ||
+            !directProofMatchesOwnedLocked(owned, scope, familyProof)
+        ) return null
+        val ownershipId = owned.ownershipId
+        val lease = owned.writeLease
+        issuedRetirementReceiptsByMutation[mutationId]?.let { issued ->
+            if (
+                issued.sourceFamilyOwnershipId != ownershipId ||
+                issued.sourceAdapterInstanceId != sourceAdapterInstanceId ||
+                issued.scope != scope ||
+                issued.familyProof != familyProof ||
+                !retirementReceiptMatchesLocked(epoch, owned, issued)
+            ) return null
+            return issued
+        }
+        val preflight = SourceRetirementReceipt(
+            receiptId = SideEffectReceiptId(nextReceiptId + 1),
+            retiringMutationId = mutationId,
+            sourceFamilyOwnershipId = ownershipId,
+            sourceFamily = PlaybackFamily.DOP,
+            sourceOccurrence = owned.occurrence,
+            sourceAdapterInstanceId = sourceAdapterInstanceId,
+            outputTarget = lease.identity.outputTarget,
+            scope = scope,
+            semanticPausedAtRetirement = false,
+            familyProof = familyProof,
+        )
+        if (!retirementReceiptMatchesLocked(epoch, owned, preflight)) return null
+        lease.revoke()
+        if (!lease.isDrained()) return null
+        val candidate = preflight.copy(
+            semanticPausedAtRetirement = ledger.snapshot().desired == PlaybackIntent.PAUSE,
+        )
+        nextReceiptId += 1
+        issuedRetirementReceiptsByMutation[mutationId] = candidate
+        return candidate
+    }
+
     /**
      * Mints the exact Direct-family release receipt after the stack has entered Retiring.
      * This is deliberately separate from the mutation-epoch receipt path: a committed source
      * may already have been followed by a destination-bound successor epoch.
      */
-    @Synchronized
-    fun mintRetiringDirectRuntimeReceipt(
+    private fun mintRetiringDirectRuntimeReceipt(
         sourceAdapterInstanceId: AdapterInstanceId,
         sourceOccurrence: PlaybackOccurrence,
         runtimeIdentity: RuntimeIdentity,
@@ -1194,8 +1355,7 @@ class UsbExclusivePlaybackProtocol(
      * Accepts only the receipt issued by the teardown-specific Direct release seam. It clears
      * the old family authority before reevaluating Retiring, so no successor can write through it.
      */
-    @Synchronized
-    fun acceptRetiringDirectRuntimeReceipt(receipt: SourceRetirementReceipt): Boolean {
+    private fun acceptRetiringDirectRuntimeReceipt(receipt: SourceRetirementReceipt): Boolean {
         if (lifecycle !is ProtocolLifecycle.Retiring || issuedRetiringDirectRuntimeReceipt != receipt) return false
         val pending = retiringDirectRuntimeRelease ?: return false
         val owned = familyOwnership as? FamilyOwnership.DopOwned ?: return false
@@ -1220,6 +1380,7 @@ class UsbExclusivePlaybackProtocol(
         issuedRetiringDirectRuntimeReceipt = null
         retiringDirectRuntimeRelease = null
         familyOwnership = FamilyOwnership.None
+        clearDirectPhysicalEndpointLocked()
         reevaluateRetiringLocked()
         return true
     }
@@ -1464,7 +1625,6 @@ class UsbExclusivePlaybackProtocol(
     fun commitRetainedDirectHandoff(
         permit: DirectRetainedHandoffPermit,
         receipt: SideEffectReceipt,
-        retainedProof: FamilyProof.DirectRuntimeRetained? = null,
     ): CommitDisposition {
         val record = activations[permit.activationId] ?: return CommitDisposition.StaleNoEffect
         if (
@@ -1520,22 +1680,20 @@ class UsbExclusivePlaybackProtocol(
                     stale = !retiring,
                 )
             } else {
-                val proof = retainedProof
                 val ownedSource = familyOwnership as? FamilyOwnership.DopOwned
+                val proof = ownedSource?.let { ownerIssuedDirectRetainedProofLocked(permit, it) }
                 if (
                     proof == null ||
                     ownedSource == null ||
-                    !proof.isAcceptable() ||
                     proof.runtimeIdentity != permit.runtimeIdentity ||
                     proof.sourceOccurrence != permit.sourceOccurrence ||
                     proof.targetOccurrence != permit.targetOccurrence ||
                     proof.adapterInstanceId != permit.adapterInstanceId ||
-                    proof.outputTarget != permit.outputTarget ||
-                    proof.sourceGeneration != directOwnedGenerationLocked(ownedSource)
+                    proof.outputTarget != permit.outputTarget
                 ) {
                     return CommitDisposition.StaleNoEffect
                 }
-                val retirement = mintRetirementReceipt(
+                val retirement = mintOwnerIssuedDirectRetirementLocked(
                     permit.mutationId,
                     permit.adapterInstanceId,
                     RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
@@ -1712,40 +1870,43 @@ class UsbExclusivePlaybackProtocol(
             pendingDirectSeekReset = null
             return false
         }
+        val frozenRuntime = (familyOwnership as? FamilyOwnership.DopOwned)?.runtimeIdentity
+            ?: (epoch.sourceRetirement?.familyProof as? FamilyProof.DirectFamilyReleased)?.runtimeIdentity
+            ?: return false
         pendingDirectSeekReset = PendingDirectSeekReset(
             mutationId = epoch.mutationId,
             adapterInstanceId = adapterInstanceId,
             sourceOccurrence = sourceOccurrence,
             sourcePositionUs = sourcePositionUs,
+            runtimeIdentity = frozenRuntime,
         )
-        (epoch.sourceRetirement?.familyProof as? FamilyProof.DirectFamilyReleased)?.let { proof ->
-            publishDirectSeekBarrierLocked(proof)
-        }
+        tryPublishSeekBarrierFromAcceptedRetirementLocked()
         return true
     }
 
-    /** Publishes SEEK SOURCE_ACCEPT authority only from a typed old-runtime terminal proof. */
-    @Synchronized
-    fun publishDirectSeekBarrier(proof: FamilyProof.DirectFamilyReleased): Boolean =
-        publishDirectSeekBarrierLocked(proof)
-
-    private fun publishDirectSeekBarrierLocked(proof: FamilyProof.DirectFamilyReleased): Boolean {
+    private fun tryPublishSeekBarrierFromAcceptedRetirementLocked(): Boolean {
         val epoch = mutation ?: return false
         val pending = pendingDirectSeekReset ?: return false
+        val proof = epoch.sourceRetirement?.familyProof as? FamilyProof.DirectFamilyReleased ?: return false
         if (
             lifecycle !is ProtocolLifecycle.Active ||
             epoch.kind != MutationKind.SEEK ||
             epoch.mutationId != pending.mutationId ||
             !proof.isTerminal() ||
+            proof.runtimeIdentity != pending.runtimeIdentity ||
             proof.sourceOccurrence != pending.sourceOccurrence ||
             proof.adapterInstanceId != pending.adapterInstanceId ||
             proof.outputTarget != outputTarget
         ) return false
-        val accepted = epoch.sourceRetirement?.familyProof as? FamilyProof.DirectFamilyReleased
-        if (accepted != null && accepted != proof) return false
         satisfiedDirectSeekMutationId = pending.mutationId
         pendingDirectSeekReset = null
         return true
+    }
+
+    private fun clearDirectPhysicalEndpointLocked() {
+        directPhysicalEndpoint = null
+        directPhysicalEndpointAdapter = null
+        directPhysicalEndpointRuntime = null
     }
 
     @Synchronized

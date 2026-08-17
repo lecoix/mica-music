@@ -19,7 +19,7 @@ class UsbDirectTypedProofMatrixTest {
     fun t1FullReleaseGreenClearsDopOwnershipOnce() {
         val (_, protocol) = ownedDirect()
         protocol.updateApplicationCurrent("B", b.periodUid, b)
-        val mutation = requireNotNull(
+        requireNotNull(
             protocol.beginMutation(
                 MutationKind.MANUAL,
                 "B",
@@ -29,25 +29,9 @@ class UsbDirectTypedProofMatrixTest {
                 destinationAdapterInstanceId = adapterB,
             ),
         )
-        val proof = protocol.typedDirectReleased(RuntimeIdentity("direct-a"), a, adapterA)
-        val receipt = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                proof,
-            ),
-        )
-        assertTrue(protocol.acceptSourceRetirement(receipt))
+        assertTrue(protocol.completeOwnedDirectRelease(adapterA, RuntimeIdentity("direct-a")))
         assertEquals(FamilyOwnership.None, protocol.snapshot().familyOwnership)
-        assertNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                proof,
-            ),
-        )
+        assertFalse(protocol.completeOwnedDirectRelease(adapterA, RuntimeIdentity("direct-a")))
     }
 
     @Test
@@ -122,7 +106,6 @@ class UsbDirectTypedProofMatrixTest {
                 "reset",
                 RuntimeIdentity("direct-a"),
             ),
-            protocol.typedDirectRetained(RuntimeIdentity("direct-a"), a, b, adapterA),
         )
         assertTrue(disposition is CommitDisposition.CurrentPlaying)
         val owned = protocol.snapshot().familyOwnership as FamilyOwnership.DopOwned
@@ -153,6 +136,8 @@ class UsbDirectTypedProofMatrixTest {
                 RuntimeIdentity("direct-a"),
             ),
         )
+        val missing = FakeDirectPhysicalEndpoint(retained = null)
+        check(protocol.attachDirectPhysicalEndpoint(adapterA, RuntimeIdentity("direct-a"), missing))
         assertEquals(
             CommitDisposition.StaleNoEffect,
             protocol.commitRetainedDirectHandoff(
@@ -165,6 +150,7 @@ class UsbDirectTypedProofMatrixTest {
                 ),
             ),
         )
+        missing.retained = greenDirectRetainedFacts(markerContinuityRetained = false)
         assertEquals(
             CommitDisposition.StaleNoEffect,
             protocol.commitRetainedDirectHandoff(
@@ -174,32 +160,6 @@ class UsbDirectTypedProofMatrixTest {
                     ResourceIdentity("retained-red"),
                     "reset",
                     RuntimeIdentity("direct-a"),
-                ),
-                protocol.typedDirectRetained(
-                    RuntimeIdentity("direct-a"),
-                    a,
-                    b,
-                    adapterA,
-                    facts = greenDirectRetainedFacts(markerContinuityRetained = false),
-                ),
-            ),
-        )
-        assertEquals(
-            CommitDisposition.StaleNoEffect,
-            protocol.commitRetainedDirectHandoff(
-                permit,
-                SideEffectReceipt.Completed(
-                    permit.activationId,
-                    ResourceIdentity("retained-wrong-generation"),
-                    "reset",
-                    RuntimeIdentity("direct-a"),
-                ),
-                protocol.typedDirectRetained(
-                    RuntimeIdentity("direct-a"),
-                    a,
-                    b,
-                    adapterA,
-                    sourceGeneration = 99L,
                 ),
             ),
         )
@@ -228,18 +188,10 @@ class UsbDirectTypedProofMatrixTest {
     fun t7TypedOldRuntimeProofSatisfiesSeekBarrierThenSourceAccept() {
         val (_, protocol) = seekSetup()
         assertTrue(protocol.notePendingDirectSeekReset(adapterA, a, 9_000_000L))
-        val mutation = requireNotNull(protocol.snapshot().mutation)
-        val retirement = requireNotNull(
-            protocol.mintRetirementReceipt(
-                mutation.mutationId,
-                adapterA,
-                RetirementScope.FAMILY_RUNTIME_RELEASED,
-                protocol.typedDirectReleased(RuntimeIdentity("direct-a"), a, adapterA),
-            ),
-        )
-        assertTrue(protocol.acceptSourceRetirement(retirement))
+        assertTrue(protocol.completeOwnedDirectRelease(adapterA, RuntimeIdentity("direct-a")))
         assertTrue(protocol.snapshot().seekCarrierBarrierSatisfied)
         assertFalse(protocol.snapshot().pendingDirectSeekReset)
+        val mutation = requireNotNull(protocol.snapshot().mutation)
         val create = requireNotNull(
             protocol.prepareDirectStage(
                 mutation.mutationId,
@@ -420,6 +372,26 @@ class UsbDirectTypedProofMatrixTest {
                 protocol.typedDirectReleased(RuntimeIdentity("p2-runtime"), b, adapterB),
             ),
         )
+        assertFalse(protocol.completeOwnedDirectRelease(adapterB, RuntimeIdentity("p2-runtime")))
+    }
+
+    @Test
+    fun t12WrongRuntimeReleaseCannotSatisfySeekBarrierOrPublicMint() {
+        val (_, protocol) = seekSetup()
+        assertTrue(protocol.notePendingDirectSeekReset(adapterA, a, 9_000_000L))
+        assertFalse(protocol.completeOwnedDirectRelease(adapterA, RuntimeIdentity("wrong-runtime")))
+        assertFalse(protocol.snapshot().seekCarrierBarrierSatisfied)
+        assertTrue(protocol.snapshot().pendingDirectSeekReset)
+        assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+        val mutation = requireNotNull(protocol.snapshot().mutation)
+        assertNull(
+            protocol.mintRetirementReceipt(
+                mutation.mutationId,
+                adapterA,
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                protocol.typedDirectReleased(RuntimeIdentity("direct-a"), a, adapterA),
+            ),
+        )
     }
 
     private fun ownedDirect(): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
@@ -535,6 +507,14 @@ class UsbDirectFullReleaseRedTableTest(
             ),
         )
         assertFalse(label, facts.isFullyGreen())
+        check(
+            protocol.attachDirectPhysicalEndpoint(
+                adapterA,
+                RuntimeIdentity("direct-a"),
+                FakeDirectPhysicalEndpoint(fullRelease = facts),
+            ),
+        )
+        assertFalse(label, protocol.completeOwnedDirectRelease(adapterA, RuntimeIdentity("direct-a")))
         assertNull(
             protocol.mintRetirementReceipt(
                 mutation.mutationId,
