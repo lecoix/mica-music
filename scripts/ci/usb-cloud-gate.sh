@@ -32,12 +32,10 @@ if [[ -d "$USBPROTOTYPE" ]]; then
   mv "$USBPROTOTYPE" "$HOLD_ROOT/usbprototype"
 fi
 
-chmod +x ./gradlew
-
 # Source integrity before any build/test action.
 git diff --check
 
-./gradlew \
+bash ./gradlew \
   :app:compileDebugKotlin \
   :app:compilePerfKotlin \
   -Pksp.incremental=false \
@@ -66,7 +64,7 @@ if [[ -f "$EXTRA_FILE" ]]; then
   done < "$EXTRA_FILE"
 fi
 
-./gradlew \
+bash ./gradlew \
   :app:testPerfUnitTest \
   "${TEST_ARGS[@]}" \
   --no-daemon \
