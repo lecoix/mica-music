@@ -46,11 +46,21 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 mkdir -p "$HOME/.agentdock" "$HOME/AgentDock"
+
+git_env=()
+if [[ -n "${MICA_GIT_TOKEN:-}" ]]; then
+  git_env+=(
+    "GITHUB_TOKEN=$MICA_GIT_TOKEN"
+    "GITHUB_SERVER_URL=${GITHUB_SERVER_URL:-https://github.com}"
+  )
+fi
+
 nohup env \
   HOME="$HOME" \
   AGENTDOCK_HOST=0.0.0.0 \
   AGENTDOCK_PORT=8765 \
   AGENTDOCK_AUTH_TOKEN="$MICA_CLOUD_TOKEN" \
+  "${git_env[@]}" \
   "$BIN" >"$LOG" 2>&1 < /dev/null &
 echo $! > "$PID_FILE"
 
