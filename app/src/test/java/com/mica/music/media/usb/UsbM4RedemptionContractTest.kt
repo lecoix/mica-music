@@ -361,7 +361,7 @@ class UsbM4RedemptionContractTest {
         harness.stack.observeManualNavigation("A", "m4-seed")
         harness.stack.observeCurrentPlayerOccurrence("A", harness.occurrence)
         val adapter = if (family == PlaybackFamily.PCM) harness.pcmAdapter else harness.directAdapter
-        adapter.observeStream(harness.occurrence, family, facts)
+        adapter.observeStream(harness.occurrence, family, facts, harness.stack.currentTopologyToken())
         assertEquals(family, harness.stack.snapshot().mutation?.targetFamily)
     }
 
@@ -376,6 +376,20 @@ class UsbM4RedemptionContractTest {
         context.consumeCurrent { _, _ -> session }
         val coordinator = UsbExclusiveShadowCoordinator { }
         coordinator.publishSemanticIntent(true)
+        coordinator.observeUsbGeneration(target.generation.value)
+        coordinator.observeUsbFacts(
+            PlaybackOutputFacts(
+                generation = target.generation.value,
+                phase = UsbOutputPhase.ACTIVE,
+                request = request(),
+                runtimeHandle = session.runtimeHandle,
+                attached = true,
+                permission = UsbPermissionState.GRANTED,
+                claimed = true,
+                exclusive = true,
+                signalExact = true,
+            ),
+        )
         val stack = coordinator.createStack(target)
         val pcmAdapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.PLATFORM_PCM)
         val directAdapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)

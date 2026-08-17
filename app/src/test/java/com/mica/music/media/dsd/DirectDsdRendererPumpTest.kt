@@ -1,5 +1,6 @@
 package com.mica.music.media.dsd
 
+import com.mica.music.media.usb.protocol.greenDirectFullReleaseFacts
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
 import com.mica.music.media.usb.protocol.ResourceIdentity
 import org.junit.Assert.assertArrayEquals
@@ -251,6 +252,17 @@ class DirectDsdRendererPumpTest {
     }
 
     @Test
+    fun closeExposesSessionTypedFullReleaseFacts() {
+        val transport = FakeSession(facts, intArrayOf(99))
+        val pump = DirectDsdRendererPump(facts, transport)
+        assertEquals(null, pump.typedFullReleaseFacts())
+        pump.close()
+        val facts = checkNotNull(pump.typedFullReleaseFacts())
+        assertTrue(facts.isFullyGreen())
+        assertEquals(1, transport.closeCalls)
+    }
+
+    @Test
     fun freshTrackTransitionDropsRendererTailAndRequiresCarrierResetPreparation() {
         val transport = FakeSession(facts, intArrayOf(1, 99))
         val pump = DirectDsdRendererPump(facts, transport)
@@ -357,6 +369,8 @@ class DirectDsdRendererPumpTest {
         override fun close() {
             closeCalls++
         }
+
+        override fun typedFullReleaseFacts() = greenDirectFullReleaseFacts().takeIf { closeCalls > 0 }
     }
     companion object {
         private fun reverse(value: Byte): Byte =

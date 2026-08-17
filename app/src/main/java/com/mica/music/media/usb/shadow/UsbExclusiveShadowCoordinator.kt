@@ -398,7 +398,6 @@ internal class UsbExclusiveShadowStack internal constructor(
     private val periodFactsByEpoch = linkedMapOf<PlaybackTopologyEpoch, LinkedHashMap<Int, PlaybackTopologyPeriodFact>>()
     private val pendingPcm = linkedMapOf<AdapterInstanceId, PcmConfigurePermit>()
     private val pendingDirect = linkedMapOf<AdapterInstanceId, DirectStagePermit>()
-    private val directSeekCarrierBarriers = linkedMapOf<AdapterInstanceId, Pair<MutationId, PlaybackOccurrence>>()
 
     private data class RawStreamKey(
         val adapterInstanceId: AdapterInstanceId,
@@ -1364,15 +1363,12 @@ internal class UsbExclusiveShadowStack internal constructor(
         if (occurrence == null) return null
         val mutation = protocol.snapshot().mutation ?: return null
         if (!mutation.destinationBound || mutation.targetFamily != PlaybackFamily.DOP) return null
-        val exactSeekCarrierBarrier = mutation.kind == MutationKind.SEEK &&
-            directSeekCarrierBarriers[adapter.id] == (mutation.mutationId to occurrence)
         val permit = protocol.prepareDirectStage(
             mutation.mutationId,
             adapter.id,
             occurrence,
             stage,
             runtimeIdentity,
-            carrierBarrierSatisfied || exactSeekCarrierBarrier,
         )
         coordinator.emit(
             this,
@@ -1436,8 +1432,9 @@ internal class UsbExclusiveShadowStack internal constructor(
         adapter: UsbExclusiveShadowAdapter,
         permit: DirectRetainedHandoffPermit,
         receipt: SideEffectReceipt,
+        retainedProof: FamilyProof.DirectRuntimeRetained? = null,
     ): CommitDisposition {
-        val result = protocol.commitRetainedDirectHandoff(permit, receipt)
+        val result = protocol.commitRetainedDirectHandoff(permit, receipt, retainedProof)
         coordinator.emit(
             this,
             "DIRECT_RETAINED_HANDOFF_RECEIPT",
@@ -1537,26 +1534,29 @@ internal class UsbExclusiveShadowStack internal constructor(
         sourcePositionUs: Long,
     ) {
         coordinator.observeSafely(this, "DIRECT_POSITION_RESET") {
-            val mutation = protocol.snapshot().mutation
-            val handle = mutation?.causalHandle
-            val matched = occurrence != null &&
-                mutation?.kind == MutationKind.SEEK &&
-                handle != null &&
-                handle.adapterInstanceId == adapter.id &&
-                handle.sourceOccurrence == occurrence &&
-                handle.targetSourcePositionUs == sourcePositionUs
-            if (matched) {
-                directSeekCarrierBarriers[adapter.id] = mutation!!.mutationId to occurrence!!
-            } else {
-                directSeekCarrierBarriers.remove(adapter.id)
+            if (occurrence == null) {
+                coordinator.emit(
+                    this,
+                    "DIRECT_POSITION_RESET",
+                    UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
+                    adapter.id,
+                    occurrence,
+                    detail = "sourcePositionUs=$sourcePositionUs pendingSeekReset=false",
+                )
+                return@observeSafely
             }
+            val matched = protocol.notePendingDirectSeekReset(
+                adapter.id,
+                occurrence,
+                sourcePositionUs,
+            )
             coordinator.emit(
                 this,
                 "DIRECT_POSITION_RESET",
                 if (matched) UsbExclusiveShadowDecision.RAW_OBSERVED else UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
                 adapter.id,
                 occurrence,
-                detail = "sourcePositionUs=$sourcePositionUs exactSeekBarrier=$matched",
+                detail = "sourcePositionUs=$sourcePositionUs pendingSeekReset=$matched",
             )
         }
     }
@@ -1578,9 +1578,6 @@ internal class UsbExclusiveShadowStack internal constructor(
                 coordinator.emit(this, "DIRECT_${stage.name}", UsbExclusiveShadowDecision.WOULD_DEFER, adapter.id, occurrence)
                 return@observeSafely
             }
-            val carrierBarrierSatisfied = stage == DirectStage.SOURCE_ACCEPT &&
-                mutation.kind == MutationKind.SEEK &&
-                directSeekCarrierBarriers[adapter.id] == (mutation.mutationId to occurrence)
             val permit = pendingDirect[adapter.id]?.takeIf { it.stage == stage }
                 ?: protocol.prepareDirectStage(
                     mutation.mutationId,
@@ -1588,7 +1585,6 @@ internal class UsbExclusiveShadowStack internal constructor(
                     occurrence,
                     stage,
                     runtimeIdentity,
-                    carrierBarrierSatisfied,
                 )
             if (permit == null) {
                 coordinator.emit(this, "DIRECT_${stage.name}", UsbExclusiveShadowDecision.WOULD_DEFER, adapter.id, occurrence)
@@ -1609,12 +1605,6 @@ internal class UsbExclusiveShadowStack internal constructor(
                     runtimeIdentity,
                 ),
             )
-            if (
-                stage == DirectStage.SOURCE_ACCEPT &&
-                (result is CommitDisposition.CurrentPlaying || result is CommitDisposition.CurrentPaused)
-            ) {
-                directSeekCarrierBarriers.remove(adapter.id)
-            }
             coordinator.emit(
                 this,
                 "DIRECT_${stage.name}_COMPLETED",
@@ -1658,28 +1648,35 @@ internal class UsbExclusiveShadowStack internal constructor(
         adapter: UsbExclusiveShadowAdapter,
         occurrence: PlaybackOccurrence?,
         runtimeIdentity: RuntimeIdentity,
-        reason: String,
+        proof: FamilyProof.DirectFamilyReleased?,
+        reason: String = "runtime-released",
     ) {
         coordinator.observeSafely(this, "DIRECT_RUNTIME_RELEASED") {
+            if (
+                proof == null ||
+                !proof.isTerminal() ||
+                occurrence == null ||
+                proof.runtimeIdentity != runtimeIdentity ||
+                proof.sourceOccurrence != occurrence ||
+                proof.adapterInstanceId != adapter.id
+            ) {
+                coordinator.emit(
+                    this,
+                    "DIRECT_RUNTIME_RELEASED",
+                    UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
+                    adapter.id,
+                    occurrence,
+                    detail = "reason=$reason runtime=${runtimeIdentity.value} typed-proof-missing",
+                )
+                return@observeSafely
+            }
             val snapshot = protocol.snapshot()
             if (snapshot.lifecycle is ProtocolLifecycle.Retiring) {
                 val receipt = protocol.mintRetiringDirectRuntimeReceipt(
                     sourceAdapterInstanceId = adapter.id,
-                    sourceOccurrence = occurrence ?: run {
-                        coordinator.emit(
-                            this,
-                            "DIRECT_RUNTIME_RELEASED",
-                            UsbExclusiveShadowDecision.INSUFFICIENT_EVIDENCE,
-                            adapter.id,
-                            occurrence,
-                            detail = "reason=$reason runtime=${runtimeIdentity.value} no-exact-retiring-source",
-                        )
-                        return@observeSafely
-                    },
+                    sourceOccurrence = occurrence,
                     runtimeIdentity = runtimeIdentity,
-                    familyProof = com.mica.music.media.usb.protocol.FamilyProof.DirectFamilyReleased(
-                        "observed-close:${runtimeIdentity.value}:$reason",
-                    ),
+                    familyProof = proof,
                 )
                 val accepted = receipt != null && protocol.acceptRetiringDirectRuntimeReceipt(receipt)
                 coordinator.emit(
@@ -1695,7 +1692,6 @@ internal class UsbExclusiveShadowStack internal constructor(
             val mutation = snapshot.mutation
             val owned = snapshot.familyOwnership as? FamilyOwnership.DopOwned
             if (
-                occurrence == null ||
                 mutation == null ||
                 mutation.sourceRetirement != null ||
                 mutation.sourceOwnershipId == null ||
@@ -1718,10 +1714,8 @@ internal class UsbExclusiveShadowStack internal constructor(
             val receipt = protocol.mintRetirementReceipt(
                 mutation.mutationId,
                 adapter.id,
-                com.mica.music.media.usb.protocol.RetirementScope.FAMILY_RUNTIME_RELEASED,
-                com.mica.music.media.usb.protocol.FamilyProof.DirectFamilyReleased(
-                    "observed-close:${runtimeIdentity.value}:$reason",
-                ),
+                RetirementScope.FAMILY_RUNTIME_RELEASED,
+                proof,
             )
             val accepted = receipt != null && protocol.acceptSourceRetirement(receipt)
             coordinator.emit(
@@ -1829,6 +1823,9 @@ internal class UsbExclusiveShadowAdapter internal constructor(
         carrierBarrierSatisfied,
     )
 
+    fun redeemDirectStage(permit: DirectStagePermit): DirectStagePermit? =
+        stack.protocol.redeemDirectStage(permit)
+
     fun commitDirectStage(
         permit: DirectStagePermit,
         receipt: SideEffectReceipt,
@@ -1848,7 +1845,8 @@ internal class UsbExclusiveShadowAdapter internal constructor(
     fun commitRetainedDirectHandoff(
         permit: DirectRetainedHandoffPermit,
         receipt: SideEffectReceipt,
-    ): CommitDisposition = stack.commitRetainedDirectHandoff(this, permit, receipt)
+        retainedProof: FamilyProof.DirectRuntimeRetained? = null,
+    ): CommitDisposition = stack.commitRetainedDirectHandoff(this, permit, receipt, retainedProof)
 
     fun observeStream(
         occurrence: PlaybackOccurrence,
@@ -1909,8 +1907,9 @@ internal class UsbExclusiveShadowAdapter internal constructor(
     fun observeDirectRuntimeReleased(
         occurrence: PlaybackOccurrence?,
         runtimeIdentity: RuntimeIdentity,
-        reason: String,
+        proof: FamilyProof.DirectFamilyReleased?,
+        reason: String = "runtime-released",
     ) {
-        stack.observeDirectRuntimeReleased(this, occurrence, runtimeIdentity, reason)
+        stack.observeDirectRuntimeReleased(this, occurrence, runtimeIdentity, proof, reason)
     }
 }

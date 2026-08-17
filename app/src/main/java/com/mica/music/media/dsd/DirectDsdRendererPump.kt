@@ -2,6 +2,7 @@ package com.mica.music.media.dsd
 
 import com.mica.music.media.dsf.DsfExtractorPacketCanonicalizer
 import com.mica.music.media.dsf.DsfExtractorPacketFacts
+import com.mica.music.media.usb.protocol.DirectFullReleaseFacts
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.WriteKind
@@ -13,6 +14,10 @@ data class DirectDsdTransportWriteResult(
 data class DirectDsdRetainedSourceTransitionResult(
     val feederPendingZero: Boolean,
     val sourceResetApplied: Boolean,
+    val p5PendingPackedZero: Boolean = feederPendingZero,
+    val p5PendingPartialZero: Boolean = feederPendingZero,
+    val p5PendingHalfZero: Boolean = feederPendingZero,
+    val markerContinuityRetained: Boolean = sourceResetApplied,
 )
 
 data class DirectDsdFreshTransitionPreparationResult(
@@ -81,6 +86,9 @@ interface DirectDsdTransportSession : AutoCloseable {
     /** True only when this runtime has already completed its own exact owner-scoped teardown. */
     fun isExactCleanupComplete(): Boolean = false
 
+    /** Family-issued full-release facts after owner-scoped close/release; null until teardown. */
+    fun typedFullReleaseFacts(): DirectFullReleaseFacts? = null
+
     /** Returns true only when end-of-stream state is clean and transport can finish. */
     fun finishEndOfStream(): Boolean
 }
@@ -117,6 +125,7 @@ class DirectDsdRendererPump(
     private var pending = ByteArray(0)
     private var pendingOffset = 0
     private var pendingPacketTimeUs: Long? = null
+    private var mintedFullReleaseFacts: DirectFullReleaseFacts? = null
     private var offeredPackets = 0L
     private var consumedPackets = 0L
     private var committedBytes = 0L
@@ -275,9 +284,12 @@ class DirectDsdRendererPump(
         inputEnded = ended,
     )
 
+    fun typedFullReleaseFacts(): DirectFullReleaseFacts? = mintedFullReleaseFacts
+
     override fun close() {
         if (closed) return
         session.close()
+        mintedFullReleaseFacts = session.typedFullReleaseFacts()
         closed = true
     }
 

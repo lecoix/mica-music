@@ -394,7 +394,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val mutation = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.PCM, "pcm96", b, destinationAdapterInstanceId = adapterB))
-        val receipt = requireNotNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.DirectFamilyReleased("zero-pending")))
+        val receipt = requireNotNull(protocol.mintRetirementReceipt(mutation.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, protocol.typedDirectReleased(RuntimeIdentity("dop-a"), a, adapterA)))
         assertTrue(receipt.semanticPausedAtRetirement)
         assertTrue(protocol.acceptSourceRetirement(receipt))
         assertNull(protocol.preparePcmConfigure(mutation.mutationId, adapterB, b, "pcm96"))
@@ -436,13 +436,13 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.registerAdapter(adapterB)
         protocol.updateApplicationCurrent("B", b.periodUid, b)
         val samePlan = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "B", PlaybackFamily.DOP, "dop128", b, destinationAdapterInstanceId = adapterB))
-        val retained = requireNotNull(protocol.mintRetirementReceipt(samePlan.mutationId, adapterA, RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED, FamilyProof.DirectRuntimeRetained(RuntimeIdentity("carrier"), "same-plan")))
+        val retained = requireNotNull(protocol.mintRetirementReceipt(samePlan.mutationId, adapterA, RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED, protocol.typedDirectRetained(RuntimeIdentity("carrier"), a, b, adapterA)))
         assertTrue(protocol.acceptSourceRetirement(retained))
         assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.DopOwned)
 
         protocol.updateApplicationCurrent("C", c.periodUid, c)
         val changed = requireNotNull(protocol.beginMutation(MutationKind.MANUAL, "C", PlaybackFamily.DOP, "dop64", c, destinationAdapterInstanceId = adapterB))
-        val released = requireNotNull(protocol.mintRetirementReceipt(changed.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, FamilyProof.DirectFamilyReleased("rate-change")))
+        val released = requireNotNull(protocol.mintRetirementReceipt(changed.mutationId, adapterA, RetirementScope.FAMILY_RUNTIME_RELEASED, protocol.typedDirectReleased(RuntimeIdentity("carrier"), a, adapterA)))
         assertTrue(protocol.acceptSourceRetirement(released))
         assertEquals(FamilyOwnership.None, protocol.snapshot().familyOwnership)
     }
@@ -545,7 +545,7 @@ class UsbExclusivePlaybackProtocolTest {
                 mutation.mutationId,
                 adapterB,
                 RetirementScope.FAMILY_RUNTIME_RELEASED,
-                FamilyProof.DirectFamilyReleased("seek-zero-barrier"),
+                protocol.typedDirectReleased(RuntimeIdentity("seek-source"), b, adapterB),
             ),
         )
         assertTrue(protocol.acceptSourceRetirement(retirement))
@@ -737,12 +737,13 @@ class UsbExclusivePlaybackProtocolTest {
 
         protocol.beginRetiring()
         assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        val canonical = protocol.typedDirectReleased(RuntimeIdentity("direct-runtime-a"), a, adapterA)
         assertNull(
             protocol.mintRetiringDirectRuntimeReceipt(
                 adapterB,
                 a,
                 RuntimeIdentity("direct-runtime-a"),
-                FamilyProof.DirectFamilyReleased("wrong-adapter"),
+                canonical,
             ),
         )
         assertNull(
@@ -750,7 +751,7 @@ class UsbExclusivePlaybackProtocolTest {
                 adapterA,
                 PlaybackOccurrence("wrong-period", a.windowSequenceNumber),
                 RuntimeIdentity("direct-runtime-a"),
-                FamilyProof.DirectFamilyReleased("wrong-occurrence"),
+                canonical,
             ),
         )
         assertNull(
@@ -758,7 +759,7 @@ class UsbExclusivePlaybackProtocolTest {
                 adapterA,
                 a,
                 RuntimeIdentity("forged-runtime"),
-                FamilyProof.DirectFamilyReleased("wrong-runtime"),
+                canonical,
             ),
         )
         assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
@@ -768,7 +769,7 @@ class UsbExclusivePlaybackProtocolTest {
                 adapterA,
                 a,
                 RuntimeIdentity("direct-runtime-a"),
-                FamilyProof.DirectFamilyReleased("exact-close"),
+                canonical,
             ),
         )
         assertFalse(protocol.acceptRetiringDirectRuntimeReceipt(receipt.copy(sourceAdapterInstanceId = adapterB)))
@@ -807,7 +808,7 @@ class UsbExclusivePlaybackProtocolTest {
                 adapterA,
                 b,
                 RuntimeIdentity("direct-runtime-a"),
-                FamilyProof.DirectFamilyReleased("wrong-source-occurrence"),
+                protocol.typedDirectReleased(RuntimeIdentity("direct-runtime-a"), a, adapterA),
             ),
         )
         val receipt = requireNotNull(
@@ -815,7 +816,7 @@ class UsbExclusivePlaybackProtocolTest {
                 adapterA,
                 a,
                 RuntimeIdentity("direct-runtime-a"),
-                FamilyProof.DirectFamilyReleased("exact-close-with-successor"),
+                protocol.typedDirectReleased(RuntimeIdentity("direct-runtime-a"), a, adapterA),
             ),
         )
         assertTrue(protocol.acceptRetiringDirectRuntimeReceipt(receipt))
@@ -876,7 +877,7 @@ class UsbExclusivePlaybackProtocolTest {
                 next.mutationId,
                 adapterA,
                 RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED,
-                FamilyProof.DirectRuntimeRetained(RuntimeIdentity("carrier-a"), "retained"),
+                protocol.typedDirectRetained(RuntimeIdentity("carrier-a"), a, b, adapterA),
             ),
         )
         assertFalse(playing.writeLease.isRevoked())
@@ -1136,7 +1137,7 @@ class UsbExclusivePlaybackProtocolTest {
             OutputTarget.UsbBound(UsbOutputGeneration(99)),
             RetirementScope.FAMILY_RUNTIME_RELEASED,
             false,
-            FamilyProof.DirectFamilyReleased("wrong-family"),
+            protocol.typedDirectReleased(RuntimeIdentity("pcm-a"), a, adapterA),
         )
 
         assertFalse(protocol.acceptSourceRetirement(forged))

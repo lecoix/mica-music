@@ -175,6 +175,8 @@ internal class UsbDirectDsdPauseLivenessController(
         }
     }
 
+    fun isWriterIdle(): Boolean = !writerLock.isLocked
+
     fun snapshot(): UsbDirectDsdPauseLivenessSnapshot = UsbDirectDsdPauseLivenessSnapshot(
         phase = phase,
         workerAlive = worker?.isAlive == true,

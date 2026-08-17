@@ -106,3 +106,79 @@ internal fun UsbExclusivePlaybackProtocol.installOwnedFamilyForModel(
     }
     return disposition
 }
+
+internal fun greenDirectFullReleaseFacts(
+    writerJoined: Boolean = true,
+    pauseWorkerJoined: Boolean = true,
+    feederStagedPendingZero: Boolean = true,
+    feederUpstreamPendingZero: Boolean = true,
+    feederErrorNull: Boolean = true,
+    p5PendingPackedZero: Boolean = true,
+    p5PendingPartialZero: Boolean = true,
+    p5PendingHalfZero: Boolean = true,
+    nativeDestroyed: Boolean = true,
+    altRestored: Boolean = true,
+    clockRestored: Boolean = true,
+    interfacesReleased: Boolean = true,
+    driversRebound: Boolean = true,
+) = DirectFullReleaseFacts(
+    writerJoined = writerJoined,
+    pauseWorkerJoined = pauseWorkerJoined,
+    feederStagedPendingZero = feederStagedPendingZero,
+    feederUpstreamPendingZero = feederUpstreamPendingZero,
+    feederErrorNull = feederErrorNull,
+    p5PendingPackedZero = p5PendingPackedZero,
+    p5PendingPartialZero = p5PendingPartialZero,
+    p5PendingHalfZero = p5PendingHalfZero,
+    nativeDestroyed = nativeDestroyed,
+    altRestored = altRestored,
+    clockRestored = clockRestored,
+    interfacesReleased = interfacesReleased,
+    driversRebound = driversRebound,
+)
+
+internal fun greenDirectRetainedFacts(
+    feederPendingZero: Boolean = true,
+    p5PendingPackedZero: Boolean = true,
+    p5PendingPartialZero: Boolean = true,
+    p5PendingHalfZero: Boolean = true,
+    sourceResetApplied: Boolean = true,
+    markerContinuityRetained: Boolean = true,
+) = DirectRetainedCarrierFacts(
+    feederPendingZero = feederPendingZero,
+    p5PendingPackedZero = p5PendingPackedZero,
+    p5PendingPartialZero = p5PendingPartialZero,
+    p5PendingHalfZero = p5PendingHalfZero,
+    sourceResetApplied = sourceResetApplied,
+    markerContinuityRetained = markerContinuityRetained,
+)
+
+internal fun UsbExclusivePlaybackProtocol.typedDirectReleased(
+    runtime: RuntimeIdentity,
+    occurrence: PlaybackOccurrence,
+    adapter: AdapterInstanceId,
+    facts: DirectFullReleaseFacts = greenDirectFullReleaseFacts(),
+) = FamilyProof.DirectFamilyReleased(
+    runtimeIdentity = runtime,
+    sourceOccurrence = occurrence,
+    adapterInstanceId = adapter,
+    outputTarget = snapshot().outputTarget,
+    facts = facts,
+)
+
+internal fun UsbExclusivePlaybackProtocol.typedDirectRetained(
+    runtime: RuntimeIdentity,
+    sourceOccurrence: PlaybackOccurrence,
+    targetOccurrence: PlaybackOccurrence,
+    adapter: AdapterInstanceId,
+    sourceGeneration: Long = (snapshot().outputTarget as? OutputTarget.UsbBound)?.generation?.value ?: 0L,
+    facts: DirectRetainedCarrierFacts = greenDirectRetainedFacts(),
+) = FamilyProof.DirectRuntimeRetained(
+    runtimeIdentity = runtime,
+    sourceOccurrence = sourceOccurrence,
+    targetOccurrence = targetOccurrence,
+    adapterInstanceId = adapter,
+    outputTarget = snapshot().outputTarget,
+    sourceGeneration = sourceGeneration,
+    facts = facts,
+)

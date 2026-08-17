@@ -1,5 +1,6 @@
 package com.mica.music.media.dsd
 
+import com.mica.music.media.usb.protocol.greenDirectFullReleaseFacts
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.CommitDisposition
 import com.mica.music.media.usb.protocol.PlaybackFamily
@@ -37,7 +38,7 @@ class DirectDsdPartialEffectCleanupTest {
             harness.stack.observeTimelinePeriod("C", successor.periodUid)
             harness.stack.observeApplicationMedia("C")
             assertNotNull(harness.stack.beginManualNavigation("C", "test-supersede"))
-            harness.directAdapter.observeStream(successor, PlaybackFamily.DOP, "dop-target")
+            harness.directAdapter.observeStream(successor, PlaybackFamily.DOP, "dop-target", harness.stack.currentTopologyToken())
             harness.stack.observeCurrentPlayerOccurrence("C", successor)
         }
         val renderer = DirectDsdMedia3Renderer(
@@ -424,8 +425,13 @@ class DirectDsdPartialEffectCleanupTest {
 
         override fun close() {
             closeCalls++
+            mintedFullReleaseFacts = greenDirectFullReleaseFacts()
             closeFailure?.let { throw it }
         }
+
+        override fun typedFullReleaseFacts() = mintedFullReleaseFacts
+
+        private var mintedFullReleaseFacts: com.mica.music.media.usb.protocol.DirectFullReleaseFacts? = null
     }
 
     private companion object {

@@ -4,10 +4,12 @@ import com.mica.music.media.usb.protocol.OutputTarget
 import com.mica.music.media.usb.protocol.AdapterInstanceId
 import com.mica.music.media.usb.protocol.CommitDisposition
 import com.mica.music.media.usb.protocol.FamilyOwnership
+import com.mica.music.media.usb.protocol.FamilyProof
 import com.mica.music.media.usb.protocol.MutationId
 import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.RuntimeIdentity
+import com.mica.music.media.usb.protocol.greenDirectFullReleaseFacts
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapter
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackAdapterKind
 import com.mica.music.media.usb.shadow.UsbExclusivePlaybackCoordinator
@@ -45,7 +47,7 @@ internal class TestProtocolHarness private constructor(
         stack.observeApplicationMedia(mediaId)
         check(stack.beginManualNavigation(mediaId, "test-destination") != null)
         val adapter = if (family == PlaybackFamily.PCM) pcmAdapter else directAdapter
-        adapter.observeStream(occurrence, family, facts)
+        adapter.observeStream(occurrence, family, facts, stack.currentTopologyToken())
         stack.observeCurrentPlayerOccurrence(mediaId, occurrence)
         val mutation = stack.snapshot().mutation
         check(mutation?.destinationBound == true)
@@ -53,9 +55,18 @@ internal class TestProtocolHarness private constructor(
     }
 
     fun releaseDirectSource() {
+        val owned = stack.snapshot().familyOwnership as FamilyOwnership.DopOwned
+        val proof = FamilyProof.DirectFamilyReleased(
+            runtimeIdentity = sourceRuntime,
+            sourceOccurrence = sourceOccurrence,
+            adapterInstanceId = owned.adapterInstanceId,
+            outputTarget = stack.snapshot().outputTarget,
+            facts = greenDirectFullReleaseFacts(),
+        )
         directAdapter.observeDirectRuntimeReleased(
             sourceOccurrence,
             sourceRuntime,
+            proof,
             "test-source-release",
         )
         check(stack.snapshot().familyOwnership is FamilyOwnership.None)

@@ -1,9 +1,14 @@
 package com.mica.music.media.usb.shadow
 
+import com.mica.music.media.usb.protocol.DirectRetainedHandoffPermit
+import com.mica.music.media.usb.protocol.DirectFullReleaseFacts
 import com.mica.music.media.usb.protocol.DirectStage
 import com.mica.music.media.usb.protocol.CommitDisposition
 import com.mica.music.media.usb.protocol.FamilyOwnership
 import com.mica.music.media.usb.protocol.FamilyProof
+import com.mica.music.media.usb.protocol.greenDirectFullReleaseFacts
+import com.mica.music.media.usb.protocol.greenDirectRetainedFacts
+import com.mica.music.media.usb.protocol.typedDirectRetained
 import com.mica.music.media.usb.protocol.MutationKind
 import com.mica.music.media.usb.protocol.OutputTarget
 import com.mica.music.media.usb.protocol.PcmAudioGeometry
@@ -963,9 +968,16 @@ class UsbExclusiveShadowCoordinatorTest {
         stack.observeSeekDispatch(123_000L)
         val seek = requireNotNull(stack.snapshot().mutation)
         assertEquals(MutationKind.SEEK, seek.kind)
-        adapter.observeDirectPositionReset(a, 124_000L)
-        adapter.observeDirectRuntimeReleased(a, sourceRuntime, "position-reset")
+        adapter.observeDirectPositionReset(a, 123_000L)
+        assertTrue(stack.snapshot().pendingDirectSeekReset)
+        assertFalse(stack.snapshot().seekCarrierBarrierSatisfied)
+        adapter.observeDirectStage(a, DirectStage.SOURCE_ACCEPT, sourceRuntime, completed = true)
+        assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+        assertFalse(stack.snapshot().seekCarrierBarrierSatisfied)
+
+        adapter.observeTypedDirectRelease(a, sourceRuntime)
         assertNotNull(stack.snapshot().mutation?.sourceRetirement)
+        assertTrue(stack.snapshot().seekCarrierBarrierSatisfied)
 
         val seekRuntime = RuntimeIdentity("direct-seek")
         adapter.observeDirectStage(a, DirectStage.CREATE_RUNTIME, seekRuntime, completed = true)
@@ -973,17 +985,8 @@ class UsbExclusiveShadowCoordinatorTest {
         adapter.observeDirectStarted(a)
         adapter.observeDirectStage(a, DirectStage.ARM, seekRuntime, completed = true)
         adapter.observeDirectStage(a, DirectStage.SOURCE_ACCEPT, seekRuntime, completed = true)
-        assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.None)
-        assertTrue(
-            coordinator.diagnosticsSnapshot().any {
-                it.rawEventKind == "DIRECT_SOURCE_ACCEPT" &&
-                    it.decision == UsbExclusiveShadowDecision.WOULD_DEFER
-            },
-        )
-
-        adapter.observeDirectPositionReset(a, 123_000L)
-        adapter.observeDirectStage(a, DirectStage.SOURCE_ACCEPT, seekRuntime, completed = true)
         assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
+        assertEquals(seekRuntime, (stack.snapshot().familyOwnership as FamilyOwnership.DopOwned).runtimeIdentity)
     }
 
     @Test
@@ -997,7 +1000,7 @@ class UsbExclusiveShadowCoordinatorTest {
         assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
         assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
 
-        adapter.observeDirectRuntimeReleased(a, runtime, "stack-teardown")
+        adapter.observeTypedDirectRelease(a, runtime)
 
         assertEquals(ProtocolLifecycle.Retired, stack.snapshot().lifecycle)
         assertEquals(FamilyOwnership.None, stack.snapshot().familyOwnership)
@@ -1021,7 +1024,7 @@ class UsbExclusiveShadowCoordinatorTest {
         coordinator.retireStack(stack)
         assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
 
-        adapter.observeDirectRuntimeReleased(a, runtime, "successor-teardown")
+        adapter.observeTypedDirectRelease(a, runtime)
 
         assertEquals(ProtocolLifecycle.Retired, stack.snapshot().lifecycle)
         assertEquals(FamilyOwnership.None, stack.snapshot().familyOwnership)
@@ -1035,9 +1038,9 @@ class UsbExclusiveShadowCoordinatorTest {
         val wrongAdapter = stack.newAdapter(UsbExclusiveShadowAdapterKind.DIRECT_DOP)
 
         coordinator.retireStack(stack)
-        wrongAdapter.observeDirectRuntimeReleased(a, runtime, "wrong-adapter")
-        adapter.observeDirectRuntimeReleased(b, runtime, "wrong-occurrence")
-        adapter.observeDirectRuntimeReleased(a, RuntimeIdentity("wrong-runtime"), "wrong-runtime")
+        wrongAdapter.observeDirectRuntimeReleased(a, runtime, null, "wrong-adapter")
+        adapter.observeDirectRuntimeReleased(b, runtime, null, "wrong-occurrence")
+        adapter.observeDirectRuntimeReleased(a, RuntimeIdentity("wrong-runtime"), null, "wrong-runtime")
 
         assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
         assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
@@ -1048,7 +1051,7 @@ class UsbExclusiveShadowCoordinatorTest {
             } >= 3,
         )
 
-        adapter.observeDirectRuntimeReleased(a, runtime, "exact-release")
+        adapter.observeTypedDirectRelease(a, runtime)
 
         assertEquals(ProtocolLifecycle.Retired, stack.snapshot().lifecycle)
     }
@@ -1069,7 +1072,7 @@ class UsbExclusiveShadowCoordinatorTest {
         )
 
         coordinator.retireStack(stack)
-        adapter.observeDirectRuntimeReleased(a, runtime, "release-before-drain")
+        adapter.observeTypedDirectRelease(a, runtime)
 
         assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Retiring)
         assertTrue(stack.snapshot().familyOwnership is FamilyOwnership.DopOwned)
@@ -1113,6 +1116,7 @@ class UsbExclusiveShadowCoordinatorTest {
                 "test-retained-reset",
                 runtime,
             ),
+            stack.protocol.typedDirectRetained(runtime, a, b, adapter.id),
         )
 
         assertTrue(disposition is CommitDisposition.CurrentPlaying)
@@ -1175,6 +1179,7 @@ class UsbExclusiveShadowCoordinatorTest {
                     "test-C",
                     runtime,
                 ),
+                stack.protocol.typedDirectRetained(runtime, a, c, adapter.id),
             ) is CommitDisposition.CurrentPlaying,
         )
         assertEquals(c, (stack.snapshot().familyOwnership as FamilyOwnership.DopOwned).occurrence)
@@ -1364,4 +1369,35 @@ class UsbExclusiveShadowCoordinatorTest {
             ) is CommitDisposition.CurrentPlaying,
         )
     }
+
+    private fun UsbExclusiveShadowAdapter.observeTypedDirectRelease(
+        occurrence: PlaybackOccurrence,
+        runtime: RuntimeIdentity,
+        facts: DirectFullReleaseFacts = greenDirectFullReleaseFacts(),
+    ) {
+        observeDirectRuntimeReleased(
+            occurrence,
+            runtime,
+            FamilyProof.DirectFamilyReleased(
+                runtimeIdentity = runtime,
+                sourceOccurrence = occurrence,
+                adapterInstanceId = id,
+                outputTarget = snapshot().outputTarget,
+                facts = facts,
+            ),
+        )
+    }
+
+    private fun UsbExclusiveShadowAdapter.typedRetainedProof(
+        permit: DirectRetainedHandoffPermit,
+        source: PlaybackOccurrence,
+    ) = FamilyProof.DirectRuntimeRetained(
+        runtimeIdentity = permit.runtimeIdentity,
+        sourceOccurrence = source,
+        targetOccurrence = permit.targetOccurrence,
+        adapterInstanceId = permit.adapterInstanceId,
+        outputTarget = permit.outputTarget,
+        sourceGeneration = (permit.outputTarget as? OutputTarget.UsbBound)?.generation?.value ?: 0L,
+        facts = greenDirectRetainedFacts(),
+    )
 }

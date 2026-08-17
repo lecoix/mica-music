@@ -56,6 +56,7 @@ import com.mica.music.media.usb.UsbRateControlResult
 import com.mica.music.media.usb.UsbRuntimeFactsResult
 import com.mica.music.media.usb.UsbRuntimeStreamingProfileValidator
 import com.mica.music.media.usb.UsbStreamingProfileValidation
+import com.mica.music.media.usb.protocol.DirectFullReleaseFacts
 import com.mica.music.media.usb.protocol.WriteKind
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -158,6 +159,8 @@ private class UsbDirectDsdTransportSession private constructor(
     private var lastWriteTimingMilestoneMs = 0L
     private var lastGapMilestoneMs = 0L
     private var cleanupLeaseScope: UsbOutputCleanupLease? = null
+    @Volatile
+    private var mintedFullReleaseFacts: DirectFullReleaseFacts? = null
 
     private interface DirectTransportIoLease {
         fun ensureUsable()
@@ -300,6 +303,7 @@ private class UsbDirectDsdTransportSession private constructor(
                 check(reset.applied && reset.reset != null) {
                     "retained source reset blocked reason=${reset.blockedReason} error=${reset.error}"
                 }
+                val sourceReset = checkNotNull(reset.reset)
                 val accountingAfterReset = carrierSession.accounting()
                 check(accountingAfterReset.pendingPackedCarrierBytes == 0)
                 check(accountingAfterReset.pendingPartialCanonicalFrameBytes == 0)
@@ -312,6 +316,10 @@ private class UsbDirectDsdTransportSession private constructor(
                 DirectDsdRetainedSourceTransitionResult(
                     feederPendingZero = true,
                     sourceResetApplied = true,
+                    p5PendingPackedZero = true,
+                    p5PendingPartialZero = true,
+                    p5PendingHalfZero = true,
+                    markerContinuityRetained = sourceReset.markerBeforeReset == sourceReset.markerAfterReset,
                 )
             } ?: error("Direct DSD USB session became stale during retained track transition")
         }
@@ -512,6 +520,21 @@ private class UsbDirectDsdTransportSession private constructor(
             feederSnapshot.stagedCarrierBytes.isEmpty() &&
             feederSnapshot.upstreamPendingPackedCarrierBytes == 0 &&
             feederSnapshot.contractError == null
+        mintedFullReleaseFacts = DirectFullReleaseFacts(
+            writerJoined = pauseLiveness.isWriterIdle(),
+            pauseWorkerJoined = !pauseSnapshot.workerAlive && pauseSnapshot.workerFailure == null,
+            feederStagedPendingZero = feederSnapshot.stagedCarrierBytes.isEmpty(),
+            feederUpstreamPendingZero = feederSnapshot.upstreamPendingPackedCarrierBytes == 0,
+            feederErrorNull = feederSnapshot.contractError == null,
+            p5PendingPackedZero = accounting.pendingPackedCarrierBytes == 0,
+            p5PendingPartialZero = accounting.pendingPartialCanonicalFrameBytes == 0,
+            p5PendingHalfZero = !accounting.hasPendingCanonicalHalfFrame,
+            nativeDestroyed = nativeDestroyed,
+            altRestored = altRestored,
+            clockRestored = clockRestored,
+            interfacesReleased = streamingReleased && controlReleased,
+            driversRebound = reconnectErrno == 0 && driversBound,
+        )
         milestone(
             "directDsd=close reason=$reason completed=$finalCompleted error=$finalError underrun=$underrun " +
                 "invalidFeedback=$invalidFeedback dataErrors=$dataErrors pcmContent=${pcmMetrics.joinToString(",")} " +
@@ -530,6 +553,8 @@ private class UsbDirectDsdTransportSession private constructor(
     }
 
     override fun isExactCleanupComplete(): Boolean = exactCleanupComplete
+
+    override fun typedFullReleaseFacts(): DirectFullReleaseFacts? = mintedFullReleaseFacts
 
     override fun close() {
         if (closed) return

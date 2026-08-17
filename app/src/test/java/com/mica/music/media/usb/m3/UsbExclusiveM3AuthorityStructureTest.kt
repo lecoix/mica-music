@@ -41,7 +41,7 @@ class UsbExclusiveM3AuthorityStructureTest {
             "commitPcmConfigure(",
         )
         assertTrue(source.contains("tryEnterWrite("))
-        assertTrue(source.contains("prepareRetainedPcmHandoff("))
+        assertTrue(source.contains("preparePcmRetainedRetirement("))
         assertTrue(source.contains("return false"))
     }
 
@@ -56,9 +56,9 @@ class UsbExclusiveM3AuthorityStructureTest {
             .substringBefore("override fun onStreamChanged")
         assertTrue(arm.contains("observeShadowArmAndSourceAccept(active)"))
         val stage = source.substringAfter("private fun observeShadowArmAndSourceAccept(")
-            .substringAfter("val armPermit = adapter.prepareDirectStage(")
-            .let { "prepareDirectStage($it" }
-        assertOrdered(stage, "prepareDirectStage(", "active.armPlayback()", "commitDirectStage(")
+            .substringAfter("val armPermit = adapter.redeemDirectStage(")
+            .let { "redeemDirectStage($it" }
+        assertOrdered(stage, "redeemDirectStage(", "active.armPlayback()", "commitDirectStage(")
         val retained = source.substringAfter("private fun transitionRetainedSourceWithProtocol(")
             .substringAfter("val permit = adapter.prepareRetainedDirectHandoff(")
         assertOrdered(
@@ -87,7 +87,8 @@ class UsbExclusiveM3AuthorityStructureTest {
         assertFalse(direct.contains("if (playbackAdapter == null)"))
         assertFalse(direct.contains("playbackAdapter?."))
         val coordinator = source("app/src/main/java/com/mica/music/media/usb/shadow/UsbExclusiveShadowCoordinator.kt")
-        assertTrue(coordinator.contains("directSeekCarrierBarriers[adapter.id] == (mutation.mutationId to occurrence)"))
+        assertTrue(coordinator.contains("protocol.notePendingDirectSeekReset("))
+        assertFalse(coordinator.contains("directSeekCarrierBarriers["))
         val service = source("app/src/main/java/com/mica/music/media/MicaMediaService.kt")
         assertTrue(service.contains("snapshot.stageInto(candidate.exoPlayer)"))
         assertTrue(service.contains("restoreAfterTechnicalQuiesce()"))
