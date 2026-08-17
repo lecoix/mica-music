@@ -269,6 +269,87 @@ class UsbPcmPhysicalRetirementProofTest {
         committed.writeLease.exit()
     }
 
+    @Test
+    fun stackTeardownRejectsForgedPermitMatchingOnlyRuntimeAndGeometry() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        installA(protocol)
+        protocol.beginRetiring()
+        val exact = requireNotNull(protocol.prepareRetiringPcmRuntimeRelease(adapterA))
+        val forged = exact.copy(
+            retiringMutationId = MutationId(999),
+            source = exact.source.copy(
+                familyOwnershipId = FamilyOwnershipId(999),
+                mutationId = MutationId(999),
+                occurrence = PlaybackOccurrence("forged-pcm", 99),
+                adapterInstanceId = adapterB,
+                outputTarget = OutputTarget.UsbBound(UsbOutputGeneration(9)),
+            ),
+            targetOccurrence = b,
+            targetGeometry = geometry,
+        )
+        assertEquals(exact.source.runtimeIdentity, forged.source.runtimeIdentity)
+        assertEquals(exact.source.geometry, forged.source.geometry)
+        assertFalse(protocol.completePcmRetirement(forged, released(exact)))
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
+        assertTrue(protocol.completePcmRetirement(exact, released(exact)))
+        assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
+    }
+
+    @Test
+    fun stackTeardownRejectsWrongOwnershipOccurrenceMutationAndOutput() {
+        val (ledger, protocol) = fresh()
+        ledger.publish(PlaybackIntent.PLAY)
+        installA(protocol)
+        protocol.beginRetiring()
+        val exact = requireNotNull(protocol.prepareRetiringPcmRuntimeRelease(adapterA))
+        val proof = released(exact)
+        assertFalse(
+            protocol.completePcmRetirement(
+                exact.copy(source = exact.source.copy(familyOwnershipId = FamilyOwnershipId(0))),
+                proof,
+            ),
+        )
+        assertFalse(
+            protocol.completePcmRetirement(
+                exact.copy(source = exact.source.copy(occurrence = b)),
+                proof,
+            ),
+        )
+        assertFalse(
+            protocol.completePcmRetirement(
+                exact.copy(
+                    retiringMutationId = MutationId(0),
+                    source = exact.source.copy(mutationId = MutationId(0)),
+                ),
+                proof,
+            ),
+        )
+        assertFalse(
+            protocol.completePcmRetirement(
+                exact.copy(source = exact.source.copy(outputTarget = OutputTarget.Unavailable)),
+                proof,
+            ),
+        )
+        assertFalse(
+            protocol.completePcmRetirement(
+                exact.copy(source = exact.source.copy(adapterInstanceId = adapterB)),
+                proof,
+            ),
+        )
+        assertFalse(
+            protocol.completePcmRetirement(
+                exact.copy(targetOccurrence = a, targetGeometry = geometry),
+                proof,
+            ),
+        )
+        assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring)
+        assertTrue(protocol.snapshot().familyOwnership is FamilyOwnership.PcmOwned)
+        assertTrue(protocol.completePcmRetirement(exact, proof))
+        assertEquals(ProtocolLifecycle.Retired, protocol.snapshot().lifecycle)
+    }
+
     private fun fresh(): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {
         val ledger = PlaybackIntentLedger()
         return ledger to UsbExclusivePlaybackProtocol(ledger, PlaybackStackId(77), OutputTarget.SharedPcm)

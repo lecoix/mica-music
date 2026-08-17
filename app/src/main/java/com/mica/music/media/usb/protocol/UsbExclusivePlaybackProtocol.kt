@@ -1239,7 +1239,8 @@ class UsbExclusivePlaybackProtocol(
                 accepted
             }
             RetirementScope.STACK_TEARDOWN_RELEASED -> {
-                if (lifecycle !is ProtocolLifecycle.Retiring) return false
+                val canonical = canonicalStackTeardownPcmPermitLocked() ?: return false
+                if (permit != canonical) return false
                 val pcmProof = proof as? FamilyProof.PcmFamilyReleased ?: return false
                 val receipt = mintRetiringPcmRuntimeReceiptLocked(pcmProof) ?: return false
                 acceptRetiringPcmRuntimeReceiptLocked(receipt)
@@ -2087,6 +2088,25 @@ class UsbExclusivePlaybackProtocol(
         } else {
             ProtocolLifecycle.Retiring(activations.keys.toSet())
         }
+    }
+
+    /**
+     * Stack-teardown completion may use only the exact permit that names the canonical
+     * retiring PCM source. Matching runtime/geometry alone is not identity.
+     */
+    private fun canonicalStackTeardownPcmPermitLocked(): PcmRetirementPermit? {
+        if (lifecycle !is ProtocolLifecycle.Retiring) return null
+        val pending = retiringPcmRuntimeRelease ?: return null
+        val owned = familyOwnership as? FamilyOwnership.PcmOwned ?: return null
+        val source = pcmSourceIdentityLocked(owned)
+        if (pending.source != source) return null
+        return PcmRetirementPermit(
+            retiringMutationId = source.mutationId,
+            source = source,
+            scope = RetirementScope.STACK_TEARDOWN_RELEASED,
+            targetOccurrence = null,
+            targetGeometry = null,
+        )
     }
 
     private fun pcmSourceIdentityLocked(owned: FamilyOwnership.PcmOwned): PcmPhysicalSourceIdentity =

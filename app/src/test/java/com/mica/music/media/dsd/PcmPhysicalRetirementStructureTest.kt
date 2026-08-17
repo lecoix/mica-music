@@ -74,8 +74,17 @@ class PcmPhysicalRetirementStructureTest {
 
         assertTrue(source.contains("fun prepareRetiringPcmRuntimeRelease("))
         assertTrue(source.contains("fun completePcmRetirement("))
+        assertTrue(source.contains("canonicalStackTeardownPcmPermitLocked("))
         assertTrue(source.contains("FamilyProof.PcmFamilyReleased"))
         assertTrue(retiring.contains("retiringPcmRuntimeRelease == null"))
+        val teardownComplete = source.substringAfter("RetirementScope.STACK_TEARDOWN_RELEASED -> {")
+            .substringBefore("RetirementScope.SOURCE_INTAKE_DRAINED_RUNTIME_RETAINED")
+        assertOrdered(
+            teardownComplete,
+            "canonicalStackTeardownPcmPermitLocked()",
+            "permit != canonical",
+            "mintRetiringPcmRuntimeReceiptLocked(",
+        )
     }
 
     private fun sinkSource(): String = source(
