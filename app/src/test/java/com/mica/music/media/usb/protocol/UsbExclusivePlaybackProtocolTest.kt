@@ -1648,6 +1648,7 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.beginRetiring()
         assertTrue(protocol.snapshot().lifecycle is ProtocolLifecycle.Active)
         assertTrue(requireNotNull(protocol.snapshot().topologyTransaction).retirementLatched)
+        assertFalse(protocol.beginRetiring())
         assertTrue(protocol.markTopologyDispatchSucceeded(reservation))
         assertTrue(protocol.commitTopologyMutation(reservation))
         assertFalse(protocol.snapshot().lifecycle is ProtocolLifecycle.Active)
@@ -1671,6 +1672,18 @@ class UsbExclusivePlaybackProtocolTest {
         protocol.beginRetiring()
         assertNull(protocol.snapshot().topologyTransaction)
         assertFalse(protocol.snapshot().lifecycle is ProtocolLifecycle.Active)
+        assertTrue(protocol.beginRetiring())
+    }
+
+    @Test
+    fun beginRetiringReportsActiveToRetiringAndRefusesNonActiveCutoverWithoutLatch() {
+        val (_, protocol) = fresh()
+        assertTrue(protocol.beginRetiring())
+        assertTrue(
+            protocol.snapshot().lifecycle is ProtocolLifecycle.Retiring ||
+                protocol.snapshot().lifecycle is ProtocolLifecycle.Retired,
+        )
+        assertTrue(protocol.beginRetiring())
     }
 
     private fun fresh(output: OutputTarget = OutputTarget.SharedPcm): Pair<PlaybackIntentLedger, UsbExclusivePlaybackProtocol> {

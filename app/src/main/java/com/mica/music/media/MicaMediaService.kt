@@ -1299,7 +1299,10 @@ class MicaMediaService : MediaSessionService() {
             "UsbOutputRebuild",
             "barrier=retire-start from=$previousMode",
         )
-        activePlaybackStack?.let(usbExclusivePlaybackCoordinator::retireStack)
+        val retiringStack = activePlaybackStack
+        if (retiringStack != null && !usbExclusivePlaybackCoordinator.retireStack(retiringStack)) {
+            error("playback stack retirement refused")
+        }
         previousComposite.abortManualNavigation("playback-stack-retire")
         previousComposite.onPlaybackIntentChanged = null
         // Technical execution suppression must not publish semantic PAUSE through the composite.
@@ -1313,6 +1316,9 @@ class MicaMediaService : MediaSessionService() {
                 "old-player-release-failed error=${error.javaClass.simpleName}:${error.message}",
             )
             throw error
+        }
+        if (retiringStack != null && !retiringStack.hasTerminalOldRuntimeProof()) {
+            error("old-stack retirement lacked terminal proof")
         }
         exoPlayer = null
         compositePlayer = null

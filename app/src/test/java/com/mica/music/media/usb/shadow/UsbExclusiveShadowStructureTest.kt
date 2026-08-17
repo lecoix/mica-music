@@ -242,10 +242,13 @@ class UsbExclusiveShadowStructureTest {
             .substringBefore("private fun installUsbPlaybackIntentObserver")
         assertOrdered(
             retire,
-            "activePlaybackStack?.let(usbExclusivePlaybackCoordinator::retireStack)",
+            "usbExclusivePlaybackCoordinator.retireStack(retiringStack)",
+            "error(\"playback stack retirement refused\")",
             "previousComposite.abortManualNavigation(\"playback-stack-retire\")",
             "previousExo.playWhenReady = false",
             "previousExo.release()",
+            "hasTerminalOldRuntimeProof()",
+            "error(\"old-stack retirement lacked terminal proof\")",
         )
         assertTrue(service.contains("snapshot.stageInto(candidate.exoPlayer)"))
         assertTrue(service.contains("snapshot.activate(candidate.exoPlayer, resumePlayback = false)"))

@@ -2185,8 +2185,11 @@ class UsbExclusivePlaybackProtocol(
     fun isOutputBindingCurrent(target: OutputTarget): Boolean = lifecycle is ProtocolLifecycle.Active && outputTarget == target
 
     @Synchronized
-    fun beginRetiring() {
-        if (lifecycle !is ProtocolLifecycle.Active) return
+    fun beginRetiring(): Boolean {
+        if (lifecycle is ProtocolLifecycle.Retiring || lifecycle is ProtocolLifecycle.Retired) {
+            return true
+        }
+        if (lifecycle !is ProtocolLifecycle.Active) return false
         val transaction = topologyTransaction
         if (transaction != null) {
             if (transaction.phase == TopologyTransactionPhase.RECONCILIATION_REQUIRED) {
@@ -2194,10 +2197,12 @@ class UsbExclusivePlaybackProtocol(
                 beginRetiringLocked()
             } else {
                 transaction.retirementLatched = true
+                return false
             }
-            return
+        } else {
+            beginRetiringLocked()
         }
-        beginRetiringLocked()
+        return lifecycle is ProtocolLifecycle.Retiring || lifecycle is ProtocolLifecycle.Retired
     }
 
     private fun beginRetiringLocked() {

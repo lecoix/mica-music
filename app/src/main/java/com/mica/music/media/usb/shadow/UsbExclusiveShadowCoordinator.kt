@@ -271,10 +271,24 @@ internal class UsbExclusiveShadowCoordinator(
     }
 
     @Synchronized
-    fun retireStack(stack: UsbExclusiveShadowStack) {
-        observeSafely(stack, "STACK_RETIRING") {
-            stack.protocol.beginRetiring()
-            emit(stack, "STACK_RETIRING", UsbExclusiveShadowDecision.RAW_OBSERVED)
+    fun retireStack(stack: UsbExclusiveShadowStack): Boolean {
+        return try {
+            val accepted = stack.protocol.beginRetiring()
+            emit(
+                stack,
+                "STACK_RETIRING",
+                if (accepted) UsbExclusiveShadowDecision.RAW_OBSERVED else UsbExclusiveShadowDecision.DIVERGENCE,
+                detail = if (accepted) "" else "retirement-refused",
+            )
+            accepted
+        } catch (error: Throwable) {
+            emit(
+                stack,
+                "STACK_RETIRING",
+                UsbExclusiveShadowDecision.DIVERGENCE,
+                detail = "authority-exception=${error.javaClass.simpleName}",
+            )
+            false
         }
     }
 
@@ -937,6 +951,12 @@ internal class UsbExclusiveShadowStack internal constructor(
     }
 
     fun snapshot(): UsbExclusiveProtocolSnapshot = protocol.snapshot()
+
+    fun hasTerminalOldRuntimeProof(): Boolean {
+        val snapshot = protocol.snapshot()
+        return snapshot.lifecycle is ProtocolLifecycle.Retired &&
+            snapshot.familyOwnership is FamilyOwnership.None
+    }
 
     internal fun observeRawStream(
         adapter: UsbExclusiveShadowAdapter,

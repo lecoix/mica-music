@@ -139,11 +139,13 @@ class PlaybackOutputRebuildCoordinatorTest {
     }
 
     @Test
-    fun `new generation cannot overtake an in-progress output retirement`() {
+    fun newerRebuildMintsGenerationWhileOldRetirementBlocksAndOldCannotPublish() {
         val retirementStarted = CountDownLatch(1)
         val finishRetirement = CountDownLatch(1)
+        val firstRetireCompleted = CountDownLatch(1)
         val secondGenerationPublished = CountDownLatch(1)
-        val effects = mutableListOf<String>()
+        val published = mutableListOf<String>()
+        val released = mutableListOf<String>()
         val coordinator = PlaybackOutputRebuildCoordinator<String, IntentSnapshot, String>(
             onGenerationPublished = {
                 if (it == 2L) secondGenerationPublished.countDown()
@@ -151,38 +153,98 @@ class PlaybackOutputRebuildCoordinatorTest {
             capture = { IntentSnapshot("song", 1L, playWhenReady = true) },
             buildCandidate = { target, _ -> target },
             retirePublished = { target, _ ->
-                effects += "$target-retire-before"
                 if (target == "first") {
                     retirementStarted.countDown()
                     assertTrue(finishRetirement.await(5, TimeUnit.SECONDS))
+                    firstRetireCompleted.countDown()
                 }
-                effects += "$target-retire-after"
             },
-            publishCandidate = { target, _, _ -> effects += "$target-publish" },
-            releaseCandidate = { _, _ -> Unit },
+            awaitOldStackBarrier = { _, _ ->
+                assertTrue(firstRetireCompleted.await(5, TimeUnit.SECONDS))
+                OldStackBarrierDisposition.TerminalProof
+            },
+            publishCandidate = { target, _, _ -> published += target },
+            releaseCandidate = { candidate, reason -> released += "$candidate:$reason" },
         )
 
-        val first = thread { coordinator.rebuild("first") }
+        lateinit var firstResult: PlaybackOutputRebuildResult
+        lateinit var secondResult: PlaybackOutputRebuildResult
+        val first = thread { firstResult = coordinator.rebuild("first") }
         assertTrue(retirementStarted.await(5, TimeUnit.SECONDS))
-        val second = thread { coordinator.rebuild("second") }
-        assertTrue(!secondGenerationPublished.await(100, TimeUnit.MILLISECONDS))
+        val second = thread { secondResult = coordinator.rebuild("second") }
+        assertTrue(secondGenerationPublished.await(5, TimeUnit.SECONDS))
 
         finishRetirement.countDown()
         first.join(5_000L)
         second.join(5_000L)
 
-        assertTrue(secondGenerationPublished.await(5, TimeUnit.SECONDS))
-        assertEquals(
-            listOf(
-                "first-retire-before",
-                "first-retire-after",
-                "first-publish",
-                "second-retire-before",
-                "second-retire-after",
-                "second-publish",
-            ),
-            effects,
+        assertEquals(PlaybackOutputRebuildResult.Superseded(1L), firstResult)
+        assertEquals(PlaybackOutputRebuildResult.Published(2L), secondResult)
+        assertEquals(listOf("second"), published)
+        assertEquals(listOf("first:superseded-after-retirement"), released)
+    }
+
+    @Test
+    fun releaseReturnWithoutTerminalProofDoesNotPublishCandidate() {
+        val published = mutableListOf<String>()
+        val released = mutableListOf<String>()
+        val coordinator = PlaybackOutputRebuildCoordinator<String, IntentSnapshot, String>(
+            capture = { IntentSnapshot("song", 1L, playWhenReady = true) },
+            buildCandidate = { _, _ -> "candidate" },
+            retirePublished = { _, _ -> },
+            awaitOldStackBarrier = { _, _ -> OldStackBarrierDisposition.FailedWithoutProof },
+            publishCandidate = { _, _, candidate -> published += candidate },
+            releaseCandidate = { candidate, reason -> released += "$candidate:$reason" },
         )
+
+        val result = coordinator.rebuild("shared")
+
+        assertTrue(result is PlaybackOutputRebuildResult.Failed)
+        assertEquals(emptyList<String>(), published)
+        assertEquals(listOf("candidate:retirement-barrier-failed"), released)
+    }
+
+    @Test
+    fun retirementHangTimesOutFailClosedWithoutPublishing() {
+        val hang = CountDownLatch(1)
+        val published = mutableListOf<String>()
+        val released = mutableListOf<String>()
+        val coordinator = PlaybackOutputRebuildCoordinator<String, IntentSnapshot, String>(
+            capture = { IntentSnapshot("song", 1L, playWhenReady = true) },
+            buildCandidate = { _, _ -> "candidate" },
+            retirePublished = { _, _ ->
+                hang.await(5, TimeUnit.SECONDS)
+            },
+            retirementTimeoutMs = 50L,
+            publishCandidate = { _, _, candidate -> published += candidate },
+            releaseCandidate = { candidate, reason -> released += "$candidate:$reason" },
+        )
+
+        val result = coordinator.rebuild("shared")
+        hang.countDown()
+
+        assertTrue(result is PlaybackOutputRebuildResult.Failed)
+        assertEquals(emptyList<String>(), published)
+        assertEquals(listOf("candidate:retirement-timed-out"), released)
+    }
+
+    @Test
+    fun refusedBeginRetiringStopsCutoverBeforePublish() {
+        val published = mutableListOf<String>()
+        val released = mutableListOf<String>()
+        val coordinator = PlaybackOutputRebuildCoordinator<String, IntentSnapshot, String>(
+            capture = { IntentSnapshot("song", 1L, playWhenReady = true) },
+            buildCandidate = { _, _ -> "candidate" },
+            retirePublished = { _, _ -> error("playback stack retirement refused") },
+            publishCandidate = { _, _, candidate -> published += candidate },
+            releaseCandidate = { candidate, reason -> released += "$candidate:$reason" },
+        )
+
+        val result = coordinator.rebuild("shared")
+
+        assertTrue(result is PlaybackOutputRebuildResult.Failed)
+        assertEquals(emptyList<String>(), published)
+        assertEquals(listOf("candidate:publication-failed"), released)
     }
 
     private data class IntentSnapshot(

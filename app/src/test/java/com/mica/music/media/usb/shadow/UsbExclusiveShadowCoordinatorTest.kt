@@ -13,6 +13,7 @@ import com.mica.music.media.usb.protocol.PlaybackFamily
 import com.mica.music.media.usb.protocol.PlaybackIntent
 import com.mica.music.media.usb.protocol.PlaybackOccurrence
 import com.mica.music.media.usb.protocol.ProtocolLifecycle
+import com.mica.music.media.usb.protocol.TopologyCommitKind
 import com.mica.music.media.usb.protocol.ResourceIdentity
 import com.mica.music.media.usb.protocol.RuntimeIdentity
 import com.mica.music.media.usb.protocol.SideEffectReceipt
@@ -56,6 +57,26 @@ class UsbExclusiveShadowCoordinatorTest {
         assertEquals(PlaybackIntent.PAUSE, replacement.snapshot().adoptedIntent.desired)
         assertTrue(old.snapshot().lifecycle !is ProtocolLifecycle.Active)
         assertNotEquals(old.snapshot().stackId, replacement.snapshot().stackId)
+    }
+
+    @Test
+    fun retireStackFailsClosedWhenBeginRetiringDoesNotLeaveActive() {
+        val coordinator = UsbExclusiveShadowCoordinator { }
+        val stack = coordinator.createStack()
+        requireNotNull(
+            stack.protocol.reserveTopologyMutation(
+                "retire-during-dispatch",
+                TopologyCommitKind.TOPOLOGY_ONLY,
+            ),
+        )
+        assertFalse(coordinator.retireStack(stack))
+        assertTrue(stack.snapshot().lifecycle is ProtocolLifecycle.Active)
+        assertTrue(
+            coordinator.diagnosticsSnapshot().any {
+                it.rawEventKind == "STACK_RETIRING" &&
+                    it.decision == UsbExclusiveShadowDecision.DIVERGENCE
+            },
+        )
     }
 
     @Test

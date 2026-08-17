@@ -281,6 +281,7 @@ class ManualNavigationTransitionStructureTest {
             "previousComposite.abortManualNavigation(\"playback-stack-retire\")",
             "previousExo.playWhenReady = false",
             "previousExo.release()",
+            "hasTerminalOldRuntimeProof()",
         )
     }
 
