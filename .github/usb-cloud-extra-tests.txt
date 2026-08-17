@@ -1,0 +1,3 @@
+# Optional tranche-specific Gradle --tests patterns.
+# Keep the stable common USB gate in scripts/ci/usb-cloud-gate.sh.
+# Add only tests required by the current automation/usb/** branch.

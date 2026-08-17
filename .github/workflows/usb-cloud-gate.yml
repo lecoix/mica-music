@@ -1,0 +1,79 @@
+name: USB cloud gate
+
+on:
+  push:
+    branches:
+      - 'automation/usb/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: usb-cloud-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify exact checkout
+        run: |
+          git rev-parse HEAD
+          git status --short
+          git submodule status --recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run USB cloud gate
+        run: bash ./scripts/ci/usb-cloud-gate.sh
+
+      - name: Write cloud checkpoint
+        if: always()
+        shell: python
+        run: |
+          import json, os
+          status = '${{ job.status }}'
+          payload = {
+              'schema': 1,
+              'branch': os.environ['GITHUB_REF_NAME'],
+              'sha': os.environ['GITHUB_SHA'],
+              'cloud_gate': 'GREEN' if status == 'success' else 'RED',
+              'local_hardware_status': 'NOT_RUN',
+              'hardware_required': 'UNASSESSED',
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'repository': os.environ['GITHUB_REPOSITORY'],
+          }
+          with open('USB_CLOUD_CHECKPOINT.json', 'w', encoding='utf-8') as f:
+              json.dump(payload, f, ensure_ascii=False, indent=2)
+              f.write('\n')
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+      - name: Upload cloud checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-cloud-checkpoint-${{ github.sha }}
+          path: USB_CLOUD_CHECKPOINT.json
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-cloud-test-reports-${{ github.sha }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-*
+          if-no-files-found: ignore
