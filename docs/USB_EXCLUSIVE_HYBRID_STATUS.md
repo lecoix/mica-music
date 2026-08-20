@@ -72,6 +72,11 @@ The final run started at 77% battery and 37.8 C battery temperature.
   URBs with no media-session error. Native pause started the idle writer, resume advanced position,
   and Native DSD -> PCM16/44.1 kHz -> Native DSD transitions each closed/reopened the appropriate
   transport without playback exceptions.
+- Force-stopping the process during the USB test and starting a new process preserved a paused
+  queue/position. The new process then reclaimed SK02 and sustained eight pending URBs without a
+  media-session error. This proves that no leftover state prevented a subsequent exclusive open;
+  it does not prove exact kernel-driver or prior-clock restoration because MIUI denied shell reads
+  of `/proc/asound/cards` and `/proc/asound/card1/stream0`.
 
 These are short functional runs, not stability qualification. RAW_DATA framing remains unproven,
 the Native profile remains experimental, and these results do not authorize `signalExact=true`.
@@ -92,7 +97,8 @@ signal-exact based on old branches:
 - Native requalification, 90-minute Native stability and any promotion to `signalExact=true`;
 - UAC descriptor corpus and malformed/lost/long-gap feedback matrix beyond the imported focused
   tests;
-- process-kill driver rebind, FD/memory/temperature/underrun measurements and listening matrix;
+- direct process-kill kernel-driver/prior-clock restoration proof, plus FD/memory/temperature/
+  underrun measurements and the listening matrix;
 - 10,000-item on-device handoff measurement. The implementation copies `MediaItem` references and
   does not parse lyrics/artwork, but the <=5 MB target has not yet been measured.
 
