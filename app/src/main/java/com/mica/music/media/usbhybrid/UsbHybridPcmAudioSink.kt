@@ -60,6 +60,7 @@ class UsbHybridPcmAudioSink(
     }
 
     override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
+        val rendererAlreadyStarted = playing
         val bitDepth = UsbExactPcmPolicy.bitDepth(inputFormat.pcmEncoding)
             ?: throw AudioSink.ConfigurationException(
                 "USB Exact PCM accepts only integer PCM16/PCM32; encoding=${inputFormat.pcmEncoding}",
@@ -89,6 +90,10 @@ class UsbHybridPcmAudioSink(
         pausedPrebuffer = null
         policyFailure = null
         resetTimelineState()
+        if (rendererAlreadyStarted) {
+            playing = true
+            realtimeAnchorUs = nowUs()
+        }
     }
 
     override fun play() {
@@ -238,7 +243,21 @@ class UsbHybridPcmAudioSink(
         val active = session ?: throwWrite(UsbFailure("SESSION_MISSING", "USB session is not active."))
         when (val result = realtime.writePcm(active, bytes)) {
             UsbRealtimeResult.Success -> Unit
-            UsbRealtimeResult.Retired -> return
+            UsbRealtimeResult.Retired -> {
+                if (owner.currentEpoch() != requestEpoch) return
+                val replacement = reopenCurrentPcmSession(format)
+                session = replacement
+                when (val retry = realtime.writePcm(replacement, bytes)) {
+                    UsbRealtimeResult.Success -> Unit
+                    UsbRealtimeResult.Retired -> throwWrite(
+                        UsbFailure("SESSION_RETIRED", "USB PCM session retired again after same-epoch reopen."),
+                    )
+                    is UsbRealtimeResult.Failed -> {
+                        listener?.onAudioSinkError(IllegalStateException(retry.message))
+                        throwWrite(UsbFailure("USB_WRITE_FAILED", retry.message))
+                    }
+                }
+            }
             is UsbRealtimeResult.Failed -> {
                 listener?.onAudioSinkError(IllegalStateException(result.message))
                 throwWrite(UsbFailure("USB_WRITE_FAILED", result.message))
@@ -254,6 +273,28 @@ class UsbHybridPcmAudioSink(
         val bytesPerFrame = format.channelCount * (bitDepth / 8)
         val frames = if (bytesPerFrame > 0) bytes.size / bytesPerFrame else 0
         submittedEndUs = presentationTimeUs + frames * C.MICROS_PER_SECOND / format.sampleRate
+    }
+
+    private fun reopenCurrentPcmSession(format: Format): UsbTransportSessionId {
+        val bitDepth = UsbExactPcmPolicy.bitDepth(format.pcmEncoding)
+            ?: throwWrite(UsbFailure("PCM_FORMAT_REJECTED", "USB PCM reopen requires PCM16 or PCM32."))
+        val facts = owner.requestOpen(
+            requestEpoch,
+            UsbStreamFormat.Pcm(format.sampleRate, format.channelCount, bitDepth),
+        ).get(10L, TimeUnit.SECONDS)
+        val nativeId = facts.sessionId
+        if (facts.requestEpoch != requestEpoch.value ||
+            facts.activeMode == null || facts.activeMode != facts.requestedMode ||
+            nativeId == null || !facts.exclusive || !facts.transportExact
+        ) {
+            throwWrite(
+                facts.failure ?: UsbFailure(
+                    "SESSION_REOPEN_FAILED",
+                    "USB PCM session did not become active after same-epoch retirement.",
+                ),
+            )
+        }
+        return UsbTransportSessionId(requestEpoch, nativeId)
     }
 
     private fun throwWrite(@Suppress("UNUSED_PARAMETER") failure: UsbFailure): Nothing {

@@ -56,11 +56,48 @@ class UsbHybridPcmAudioSinkTest {
         fixture.use {
             it.sink.configure(format(C.ENCODING_PCM_16BIT), 0, null)
             it.sink.play()
+            it.owner.request(UsbExclusiveMode.SHARED_PCM, null, null)
+            it.owner.awaitIdle()
             it.realtime.nextWriteResult = UsbRealtimeResult.Retired
             val buffer = ByteBuffer.wrap(ByteArray(8) { 3 })
 
             assertTrue(it.sink.handleBuffer(buffer, 0L, 1))
             assertEquals(buffer.limit(), buffer.position())
+            assertEquals(1, it.effects.openCount)
+        }
+    }
+
+    @Test
+    fun sameEpochRetiredSessionReopensBeforeConsumingFirstPcmBuffer() {
+        val fixture = fixture()
+        fixture.use {
+            it.sink.configure(format(C.ENCODING_PCM_16BIT), 0, null)
+            it.sink.play()
+            it.realtime.nextWriteResult = UsbRealtimeResult.Retired
+            val buffer = ByteBuffer.wrap(ByteArray(8) { 4 })
+
+            assertTrue(it.sink.handleBuffer(buffer, 0L, 1))
+
+            assertEquals(2, it.effects.openCount)
+            assertEquals(2, it.realtime.writes.size)
+            assertEquals(buffer.limit(), buffer.position())
+            assertTrue(it.sink.getCurrentPositionUs(false) != AudioSink.CURRENT_POSITION_NOT_SET)
+        }
+    }
+
+    @Test
+    fun configureAfterRendererStartedKeepsPcmSinkPlaying() {
+        val fixture = fixture()
+        fixture.use {
+            it.sink.play()
+            it.sink.configure(format(C.ENCODING_PCM_16BIT), 0, null)
+            val buffer = ByteBuffer.wrap(ByteArray(8) { 5 })
+
+            assertTrue(it.sink.handleBuffer(buffer, 0L, 1))
+
+            assertEquals(1, it.realtime.writes.size)
+            assertEquals(buffer.limit(), buffer.position())
+            assertTrue(it.sink.getCurrentPositionUs(false) != AudioSink.CURRENT_POSITION_NOT_SET)
         }
     }
 
@@ -76,7 +113,7 @@ class UsbHybridPcmAudioSinkTest {
         )
         owner.awaitIdle()
         val realtime = Realtime()
-        return Fixture(owner, realtime, UsbHybridPcmAudioSink(owner, realtime, epoch))
+        return Fixture(effects, owner, realtime, UsbHybridPcmAudioSink(owner, realtime, epoch))
     }
 
     private fun format(encoding: Int) = Format.Builder()
@@ -88,18 +125,22 @@ class UsbHybridPcmAudioSinkTest {
 
     private class Effects : UsbHybridControlEffects {
         val permission = CountDownLatch(1)
+        var openCount = 0
         override fun publishActiveEpoch(epoch: UsbRequestEpoch) = Unit
         override fun requestPermission(request: UsbPermissionRequest) { permission.countDown() }
-        override fun open(request: UsbOpenRequest) = UsbOpenResult(
-            sessionId = UsbTransportSessionId(request.epoch, 81L),
-            claimed = true,
-            transportExact = true,
-            signalExact = true,
-            sourceEncoding = C.ENCODING_PCM_16BIT,
-            usbBitResolution = 32,
-            sampleRate = 48_000,
-            channels = 2,
-        )
+        override fun open(request: UsbOpenRequest): UsbOpenResult {
+            openCount += 1
+            return UsbOpenResult(
+                sessionId = UsbTransportSessionId(request.epoch, 80L + openCount),
+                claimed = true,
+                transportExact = true,
+                signalExact = true,
+                sourceEncoding = C.ENCODING_PCM_16BIT,
+                usbBitResolution = 32,
+                sampleRate = 48_000,
+                channels = 2,
+            )
+        }
         override fun close(sessionId: UsbTransportSessionId) = Unit
     }
 
@@ -121,6 +162,7 @@ class UsbHybridPcmAudioSinkTest {
     }
 
     private data class Fixture(
+        val effects: Effects,
         val owner: UsbHybridSessionOwner,
         val realtime: Realtime,
         val sink: UsbHybridPcmAudioSink,
