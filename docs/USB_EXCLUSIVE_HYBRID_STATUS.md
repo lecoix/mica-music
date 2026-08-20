@@ -90,6 +90,13 @@ The final run started at 77% battery and 37.8 C battery temperature.
   `StuckPlayerDetector`; the existing playback recovery moved to item 8, after which playback and
   eight pending URBs remained stable. This is not a USB write/claim failure, but it prevents this
   run from proving same-item playing-position recovery away from an end boundary.
+- A third playing detach occurred after playback had advanced to item 10 and while the renderer was
+  changing PCM rate. The current renderer surfaced its real failure, then owner epoch 6 published
+  `TARGET_DETACHED` and closed USB; no fallback occurred. Reattach remained passive. Explicit retry
+  minted epoch 7, rebuilt `items=266 index=10 positionMs=0 resume=true`, opened session 9 at
+  PCM32/44.1 kHz and sustained eight pending URBs without a subsequent error. This closes the
+  explicit detach/reattach/permission/reopen loop, but again does not prove a non-boundary
+  same-item position because the user-visible detach happened after intervening automatic tracks.
 
 These are short functional runs, not stability qualification. RAW_DATA framing remains unproven,
 the Native profile remains experimental, and these results do not authorize `signalExact=true`.
