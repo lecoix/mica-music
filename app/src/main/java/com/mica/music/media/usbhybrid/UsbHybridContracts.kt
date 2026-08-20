@@ -18,6 +18,11 @@ data class UsbRuntimeHandle(
     val deviceName: String,
 )
 
+sealed interface UsbTopologyEvent {
+    data object Attached : UsbTopologyEvent
+    data class Detached(val runtimeHandle: UsbRuntimeHandle) : UsbTopologyEvent
+}
+
 data class UsbTransportSessionId(
     val epoch: UsbRequestEpoch,
     val nativeId: Long,
@@ -51,6 +56,7 @@ data class UsbPlaybackFacts(
     val usbBitResolution: Int? = null,
     val sampleRate: Int? = null,
     val channels: Int? = null,
+    val telemetry: UsbRealtimeTelemetry? = null,
     val failure: UsbFailure? = null,
 )
 

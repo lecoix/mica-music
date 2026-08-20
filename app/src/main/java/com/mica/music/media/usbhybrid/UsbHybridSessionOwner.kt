@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class UsbHybridSessionOwner(
     private val effects: UsbHybridControlEffects,
+    private val factsPublisher: (UsbPlaybackFacts) -> Unit = {},
     private val control: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "MicaUsbHybridControl")
     },
@@ -32,6 +33,10 @@ class UsbHybridSessionOwner(
     private var authorizedTarget: UsbPermissionRequest? = null
     private var activeSession: UsbTransportSessionId? = null
     private var released = false
+
+    init {
+        factsPublisher(mutableFacts.value)
+    }
 
     fun request(
         mode: UsbExclusiveMode,
@@ -71,13 +76,13 @@ class UsbHybridSessionOwner(
                     if (epoch != result.epoch || pending != expected || released) return@synchronized
                     pending = null
                     authorizedTarget = null
-                    mutableFacts.value = mutableFacts.value.copy(
+                    publishFactsLocked(mutableFacts.value.copy(
                         permission = PermissionState.DENIED,
                         failure = UsbFailure(
                             "TARGET_CHANGED",
                             "USB target identity or runtime handle changed during permission.",
                         ),
-                    )
+                    ))
                 }
                 return@execute
             }
@@ -85,27 +90,27 @@ class UsbHybridSessionOwner(
                 synchronized(publicationLock) {
                     if (!matches(pending, result) || epoch != result.epoch || released) return@synchronized
                     pending = null
-                    mutableFacts.value = mutableFacts.value.copy(
+                    publishFactsLocked(mutableFacts.value.copy(
                         permission = PermissionState.DENIED,
                         failure = UsbFailure("PERMISSION_DENIED", "USB permission was denied."),
-                    )
+                    ))
                 }
                 return@execute
             }
 
             synchronized(publicationLock) {
                 if (!matches(pending, result) || epoch != result.epoch || released) return@synchronized
-                mutableFacts.value = mutableFacts.value.copy(permission = PermissionState.GRANTED)
+                publishFactsLocked(mutableFacts.value.copy(permission = PermissionState.GRANTED))
             }
             if (!isCurrent(result.epoch)) return@execute
             synchronized(publicationLock) {
                 if (epoch != result.epoch || released || !matches(pending, result)) return@synchronized
                 pending = null
                 authorizedTarget = expected
-                mutableFacts.value = mutableFacts.value.copy(
+                publishFactsLocked(mutableFacts.value.copy(
                     permission = PermissionState.GRANTED,
                     failure = null,
-                )
+                ))
             }
         }
     }
@@ -160,7 +165,7 @@ class UsbHybridSessionOwner(
                     stale = true
                 } else {
                     activeSession = session
-                    mutableFacts.value = mutableFacts.value.copy(
+                    publishFactsLocked(mutableFacts.value.copy(
                         activeMode = target.mode,
                         sessionId = session.nativeId,
                         claimed = opened.claimed,
@@ -172,7 +177,7 @@ class UsbHybridSessionOwner(
                         sampleRate = opened.sampleRate,
                         channels = opened.channels,
                         failure = null,
-                    )
+                    ))
                 }
             }
             if (stale) effects.close(session)
@@ -184,7 +189,7 @@ class UsbHybridSessionOwner(
     fun onAttached() {
         synchronized(publicationLock) {
             discoveryRevision = UsbDiscoveryRevision(discoveryRevision.value + 1L)
-            mutableFacts.value = mutableFacts.value.copy(discoveryRevision = discoveryRevision.value)
+            publishFactsLocked(mutableFacts.value.copy(discoveryRevision = discoveryRevision.value))
         }
     }
 
@@ -194,7 +199,7 @@ class UsbHybridSessionOwner(
             val current = mutableFacts.value
             val target = current.runtimeHandle == runtimeHandle || pending?.runtimeHandle == runtimeHandle
             if (!target) {
-                mutableFacts.value = current.copy(discoveryRevision = discoveryRevision.value)
+                publishFactsLocked(current.copy(discoveryRevision = discoveryRevision.value))
             }
             target
         }
@@ -214,6 +219,17 @@ class UsbHybridSessionOwner(
     fun currentDiscoveryRevision(): UsbDiscoveryRevision =
         synchronized(publicationLock) { discoveryRevision }
 
+    fun refreshTelemetry(realtime: UsbHybridRealtimePort) {
+        control.execute {
+            val session = synchronized(publicationLock) { activeSession } ?: return@execute
+            val sampled = realtime.telemetry(session)
+            synchronized(publicationLock) {
+                if (released || activeSession != session || epoch != session.epoch) return@synchronized
+                publishFactsLocked(mutableFacts.value.copy(telemetry = sampled))
+            }
+        }
+    }
+
     fun awaitIdle(timeoutSeconds: Long = 5L) {
         control.submit {}.get(timeoutSeconds, TimeUnit.SECONDS)
     }
@@ -226,13 +242,14 @@ class UsbHybridSessionOwner(
             effects.publishActiveEpoch(epoch)
             pending = null
             authorizedTarget = null
-            mutableFacts.value = mutableFacts.value.copy(
+            publishFactsLocked(mutableFacts.value.copy(
                 requestEpoch = epoch.value,
                 activeMode = null,
                 sessionId = null,
-                claimed = false,
-                exclusive = false,
-            )
+            claimed = false,
+            exclusive = false,
+            telemetry = null,
+            ))
             epoch
         }
         control.submit { closeActiveEvenIfReleased(next) }.get(5L, TimeUnit.SECONDS)
@@ -250,7 +267,7 @@ class UsbHybridSessionOwner(
         effects.publishActiveEpoch(epoch)
         pending = null
         authorizedTarget = null
-        mutableFacts.value = UsbPlaybackFacts(
+        publishFactsLocked(UsbPlaybackFacts(
             requestEpoch = epoch.value,
             discoveryRevision = discoveryRevision.value,
             requestedMode = mode,
@@ -262,7 +279,8 @@ class UsbHybridSessionOwner(
                 PermissionState.REQUESTED
             },
             failure = failure,
-        )
+            telemetry = null,
+        ))
         epoch
     }
 
@@ -290,8 +308,14 @@ class UsbHybridSessionOwner(
     private fun publishFailureIfCurrent(epoch: UsbRequestEpoch, code: String, message: String) {
         synchronized(publicationLock) {
             if (this.epoch != epoch || released) return
-            mutableFacts.value = mutableFacts.value.copy(failure = UsbFailure(code, message))
+            publishFactsLocked(mutableFacts.value.copy(failure = UsbFailure(code, message)))
         }
+    }
+
+    /** Caller must hold [publicationLock]. */
+    private fun publishFactsLocked(next: UsbPlaybackFacts) {
+        mutableFacts.value = next
+        factsPublisher(next)
     }
 
     private fun matches(expected: UsbPermissionRequest?, result: UsbPermissionResult): Boolean =

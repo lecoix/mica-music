@@ -124,6 +124,41 @@ class UsbHybridSessionOwnerTest {
         }
     }
 
+    @Test
+    fun staleTelemetrySampleCannotPublishAfterNewEpoch() {
+        val effects = RecordingEffects()
+        UsbHybridSessionOwner(effects).use { owner ->
+            val epoch = owner.request(UsbExclusiveMode.USB_EXACT_PCM, sk02, runtimeA)
+            effects.awaitPermissionRequest()
+            owner.onPermissionResult(
+                UsbPermissionResult(epoch, UsbExclusiveMode.USB_EXACT_PCM, sk02, runtimeA, true),
+            )
+            owner.awaitIdle()
+            owner.requestOpen(epoch, UsbStreamFormat.Pcm(48_000, 2, 16))
+            owner.awaitIdle()
+
+            val sampled = CountDownLatch(1)
+            val releaseSample = CountDownLatch(1)
+            owner.refreshTelemetry(object : UsbHybridRealtimePort {
+                override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray) = null
+                override fun finishPcm(sessionId: UsbTransportSessionId) = null
+                override fun resetPcmForSeek(sessionId: UsbTransportSessionId) = Unit
+                override fun telemetry(sessionId: UsbTransportSessionId): UsbRealtimeTelemetry {
+                    sampled.countDown()
+                    releaseSample.await(2, TimeUnit.SECONDS)
+                    return UsbRealtimeTelemetry(1, 2, 3, 4)
+                }
+            })
+            assertTrue(sampled.await(2, TimeUnit.SECONDS))
+            owner.request(UsbExclusiveMode.SHARED_PCM, null, null)
+            releaseSample.countDown()
+            owner.awaitIdle()
+
+            assertNull(owner.facts.value.telemetry)
+            assertEquals(UsbExclusiveMode.SHARED_PCM, owner.facts.value.requestedMode)
+        }
+    }
+
     private class RecordingEffects(
         private val openStarted: CountDownLatch? = null,
         private val allowOpen: CountDownLatch? = null,

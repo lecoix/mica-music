@@ -35,7 +35,9 @@ import com.mica.music.media.usbhybrid.Sk02Selection
 import com.mica.music.media.usbhybrid.UsbExclusiveMode
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
 import com.mica.music.media.usbhybrid.UsbHybridSessionOwner
+import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
 import com.mica.music.media.usbhybrid.UsbPlaybackFacts
+import com.mica.music.media.usbhybrid.UsbTopologyEvent
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,6 +86,14 @@ class MicaMediaService : MediaSessionService() {
     private var usbOwner: UsbHybridSessionOwner? = null
     private var usbFactsJob: Job? = null
     private var activeUsbEpoch: Long? = null
+    private val usbTelemetrySampler = object : Runnable {
+        override fun run() {
+            val owner = usbOwner ?: return
+            val effects = usbEffects ?: return
+            owner.refreshTelemetry(effects)
+            mainHandler.postDelayed(this, USB_TELEMETRY_INTERVAL_MS)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -144,6 +154,7 @@ class MicaMediaService : MediaSessionService() {
                 mainHandler.post { applyUsbOutputMode(mode, "preference") }
             }
         applyUsbOutputMode(UsbHybridPreferences.outputMode(this), "service-create")
+        mainHandler.postDelayed(usbTelemetrySampler, USB_TELEMETRY_INTERVAL_MS)
 
     }
 
@@ -164,8 +175,20 @@ class MicaMediaService : MediaSessionService() {
 
     private fun installUsbHybridOwner() {
         lateinit var owner: UsbHybridSessionOwner
-        val effects = AndroidUsbHybridControlEffects(this) { result -> owner.onPermissionResult(result) }
-        owner = UsbHybridSessionOwner(effects)
+        val effects = AndroidUsbHybridControlEffects(
+            context = this,
+            permissionResultSink = { result -> owner.onPermissionResult(result) },
+            topologyEventSink = { event ->
+                when (event) {
+                    UsbTopologyEvent.Attached -> owner.onAttached()
+                    is UsbTopologyEvent.Detached -> owner.onDetached(event.runtimeHandle)
+                }
+            },
+        )
+        owner = UsbHybridSessionOwner(
+            effects = effects,
+            factsPublisher = UsbHybridRuntimeMonitor::publishFromOwner,
+        )
         usbEffects = effects
         usbOwner = owner
         usbFactsJob = sessionScope?.launch {
@@ -409,6 +432,7 @@ class MicaMediaService : MediaSessionService() {
         unregisterAudioOffloadPreferenceListener = null
         unregisterUsbOutputPreferenceListener?.invoke()
         unregisterUsbOutputPreferenceListener = null
+        mainHandler.removeCallbacks(usbTelemetrySampler)
         usbFactsJob?.cancel()
         usbFactsJob = null
         sessionScope?.cancel()
@@ -814,5 +838,9 @@ class MicaMediaService : MediaSessionService() {
         audioOffloadCircuitBreaker = breaker
         exo.addListener(breaker)
         exo.addAudioOffloadListener(breaker)
+    }
+
+    private companion object {
+        const val USB_TELEMETRY_INTERVAL_MS = 1_000L
     }
 }

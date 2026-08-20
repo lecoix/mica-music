@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 class AndroidUsbHybridControlEffects(
     context: Context,
     private val permissionResultSink: (UsbPermissionResult) -> Unit,
+    private val topologyEventSink: (UsbTopologyEvent) -> Unit,
 ) : UsbHybridControlEffects, UsbHybridRealtimePort, AutoCloseable {
     private val appContext = context.applicationContext
     private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -49,14 +50,42 @@ class AndroidUsbHybridControlEffects(
     }
 
     private val permissionAction = "${appContext.packageName}.USB_HYBRID_PERMISSION"
+    private val topologyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> topologyEventSink(UsbTopologyEvent.Attached)
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> usbDeviceExtra(intent)?.let { device ->
+                    topologyEventSink(
+                        UsbTopologyEvent.Detached(UsbRuntimeHandle(device.deviceId, device.deviceName)),
+                    )
+                }
+            }
+        }
+    }
 
     init {
         val filter = IntentFilter(permissionAction)
         if (Build.VERSION.SDK_INT >= 33) {
             appContext.registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            appContext.registerReceiver(
+                topologyReceiver,
+                IntentFilter().apply {
+                    addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                    addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+                },
+                Context.RECEIVER_EXPORTED,
+            )
         } else {
             @Suppress("DEPRECATION")
             appContext.registerReceiver(permissionReceiver, filter)
+            @Suppress("DEPRECATION")
+            appContext.registerReceiver(
+                topologyReceiver,
+                IntentFilter().apply {
+                    addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                    addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+                },
+            )
         }
     }
 
@@ -185,6 +214,7 @@ class AndroidUsbHybridControlEffects(
         pendingRequests.clear()
         transport.close()
         runCatching { appContext.unregisterReceiver(permissionReceiver) }
+        runCatching { appContext.unregisterReceiver(topologyReceiver) }
     }
 
     private fun findCandidate(handle: UsbRuntimeHandle): Pair<UsbDevice, UsbStableIdentity>? {
@@ -199,6 +229,13 @@ class AndroidUsbHybridControlEffects(
     private fun failure(code: String, message: String) = UsbOpenResult(
         failure = UsbFailure(code, message),
     )
+
+    private fun usbDeviceExtra(intent: Intent): UsbDevice? = if (Build.VERSION.SDK_INT >= 33) {
+        intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+    }
 
     private companion object {
         const val EXTRA_EPOCH = "usb_hybrid_epoch"
