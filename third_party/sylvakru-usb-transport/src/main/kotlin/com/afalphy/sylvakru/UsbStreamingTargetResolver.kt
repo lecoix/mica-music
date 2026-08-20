@@ -61,15 +61,11 @@ object UsbStreamingTargetResolver {
         quirk: DacQuirk,
     ): NativeDsdTarget? {
         val streamingFormats = parseStreamingFormatInfo(rawDescriptors)
-        var nativeFormat = quirk.nativeDsdFormat
-        if (nativeFormat == null) {
-            val rawSlot = streamingFormats.values
-                .filter { it.isRawData }
-                .mapNotNull { it.subslotSize?.takeIf { size -> size == 1 || size == 2 || size == 4 } }
-                .maxOrNull()
-            nativeFormat = rawSlot?.let { if (it == 1) "u8" else "u${it * 8}le" }
-        }
-        val resolvedNativeFormat = nativeFormat ?: return null
+        val candidate = classifyNativeCandidate(
+            hasRawData = streamingFormats.values.any { it.isRawData },
+            quirk = quirk,
+        )
+        val resolvedNativeFormat = (candidate as? NativeCandidate.Proven)?.format ?: return null
         val nativeBytesPerSample = nativeDsdBytesPerSample(resolvedNativeFormat) ?: return null
         val frameRate = dsdSampleRate / 8 / nativeBytesPerSample
         val target = resolveTarget(
@@ -91,6 +87,13 @@ object UsbStreamingTargetResolver {
             frameRate = frameRate,
             bytesPerSample = nativeBytesPerSample,
         )
+    }
+
+    /** RAW_DATA proves only a transport type. Endian/subslot framing requires scoped evidence. */
+    fun classifyNativeCandidate(hasRawData: Boolean, quirk: DacQuirk): NativeCandidate = when {
+        quirk.nativeDsdFormat != null -> NativeCandidate.Proven(quirk.nativeDsdFormat)
+        hasRawData -> NativeCandidate.FramingUnproven
+        else -> NativeCandidate.Unavailable
     }
 
     private fun resolveTarget(
@@ -541,6 +544,12 @@ object UsbStreamingTargetResolver {
         }
         return null
     }
+}
+
+sealed interface NativeCandidate {
+    data class Proven(val format: String) : NativeCandidate
+    data object FramingUnproven : NativeCandidate
+    data object Unavailable : NativeCandidate
 }
 
 data class UsbStreamingTarget(

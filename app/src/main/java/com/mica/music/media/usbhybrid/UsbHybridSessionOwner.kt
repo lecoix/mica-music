@@ -176,6 +176,7 @@ class UsbHybridSessionOwner(
                         usbBitResolution = opened.usbBitResolution,
                         sampleRate = opened.sampleRate,
                         channels = opened.channels,
+                        streamFormat = opened.streamFormat,
                         failure = null,
                     ))
                 }
@@ -249,6 +250,7 @@ class UsbHybridSessionOwner(
             claimed = false,
             exclusive = false,
             telemetry = null,
+            streamFormat = null,
             ))
             epoch
         }

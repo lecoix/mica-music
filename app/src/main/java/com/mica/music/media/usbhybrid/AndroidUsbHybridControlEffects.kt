@@ -147,15 +147,24 @@ class AndroidUsbHybridControlEffects(
         if (candidate.second != request.identity) {
             return failure("TARGET_CHANGED", "The selected SK02 identity changed before open.")
         }
-        val format = request.format as? UsbStreamFormat.Pcm
-            ?: return failure("DSD_NOT_READY", "DSD transport is not enabled in the PCM delivery slice.")
+        return when (val format = request.format) {
+            is UsbStreamFormat.Pcm -> openPcm(request, candidate.first, format)
+            is UsbStreamFormat.Dsd -> openDsd(request, candidate.first, format)
+        }
+    }
+
+    private fun openPcm(
+        request: UsbOpenRequest,
+        device: UsbDevice,
+        format: UsbStreamFormat.Pcm,
+    ): UsbOpenResult {
         if (format.bitDepth !in setOf(16, 32)) {
             return failure("PCM_FORMAT_REJECTED", "USB Exact PCM accepts only PCM16 or PCM32.")
         }
         val error = transport.open(
             request.epoch.value,
             usbManager,
-            candidate.first,
+            device,
             format.sampleRate,
             format.channels,
             format.bitDepth,
@@ -176,6 +185,45 @@ class AndroidUsbHybridControlEffects(
             usbBitResolution = transport.usbBitResolution(),
             sampleRate = format.sampleRate,
             channels = format.channels,
+            streamFormat = "PCM${format.bitDepth}",
+        )
+    }
+
+    private fun openDsd(
+        request: UsbOpenRequest,
+        device: UsbDevice,
+        format: UsbStreamFormat.Dsd,
+    ): UsbOpenResult {
+        if (request.mode == UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL) {
+            return failure(
+                "NATIVE_NOT_QUALIFIED",
+                "SK02 Native framing remains experimental and is not enabled in the DoP slice.",
+            )
+        }
+        if (request.mode != UsbExclusiveMode.USB_DOP || format.native) {
+            return failure("DSD_MODE_MISMATCH", "The explicit DSD request does not match USB DoP mode.")
+        }
+        val result = transport.openDsd(
+            epoch = request.epoch.value,
+            usbManager = usbManager,
+            device = device,
+            dsdSampleRate = format.sampleRate,
+            channels = format.channels,
+            preference = UsbExclusiveAudioTransport.DsdPreference.DopOnly,
+        )
+        result.error?.let { return failure("DOP_OPEN_FAILED", it) }
+        val token = transport.sessionToken()
+            ?: return failure("DOP_OPEN_FAILED", "Native transport returned no DoP session token.")
+        val actual = result.format ?: return failure("DOP_OPEN_FAILED", "Transport returned no DoP format.")
+        return UsbOpenResult(
+            sessionId = UsbTransportSessionId(request.epoch, token.second),
+            claimed = true,
+            transportExact = true,
+            signalExact = actual.mode == UsbExclusiveAudioTransport.DsdMode.DoP,
+            usbBitResolution = transport.usbBitResolution(),
+            sampleRate = format.sampleRate,
+            channels = format.channels,
+            streamFormat = "DoP DSD${format.sampleRate / 44_100} carrier=${actual.frameRate}Hz",
         )
     }
 
@@ -205,6 +253,21 @@ class AndroidUsbHybridControlEffects(
             value.isoErrorCount,
         )
     }
+
+    override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): String? =
+        transport.writeDsd(sessionId.epoch.value, sessionId.nativeId, data)
+
+    override fun prepareDsdSeek(sessionId: UsbTransportSessionId): String? =
+        transport.prepareDsdSeek(sessionId.epoch.value, sessionId.nativeId)
+
+    override fun pauseDsd(sessionId: UsbTransportSessionId): String? =
+        transport.pauseDsd(sessionId.epoch.value, sessionId.nativeId)
+
+    override fun resumeDsd(sessionId: UsbTransportSessionId): String? =
+        transport.resumeDsd(sessionId.epoch.value, sessionId.nativeId)
+
+    override fun finishDsd(sessionId: UsbTransportSessionId): String? =
+        transport.finishDsdStream(sessionId.epoch.value, sessionId.nativeId)
 
     fun discoverSk02(): Sk02Selection = Sk02TargetSelector.select(
         usbManager.deviceList.values.map(AndroidUsbIdentityProbe::candidate),

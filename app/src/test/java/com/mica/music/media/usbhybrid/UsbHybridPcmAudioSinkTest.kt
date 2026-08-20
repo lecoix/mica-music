@@ -91,6 +91,11 @@ class UsbHybridPcmAudioSinkTest {
         override fun finishPcm(sessionId: UsbTransportSessionId): String? = null
         override fun resetPcmForSeek(sessionId: UsbTransportSessionId) = Unit
         override fun telemetry(sessionId: UsbTransportSessionId) = UsbRealtimeTelemetry(0, 0, 0, 0)
+        override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray) = "not-used"
+        override fun prepareDsdSeek(sessionId: UsbTransportSessionId) = "not-used"
+        override fun pauseDsd(sessionId: UsbTransportSessionId) = "not-used"
+        override fun resumeDsd(sessionId: UsbTransportSessionId) = "not-used"
+        override fun finishDsd(sessionId: UsbTransportSessionId) = "not-used"
     }
 
     private data class Fixture(

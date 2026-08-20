@@ -16,6 +16,7 @@ import com.mica.music.data.PlaybackTuning
 import java.util.ArrayList
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
 import com.mica.music.media.usbhybrid.UsbHybridPcmAudioSink
+import com.mica.music.media.usbhybrid.UsbHybridDsdRenderer
 
 @UnstableApi
 internal class MicaRenderersFactory(
@@ -80,6 +81,17 @@ internal class MicaRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
+        if (outputPath.outputMode == PlaybackOutputMode.UsbDop ||
+            outputPath.outputMode == PlaybackOutputMode.UsbNativeDsdExperimental
+        ) {
+            val binding = checkNotNull(usbBinding) { "USB DSD renderer requires a playback binding." }
+            out.add(
+                UsbHybridDsdRenderer(
+                    binding,
+                    native = outputPath.outputMode == PlaybackOutputMode.UsbNativeDsdExperimental,
+                ),
+            )
+        }
         val tracingListener = if (AudioPipelineDebugDiagnostics.formatTraceEnabled) {
             PipelineAudioRendererEventListener(eventListener)
         } else {

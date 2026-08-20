@@ -25,8 +25,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     private var currentDsdFormat: DsdFormat? = null
     private var currentUsbBitResolution: Int? = null
     private var dsdEncoder: DsdStreamEncoder? = null
-    private var requestEpoch: Long = 0L
-    private var nativeSessionId: Long = 0L
+    @Volatile private var requestEpoch: Long = 0L
+    @Volatile private var nativeSessionId: Long = 0L
     private val dsdIdleFillerRunning = AtomicBoolean(false)
     private var dsdIdleFillerThread: Thread? = null
 
@@ -176,8 +176,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     }
 
     /**
-     * Opens the reference DSD path. Native DSD is attempted first when requested, then falls back
-     * to DoP using the same quirk gates and descriptor rules as sylvakru-usb.
+     * Opens one explicit DSD path. DoP and Native never fall back to each other.
      */
     @Synchronized
     fun openDsd(
@@ -186,7 +185,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         device: UsbDevice,
         dsdSampleRate: Int,
         channels: Int,
-        preference: DsdPreference = DsdPreference.NativeWithDopFallback,
+        preference: DsdPreference,
     ): DsdOpenResult {
         if (!usbManager.hasPermission(device)) {
             return DsdOpenResult(error = "USB permission is required before exclusive playback.")
@@ -202,7 +201,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             this.device?.deviceId == device.deviceId &&
             existing?.dsdSampleRate == dsdSampleRate &&
             existing.channels == channels &&
-            (preference == DsdPreference.NativeWithDopFallback || existing.mode == DsdMode.DoP)
+            ((preference == DsdPreference.NativeOnly && existing.mode == DsdMode.Native) ||
+                (preference == DsdPreference.DopOnly && existing.mode == DsdMode.DoP))
         ) {
             stopDsdIdleFillerLocked()
             UsbDiagnostics.i(TAG, "reusing exclusive USB DSD session $existing")
@@ -223,12 +223,13 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         var inputBytesPerSample = 3
         var inputBitDepth = 24
         var encoder: DsdStreamEncoder? = null
-        var nativeFallbackReason: String? = null
 
-        if (preference == DsdPreference.NativeWithDopFallback) {
+        if (preference == DsdPreference.NativeOnly) {
             if (quirk.nativeDsdMaxDsd != null && multiple != null && multiple > quirk.nativeDsdMaxDsd) {
-                nativeFallbackReason =
-                    "DSD$multiple exceeds native DSD limit DSD${quirk.nativeDsdMaxDsd} (quirk)"
+                openedConnection.close()
+                return DsdOpenResult(
+                    error = "DSD$multiple exceeds native DSD limit DSD${quirk.nativeDsdMaxDsd} (quirk)",
+                )
             } else {
                 val native = UsbStreamingTargetResolver.resolveNativeDsdTarget(
                     device = device,
@@ -250,13 +251,15 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
                         bigEndian = native.nativeFormat == "u32be",
                     )
                 } else {
-                    nativeFallbackReason =
-                        "device declares no usable native DSD RAW_DATA/quirk alt for ${dsdSampleRate}Hz"
+                    openedConnection.close()
+                    return DsdOpenResult(
+                        error = "Native DSD framing is unproven or no exact built-in profile fits ${dsdSampleRate}Hz.",
+                    )
                 }
             }
         }
 
-        if (selectedTarget == null) {
+        if (preference == DsdPreference.DopOnly) {
             val dopGateError = when {
                 quirk.dopSupported == false ->
                     "Device is marked as not supporting DoP (quirk${quirk.label?.let { ": $it" } ?: ""})."
@@ -267,9 +270,6 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             if (dopGateError != null) {
                 openedConnection.close()
                 return DsdOpenResult(error = dopGateError)
-            }
-            nativeFallbackReason?.let {
-                UsbDiagnostics.w(TAG, "native DSD unavailable, falling back to DoP: $it")
             }
             selectedTarget = UsbStreamingTargetResolver.resolveDopTarget(
                 device = device,
@@ -437,7 +437,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
 
     /** Writes MSB-first byte-interleaved DSD through the reference DoP/native encoder. */
     @Synchronized
-    fun writeDsd(data: ByteArray, length: Int = data.size): String? {
+    fun writeDsd(epoch: Long, sessionId: Long, data: ByteArray, length: Int = data.size): String? {
+        if (!matches(epoch, sessionId)) return STALE_SESSION
         val encoder = dsdEncoder ?: return "USB exclusive DSD transport is not open."
         val activePacketizer = packetizer ?: return "USB exclusive DSD packetizer is not open."
         if (dsdIdleFillerRunning.get()) {
@@ -459,7 +460,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
      * marker phase and native ISO queue. Never reset/cancel the in-flight USB stream.
      */
     @Synchronized
-    fun prepareDsdSeek(): String? {
+    fun prepareDsdSeek(epoch: Long, sessionId: Long): String? {
+        if (!matches(epoch, sessionId)) return STALE_SESSION
         val encoder = dsdEncoder ?: return null
         val activePacketizer = packetizer ?: return null
         stopDsdIdleFillerLocked()
@@ -476,14 +478,18 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
 
     /** While Media3 is paused, keep valid 0x69 DSD frames flowing so the DAC stays locked. */
     @Synchronized
-    fun pauseDsd() {
+    fun pauseDsd(epoch: Long, sessionId: Long): String? {
+        if (!matches(epoch, sessionId)) return STALE_SESSION
         startDsdIdleFillerLocked()
+        return null
     }
 
     /** Stop the reference idle filler before real DSD samples resume. */
     @Synchronized
-    fun resumeDsd() {
+    fun resumeDsd(epoch: Long, sessionId: Long): String? {
+        if (!matches(epoch, sessionId)) return STALE_SESSION
         stopDsdIdleFillerLocked()
+        return null
     }
 
     /**
@@ -491,7 +497,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
      * packetizer, then continue the idle filler until the next track reuses the session or it closes.
      */
     @Synchronized
-    fun finishDsdStream(): String? {
+    fun finishDsdStream(epoch: Long, sessionId: Long): String? {
+        if (!matches(epoch, sessionId)) return STALE_SESSION
         val encoder = dsdEncoder ?: return null
         val activePacketizer = packetizer ?: return null
         val format = currentDsdFormat ?: return null
@@ -529,7 +536,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     fun format(): PcmFormat? = currentFormat
 
     @Synchronized
-    fun dsdFormat(): DsdFormat? = currentDsdFormat
+    fun dsdFormat(epoch: Long, sessionId: Long): DsdFormat? =
+        currentDsdFormat?.takeIf { matches(epoch, sessionId) }
 
     @Synchronized
     fun device(): UsbDevice? = device
@@ -566,13 +574,19 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         val encoder = dsdEncoder ?: return
         val activePacketizer = packetizer ?: return
         val format = currentDsdFormat ?: return
+        val fillerEpoch = requestEpoch
+        val fillerSessionId = nativeSessionId
         if (dsdIdleFillerThread?.isAlive == true) return
         dsdIdleFillerRunning.set(true)
         val frames = maxOf(1, format.frameRate / 100)
         UsbDiagnostics.i(TAG, "DSD idle filler started at ${format.frameRate} frames/s")
         dsdIdleFillerThread = Thread({
             try {
-                while (dsdIdleFillerRunning.get()) {
+                while (
+                    dsdIdleFillerRunning.get() &&
+                    matches(fillerEpoch, fillerSessionId) &&
+                    UsbExclusiveNative.isCurrent(fillerEpoch, fillerSessionId)
+                ) {
                     activePacketizer.write(encoder.encodeSilence(frames))
                 }
             } catch (error: Throwable) {
@@ -585,7 +599,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         dsdIdleFillerRunning.set(false)
         val thread = dsdIdleFillerThread ?: return
         if (thread != Thread.currentThread()) {
-            runCatching { thread.join(800) }
+            runCatching { thread.join() }
         }
         dsdIdleFillerThread = null
     }
@@ -597,6 +611,9 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         else -> 4
     }
 
+    private fun matches(epoch: Long, sessionId: Long): Boolean =
+        requestEpoch == epoch && nativeSessionId == sessionId
+
     data class PcmFormat(
         val sampleRate: Int,
         val channels: Int,
@@ -605,7 +622,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
 
     enum class DsdMode { DoP, Native }
 
-    enum class DsdPreference { DopOnly, NativeWithDopFallback }
+    enum class DsdPreference { DopOnly, NativeOnly }
 
     data class DsdFormat(
         val dsdSampleRate: Int,

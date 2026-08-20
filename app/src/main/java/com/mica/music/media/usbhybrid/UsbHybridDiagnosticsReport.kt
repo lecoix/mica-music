@@ -26,7 +26,7 @@ object UsbHybridDiagnosticsReport {
         }
         appendLine("builtInQuirk=apk:usb_dac_quirks.json; runtimeOverride=disabled")
         appendLine(
-            "negotiated=encoding:${facts.sourceEncoding ?: "unknown"}," +
+            "negotiated=format:${facts.streamFormat ?: "unknown"},encoding:${facts.sourceEncoding ?: "unknown"}," +
                 "usbBits:${facts.usbBitResolution ?: "unknown"}," +
                 "rate:${facts.sampleRate ?: "unknown"},channels:${facts.channels ?: "unknown"}",
         )

@@ -148,6 +148,11 @@ class UsbHybridSessionOwnerTest {
                     releaseSample.await(2, TimeUnit.SECONDS)
                     return UsbRealtimeTelemetry(1, 2, 3, 4)
                 }
+                override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray) = "not-used"
+                override fun prepareDsdSeek(sessionId: UsbTransportSessionId) = "not-used"
+                override fun pauseDsd(sessionId: UsbTransportSessionId) = "not-used"
+                override fun resumeDsd(sessionId: UsbTransportSessionId) = "not-used"
+                override fun finishDsd(sessionId: UsbTransportSessionId) = "not-used"
             })
             assertTrue(sampled.await(2, TimeUnit.SECONDS))
             owner.request(UsbExclusiveMode.SHARED_PCM, null, null)

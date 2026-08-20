@@ -76,7 +76,7 @@ class UsbHybridPcmAudioSink(
         ).get(10L, TimeUnit.SECONDS)
         val sessionId = facts.sessionId
         if (facts.requestEpoch != requestEpoch.value ||
-            facts.activeMode != UsbExclusiveMode.USB_EXACT_PCM ||
+            facts.activeMode == null || facts.activeMode != facts.requestedMode ||
             sessionId == null || !facts.exclusive || !facts.transportExact
         ) {
             throw AudioSink.ConfigurationException(

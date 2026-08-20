@@ -10,7 +10,10 @@ object UsbHybridSettingsPresentation {
         add("传输保持：${yesNo(facts.transportExact)}")
         add("信号保持：${yesNo(facts.signalExact)}")
         if (facts.sampleRate != null && facts.channels != null) {
-            add("实际格式：${facts.sampleRate} Hz · ${facts.channels} ch · USB ${facts.usbBitResolution ?: "?"} bit")
+            add(
+                "实际格式：${facts.streamFormat ?: "unknown"} · ${facts.sampleRate} Hz · " +
+                    "${facts.channels} ch · USB ${facts.usbBitResolution ?: "?"} bit",
+            )
         }
         add("epoch/session：${facts.requestEpoch}/${facts.sessionId ?: "-"}")
         facts.failure?.let { add("失败：${it.code} · ${it.message}") }

@@ -61,6 +61,7 @@ internal fun AudioSettingsPanel(uiSettings: AppUiSettings) {
         choices = listOf(
             UsbHybridOutputMode.SharedPcm.ordinal to "Shared PCM",
             UsbHybridOutputMode.ExactPcm.ordinal to "USB Exact PCM",
+            UsbHybridOutputMode.Dop.ordinal to "USB DoP（待实机验收）",
         ),
         selectedValue = usbMode.ordinal,
         onSelect = { ordinal ->

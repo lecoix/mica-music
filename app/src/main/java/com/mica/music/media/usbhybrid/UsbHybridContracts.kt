@@ -56,6 +56,7 @@ data class UsbPlaybackFacts(
     val usbBitResolution: Int? = null,
     val sampleRate: Int? = null,
     val channels: Int? = null,
+    val streamFormat: String? = null,
     val telemetry: UsbRealtimeTelemetry? = null,
     val failure: UsbFailure? = null,
 )
@@ -99,6 +100,7 @@ data class UsbOpenResult(
     val usbBitResolution: Int? = null,
     val sampleRate: Int? = null,
     val channels: Int? = null,
+    val streamFormat: String? = null,
 )
 
 data class UsbRealtimeTelemetry(
@@ -116,6 +118,16 @@ interface UsbHybridRealtimePort {
     fun resetPcmForSeek(sessionId: UsbTransportSessionId)
 
     fun telemetry(sessionId: UsbTransportSessionId): UsbRealtimeTelemetry
+
+    fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): String?
+
+    fun prepareDsdSeek(sessionId: UsbTransportSessionId): String?
+
+    fun pauseDsd(sessionId: UsbTransportSessionId): String?
+
+    fun resumeDsd(sessionId: UsbTransportSessionId): String?
+
+    fun finishDsd(sessionId: UsbTransportSessionId): String?
 }
 
 interface UsbHybridControlEffects {

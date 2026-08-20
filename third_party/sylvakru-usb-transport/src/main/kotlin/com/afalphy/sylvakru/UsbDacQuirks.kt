@@ -1,8 +1,6 @@
 package com.afalphy.sylvakru
 
 import android.content.Context
-import java.io.File
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -42,7 +40,6 @@ object UsbDacQuirks {
     // override 条目在前，同 key 时先命中
     private var entries: List<Pair<String, DacQuirk>> = emptyList()
     private var assetError: String? = null
-    private var overrideError: String? = null
 
     fun forDevice(context: Context, vendorId: Int, productId: Int): DacQuirk {
         ensureLoaded(context)
@@ -65,24 +62,12 @@ object UsbDacQuirks {
         ensureLoaded(context)
         return listOfNotNull(
             assetError?.let { "asset: $it" },
-            overrideError?.let { "override: $it" },
         )
     }
 
     /** 导入 quirk 配置：整体写入 override 文件（先校验可解析），返回错误串或 null。 */
     fun importOverride(context: Context, json: String): String? {
-        try {
-            parseEntries(json)
-        } catch (error: Exception) {
-            return "Invalid quirk JSON: ${error.message}"
-        }
-        return try {
-            overrideFile(context).writeText(json)
-            invalidate()
-            null
-        } catch (error: Exception) {
-            "Failed to write override file: ${error.message}"
-        }
+        return "Runtime USB quirk overrides are disabled in Hybrid v1; ship a reviewed APK asset."
     }
 
     /**
@@ -95,51 +80,7 @@ object UsbDacQuirks {
         productId: Int,
         label: String?,
     ): String? {
-        return try {
-            val file = overrideFile(context)
-            val root = if (file.exists()) {
-                try {
-                    JSONObject(file.readText())
-                } catch (_: Exception) {
-                    JSONObject()
-                }
-            } else {
-                JSONObject()
-            }
-            if (!root.has("version")) {
-                root.put("version", 1)
-            }
-            val devices = root.optJSONArray("devices") ?: JSONArray().also {
-                root.put("devices", it)
-            }
-            val vid = hex(vendorId)
-            val pid = hex(productId)
-            var entry: JSONObject? = null
-            for (index in 0 until devices.length()) {
-                val device = devices.optJSONObject(index) ?: continue
-                val match = device.optJSONObject("match") ?: continue
-                if (match.optString("vid") == vid && match.optString("pid") == pid) {
-                    entry = device
-                    break
-                }
-            }
-            if (entry == null) {
-                entry = JSONObject().put(
-                    "match",
-                    JSONObject().put("vid", vid).put("pid", pid).apply {
-                        if (!label.isNullOrBlank()) put("label", label)
-                    },
-                )
-                devices.put(entry)
-            }
-            val dop = entry.optJSONObject("dop") ?: JSONObject().also { entry.put("dop", it) }
-            dop.put("supported", true)
-            file.writeText(root.toString(2))
-            invalidate()
-            null
-        } catch (error: Exception) {
-            "Failed to remember DoP support: ${error.message}"
-        }
+        return "Runtime USB quirk persistence is disabled in Hybrid v1."
     }
 
     private fun ensureLoaded(context: Context) {
@@ -148,16 +89,7 @@ object UsbDacQuirks {
                 return
             }
             val merged = mutableListOf<Pair<String, DacQuirk>>()
-            overrideError = null
             assetError = null
-            val file = overrideFile(context)
-            if (file.exists()) {
-                try {
-                    merged += parseEntries(file.readText())
-                } catch (error: Exception) {
-                    overrideError = error.message ?: error.toString()
-                }
-            }
             try {
                 context.assets.open(ASSET_NAME).use { stream ->
                     merged += parseEntries(stream.readBytes().decodeToString())
@@ -170,16 +102,10 @@ object UsbDacQuirks {
             UsbDiagnostics.i(
                 "UsbDacQuirks",
                 "quirks loaded entries=${entries.size}, " +
-                    "assetError=$assetError, overrideError=$overrideError",
+                "assetError=$assetError, runtimeOverride=disabled",
             )
         }
     }
-
-    private fun invalidate() {
-        synchronized(lock) { loaded = false }
-    }
-
-    private fun overrideFile(context: Context): File = File(context.filesDir, OVERRIDE_FILE_NAME)
 
     // ---- 纯解析/匹配逻辑（不依赖 Android 运行时，便于 JVM 单测） ----
 
