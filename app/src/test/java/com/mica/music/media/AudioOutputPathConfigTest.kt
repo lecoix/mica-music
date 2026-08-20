@@ -21,7 +21,8 @@ class AudioOutputPathConfigTest {
         assertFalse(PlaybackOutputMode.SharedPcm.requiresMinimalProcessorChain)
         assertFalse(PlaybackOutputMode.UsbDirectPcm.allowsSharedPcmDsp)
         assertTrue(PlaybackOutputMode.UsbDirectPcm.requiresMinimalProcessorChain)
-        assertFalse(PlaybackOutputMode.UsbNativeDsd.usesExoPcmChain)
+        assertFalse(PlaybackOutputMode.UsbDop.usesExoPcmChain)
+        assertFalse(PlaybackOutputMode.UsbNativeDsdExperimental.usesExoPcmChain)
     }
 
     @Test(expected = IllegalArgumentException::class)

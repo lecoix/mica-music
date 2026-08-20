@@ -14,11 +14,14 @@ import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import androidx.media3.decoder.ffmpeg.FfmpegRendererSupportProbe
 import com.mica.music.data.PlaybackTuning
 import java.util.ArrayList
+import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
+import com.mica.music.media.usbhybrid.UsbHybridPcmAudioSink
 
 @UnstableApi
 internal class MicaRenderersFactory(
     context: Context,
     private val outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
+    private val usbBinding: UsbHybridPlaybackBinding? = null,
 ) : DefaultRenderersFactory(context) {
 
     private val alacBlockingSelector = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
@@ -51,11 +54,7 @@ internal class MicaRenderersFactory(
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink? {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectMinimalSink(
-                context = context,
-                profileLabel = "usb-direct-platform",
-                enableFloatOutput = enableFloatOutput,
-            )
+            return buildUsbExactPcmSink()
         }
         val processorChain = buildUnifiedFixedChain(context)
         PcmFormatDiagnostics.logSinkBuild(
@@ -160,7 +159,7 @@ internal class MicaRenderersFactory(
 
     private fun buildDsdAudioSink(context: Context): AudioSink {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectDsdSink(context)
+            return buildUsbExactPcmSink()
         }
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled
         val chain = MicaAudioProcessorChain(
@@ -202,11 +201,7 @@ internal class MicaRenderersFactory(
      */
     private fun buildPcmAudioSink(context: Context): AudioSink {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectMinimalSink(
-                context = context,
-                profileLabel = "usb-direct-pcm",
-                enableFloatOutput = true,
-            )
+            return buildUsbExactPcmSink()
         }
         val chain = MicaAudioProcessorChain(
             includePlaybackTuning = false,
@@ -260,6 +255,13 @@ internal class MicaRenderersFactory(
             enableFloatOutput = false,
             buildDsdDecimationProcessor(context),
         )
+
+    private fun buildUsbExactPcmSink(): AudioSink {
+        val binding = checkNotNull(usbBinding) {
+            "USB Exact PCM renderer requires a UsbHybridPlaybackBinding."
+        }
+        return UsbHybridPcmAudioSink(binding.owner, binding.realtime, binding.epoch)
+    }
 
     /**
      * P6 USB Direct PCM: empty processor chain, no [MicaFloatDspAudioSink] wrapper.

@@ -23,6 +23,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     private var packetizer: UsbPcmIsoPacketizer? = null
     private var currentFormat: PcmFormat? = null
     private var currentDsdFormat: DsdFormat? = null
+    private var currentUsbBitResolution: Int? = null
     private var dsdEncoder: DsdStreamEncoder? = null
     private var requestEpoch: Long = 0L
     private var nativeSessionId: Long = 0L
@@ -162,6 +163,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         target = resolvedTarget
         packetizer = newPacketizer
         currentFormat = requestedFormat
+        currentUsbBitResolution = usbBitResolution
         requestEpoch = epoch
         nativeSessionId = sessionId
         UsbDiagnostics.i(
@@ -385,6 +387,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         packetizer = dsdPacketizer
         currentFormat = null
         currentDsdFormat = dsdFormat
+        currentUsbBitResolution = usbBitResolution
         dsdEncoder = checkNotNull(encoder)
         requestEpoch = epoch
         nativeSessionId = sessionId
@@ -392,8 +395,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         return DsdOpenResult(format = dsdFormat)
     }
 
-    @Synchronized
-    fun writePcm(data: ByteArray): String? {
+    fun writePcm(epoch: Long, sessionId: Long, data: ByteArray): String? {
+        if (requestEpoch != epoch || nativeSessionId != sessionId) return STALE_SESSION
         if (currentDsdFormat != null) {
             return "USB exclusive transport is currently in DSD mode."
         }
@@ -407,8 +410,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     }
 
     /** Flushes the packetizer's final short packet without discarding already queued USB URBs. */
-    @Synchronized
-    fun finishStream(): String? {
+    fun finishStream(epoch: Long, sessionId: Long): String? {
+        if (requestEpoch != epoch || nativeSessionId != sessionId) return STALE_SESSION
         if (currentDsdFormat != null) {
             return "USB exclusive transport is currently in DSD mode."
         }
@@ -425,8 +428,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
      * Seek semantics from the reference project: reset packet cadence but do NOT cancel in-flight
      * URBs. Cancelling the native queue creates an ISO gap (PCM pop, DSD loses lock).
      */
-    @Synchronized
-    fun resetForSeek() {
+    fun resetForSeek(epoch: Long, sessionId: Long) {
+        if (requestEpoch != epoch || nativeSessionId != sessionId) return
         if (currentDsdFormat == null) {
             packetizer?.reset()
         }
@@ -506,8 +509,10 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         }
     }
 
-    @Synchronized
-    fun telemetry(): TransportTelemetry {
+    fun telemetry(epoch: Long, sessionId: Long): TransportTelemetry {
+        if (requestEpoch != epoch || nativeSessionId != sessionId) {
+            return TransportTelemetry(-1L, -1L, -1L, -1L)
+        }
         val values = UsbExclusiveNative.transportTelemetry(requestEpoch, nativeSessionId)
         return TransportTelemetry(
             pendingIsoPackets = values.getOrElse(0) { 0L },
@@ -534,6 +539,9 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         if (requestEpoch > 0L && nativeSessionId > 0L) requestEpoch to nativeSessionId else null
 
     @Synchronized
+    fun usbBitResolution(): Int? = currentUsbBitResolution
+
+    @Synchronized
     override fun close() {
         stopDsdIdleFillerLocked()
         packetizer?.reset()
@@ -541,6 +549,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         target = null
         currentFormat = null
         currentDsdFormat = null
+        currentUsbBitResolution = null
         dsdEncoder = null
         if (connection != null) {
             UsbExclusiveNative.close(requestEpoch, nativeSessionId)
@@ -622,5 +631,6 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
 
     private companion object {
         const val TAG = "UsbExclusiveAudioTransport"
+        const val STALE_SESSION = "USB exclusive epoch/session is stale."
     }
 }

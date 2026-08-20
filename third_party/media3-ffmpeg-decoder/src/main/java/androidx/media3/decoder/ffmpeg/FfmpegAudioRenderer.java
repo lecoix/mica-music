@@ -134,6 +134,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
       return C.FORMAT_UNSUPPORTED_TYPE;
     } else if (!FfmpegLibrary.supportsFormat(mimeType)
         || (!sinkSupportsFormat(format, C.ENCODING_PCM_16BIT)
+            && !sinkSupportsFormat(format, C.ENCODING_PCM_32BIT)
             && !sinkSupportsFormat(format, C.ENCODING_PCM_FLOAT))) {
       return C.FORMAT_UNSUPPORTED_SUBTYPE;
     } else if (format.cryptoType != C.CRYPTO_TYPE_NONE) {
@@ -156,7 +157,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
         format.maxInputSize != Format.NO_VALUE ? format.maxInputSize : DEFAULT_INPUT_BUFFER_SIZE;
     FfmpegAudioDecoder decoder =
         new FfmpegAudioDecoder(
-            format, NUM_BUFFERS, NUM_BUFFERS, initialInputBufferSize, shouldOutputFloat(format));
+            format, NUM_BUFFERS, NUM_BUFFERS, initialInputBufferSize, outputEncoding(format));
     TraceUtil.endSection();
     return decoder;
   }
@@ -208,5 +209,18 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
         // Always prefer 16-bit PCM if the sink does not provide direct support for floating point.
         return false;
     }
+  }
+
+  private @C.PcmEncoding int outputEncoding(Format inputFormat) {
+    if (shouldOutputFloat(inputFormat)) {
+      return C.ENCODING_PCM_FLOAT;
+    }
+    // Hybrid USB advertises PCM32 but deliberately rejects float. This preserves integer decoder
+    // output up to 32 bits without the rewrite branch's float-to-packed-24 quantization.
+    if (!sinkSupportsFormat(inputFormat, C.ENCODING_PCM_FLOAT)
+        && sinkSupportsFormat(inputFormat, C.ENCODING_PCM_32BIT)) {
+      return C.ENCODING_PCM_32BIT;
+    }
+    return C.ENCODING_PCM_16BIT;
   }
 }

@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import androidx.media3.common.C
 import com.afalphy.sylvakru.UsbExclusiveAudioTransport
 import com.afalphy.sylvakru.UsbExclusiveNative
 import java.util.concurrent.ConcurrentHashMap
@@ -16,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 class AndroidUsbHybridControlEffects(
     context: Context,
     private val permissionResultSink: (UsbPermissionResult) -> Unit,
-) : UsbHybridControlEffects, AutoCloseable {
+) : UsbHybridControlEffects, UsbHybridRealtimePort, AutoCloseable {
     private val appContext = context.applicationContext
     private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
     private val pendingRequests = ConcurrentHashMap<Long, UsbPermissionRequest>()
@@ -60,7 +61,13 @@ class AndroidUsbHybridControlEffects(
     }
 
     override fun publishActiveEpoch(epoch: UsbRequestEpoch) {
-        UsbExclusiveNative.publishActiveEpoch(epoch.value)
+        try {
+            UsbExclusiveNative.publishActiveEpoch(epoch.value)
+        } catch (error: UnsatisfiedLinkError) {
+            if (System.getProperty("java.vm.name") == "Dalvik") throw error
+            // Host/Robolectric tests cannot load an arm64 Android .so. They test owner ordering via
+            // injected effects; the production ART path remains fail-fast.
+        }
     }
 
     override fun requestPermission(request: UsbPermissionRequest) {
@@ -111,23 +118,19 @@ class AndroidUsbHybridControlEffects(
         if (candidate.second != request.identity) {
             return failure("TARGET_CHANGED", "The selected SK02 identity changed before open.")
         }
-        val format = request.format
-        val error = when (format) {
-            is UsbStreamFormat.Pcm -> {
-                if (format.bitDepth !in setOf(16, 32)) {
-                    return failure("PCM_FORMAT_REJECTED", "USB Exact PCM accepts only PCM16 or PCM32.")
-                }
-                transport.open(
-                    request.epoch.value,
-                    usbManager,
-                    candidate.first,
-                    format.sampleRate,
-                    format.channels,
-                    format.bitDepth,
-                )
-            }
-            is UsbStreamFormat.Dsd -> "DSD transport is not enabled in the PCM delivery slice."
+        val format = request.format as? UsbStreamFormat.Pcm
+            ?: return failure("DSD_NOT_READY", "DSD transport is not enabled in the PCM delivery slice.")
+        if (format.bitDepth !in setOf(16, 32)) {
+            return failure("PCM_FORMAT_REJECTED", "USB Exact PCM accepts only PCM16 or PCM32.")
         }
+        val error = transport.open(
+            request.epoch.value,
+            usbManager,
+            candidate.first,
+            format.sampleRate,
+            format.channels,
+            format.bitDepth,
+        )
         if (error != null) return failure("OPEN_FAILED", error)
         val token = transport.sessionToken()
             ?: return failure("OPEN_FAILED", "Native transport returned no session token.")
@@ -138,6 +141,12 @@ class AndroidUsbHybridControlEffects(
         return UsbOpenResult(
             sessionId = UsbTransportSessionId(request.epoch, token.second),
             claimed = true,
+            transportExact = true,
+            signalExact = transport.usbBitResolution()?.let { it >= format.bitDepth } == true,
+            sourceEncoding = if (format.bitDepth == 16) C.ENCODING_PCM_16BIT else C.ENCODING_PCM_32BIT,
+            usbBitResolution = transport.usbBitResolution(),
+            sampleRate = format.sampleRate,
+            channels = format.channels,
         )
     }
 
@@ -146,6 +155,26 @@ class AndroidUsbHybridControlEffects(
         if (token.first == sessionId.epoch.value && token.second == sessionId.nativeId) {
             transport.close()
         }
+    }
+
+    override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): String? =
+        transport.writePcm(sessionId.epoch.value, sessionId.nativeId, data)
+
+    override fun finishPcm(sessionId: UsbTransportSessionId): String? =
+        transport.finishStream(sessionId.epoch.value, sessionId.nativeId)
+
+    override fun resetPcmForSeek(sessionId: UsbTransportSessionId) {
+        transport.resetForSeek(sessionId.epoch.value, sessionId.nativeId)
+    }
+
+    override fun telemetry(sessionId: UsbTransportSessionId): UsbRealtimeTelemetry {
+        val value = transport.telemetry(sessionId.epoch.value, sessionId.nativeId)
+        return UsbRealtimeTelemetry(
+            value.pendingIsoPackets,
+            value.totalIsoPackets,
+            value.pendingOutputUrbs,
+            value.isoErrorCount,
+        )
     }
 
     fun discoverSk02(): Sk02Selection = Sk02TargetSelector.select(

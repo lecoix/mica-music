@@ -87,7 +87,30 @@ data class UsbOpenResult(
     val sessionId: UsbTransportSessionId? = null,
     val claimed: Boolean = false,
     val failure: UsbFailure? = null,
+    val transportExact: Boolean = false,
+    val signalExact: Boolean = false,
+    val sourceEncoding: Int? = null,
+    val usbBitResolution: Int? = null,
+    val sampleRate: Int? = null,
+    val channels: Int? = null,
 )
+
+data class UsbRealtimeTelemetry(
+    val pendingIsoPackets: Long,
+    val totalIsoPackets: Long,
+    val pendingOutputUrbs: Long,
+    val isoErrorCount: Long,
+)
+
+interface UsbHybridRealtimePort {
+    fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): String?
+
+    fun finishPcm(sessionId: UsbTransportSessionId): String?
+
+    fun resetPcmForSeek(sessionId: UsbTransportSessionId)
+
+    fun telemetry(sessionId: UsbTransportSessionId): UsbRealtimeTelemetry
+}
 
 interface UsbHybridControlEffects {
     /** Must not call back into [UsbHybridSessionOwner]. */

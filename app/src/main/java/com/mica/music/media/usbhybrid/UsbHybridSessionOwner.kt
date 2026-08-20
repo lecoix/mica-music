@@ -2,6 +2,7 @@ package com.mica.music.media.usbhybrid
 
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -109,12 +110,19 @@ class UsbHybridSessionOwner(
         }
     }
 
-    fun requestOpen(expectedEpoch: UsbRequestEpoch, format: UsbStreamFormat) {
+    fun requestOpen(
+        expectedEpoch: UsbRequestEpoch,
+        format: UsbStreamFormat,
+    ): CompletableFuture<UsbPlaybackFacts> {
+        val completion = CompletableFuture<UsbPlaybackFacts>()
         control.execute {
             val target = synchronized(publicationLock) {
                 authorizedTarget?.takeIf { it.epoch == expectedEpoch && epoch == expectedEpoch && !released }
-            } ?: return@execute
-            if (!isCurrent(expectedEpoch)) return@execute
+            }
+            if (target == null || !isCurrent(expectedEpoch)) {
+                completion.complete(facts.value)
+                return@execute
+            }
             val opened = try {
                 effects.open(
                     UsbOpenRequest(
@@ -131,16 +139,19 @@ class UsbHybridSessionOwner(
                     "OPEN_FAILED",
                     error.message ?: "USB open failed.",
                 )
+                completion.complete(facts.value)
                 return@execute
             }
             val session = opened.sessionId
             if (!isCurrent(expectedEpoch)) {
                 if (session != null) effects.close(session)
+                completion.complete(facts.value)
                 return@execute
             }
             if (session == null) {
                 val failure = opened.failure ?: UsbFailure("OPEN_FAILED", "USB open returned no session.")
                 publishFailureIfCurrent(expectedEpoch, failure.code, failure.message)
+                completion.complete(facts.value)
                 return@execute
             }
             var stale = false
@@ -154,12 +165,20 @@ class UsbHybridSessionOwner(
                         sessionId = session.nativeId,
                         claimed = opened.claimed,
                         exclusive = opened.claimed,
+                        transportExact = opened.transportExact,
+                        signalExact = opened.signalExact,
+                        sourceEncoding = opened.sourceEncoding,
+                        usbBitResolution = opened.usbBitResolution,
+                        sampleRate = opened.sampleRate,
+                        channels = opened.channels,
                         failure = null,
                     )
                 }
             }
             if (stale) effects.close(session)
+            completion.complete(facts.value)
         }
+        return completion
     }
 
     fun onAttached() {
@@ -253,7 +272,8 @@ class UsbHybridSessionOwner(
             if (epoch != expectedEpoch || released) return@synchronized null
             activeSession.also { activeSession = null }
         } ?: return
-        if (!isCurrent(expectedEpoch)) return
+        // Once detached from owner state this identity-scoped session must always be cleaned up.
+        // Native close is fenced by (epoch, sessionId), so it cannot close a newer winner.
         effects.close(session)
     }
 

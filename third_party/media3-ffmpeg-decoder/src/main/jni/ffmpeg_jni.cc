@@ -60,6 +60,7 @@ extern "C" {
 #define ERROR_STRING_BUFFER_LENGTH 256
 
 static const AVSampleFormat OUTPUT_FORMAT_PCM_16BIT = AV_SAMPLE_FMT_S16;
+static const AVSampleFormat OUTPUT_FORMAT_PCM_32BIT = AV_SAMPLE_FMT_S32;
 static const AVSampleFormat OUTPUT_FORMAT_PCM_FLOAT = AV_SAMPLE_FMT_FLT;
 
 static const int AUDIO_DECODER_ERROR_INVALID_DATA = -1;
@@ -71,7 +72,7 @@ static thread_local std::string lastInitializationError;
 const AVCodec* getCodecByName(JNIEnv* env, jstring codecName);
 
 AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
-                             jbyteArray extraData, jboolean outputFloat,
+                             jbyteArray extraData, jint outputMode,
                              jint rawSampleRate, jint rawChannelCount,
                              jint rawBitsPerSample);
 
@@ -129,7 +130,7 @@ LIBRARY_FUNC(jboolean, ffmpegHasDecoder, jstring codecName) {
 }
 
 AUDIO_DECODER_FUNC(jlong, ffmpegInitialize, jstring codecName,
-                   jbyteArray extraData, jboolean outputFloat,
+                   jbyteArray extraData, jint outputMode,
                    jint rawSampleRate, jint rawChannelCount,
                    jint rawBitsPerSample) {
   lastInitializationError.clear();
@@ -140,10 +141,10 @@ AUDIO_DECODER_FUNC(jlong, ffmpegInitialize, jstring codecName,
     return 0L;
   }
   LOGD("[DEBUG-dsd-init] initialize codec=%s sampleRate=%d channelCount=%d "
-       "outputFloat=%d extraDataBytes=%d",
-       codec->name, rawSampleRate, rawChannelCount, outputFloat,
+       "outputMode=%d extraDataBytes=%d",
+       codec->name, rawSampleRate, rawChannelCount, outputMode,
        extraData ? env->GetArrayLength(extraData) : 0);
-  return (jlong)createContext(env, codec, extraData, outputFloat, rawSampleRate,
+  return (jlong)createContext(env, codec, extraData, outputMode, rawSampleRate,
                             rawChannelCount, rawBitsPerSample);
 }
 
@@ -224,15 +225,16 @@ AUDIO_DECODER_FUNC(jlong, ffmpegReset, jlong jContext, jbyteArray extraData) {
 
   AVCodecID codecId = context->codec_id;
   if (codecId == AV_CODEC_ID_TRUEHD) {
-    jboolean outputFloat =
-        (jboolean)(context->request_sample_fmt == OUTPUT_FORMAT_PCM_FLOAT);
+    jint outputMode = context->request_sample_fmt == OUTPUT_FORMAT_PCM_FLOAT
+        ? 2
+        : (context->request_sample_fmt == OUTPUT_FORMAT_PCM_32BIT ? 1 : 0);
     releaseContext(context);
     const AVCodec* codec = avcodec_find_decoder(codecId);
     if (!codec) {
       LOGE("Unexpected error finding codec %d.", codecId);
       return 0L;
     }
-    return (jlong)createContext(env, codec, extraData, outputFloat,
+    return (jlong)createContext(env, codec, extraData, outputMode,
                                 /* rawSampleRate= */ -1,
                                 /* rawChannelCount= */ -1,
                                 /* rawBitsPerSample= */ -1);
@@ -259,7 +261,7 @@ const AVCodec* getCodecByName(JNIEnv* env, jstring codecName) {
 }
 
 AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
-                              jbyteArray extraData, jboolean outputFloat,
+                              jbyteArray extraData, jint outputMode,
                               jint rawSampleRate, jint rawChannelCount,
                               jint rawBitsPerSample) {
   AVCodecContext* context = avcodec_alloc_context3(codec);
@@ -268,8 +270,9 @@ AVCodecContext* createContext(JNIEnv* env, const AVCodec* codec,
     lastInitializationError = "avcodec_alloc_context3 failed";
     return NULL;
   }
-  context->request_sample_fmt =
-      outputFloat ? OUTPUT_FORMAT_PCM_FLOAT : OUTPUT_FORMAT_PCM_16BIT;
+  context->request_sample_fmt = outputMode == 2
+      ? OUTPUT_FORMAT_PCM_FLOAT
+      : (outputMode == 1 ? OUTPUT_FORMAT_PCM_32BIT : OUTPUT_FORMAT_PCM_16BIT);
   if (extraData) {
     jsize size = env->GetArrayLength(extraData);
     context->extradata_size = size;

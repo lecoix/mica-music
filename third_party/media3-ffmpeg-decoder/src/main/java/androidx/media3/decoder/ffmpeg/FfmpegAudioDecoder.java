@@ -59,7 +59,7 @@ import java.util.List;
       int numInputBuffers,
       int numOutputBuffers,
       int initialInputBufferSize,
-      boolean outputFloat)
+      @C.PcmEncoding int outputEncoding)
       throws FfmpegDecoderException {
     super(new DecoderInputBuffer[numInputBuffers], new SimpleDecoderOutputBuffer[numOutputBuffers]);
     if (!FfmpegLibrary.isAvailable()) {
@@ -68,14 +68,21 @@ import java.util.List;
     checkNotNull(format.sampleMimeType);
     codecName = checkNotNull(FfmpegLibrary.getCodecName(format.sampleMimeType));
     extraData = getExtraData(format.sampleMimeType, format.initializationData);
-    encoding = outputFloat ? C.ENCODING_PCM_FLOAT : C.ENCODING_PCM_16BIT;
+    if (outputEncoding != C.ENCODING_PCM_16BIT
+        && outputEncoding != C.ENCODING_PCM_32BIT
+        && outputEncoding != C.ENCODING_PCM_FLOAT) {
+      throw new FfmpegDecoderException("Unsupported FFmpeg output encoding: " + outputEncoding);
+    }
+    encoding = outputEncoding;
     outputBufferSize =
-        outputFloat ? INITIAL_OUTPUT_BUFFER_SIZE_32BIT : INITIAL_OUTPUT_BUFFER_SIZE_16BIT;
+        outputEncoding == C.ENCODING_PCM_16BIT
+            ? INITIAL_OUTPUT_BUFFER_SIZE_16BIT
+            : INITIAL_OUTPUT_BUFFER_SIZE_32BIT;
     nativeContext =
         ffmpegInitialize(
             codecName,
             extraData,
-            outputFloat,
+            nativeOutputMode(outputEncoding),
             format.sampleRate,
             format.channelCount,
             rawBitsPerSample(format.pcmEncoding));
@@ -91,8 +98,8 @@ import java.util.List;
               + format.sampleRate
               + ", channelCount="
               + format.channelCount
-              + ", outputFloat="
-              + outputFloat
+              + ", outputEncoding="
+              + outputEncoding
               + ", extraDataBytes="
               + (extraData == null ? 0 : extraData.length)
               + ", nativeError="
@@ -323,10 +330,23 @@ import java.util.List;
   private native long ffmpegInitialize(
       String codecName,
       @Nullable byte[] extraData,
-      boolean outputFloat,
+      int outputMode,
       int rawSampleRate,
       int rawChannelCount,
       int rawBitsPerSample);
+
+  private static int nativeOutputMode(@C.PcmEncoding int outputEncoding) {
+    switch (outputEncoding) {
+      case C.ENCODING_PCM_16BIT:
+        return 0;
+      case C.ENCODING_PCM_32BIT:
+        return 1;
+      case C.ENCODING_PCM_FLOAT:
+        return 2;
+      default:
+        throw new IllegalArgumentException("Unsupported FFmpeg output encoding: " + outputEncoding);
+    }
+  }
 
   private static int rawBitsPerSample(int pcmEncoding) {
     switch (pcmEncoding) {

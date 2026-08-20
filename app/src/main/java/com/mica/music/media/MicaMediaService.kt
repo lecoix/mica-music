@@ -28,16 +28,36 @@ import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.data.preferences.UsbHybridOutputMode
+import com.mica.music.data.preferences.UsbHybridPreferences
+import com.mica.music.media.usbhybrid.AndroidUsbHybridControlEffects
+import com.mica.music.media.usbhybrid.Sk02Selection
+import com.mica.music.media.usbhybrid.UsbExclusiveMode
+import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
+import com.mica.music.media.usbhybrid.UsbHybridSessionOwner
+import com.mica.music.media.usbhybrid.UsbPlaybackFacts
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 
 /**
  * 播放服务：拥有 ExoPlayer + MediaSession，独立于 Activity 生命周期。
  */
+private data class PlaybackStackHandoff(
+    val items: List<MediaItem>,
+    val currentIndex: Int,
+    val positionMs: Long,
+    val playWhenReady: Boolean,
+    val repeatMode: Int,
+    val playbackParameters: PlaybackParameters,
+    val volume: Float,
+)
+
 @UnstableApi
 class MicaMediaService : MediaSessionService() {
 
@@ -46,7 +66,6 @@ class MicaMediaService : MediaSessionService() {
     private var compositePlayer: MicaCompositePlayer? = null
     private var replayGainStateOwner: ReplayGainStateOwner? = null
     private var spectrumAnalyzerStateOwner: SpectrumAnalyzerStateOwner? = null
-    /** Fixed at Exo build; P6 USB attach/detach will change this via full-mode rebuild. */
     private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
@@ -57,9 +76,14 @@ class MicaMediaService : MediaSessionService() {
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
     private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
     private var unregisterAudioOffloadPreferenceListener: (() -> Unit)? = null
+    private var unregisterUsbOutputPreferenceListener: (() -> Unit)? = null
     private var playbackRouteMonitor: PlaybackRouteMonitor? = null
     private var audioOffloadCircuitBreaker: AudioOffloadCircuitBreaker? = null
     private var audioPipelineCoordinator: AudioPipelineCoordinator? = null
+    private var usbEffects: AndroidUsbHybridControlEffects? = null
+    private var usbOwner: UsbHybridSessionOwner? = null
+    private var usbFactsJob: Job? = null
+    private var activeUsbEpoch: Long? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -86,71 +110,17 @@ class MicaMediaService : MediaSessionService() {
         PcmDeliveryExperiment.logActiveExperiments()
         spectrumAnalyzerStateOwner = SpectrumAnalyzerStateOwner(this).also { it.start() }
 
+        installUsbHybridOwner()
+        activeOutputPath = AudioOutputPathConfig.PRODUCTION
         val stack = ExoPlaybackStackFactory.build(this, activeOutputPath)
-        exoPlayer = stack.exoPlayer
-        compositePlayer = stack.compositePlayer
-        replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
-
-        installAudioOffloadCircuitBreaker(stack.exoPlayer)
-        installAudioPipelineCoordinator(stack.exoPlayer)
-        wireEqualizerAndSpectrumHandlers()
+        installPlaybackStackOwners(stack, micaApp)
         installPlaybackRouteMonitor()
-
-        playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
-            player = stack.compositePlayer,
-            context = this,
-        ).also { coordinator -> coordinator.start() }
-
-        playbackStateCoordinator = ServicePlaybackStateCoordinator(
-            player = stack.compositePlayer,
-            store = ServicePlaybackStateStore(this),
-            handler = mainHandler,
-            initialQualityMode = if (EqualizerPreferences.equalizerEnabled(this)) {
-                AudioQualityMode.DSP
-            } else {
-                AudioQualityMode.HIFI
-            },
-            externalSongResolver = micaApp.transientPlaybackCatalog::songForPersistence,
-        ).also { coordinator ->
-            coordinator.onRestoreCompleted = {
-                mainHandler.post {
-                    val song = compositePlayer?.currentMediaItem
-                        ?.let(SongMediaItemCodec::decode)
-                        ?: return@post
-                    SharedPcmPipelineDiagnostics.logSongFormat(song)
-                    PcmDeliveryProbeDiagnostics.logForSong(
-                        context = this@MicaMediaService,
-                        song = song,
-                        playbackParameters = compositePlayer?.playbackParameters
-                            ?: PlaybackParameters.DEFAULT,
-                    )
-                }
-            }
-            coordinator.start()
-        }
-
-        carBluetoothLyricsSession = CarBluetoothLyricsSession(
-            context = this,
-            player = stack.compositePlayer,
-            sessionActivity = createSessionActivityPendingIntent(),
-        )
-
-        notificationLyricsCoordinator = NotificationLyricsCoordinator(
-            context = this,
-            player = stack.compositePlayer,
-            handler = mainHandler,
-            carBluetoothLyrics = carBluetoothLyricsSession,
-            desktopLyrics = micaApp.desktopLyricsOverlayStateStore,
-            transientSongResolver = (application as MicaApp).transientPlaybackCatalog::songById,
-        ).also { it.start() }
 
         if (LyricsPreferences.externalLyricsMode(this) != com.mica.music.data.ExternalLyricsMode.OFF &&
             DesktopLyricsOverlayController.canDrawOverlays(this)
         ) {
             DesktopLyricsOverlayController.start(this)
         }
-
-        attachEqualizerSessionListener(stack.exoPlayer)
 
         mediaSession = MediaSession.Builder(this, stack.compositePlayer)
             .setCallback(createMediaSessionCallback())
@@ -169,12 +139,11 @@ class MicaMediaService : MediaSessionService() {
                     audioPipelineCoordinator?.onOffloadPreferenceChanged(state.enabled)
                 }
             }
-        playbackEngineCoordinator?.onPlaybackBoundary = { boundary ->
-            mediaSession?.broadcastCustomCommand(
-                PlaybackBoundarySessionEvent.command,
-                PlaybackBoundarySessionEvent.encode(boundary),
-            )
-        }
+        unregisterUsbOutputPreferenceListener =
+            UsbHybridPreferences.registerChangeListener(this) { mode ->
+                mainHandler.post { applyUsbOutputMode(mode, "preference") }
+            }
+        applyUsbOutputMode(UsbHybridPreferences.outputMode(this), "service-create")
 
     }
 
@@ -193,24 +162,224 @@ class MicaMediaService : MediaSessionService() {
         }
     }
 
-    override fun onDestroy() {
-        playbackRouteMonitor?.release()
-        playbackRouteMonitor = null
-        unregisterLyricsPreferenceListener?.invoke()
-        unregisterLyricsPreferenceListener = null
-        unregisterAudioOffloadPreferenceListener?.invoke()
-        unregisterAudioOffloadPreferenceListener = null
-        audioPipelineCoordinator = null
-        sessionScope?.cancel()
-        sessionScope = null
-        trustedMediaItemResolver = null
+    private fun installUsbHybridOwner() {
+        lateinit var owner: UsbHybridSessionOwner
+        val effects = AndroidUsbHybridControlEffects(this) { result -> owner.onPermissionResult(result) }
+        owner = UsbHybridSessionOwner(effects)
+        usbEffects = effects
+        usbOwner = owner
+        usbFactsJob = sessionScope?.launch {
+            owner.facts.collectLatest { facts ->
+                mainHandler.post { handleUsbFacts(facts) }
+            }
+        }
+    }
+
+    private fun applyUsbOutputMode(mode: UsbHybridOutputMode, reason: String) {
+        val owner = usbOwner ?: return
+        if (mode == UsbHybridOutputMode.SharedPcm) {
+            owner.request(UsbExclusiveMode.SHARED_PCM, null, null)
+            owner.awaitIdle()
+            rebuildPlaybackStack(AudioOutputPathConfig.PRODUCTION, null, reason)
+            return
+        }
+        val selection = usbEffects?.discoverSk02()
+        val candidate = (selection as? Sk02Selection.Selected)?.candidate
+        val requested = when (mode) {
+            UsbHybridOutputMode.SharedPcm -> UsbExclusiveMode.SHARED_PCM
+            UsbHybridOutputMode.ExactPcm -> UsbExclusiveMode.USB_EXACT_PCM
+            UsbHybridOutputMode.Dop -> UsbExclusiveMode.USB_DOP
+            UsbHybridOutputMode.NativeDsdExperimental ->
+                UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL
+        }
+        owner.request(requested, candidate?.identity, candidate?.runtimeHandle)
+        DiagnosticLog.event(
+            "UsbHybrid",
+            "request mode=$requested reason=$reason selection=${selection?.javaClass?.simpleName}",
+        )
+    }
+
+    private fun handleUsbFacts(facts: UsbPlaybackFacts) {
+        if (facts.permission != com.mica.music.media.usbhybrid.PermissionState.GRANTED) return
+        if (facts.activeMode != null) return
+        val owner = usbOwner ?: return
+        val effects = usbEffects ?: return
+        val targetPath = when (facts.requestedMode) {
+            UsbExclusiveMode.SHARED_PCM -> AudioOutputPathConfig.PRODUCTION
+            UsbExclusiveMode.USB_EXACT_PCM ->
+                AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDirectPcm)
+            UsbExclusiveMode.USB_DOP -> AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDop)
+            UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL ->
+                AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbNativeDsdExperimental)
+        }
+        rebuildPlaybackStack(
+            targetPath,
+            UsbHybridPlaybackBinding(owner, effects, com.mica.music.media.usbhybrid.UsbRequestEpoch(facts.requestEpoch)),
+            "permission-granted",
+        )
+    }
+
+    private fun capturePlaybackStackHandoff(): PlaybackStackHandoff? {
+        val player = compositePlayer ?: return null
+        val queue = player.playbackQueueSnapshot()
+        if (queue.items.isEmpty()) return null
+        return PlaybackStackHandoff(
+            items = queue.items,
+            currentIndex = queue.currentIndex,
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            playWhenReady = player.playWhenReady,
+            repeatMode = player.repeatMode,
+            playbackParameters = player.playbackParameters,
+            volume = player.volume,
+        )
+    }
+
+    private fun rebuildPlaybackStack(
+        target: AudioOutputPathConfig,
+        usbBinding: UsbHybridPlaybackBinding?,
+        reason: String,
+    ) {
+        val requestedUsbEpoch = usbBinding?.epoch?.value
+        if (target == activeOutputPath && requestedUsbEpoch == activeUsbEpoch) return
+        val micaApp = application as MicaApp
+        val handoff = capturePlaybackStackHandoff()
+        usbOwner?.awaitIdle()
+        val oldExo = exoPlayer
+        releasePlaybackStackOwners()
+        oldExo?.release()
+        exoPlayer = null
+        compositePlayer = null
+        val newStack = runCatching { ExoPlaybackStackFactory.build(this, target, usbBinding) }
+            .getOrElse { error ->
+                DiagnosticLog.event(
+                    "AudioOutputPath",
+                    "rebuild-failed reason=$reason target=${target.outputMode} error=${error.message}",
+                )
+                return
+            }
+        activeOutputPath = target
+        activeUsbEpoch = requestedUsbEpoch
+        installPlaybackStackOwners(newStack, micaApp, handoff)
+        DiagnosticLog.event(
+            "AudioOutputPath",
+            "rebuild-complete reason=$reason mode=${target.outputMode} " +
+                "items=${handoff?.items?.size ?: 0} index=${handoff?.currentIndex ?: 0} " +
+                "positionMs=${handoff?.positionMs ?: 0} resume=${handoff?.playWhenReady == true}",
+        )
+    }
+
+    private fun installPlaybackStackOwners(
+        stack: ExoPlaybackStack,
+        micaApp: MicaApp,
+        handoff: PlaybackStackHandoff? = null,
+    ) {
+        exoPlayer = stack.exoPlayer
+        compositePlayer = stack.compositePlayer
+
+        if (handoff != null) {
+            stack.compositePlayer.selectWithoutPlayback(
+                mediaItems = handoff.items,
+                startIndex = handoff.currentIndex,
+                startPositionMs = handoff.positionMs,
+            )
+            stack.compositePlayer.repeatMode = handoff.repeatMode
+            stack.compositePlayer.playbackParameters = handoff.playbackParameters
+            stack.compositePlayer.volume = if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
+                handoff.volume
+            } else {
+                1f
+            }
+        }
+        mediaSession?.setPlayer(stack.compositePlayer)
+
+        if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
+            replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
+        }
+        if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
+            installAudioOffloadCircuitBreaker(stack.exoPlayer)
+            installAudioPipelineCoordinator(stack.exoPlayer)
+            wireEqualizerAndSpectrumHandlers()
+        }
+
+        playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
+            player = stack.compositePlayer,
+            context = this,
+        ).also { coordinator ->
+            coordinator.start()
+            coordinator.onPlaybackBoundary = { boundary ->
+                mediaSession?.broadcastCustomCommand(
+                    PlaybackBoundarySessionEvent.command,
+                    PlaybackBoundarySessionEvent.encode(boundary),
+                )
+            }
+        }
+
+        var restoredFromStore = false
+        playbackStateCoordinator = ServicePlaybackStateCoordinator(
+            player = stack.compositePlayer,
+            store = ServicePlaybackStateStore(this),
+            handler = mainHandler,
+            initialQualityMode = if (
+                activeOutputPath.outputMode.allowsSharedPcmDsp &&
+                EqualizerPreferences.equalizerEnabled(this)
+            ) {
+                AudioQualityMode.DSP
+            } else {
+                AudioQualityMode.HIFI
+            },
+            externalSongResolver = micaApp.transientPlaybackCatalog::songForPersistence,
+        ).also { coordinator ->
+            coordinator.onRestoreCompleted = {
+                restoredFromStore = true
+                mainHandler.post {
+                    logRestoredSongDiagnostics()
+                    if (handoff?.playWhenReady == true) {
+                        compositePlayer?.playWhenReady = true
+                    }
+                }
+            }
+            coordinator.start()
+        }
+
+        if (handoff != null && !restoredFromStore) {
+            stack.compositePlayer.seekTo(handoff.currentIndex, handoff.positionMs)
+            stack.compositePlayer.prepare()
+            stack.compositePlayer.playWhenReady = handoff.playWhenReady
+        }
+
+        carBluetoothLyricsSession = CarBluetoothLyricsSession(
+            context = this,
+            player = stack.compositePlayer,
+            sessionActivity = createSessionActivityPendingIntent(),
+        )
+        notificationLyricsCoordinator = NotificationLyricsCoordinator(
+            context = this,
+            player = stack.compositePlayer,
+            handler = mainHandler,
+            carBluetoothLyrics = carBluetoothLyricsSession,
+            desktopLyrics = micaApp.desktopLyricsOverlayStateStore,
+            transientSongResolver = micaApp.transientPlaybackCatalog::songById,
+        ).also { it.start() }
+        if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
+            attachEqualizerSessionListener(stack.exoPlayer)
+        }
+    }
+
+    private fun logRestoredSongDiagnostics() {
+        val song = compositePlayer?.currentMediaItem
+            ?.let(SongMediaItemCodec::decode)
+            ?: return
+        SharedPcmPipelineDiagnostics.logSongFormat(song)
+        PcmDeliveryProbeDiagnostics.logForSong(
+            context = this,
+            song = song,
+            playbackParameters = compositePlayer?.playbackParameters ?: PlaybackParameters.DEFAULT,
+        )
+    }
+
+    private fun releasePlaybackStackOwners() {
         replayGainStateOwner?.release()
         replayGainStateOwner = null
-        spectrumAnalyzerStateOwner?.release()
-        spectrumAnalyzerStateOwner = null
-        MicaEqualizerManager.onEnabledChanged = null
-        MicaSpectrumAnalyzer.onEnabledChanged = null
-        MicaEqualizerManager.release()
         playbackStateCoordinator?.release()
         playbackStateCoordinator = null
         notificationLyricsCoordinator?.release()
@@ -225,11 +394,39 @@ class MicaMediaService : MediaSessionService() {
             breaker.release()
         }
         audioOffloadCircuitBreaker = null
+        audioPipelineCoordinator = null
+        MicaEqualizerManager.onEnabledChanged = null
+        MicaSpectrumAnalyzer.onEnabledChanged = null
+        MicaEqualizerManager.release()
+    }
+
+    override fun onDestroy() {
+        playbackRouteMonitor?.release()
+        playbackRouteMonitor = null
+        unregisterLyricsPreferenceListener?.invoke()
+        unregisterLyricsPreferenceListener = null
+        unregisterAudioOffloadPreferenceListener?.invoke()
+        unregisterAudioOffloadPreferenceListener = null
+        unregisterUsbOutputPreferenceListener?.invoke()
+        unregisterUsbOutputPreferenceListener = null
+        usbFactsJob?.cancel()
+        usbFactsJob = null
+        sessionScope?.cancel()
+        sessionScope = null
+        trustedMediaItemResolver = null
+        releasePlaybackStackOwners()
+        spectrumAnalyzerStateOwner?.release()
+        spectrumAnalyzerStateOwner = null
         mediaSession?.release()
         mediaSession = null
         exoPlayer?.release()
         exoPlayer = null
         compositePlayer = null
+        activeUsbEpoch = null
+        usbOwner?.close()
+        usbOwner = null
+        usbEffects?.close()
+        usbEffects = null
         clearListener()
         super.onDestroy()
     }

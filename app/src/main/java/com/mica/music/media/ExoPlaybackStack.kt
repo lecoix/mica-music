@@ -9,6 +9,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
 
 @UnstableApi
 internal data class ExoPlaybackStack(
@@ -23,11 +24,12 @@ internal object ExoPlaybackStackFactory {
     fun build(
         context: Context,
         outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
+        usbBinding: UsbHybridPlaybackBinding? = null,
     ): ExoPlaybackStack {
         outputPath.requireSupportedForPlayback()
         outputPath.logForDiagnostics()
         val dataSourceFactory = DefaultDataSource.Factory(context)
-        val renderersFactory = MicaRenderersFactory(context, outputPath)
+        val renderersFactory = MicaRenderersFactory(context, outputPath, usbBinding)
         val mediaSourceFactory = DefaultMediaSourceFactory(
             dataSourceFactory,
             MicaExtractorsFactory.create(),

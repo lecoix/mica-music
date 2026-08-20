@@ -16,13 +16,16 @@ enum class PlaybackOutputMode {
     /** USB DAC PCM direct (P6): minimal processor chain, no EQ/Sonic/spectrum by default. */
     UsbDirectPcm,
 
-    /** Native DSD / DoP to USB DAC (P6 reserved): bypasses Exo PCM chain entirely. */
-    UsbNativeDsd,
+    /** Explicit DoP for DSF; regular PCM still uses USB Exact PCM. */
+    UsbDop,
+
+    /** Explicit experimental Native DSD for DSF; regular PCM still uses USB Exact PCM. */
+    UsbNativeDsdExperimental,
 }
 
 /** Whether this mode routes through ExoPlayer's PCM processor + AudioTrack path. */
 val PlaybackOutputMode.usesExoPcmChain: Boolean
-    get() = this != PlaybackOutputMode.UsbNativeDsd
+    get() = this == PlaybackOutputMode.SharedPcm || this == PlaybackOutputMode.UsbDirectPcm
 
 /** Whether SharedPcm DSP features (EQ / spectrum / Sonic) are allowed on this path. */
 val PlaybackOutputMode.allowsSharedPcmDsp: Boolean
@@ -30,4 +33,4 @@ val PlaybackOutputMode.allowsSharedPcmDsp: Boolean
 
 /** Whether the sink should use a minimal processor chain (bit-preserve / USB direct). */
 val PlaybackOutputMode.requiresMinimalProcessorChain: Boolean
-    get() = this == PlaybackOutputMode.UsbDirectPcm
+    get() = this != PlaybackOutputMode.SharedPcm
