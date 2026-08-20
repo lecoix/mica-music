@@ -1,0 +1,223 @@
+package com.mica.music.media.usbhybrid
+
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Sole request-epoch, control-side-effect and facts-publication owner for Hybrid USB output.
+ *
+ * Epoch invalidation is synchronous so it can supersede an uninterruptible control operation.
+ * Every result is checked again on the control executor immediately before cleanup or facts
+ * publication. Realtime writes are deliberately outside this class and are fenced in Native by
+ * the same epoch plus a native session id.
+ */
+class UsbHybridSessionOwner(
+    private val effects: UsbHybridControlEffects,
+    private val control: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "MicaUsbHybridControl")
+    },
+) : AutoCloseable {
+    private val publicationLock = Any()
+    private val mutableFacts = MutableStateFlow(UsbPlaybackFacts())
+    val facts: StateFlow<UsbPlaybackFacts> = mutableFacts.asStateFlow()
+
+    private var epoch = UsbRequestEpoch(0L)
+    private var discoveryRevision = UsbDiscoveryRevision(0L)
+    private var pending: UsbPermissionRequest? = null
+    private var activeSession: UsbTransportSessionId? = null
+    private var released = false
+
+    fun request(
+        mode: UsbExclusiveMode,
+        identity: UsbStableIdentity?,
+        runtimeHandle: UsbRuntimeHandle?,
+    ): UsbRequestEpoch {
+        val next = mintEpoch(mode, identity, runtimeHandle)
+        control.execute {
+            if (!isCurrent(next)) return@execute
+            closeActiveIfCurrent(next)
+            if (mode == UsbExclusiveMode.SHARED_PCM) return@execute
+            val targetIdentity = identity
+            val targetRuntime = runtimeHandle
+            if (targetIdentity == null || targetRuntime == null) {
+                publishFailureIfCurrent(next, "TARGET_REQUIRED", "USB target identity is required.")
+                return@execute
+            }
+            val request = UsbPermissionRequest(next, mode, targetIdentity, targetRuntime)
+            synchronized(publicationLock) {
+                if (epoch != next || released) return@synchronized
+                pending = request
+            }
+            if (!isCurrent(next)) return@execute
+            effects.requestPermission(request)
+        }
+        return next
+    }
+
+    fun onPermissionResult(result: UsbPermissionResult) {
+        control.execute {
+            val expected = synchronized(publicationLock) { pending }
+            if (!matches(expected, result) || !isCurrent(result.epoch)) return@execute
+            if (!result.granted) {
+                synchronized(publicationLock) {
+                    if (!matches(pending, result) || epoch != result.epoch || released) return@synchronized
+                    pending = null
+                    mutableFacts.value = mutableFacts.value.copy(
+                        permission = PermissionState.DENIED,
+                        failure = UsbFailure("PERMISSION_DENIED", "USB permission was denied."),
+                    )
+                }
+                return@execute
+            }
+
+            synchronized(publicationLock) {
+                if (!matches(pending, result) || epoch != result.epoch || released) return@synchronized
+                mutableFacts.value = mutableFacts.value.copy(permission = PermissionState.GRANTED)
+            }
+            if (!isCurrent(result.epoch)) return@execute
+            val opened = effects.open(
+                UsbOpenRequest(result.epoch, result.mode, result.identity, result.runtimeHandle),
+            )
+            if (!isCurrent(result.epoch)) {
+                effects.close(opened.sessionId)
+                return@execute
+            }
+            synchronized(publicationLock) {
+                if (epoch != result.epoch || released || !matches(pending, result)) {
+                    effects.close(opened.sessionId)
+                    return@synchronized
+                }
+                pending = null
+                activeSession = opened.sessionId
+                mutableFacts.value = mutableFacts.value.copy(
+                    activeMode = result.mode,
+                    sessionId = opened.sessionId.nativeId,
+                    claimed = opened.claimed,
+                    exclusive = opened.claimed,
+                    failure = null,
+                )
+            }
+        }
+    }
+
+    fun onAttached() {
+        synchronized(publicationLock) {
+            discoveryRevision = UsbDiscoveryRevision(discoveryRevision.value + 1L)
+            mutableFacts.value = mutableFacts.value.copy(discoveryRevision = discoveryRevision.value)
+        }
+    }
+
+    fun onDetached(runtimeHandle: UsbRuntimeHandle) {
+        val isTarget = synchronized(publicationLock) {
+            discoveryRevision = UsbDiscoveryRevision(discoveryRevision.value + 1L)
+            val current = mutableFacts.value
+            val target = current.runtimeHandle == runtimeHandle || pending?.runtimeHandle == runtimeHandle
+            if (!target) {
+                mutableFacts.value = current.copy(discoveryRevision = discoveryRevision.value)
+            }
+            target
+        }
+        if (isTarget) {
+            val next = mintEpoch(
+                synchronized(publicationLock) { mutableFacts.value.requestedMode },
+                synchronized(publicationLock) { mutableFacts.value.identity },
+                runtimeHandle,
+                failure = UsbFailure("TARGET_DETACHED", "The active USB target was detached."),
+            )
+            control.execute { closeActiveIfCurrent(next) }
+        }
+    }
+
+    fun currentEpoch(): UsbRequestEpoch = synchronized(publicationLock) { epoch }
+
+    fun currentDiscoveryRevision(): UsbDiscoveryRevision =
+        synchronized(publicationLock) { discoveryRevision }
+
+    fun awaitIdle(timeoutSeconds: Long = 5L) {
+        control.submit {}.get(timeoutSeconds, TimeUnit.SECONDS)
+    }
+
+    override fun close() {
+        val next = synchronized(publicationLock) {
+            if (released) return
+            released = true
+            epoch = UsbRequestEpoch(epoch.value + 1L)
+            effects.publishActiveEpoch(epoch)
+            pending = null
+            mutableFacts.value = mutableFacts.value.copy(
+                requestEpoch = epoch.value,
+                activeMode = null,
+                sessionId = null,
+                claimed = false,
+                exclusive = false,
+            )
+            epoch
+        }
+        control.submit { closeActiveEvenIfReleased(next) }.get(5L, TimeUnit.SECONDS)
+        control.shutdown()
+    }
+
+    private fun mintEpoch(
+        mode: UsbExclusiveMode,
+        identity: UsbStableIdentity?,
+        runtimeHandle: UsbRuntimeHandle?,
+        failure: UsbFailure? = null,
+    ): UsbRequestEpoch = synchronized(publicationLock) {
+        check(!released) { "USB Hybrid session owner is released." }
+        epoch = UsbRequestEpoch(epoch.value + 1L)
+        effects.publishActiveEpoch(epoch)
+        pending = null
+        mutableFacts.value = UsbPlaybackFacts(
+            requestEpoch = epoch.value,
+            discoveryRevision = discoveryRevision.value,
+            requestedMode = mode,
+            identity = identity,
+            runtimeHandle = runtimeHandle,
+            permission = if (mode == UsbExclusiveMode.SHARED_PCM) {
+                PermissionState.NOT_REQUIRED
+            } else {
+                PermissionState.REQUESTED
+            },
+            failure = failure,
+        )
+        epoch
+    }
+
+    private fun closeActiveIfCurrent(expectedEpoch: UsbRequestEpoch) {
+        if (!isCurrent(expectedEpoch)) return
+        val session = synchronized(publicationLock) {
+            if (epoch != expectedEpoch || released) return@synchronized null
+            activeSession.also { activeSession = null }
+        } ?: return
+        if (!isCurrent(expectedEpoch)) return
+        effects.close(session)
+    }
+
+    private fun closeActiveEvenIfReleased(@Suppress("UNUSED_PARAMETER") expectedEpoch: UsbRequestEpoch) {
+        val session = synchronized(publicationLock) {
+            activeSession.also { activeSession = null }
+        } ?: return
+        effects.close(session)
+    }
+
+    private fun isCurrent(expected: UsbRequestEpoch): Boolean =
+        synchronized(publicationLock) { !released && epoch == expected }
+
+    private fun publishFailureIfCurrent(epoch: UsbRequestEpoch, code: String, message: String) {
+        synchronized(publicationLock) {
+            if (this.epoch != epoch || released) return
+            mutableFacts.value = mutableFacts.value.copy(failure = UsbFailure(code, message))
+        }
+    }
+
+    private fun matches(expected: UsbPermissionRequest?, result: UsbPermissionResult): Boolean =
+        expected != null &&
+            expected.epoch == result.epoch &&
+            expected.mode == result.mode &&
+            expected.identity == result.identity &&
+            expected.runtimeHandle == result.runtimeHandle
+}
