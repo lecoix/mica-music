@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -30,6 +31,11 @@ struct PendingUrb {
 };
 
 std::mutex g_mutex;
+std::atomic<long long> g_active_epoch{0};
+long long g_next_session_id = 0;
+long long g_session_epoch = 0;
+long long g_session_id = 0;
+std::string g_last_error;
 int g_fd = -1;
 int g_interface_number = -1;
 int g_endpoint_address = -1;
@@ -75,7 +81,23 @@ void freePendingUrb(PendingUrb pending) {
     free(pending.urb);
 }
 
-std::string submitFeedbackLocked();
+bool isCurrentLocked(long long epoch, long long session_id) {
+    return epoch > 0 &&
+        epoch == g_active_epoch.load(std::memory_order_acquire) &&
+        epoch == g_session_epoch &&
+        session_id > 0 &&
+        session_id == g_session_id;
+}
+
+bool isOwnedSessionLocked(long long epoch, long long session_id) {
+    return epoch > 0 && epoch == g_session_epoch && session_id > 0 && session_id == g_session_id;
+}
+
+std::string staleSessionError() {
+    return "USB exclusive epoch/session is stale.";
+}
+
+std::string submitFeedbackLocked(long long epoch, long long session_id);
 
 void logCompletedUrb(PendingUrb pending) {
     if (pending.feedback) {
@@ -164,7 +186,8 @@ void handleFeedbackUrb(PendingUrb pending) {
     }
 }
 
-std::string reapOneLocked(bool blocking) {
+std::string reapOneLocked(bool blocking, long long epoch, long long session_id) {
+    if (!isCurrentLocked(epoch, session_id)) return staleSessionError();
     if (g_pending_urbs.empty()) {
         return {};
     }
@@ -194,7 +217,8 @@ std::string reapOneLocked(bool blocking) {
     freePendingUrb(completed_pending);
     g_pending_urbs.erase(found);
     if (completed_pending.feedback && g_fd >= 0 && g_feedback_endpoint_address != 0) {
-        const auto feedback_error = submitFeedbackLocked();
+        if (!isCurrentLocked(epoch, session_id)) return staleSessionError();
+        const auto feedback_error = submitFeedbackLocked(epoch, session_id);
         if (!feedback_error.empty()) {
             return feedback_error;
         }
@@ -202,16 +226,16 @@ std::string reapOneLocked(bool blocking) {
     return {};
 }
 
-std::string reapCompletedLocked() {
+std::string reapCompletedLocked(long long epoch, long long session_id) {
     std::string error;
     while (error.empty() && !g_pending_urbs.empty()) {
-        error = reapOneLocked(false);
+        error = reapOneLocked(false, epoch, session_id);
         if (error.empty()) {
             break;
         }
     }
     while (error.empty() && static_cast<int>(g_pending_urbs.size()) >= g_max_pending_urbs) {
-        error = reapOneLocked(true);
+        error = reapOneLocked(true, epoch, session_id);
     }
     return error;
 }
@@ -224,7 +248,8 @@ void discardPendingLocked() {
 
 // seek/暂停时丢弃在途输出 URB：DISCARDURB 后仍要通过 REAPURB 收回并释放；
 // 反馈 URB 不丢（收回后 reapOneLocked 会自动重挂）。
-std::string flushOutputLocked() {
+std::string flushOutputLocked(long long epoch, long long session_id) {
+    if (!isCurrentLocked(epoch, session_id)) return staleSessionError();
     if (g_fd < 0) {
         return {};
     }
@@ -243,7 +268,7 @@ std::string flushOutputLocked() {
     };
     std::string error;
     while (error.empty() && has_output()) {
-        error = reapOneLocked(true);
+        error = reapOneLocked(true, epoch, session_id);
     }
     return error;
 }
@@ -255,7 +280,8 @@ void freeAllPendingLocked() {
     g_pending_urbs.clear();
 }
 
-std::string claimInterfaceLocked() {
+std::string claimInterfaceLocked(long long epoch) {
+    if (epoch != g_active_epoch.load(std::memory_order_acquire)) return staleSessionError();
     usbdevfs_disconnect_claim disconnect_claim = {};
     disconnect_claim.interface = static_cast<unsigned int>(g_interface_number);
 
@@ -276,6 +302,7 @@ std::string claimInterfaceLocked() {
         g_interface_number,
         strerror(disconnect_claim_errno));
 
+    if (epoch != g_active_epoch.load(std::memory_order_acquire)) return staleSessionError();
     if (ioctl(g_fd, USBDEVFS_CLAIMINTERFACE, &g_interface_number) == 0) {
         __android_log_print(
             ANDROID_LOG_INFO,
@@ -303,7 +330,25 @@ void closeLocked() {
         g_pending_urbs.size());
     discardPendingLocked();
     if (g_interface_number >= 0) {
+        usbdevfs_setinterface reset_interface = {};
+        reset_interface.interface = g_interface_number;
+        reset_interface.altsetting = 0;
+        if (ioctl(g_fd, USBDEVFS_SETINTERFACE, &reset_interface) < 0) {
+            __android_log_print(
+                ANDROID_LOG_WARN,
+                kTag,
+                "failed to restore interface=%d alt=0: %s",
+                g_interface_number,
+                strerror(errno));
+        }
         ioctl(g_fd, USBDEVFS_RELEASEINTERFACE, &g_interface_number);
+    }
+    if (ioctl(g_fd, USBDEVFS_CONNECT, nullptr) < 0) {
+        __android_log_print(
+            ANDROID_LOG_WARN,
+            kTag,
+            "USBDEVFS_CONNECT driver restore attempt failed: %s",
+            strerror(errno));
     }
     close(g_fd);
     freeAllPendingLocked();
@@ -323,13 +368,18 @@ void closeLocked() {
     g_last_stats_ms = 0;
     g_iso_error_count = 0;
     g_max_pending_urbs = kDefaultMaxPendingUrbs;
+    g_session_epoch = 0;
+    g_session_id = 0;
 }
 
 std::string submitIsoPacketsLocked(
+    long long epoch,
+    long long session_id,
     const uint8_t* data,
     int length,
     const int* packet_lengths,
     int packet_count) {
+    if (!isCurrentLocked(epoch, session_id)) return staleSessionError();
     if (g_fd < 0) {
         return "USB exclusive device is not open.";
     }
@@ -375,6 +425,11 @@ std::string submitIsoPacketsLocked(
         urb->iso_frame_desc[i].length = packet_lengths[i];
     }
 
+    if (!isCurrentLocked(epoch, session_id)) {
+        free(buffer);
+        free(urb);
+        return staleSessionError();
+    }
     if (ioctl(g_fd, USBDEVFS_SUBMITURB, urb) < 0) {
         const auto error = errorMessage("USBDEVFS_SUBMITURB");
         free(buffer);
@@ -402,10 +457,10 @@ std::string submitIsoPacketsLocked(
             g_endpoint_address);
         g_last_stats_ms = now_ms;
     }
-    return reapCompletedLocked();
+    return reapCompletedLocked(epoch, session_id);
 }
 
-std::string submitIsoChunkLocked(const uint8_t* data, int length) {
+std::string submitIsoChunkLocked(long long epoch, long long session_id, const uint8_t* data, int length) {
     const int iso_packet_size =
         g_iso_packet_size > 0 ? std::min(g_iso_packet_size, g_max_packet_size) : g_max_packet_size;
     const int packets = std::max(
@@ -417,10 +472,11 @@ std::string submitIsoChunkLocked(const uint8_t* data, int length) {
         packet_lengths[i] = std::min(iso_packet_size, remaining);
         remaining -= packet_lengths[i];
     }
-    return submitIsoPacketsLocked(data, length, packet_lengths, packets);
+    return submitIsoPacketsLocked(epoch, session_id, data, length, packet_lengths, packets);
 }
 
-std::string submitFeedbackLocked() {
+std::string submitFeedbackLocked(long long epoch, long long session_id) {
+    if (!isCurrentLocked(epoch, session_id)) return staleSessionError();
     if (g_fd < 0 || g_feedback_endpoint_address == 0 || g_feedback_packet_size <= 0) {
         return {};
     }
@@ -446,6 +502,11 @@ std::string submitFeedbackLocked() {
     urb->number_of_packets = packets;
     urb->iso_frame_desc[0].length = length;
 
+    if (!isCurrentLocked(epoch, session_id)) {
+        free(buffer);
+        free(urb);
+        return staleSessionError();
+    }
     if (ioctl(g_fd, USBDEVFS_SUBMITURB, urb) < 0) {
         const auto error = errorMessage("USBDEVFS_SUBMITURB feedback");
         free(buffer);
@@ -459,10 +520,28 @@ std::string submitFeedbackLocked() {
 
 }  // namespace
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_afalphy_sylvakru_UsbExclusiveNative_publishActiveEpoch(
+    JNIEnv*, jobject, jlong epoch) {
+    long long observed = g_active_epoch.load(std::memory_order_relaxed);
+    while (epoch > observed && !g_active_epoch.compare_exchange_weak(
+        observed,
+        epoch,
+        std::memory_order_release,
+        std::memory_order_relaxed)) {}
+}
+
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_afalphy_sylvakru_UsbExclusiveNative_open(
+Java_com_afalphy_sylvakru_UsbExclusiveNative_lastError(JNIEnv* env, jobject) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_last_error.empty() ? nullptr : env->NewStringUTF(g_last_error.c_str());
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_afalphy_sylvakru_UsbExclusiveNative_openRaw(
     JNIEnv* env,
     jobject,
+    jlong epoch,
     jint fd,
     jint interface_number,
     jint alternate_setting,
@@ -472,6 +551,11 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_open(
     jint feedback_max_packet_size,
     jboolean interface_already_claimed) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_last_error.clear();
+    if (epoch <= 0 || epoch != g_active_epoch.load(std::memory_order_acquire)) {
+        g_last_error = staleSessionError();
+        return 0;
+    }
     closeLocked();
 
     __android_log_print(
@@ -486,7 +570,8 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_open(
 
     const int duplicated = dup(fd);
     if (duplicated < 0) {
-        return nullableError(env, errorMessage("dup"));
+        g_last_error = errorMessage("dup");
+        return 0;
     }
 
     g_fd = duplicated;
@@ -503,20 +588,27 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_open(
             "USB interface already claimed by UsbDeviceConnection interface=%d",
             g_interface_number);
     } else {
-        const auto claim_error = claimInterfaceLocked();
+        const auto claim_error = claimInterfaceLocked(epoch);
         if (!claim_error.empty()) {
             closeLocked();
-            return nullableError(env, claim_error);
+            g_last_error = claim_error;
+            return 0;
         }
     }
 
     usbdevfs_setinterface set_interface = {};
     set_interface.interface = interface_number;
     set_interface.altsetting = alternate_setting;
+    if (epoch != g_active_epoch.load(std::memory_order_acquire)) {
+        closeLocked();
+        g_last_error = staleSessionError();
+        return 0;
+    }
     if (ioctl(g_fd, USBDEVFS_SETINTERFACE, &set_interface) < 0) {
         const auto error = errorMessage("USBDEVFS_SETINTERFACE");
         closeLocked();
-        return nullableError(env, error);
+        g_last_error = error;
+        return 0;
     }
     __android_log_print(
         ANDROID_LOG_INFO,
@@ -525,8 +617,16 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_open(
         interface_number,
         alternate_setting);
 
+    if (epoch != g_active_epoch.load(std::memory_order_acquire)) {
+        closeLocked();
+        g_last_error = staleSessionError();
+        return 0;
+    }
+    g_session_epoch = epoch;
+    g_session_id = ++g_next_session_id;
+
     if (g_feedback_endpoint_address != 0 && g_feedback_packet_size > 0) {
-        const auto feedback_error = submitFeedbackLocked();
+        const auto feedback_error = submitFeedbackLocked(epoch, g_session_id);
         if (!feedback_error.empty()) {
             __android_log_print(
                 ANDROID_LOG_WARN,
@@ -543,13 +643,15 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_open(
         }
     }
 
-    return nullptr;
+    return static_cast<jlong>(g_session_id);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_afalphy_sylvakru_UsbExclusiveNative_writePcm(
     JNIEnv* env,
     jobject,
+    jlong epoch,
+    jlong session_id,
     jbyteArray bytes,
     jint length) {
     if (bytes == nullptr || length <= 0) {
@@ -567,12 +669,15 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_writePcm(
     int offset = 0;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
+        if (!isCurrentLocked(epoch, session_id)) {
+            error = staleSessionError();
+        }
         const int iso_packet_size =
             g_iso_packet_size > 0 ? std::min(g_iso_packet_size, g_max_packet_size) : g_max_packet_size;
         const int max_chunk = std::max(1, iso_packet_size * kMaxIsoPacketsPerUrb);
         while (offset < safe_length && error.empty()) {
             const int chunk = std::min(max_chunk, safe_length - offset);
-            error = submitIsoChunkLocked(input + offset, chunk);
+            error = submitIsoChunkLocked(epoch, session_id, input + offset, chunk);
             offset += chunk;
         }
     }
@@ -595,6 +700,8 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_afalphy_sylvakru_UsbExclusiveNative_writeIsoPackets(
     JNIEnv* env,
     jobject,
+    jlong epoch,
+    jlong session_id,
     jbyteArray bytes,
     jintArray packet_lengths,
     jint packet_count) {
@@ -632,7 +739,7 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_writeIsoPackets(
     std::string error;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        error = submitIsoPacketsLocked(input, safe_length, stack_lengths, safe_packet_count);
+        error = submitIsoPacketsLocked(epoch, session_id, input, safe_length, stack_lengths, safe_packet_count);
     }
 
     env->ReleaseByteArrayElements(bytes, reinterpret_cast<jbyte*>(input), JNI_ABORT);
@@ -650,16 +757,25 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_writeIsoPackets(
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_afalphy_sylvakru_UsbExclusiveNative_feedbackFramesPerPacketQ16(JNIEnv*, jobject) {
+Java_com_afalphy_sylvakru_UsbExclusiveNative_feedbackFramesPerPacketQ16(
+    JNIEnv*, jobject, jlong epoch, jlong session_id) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (!isCurrentLocked(epoch, session_id)) return 0;
     return g_feedback_frames_per_packet_q16;
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_com_afalphy_sylvakru_UsbExclusiveNative_transportTelemetry(JNIEnv* env, jobject) {
+Java_com_afalphy_sylvakru_UsbExclusiveNative_transportTelemetry(
+    JNIEnv* env, jobject, jlong epoch, jlong session_id) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_fd >= 0) {
-        reapCompletedLocked();
+    if (!isCurrentLocked(epoch, session_id)) {
+        const jlong stale_values[] = {-1, -1, -1, -1};
+        jlongArray stale_result = env->NewLongArray(4);
+        if (stale_result != nullptr) env->SetLongArrayRegion(stale_result, 0, 4, stale_values);
+        return stale_result;
+    }
+    if (g_fd >= 0 && isCurrentLocked(epoch, session_id)) {
+        reapCompletedLocked(epoch, session_id);
     }
 
     long long pending_iso_packets = 0;
@@ -684,26 +800,33 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_transportTelemetry(JNIEnv* env, job
     return result;
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_afalphy_sylvakru_UsbExclusiveNative_setIsoPacketSize(
-    JNIEnv*,
+    JNIEnv* env,
     jobject,
+    jlong epoch,
+    jlong session_id,
     jint packet_size) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (!isCurrentLocked(epoch, session_id)) return nullableError(env, staleSessionError());
     g_iso_packet_size = std::max(0, std::min(static_cast<int>(packet_size), g_max_packet_size));
     __android_log_print(
         ANDROID_LOG_INFO,
         kTag,
         "iso packet size set to %d bytes",
         g_iso_packet_size);
+    return nullptr;
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_afalphy_sylvakru_UsbExclusiveNative_setMaxPendingOutputUrbs(
-    JNIEnv*,
+    JNIEnv* env,
     jobject,
+    jlong epoch,
+    jlong session_id,
     jint max_pending_urbs) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (!isCurrentLocked(epoch, session_id)) return nullableError(env, staleSessionError());
     g_max_pending_urbs = std::max(
         kDefaultMaxPendingUrbs,
         std::min(static_cast<int>(max_pending_urbs), kAbsoluteMaxPendingUrbs));
@@ -712,20 +835,25 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_setMaxPendingOutputUrbs(
         kTag,
         "max pending output URBs set to %d",
         g_max_pending_urbs);
+    return nullptr;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_afalphy_sylvakru_UsbExclusiveNative_flushOutput(JNIEnv* env, jobject) {
+Java_com_afalphy_sylvakru_UsbExclusiveNative_flushOutput(
+    JNIEnv* env, jobject, jlong epoch, jlong session_id) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    const std::string error = flushOutputLocked();
+    const std::string error = flushOutputLocked(epoch, session_id);
     if (error.empty()) {
         return nullptr;
     }
     return env->NewStringUTF(error.c_str());
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_afalphy_sylvakru_UsbExclusiveNative_close(JNIEnv*, jobject) {
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_afalphy_sylvakru_UsbExclusiveNative_close(
+    JNIEnv* env, jobject, jlong epoch, jlong session_id) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (!isOwnedSessionLocked(epoch, session_id)) return nullableError(env, staleSessionError());
     closeLocked();
+    return nullptr;
 }

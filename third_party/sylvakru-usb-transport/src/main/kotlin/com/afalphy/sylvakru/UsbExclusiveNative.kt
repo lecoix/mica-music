@@ -5,7 +5,10 @@ object UsbExclusiveNative {
         System.loadLibrary("sylvakru_usb_exclusive")
     }
 
-    external fun open(
+    data class OpenResult(val sessionId: Long? = null, val error: String? = null)
+
+    fun open(
+        epoch: Long,
         fd: Int,
         interfaceNumber: Int,
         alternateSetting: Int,
@@ -14,21 +17,56 @@ object UsbExclusiveNative {
         feedbackEndpointAddress: Int,
         feedbackMaxPacketSize: Int,
         interfaceAlreadyClaimed: Boolean,
+    ): OpenResult {
+        val sessionId = openRaw(
+            epoch,
+            fd,
+            interfaceNumber,
+            alternateSetting,
+            endpointAddress,
+            maxPacketSize,
+            feedbackEndpointAddress,
+            feedbackMaxPacketSize,
+            interfaceAlreadyClaimed,
+        )
+        return if (sessionId > 0L) OpenResult(sessionId = sessionId) else OpenResult(error = lastError())
+    }
+
+    external fun publishActiveEpoch(epoch: Long)
+
+    private external fun openRaw(
+        epoch: Long,
+        fd: Int,
+        interfaceNumber: Int,
+        alternateSetting: Int,
+        endpointAddress: Int,
+        maxPacketSize: Int,
+        feedbackEndpointAddress: Int,
+        feedbackMaxPacketSize: Int,
+        interfaceAlreadyClaimed: Boolean,
+    ): Long
+
+    private external fun lastError(): String?
+
+    external fun writePcm(epoch: Long, sessionId: Long, bytes: ByteArray, length: Int): String?
+
+    external fun writeIsoPackets(
+        epoch: Long,
+        sessionId: Long,
+        bytes: ByteArray,
+        packetLengths: IntArray,
+        packetCount: Int,
     ): String?
 
-    external fun writePcm(bytes: ByteArray, length: Int): String?
+    external fun setIsoPacketSize(epoch: Long, sessionId: Long, packetSize: Int): String?
 
-    external fun writeIsoPackets(bytes: ByteArray, packetLengths: IntArray, packetCount: Int): String?
+    external fun feedbackFramesPerPacketQ16(epoch: Long, sessionId: Long): Int
 
-    external fun setIsoPacketSize(packetSize: Int)
+    external fun transportTelemetry(epoch: Long, sessionId: Long): LongArray
 
-    external fun feedbackFramesPerPacketQ16(): Int
+    external fun setMaxPendingOutputUrbs(epoch: Long, sessionId: Long, maxPendingUrbs: Int): String?
 
-    external fun transportTelemetry(): LongArray
+    external fun flushOutput(epoch: Long, sessionId: Long): String?
 
-    external fun setMaxPendingOutputUrbs(maxPendingUrbs: Int)
-
-    external fun flushOutput(): String?
-
-    external fun close()
+    external fun close(epoch: Long, sessionId: Long): String?
 }

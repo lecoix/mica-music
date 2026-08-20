@@ -24,11 +24,14 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     private var currentFormat: PcmFormat? = null
     private var currentDsdFormat: DsdFormat? = null
     private var dsdEncoder: DsdStreamEncoder? = null
+    private var requestEpoch: Long = 0L
+    private var nativeSessionId: Long = 0L
     private val dsdIdleFillerRunning = AtomicBoolean(false)
     private var dsdIdleFillerThread: Thread? = null
 
     @Synchronized
     fun open(
+        epoch: Long,
         usbManager: UsbManager,
         device: UsbDevice,
         sampleRate: Int,
@@ -43,7 +46,10 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         }
 
         val requestedFormat = PcmFormat(sampleRate, channels, bitDepth)
-        if (connection != null && this.device?.deviceId == device.deviceId && currentFormat == requestedFormat) {
+        if (
+            connection != null && requestEpoch == epoch &&
+            this.device?.deviceId == device.deviceId && currentFormat == requestedFormat
+        ) {
             UsbDiagnostics.i(TAG, "reusing exclusive USB PCM session $requestedFormat")
             return null
         }
@@ -70,7 +76,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
                 "feedback=${resolvedTarget.feedbackEndpointLabel} sampleRate=$sampleRate channels=$channels " +
                 "bitDepth=$bitDepth format=${resolvedTarget.formatInfo}",
         )
-        val openError = UsbExclusiveNative.open(
+        val openedNative = UsbExclusiveNative.open(
+            epoch,
             openedConnection.fileDescriptor,
             resolvedTarget.usbInterface.id,
             resolvedTarget.alternateSetting,
@@ -80,10 +87,11 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             resolvedTarget.feedbackEndpoint?.maxPacketSize ?: 0,
             false,
         )
-        if (openError != null) {
+        if (openedNative.error != null || openedNative.sessionId == null) {
             openedConnection.close()
-            return openError
+            return openedNative.error ?: "Native USB open returned no session id."
         }
+        val sessionId = openedNative.sessionId
 
         val quirk = UsbDacQuirks.forDevice(appContext, device.vendorId, device.productId)
         val clockError = UsbStreamingTargetResolver.configureUsbAudioClock(
@@ -94,7 +102,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             quirk = quirk,
         )
         if (clockError != null) {
-            UsbExclusiveNative.close()
+            UsbExclusiveNative.close(epoch, sessionId)
             openedConnection.close()
             return clockError
         }
@@ -108,7 +116,11 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             channels = channels,
             bytesPerSample = usbBytesPerSample,
         )
-        UsbExclusiveNative.setIsoPacketSize(packetBytes)
+        UsbExclusiveNative.setIsoPacketSize(epoch, sessionId, packetBytes)?.let {
+            UsbExclusiveNative.close(epoch, sessionId)
+            openedConnection.close()
+            return it
+        }
         val newPacketizer = UsbPcmIsoPacketizer(
             sampleRate = sampleRate,
             packetsPerSecond = resolvedTarget.packetsPerSecond,
@@ -119,11 +131,17 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             usbBitResolution = usbBitResolution,
             feedbackOutputPacketDivisor = 1,
             feedbackFramesPerPacketQ16 = resolvedTarget.feedbackEndpoint?.let {
-                { UsbExclusiveNative.feedbackFramesPerPacketQ16() }
+                { UsbExclusiveNative.feedbackFramesPerPacketQ16(epoch, sessionId) }
             },
             volumeGainQ16 = null,
         ) { data, packetLengths, packetCount ->
-            val error = UsbExclusiveNative.writeIsoPackets(data, packetLengths, packetCount)
+            val error = UsbExclusiveNative.writeIsoPackets(
+                epoch,
+                sessionId,
+                data,
+                packetLengths,
+                packetCount,
+            )
             if (error != null) {
                 throw UsbExclusiveTransportException(error)
             }
@@ -134,6 +152,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         target = resolvedTarget
         packetizer = newPacketizer
         currentFormat = requestedFormat
+        requestEpoch = epoch
+        nativeSessionId = sessionId
         UsbDiagnostics.i(
             TAG,
             "opened sampleRate=$sampleRate channels=$channels bitDepth=$bitDepth " +
@@ -149,6 +169,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
      */
     @Synchronized
     fun openDsd(
+        epoch: Long,
         usbManager: UsbManager,
         device: UsbDevice,
         dsdSampleRate: Int,
@@ -165,6 +186,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         val existing = currentDsdFormat
         if (
             connection != null &&
+            requestEpoch == epoch &&
             this.device?.deviceId == device.deviceId &&
             existing?.dsdSampleRate == dsdSampleRate &&
             existing.channels == channels &&
@@ -264,7 +286,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
                 "feedback=${target.feedbackEndpointLabel} dsdSampleRate=$dsdSampleRate frameRate=$frameRate " +
                 "nativeFormat=${nativeFormat ?: "n/a"} format=${target.formatInfo}",
         )
-        val openError = UsbExclusiveNative.open(
+        val openedNative = UsbExclusiveNative.open(
+            epoch,
             openedConnection.fileDescriptor,
             target.usbInterface.id,
             target.alternateSetting,
@@ -274,10 +297,11 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             target.feedbackEndpoint?.maxPacketSize ?: 0,
             false,
         )
-        if (openError != null) {
+        if (openedNative.error != null || openedNative.sessionId == null) {
             openedConnection.close()
-            return DsdOpenResult(error = openError)
+            return DsdOpenResult(error = openedNative.error ?: "Native USB open returned no session id.")
         }
+        val sessionId = openedNative.sessionId
 
         // Reference rule: UAC clock is the DSD container frame rate (DoP DSD/16; native
         // DSD/8/subslotBytes), never the raw DSD byte rate.
@@ -289,7 +313,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             quirk = quirk,
         )
         if (clockError != null) {
-            UsbExclusiveNative.close()
+            UsbExclusiveNative.close(epoch, sessionId)
             openedConnection.close()
             return DsdOpenResult(error = clockError)
         }
@@ -302,7 +326,11 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             channels = channels,
             bytesPerSample = usbBytesPerSample,
         )
-        UsbExclusiveNative.setIsoPacketSize(packetBytes)
+        UsbExclusiveNative.setIsoPacketSize(epoch, sessionId, packetBytes)?.let {
+            UsbExclusiveNative.close(epoch, sessionId)
+            openedConnection.close()
+            return DsdOpenResult(error = it)
+        }
         val dsdPacketizer = UsbPcmIsoPacketizer(
             sampleRate = frameRate,
             packetsPerSecond = target.packetsPerSecond,
@@ -313,11 +341,17 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             usbBitResolution = usbBitResolution,
             feedbackOutputPacketDivisor = 1,
             feedbackFramesPerPacketQ16 = target.feedbackEndpoint?.let {
-                { UsbExclusiveNative.feedbackFramesPerPacketQ16() }
+                { UsbExclusiveNative.feedbackFramesPerPacketQ16(epoch, sessionId) }
             },
             volumeGainQ16 = null,
         ) { data, packetLengths, packetCount ->
-            val error = UsbExclusiveNative.writeIsoPackets(data, packetLengths, packetCount)
+            val error = UsbExclusiveNative.writeIsoPackets(
+                epoch,
+                sessionId,
+                data,
+                packetLengths,
+                packetCount,
+            )
             if (error != null) {
                 throw UsbExclusiveTransportException(error)
             }
@@ -337,6 +371,8 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         currentFormat = null
         currentDsdFormat = dsdFormat
         dsdEncoder = checkNotNull(encoder)
+        requestEpoch = epoch
+        nativeSessionId = sessionId
         UsbDiagnostics.i(TAG, "opened DSD session $dsdFormat")
         return DsdOpenResult(format = dsdFormat)
     }
@@ -457,7 +493,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
 
     @Synchronized
     fun telemetry(): TransportTelemetry {
-        val values = UsbExclusiveNative.transportTelemetry()
+        val values = UsbExclusiveNative.transportTelemetry(requestEpoch, nativeSessionId)
         return TransportTelemetry(
             pendingIsoPackets = values.getOrElse(0) { 0L },
             totalIsoPackets = values.getOrElse(1) { 0L },
@@ -488,12 +524,14 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         currentDsdFormat = null
         dsdEncoder = null
         if (connection != null) {
-            UsbExclusiveNative.close()
+            UsbExclusiveNative.close(requestEpoch, nativeSessionId)
             connection?.close()
             connection = null
             UsbDiagnostics.i(TAG, "closed")
         }
         device = null
+        requestEpoch = 0L
+        nativeSessionId = 0L
     }
 
     private fun startDsdIdleFillerLocked() {
