@@ -105,6 +105,38 @@ class UsbHybridSessionOwnerTest {
     }
 
     @Test
+    fun failedReconfigureRetiresPreviousSessionAndClearsActiveFacts() {
+        val effects = RecordingEffects()
+        UsbHybridSessionOwner(effects).use { owner ->
+            val epoch = owner.request(UsbExclusiveMode.USB_DOP, sk02, runtimeA)
+            effects.awaitPermissionRequest()
+            owner.onPermissionResult(
+                UsbPermissionResult(epoch, UsbExclusiveMode.USB_DOP, sk02, runtimeA, granted = true),
+            )
+            owner.awaitIdle()
+            owner.requestOpen(epoch, UsbStreamFormat.Dsd(2_822_400, 2, native = false)).get()
+
+            effects.nextOpenResult = UsbOpenResult(
+                failure = UsbFailure("DOP_OPEN_FAILED", "DSD256 exceeds the verified DoP limit."),
+            )
+            val failed = owner.requestOpen(
+                epoch,
+                UsbStreamFormat.Dsd(11_289_600, 2, native = false),
+            ).get()
+
+            assertEquals(listOf(71L), effects.closedSessionIds)
+            assertNull(failed.activeMode)
+            assertNull(failed.sessionId)
+            assertFalse(failed.claimed)
+            assertFalse(failed.exclusive)
+            assertFalse(failed.transportExact)
+            assertFalse(failed.signalExact)
+            assertNull(failed.streamFormat)
+            assertEquals("DOP_OPEN_FAILED", failed.failure?.code)
+        }
+    }
+
+    @Test
     fun simultaneousRequestsPublishMonotonicEpochsToNativeAndFacts() {
         val effects = RecordingEffects()
         UsbHybridSessionOwner(effects).use { owner ->
@@ -172,6 +204,7 @@ class UsbHybridSessionOwnerTest {
         val publishedEpochs = mutableListOf<Long>()
         val closedSessionIds = mutableListOf<Long>()
         @Volatile var openCount = 0
+        @Volatile var nextOpenResult: UsbOpenResult? = null
 
         override fun publishActiveEpoch(epoch: UsbRequestEpoch) {
             synchronized(publishedEpochs) { publishedEpochs += epoch.value }
@@ -185,7 +218,14 @@ class UsbHybridSessionOwnerTest {
             openCount += 1
             openStarted?.countDown()
             allowOpen?.await(2, TimeUnit.SECONDS)
-            return UsbOpenResult(UsbTransportSessionId(request.epoch, 71L), claimed = true)
+            return nextOpenResult?.also { nextOpenResult = null }
+                ?: UsbOpenResult(
+                    sessionId = UsbTransportSessionId(request.epoch, 71L),
+                    claimed = true,
+                    transportExact = true,
+                    signalExact = true,
+                    streamFormat = "test",
+                )
         }
 
         override fun close(sessionId: UsbTransportSessionId) {

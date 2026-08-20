@@ -33,8 +33,13 @@ class PlaybackArchitectureTest {
             .copy(fileName = "track.dsf", filePath = "Music/track.dsf")
         val dff = SongFixtures.song("dff", container = "DSD", mime = "audio/x-dsdiff")
             .copy(fileName = "track.dff", filePath = "Music/track.dff")
+        val dsfWithProviderSuffix = dsf.copy(
+            fileName = "track.dsf.dsd",
+            filePath = "Music/track.dsf.dsd",
+        )
 
         assertTrue(PlaybackRouter.decide(dsf) is PlaybackRouteDecision.Supported)
+        assertTrue(PlaybackRouter.decide(dsfWithProviderSuffix) is PlaybackRouteDecision.Supported)
         val dffRoute = PlaybackRouter.decide(dff)
         assertTrue(dffRoute is PlaybackRouteDecision.Unsupported)
         assertEquals(

@@ -121,8 +121,11 @@ class UsbHybridSessionOwner(
     ): CompletableFuture<UsbPlaybackFacts> {
         val completion = CompletableFuture<UsbPlaybackFacts>()
         control.execute {
-            val target = synchronized(publicationLock) {
-                authorizedTarget?.takeIf { it.epoch == expectedEpoch && epoch == expectedEpoch && !released }
+            val (target, previousSession) = synchronized(publicationLock) {
+                val currentTarget = authorizedTarget?.takeIf {
+                    it.epoch == expectedEpoch && epoch == expectedEpoch && !released
+                }
+                currentTarget to activeSession
             }
             if (target == null || !isCurrent(expectedEpoch)) {
                 completion.complete(facts.value)
@@ -139,10 +142,10 @@ class UsbHybridSessionOwner(
                     ),
                 )
             } catch (error: Throwable) {
-                publishFailureIfCurrent(
+                retireFailedOpen(
                     expectedEpoch,
-                    "OPEN_FAILED",
-                    error.message ?: "USB open failed.",
+                    previousSession,
+                    UsbFailure("OPEN_FAILED", error.message ?: "USB open failed."),
                 )
                 completion.complete(facts.value)
                 return@execute
@@ -155,7 +158,7 @@ class UsbHybridSessionOwner(
             }
             if (session == null) {
                 val failure = opened.failure ?: UsbFailure("OPEN_FAILED", "USB open returned no session.")
-                publishFailureIfCurrent(expectedEpoch, failure.code, failure.message)
+                retireFailedOpen(expectedEpoch, previousSession, failure)
                 completion.complete(facts.value)
                 return@execute
             }
@@ -311,6 +314,35 @@ class UsbHybridSessionOwner(
         synchronized(publicationLock) {
             if (this.epoch != epoch || released) return
             publishFactsLocked(mutableFacts.value.copy(failure = UsbFailure(code, message)))
+        }
+    }
+
+    private fun retireFailedOpen(
+        expectedEpoch: UsbRequestEpoch,
+        previousSession: UsbTransportSessionId?,
+        failure: UsbFailure,
+    ) {
+        // The transport may already have closed the prior session while trying the new format.
+        // Cleanup is nevertheless identity-scoped and unconditional; a stale close cannot affect a winner.
+        if (previousSession != null) effects.close(previousSession)
+        synchronized(publicationLock) {
+            if (epoch != expectedEpoch || released) return
+            if (activeSession == previousSession) activeSession = null
+            publishFactsLocked(mutableFacts.value.copy(
+                activeMode = null,
+                sessionId = null,
+                claimed = false,
+                exclusive = false,
+                transportExact = false,
+                signalExact = false,
+                sourceEncoding = null,
+                usbBitResolution = null,
+                sampleRate = null,
+                channels = null,
+                streamFormat = null,
+                telemetry = null,
+                failure = failure,
+            ))
         }
     }
 

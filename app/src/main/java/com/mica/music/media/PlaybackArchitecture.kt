@@ -75,8 +75,13 @@ object PlaybackRouter {
     fun unsupportedMessage(song: Song): String? =
         (decide(song) as? PlaybackRouteDecision.Unsupported)?.userMessage
 
-    private fun isDsfFile(song: Song): Boolean =
-        song.fileName.substringAfterLast('.', "").equals("dsf", ignoreCase = true)
+    private fun isDsfFile(song: Song): Boolean {
+        val extension = song.fileName.substringAfterLast('.', "")
+        val mime = song.metadata.playbackMimeType
+        return extension.equals("dsf", ignoreCase = true) ||
+            mime.equals("audio/x-dsf", ignoreCase = true) ||
+            mime.equals("audio/dsf", ignoreCase = true)
+    }
 
     private fun isApeFile(song: Song): Boolean {
         val extension = song.fileName.substringAfterLast('.', "").lowercase()
