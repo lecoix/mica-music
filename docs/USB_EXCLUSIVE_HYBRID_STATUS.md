@@ -35,26 +35,29 @@ P1 and rewrite results are design input only and are never counted as Hybrid PAS
 - Reference transport packetizer, DSF converter, DoP/Native encoder, quirk and Native-candidate
   tests pass.
 - A 72-hour exact-cadence projection and 32 x 100,000-packet fixed-seed cadence stress pass.
-- A forced full Debug JVM run passes: 1,256 tests, zero failures/errors and nine skipped tests. The
+- A forced full Debug JVM run passes: 1,258 tests, zero failures/errors and nine skipped tests. The
   DSD decoder module currently has no JVM test sources.
 - Debug, Perf and unsigned Release APK builds pass.
 - The FFmpeg arm64 JNI library was rebuilt from the changed Java/JNI contract with PCM32 output.
 - Final local artifact SHA-256 values:
-  - Debug: `1FEEEA5FC1B2AE3EC947D8B3C07EA485D08E3F749FA81F6427ADD61E700655E3`
-  - Perf: `5D3F8315EE61A708D0DE7181E75E7FB2C1A74CDB77A07988FF98663330DEB583`
-  - unsigned Release: `FE15EA73374A7101C8F0F298C93265DB67D7F9376AC55F6996D62815348B2F35`
+  - Debug: `0481C2E5B41DF1B955CE454E0FCE274C897CABE468D74E7F92781A82567972EC`
+  - Perf: `6A4182DFCC1E94D4267C50F1C4B8B325EA6B3436BD9A0069404DD84CB8967F37`
+  - unsigned Release: `9D6F8041E2C0679110A1C00DA165A6117F2E9AA87962091405925D06F4EF70EE`
 
 ## Hybrid physical evidence obtained
 
 Test device: Redmi `22081212C`, Android 12 / API 31, build
 `Redmi/diting/diting:12/SKQ1.220303.001/V13.0.7.0.SLFCNXM:user/release-keys`. The connected target
 was `Speed Dragon / Fosi Audio SK02`, USB address `/dev/bus/usb/002/002`, with no serial exposed.
-The final run started at 77% battery and 37.8 C battery temperature.
+The final Native stability attempt started at 33% battery and 38.3 C battery temperature.
 
 - The final Debug APK was installed and read back from `/data/app`; its device SHA-256 exactly
-  matched `1FEEEA...655E3` above.
+  matched `0481C2...72EC` above.
 - PCM short runs passed for 44.1 kHz/PCM16 and 48 kHz/PCM32, including pause/resume, seek, track
   change and manual Shared PCM <-> USB switching. Shared PCM regained the device after USB close.
+- A 96 kHz/24-bit FLAC source (`01.HALO.flac`) was decoded to integer PCM32 and opened the exact
+  96 kHz/32-bit SK02 alternate setting. Native write telemetry increased by 768,000 bytes/second,
+  exactly 96,000 frames x two channels x four bytes, with eight pending URBs and no USB error.
 - USB mode changes exposed and then validated a real retirement race. The fixed protocol releases
   the old Exo/USB stack before minting the replacement epoch, treats stale in-flight writes as
   retired rather than playback failures, and aborts rather than opening a new USB session if the
@@ -72,6 +75,17 @@ The final run started at 77% battery and 37.8 C battery temperature.
   URBs with no media-session error. Native pause started the idle writer, resume advanced position,
   and Native DSD -> PCM16/44.1 kHz -> Native DSD transitions each closed/reopened the appropriate
   transport without playback exceptions.
+- Media3 controller seeks on the Native DSF moved playback approximately +30 seconds and -30
+  seconds; position then continued advancing with no media-session error.
+- Repeating Native DSF -> ALAC PCM exposed a deterministic natural-transition failure: the PCM
+  renderer could already be STARTED before its sink was configured, but `configure()` cleared the
+  sink's playing state. The first PCM buffer then remained paused and Media3's stuck-player guard
+  fired after ten seconds. The sink now preserves an already-STARTED state across configure and,
+  when a same-epoch DSD session has retired its old PCM session id, reopens PCM once before retrying
+  the first write. Deterministic tests cover both interleavings and forbid reopening after a newer
+  epoch. On the final installed APK, the formerly failing DSD -> PCM transition closed Native,
+  opened PCM32/44.1 kHz, and advanced continuously from 1.395 to 44.137 seconds without a stuck
+  error.
 - Force-stopping the process during the USB test and starting a new process preserved a paused
   queue/position. The new process then reclaimed SK02 and sustained eight pending URBs without a
   media-session error. This proves that no leftover state prevented a subsequent exclusive open;
@@ -101,16 +115,20 @@ The final run started at 77% battery and 37.8 C battery temperature.
 These are short functional runs, not stability qualification. RAW_DATA framing remains unproven,
 the Native profile remains experimental, and these results do not authorize `signalExact=true`.
 
+A Native DSD64 single-track repeat stability attempt reached 15 minutes with four clean natural
+repeat boundaries, zero new playback/USB errors, about 199 MB total PSS / 181 MB total RSS, and
+battery temperature falling from 38.3 C to 34.0 C. Battery fell from 33% to 27% while the DAC
+occupied USB-C, projecting power loss before 90 minutes, so the run was deliberately stopped and
+is classified INCOMPLETE, not PASS. A full rerun requires simultaneous phone power (wireless
+charging or a powered OTG hub) and must start again at minute zero.
+
 ## Not yet accepted
 
 The following remain PENDING and must not be described as PASS, release-ready, verified, or
 signal-exact based on old branches:
 
-- PCM 96 kHz and a new PCM32 source-specific fixture on the final installed APK;
 - playing detach/retry repeated at a non-boundary position, to isolate same-item position recovery
   from the observed near-end `StuckPlayerDetector` path;
-- DSD seek on hardware. Two attempted injected gestures did not move the UI progress bar and are
-  classified as NOT EXECUTED, not PASS;
 - byte-level DoP marker continuity and direct proof that idle stop/join completed before resumed
   content. Short behavior passed, but the log did not emit a stop/join milestone;
 - DAC lock/rate indicator and listening observations for DoP and Native;
