@@ -74,11 +74,19 @@ data class UsbOpenRequest(
     val mode: UsbExclusiveMode,
     val identity: UsbStableIdentity,
     val runtimeHandle: UsbRuntimeHandle,
+    val format: UsbStreamFormat,
 )
 
+sealed interface UsbStreamFormat {
+    data class Pcm(val sampleRate: Int, val channels: Int, val bitDepth: Int) : UsbStreamFormat
+
+    data class Dsd(val sampleRate: Int, val channels: Int, val native: Boolean) : UsbStreamFormat
+}
+
 data class UsbOpenResult(
-    val sessionId: UsbTransportSessionId,
-    val claimed: Boolean,
+    val sessionId: UsbTransportSessionId? = null,
+    val claimed: Boolean = false,
+    val failure: UsbFailure? = null,
 )
 
 interface UsbHybridControlEffects {

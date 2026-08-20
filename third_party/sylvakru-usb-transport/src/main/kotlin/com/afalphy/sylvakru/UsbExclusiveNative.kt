@@ -34,6 +34,8 @@ object UsbExclusiveNative {
 
     external fun publishActiveEpoch(epoch: Long)
 
+    external fun isCurrent(epoch: Long, sessionId: Long): Boolean
+
     private external fun openRaw(
         epoch: Long,
         fd: Int,

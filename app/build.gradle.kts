@@ -214,6 +214,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.reorderable)
     implementation(project(":taglib"))
+    implementation(project(":sylvakru-usb-transport"))
     implementation(libs.jaudiotagger)
     implementation(libs.blurview)
 

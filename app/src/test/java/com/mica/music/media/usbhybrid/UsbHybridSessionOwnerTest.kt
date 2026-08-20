@@ -35,6 +35,29 @@ class UsbHybridSessionOwnerTest {
     }
 
     @Test
+    fun permissionResultFromReplacedRuntimeTargetFailsClosed() {
+        val effects = RecordingEffects()
+        UsbHybridSessionOwner(effects).use { owner ->
+            val epoch = owner.request(UsbExclusiveMode.USB_EXACT_PCM, sk02, runtimeA)
+            effects.awaitPermissionRequest()
+            owner.onPermissionResult(
+                UsbPermissionResult(
+                    epoch,
+                    UsbExclusiveMode.USB_EXACT_PCM,
+                    sk02.copy(descriptorDigest = "descriptor-replacement"),
+                    runtimeA,
+                    granted = true,
+                ),
+            )
+            owner.awaitIdle()
+
+            assertEquals("TARGET_CHANGED", owner.facts.value.failure?.code)
+            assertEquals(PermissionState.DENIED, owner.facts.value.permission)
+            assertEquals(0, effects.openCount)
+        }
+    }
+
+    @Test
     fun openThatFinishesAfterSupersedeIsClosedWithoutPublishingActiveFacts() {
         val openStarted = CountDownLatch(1)
         val allowOpen = CountDownLatch(1)
@@ -45,6 +68,8 @@ class UsbHybridSessionOwnerTest {
             owner.onPermissionResult(
                 UsbPermissionResult(oldEpoch, UsbExclusiveMode.USB_EXACT_PCM, sk02, runtimeA, granted = true),
             )
+            owner.awaitIdle()
+            owner.requestOpen(oldEpoch, UsbStreamFormat.Pcm(96_000, 2, 32))
             assertTrue(openStarted.await(2, TimeUnit.SECONDS))
 
             owner.request(UsbExclusiveMode.SHARED_PCM, null, null)
@@ -66,6 +91,8 @@ class UsbHybridSessionOwnerTest {
             owner.onPermissionResult(
                 UsbPermissionResult(epoch, UsbExclusiveMode.USB_EXACT_PCM, sk02, runtimeA, granted = true),
             )
+            owner.awaitIdle()
+            owner.requestOpen(epoch, UsbStreamFormat.Pcm(96_000, 2, 32))
             owner.awaitIdle()
 
             owner.onDetached(UsbRuntimeHandle(99, "/dev/bus/usb/001/099"))

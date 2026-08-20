@@ -531,6 +531,13 @@ Java_com_afalphy_sylvakru_UsbExclusiveNative_publishActiveEpoch(
         std::memory_order_relaxed)) {}
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_afalphy_sylvakru_UsbExclusiveNative_isCurrent(
+    JNIEnv*, jobject, jlong epoch, jlong session_id) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return isCurrentLocked(epoch, session_id) ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_afalphy_sylvakru_UsbExclusiveNative_lastError(JNIEnv* env, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);

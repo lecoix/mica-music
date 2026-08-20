@@ -28,6 +28,7 @@ class UsbHybridSessionOwner(
     private var epoch = UsbRequestEpoch(0L)
     private var discoveryRevision = UsbDiscoveryRevision(0L)
     private var pending: UsbPermissionRequest? = null
+    private var authorizedTarget: UsbPermissionRequest? = null
     private var activeSession: UsbTransportSessionId? = null
     private var released = false
 
@@ -61,7 +62,24 @@ class UsbHybridSessionOwner(
     fun onPermissionResult(result: UsbPermissionResult) {
         control.execute {
             val expected = synchronized(publicationLock) { pending }
-            if (!matches(expected, result) || !isCurrent(result.epoch)) return@execute
+            if (expected == null || expected.epoch != result.epoch || !isCurrent(result.epoch)) {
+                return@execute
+            }
+            if (!matches(expected, result)) {
+                synchronized(publicationLock) {
+                    if (epoch != result.epoch || pending != expected || released) return@synchronized
+                    pending = null
+                    authorizedTarget = null
+                    mutableFacts.value = mutableFacts.value.copy(
+                        permission = PermissionState.DENIED,
+                        failure = UsbFailure(
+                            "TARGET_CHANGED",
+                            "USB target identity or runtime handle changed during permission.",
+                        ),
+                    )
+                }
+                return@execute
+            }
             if (!result.granted) {
                 synchronized(publicationLock) {
                     if (!matches(pending, result) || epoch != result.epoch || released) return@synchronized
@@ -79,28 +97,68 @@ class UsbHybridSessionOwner(
                 mutableFacts.value = mutableFacts.value.copy(permission = PermissionState.GRANTED)
             }
             if (!isCurrent(result.epoch)) return@execute
-            val opened = effects.open(
-                UsbOpenRequest(result.epoch, result.mode, result.identity, result.runtimeHandle),
-            )
-            if (!isCurrent(result.epoch)) {
-                effects.close(opened.sessionId)
-                return@execute
-            }
             synchronized(publicationLock) {
-                if (epoch != result.epoch || released || !matches(pending, result)) {
-                    effects.close(opened.sessionId)
-                    return@synchronized
-                }
+                if (epoch != result.epoch || released || !matches(pending, result)) return@synchronized
                 pending = null
-                activeSession = opened.sessionId
+                authorizedTarget = expected
                 mutableFacts.value = mutableFacts.value.copy(
-                    activeMode = result.mode,
-                    sessionId = opened.sessionId.nativeId,
-                    claimed = opened.claimed,
-                    exclusive = opened.claimed,
+                    permission = PermissionState.GRANTED,
                     failure = null,
                 )
             }
+        }
+    }
+
+    fun requestOpen(expectedEpoch: UsbRequestEpoch, format: UsbStreamFormat) {
+        control.execute {
+            val target = synchronized(publicationLock) {
+                authorizedTarget?.takeIf { it.epoch == expectedEpoch && epoch == expectedEpoch && !released }
+            } ?: return@execute
+            if (!isCurrent(expectedEpoch)) return@execute
+            val opened = try {
+                effects.open(
+                    UsbOpenRequest(
+                        target.epoch,
+                        target.mode,
+                        target.identity,
+                        target.runtimeHandle,
+                        format,
+                    ),
+                )
+            } catch (error: Throwable) {
+                publishFailureIfCurrent(
+                    expectedEpoch,
+                    "OPEN_FAILED",
+                    error.message ?: "USB open failed.",
+                )
+                return@execute
+            }
+            val session = opened.sessionId
+            if (!isCurrent(expectedEpoch)) {
+                if (session != null) effects.close(session)
+                return@execute
+            }
+            if (session == null) {
+                val failure = opened.failure ?: UsbFailure("OPEN_FAILED", "USB open returned no session.")
+                publishFailureIfCurrent(expectedEpoch, failure.code, failure.message)
+                return@execute
+            }
+            var stale = false
+            synchronized(publicationLock) {
+                if (epoch != expectedEpoch || released || authorizedTarget != target) {
+                    stale = true
+                } else {
+                    activeSession = session
+                    mutableFacts.value = mutableFacts.value.copy(
+                        activeMode = target.mode,
+                        sessionId = session.nativeId,
+                        claimed = opened.claimed,
+                        exclusive = opened.claimed,
+                        failure = null,
+                    )
+                }
+            }
+            if (stale) effects.close(session)
         }
     }
 
@@ -148,6 +206,7 @@ class UsbHybridSessionOwner(
             epoch = UsbRequestEpoch(epoch.value + 1L)
             effects.publishActiveEpoch(epoch)
             pending = null
+            authorizedTarget = null
             mutableFacts.value = mutableFacts.value.copy(
                 requestEpoch = epoch.value,
                 activeMode = null,
@@ -171,6 +230,7 @@ class UsbHybridSessionOwner(
         epoch = UsbRequestEpoch(epoch.value + 1L)
         effects.publishActiveEpoch(epoch)
         pending = null
+        authorizedTarget = null
         mutableFacts.value = UsbPlaybackFacts(
             requestEpoch = epoch.value,
             discoveryRevision = discoveryRevision.value,

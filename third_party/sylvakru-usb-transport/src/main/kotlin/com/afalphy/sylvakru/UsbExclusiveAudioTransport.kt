@@ -94,6 +94,11 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         val sessionId = openedNative.sessionId
 
         val quirk = UsbDacQuirks.forDevice(appContext, device.vendorId, device.productId)
+        if (!UsbExclusiveNative.isCurrent(epoch, sessionId)) {
+            UsbExclusiveNative.close(epoch, sessionId)
+            openedConnection.close()
+            return "USB request became stale before clock configuration."
+        }
         val clockError = UsbStreamingTargetResolver.configureUsbAudioClock(
             connection = openedConnection,
             device = device,
@@ -105,6 +110,11 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             UsbExclusiveNative.close(epoch, sessionId)
             openedConnection.close()
             return clockError
+        }
+        if (!UsbExclusiveNative.isCurrent(epoch, sessionId)) {
+            UsbExclusiveNative.close(epoch, sessionId)
+            openedConnection.close()
+            return "USB request became stale after clock configuration."
         }
 
         val inputBytesPerSample = bytesPerSampleForBitDepth(bitDepth)
@@ -317,6 +327,11 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             openedConnection.close()
             return DsdOpenResult(error = clockError)
         }
+        if (!UsbExclusiveNative.isCurrent(epoch, sessionId)) {
+            UsbExclusiveNative.close(epoch, sessionId)
+            openedConnection.close()
+            return DsdOpenResult(error = "USB request became stale after clock configuration.")
+        }
 
         val usbBytesPerSample = target.usbBytesPerSample
         val usbBitResolution = target.usbBitResolution ?: (usbBytesPerSample * 8)
@@ -513,6 +528,10 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
 
     @Synchronized
     fun device(): UsbDevice? = device
+
+    @Synchronized
+    fun sessionToken(): Pair<Long, Long>? =
+        if (requestEpoch > 0L && nativeSessionId > 0L) requestEpoch to nativeSessionId else null
 
     @Synchronized
     override fun close() {
