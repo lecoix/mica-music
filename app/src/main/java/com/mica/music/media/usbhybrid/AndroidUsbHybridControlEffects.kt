@@ -23,6 +23,8 @@ class AndroidUsbHybridControlEffects(
     private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
     private val pendingRequests = ConcurrentHashMap<Long, UsbPermissionRequest>()
     private val transport = UsbExclusiveAudioTransport(appContext)
+    @Volatile
+    private var publishedEpoch: Long = 0L
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -90,6 +92,7 @@ class AndroidUsbHybridControlEffects(
     }
 
     override fun publishActiveEpoch(epoch: UsbRequestEpoch) {
+        publishedEpoch = epoch.value
         if (System.getProperty("java.vm.name") != "Dalvik") return
         // Production ART remains fail-fast. Host/Robolectric cannot load an arm64 Android .so and
         // exercises owner ordering through injected effects instead.
@@ -258,11 +261,11 @@ class AndroidUsbHybridControlEffects(
         }
     }
 
-    override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): String? =
-        transport.writePcm(sessionId.epoch.value, sessionId.nativeId, data)
+    override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.writePcm(sessionId.epoch.value, sessionId.nativeId, data))
 
-    override fun finishPcm(sessionId: UsbTransportSessionId): String? =
-        transport.finishStream(sessionId.epoch.value, sessionId.nativeId)
+    override fun finishPcm(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.finishStream(sessionId.epoch.value, sessionId.nativeId))
 
     override fun resetPcmForSeek(sessionId: UsbTransportSessionId) {
         transport.resetForSeek(sessionId.epoch.value, sessionId.nativeId)
@@ -278,20 +281,23 @@ class AndroidUsbHybridControlEffects(
         )
     }
 
-    override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): String? =
-        transport.writeDsd(sessionId.epoch.value, sessionId.nativeId, data)
+    override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.writeDsd(sessionId.epoch.value, sessionId.nativeId, data))
 
-    override fun prepareDsdSeek(sessionId: UsbTransportSessionId): String? =
-        transport.prepareDsdSeek(sessionId.epoch.value, sessionId.nativeId)
+    override fun prepareDsdSeek(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.prepareDsdSeek(sessionId.epoch.value, sessionId.nativeId))
 
-    override fun pauseDsd(sessionId: UsbTransportSessionId): String? =
-        transport.pauseDsd(sessionId.epoch.value, sessionId.nativeId)
+    override fun pauseDsd(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.pauseDsd(sessionId.epoch.value, sessionId.nativeId))
 
-    override fun resumeDsd(sessionId: UsbTransportSessionId): String? =
-        transport.resumeDsd(sessionId.epoch.value, sessionId.nativeId)
+    override fun resumeDsd(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.resumeDsd(sessionId.epoch.value, sessionId.nativeId))
 
-    override fun finishDsd(sessionId: UsbTransportSessionId): String? =
-        transport.finishDsdStream(sessionId.epoch.value, sessionId.nativeId)
+    override fun finishDsd(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.finishDsdStream(sessionId.epoch.value, sessionId.nativeId))
+
+    private fun realtimeResult(sessionId: UsbTransportSessionId, error: String?): UsbRealtimeResult =
+        classifyUsbRealtimeResult(error, sessionId.epoch.value, publishedEpoch)
 
     fun discoverSk02(): Sk02Selection = Sk02TargetSelector.select(
         usbManager.deviceList.values.map(AndroidUsbIdentityProbe::candidate),

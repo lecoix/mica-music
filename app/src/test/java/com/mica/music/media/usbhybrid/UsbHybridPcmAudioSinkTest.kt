@@ -14,6 +14,13 @@ import org.junit.Test
 
 class UsbHybridPcmAudioSinkTest {
     @Test
+    fun transportClosedErrorIsRetiredOnlyAfterEpochChanges() {
+        val error = "USB exclusive PCM transport is not open."
+        assertEquals(UsbRealtimeResult.Failed(error), classifyUsbRealtimeResult(error, 4L, 4L))
+        assertEquals(UsbRealtimeResult.Retired, classifyUsbRealtimeResult(error, 4L, 5L))
+    }
+
+    @Test
     fun advertisesPcm16AndPcm32ButNotFloatOrPcm24() {
         val fixture = fixture()
         fixture.use {
@@ -40,6 +47,20 @@ class UsbHybridPcmAudioSinkTest {
             it.sink.play()
             assertTrue(it.sink.handleBuffer(second, 1_000L, 1))
             assertEquals(2, it.realtime.writes.size)
+        }
+    }
+
+    @Test
+    fun retiredInFlightWriteIsConsumedWithoutBecomingPlaybackFailure() {
+        val fixture = fixture()
+        fixture.use {
+            it.sink.configure(format(C.ENCODING_PCM_16BIT), 0, null)
+            it.sink.play()
+            it.realtime.nextWriteResult = UsbRealtimeResult.Retired
+            val buffer = ByteBuffer.wrap(ByteArray(8) { 3 })
+
+            assertTrue(it.sink.handleBuffer(buffer, 0L, 1))
+            assertEquals(buffer.limit(), buffer.position())
         }
     }
 
@@ -84,18 +105,19 @@ class UsbHybridPcmAudioSinkTest {
 
     private class Realtime : UsbHybridRealtimePort {
         val writes = mutableListOf<ByteArray>()
-        override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): String? {
+        var nextWriteResult: UsbRealtimeResult = UsbRealtimeResult.Success
+        override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult {
             writes += data
-            return null
+            return nextWriteResult.also { nextWriteResult = UsbRealtimeResult.Success }
         }
-        override fun finishPcm(sessionId: UsbTransportSessionId): String? = null
+        override fun finishPcm(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Success
         override fun resetPcmForSeek(sessionId: UsbTransportSessionId) = Unit
         override fun telemetry(sessionId: UsbTransportSessionId) = UsbRealtimeTelemetry(0, 0, 0, 0)
-        override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray) = "not-used"
-        override fun prepareDsdSeek(sessionId: UsbTransportSessionId) = "not-used"
-        override fun pauseDsd(sessionId: UsbTransportSessionId) = "not-used"
-        override fun resumeDsd(sessionId: UsbTransportSessionId) = "not-used"
-        override fun finishDsd(sessionId: UsbTransportSessionId) = "not-used"
+        override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray) = UsbRealtimeResult.Failed("not-used")
+        override fun prepareDsdSeek(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
+        override fun pauseDsd(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
+        override fun resumeDsd(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
+        override fun finishDsd(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
     }
 
     private data class Fixture(

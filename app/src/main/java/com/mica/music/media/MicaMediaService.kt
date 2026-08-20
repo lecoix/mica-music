@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
@@ -86,6 +87,7 @@ class MicaMediaService : MediaSessionService() {
     private var usbOwner: UsbHybridSessionOwner? = null
     private var usbFactsJob: Job? = null
     private var activeUsbEpoch: Long? = null
+    private var pendingUsbHandoff: PlaybackStackHandoff? = null
     private val usbTelemetrySampler = object : Runnable {
         override fun run() {
             val owner = usbOwner ?: return
@@ -200,13 +202,13 @@ class MicaMediaService : MediaSessionService() {
 
     private fun applyUsbOutputMode(mode: UsbHybridOutputMode, reason: String) {
         val owner = usbOwner ?: return
-        if (mode == UsbHybridOutputMode.SharedPcm) {
-            owner.request(UsbExclusiveMode.SHARED_PCM, null, null)
-            owner.awaitIdle()
-            rebuildPlaybackStack(AudioOutputPathConfig.PRODUCTION, null, reason)
+        if (mode == UsbHybridOutputMode.SharedPcm &&
+            activeOutputPath == AudioOutputPathConfig.PRODUCTION &&
+            exoPlayer != null && pendingUsbHandoff == null
+        ) {
             return
         }
-        val selection = usbEffects?.discoverSk02()
+        val selection = if (mode == UsbHybridOutputMode.SharedPcm) null else usbEffects?.discoverSk02()
         val candidate = (selection as? Sk02Selection.Selected)?.candidate
         val requested = when (mode) {
             UsbHybridOutputMode.SharedPcm -> UsbExclusiveMode.SHARED_PCM
@@ -215,11 +217,63 @@ class MicaMediaService : MediaSessionService() {
             UsbHybridOutputMode.NativeDsdExperimental ->
                 UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL
         }
-        owner.request(requested, candidate?.identity, candidate?.runtimeHandle)
+        val capturedHandoff = capturePlaybackStackHandoff() ?: pendingUsbHandoff
+        val transition = runCatching {
+            UsbOutputModeSwitchProtocol.retireThenRequest(
+                capture = { capturedHandoff },
+                retire = ::retirePlaybackStackBeforeUsbRequest,
+                request = { owner.request(requested, candidate?.identity, candidate?.runtimeHandle) },
+            )
+        }.getOrElse { error ->
+            pendingUsbHandoff = capturedHandoff
+            owner.failRequest(
+                requested,
+                candidate?.identity,
+                candidate?.runtimeHandle,
+                com.mica.music.media.usbhybrid.UsbFailure(
+                    "STACK_RELEASE_FAILED",
+                    error.message ?: "Old playback stack did not release cleanly.",
+                ),
+            )
+            DiagnosticLog.event(
+                "AudioOutputPath",
+                "switch-aborted reason=$reason mode=$requested release=${error.message}",
+            )
+            return
+        }
+        val (handoff, epoch) = transition
+        pendingUsbHandoff = handoff
+        if (mode == UsbHybridOutputMode.SharedPcm) {
+            owner.awaitIdle()
+            rebuildPlaybackStack(AudioOutputPathConfig.PRODUCTION, null, reason, handoff)
+            return
+        }
         DiagnosticLog.event(
             "UsbHybrid",
-            "request mode=$requested reason=$reason selection=${selection?.javaClass?.simpleName}",
+            "request mode=$requested epoch=${epoch.value} reason=$reason " +
+                "selection=${selection?.javaClass?.simpleName}",
         )
+    }
+
+    private fun retirePlaybackStackBeforeUsbRequest() {
+        val oldExo = exoPlayer
+        var releaseError: PlaybackException? = null
+        val releaseObserver = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                releaseError = error
+            }
+        }
+        oldExo?.addListener(releaseObserver)
+        releasePlaybackStackOwners()
+        oldExo?.release()
+        exoPlayer = null
+        compositePlayer = null
+        releaseError?.let { error ->
+            throw IllegalStateException(
+                "Old ExoPlayer release failed: ${error.cause?.message ?: error.message}",
+                error,
+            )
+        }
     }
 
     private fun handleUsbFacts(facts: UsbPlaybackFacts) {
@@ -240,6 +294,7 @@ class MicaMediaService : MediaSessionService() {
             targetPath,
             UsbHybridPlaybackBinding(owner, effects, com.mica.music.media.usbhybrid.UsbRequestEpoch(facts.requestEpoch)),
             "permission-granted",
+            pendingUsbHandoff,
         )
     }
 
@@ -262,11 +317,12 @@ class MicaMediaService : MediaSessionService() {
         target: AudioOutputPathConfig,
         usbBinding: UsbHybridPlaybackBinding?,
         reason: String,
+        handoffOverride: PlaybackStackHandoff? = null,
     ) {
         val requestedUsbEpoch = usbBinding?.epoch?.value
-        if (target == activeOutputPath && requestedUsbEpoch == activeUsbEpoch) return
+        if (exoPlayer != null && target == activeOutputPath && requestedUsbEpoch == activeUsbEpoch) return
         val micaApp = application as MicaApp
-        val handoff = capturePlaybackStackHandoff()
+        val handoff = handoffOverride ?: capturePlaybackStackHandoff() ?: pendingUsbHandoff
         usbOwner?.awaitIdle()
         if (usbBinding != null && usbOwner?.currentEpoch() != usbBinding.epoch) return
         val oldExo = exoPlayer
@@ -285,6 +341,7 @@ class MicaMediaService : MediaSessionService() {
         activeOutputPath = target
         activeUsbEpoch = requestedUsbEpoch
         installPlaybackStackOwners(newStack, micaApp, handoff)
+        pendingUsbHandoff = null
         DiagnosticLog.event(
             "AudioOutputPath",
             "rebuild-complete reason=$reason mode=${target.outputMode} " +

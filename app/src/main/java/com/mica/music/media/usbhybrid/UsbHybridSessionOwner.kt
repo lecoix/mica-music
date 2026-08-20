@@ -65,6 +65,24 @@ class UsbHybridSessionOwner(
         return next
     }
 
+    /** Fences and cleans the old session, but deliberately does not request permission or open. */
+    fun failRequest(
+        mode: UsbExclusiveMode,
+        identity: UsbStableIdentity?,
+        runtimeHandle: UsbRuntimeHandle?,
+        failure: UsbFailure,
+    ): UsbRequestEpoch {
+        val next = mintEpoch(
+            mode = mode,
+            identity = identity,
+            runtimeHandle = runtimeHandle,
+            failure = failure,
+            permissionOverride = PermissionState.NOT_REQUIRED,
+        )
+        control.execute { closeActiveIfCurrent(next) }
+        return next
+    }
+
     fun onPermissionResult(result: UsbPermissionResult) {
         control.execute {
             val expected = synchronized(publicationLock) { pending }
@@ -266,6 +284,7 @@ class UsbHybridSessionOwner(
         identity: UsbStableIdentity?,
         runtimeHandle: UsbRuntimeHandle?,
         failure: UsbFailure? = null,
+        permissionOverride: PermissionState? = null,
     ): UsbRequestEpoch = synchronized(publicationLock) {
         check(!released) { "USB Hybrid session owner is released." }
         epoch = UsbRequestEpoch(epoch.value + 1L)
@@ -278,7 +297,7 @@ class UsbHybridSessionOwner(
             requestedMode = mode,
             identity = identity,
             runtimeHandle = runtimeHandle,
-            permission = if (mode == UsbExclusiveMode.SHARED_PCM) {
+            permission = permissionOverride ?: if (mode == UsbExclusiveMode.SHARED_PCM) {
                 PermissionState.NOT_REQUIRED
             } else {
                 PermissionState.REQUESTED

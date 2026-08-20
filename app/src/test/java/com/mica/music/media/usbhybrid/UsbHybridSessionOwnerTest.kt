@@ -15,6 +15,25 @@ class UsbHybridSessionOwnerTest {
     private val runtimeA = UsbRuntimeHandle(11, "/dev/bus/usb/001/011")
 
     @Test
+    fun failedStackRetirementMintsFenceButDoesNotRequestPermission() {
+        val effects = RecordingEffects()
+        UsbHybridSessionOwner(effects).use { owner ->
+            val epoch = owner.failRequest(
+                UsbExclusiveMode.USB_DOP,
+                sk02,
+                runtimeA,
+                UsbFailure("STACK_RELEASE_FAILED", "release timed out"),
+            )
+            owner.awaitIdle()
+
+            assertEquals(epoch.value, owner.facts.value.requestEpoch)
+            assertEquals("STACK_RELEASE_FAILED", owner.facts.value.failure?.code)
+            assertEquals(PermissionState.NOT_REQUIRED, owner.facts.value.permission)
+            assertEquals(0, effects.permissionRequestCount)
+        }
+    }
+
+    @Test
     fun oldPermissionResultCannotOpenAfterNewModeRequest() {
         val effects = RecordingEffects()
         UsbHybridSessionOwner(effects).use { owner ->
@@ -172,19 +191,19 @@ class UsbHybridSessionOwnerTest {
             val sampled = CountDownLatch(1)
             val releaseSample = CountDownLatch(1)
             owner.refreshTelemetry(object : UsbHybridRealtimePort {
-                override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray) = null
-                override fun finishPcm(sessionId: UsbTransportSessionId) = null
+                override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray) = UsbRealtimeResult.Success
+                override fun finishPcm(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Success
                 override fun resetPcmForSeek(sessionId: UsbTransportSessionId) = Unit
                 override fun telemetry(sessionId: UsbTransportSessionId): UsbRealtimeTelemetry {
                     sampled.countDown()
                     releaseSample.await(2, TimeUnit.SECONDS)
                     return UsbRealtimeTelemetry(1, 2, 3, 4)
                 }
-                override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray) = "not-used"
-                override fun prepareDsdSeek(sessionId: UsbTransportSessionId) = "not-used"
-                override fun pauseDsd(sessionId: UsbTransportSessionId) = "not-used"
-                override fun resumeDsd(sessionId: UsbTransportSessionId) = "not-used"
-                override fun finishDsd(sessionId: UsbTransportSessionId) = "not-used"
+                override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray) = UsbRealtimeResult.Failed("not-used")
+                override fun prepareDsdSeek(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
+                override fun pauseDsd(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
+                override fun resumeDsd(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
+                override fun finishDsd(sessionId: UsbTransportSessionId) = UsbRealtimeResult.Failed("not-used")
             })
             assertTrue(sampled.await(2, TimeUnit.SECONDS))
             owner.request(UsbExclusiveMode.SHARED_PCM, null, null)
@@ -204,6 +223,7 @@ class UsbHybridSessionOwnerTest {
         val publishedEpochs = mutableListOf<Long>()
         val closedSessionIds = mutableListOf<Long>()
         @Volatile var openCount = 0
+        @Volatile var permissionRequestCount = 0
         @Volatile var nextOpenResult: UsbOpenResult? = null
 
         override fun publishActiveEpoch(epoch: UsbRequestEpoch) {
@@ -211,6 +231,7 @@ class UsbHybridSessionOwnerTest {
         }
 
         override fun requestPermission(request: UsbPermissionRequest) {
+            permissionRequestCount += 1
             permissionRequested.countDown()
         }
 

@@ -51,7 +51,7 @@ class UsbHybridDsdRenderer(
                     if (inputBuffer.isEndOfStream) {
                         if (!preroll.isStarted() && preroll.hasStaged()) return
                         currentSession()?.let { token ->
-                            binding.realtime.finishDsd(token)?.let { fail(it, activeFormat) }
+                            handleRealtime(binding.realtime.finishDsd(token))
                         }
                         ended = true
                         return
@@ -86,7 +86,7 @@ class UsbHybridDsdRenderer(
 
     override fun onStarted() {
         currentSession()?.let { token ->
-            binding.realtime.resumeDsd(token)?.let { fail(it, activeFormat) }
+            if (!handleRealtime(binding.realtime.resumeDsd(token))) return
         }
         preroll.arm()?.let(::write)
     }
@@ -94,7 +94,7 @@ class UsbHybridDsdRenderer(
     override fun onStopped() {
         preroll.stop()
         currentSession()?.let { token ->
-            binding.realtime.pauseDsd(token)?.let { fail(it, activeFormat) }
+            handleRealtime(binding.realtime.pauseDsd(token))
         }
     }
 
@@ -102,7 +102,7 @@ class UsbHybridDsdRenderer(
         ended = false
         preroll.reset(started = isPlaying)
         currentSession()?.let { token ->
-            binding.realtime.prepareDsdSeek(token)?.let { fail(it, activeFormat) }
+            handleRealtime(binding.realtime.prepareDsdSeek(token))
         }
     }
 
@@ -154,7 +154,13 @@ class UsbHybridDsdRenderer(
 
     private fun write(payload: ByteArray) {
         val token = currentSession() ?: fail("USB DSD session is missing.", activeFormat)
-        binding.realtime.writeDsd(token, payload)?.let { fail(it, activeFormat) }
+        handleRealtime(binding.realtime.writeDsd(token, payload))
+    }
+
+    private fun handleRealtime(result: UsbRealtimeResult): Boolean = when (result) {
+        UsbRealtimeResult.Success -> true
+        UsbRealtimeResult.Retired -> false
+        is UsbRealtimeResult.Failed -> fail(result.message, activeFormat)
     }
 
     private fun fail(message: String, format: Format?): Nothing {

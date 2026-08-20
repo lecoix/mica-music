@@ -147,10 +147,14 @@ class UsbHybridPcmAudioSink(
             pausedPrebuffer = null
         }
         val active = session ?: return
-        realtime.finishPcm(active)?.let {
-            val failure = UsbFailure("USB_WRITE_FAILED", it)
-            listener?.onAudioSinkError(IllegalStateException(it))
-            throwWrite(failure)
+        when (val result = realtime.finishPcm(active)) {
+            UsbRealtimeResult.Success,
+            UsbRealtimeResult.Retired -> Unit
+            is UsbRealtimeResult.Failed -> {
+                val failure = UsbFailure("USB_WRITE_FAILED", result.message)
+                listener?.onAudioSinkError(IllegalStateException(result.message))
+                throwWrite(failure)
+            }
         }
         endOfStream = true
     }
@@ -232,9 +236,13 @@ class UsbHybridPcmAudioSink(
 
     private fun writePcmBytes(bytes: ByteArray, presentationTimeUs: Long, format: Format) {
         val active = session ?: throwWrite(UsbFailure("SESSION_MISSING", "USB session is not active."))
-        realtime.writePcm(active, bytes)?.let { error ->
-            listener?.onAudioSinkError(IllegalStateException(error))
-            throwWrite(UsbFailure("USB_WRITE_FAILED", error))
+        when (val result = realtime.writePcm(active, bytes)) {
+            UsbRealtimeResult.Success -> Unit
+            UsbRealtimeResult.Retired -> return
+            is UsbRealtimeResult.Failed -> {
+                listener?.onAudioSinkError(IllegalStateException(result.message))
+                throwWrite(UsbFailure("USB_WRITE_FAILED", result.message))
+            }
         }
         if (mediaAnchorUs == null) {
             mediaAnchorUs = presentationTimeUs

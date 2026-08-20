@@ -651,8 +651,10 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
 
     private class UsbExclusiveTransportException(message: String) : IllegalStateException(message)
 
-    private companion object {
+    companion object {
+        const val STALE_SESSION_ERROR = "USB exclusive epoch/session is stale."
+
+        private const val STALE_SESSION = STALE_SESSION_ERROR
         const val TAG = "UsbExclusiveAudioTransport"
-        const val STALE_SESSION = "USB exclusive epoch/session is stale."
     }
 }

@@ -111,23 +111,44 @@ data class UsbRealtimeTelemetry(
 )
 
 interface UsbHybridRealtimePort {
-    fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): String?
+    fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult
 
-    fun finishPcm(sessionId: UsbTransportSessionId): String?
+    fun finishPcm(sessionId: UsbTransportSessionId): UsbRealtimeResult
 
     fun resetPcmForSeek(sessionId: UsbTransportSessionId)
 
     fun telemetry(sessionId: UsbTransportSessionId): UsbRealtimeTelemetry
 
-    fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): String?
+    fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult
 
-    fun prepareDsdSeek(sessionId: UsbTransportSessionId): String?
+    fun prepareDsdSeek(sessionId: UsbTransportSessionId): UsbRealtimeResult
 
-    fun pauseDsd(sessionId: UsbTransportSessionId): String?
+    fun pauseDsd(sessionId: UsbTransportSessionId): UsbRealtimeResult
 
-    fun resumeDsd(sessionId: UsbTransportSessionId): String?
+    fun resumeDsd(sessionId: UsbTransportSessionId): UsbRealtimeResult
 
-    fun finishDsd(sessionId: UsbTransportSessionId): String?
+    fun finishDsd(sessionId: UsbTransportSessionId): UsbRealtimeResult
+}
+
+sealed interface UsbRealtimeResult {
+    data object Success : UsbRealtimeResult
+
+    /** Native rejected an epoch/session that the control owner has already superseded. */
+    data object Retired : UsbRealtimeResult
+
+    data class Failed(val message: String) : UsbRealtimeResult
+}
+
+internal fun classifyUsbRealtimeResult(
+    error: String?,
+    sessionEpoch: Long,
+    publishedEpoch: Long,
+): UsbRealtimeResult = when {
+    error == null -> UsbRealtimeResult.Success
+    sessionEpoch != publishedEpoch -> UsbRealtimeResult.Retired
+    error == com.afalphy.sylvakru.UsbExclusiveAudioTransport.STALE_SESSION_ERROR ->
+        UsbRealtimeResult.Retired
+    else -> UsbRealtimeResult.Failed(error)
 }
 
 interface UsbHybridControlEffects {

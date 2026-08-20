@@ -52,6 +52,9 @@ internal object ExoPlaybackStackFactory {
             .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
+            // The service treats any release timeout as a failed switch and never opens the new
+            // USB session. Allow ordinary USB renderer cleanup longer than Media3's short default.
+            .setReleaseTimeoutMs(15_000L)
             .setAudioAttributes(
                 playbackAudioAttributes,
                 PlaybackUiPreferences.audioFocusEnabled(context),
