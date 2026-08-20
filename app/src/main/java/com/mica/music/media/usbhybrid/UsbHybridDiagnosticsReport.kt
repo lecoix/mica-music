@@ -24,7 +24,10 @@ object UsbHybridDiagnosticsReport {
         facts.runtimeHandle?.let {
             appendLine("runtimeHandle=deviceId:${it.deviceId},name:${it.deviceName}")
         }
-        appendLine("builtInQuirk=apk:usb_dac_quirks.json; runtimeOverride=disabled")
+        appendLine(
+            "builtInQuirk=apk:usb_dac_quirks.json; nativeProfileSource=" +
+                "${Sk02ExperimentalNativeEvidence.PROFILE_SOURCE}; runtimeOverride=disabled",
+        )
         appendLine(
             "negotiated=format:${facts.streamFormat ?: "unknown"},encoding:${facts.sourceEncoding ?: "unknown"}," +
                 "usbBits:${facts.usbBitResolution ?: "unknown"}," +

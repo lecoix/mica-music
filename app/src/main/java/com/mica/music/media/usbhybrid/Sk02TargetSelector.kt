@@ -3,6 +3,8 @@ package com.mica.music.media.usbhybrid
 data class UsbDeviceCandidate(
     val identity: UsbStableIdentity,
     val runtimeHandle: UsbRuntimeHandle,
+    val manufacturerName: String?,
+    val productName: String?,
 )
 
 sealed interface Sk02Selection {
@@ -17,7 +19,15 @@ object Sk02TargetSelector {
 
     fun select(candidates: List<UsbDeviceCandidate>): Sk02Selection {
         val matching = candidates.filter {
-            it.identity.vendorId == VENDOR_ID && it.identity.productId == PRODUCT_ID
+            it.identity.vendorId == VENDOR_ID &&
+                it.identity.productId == PRODUCT_ID &&
+                it.identity.bcdDevice == 0x0004 &&
+                ((it.manufacturerName == null && it.productName == null) ||
+                    Sk02ExperimentalNativeEvidence.matches(
+                        it.identity,
+                        it.manufacturerName,
+                        it.productName,
+                    ))
         }
         return when (matching.size) {
             0 -> Sk02Selection.NotFound

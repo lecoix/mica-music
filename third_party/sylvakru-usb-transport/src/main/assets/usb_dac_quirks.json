@@ -9,6 +9,11 @@
       },
       "clock": {
         "skipGetCurValidation": true
+      },
+      "nativeDsd": {
+        "format": "u32le",
+        "maxDsd": 128,
+        "qualification": "experimental-rewrite-reference-not-hybrid-verified"
       }
     }
   ]

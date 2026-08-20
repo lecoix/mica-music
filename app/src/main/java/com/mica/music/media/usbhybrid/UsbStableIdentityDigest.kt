@@ -8,6 +8,8 @@ data class UsbDescriptorModel(
     val productId: Int,
     val version: String?,
     val configurations: List<String>,
+    val manufacturerName: String? = null,
+    val productName: String? = null,
 )
 
 object UsbStableIdentityDigest {
@@ -15,6 +17,8 @@ object UsbStableIdentityDigest {
         val canonical = buildString {
             append(model.vendorId).append(':').append(model.productId).append(':')
             append(model.version.orEmpty()).append('\n')
+            append(model.manufacturerName.orEmpty()).append('\n')
+            append(model.productName.orEmpty()).append('\n')
             model.configurations.sorted().forEach { append(it).append('\n') }
         }
         return MessageDigest.getInstance("SHA-256")

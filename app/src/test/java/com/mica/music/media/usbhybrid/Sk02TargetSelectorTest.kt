@@ -28,8 +28,23 @@ class Sk02TargetSelectorTest {
         )
     }
 
-    private fun candidate(vid: Int, pid: Int, id: Int, digest: String) = UsbDeviceCandidate(
-        UsbStableIdentity(vid, pid, 0x0100, digest),
+    @Test
+    fun sameVidPidRevisionCollisionIsNotSk02() {
+        val collision = candidate(0x262a, 0x0001, 8, "b", "Douk Audio", "K5")
+        assertEquals(Sk02Selection.NotFound, Sk02TargetSelector.select(listOf(collision)))
+    }
+
+    private fun candidate(
+        vid: Int,
+        pid: Int,
+        id: Int,
+        digest: String,
+        manufacturer: String = "Speed Dragon",
+        product: String = "Fosi Audio SK02",
+    ) = UsbDeviceCandidate(
+        UsbStableIdentity(vid, pid, 0x0004, digest),
         UsbRuntimeHandle(id, "/dev/bus/usb/001/$id"),
+        manufacturer,
+        product,
     )
 }

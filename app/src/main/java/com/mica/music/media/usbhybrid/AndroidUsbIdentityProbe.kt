@@ -27,11 +27,15 @@ object AndroidUsbIdentityProbe {
                 }
             }
         }
+        val manufacturerName = safeString { device.manufacturerName }
+        val productName = safeString { device.productName }
         val model = UsbDescriptorModel(
             vendorId = device.vendorId,
             productId = device.productId,
             version = device.version,
             configurations = topology,
+            manufacturerName = manufacturerName,
+            productName = productName,
         )
         return UsbDeviceCandidate(
             identity = UsbStableIdentity(
@@ -41,8 +45,12 @@ object AndroidUsbIdentityProbe {
                 descriptorDigest = UsbStableIdentityDigest.sha256(model),
             ),
             runtimeHandle = UsbRuntimeHandle(device.deviceId, device.deviceName),
+            manufacturerName = manufacturerName,
+            productName = productName,
         )
     }
+
+    private fun safeString(value: () -> String?): String? = runCatching(value).getOrNull()
 
     private fun parseBcdVersion(version: String?): Int? {
         val parts = version?.split('.') ?: return null

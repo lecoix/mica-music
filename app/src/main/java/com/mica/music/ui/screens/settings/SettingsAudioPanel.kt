@@ -8,6 +8,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.preferences.ReplayGainPreferences
@@ -32,6 +36,7 @@ internal fun AudioSettingsPanel(uiSettings: AppUiSettings) {
     val scope = rememberCoroutineScope()
     var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
     var usbMode by remember { mutableStateOf(UsbHybridPreferences.outputMode(context)) }
+    var showNativeConfirmation by remember { mutableStateOf(false) }
     val usbFacts by UsbHybridRuntimeMonitor.facts.collectAsState()
 
     SettingsSectionTitle("音频标准化")
@@ -62,11 +67,19 @@ internal fun AudioSettingsPanel(uiSettings: AppUiSettings) {
             UsbHybridOutputMode.SharedPcm.ordinal to "Shared PCM",
             UsbHybridOutputMode.ExactPcm.ordinal to "USB Exact PCM",
             UsbHybridOutputMode.Dop.ordinal to "USB DoP（待实机验收）",
+            UsbHybridOutputMode.NativeDsdExperimental.ordinal to "USB Native DSD（实验）",
         ),
         selectedValue = usbMode.ordinal,
         onSelect = { ordinal ->
-            usbMode = UsbHybridOutputMode.entries[ordinal]
-            UsbHybridPreferences.setOutputMode(context, usbMode)
+            val requested = UsbHybridOutputMode.entries[ordinal]
+            if (requested == UsbHybridOutputMode.NativeDsdExperimental &&
+                !UsbHybridPreferences.nativeAcknowledged(context)
+            ) {
+                showNativeConfirmation = true
+            } else {
+                usbMode = requested
+                UsbHybridPreferences.setOutputMode(context, usbMode)
+            }
         },
     )
     UsbHybridSettingsPresentation.lines(usbFacts).forEach { line ->
@@ -99,4 +112,30 @@ internal fun AudioSettingsPanel(uiSettings: AppUiSettings) {
             }
         },
     )
+    if (showNativeConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showNativeConfirmation = false },
+            shape = RectangleShape,
+            title = { Text("实验性 Native DSD") },
+            text = {
+                Text(
+                    "该模式仅使用 rewrite 的 SK02 u32le 参考 profile，framing 尚未由 Hybrid " +
+                        "重新资格化，signalExact 固定为否。请使用 DAC 硬件音量；失败会停止，不会回退到 DoP/PCM。",
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showNativeConfirmation = false }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        UsbHybridPreferences.acknowledgeNative(context)
+                        usbMode = UsbHybridOutputMode.NativeDsdExperimental
+                        UsbHybridPreferences.setOutputMode(context, usbMode)
+                        showNativeConfirmation = false
+                    },
+                ) { Text("理解并启用") }
+            },
+        )
+    }
 }

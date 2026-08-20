@@ -147,6 +147,17 @@ class AndroidUsbHybridControlEffects(
         if (candidate.second != request.identity) {
             return failure("TARGET_CHANGED", "The selected SK02 identity changed before open.")
         }
+        if (!Sk02ExperimentalNativeEvidence.matches(
+                request.identity,
+                safeDeviceString { candidate.first.manufacturerName },
+                safeDeviceString { candidate.first.productName },
+            )
+        ) {
+            return failure(
+                "SK02_IDENTITY_UNPROVEN",
+                "The attached 262a:0001 device cannot be proven to be the scoped Fosi Audio SK02 revision.",
+            )
+        }
         return when (val format = request.format) {
             is UsbStreamFormat.Pcm -> openPcm(request, candidate.first, format)
             is UsbStreamFormat.Dsd -> openDsd(request, candidate.first, format)
@@ -194,14 +205,22 @@ class AndroidUsbHybridControlEffects(
         device: UsbDevice,
         format: UsbStreamFormat.Dsd,
     ): UsbOpenResult {
-        if (request.mode == UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL) {
-            return failure(
-                "NATIVE_NOT_QUALIFIED",
-                "SK02 Native framing remains experimental and is not enabled in the DoP slice.",
-            )
+        val nativeRequested = request.mode == UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL
+        if ((nativeRequested && !format.native) ||
+            (!nativeRequested && (request.mode != UsbExclusiveMode.USB_DOP || format.native))
+        ) {
+            return failure("DSD_MODE_MISMATCH", "The raw DSD request does not match the explicit USB DSD mode.")
         }
-        if (request.mode != UsbExclusiveMode.USB_DOP || format.native) {
-            return failure("DSD_MODE_MISMATCH", "The explicit DSD request does not match USB DoP mode.")
+        if (nativeRequested && !Sk02ExperimentalNativeEvidence.matches(
+                request.identity,
+                safeDeviceString { device.manufacturerName },
+                safeDeviceString { device.productName },
+            )
+        ) {
+            return failure(
+                "NATIVE_PROFILE_MISMATCH",
+                "Experimental Native is limited to the exact SK02 bcdDevice 0x0004 product scope.",
+            )
         }
         val result = transport.openDsd(
             epoch = request.epoch.value,
@@ -209,9 +228,13 @@ class AndroidUsbHybridControlEffects(
             device = device,
             dsdSampleRate = format.sampleRate,
             channels = format.channels,
-            preference = UsbExclusiveAudioTransport.DsdPreference.DopOnly,
+            preference = if (nativeRequested) {
+                UsbExclusiveAudioTransport.DsdPreference.NativeOnly
+            } else {
+                UsbExclusiveAudioTransport.DsdPreference.DopOnly
+            },
         )
-        result.error?.let { return failure("DOP_OPEN_FAILED", it) }
+        result.error?.let { return failure(if (nativeRequested) "NATIVE_OPEN_FAILED" else "DOP_OPEN_FAILED", it) }
         val token = transport.sessionToken()
             ?: return failure("DOP_OPEN_FAILED", "Native transport returned no DoP session token.")
         val actual = result.format ?: return failure("DOP_OPEN_FAILED", "Transport returned no DoP format.")
@@ -219,11 +242,15 @@ class AndroidUsbHybridControlEffects(
             sessionId = UsbTransportSessionId(request.epoch, token.second),
             claimed = true,
             transportExact = true,
-            signalExact = actual.mode == UsbExclusiveAudioTransport.DsdMode.DoP,
+            signalExact = !nativeRequested && actual.mode == UsbExclusiveAudioTransport.DsdMode.DoP,
             usbBitResolution = transport.usbBitResolution(),
             sampleRate = format.sampleRate,
             channels = format.channels,
-            streamFormat = "DoP DSD${format.sampleRate / 44_100} carrier=${actual.frameRate}Hz",
+            streamFormat = if (nativeRequested) {
+                "Native DSD${format.sampleRate / 44_100} ${actual.nativeFormat} (experimental)"
+            } else {
+                "DoP DSD${format.sampleRate / 44_100} carrier=${actual.frameRate}Hz"
+            },
         )
     }
 
@@ -299,6 +326,8 @@ class AndroidUsbHybridControlEffects(
         @Suppress("DEPRECATION")
         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
     }
+
+    private fun safeDeviceString(value: () -> String?): String? = runCatching(value).getOrNull()
 
     private companion object {
         const val EXTRA_EPOCH = "usb_hybrid_epoch"
