@@ -46,6 +46,7 @@
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库扫描架构、TagLib fork 接入、增量复用、性能实测与冷扫上界结论 |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
+| [`USB_EXCLUSIVE_HYBRID_STATUS.md`](USB_EXCLUSIVE_HYBRID_STATUS.md) | Hybrid 已实现软件范围、验证证据、实机/长测门禁与已知风险 |
 | [`ADDING_AUDIO_FORMAT_SUPPORT.md`](ADDING_AUDIO_FORMAT_SUPPORT.md) | 新增音频格式的端到端接入、基准对比与排障指南；含 APE 大帧、频谱时钟和 JNI 扩容案例 |
 | [`SPECTRUM_STALL_BUG.md`](SPECTRUM_STALL_BUG.md) | **频谱停滞**问题档案（根因、日志特征、tap/write 解耦修复、回归清单、输出设备参考调研） |
 | [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md) | Exo PCM **改造计划**（**§0 摘要、§18 Gate/验收**；P1 过渡态；P2–P6） |
@@ -53,6 +54,7 @@
 | [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) | 当前音频实施范围：实际 ReplayGain 系数的事实来源、兼容契约与测试计划 |
 | [`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md) | 远期 USB 独占采用 USB Host 独立 output adapter 的架构决策 |
 | [`adr/0002-library-snapshot-publication.md`](adr/0002-library-snapshot-publication.md) | 完整曲库 snapshot 的 generation / revision / Room 发布顺序契约 |
+| [`adr/0004-usb-exclusive-hybrid.md`](adr/0004-usb-exclusive-hybrid.md) | USB Exclusive Hybrid 的 owner/epoch、SK02 范围、PCM/DoP/实验 Native 决策与未验证边界 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |

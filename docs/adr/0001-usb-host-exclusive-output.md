@@ -1,6 +1,11 @@
 ---
-status: accepted
+status: superseded
+superseded_by: 0004-usb-exclusive-hybrid.md
 ---
+
+> Superseded on 2026-08-20 by ADR-0004. The USB Host direction and the distinction
+> between exclusive ownership and signal exactness remain authoritative; statements below
+> saying that SharedPcm is the only implemented production path are historical.
 
 # USB 独占采用 USB Host 独立输出
 

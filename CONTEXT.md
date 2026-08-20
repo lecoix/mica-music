@@ -200,7 +200,7 @@ _Avoid_: 在 `MicaMediaService` 的各 callback 中分别重写 offload 推导�
 _Avoid_: 软件播、双后端、libmica_ffmpeg
 
 **USB-exclusive output（USB Host 真独占输出）**：
-远期独立输出路径：App 通过 Android USB Host 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。当前仅有输出模式兼容骨架，生产环境尚未实现；决策见 `docs/adr/0001-usb-host-exclusive-output.md`。
+Hybrid 已接入独立 USB Host 输出路径：App 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。当前代码范围仅限精确识别的 Fosi Audio SK02 revision、整数 PCM16/PCM32、显式 DoP 与实验性 Native DSF；默认仍为 Shared PCM。未知 DAC、PCM24-only、float PCM、运行时 quirk、自动恢复和自动 Shared PCM fallback 均 fail-closed。DoP/Native 尚未取得 Hybrid 实机与长测证据，不能称为已发布验证；Native 在重新资格化前固定 `signalExact=false`。当前决策见 `docs/adr/0004-usb-exclusive-hybrid.md`，历史方向见已 supersede 的 ADR-0001。
 _Avoid_: 把 `AudioTrack.setPreferredDevice`、framework direct support 或现有 `UsbDirectPcm` 最小链称为 USB 独占
 
 **Applied ReplayGain（实际 ReplayGain）**：

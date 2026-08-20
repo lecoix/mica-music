@@ -9,7 +9,7 @@ accepted: 2026-08-20
 
 Hybrid starts from `0b6e982a` and implements a second real output path without importing P1's occurrence/permit/retirement/shadow coordinators. A single control executor owns permission, open, reconfiguration, close and facts publication. Request epoch validity and facts publication form one serialized protocol. Native I/O additionally requires the current `(epoch, sessionId)` at every submit/reap/resubmit boundary.
 
-V1 is deliberately limited to the built-in Eosi SK02 profile, integer PCM16/PCM32, explicit DoP and explicitly experimental Native DSD for DSF. Unknown DACs, PCM24-only targets, float PCM, runtime quirk import, automatic recovery and silent Shared PCM fallback are rejected.
+V1 is deliberately limited to the built-in Fosi SK02 profile, integer PCM16/PCM32, explicit DoP and explicitly experimental Native DSD for DSF. Unknown DACs, PCM24-only targets, float PCM, runtime quirk import, automatic recovery and silent Shared PCM fallback are rejected.
 
 Output failures stop and report while preserving queue, position and requested mode. Recovery requires an explicit user retry or manual Shared PCM selection. Stack switching is synchronous break-before-make; a stuck old `release()` prevents a new USB open.
 
