@@ -223,9 +223,10 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun handleUsbFacts(facts: UsbPlaybackFacts) {
+        val owner = usbOwner ?: return
+        if (owner.facts.value != facts) return
         if (facts.permission != com.mica.music.media.usbhybrid.PermissionState.GRANTED) return
         if (facts.activeMode != null) return
-        val owner = usbOwner ?: return
         val effects = usbEffects ?: return
         val targetPath = when (facts.requestedMode) {
             UsbExclusiveMode.SHARED_PCM -> AudioOutputPathConfig.PRODUCTION
@@ -267,6 +268,7 @@ class MicaMediaService : MediaSessionService() {
         val micaApp = application as MicaApp
         val handoff = capturePlaybackStackHandoff()
         usbOwner?.awaitIdle()
+        if (usbBinding != null && usbOwner?.currentEpoch() != usbBinding.epoch) return
         val oldExo = exoPlayer
         releasePlaybackStackOwners()
         oldExo?.release()

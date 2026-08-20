@@ -6,8 +6,8 @@ package com.mica.music.media
  * Orthogonal to renderer-split (R1b): output mode selects which sink/processor ladder to build;
  * renderer role (DsdOnly / PcmOnly / platform) still picks the active renderer inside Exo.
  *
- * Only [SharedPcm] is active today. USB modes are reserved for future full-mode rebuild on
- * device attach/detach (see [AudioOutputPathConfig.requireSupportedForPlayback]).
+ * Shared PCM is the default. Hybrid USB modes use a full synchronous stack rebuild and fail closed
+ * to the scoped SK02 target; they never silently fall back to AudioTrack.
  */
 enum class PlaybackOutputMode {
     /** Built-in / default: SharedPcm ladder with spectrum, EQ, Sonic, DSD decimation. */

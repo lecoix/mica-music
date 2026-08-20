@@ -123,6 +123,9 @@ object UsbStreamingTargetResolver {
                 it.usbBytesPerSample,
             )
         }
+        if (fittingCandidates.isEmpty()) {
+            return null
+        }
         val exactBitDepthCandidates = if (bitDepth != null) {
             fittingCandidates.filter { it.usbBitResolution == bitDepth }
         } else {
@@ -143,8 +146,7 @@ object UsbStreamingTargetResolver {
         val selectedPool = when {
             exactBitDepthCandidates.isNotEmpty() -> exactBitDepthCandidates
             autoBitDepthCandidates.isNotEmpty() -> autoBitDepthCandidates
-            fittingCandidates.isNotEmpty() -> fittingCandidates
-            else -> sortedCandidates
+            else -> fittingCandidates
         }
         val selected = selectedPool.minWith(
             compareBy<UsbStreamingTarget> { it.usbBytesPerSample }
@@ -186,6 +188,9 @@ object UsbStreamingTargetResolver {
         val claimedControl = controlInterface?.let {
             runCatching { connection.claimInterface(it, true) }.getOrDefault(false)
         } == true
+        if (controlInterface != null && !claimedControl) {
+            return "Failed to claim USB Audio control interface ${controlInterface.id}."
+        }
         try {
             if (clockSourceId != null) {
                 readUac2ClockSampleRate(
@@ -214,6 +219,9 @@ object UsbStreamingTargetResolver {
                     "UAC2 clock SET_CUR sampleRate=$sampleRate clockSourceId=$clockSourceId " +
                         "controlInterface=$controlInterfaceNumber result=$result",
                 )
+                if (result != data.size) {
+                    return "UAC2 clock SET_CUR wrote $result/${data.size} bytes."
+                }
                 if (quirk.clockSetCurDelayMs > 0) {
                     Thread.sleep(quirk.clockSetCurDelayMs.toLong())
                 }
@@ -226,7 +234,10 @@ object UsbStreamingTargetResolver {
                     controlInterfaceNumber,
                     "after",
                 )
-                if (readBack != null && readBack > 0 && readBack != sampleRate) {
+                if (readBack == null || readBack <= 0) {
+                    return "UAC2 clock GET_CUR did not return a valid sample rate."
+                }
+                if (readBack != sampleRate) {
                     UsbDiagnostics.w(
                         TAG,
                         "UAC2 clock mismatch requested=$sampleRate readBack=$readBack",
@@ -256,16 +267,19 @@ object UsbStreamingTargetResolver {
                     target.endpoint.address.toString(16)
                 } result=$result",
             )
+            if (result != data.size) {
+                return "UAC1 clock SET_CUR wrote $result/${data.size} bytes."
+            }
             if (quirk.clockSetCurDelayMs > 0) {
                 Thread.sleep(quirk.clockSetCurDelayMs.toLong())
             }
             return null
         } catch (error: RuntimeException) {
             UsbDiagnostics.w(TAG, "USB audio clock configuration failed.", error)
-            return null
+            return "USB audio clock configuration failed: ${error.message ?: error.javaClass.simpleName}"
         } finally {
-            if (claimedControl && controlInterface != null) {
-                runCatching { connection.releaseInterface(controlInterface) }
+            if (claimedControl) {
+                runCatching { connection.releaseInterface(checkNotNull(controlInterface)) }
             }
         }
     }

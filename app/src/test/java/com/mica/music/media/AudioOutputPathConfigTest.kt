@@ -25,8 +25,8 @@ class AudioOutputPathConfigTest {
         assertFalse(PlaybackOutputMode.UsbNativeDsdExperimental.usesExoPcmChain)
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun usbDirectPcm_rejectedUntilP6() {
+    @Test
+    fun usbDirectPcm_isSupportedByHybrid() {
         AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDirectPcm).requireSupportedForPlayback()
     }
 

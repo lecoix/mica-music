@@ -42,7 +42,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         if (!usbManager.hasPermission(device)) {
             return "USB permission is required before exclusive playback."
         }
-        if (sampleRate <= 0 || channels <= 0 || bitDepth !in setOf(8, 16, 24, 32)) {
+        if (sampleRate <= 0 || channels <= 0 || bitDepth !in setOf(16, 32)) {
             return "Unsupported PCM format: ${sampleRate}Hz/${channels}ch/${bitDepth}bit."
         }
 
@@ -68,6 +68,14 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         if (resolvedTarget == null) {
             openedConnection.close()
             return "No isochronous USB Audio OUT endpoint was found."
+        }
+        val inputBytesPerSample = bytesPerSampleForBitDepth(bitDepth)
+        val usbBytesPerSample = resolvedTarget.usbBytesPerSample
+        val usbBitResolution = resolvedTarget.usbBitResolution ?: (usbBytesPerSample * 8)
+        if (!UsbExactPcmTargetPolicy.accepts(bitDepth, usbBytesPerSample, usbBitResolution)) {
+            openedConnection.close()
+            return "USB Exact PCM requires an exact ${bitDepth}-bit/${inputBytesPerSample}-byte alt; " +
+                "resolved ${usbBitResolution}-bit/${usbBytesPerSample}-byte."
         }
 
         UsbDiagnostics.i(
@@ -118,9 +126,6 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             return "USB request became stale after clock configuration."
         }
 
-        val inputBytesPerSample = bytesPerSampleForBitDepth(bitDepth)
-        val usbBytesPerSample = resolvedTarget.usbBytesPerSample
-        val usbBitResolution = resolvedTarget.usbBitResolution ?: (usbBytesPerSample * 8)
         val packetBytes = UsbStreamingTargetResolver.requiredIsoPacketBytes(
             sampleRate = sampleRate,
             packetsPerSecond = resolvedTarget.packetsPerSecond,

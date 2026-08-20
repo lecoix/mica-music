@@ -24,8 +24,7 @@ data class AudioOutputPathConfig(
     }
 
     /**
-     * Fail fast if a reserved mode is selected before its P4/P6 implementation lands.
-     * Call at Exo stack build so misconfiguration surfaces at startup, not mid-playback.
+     * Hybrid USB modes are active, but DSD FloatPcm remains outside their exact integer contract.
      */
     fun requireSupportedForPlayback() {
         require(dsdDecimationMode == DsdDecimationOutputMode.IntPcm) {

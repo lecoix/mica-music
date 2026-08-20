@@ -28,7 +28,7 @@ class UsbPcmIsoPacketizer(
     private val transferPacketLengths = IntArray(16)
     private val bytesPerFrame = channels * usbBytesPerSample
     private val inputBytesPerFrame = channels * inputBytesPerSample
-    private var sampleRemainder = 0
+    private val nominalCadence = UsbPacketCadence(sampleRate, packetsPerSecond)
     private var feedbackRemainderQ16 = 0L
     private var transferPacketCount = 0
     private var packetLogCount = 0
@@ -62,7 +62,7 @@ class UsbPcmIsoPacketizer(
         pending.reset()
         transfer.reset()
         transferPacketCount = 0
-        sampleRemainder = 0
+        nominalCadence.reset()
         feedbackRemainderQ16 = 0L
         packetLogCount = 0
         feedbackRejectLogCount = 0
@@ -142,9 +142,7 @@ class UsbPcmIsoPacketizer(
             }
         }
 
-        sampleRemainder += sampleRate
-        val frames = sampleRemainder / packetsPerSecond
-        sampleRemainder %= packetsPerSecond
+        val frames = nominalCadence.nextNominalFrames()
         return maxOf(bytesPerFrame, frames * bytesPerFrame)
     }
 

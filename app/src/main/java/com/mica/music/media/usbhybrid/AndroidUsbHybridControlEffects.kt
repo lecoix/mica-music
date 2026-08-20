@@ -90,13 +90,10 @@ class AndroidUsbHybridControlEffects(
     }
 
     override fun publishActiveEpoch(epoch: UsbRequestEpoch) {
-        try {
-            UsbExclusiveNative.publishActiveEpoch(epoch.value)
-        } catch (error: UnsatisfiedLinkError) {
-            if (System.getProperty("java.vm.name") == "Dalvik") throw error
-            // Host/Robolectric tests cannot load an arm64 Android .so. They test owner ordering via
-            // injected effects; the production ART path remains fail-fast.
-        }
+        if (System.getProperty("java.vm.name") != "Dalvik") return
+        // Production ART remains fail-fast. Host/Robolectric cannot load an arm64 Android .so and
+        // exercises owner ordering through injected effects instead.
+        UsbExclusiveNative.publishActiveEpoch(epoch.value)
     }
 
     override fun requestPermission(request: UsbPermissionRequest) {
