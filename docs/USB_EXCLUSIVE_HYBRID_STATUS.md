@@ -35,25 +35,59 @@ P1 and rewrite results are design input only and are never counted as Hybrid PAS
 - Reference transport packetizer, DSF converter, DoP/Native encoder, quirk and Native-candidate
   tests pass.
 - A 72-hour exact-cadence projection and 32 x 100,000-packet fixed-seed cadence stress pass.
-- A forced full Debug JVM run passes for the application and reference transport; the DSD decoder
-  module currently has no JVM test sources.
+- A forced full Debug JVM run passes: 1,256 tests, zero failures/errors and nine skipped tests. The
+  DSD decoder module currently has no JVM test sources.
 - Debug, Perf and unsigned Release APK builds pass.
 - The FFmpeg arm64 JNI library was rebuilt from the changed Java/JNI contract with PCM32 output.
 - Final local artifact SHA-256 values:
-  - Debug: `83FA7984D47DCB6AE49BBFA150CF52B3E2FB7746AF07817D282BD1F0D0C7BFEC`
-  - Perf: `7C7E7F3C6E8B818914D6F4B4423A0C5C66A5C67E8B47A3BEF48312D7EAF66BC6`
-  - unsigned Release: `19A579CBCA543BD0EF6E16067CE3C44B6FE94EAD813F1F36F2350FAABFBE4489`
+  - Debug: `1FEEEA5FC1B2AE3EC947D8B3C07EA485D08E3F749FA81F6427ADD61E700655E3`
+  - Perf: `5D3F8315EE61A708D0DE7181E75E7FB2C1A74CDB77A07988FF98663330DEB583`
+  - unsigned Release: `FE15EA73374A7101C8F0F298C93265DB67D7F9376AC55F6996D62815348B2F35`
+
+## Hybrid physical evidence obtained
+
+Test device: Redmi `22081212C`, Android 12 / API 31, build
+`Redmi/diting/diting:12/SKQ1.220303.001/V13.0.7.0.SLFCNXM:user/release-keys`. The connected target
+was `Speed Dragon / Fosi Audio SK02`, USB address `/dev/bus/usb/002/002`, with no serial exposed.
+The final run started at 77% battery and 37.8 C battery temperature.
+
+- The final Debug APK was installed and read back from `/data/app`; its device SHA-256 exactly
+  matched `1FEEEA...655E3` above.
+- PCM short runs passed for 44.1 kHz/PCM16 and 48 kHz/PCM32, including pause/resume, seek, track
+  change and manual Shared PCM <-> USB switching. Shared PCM regained the device after USB close.
+- USB mode changes exposed and then validated a real retirement race. The fixed protocol releases
+  the old Exo/USB stack before minting the replacement epoch, treats stale in-flight writes as
+  retired rather than playback failures, and aborts rather than opening a new USB session if the
+  bounded 15-second Media3 release fails. Native <-> DoP PCM32 short switches then completed with
+  old transport close before the new request and no stale-write, transport-not-open,
+  `PlaybackException` or `ExoTimeoutException`.
+- DoP DSD64 opened the 176.4 kHz carrier and sustained eight pending URBs. Pause entered the DSD
+  idle writer and resume continued playback without a media-session error. DSD -> PCM transition
+  also completed without silent Shared PCM fallback.
+- The registered DSF fixture is `06. A Christmas Wedding (Fiona Joy Hawkins).dsf.dsd`, SHA-256
+  `C393038AD94EB0B50087786327022B19EC0D62C3D0F13BB10337CDA39A06AF99`, DSD64 stereo at
+  2,822,400 samples/s.
+- On the final installed APK, experimental Native opened interface 2, alt 4 RAW_DATA with the
+  built-in `u32le` profile, 88.2 kHz frame rate and DSD64 input. A short run sustained eight pending
+  URBs with no media-session error. Native pause started the idle writer, resume advanced position,
+  and Native DSD -> PCM16/44.1 kHz -> Native DSD transitions each closed/reopened the appropriate
+  transport without playback exceptions.
+
+These are short functional runs, not stability qualification. RAW_DATA framing remains unproven,
+the Native profile remains experimental, and these results do not authorize `signalExact=true`.
 
 ## Not yet accepted
 
 The following remain PENDING and must not be described as PASS, release-ready, verified, or
 signal-exact based on old branches:
 
-- all SK02 Hybrid physical PCM, DoP and Native runs;
-- APK-installed hash verification on the test phone;
-- PCM 44.1/48/96 kHz and PCM16/PCM32 playback, pause/resume, seek, track transitions and detach;
-- DoP and Native DSF transitions, idle/content single-writer behavior and DAC lock indicators;
-- the standard DSD64 fixture (no Hybrid fixture has been registered yet);
+- PCM 96 kHz and a new PCM32 source-specific fixture on the final installed APK;
+- playing/paused target detach, reattach, reauthorization and explicit retry;
+- DSD seek on hardware. Two attempted injected gestures did not move the UI progress bar and are
+  classified as NOT EXECUTED, not PASS;
+- byte-level DoP marker continuity and direct proof that idle stop/join completed before resumed
+  content. Short behavior passed, but the log did not emit a stop/join milestone;
+- DAC lock/rate indicator and listening observations for DoP and Native;
 - 90-minute Continuous, Lifecycle, Shared PCM baseline and DoP stability runs;
 - Native requalification, 90-minute Native stability and any promotion to `signalExact=true`;
 - UAC descriptor corpus and malformed/lost/long-gap feedback matrix beyond the imported focused
