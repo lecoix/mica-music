@@ -77,6 +77,19 @@ The final run started at 77% battery and 37.8 C battery temperature.
   media-session error. This proves that no leftover state prevented a subsequent exclusive open;
   it does not prove exact kernel-driver or prior-clock restoration because MIUI denied shell reads
   of `/proc/asound/cards` and `/proc/asound/card1/stream0`.
+- Paused detach produced epoch 2 with no active session and `TARGET_DETACHED`; claim, exclusive and
+  exactness facts became false, the 266-item queue and 4.537-second position remained paused, and
+  no Shared PCM fallback occurred. Reattach only refreshed discovery: it did not request
+  permission or reopen. Explicit retry minted epoch 3, displayed the Android permission dialog,
+  reread descriptors, opened session 3 at PCM32/48 kHz and preserved the paused intent.
+- Playing detach produced epoch 4 with no active session and `TARGET_DETACHED`; USB closed and no
+  Shared PCM fallback occurred. Reattach again did not reopen. Explicit retry rebuilt with
+  `items=266 index=6 positionMs=219953 resume=true`, opened PCM32/44.1 kHz and resumed USB writes.
+  That saved position was about 34 ms from track end, so the player immediately crossed a track
+  boundary. The following item made no progress for 10 seconds and tripped Media3's
+  `StuckPlayerDetector`; the existing playback recovery moved to item 8, after which playback and
+  eight pending URBs remained stable. This is not a USB write/claim failure, but it prevents this
+  run from proving same-item playing-position recovery away from an end boundary.
 
 These are short functional runs, not stability qualification. RAW_DATA framing remains unproven,
 the Native profile remains experimental, and these results do not authorize `signalExact=true`.
@@ -87,7 +100,8 @@ The following remain PENDING and must not be described as PASS, release-ready, v
 signal-exact based on old branches:
 
 - PCM 96 kHz and a new PCM32 source-specific fixture on the final installed APK;
-- playing/paused target detach, reattach, reauthorization and explicit retry;
+- playing detach/retry repeated at a non-boundary position, to isolate same-item position recovery
+  from the observed near-end `StuckPlayerDetector` path;
 - DSD seek on hardware. Two attempted injected gestures did not move the UI progress bar and are
   classified as NOT EXECUTED, not PASS;
 - byte-level DoP marker continuity and direct proof that idle stop/join completed before resumed
@@ -114,6 +128,9 @@ signal-exact based on old branches:
   permission, the first result fails closed as target-changed and the user must use
   "授权并重试"; the second proof may then proceed.
 - DoP appears in settings as "待实机验收". Native always appears as experimental.
+- A playing detach leaves the Media3 session briefly in `STATE_ERROR` with the generic external
+  message `Unexpected runtime error`; owner facts correctly retain `TARGET_DETACHED`. External
+  controller error text is therefore less specific than the settings/diagnostics facts.
 
 ## Physical acceptance recording template
 
