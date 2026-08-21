@@ -13,9 +13,14 @@ import android.content.res.Configuration
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.Surface
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import com.mica.music.data.PlaybackQueueModel
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.imaging.CoverDecodeTarget
+import com.mica.music.media.MicaCompositePlayer
+import com.mica.music.media.PlaybackQueueSnapshot
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselView
 import com.mica.music.ui.screens.player.view.CoverFlowReflectionBake
@@ -29,6 +34,7 @@ import java.io.File
  * Exported only by the perf manifest. It drives production queue/artwork components with a
  * stable 10,000-song list and writes machine-readable samples under externalFiles/capacity.
  */
+@UnstableApi
 class LandscapeCapacityActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var queue: List<com.mica.music.data.Song>
@@ -36,6 +42,8 @@ class LandscapeCapacityActivity : ComponentActivity() {
     private lateinit var doneFile: File
     private var activeView: View? = null
     private var retainedQueueModel: Any? = null
+    private var retainedHandoffSnapshot: PlaybackQueueSnapshot? = null
+    private var handoffPlayer: ExoPlayer? = null
     private var mode: String = "coverflow"
     private var startIndex: Int = 5_000
     private var steps: Int = 200
@@ -72,6 +80,7 @@ class LandscapeCapacityActivity : ComponentActivity() {
             "photo" -> startPhotoStack()
             "queue" -> startQueuePanel()
             "commit" -> runQueueCommit()
+            "handoff" -> runPlaybackHandoffCapture()
             else -> fail("Unknown mode: $mode")
         }
     }
@@ -187,6 +196,60 @@ class LandscapeCapacityActivity : ComponentActivity() {
             ),
         )
         complete()
+    }
+
+    /**
+     * Measures the exact production handoff capture operation: the Exo timeline already owns the
+     * MediaItems, and [MicaCompositePlayer.playbackQueueSnapshot] must only copy their references.
+     * This intentionally excludes the memory of constructing a replacement ExoPlayer stack.
+     */
+    private fun runPlaybackHandoffCapture() {
+        val items = List(queue.size) { index ->
+            MediaItem.Builder()
+                .setMediaId(queue[index].id)
+                .setUri("file:///capacity/${queue[index].id}.flac")
+                .build()
+        }
+        val exo = ExoPlayer.Builder(this).build()
+        handoffPlayer = exo
+        val composite = MicaCompositePlayer(exo)
+        composite.setMediaItems(items, startIndex, 123_456L)
+        Runtime.getRuntime().gc()
+        handler.postDelayed({
+            val runtime = Runtime.getRuntime()
+            val beforeBytes = runtime.totalMemory() - runtime.freeMemory()
+            val beforeAllocatedBytes = Debug.getRuntimeStat("art.gc.bytes-allocated")
+                ?.toLongOrNull() ?: -1L
+            val startedNs = SystemClock.elapsedRealtimeNanos()
+            val snapshot = composite.playbackQueueSnapshot()
+            val captureMs = elapsedMs(startedNs)
+            val afterBytes = runtime.totalMemory() - runtime.freeMemory()
+            val afterAllocatedBytes = Debug.getRuntimeStat("art.gc.bytes-allocated")
+                ?.toLongOrNull() ?: -1L
+            val allocatedDeltaBytes = if (beforeAllocatedBytes >= 0L && afterAllocatedBytes >= 0L) {
+                afterAllocatedBytes - beforeAllocatedBytes
+            } else {
+                -1L
+            }
+            retainedHandoffSnapshot = snapshot
+            val referencesPreserved = snapshot.items.indices.all { index ->
+                snapshot.items[index] === exo.getMediaItemAt(index)
+            }
+            sample(
+                phase = "handoff-captured",
+                index = snapshot.currentIndex,
+                extra = mapOf(
+                    "handoffCaptureMs" to captureMs,
+                    "handoffJavaDeltaBytes" to (afterBytes - beforeBytes),
+                    "handoffAllocatedDeltaBytes" to allocatedDeltaBytes,
+                    "handoffItemCount" to snapshot.items.size,
+                    "handoffReferencesPreserved" to referencesPreserved,
+                    "handoffWithin5Mb" to
+                        (allocatedDeltaBytes in 0L..(5L * 1024L * 1024L)),
+                ),
+            )
+            complete()
+        }, 1_000L)
     }
 
     private fun browse(update: (Int) -> Unit) {
@@ -313,6 +376,9 @@ class LandscapeCapacityActivity : ComponentActivity() {
         handler.removeCallbacksAndMessages(null)
         releaseActiveView()
         retainedQueueModel = null
+        retainedHandoffSnapshot = null
+        handoffPlayer?.release()
+        handoffPlayer = null
         super.onDestroy()
     }
 

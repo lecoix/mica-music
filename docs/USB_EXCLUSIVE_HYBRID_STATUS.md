@@ -34,15 +34,27 @@ P1 and rewrite results are design input only and are never counted as Hybrid PAS
   tests pass.
 - Reference transport packetizer, DSF converter, DoP/Native encoder, quirk and Native-candidate
   tests pass.
+- Focused synthetic descriptor tests pass for UAC1 Type I PCM, UAC2 Type I PCM, UAC2 RAW_DATA
+  classification and a truncated descriptor tail. RAW_DATA remains `FramingUnproven`.
+- Explicit-feedback tests pass for a valid rate, missing/zero feedback, low and high malformed
+  feedback, and recovery after 10,000 consecutive missing samples. Invalid feedback uses nominal
+  cadence and the first subsequent valid sample takes effect without accumulated drift.
 - A 72-hour exact-cadence projection and 32 x 100,000-packet fixed-seed cadence stress pass.
 - A forced full Debug JVM run passes: 1,258 tests, zero failures/errors and nine skipped tests. The
-  DSD decoder module currently has no JVM test sources.
+  USB transport module separately passes 43 tests. The DSD decoder module currently has no JVM
+  test sources.
 - Debug, Perf and unsigned Release APK builds pass.
 - The FFmpeg arm64 JNI library was rebuilt from the changed Java/JNI contract with PCM32 output.
 - Final local artifact SHA-256 values:
-  - Debug: `0481C2E5B41DF1B955CE454E0FCE274C897CABE468D74E7F92781A82567972EC`
-  - Perf: `6A4182DFCC1E94D4267C50F1C4B8B325EA6B3436BD9A0069404DD84CB8967F37`
-  - unsigned Release: `9D6F8041E2C0679110A1C00DA165A6117F2E9AA87962091405925D06F4EF70EE`
+  - Debug: `2B3D89B4A715D675C62D8D9A13FC75AB656F7D7B634E839D39BCA91492AE0A28`
+  - Perf: `1925F2C06F691013ECAE2C9AB2E88BECEE350157EFE55B01BE8B0D5D87404053`
+  - unsigned Release: `984309131B847EE63CA31070315B52F1277B74E6A69B72D8F295EAF883150B89`
+- Perf now has a machine-readable `handoff` capacity mode that loads 10,000 real Media3
+  `MediaItem` objects into ExoPlayer and invokes the production `playbackQueueSnapshot()` path. It
+  records capture time, ART's monotonic allocated-byte delta, observational Java-heap delta, item
+  count and reference identity. The <=5 MB verdict uses the allocation counter so a concurrent GC
+  cannot create a false PASS. The APK built, but the on-device run did not occur because wireless
+  ADB `172.17.57.11:37333` refused the connection.
 
 ## Hybrid physical evidence obtained
 
@@ -51,8 +63,10 @@ Test device: Redmi `22081212C`, Android 12 / API 31, build
 was `Speed Dragon / Fosi Audio SK02`, USB address `/dev/bus/usb/002/002`, with no serial exposed.
 The final Native stability attempt started at 33% battery and 38.3 C battery temperature.
 
-- The final Debug APK was installed and read back from `/data/app`; its device SHA-256 exactly
-  matched `0481C2...72EC` above.
+- The physically tested Debug APK was installed and read back from `/data/app`; its device SHA-256
+  exactly matched `0481C2E5...72EC`. The current local hash differs because of later
+  validation-only additions (test-visible descriptor parsing and a Perf-only capacity mode); the
+  current APK has not been reinstalled or physically requalified.
 - PCM short runs passed for 44.1 kHz/PCM16 and 48 kHz/PCM32, including pause/resume, seek, track
   change and manual Shared PCM <-> USB switching. Shared PCM regained the device after USB close.
 - A 96 kHz/24-bit FLAC source (`01.HALO.flac`) was decoded to integer PCM32 and opened the exact
@@ -70,7 +84,7 @@ The final Native stability attempt started at 33% battery and 38.3 C battery tem
 - The registered DSF fixture is `06. A Christmas Wedding (Fiona Joy Hawkins).dsf.dsd`, SHA-256
   `C393038AD94EB0B50087786327022B19EC0D62C3D0F13BB10337CDA39A06AF99`, DSD64 stereo at
   2,822,400 samples/s.
-- On the final installed APK, experimental Native opened interface 2, alt 4 RAW_DATA with the
+- On the physically tested APK, experimental Native opened interface 2, alt 4 RAW_DATA with the
   built-in `u32le` profile, 88.2 kHz frame rate and DSD64 input. A short run sustained eight pending
   URBs with no media-session error. Native pause started the idle writer, resume advanced position,
   and Native DSD -> PCM16/44.1 kHz -> Native DSD transitions each closed/reopened the appropriate
@@ -83,7 +97,7 @@ The final Native stability attempt started at 33% battery and 38.3 C battery tem
   fired after ten seconds. The sink now preserves an already-STARTED state across configure and,
   when a same-epoch DSD session has retired its old PCM session id, reopens PCM once before retrying
   the first write. Deterministic tests cover both interleavings and forbid reopening after a newer
-  epoch. On the final installed APK, the formerly failing DSD -> PCM transition closed Native,
+  epoch. On the physically tested APK, the formerly failing DSD -> PCM transition closed Native,
   opened PCM32/44.1 kHz, and advanced continuously from 1.395 to 44.137 seconds without a stuck
   error.
 - Force-stopping the process during the USB test and starting a new process preserved a paused
@@ -129,17 +143,20 @@ signal-exact based on old branches:
 
 - playing detach/retry repeated at a non-boundary position, to isolate same-item position recovery
   from the observed near-end `StuckPlayerDetector` path;
-- byte-level DoP marker continuity and direct proof that idle stop/join completed before resumed
-  content. Short behavior passed, but the log did not emit a stop/join milestone;
+- direct proof that the DoP idle thread's blocking stop/join completed before resumed content.
+  Byte-level marker alternation, partial-frame carry, `0x69` idle continuity, drain padding and
+  reset phase pass in software, and short physical behavior passed, but the physical log did not
+  emit a stop/join milestone;
 - DAC lock/rate indicator and listening observations for DoP and Native;
 - 90-minute Continuous, Lifecycle, Shared PCM baseline and DoP stability runs;
 - Native requalification, 90-minute Native stability and any promotion to `signalExact=true`;
-- UAC descriptor corpus and malformed/lost/long-gap feedback matrix beyond the imported focused
-  tests;
+- a multi-vendor, captured UAC descriptor corpus beyond the focused synthetic UAC1/UAC2/truncated
+  matrix. Malformed/lost/10,000-sample-gap feedback behavior is now covered in software;
 - direct process-kill kernel-driver/prior-clock restoration proof, plus FD/memory/temperature/
   underrun measurements and the listening matrix;
-- 10,000-item on-device handoff measurement. The implementation copies `MediaItem` references and
-  does not parse lyrics/artwork, but the <=5 MB target has not yet been measured.
+- 10,000-item on-device handoff measurement. A Perf-only runner now exercises the production
+  snapshot and verifies reference identity without parsing lyrics/artwork, but the <=5 MB result
+  is still unmeasured because wireless ADB became unreachable before installation.
 
 ## Known limitations and honest risk
 

@@ -340,7 +340,7 @@ object UsbStreamingTargetResolver {
         return null
     }
 
-    private fun parseStreamingFormatInfo(
+    internal fun parseStreamingFormatInfo(
         descriptors: ByteArray?,
     ): Map<Pair<Int, Int>, UsbStreamingFormatInfo> {
         if (descriptors == null) {
