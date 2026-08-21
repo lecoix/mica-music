@@ -139,15 +139,17 @@ internal class MicaRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
-        out.add(
-            FfmpegAudioRenderer(
-                eventHandler,
-                eventListener,
-                buildDsdAudioSink(context),
-                "DsdOnly",
-                MicaRendererSupportPolicies.dsdOnly,
-            ),
-        )
+        if (shouldInstallDecodedDsdRenderer(outputPath.outputMode)) {
+            out.add(
+                FfmpegAudioRenderer(
+                    eventHandler,
+                    eventListener,
+                    buildDsdAudioSink(context),
+                    "DsdOnly",
+                    MicaRendererSupportPolicies.dsdOnly,
+                ),
+            )
+        }
         out.add(
             FfmpegAudioRenderer(
                 eventHandler,
@@ -308,3 +310,12 @@ internal class MicaRenderersFactory(
         const val RENDERER_SPLIT_PROFILE = "RendererSplit"
     }
 }
+
+/**
+ * Explicit USB DSD modes must have exactly one renderer capable of handling raw DSF. Installing
+ * the normal FFmpeg DsdOnly renderer beside [UsbHybridDsdRenderer] lets Media3 choose decoded PCM
+ * and silently bypass the requested DoP/Native payload path.
+ */
+internal fun shouldInstallDecodedDsdRenderer(outputMode: PlaybackOutputMode): Boolean =
+    outputMode != PlaybackOutputMode.UsbDop &&
+        outputMode != PlaybackOutputMode.UsbNativeDsdExperimental

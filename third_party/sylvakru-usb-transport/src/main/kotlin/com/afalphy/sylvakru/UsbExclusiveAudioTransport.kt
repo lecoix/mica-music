@@ -25,6 +25,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     private var currentDsdFormat: DsdFormat? = null
     private var currentUsbBitResolution: Int? = null
     private var dsdEncoder: DsdStreamEncoder? = null
+    private var dsdPayloadWriteObserved = false
     @Volatile private var requestEpoch: Long = 0L
     @Volatile private var nativeSessionId: Long = 0L
     private val dsdIdleFillerRunning = AtomicBoolean(false)
@@ -394,6 +395,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         currentDsdFormat = dsdFormat
         currentUsbBitResolution = usbBitResolution
         dsdEncoder = checkNotNull(encoder)
+        dsdPayloadWriteObserved = false
         requestEpoch = epoch
         nativeSessionId = sessionId
         UsbDiagnostics.i(TAG, "opened DSD session $dsdFormat")
@@ -453,6 +455,14 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
             val encoded = encoder.encode(data, length)
             if (encoded.isNotEmpty()) {
                 activePacketizer.write(encoded)
+                if (!dsdPayloadWriteObserved) {
+                    dsdPayloadWriteObserved = true
+                    UsbDiagnostics.i(
+                        TAG,
+                        "DSD payload first-write mode=${currentDsdFormat?.mode} " +
+                            "rawBytes=$length encodedBytes=${encoded.size}",
+                    )
+                }
             }
             null
         } catch (error: UsbExclusiveTransportException) {
@@ -564,6 +574,7 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
         currentDsdFormat = null
         currentUsbBitResolution = null
         dsdEncoder = null
+        dsdPayloadWriteObserved = false
         if (connection != null) {
             UsbExclusiveNative.close(requestEpoch, nativeSessionId)
             connection?.close()
@@ -603,9 +614,15 @@ class UsbExclusiveAudioTransport(context: Context) : AutoCloseable {
     private fun stopDsdIdleFillerLocked() {
         dsdIdleFillerRunning.set(false)
         val thread = dsdIdleFillerThread ?: return
+        val startedNs = System.nanoTime()
         if (thread != Thread.currentThread()) {
             runCatching { thread.join() }
         }
+        val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000L
+        UsbDiagnostics.i(
+            TAG,
+            "DSD idle filler stop/join complete elapsedMs=$elapsedMs alive=${thread.isAlive}",
+        )
         dsdIdleFillerThread = null
     }
 
