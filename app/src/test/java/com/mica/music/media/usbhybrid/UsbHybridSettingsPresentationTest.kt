@@ -3,6 +3,7 @@ package com.mica.music.media.usbhybrid
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.mica.music.data.preferences.UsbHybridOutputMode
 
 class UsbHybridSettingsPresentationTest {
     @Test
@@ -52,5 +53,43 @@ class UsbHybridSettingsPresentationTest {
 
         assertTrue(lines.any { it.contains("实验") })
         assertTrue(lines.any { it.contains("尚未重新资格化") })
+    }
+
+    @Test
+    fun selectedPreferenceIsNotPresentedAsActiveWithoutOwnerFacts() {
+        val summary = UsbHybridSettingsPresentation.entrySummary(
+            facts = UsbPlaybackFacts(),
+            selectedMode = UsbHybridOutputMode.ExactPcm,
+        )
+
+        assertTrue(summary.contains("未激活"))
+        assertFalse(summary.contains("ACTIVE"))
+    }
+
+    @Test
+    fun activeSummaryUsesNegotiatedOwnerFormat() {
+        val facts = UsbPlaybackFacts(
+            requestedMode = UsbExclusiveMode.USB_DOP,
+            activeMode = UsbExclusiveMode.USB_DOP,
+            streamFormat = "DoP DSD64",
+            sampleRate = 2_822_400,
+            usbBitResolution = 24,
+            channels = 2,
+        )
+
+        assertTrue(
+            UsbHybridSettingsPresentation.entrySummary(facts, UsbHybridOutputMode.Dop)
+                .contains("ACTIVE · USB DoP · DoP DSD64"),
+        )
+        assertTrue(UsbHybridSettingsPresentation.rateLabel(facts) == "DSD64")
+    }
+
+    @Test
+    fun transportHealthDoesNotInventTelemetry() {
+        assertTrue(
+            UsbHybridSettingsPresentation.transportHealthLabel(
+                UsbPlaybackFacts(activeMode = UsbExclusiveMode.USB_EXACT_PCM),
+            ) == "活动",
+        )
     }
 }

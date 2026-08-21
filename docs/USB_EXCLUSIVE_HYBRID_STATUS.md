@@ -27,6 +27,10 @@ P1 and rewrite results are design input only and are never counted as Hybrid PAS
   are loaded.
 - USB failure does not rebuild Shared PCM. Queue, item references, position, repeat, play intent and
   requested mode remain available for explicit retry or manual Shared PCM selection.
+- Audio settings now link to a dedicated USB page adapted from rewrite's information architecture:
+  DAC/current output, explicit modes, owner-published exactness facts, transport telemetry and
+  support actions. It deliberately does not copy rewrite's rounded cards, circular status controls,
+  borders or runtime JSON quirk import. Selected preferences never imply ACTIVE; only owner facts do.
 
 ## Software evidence obtained in this worktree
 
@@ -40,15 +44,21 @@ P1 and rewrite results are design input only and are never counted as Hybrid PAS
   feedback, and recovery after 10,000 consecutive missing samples. Invalid feedback uses nominal
   cadence and the first subsequent valid sample takes effect without accumulated drift.
 - A 72-hour exact-cadence projection and 32 x 100,000-packet fixed-seed cadence stress pass.
-- A forced full Debug JVM run passes: 1,258 tests, zero failures/errors and nine skipped tests. The
+- A forced full Debug JVM run passes after the USB settings-page migration: 1,261 tests, zero
+  failures/errors and nine skipped tests. The
   USB transport module separately passes 43 tests. The DSD decoder module currently has no JVM
   test sources.
-- Debug, Perf and unsigned Release APK builds pass.
+- The current Debug APK build passes. Perf and unsigned Release APK builds passed before the
+  UI-only settings-page change and have not been rebuilt for that change.
 - The FFmpeg arm64 JNI library was rebuilt from the changed Java/JNI contract with PCM32 output.
-- Final local artifact SHA-256 values:
-  - Debug: `2B3D89B4A715D675C62D8D9A13FC75AB656F7D7B634E839D39BCA91492AE0A28`
-  - Perf: `1925F2C06F691013ECAE2C9AB2E88BECEE350157EFE55B01BE8B0D5D87404053`
-  - unsigned Release: `984309131B847EE63CA31070315B52F1277B74E6A69B72D8F295EAF883150B89`
+- Current Debug artifact SHA-256:
+  `BA338A12618964E56F9A2ADD2A8388F4F27873F8FF891DAA10B2D19CB373EA19`.
+  The last pre-UI Perf and unsigned Release hashes remain `1925F2C0...4053` and
+  `98430913...B89`; they are not hashes of the current source snapshot.
+- The current Debug APK was installed on Redmi 22081212C and the installed base APK hash matched.
+  The USB settings page was inspected at 1220x2576: the summary metrics and mode choices fit,
+  the lower transport/actions content remained reachable above the mini player after scrolling,
+  and system Back returned to Audio & Devices. TalkBack was not manually exercised.
 - Perf now has a machine-readable `handoff` capacity mode that loads 10,000 real Media3
   `MediaItem` objects into ExoPlayer and invokes the production `playbackQueueSnapshot()` path. It
   records capture time, ART's monotonic allocated-byte delta, observational Java-heap delta, item
@@ -71,10 +81,11 @@ The final Native stability attempt started at 33% battery and 38.3 C battery tem
 
 - The USB-physically-tested Debug APK was installed and read back from `/data/app`; its device
   SHA-256 exactly matched `0481C2E5...72EC`. After the validation-only additions, the current Debug
-  APK was installed and its device SHA-256 exactly matched `2B3D89B4...0A28`. The current APK has
-  not repeated the USB physical matrix; the behavior evidence below remains tied to the former
-  hash because test-visible descriptor parsing and the Perf-only capacity mode do not themselves
-  constitute USB requalification.
+  APK was installed and its device SHA-256 exactly matched `2B3D89B4...0A28`. The later UI-only
+  Debug APK `BA338A12...3EA19` was installed and its device hash matched, but it has not repeated
+  the USB physical matrix;
+  the behavior evidence below remains tied to the former hash because validation and settings UI
+  changes do not themselves constitute USB requalification.
 - PCM short runs passed for 44.1 kHz/PCM16 and 48 kHz/PCM32, including pause/resume, seek, track
   change and manual Shared PCM <-> USB switching. Shared PCM regained the device after USB close.
 - A 96 kHz/24-bit FLAC source (`01.HALO.flac`) was decoded to integer PCM32 and opened the exact

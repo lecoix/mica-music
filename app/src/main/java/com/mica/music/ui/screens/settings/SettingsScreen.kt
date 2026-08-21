@@ -79,10 +79,13 @@ fun SettingsScreen(
     var artistSplitConfig by remember { mutableStateOf(LibraryBrowseSettings.artistSplitConfig(context)) }
     var overlays by remember { mutableStateOf(SettingsOverlayState()) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+    var usbHybridSubpageOpen by remember { mutableStateOf(false) }
     var settingsSearchOpen by remember { mutableStateOf(false) }
     var settingsSearchQuery by remember { mutableStateOf("") }
     var audioOffloadState by remember { mutableStateOf(AudioOffloadPreferences.state(context)) }
-    val settingsSubpageBackEnabled = canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
+    val settingsSubpageBackEnabled =
+        (usbHybridSubpageOpen && !playerOverlayOpen) ||
+            canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
     val settingsSearchBackEnabled = selectedCategory == null && settingsSearchOpen
     val settingsBackEnabled = settingsSubpageBackEnabled || settingsSearchBackEnabled
     val settingsSearchFocusRequester = remember { FocusRequester() }
@@ -108,15 +111,23 @@ fun SettingsScreen(
         settingsSearchQuery = ""
     }
 
-    LaunchedEffect(selectedCategory, playerOverlayOpen, settingsBackEnabled, settingsSearchOpen) {
+    LaunchedEffect(
+        selectedCategory,
+        usbHybridSubpageOpen,
+        playerOverlayOpen,
+        settingsBackEnabled,
+        settingsSearchOpen,
+    ) {
         logBackFlow(
             "page settings category=${selectedCategory?.name ?: "none"} " +
+                "usbHybrid=$usbHybridSubpageOpen " +
                 "playerOverlayOpen=$playerOverlayOpen searchOpen=$settingsSearchOpen " +
                 "backEnabled=$settingsBackEnabled",
         )
         DiagnosticLog.event(
             "BackRoot",
             "$BackRootDebugTag settings-state category=${selectedCategory?.name ?: "none"} " +
+                "usbHybrid=$usbHybridSubpageOpen " +
                 "playerOverlayOpen=$playerOverlayOpen searchOpen=$settingsSearchOpen " +
                 "enabled=$settingsBackEnabled",
         )
@@ -125,6 +136,11 @@ fun SettingsScreen(
     BackHandler(enabled = settingsBackEnabled) {
         if (settingsSearchBackEnabled) {
             closeSettingsSearch()
+            return@BackHandler
+        }
+        if (usbHybridSubpageOpen) {
+            logBackFlow("back-consume source=settings-usb-hybrid")
+            usbHybridSubpageOpen = false
             return@BackHandler
         }
         logBackFlow(
@@ -204,6 +220,9 @@ fun SettingsScreen(
                 onClick = {
                     if (selectedCategory == null && settingsSearchOpen) {
                         closeSettingsSearch()
+                    } else if (usbHybridSubpageOpen) {
+                        logBackFlow("back-consume source=settings-topbar-usb-hybrid")
+                        usbHybridSubpageOpen = false
                     } else {
                         when (resolveSettingsTopBarBackAction(selectedCategory)) {
                             SettingsTopBarBackAction.ExitSettings -> {
@@ -272,7 +291,7 @@ fun SettingsScreen(
                 )
             } else {
                 Text(
-                    text = settingsScreenTitle(selectedCategory),
+                    text = settingsScreenTitle(selectedCategory, usbHybridSubpageOpen),
                     style = MicaTheme.typography.bodyLg,
                     color = MicaTheme.colors.textPrimary,
                     modifier = Modifier.weight(1f),
@@ -361,7 +380,14 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.AUDIO -> {
-                        AudioSettingsPanel(uiSettings = uiSettings)
+                        if (usbHybridSubpageOpen) {
+                            UsbHybridSettingsPanel()
+                        } else {
+                            AudioSettingsPanel(
+                                uiSettings = uiSettings,
+                                onOpenUsbExclusive = { usbHybridSubpageOpen = true },
+                            )
+                        }
                     }
 
                     SettingsCategory.DIAGNOSTICS -> {

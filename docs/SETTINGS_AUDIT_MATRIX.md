@@ -1,7 +1,7 @@
 # 设置审计矩阵
 
-> 审计日期：2026-08-12
-> 基线：当前主工作树（非 USB 独占工作树）；静态追踪设置入口、持久化与运行时消费点
+> 审计日期：2026-08-21
+> 基线：USB Exclusive Hybrid 工作树；静态追踪设置入口、持久化与运行时消费点
 > 方法：静态追踪“设置入口 → 持久化 owner/key → 运行时消费点 → 生效条件”。本文件不把编译或 JVM 测试当作真实设备、音频质量或视觉验收。
 
 ## 状态定义
@@ -60,6 +60,15 @@
 | 信息行：速度、音高、当前时间 | 同上 | 由实时播放 tuning/系统时间提供；分别控制显示 | `ACTIVE` | 保留独立开关，但不必全部占主页面 |
 | 信息行自定义文字 | `PlaybackUiPreferences` / `player_info_show_custom`、`player_info_custom_text` | 自定义开关开启时追加到信息行 | `CONDITIONAL` | 与信息行内容编辑器合并 |
 | Hi-Res 标志样式 | `PlaybackUiPreferences` / `hi_res_badge_style`、`hi_res_badge_custom_image_path` | 播放页信息行右侧；自定义图片路径失效时回退默认样式 | `CONDITIONAL` | 放入“信息行内容”详情；标明当前仅播放页消费 |
+
+### 音频与 USB 设备
+
+| 设置 | 持久化 owner / key | 运行时消费点与条件 | 状态 | 处理建议 |
+| --- | --- | --- | --- | --- |
+| USB 独占输出模式 | `UsbHybridPreferences` / `usb_hybrid_output_mode` | `MicaMediaService` 通过 Hybrid owner 以 break-before-make 重建输出栈；仅严格匹配单个 Fosi SK02，默认 Shared PCM，失败不自动回退 | `CONDITIONAL` | 保留为“音频与设备”的独立子页；Shared、Exact PCM、DoP、实验 Native 必须显式选择 |
+| USB 当前状态与格式 | 不持久化；`UsbHybridRuntimeMonitor.facts` | owner 发布 permission、claimed、exclusive、transportExact、signalExact、实际格式、epoch/session 与失败原因 | `ACTIVE` | UI 只显示 facts，不得从所选模式推断 ACTIVE；状态必须有文字，不能只靠颜色 |
+| USB 授权并重试 / 切回 Shared PCM | 无独立 key；动作交给 Hybrid owner / 模式偏好 | 重试产生新 request epoch；切回 Shared PCM 同步执行输出栈切换 | `ACTIVE` | 作为动作行，不和偏好状态混写；失败后保持请求模式、队列和位置 |
+| USB 诊断导出 | 无普通偏好；`UsbHybridDiagnosticsReport` | 导出 APK、stable/runtime identity、descriptor digest、协商结果、URB telemetry 与最近错误，不导出原始 serial | `ACTIVE` | 保留在 USB 子页“支持与诊断”；v1 不提供运行时 JSON quirk 导入 |
 
 ### 歌词页
 
@@ -162,4 +171,4 @@
 
 ## 验证边界
 
-本矩阵已经完成代码级入口和消费点追踪，但以下内容仍不能仅凭静态代码宣称有效：车载蓝牙歌词、视频封面在不同主题下的最终表现、频谱功耗、offload 熔断在不同 ROM/固件上的实际表现、音频焦点在不同 OEM 上的行为、`DYNAMIC_LIGHT`/粒子主题的真实设备表现，以及设置重组后的返回手势和视觉层级。这些应在 UI 整理后单独做真机验收。
+本矩阵已经完成代码级入口和消费点追踪，但以下内容仍不能仅凭静态代码宣称有效：车载蓝牙歌词、视频封面在不同主题下的最终表现、频谱功耗、offload 熔断在不同 ROM/固件上的实际表现、音频焦点在不同 OEM 上的行为、`DYNAMIC_LIGHT`/粒子主题的真实设备表现，以及 USB 子页与其他设置的返回手势、TalkBack 和视觉层级。这些应单独做真机验收。
