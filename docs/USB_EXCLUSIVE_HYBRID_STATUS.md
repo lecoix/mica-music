@@ -53,8 +53,14 @@ P1 and rewrite results are design input only and are never counted as Hybrid PAS
   `MediaItem` objects into ExoPlayer and invokes the production `playbackQueueSnapshot()` path. It
   records capture time, ART's monotonic allocated-byte delta, observational Java-heap delta, item
   count and reference identity. The <=5 MB verdict uses the allocation counter so a concurrent GC
-  cannot create a false PASS. The APK built, but the on-device run did not occur because wireless
-  ADB `172.17.57.11:37333` refused the connection.
+  cannot create a false PASS. On-device, one cold run completed in 18.658 ms with 51,976 allocated
+  bytes. Five subsequent cold Activity/process runs completed in 3.530-4.089 ms with
+  50,704-52,352 allocated bytes. All six retained 10,000/10,000 original `MediaItem` references,
+  reported `handoffWithin5Mb=true`, and kept the lazy lyrics policy. The installed Perf APK was
+  read back with SHA-256 `1925F2C0...4053`; no app crash, ANR, ExoPlayer or USB error appeared in
+  the sampled log. The last Perf snapshot was about 100 MB total PSS / 219 MB total RSS; battery
+  was 76% at 33.7 C. Those process totals include ExoPlayer and the capacity harness and are not
+  attributed to the 50-52 KiB handoff capture itself.
 
 ## Hybrid physical evidence obtained
 
@@ -63,10 +69,12 @@ Test device: Redmi `22081212C`, Android 12 / API 31, build
 was `Speed Dragon / Fosi Audio SK02`, USB address `/dev/bus/usb/002/002`, with no serial exposed.
 The final Native stability attempt started at 33% battery and 38.3 C battery temperature.
 
-- The physically tested Debug APK was installed and read back from `/data/app`; its device SHA-256
-  exactly matched `0481C2E5...72EC`. The current local hash differs because of later
-  validation-only additions (test-visible descriptor parsing and a Perf-only capacity mode); the
-  current APK has not been reinstalled or physically requalified.
+- The USB-physically-tested Debug APK was installed and read back from `/data/app`; its device
+  SHA-256 exactly matched `0481C2E5...72EC`. After the validation-only additions, the current Debug
+  APK was installed and its device SHA-256 exactly matched `2B3D89B4...0A28`. The current APK has
+  not repeated the USB physical matrix; the behavior evidence below remains tied to the former
+  hash because test-visible descriptor parsing and the Perf-only capacity mode do not themselves
+  constitute USB requalification.
 - PCM short runs passed for 44.1 kHz/PCM16 and 48 kHz/PCM32, including pause/resume, seek, track
   change and manual Shared PCM <-> USB switching. Shared PCM regained the device after USB close.
 - A 96 kHz/24-bit FLAC source (`01.HALO.flac`) was decoded to integer PCM32 and opened the exact
@@ -153,10 +161,7 @@ signal-exact based on old branches:
 - a multi-vendor, captured UAC descriptor corpus beyond the focused synthetic UAC1/UAC2/truncated
   matrix. Malformed/lost/10,000-sample-gap feedback behavior is now covered in software;
 - direct process-kill kernel-driver/prior-clock restoration proof, plus FD/memory/temperature/
-  underrun measurements and the listening matrix;
-- 10,000-item on-device handoff measurement. A Perf-only runner now exercises the production
-  snapshot and verifies reference identity without parsing lyrics/artwork, but the <=5 MB result
-  is still unmeasured because wireless ADB became unreachable before installation.
+  underrun measurements and the listening matrix.
 
 ## Known limitations and honest risk
 
