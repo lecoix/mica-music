@@ -30,6 +30,16 @@ class AudioOutputPathConfigTest {
         AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDirectPcm).requireSupportedForPlayback()
     }
 
+    @Test
+    fun explicitDebugPrototype_allowsUsbDirectPcmWithoutChangingProductionDefault() {
+        AudioOutputPathConfig(
+            outputMode = PlaybackOutputMode.UsbDirectPcm,
+            prototypeUsbHost = true,
+        ).requireSupportedForPlayback()
+        assertEquals(PlaybackOutputMode.SharedPcm, AudioOutputPathConfig.PRODUCTION.outputMode)
+        assertFalse(AudioOutputPathConfig.PRODUCTION.prototypeUsbHost)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun dsdFloatPcm_rejectedUntilP4() {
         AudioOutputPathConfig(dsdDecimationMode = DsdDecimationOutputMode.FloatPcm)

@@ -29,3 +29,6 @@ include(":media3-ffmpeg-decoder-dsd")
 project(":media3-ffmpeg-decoder-dsd").projectDir = file("third_party/media3-ffmpeg-decoder")
 include(":sylvakru-usb-transport")
 project(":sylvakru-usb-transport").projectDir = file("third_party/sylvakru-usb-transport")
+// THROWAWAY PROTOTYPE: debug-only SK02 USBFS feasibility seam retained as historical/diagnostic tooling.
+include(":usb-sk02-native-prototype")
+project(":usb-sk02-native-prototype").projectDir = file("prototypes/usb-sk02-native")

@@ -27,3 +27,13 @@ superseded_by: 0004-usb-exclusive-hybrid.md
 4. 实现 PCM 格式协商和 transport，再建立 requested/active/fallback/实际格式的输出事实。
 5. 用 USB DAC 实机矩阵验证兼容性、错误恢复和长时间稳定性。
 6. DoP/Native DSD 作为后续独立决策，不随 PCM transport 自动启用。
+
+## 2026-08-14 Direct DSD addendum
+
+后续实验已经验证：Direct DSD 不能从最终 `AudioOutputProvider` 接入，因为到该 seam 时 DSD 已被 FFmpeg / DSD decimation 转成 PCM。Direct DSD 因此采用 **Media3 renderer-level branch**，继续复用现有 ExoPlayer、MediaSession、timeline 与 queue，不创建第二套播放器。
+
+Direct exact transport 的启动分成两个不同状态：prepare/ENABLED 阶段只允许真实内容预填 dormant ring 并形成 startup-ready；renderer 进入 STARTED 后才允许 arm USB exact transport。达到 prefill threshold 本身不等于允许启动硬件流。
+
+未来 Direct DSD pause/曲间空窗需要一个独立的 carrier-liveness owner：source 暂停时不推进音乐数据，但仍通过既有 `DoPCarrierSession.writeGapFrames()` 提供合法 DSD gap；恢复时继续同一 session chronology。Native 层保持 exact-only，不生成 PCM zero-fill 或私自构造 DSD carrier。
+
+参考项目只作为设计证据：GPLv3 NeriPlayer 支持“queued/preroll readiness 与 native start 分离”的 USB PCM 生命周期；Apache-2.0 sylvakru 的 DSD 路径把 source pause 与持续 DSD idle carrier 分离，并以单 writer/session 维持 marker 连续。Mica 只采用这些 ownership/lifecycle 原则，不复制参考实现代码或另建 DoP 算法。

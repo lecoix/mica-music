@@ -156,6 +156,70 @@ class UsbHybridSessionOwnerTest {
     }
 
     @Test
+    fun technicalRetireKeepsEpochAndAuthorizedTargetForFreshDsdSession() {
+        val effects = RecordingEffects()
+        UsbHybridSessionOwner(effects).use { owner ->
+            val epoch = owner.armAuthorizedTarget(
+                UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL,
+                sk02,
+                runtimeA,
+            )
+            owner.awaitIdle()
+            val first = owner.requestOpen(
+                epoch,
+                UsbStreamFormat.Dsd(2_822_400, 2, native = true),
+            ).get()
+            assertEquals(71L, first.sessionId)
+            assertEquals(UsbActiveTransport.NATIVE_DSD, first.activeTransport)
+
+            val retired = owner.retireActiveSessionRetainingEpoch(epoch).get()
+
+            assertEquals(epoch, owner.currentEpoch())
+            assertEquals(epoch.value, retired.requestEpoch)
+            assertEquals(UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL, retired.requestedMode)
+            assertEquals(PermissionState.GRANTED, retired.permission)
+            assertNull(retired.activeMode)
+            assertNull(retired.activeTransport)
+            assertNull(retired.sessionId)
+            assertEquals(listOf(71L), effects.closedSessionIds)
+
+            val reopened = owner.requestOpen(
+                epoch,
+                UsbStreamFormat.Dsd(2_822_400, 2, native = true),
+            ).get()
+            assertEquals(epoch, owner.currentEpoch())
+            assertEquals(72L, reopened.sessionId)
+            assertEquals(UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL, reopened.activeMode)
+            assertEquals(UsbActiveTransport.NATIVE_DSD, reopened.activeTransport)
+            assertEquals(2, effects.openCount)
+        }
+    }
+
+    @Test
+    fun nativePolicyPublishesPcmAsActualTransportWhenCurrentStreamIsPcm() {
+        val effects = RecordingEffects()
+        UsbHybridSessionOwner(effects).use { owner ->
+            val epoch = owner.armAuthorizedTarget(
+                UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL,
+                sk02,
+                runtimeA,
+            )
+            owner.awaitIdle()
+
+            val facts = owner.requestOpen(
+                epoch,
+                UsbStreamFormat.Pcm(44_100, 2, 16),
+            ).get()
+
+            assertEquals(UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL, facts.requestedMode)
+            assertEquals(UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL, facts.activeMode)
+            assertEquals(UsbActiveTransport.PCM, facts.activeTransport)
+            assertTrue(facts.exclusive)
+            assertTrue(facts.transportExact)
+        }
+    }
+
+    @Test
     fun simultaneousRequestsPublishMonotonicEpochsToNativeAndFacts() {
         val effects = RecordingEffects()
         UsbHybridSessionOwner(effects).use { owner ->
@@ -241,7 +305,7 @@ class UsbHybridSessionOwnerTest {
             allowOpen?.await(2, TimeUnit.SECONDS)
             return nextOpenResult?.also { nextOpenResult = null }
                 ?: UsbOpenResult(
-                    sessionId = UsbTransportSessionId(request.epoch, 71L),
+                    sessionId = UsbTransportSessionId(request.epoch, 70L + openCount),
                     claimed = true,
                     transportExact = true,
                     signalExact = true,
@@ -253,8 +317,23 @@ class UsbHybridSessionOwnerTest {
             closedSessionIds += sessionId.nativeId
         }
 
+
         fun awaitPermissionRequest() {
             assertTrue(permissionRequested.await(2, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun `retarget authorized target keeps epoch`() {
+        val effects = RecordingEffects()
+        UsbHybridSessionOwner(effects).use { owner ->
+            val epoch = owner.armAuthorizedTarget(UsbExclusiveMode.USB_EXACT_PCM, sk02, runtimeA)
+            owner.awaitIdle()
+            val retargeted = owner.retargetAuthorizedTarget(UsbExclusiveMode.USB_DOP, sk02, runtimeA)
+            assertEquals(epoch, retargeted)
+            assertEquals(epoch, owner.currentEpoch())
+            assertEquals(UsbExclusiveMode.USB_DOP, owner.facts.value.requestedMode)
+            assertEquals(PermissionState.GRANTED, owner.facts.value.permission)
         }
     }
 }

@@ -8,6 +8,32 @@ import org.junit.Test
 class UsbPcmIsoPacketizerTest {
 
     @Test
+    fun `native frame fifo mode converts slots without pre-packetizing`() {
+        val frameWrites = mutableListOf<ByteArray>()
+        val packetizer = UsbPcmIsoPacketizer(
+            sampleRate = 48_000,
+            packetsPerSecond = 8_000,
+            channels = 2,
+            inputBytesPerSample = 3,
+            inputBitDepth = 24,
+            usbBytesPerSample = 4,
+            usbBitResolution = 32,
+            writeFrames = { frameWrites += it },
+        )
+
+        packetizer.write(byteArrayOf(1, 2, 3, 4, 5, 6))
+        packetizer.writeUsbSilence(1)
+        packetizer.flush()
+
+        assertEquals(2, frameWrites.size)
+        assertArrayEquals(
+            byteArrayOf(0, 1, 2, 3, 0, 4, 5, 6),
+            frameWrites[0],
+        )
+        assertArrayEquals(ByteArray(8), frameWrites[1])
+    }
+
+    @Test
     fun `48k stereo 16-bit keeps reference packet size and bytes`() {
         val writes = mutableListOf<Write>()
         val pcm = ByteArray(48 * 2 * 2) { index -> (index and 0xff).toByte() }
@@ -50,6 +76,79 @@ class UsbPcmIsoPacketizerTest {
         assertEquals(9, lengths.count { it == 44 * 4 })
         assertEquals(1, lengths.count { it == 45 * 4 })
         assertEquals(pcm.size, lengths.sum())
+    }
+
+    @Test
+    fun `full-speed policy can keep each transfer near two milliseconds`() {
+        val writes = mutableListOf<Write>()
+        val packetizer = UsbPcmIsoPacketizer(
+            sampleRate = 48_000,
+            packetsPerSecond = 1_000,
+            channels = 2,
+            inputBytesPerSample = 2,
+            inputBitDepth = 16,
+            usbBytesPerSample = 2,
+            usbBitResolution = 16,
+            packetsPerTransfer = 2,
+        ) { data, packetLengths, packetCount ->
+            writes += Write(data, packetLengths.copyOf(packetCount))
+        }
+
+        packetizer.write(ByteArray(4 * 48 * 2 * 2))
+
+        assertEquals(2, writes.size)
+        assertTrue(writes.all { it.packetLengths.contentEquals(intArrayOf(192, 192)) })
+    }
+
+    @Test
+    fun `failed transport callback does not leave a full transfer in packetizer`() {
+        val writes = mutableListOf<Write>()
+        var attempt = 0
+        val packetizer = UsbPcmIsoPacketizer(
+            sampleRate = 48_000,
+            packetsPerSecond = 1_000,
+            channels = 2,
+            inputBytesPerSample = 2,
+            inputBitDepth = 16,
+            usbBytesPerSample = 2,
+            usbBitResolution = 16,
+            packetsPerTransfer = 2,
+        ) { data, packetLengths, packetCount ->
+            if (attempt++ == 0) error("transport failed")
+            writes += Write(data, packetLengths.copyOf(packetCount))
+        }
+
+        try {
+            packetizer.write(ByteArray(2 * 48 * 2 * 2))
+        } catch (_: IllegalStateException) {
+            // The next write must start from an empty transfer.
+        }
+        packetizer.write(ByteArray(2 * 48 * 2 * 2))
+
+        assertEquals(1, writes.size)
+        assertArrayEquals(intArrayOf(192, 192), writes.single().packetLengths)
+    }
+
+    @Test
+    fun `16-bit PCM is losslessly left aligned into 24-bit USB slots`() {
+        val writes = mutableListOf<Write>()
+        val pcm = byteArrayOf(0x01, 0x02, 0x04, 0x05)
+        val packetizer = packetizer(
+            sampleRate = 48_000,
+            inputBytesPerSample = 2,
+            inputBitDepth = 16,
+            usbBytesPerSample = 3,
+            usbBitResolution = 24,
+            writes = writes,
+        )
+
+        packetizer.write(pcm)
+        packetizer.flush()
+
+        assertArrayEquals(
+            byteArrayOf(0x00, 0x01, 0x02, 0x00, 0x04, 0x05),
+            writes.single().data.copyOfRange(0, 6),
+        )
     }
 
     @Test

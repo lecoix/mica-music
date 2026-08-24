@@ -8,9 +8,12 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import com.afalphy.sylvakru.UsbExclusiveAudioTransport
 import com.afalphy.sylvakru.UsbExclusiveNative
+import com.mica.music.data.preferences.UsbHybridPreferences
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /** Android boundary for the owner. It never selects an arbitrary first UAC device. */
@@ -67,8 +70,13 @@ class AndroidUsbHybridControlEffects(
 
     init {
         val filter = IntentFilter(permissionAction)
+        ContextCompat.registerReceiver(
+            appContext,
+            permissionReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         if (Build.VERSION.SDK_INT >= 33) {
-            appContext.registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             appContext.registerReceiver(
                 topologyReceiver,
                 IntentFilter().apply {
@@ -78,8 +86,6 @@ class AndroidUsbHybridControlEffects(
                 Context.RECEIVER_EXPORTED,
             )
         } else {
-            @Suppress("DEPRECATION")
-            appContext.registerReceiver(permissionReceiver, filter)
             @Suppress("DEPRECATION")
             appContext.registerReceiver(
                 topologyReceiver,
@@ -143,20 +149,9 @@ class AndroidUsbHybridControlEffects(
 
     override fun open(request: UsbOpenRequest): UsbOpenResult {
         val candidate = findCandidate(request.runtimeHandle)
-            ?: return failure("TARGET_MISSING", "The selected SK02 is no longer attached.")
+            ?: return failure("TARGET_MISSING", "The selected USB audio device is no longer attached.")
         if (candidate.second != request.identity) {
-            return failure("TARGET_CHANGED", "The selected SK02 identity changed before open.")
-        }
-        if (!Sk02ExperimentalNativeEvidence.matches(
-                request.identity,
-                safeDeviceString { candidate.first.manufacturerName },
-                safeDeviceString { candidate.first.productName },
-            )
-        ) {
-            return failure(
-                "SK02_IDENTITY_UNPROVEN",
-                "The attached 262a:0001 device cannot be proven to be the scoped Fosi Audio SK02 revision.",
-            )
+            return failure("TARGET_CHANGED", "The selected USB audio device identity changed before open.")
         }
         return when (val format = request.format) {
             is UsbStreamFormat.Pcm -> openPcm(request, candidate.first, format)
@@ -169,8 +164,8 @@ class AndroidUsbHybridControlEffects(
         device: UsbDevice,
         format: UsbStreamFormat.Pcm,
     ): UsbOpenResult {
-        if (format.bitDepth !in setOf(16, 32)) {
-            return failure("PCM_FORMAT_REJECTED", "USB Exact PCM accepts only PCM16 or PCM32.")
+        if (format.bitDepth !in setOf(16, 24, 32)) {
+            return failure("PCM_FORMAT_REJECTED", "USB Exact PCM accepts only PCM16, PCM24 or PCM32.")
         }
         val error = transport.open(
             request.epoch.value,
@@ -192,7 +187,11 @@ class AndroidUsbHybridControlEffects(
             claimed = true,
             transportExact = true,
             signalExact = transport.usbBitResolution()?.let { it >= format.bitDepth } == true,
-            sourceEncoding = if (format.bitDepth == 16) C.ENCODING_PCM_16BIT else C.ENCODING_PCM_32BIT,
+            sourceEncoding = when (format.bitDepth) {
+                16 -> C.ENCODING_PCM_16BIT
+                24 -> C.ENCODING_PCM_24BIT
+                else -> C.ENCODING_PCM_32BIT
+            },
             usbBitResolution = transport.usbBitResolution(),
             sampleRate = format.sampleRate,
             channels = format.channels,
@@ -210,17 +209,6 @@ class AndroidUsbHybridControlEffects(
             (!nativeRequested && (request.mode != UsbExclusiveMode.USB_DOP || format.native))
         ) {
             return failure("DSD_MODE_MISMATCH", "The raw DSD request does not match the explicit USB DSD mode.")
-        }
-        if (nativeRequested && !Sk02ExperimentalNativeEvidence.matches(
-                request.identity,
-                safeDeviceString { device.manufacturerName },
-                safeDeviceString { device.productName },
-            )
-        ) {
-            return failure(
-                "NATIVE_PROFILE_MISMATCH",
-                "Experimental Native is limited to the exact SK02 bcdDevice 0x0004 product scope.",
-            )
         }
         val result = transport.openDsd(
             epoch = request.epoch.value,
@@ -261,11 +249,45 @@ class AndroidUsbHybridControlEffects(
         }
     }
 
+
     override fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult =
         realtimeResult(sessionId, transport.writePcm(sessionId.epoch.value, sessionId.nativeId, data))
 
+    override fun beginPcmTimeline(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(
+            sessionId,
+            transport.beginPcmTimeline(sessionId.epoch.value, sessionId.nativeId),
+        )
+
+    override fun consumedPcmSourceFrames(sessionId: UsbTransportSessionId): Long =
+        transport.consumedPcmSourceFrames(sessionId.epoch.value, sessionId.nativeId)
+
     override fun finishPcm(sessionId: UsbTransportSessionId): UsbRealtimeResult =
         realtimeResult(sessionId, transport.finishStream(sessionId.epoch.value, sessionId.nativeId))
+
+    override fun setVolume(sessionId: UsbTransportSessionId, gainQ16: Int): UsbRealtimeResult {
+        val token = transport.sessionToken()
+        if (token == null || token.first != sessionId.epoch.value || token.second != sessionId.nativeId) {
+            return UsbRealtimeResult.Retired
+        }
+        val mode = UsbHybridPreferences.volumeControlMode(appContext).name.lowercase(Locale.ROOT)
+        val error = transport.setVolume(
+            gainQ16 = gainQ16.coerceIn(0, 65_536),
+            replayGainMilliDb = 0,
+            mode = mode,
+            dsdCompensationDb = UsbHybridPreferences.dsdGainCompensationDb(appContext),
+            smoothHandoff = UsbHybridPreferences.volumeSmoothHandoff(appContext),
+        )
+        return realtimeResult(sessionId, error)
+    }
+    override fun pausePcm(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.pausePcm(sessionId.epoch.value, sessionId.nativeId))
+
+    override fun resumePcm(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.resumePcm(sessionId.epoch.value, sessionId.nativeId))
+
+    override fun preparePcmSeek(sessionId: UsbTransportSessionId): UsbRealtimeResult =
+        realtimeResult(sessionId, transport.preparePcmSeek(sessionId.epoch.value, sessionId.nativeId))
 
     override fun resetPcmForSeek(sessionId: UsbTransportSessionId) {
         transport.resetForSeek(sessionId.epoch.value, sessionId.nativeId)
@@ -279,6 +301,15 @@ class AndroidUsbHybridControlEffects(
             value.pendingOutputUrbs,
             value.isoErrorCount,
         )
+    }
+
+    override fun sessionDiagnostics(sessionId: UsbTransportSessionId): Map<String, Any?> {
+        val token = transport.sessionToken() ?: return emptyMap()
+        return if (token.first == sessionId.epoch.value && token.second == sessionId.nativeId) {
+            transport.sessionDiagnosticsSnapshot()
+        } else {
+            emptyMap()
+        }
     }
 
     override fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult =
@@ -299,9 +330,15 @@ class AndroidUsbHybridControlEffects(
     private fun realtimeResult(sessionId: UsbTransportSessionId, error: String?): UsbRealtimeResult =
         classifyUsbRealtimeResult(error, sessionId.epoch.value, publishedEpoch)
 
-    fun discoverSk02(): Sk02Selection = Sk02TargetSelector.select(
+    fun discoverUsbAudioDevice(): UsbAudioSelection = UsbAudioTargetSelector.select(
         usbManager.deviceList.values.map(AndroidUsbIdentityProbe::candidate),
     )
+
+    /** Re-validates permission against the currently enumerated runtime handle. */
+    fun hasPermission(candidate: UsbDeviceCandidate): Boolean {
+        val current = findCandidate(candidate.runtimeHandle) ?: return false
+        return current.second == candidate.identity && usbManager.hasPermission(current.first)
+    }
 
     override fun close() {
         pendingRequests.clear()
@@ -312,9 +349,7 @@ class AndroidUsbHybridControlEffects(
 
     private fun findCandidate(handle: UsbRuntimeHandle): Pair<UsbDevice, UsbStableIdentity>? {
         val device = usbManager.deviceList.values.singleOrNull {
-            it.deviceId == handle.deviceId && it.deviceName == handle.deviceName &&
-                it.vendorId == Sk02TargetSelector.VENDOR_ID &&
-                it.productId == Sk02TargetSelector.PRODUCT_ID
+            it.deviceId == handle.deviceId && it.deviceName == handle.deviceName
         } ?: return null
         return device to AndroidUsbIdentityProbe.candidate(device).identity
     }

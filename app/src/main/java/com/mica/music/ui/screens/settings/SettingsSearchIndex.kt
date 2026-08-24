@@ -169,7 +169,7 @@ internal object SettingsSearchIndex {
             "USB", "DAC", "Exact PCM", "Native DSD", "DoP", "传输状态", "诊断报告",
             category = SettingsCategory.AUDIO,
             section = SettingsIndexSections.AUDIO,
-            availability = "首版仅支持 Fosi Audio SK02；进入音频与设备后打开独立子页",
+            availability = "支持单一已连接 USB Audio 输出设备；进入音频与设备后打开独立子页",
             isExperimental = true,
         ),
 

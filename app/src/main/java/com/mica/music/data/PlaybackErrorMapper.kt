@@ -12,7 +12,9 @@ object PlaybackErrorMapper {
     fun toPresentation(
         error: PlaybackException,
         songTitle: String?,
-    ): PlaybackErrorPresentation = when (error.errorCode) {
+    ): PlaybackErrorPresentation {
+        usbPresentation(error)?.let { return it }
+        return when (error.errorCode) {
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
@@ -69,6 +71,45 @@ object PlaybackErrorMapper {
         )
 
         else -> PlaybackErrorPresentation(inlineMessage = "播放失败")
+        }
+    }
+
+    private fun usbPresentation(error: Throwable): PlaybackErrorPresentation? {
+        val messages = generateSequence(error as Throwable?) { it.cause }
+            .mapNotNull(Throwable::message)
+            .toList()
+        if (messages.any { it.contains("USB Exact PCM accepts only integer PCM", ignoreCase = true) }) {
+            return PlaybackErrorPresentation(
+                inlineMessage = "USB Exact PCM 不支持当前音频格式",
+                snackbarMessage = "USB Exact PCM 仅支持整数 PCM16/24/32；DSD 请切换到 DoP、Native DSD，或关闭 USB 独占使用 Android 共享输出",
+            )
+        }
+        val looksUsb = messages.any { message ->
+            message.contains("USB", ignoreCase = true) ||
+                message.contains("usbfs", ignoreCase = true) ||
+                message.contains("SESSION_RETIRED", ignoreCase = true) ||
+                message.contains("STALE_SESSION", ignoreCase = true) ||
+                message.contains("TARGET_MISSING", ignoreCase = true)
+        }
+        if (!looksUsb) return null
+        val disconnected = messages.any { message ->
+            message.contains("No such device", ignoreCase = true) ||
+                message.contains("ENODEV", ignoreCase = true) ||
+                message.contains("TARGET_MISSING", ignoreCase = true) ||
+                message.contains("SESSION_RETIRED", ignoreCase = true) ||
+                message.contains("STALE_SESSION", ignoreCase = true)
+        }
+        return if (disconnected) {
+            PlaybackErrorPresentation(
+                inlineMessage = "USB 音频设备已断开",
+                snackbarMessage = "USB 音频设备已断开，请重新连接并授权",
+            )
+        } else {
+            PlaybackErrorPresentation(
+                inlineMessage = "USB 音频输出异常",
+                snackbarMessage = "USB 音频输出异常，请重新连接设备或重试",
+            )
+        }
     }
 
     private fun withSong(songTitle: String?, message: String): String =

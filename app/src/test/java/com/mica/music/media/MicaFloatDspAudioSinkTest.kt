@@ -106,6 +106,31 @@ class MicaFloatDspAudioSinkTest {
     }
 
     @Test
+    fun partialInnerWriteKeepsPendingRemainderAndContinuesWithoutReprocessing() {
+        val inner = mockk<AudioSink>(relaxed = true)
+        every { inner.handleBuffer(any(), any(), any()) } answers {
+            val pending = firstArg<ByteBuffer>()
+            if (pending.remaining() > 8) {
+                pending.position(pending.position() + 8)
+                false
+            } else {
+                pending.position(pending.limit())
+                true
+            }
+        }
+        val tap = FakeTap()
+        val sink = MicaFloatDspAudioSink(inner, tap)
+        sink.configure(floatFormat(), 0, null)
+
+        val source = sourceBuffer(16)
+        assertFalse(sink.handleBuffer(source, 0L, 1))
+        assertEquals(1, tap.processCalls)
+        assertTrue(sink.handleBuffer(sourceBuffer(0), 0L, 1))
+        assertEquals(1, tap.processCalls)
+        verify(exactly = 2) { inner.handleBuffer(any(), 0L, 1) }
+    }
+
+    @Test
     fun innerRejectOnFirstBuffer_doesNotBlockTapOnSecondBuffer() {
         val inner = mockk<AudioSink>(relaxed = true)
         every { inner.handleBuffer(any(), any(), any()) } returnsMany listOf(false, false, true, true)

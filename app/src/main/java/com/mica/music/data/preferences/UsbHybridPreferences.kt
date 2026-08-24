@@ -9,10 +9,19 @@ enum class UsbHybridOutputMode {
     NativeDsdExperimental,
 }
 
+enum class UsbHybridVolumeControlMode {
+    Auto,
+    Dac,
+    Digital,
+    Raw,
+}
 object UsbHybridPreferences {
     private const val KEY_OUTPUT_MODE = "usb_hybrid_output_mode"
     private const val KEY_RETRY_REVISION = "usb_hybrid_retry_revision"
     private const val KEY_NATIVE_ACKNOWLEDGED = "usb_hybrid_native_acknowledged"
+    private const val KEY_VOLUME_CONTROL_MODE = "usb_hybrid_volume_control_mode"
+    private const val KEY_DSD_GAIN_COMPENSATION_DB = "usb_hybrid_dsd_gain_compensation_db"
+    private const val KEY_VOLUME_SMOOTH_HANDOFF = "usb_hybrid_volume_smooth_handoff"
 
     fun outputMode(context: Context): UsbHybridOutputMode {
         val stored = MicaSettingsStore.prefs(context).getString(KEY_OUTPUT_MODE, null)
@@ -24,6 +33,29 @@ object UsbHybridPreferences {
         MicaSettingsStore.prefs(context).edit().putString(KEY_OUTPUT_MODE, mode.name).apply()
     }
 
+    fun volumeControlMode(context: Context): UsbHybridVolumeControlMode {
+        val stored = MicaSettingsStore.prefs(context).getString(KEY_VOLUME_CONTROL_MODE, null)
+        return UsbHybridVolumeControlMode.entries.firstOrNull { it.name == stored }
+            ?: UsbHybridVolumeControlMode.Raw
+    }
+
+    fun setVolumeControlMode(context: Context, mode: UsbHybridVolumeControlMode) {
+        MicaSettingsStore.prefs(context).edit().putString(KEY_VOLUME_CONTROL_MODE, mode.name).apply()
+    }
+
+    fun dsdGainCompensationDb(context: Context): Int =
+        MicaSettingsStore.prefs(context).getInt(KEY_DSD_GAIN_COMPENSATION_DB, 0).coerceIn(-12, 6)
+
+    fun setDsdGainCompensationDb(context: Context, value: Int) {
+        MicaSettingsStore.prefs(context).edit().putInt(KEY_DSD_GAIN_COMPENSATION_DB, value.coerceIn(-12, 6)).apply()
+    }
+
+    fun volumeSmoothHandoff(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_VOLUME_SMOOTH_HANDOFF, true)
+
+    fun setVolumeSmoothHandoff(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit().putBoolean(KEY_VOLUME_SMOOTH_HANDOFF, enabled).apply()
+    }
     fun requestRetry(context: Context) {
         val preferences = MicaSettingsStore.prefs(context)
         preferences.edit()

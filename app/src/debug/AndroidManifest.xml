@@ -1,5 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <application>
         <provider
             android:name="com.mica.music.data.TestDocumentsProvider"
@@ -11,5 +15,42 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+
+        <!-- PROTOTYPE: debug-only, ADB-driven SK02 descriptor/USBFS probe. -->
+        <receiver
+            android:name=".media.usbprototype.UsbSk02DescriptorPrototypeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="${applicationId}.debug.USB_SK02_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_CLAIM_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_NATIVE_FD_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_RECONNECT" />
+                <action android:name="${applicationId}.debug.USB_SK02_FORCE_CLAIM_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_ISO_FEEDBACK_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_SILENT_PCM16_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_SUSTAINED_PCM16_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_GENERATION_PCM16_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_BUFFERED_PCM16_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA_FORMAT_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA_DECODE_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA_USB_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_HIGH_RES_DECODE_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_FFMPEG24_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_FFMPEG24_USB_PROBE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_ENABLE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_DISABLE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_PLAY" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_PAUSE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_NEXT" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_SELECT_INDEX" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_SEEK_NEAR_END" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_REPEAT_ONE" />
+                <action android:name="${applicationId}.debug.USB_SK02_MEDIA3_REPEAT_OFF" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="com.mica.music.media.HybridQaPlaybackReceiver"
+            android:exported="true" />
     </application>
 </manifest>

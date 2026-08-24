@@ -8,9 +8,11 @@ import androidx.media3.decoder.DecoderInputBuffer
 import androidx.media3.exoplayer.BaseRenderer
 import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.FormatHolder
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RendererCapabilities
 import com.afalphy.sylvakru.DsfPlanarBlockConverter
 import com.mica.music.media.dsf.DsfFormat
+import java.util.concurrent.TimeUnit
 
 /** Raw DSF renderer. USB is opened during readiness, but payload writing arms only at STARTED. */
 @UnstableApi
@@ -25,8 +27,24 @@ class UsbHybridDsdRenderer(
     private var session: UsbTransportSessionId? = null
     private val preroll = DsdPrerollGate()
     private var ended = false
+    private var transportUnavailable = false
+    private var requestedVolumeGainQ16 = 65_536
 
     override fun getName(): String = "UsbHybridDsdRenderer"
+
+    override fun handleMessage(messageType: Int, message: Any?) {
+        if (messageType == Renderer.MSG_SET_VOLUME) {
+            val volume = (message as? Float)?.coerceIn(0f, 1f) ?: return
+            requestedVolumeGainQ16 = (volume * 65_536f).toInt()
+            session?.let {
+                runSessionAction("set-volume") { active ->
+                    binding.realtime.setVolume(active, requestedVolumeGainQ16)
+                }
+            }
+            return
+        }
+        super.handleMessage(messageType, message)
+    }
 
     override fun supportsFormat(format: Format): Int = RendererCapabilities.create(
         if (format.sampleMimeType == DsfFormat.MIME_DSF) C.FORMAT_HANDLED else C.FORMAT_UNSUPPORTED_TYPE,
@@ -36,7 +54,7 @@ class UsbHybridDsdRenderer(
     override fun isEnded(): Boolean = ended
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
-        if (ended) return
+        if (ended || transportUnavailable) return
         if (!preroll.isStarted() && preroll.hasStaged()) {
             return
         }
@@ -51,7 +69,7 @@ class UsbHybridDsdRenderer(
                     if (inputBuffer.isEndOfStream) {
                         if (!preroll.isStarted() && preroll.hasStaged()) return
                         currentSession()?.let { token ->
-                            handleRealtime(binding.realtime.finishDsd(token))
+                            runSessionAction("finish") { binding.realtime.finishDsd(it) }
                         }
                         ended = true
                         return
@@ -78,36 +96,46 @@ class UsbHybridDsdRenderer(
                         check(preroll.stage(interleaved)) { "DSD preroll gate accepted more than one buffer." }
                         return
                     }
-                    write(interleaved)
+                    if (!write(interleaved)) return
                 }
             }
         }
     }
 
     override fun onStarted() {
-        currentSession()?.let { token ->
-            if (!handleRealtime(binding.realtime.resumeDsd(token))) return
-        }
-        preroll.arm()?.let(::write)
+        if (transportUnavailable) return
+        if (currentSession() != null && !runSessionAction("resume") { binding.realtime.resumeDsd(it) }) return
+        preroll.arm()?.let { if (!write(it)) return }
     }
 
     override fun onStopped() {
         preroll.stop()
-        currentSession()?.let { token ->
-            handleRealtime(binding.realtime.pauseDsd(token))
-        }
+        if (transportUnavailable) return
+        if (currentSession() != null) runSessionAction("pause") { binding.realtime.pauseDsd(it) }
     }
 
     override fun onPositionReset(positionUs: Long, joining: Boolean, isPlaying: Boolean) {
         ended = false
-        preroll.reset(started = isPlaying)
-        currentSession()?.let { token ->
-            handleRealtime(binding.realtime.prepareDsdSeek(token))
+        // Media3's callback isPlaying hint is not a renderer lifecycle authority. On-device, a
+        // paused seek can report it true and would otherwise drain real DSD while playWhenReady=false.
+        // Only the renderer's STARTED state may arm payload delivery.
+        val rendererStarted = state == STATE_STARTED
+        preroll.reset(started = rendererStarted)
+        if (transportUnavailable) return
+        if (currentSession() != null) {
+            if (!runSessionAction("seek-reset") { binding.realtime.prepareDsdSeek(it) }) return
+            // prepareDsdSeek stops the old filler while draining the encoder tail. A paused seek must
+            // immediately resume valid 0x69 silence so the DAC stays locked until onStarted() drains
+            // the single staged buffer from the new position.
+            if (!rendererStarted) {
+                runSessionAction("seek-paused-idle") { binding.realtime.pauseDsd(it) }
+            }
         }
     }
 
     override fun onDisabled() {
         ended = false
+        transportUnavailable = false
         preroll.clear()
         converter = null
         activeFormat = null
@@ -115,6 +143,7 @@ class UsbHybridDsdRenderer(
     }
 
     override fun onRelease() {
+        transportUnavailable = false
         preroll.clear()
         session = null
     }
@@ -126,10 +155,14 @@ class UsbHybridDsdRenderer(
         val bitsPerSample = format.initializationData.firstOrNull()?.firstOrNull()?.toInt()?.and(0xff) ?: 1
         if (bitsPerSample !in setOf(1, 8)) fail("Unsupported DSF bitsPerSample=$bitsPerSample", format)
         val dsdRate = format.sampleRate * 8
-        val facts = binding.owner.requestOpen(
-            binding.epoch,
-            UsbStreamFormat.Dsd(dsdRate, format.channelCount, native),
-        ).get()
+        val facts = runCatching {
+            binding.owner.requestOpen(
+                binding.epoch,
+                UsbStreamFormat.Dsd(dsdRate, format.channelCount, native),
+            ).get(10L, TimeUnit.SECONDS)
+        }.getOrElse { error ->
+            fail(error.message ?: "USB DSD open timed out or failed.", format)
+        }
         val nativeId = facts.sessionId
             ?: fail(facts.failure?.message ?: "USB DSD session did not become active.", format)
         if (facts.requestEpoch != binding.epoch.value ||
@@ -138,9 +171,17 @@ class UsbHybridDsdRenderer(
             fail(facts.failure?.message ?: "USB DSD facts did not match the explicit mode.", format)
         }
         session = UsbTransportSessionId(binding.epoch, nativeId)
+        runSessionAction("set-volume") { active -> binding.realtime.setVolume(active, requestedVolumeGainQ16) }
         converter = DsfPlanarBlockConverter(format.channelCount, lsbFirst = bitsPerSample == 1)
         activeFormat = format
-        preroll.reset(started = state == STATE_STARTED)
+        val rendererStarted = state == STATE_STARTED
+        preroll.reset(started = rendererStarted)
+        // A fresh/reconfigured DSD session can be opened while Media3 is already STOPPED (for
+        // example after a USB replug while paused). In that case there is no later onStopped()
+        // edge to start the 0x69 carrier, so arm it immediately for the newly bound session.
+        if (!rendererStarted && !transportUnavailable) {
+            runSessionAction("configure-paused-idle") { binding.realtime.pauseDsd(it) }
+        }
         ended = false
     }
 
@@ -152,15 +193,68 @@ class UsbHybridDsdRenderer(
 
     private fun currentSession(): UsbTransportSessionId? = session
 
-    private fun write(payload: ByteArray) {
-        val token = currentSession() ?: fail("USB DSD session is missing.", activeFormat)
-        handleRealtime(binding.realtime.writeDsd(token, payload))
+    private fun write(payload: ByteArray): Boolean =
+        runSessionAction("write") { binding.realtime.writeDsd(it, payload) }
+
+    /**
+     * A same-epoch retired session is a technical transport reopen, not a Media3 lifecycle event.
+     * Rebind to the owner's fresh session and retry exactly once without resetting queue/timeline.
+     */
+    private fun runSessionAction(
+        operation: String,
+        action: (UsbTransportSessionId) -> UsbRealtimeResult,
+    ): Boolean {
+        val current = currentSession() ?: fail("USB DSD session is missing.", activeFormat)
+        return when (val result = action(current)) {
+            UsbRealtimeResult.Success -> true
+            UsbRealtimeResult.Retired -> {
+                if (binding.owner.currentEpoch() != binding.epoch) return false
+                val replacement = reopenCurrentDsdSession()
+                when (val retry = action(replacement)) {
+                    UsbRealtimeResult.Success -> true
+                    UsbRealtimeResult.Retired -> {
+                        if (binding.owner.currentEpoch() != binding.epoch) false
+                        else fail("USB DSD session retired again during same-epoch $operation reopen.", activeFormat)
+                    }
+                    is UsbRealtimeResult.Failed -> {
+                        if (isUsbRealtimeTransportUnavailableError(retry.message)) {
+                            transportUnavailable = true
+                            false
+                        } else {
+                            fail(retry.message, activeFormat)
+                        }
+                    }
+                }
+            }
+            is UsbRealtimeResult.Failed -> {
+                if (isUsbRealtimeTransportUnavailableError(result.message)) {
+                    transportUnavailable = true
+                    false
+                } else {
+                    fail(result.message, activeFormat)
+                }
+            }
+        }
     }
 
-    private fun handleRealtime(result: UsbRealtimeResult): Boolean = when (result) {
-        UsbRealtimeResult.Success -> true
-        UsbRealtimeResult.Retired -> false
-        is UsbRealtimeResult.Failed -> fail(result.message, activeFormat)
+    private fun reopenCurrentDsdSession(): UsbTransportSessionId {
+        val format = activeFormat ?: fail("USB DSD format is missing during technical reopen.", null)
+        val facts = runCatching {
+            binding.owner.requestOpen(
+                binding.epoch,
+                UsbStreamFormat.Dsd(format.sampleRate * 8, format.channelCount, native),
+            ).get(10L, TimeUnit.SECONDS)
+        }.getOrElse { error ->
+            fail(error.message ?: "USB DSD same-epoch reopen failed.", format)
+        }
+        val nativeId = facts.sessionId
+            ?: fail(facts.failure?.message ?: "USB DSD same-epoch reopen returned no session.", format)
+        if (facts.requestEpoch != binding.epoch.value ||
+            facts.activeMode != expectedMode() || !facts.exclusive || !facts.transportExact
+        ) {
+            fail(facts.failure?.message ?: "USB DSD same-epoch reopen facts did not match the active mode.", format)
+        }
+        return UsbTransportSessionId(binding.epoch, nativeId).also { session = it }
     }
 
     private fun fail(message: String, format: Format?): Nothing {

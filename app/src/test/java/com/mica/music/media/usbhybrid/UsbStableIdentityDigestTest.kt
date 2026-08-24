@@ -32,17 +32,23 @@ class UsbStableIdentityDigestTest {
     }
 
     @Test
-    fun digestChangesForKnownProductIdentityCollision() {
-        val sk02 = UsbDescriptorModel(
+    fun permissionGatedProductStringsDoNotChangeStableIdentity() {
+        val beforePermission = UsbDescriptorModel(
             0x262a,
             0x0001,
             "0.04",
             listOf("same-topology"),
-            "Speed Dragon",
-            "Fosi Audio SK02",
+            null,
+            null,
         )
-        val k5 = sk02.copy(manufacturerName = "Douk Audio", productName = "K5")
+        val afterPermission = beforePermission.copy(
+            manufacturerName = "Speed Dragon",
+            productName = "Fosi Audio SK02",
+        )
 
-        assertNotEquals(UsbStableIdentityDigest.sha256(sk02), UsbStableIdentityDigest.sha256(k5))
+        assertEquals(
+            UsbStableIdentityDigest.sha256(beforePermission),
+            UsbStableIdentityDigest.sha256(afterPermission),
+        )
     }
 }

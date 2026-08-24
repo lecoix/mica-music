@@ -1,6 +1,10 @@
 package com.mica.music.media.usbhybrid
 
 import android.content.Context
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
+import com.afalphy.sylvakru.UsbDacQuirks
+import com.afalphy.sylvakru.UsbExclusiveAudioTransport
 import java.io.File
 import java.security.MessageDigest
 
@@ -24,10 +28,13 @@ object UsbHybridDiagnosticsReport {
         facts.runtimeHandle?.let {
             appendLine("runtimeHandle=deviceId:${it.deviceId},name:${it.deviceName}")
         }
-        appendLine(
-            "builtInQuirk=apk:usb_dac_quirks.json; nativeProfileSource=" +
-                "${Sk02ExperimentalNativeEvidence.PROFILE_SOURCE}; runtimeOverride=disabled",
-        )
+        appendUsbDeviceEvidence(context, facts)
+        facts.identity?.let { identity ->
+            appendLine("quirkMatch=${UsbDacQuirks.matchDescription(context, identity.vendorId, identity.productId) ?: "none (defaults)"}")
+            appendLine("quirkEffective=${UsbDacQuirks.forDevice(context, identity.vendorId, identity.productId)}")
+        }
+        appendLine("quirkLoadErrors=${UsbDacQuirks.loadErrors(context).joinToString("; ").ifEmpty { "none" }}")
+        appendLine("quirkSource=apk:usb_dac_quirks.json + files:${UsbDacQuirks.OVERRIDE_FILE_NAME}; override-first")
         appendLine(
             "negotiated=format:${facts.streamFormat ?: "unknown"},encoding:${facts.sourceEncoding ?: "unknown"}," +
                 "usbBits:${facts.usbBitResolution ?: "unknown"}," +
@@ -39,9 +46,68 @@ object UsbHybridDiagnosticsReport {
                     "pendingOutputUrbs:${it.pendingOutputUrbs},errors:${it.isoErrorCount}",
             )
         } ?: appendLine("urbTelemetry=unavailable")
+        appendLine("sessionDiagnostics=${facts.sessionDiagnostics ?: "unavailable"}")
         facts.failure?.let { appendLine("lastError=${it.code}:${it.message}") }
         appendLine("serial=not-exported")
     }
+
+    private fun StringBuilder.appendUsbDeviceEvidence(context: Context, facts: UsbPlaybackFacts) {
+        val manager = context.getSystemService(UsbManager::class.java) ?: run {
+            appendLine("usbDeviceEvidence=UsbManager unavailable")
+            return
+        }
+        val target = manager.deviceList.values.firstOrNull { device ->
+            val identity = facts.identity ?: return@firstOrNull false
+            device.vendorId == identity.vendorId && device.productId == identity.productId
+        } ?: run {
+            appendLine("usbDeviceEvidence=target not currently attached")
+            return
+        }
+        appendLine("usbDevice=vid:${hex(target.vendorId)},pid:${hex(target.productId)},version:${target.version ?: "unknown"},manufacturer:${safe { target.manufacturerName } ?: "unknown"},product:${safe { target.productName } ?: "unknown"}")
+        appendLine("androidTopology:")
+        appendAndroidTopology(target)
+        appendLine("hardwareVolumeDiagnostics=${UsbExclusiveAudioTransport.collectHardwareVolumeDiagnostics(context, manager, target)}")
+        if (!manager.hasPermission(target)) {
+            appendLine("rawDescriptors=unavailable: USB permission not granted")
+            return
+        }
+        val connection = runCatching { manager.openDevice(target) }.getOrNull()
+        if (connection == null) {
+            appendLine("rawDescriptors=unavailable: openDevice failed")
+            return
+        }
+        try {
+            val raw = connection.rawDescriptors
+            appendLine("rawDescriptorsBytes=${raw?.size ?: 0}")
+            appendLine("rawDescriptorsHex=")
+            if (raw == null || raw.isEmpty()) appendLine("<empty>") else appendHex(raw)
+        } finally {
+            runCatching { connection.close() }
+        }
+    }
+
+    private fun StringBuilder.appendAndroidTopology(device: UsbDevice) {
+        for (configurationIndex in 0 until device.configurationCount) {
+            val configuration = device.getConfiguration(configurationIndex)
+            appendLine("  config id=${configuration.id} interfaces=${configuration.interfaceCount}")
+            for (interfaceIndex in 0 until configuration.interfaceCount) {
+                val intf = configuration.getInterface(interfaceIndex)
+                appendLine("    interface id=${intf.id} alt=${intf.alternateSetting} class=${intf.interfaceClass} subclass=${intf.interfaceSubclass} protocol=${intf.interfaceProtocol} endpoints=${intf.endpointCount}")
+                for (endpointIndex in 0 until intf.endpointCount) {
+                    val endpoint = intf.getEndpoint(endpointIndex)
+                    appendLine("      endpoint address=0x${endpoint.address.toString(16)} direction=${endpoint.direction} type=${endpoint.type} maxPacket=${endpoint.maxPacketSize} interval=${endpoint.interval}")
+                }
+            }
+        }
+    }
+
+    private fun StringBuilder.appendHex(bytes: ByteArray) {
+        bytes.asList().chunked(32).forEach { row ->
+            appendLine(row.joinToString(" ") { "%02x".format(it.toInt() and 0xff) })
+        }
+    }
+
+    private fun <T> safe(block: () -> T): T? = runCatching(block).getOrNull()
 
     private fun sha256(file: File): String = runCatching {
         val digest = MessageDigest.getInstance("SHA-256")

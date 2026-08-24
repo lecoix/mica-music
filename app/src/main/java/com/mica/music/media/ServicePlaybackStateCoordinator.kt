@@ -113,7 +113,11 @@ internal class ServicePlaybackStateCoordinator(
         }
         player.repeatMode = restore.repeatMode
         player.shuffleModeEnabled = false
-        player.playWhenReady = false
+        if (player is MicaCompositePlayer) {
+            player.pauseExoDirect()
+        } else {
+            player.playWhenReady = false
+        }
         player.playbackParameters = restore.playbackTuning.toPlaybackParameters()
         player.seekTo(restore.currentIndex, restore.positionMs)
         player.prepare()

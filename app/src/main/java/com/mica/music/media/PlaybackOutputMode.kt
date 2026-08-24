@@ -7,7 +7,7 @@ package com.mica.music.media
  * renderer role (DsdOnly / PcmOnly / platform) still picks the active renderer inside Exo.
  *
  * Shared PCM is the default. Hybrid USB modes use a full synchronous stack rebuild and fail closed
- * to the scoped SK02 target; they never silently fall back to AudioTrack.
+ * to the selected USB Audio target; they never silently fall back to AudioTrack.
  */
 enum class PlaybackOutputMode {
     /** Built-in / default: SharedPcm ladder with spectrum, EQ, Sonic, DSD decimation. */

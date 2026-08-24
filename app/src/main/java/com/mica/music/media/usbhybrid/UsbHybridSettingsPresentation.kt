@@ -10,7 +10,7 @@ object UsbHybridSettingsPresentation {
             "${preferenceModeLabel(selectedMode)} · ${facts.failure.code}"
         facts.permission == PermissionState.REQUESTED ->
             "${preferenceModeLabel(selectedMode)} · 等待 USB 权限"
-        selectedMode == UsbHybridOutputMode.SharedPcm -> "Shared PCM · Android 共享输出"
+        selectedMode == UsbHybridOutputMode.SharedPcm -> "USB 独占已关闭 · Android 共享输出"
         else -> "${preferenceModeLabel(selectedMode)} · 未激活"
     }
 
@@ -28,7 +28,7 @@ object UsbHybridSettingsPresentation {
         UsbExclusiveMode.USB_EXACT_PCM -> "PCM"
         UsbExclusiveMode.USB_DOP -> "DSD · DoP"
         UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL -> "DSD · Native"
-        UsbExclusiveMode.SHARED_PCM -> "Shared PCM"
+        UsbExclusiveMode.SHARED_PCM -> "USB 独占已关闭"
         null -> "--"
     }
 
@@ -92,14 +92,14 @@ object UsbHybridSettingsPresentation {
     }
 
     fun modeLabel(mode: UsbExclusiveMode): String = when (mode) {
-        UsbExclusiveMode.SHARED_PCM -> "Shared PCM"
+        UsbExclusiveMode.SHARED_PCM -> "USB 独占已关闭"
         UsbExclusiveMode.USB_EXACT_PCM -> "USB Exact PCM"
         UsbExclusiveMode.USB_DOP -> "USB DoP"
         UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL -> "USB Native DSD（实验）"
     }
 
     fun preferenceModeLabel(mode: UsbHybridOutputMode): String = when (mode) {
-        UsbHybridOutputMode.SharedPcm -> "Shared PCM"
+        UsbHybridOutputMode.SharedPcm -> "关闭 USB 独占"
         UsbHybridOutputMode.ExactPcm -> "USB Exact PCM"
         UsbHybridOutputMode.Dop -> "USB DoP"
         UsbHybridOutputMode.NativeDsdExperimental -> "USB Native DSD（实验）"

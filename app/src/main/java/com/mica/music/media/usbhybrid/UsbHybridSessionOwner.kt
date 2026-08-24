@@ -4,6 +4,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * publication. Realtime writes are deliberately outside this class and are fenced in Native by
  * the same epoch plus a native session id.
  */
+private data class SemanticWriteGate(
+    val epoch: UsbRequestEpoch,
+    val playWhenReady: Boolean,
+)
+
 class UsbHybridSessionOwner(
     private val effects: UsbHybridControlEffects,
     private val factsPublisher: (UsbPlaybackFacts) -> Unit = {},
@@ -32,6 +38,7 @@ class UsbHybridSessionOwner(
     private var pending: UsbPermissionRequest? = null
     private var authorizedTarget: UsbPermissionRequest? = null
     private var activeSession: UsbTransportSessionId? = null
+    @Volatile private var semanticWriteGate = SemanticWriteGate(epoch, playWhenReady = false)
     private var released = false
 
     init {
@@ -65,6 +72,119 @@ class UsbHybridSessionOwner(
         return next
     }
 
+    /**
+     * Arms an already-authorized target for the output state machine. Permission orchestration stays
+     * above this owner; this method only mints/fences the exclusive session epoch.
+     */
+    fun armAuthorizedTarget(
+        mode: UsbExclusiveMode,
+        identity: UsbStableIdentity,
+        runtimeHandle: UsbRuntimeHandle,
+    ): UsbRequestEpoch {
+        require(mode != UsbExclusiveMode.SHARED_PCM)
+        val next = mintEpoch(
+            mode = mode,
+            identity = identity,
+            runtimeHandle = runtimeHandle,
+            permissionOverride = PermissionState.GRANTED,
+        )
+        synchronized(publicationLock) {
+            if (epoch == next && !released) {
+                authorizedTarget = UsbPermissionRequest(next, mode, identity, runtimeHandle)
+            }
+        }
+        control.execute { closeActiveIfCurrent(next) }
+        return next
+    }
+
+    /** Retargets an already-authorized exclusive ownership epoch without retiring the USB session. */
+    fun retargetAuthorizedTarget(
+        mode: UsbExclusiveMode,
+        identity: UsbStableIdentity,
+        runtimeHandle: UsbRuntimeHandle,
+    ): UsbRequestEpoch {
+        require(mode != UsbExclusiveMode.SHARED_PCM)
+        return synchronized(publicationLock) {
+            check(!released) { "USB Hybrid session owner is released." }
+            val current = epoch
+            authorizedTarget = UsbPermissionRequest(current, mode, identity, runtimeHandle)
+            pending = null
+            publishFactsLocked(mutableFacts.value.copy(
+                requestedMode = mode,
+                identity = identity,
+                runtimeHandle = runtimeHandle,
+                permission = PermissionState.GRANTED,
+                failure = null,
+            ))
+            current
+        }
+    }
+
+    /** Retires the active exclusive session without initiating permission or another open. */
+    fun retireExclusiveSession(): UsbRequestEpoch {
+        val next = mintEpoch(
+            mode = UsbExclusiveMode.SHARED_PCM,
+            identity = null,
+            runtimeHandle = null,
+            permissionOverride = PermissionState.NOT_REQUIRED,
+        )
+        control.execute { closeActiveIfCurrent(next) }
+        return next
+    }
+
+    /**
+     * Closes only the current physical USB session while retaining the exclusive request epoch,
+     * authorized target and permission. This is the transport-level half of a technical reopen:
+     * Media3 keeps its playback stack/binding and can request a fresh session on the same epoch.
+     */
+    fun retireActiveSessionRetainingEpoch(
+        expectedEpoch: UsbRequestEpoch,
+    ): CompletableFuture<UsbPlaybackFacts> {
+        val completion = CompletableFuture<UsbPlaybackFacts>()
+        control.execute {
+            val session = synchronized(publicationLock) {
+                if (released || epoch != expectedEpoch || authorizedTarget?.epoch != expectedEpoch) {
+                    null
+                } else {
+                    activeSession
+                }
+            }
+            if (session == null) {
+                completion.complete(facts.value)
+                return@execute
+            }
+
+            try {
+                effects.close(session)
+            } catch (error: Throwable) {
+                completion.completeExceptionally(error)
+                return@execute
+            }
+            synchronized(publicationLock) {
+                if (!released && epoch == expectedEpoch && activeSession == session) {
+                    activeSession = null
+                    publishFactsLocked(mutableFacts.value.copy(
+                        activeMode = null,
+                        activeTransport = null,
+                        sessionId = null,
+                        claimed = false,
+                        exclusive = false,
+                        transportExact = false,
+                        signalExact = false,
+                        sourceEncoding = null,
+                        usbBitResolution = null,
+                        sampleRate = null,
+                        channels = null,
+                        streamFormat = null,
+                        telemetry = null,
+                        failure = null,
+                    ))
+                }
+            }
+            completion.complete(facts.value)
+        }
+        return completion
+    }
     /** Fences and cleans the old session, but deliberately does not request permission or open. */
     fun failRequest(
         mode: UsbExclusiveMode,
@@ -138,7 +258,13 @@ class UsbHybridSessionOwner(
         format: UsbStreamFormat,
     ): CompletableFuture<UsbPlaybackFacts> {
         val completion = CompletableFuture<UsbPlaybackFacts>()
+        val enqueuedAtNs = System.nanoTime()
         control.execute {
+            val startedAtNs = System.nanoTime()
+            DiagnosticLog.event(
+                "UsbHybridSessionOwner",
+                "request-open start epoch=${expectedEpoch.value} format=$format queueMs=${(startedAtNs - enqueuedAtNs) / 1_000_000L}",
+            )
             val (target, previousSession) = synchronized(publicationLock) {
                 val currentTarget = authorizedTarget?.takeIf {
                     it.epoch == expectedEpoch && epoch == expectedEpoch && !released
@@ -149,6 +275,7 @@ class UsbHybridSessionOwner(
                 completion.complete(facts.value)
                 return@execute
             }
+            val physicalOpenStartedAtNs = System.nanoTime()
             val opened = try {
                 effects.open(
                     UsbOpenRequest(
@@ -168,6 +295,10 @@ class UsbHybridSessionOwner(
                 completion.complete(facts.value)
                 return@execute
             }
+            DiagnosticLog.event(
+                "UsbHybridSessionOwner",
+                "request-open physical-complete epoch=${expectedEpoch.value} format=$format openMs=${(System.nanoTime() - physicalOpenStartedAtNs) / 1_000_000L} session=${opened.sessionId?.nativeId} failure=${opened.failure?.code}",
+            )
             val session = opened.sessionId
             if (!isCurrent(expectedEpoch)) {
                 if (session != null) effects.close(session)
@@ -188,6 +319,14 @@ class UsbHybridSessionOwner(
                     activeSession = session
                     publishFactsLocked(mutableFacts.value.copy(
                         activeMode = target.mode,
+                        activeTransport = when (format) {
+                            is UsbStreamFormat.Pcm -> UsbActiveTransport.PCM
+                            is UsbStreamFormat.Dsd -> if (format.native) {
+                                UsbActiveTransport.NATIVE_DSD
+                            } else {
+                                UsbActiveTransport.DOP
+                            }
+                        },
                         sessionId = session.nativeId,
                         claimed = opened.claimed,
                         exclusive = opened.claimed,
@@ -238,6 +377,27 @@ class UsbHybridSessionOwner(
 
     fun currentEpoch(): UsbRequestEpoch = synchronized(publicationLock) { epoch }
 
+    /**
+     * Semantic PLAY/PAUSE is the source-data write authority. Media3 may deliver AudioSink.pause()
+     * late, so PCM source submission must not depend on that runtime callback.
+     */
+    fun setSemanticPlayWhenReady(expectedEpoch: UsbRequestEpoch, playWhenReady: Boolean): Boolean =
+        synchronized(publicationLock) {
+            if (released || epoch != expectedEpoch) return@synchronized false
+            semanticWriteGate = SemanticWriteGate(expectedEpoch, playWhenReady)
+            DiagnosticLog.event(
+                "UsbHybridSessionOwner",
+                "semantic-write-gate epoch=${expectedEpoch.value} playWhenReady=$playWhenReady",
+            )
+            true
+        }
+
+    /** Lock-free realtime read; epoch changes publish a closed gate before stale writers can proceed. */
+    fun pcmSourceWriteAllowed(expectedEpoch: UsbRequestEpoch): Boolean {
+        val gate = semanticWriteGate
+        return gate.epoch == expectedEpoch && gate.playWhenReady
+    }
+
     fun currentDiscoveryRevision(): UsbDiscoveryRevision =
         synchronized(publicationLock) { discoveryRevision }
 
@@ -245,13 +405,27 @@ class UsbHybridSessionOwner(
         control.execute {
             val session = synchronized(publicationLock) { activeSession } ?: return@execute
             val sampled = realtime.telemetry(session)
+            val diagnostics = realtime.sessionDiagnostics(session).takeIf { it.isNotEmpty() }
+            val hardwareVolume = diagnostics?.get("hardwareVolume") as? Map<*, *>
+            val digitalVolumeActive = hardwareVolume?.get("digitalVolumeActive") == true
             synchronized(publicationLock) {
                 if (released || activeSession != session || epoch != session.epoch) return@synchronized
-                publishFactsLocked(mutableFacts.value.copy(telemetry = sampled))
+                val current = mutableFacts.value
+                val refreshedSignalExact = when (current.activeTransport) {
+                    UsbActiveTransport.PCM, UsbActiveTransport.DOP -> current.transportExact && !digitalVolumeActive
+                    UsbActiveTransport.NATIVE_DSD -> current.signalExact && !digitalVolumeActive
+                    null -> current.signalExact
+                }
+                publishFactsLocked(
+                    current.copy(
+                        signalExact = refreshedSignalExact,
+                        telemetry = sampled,
+                        sessionDiagnostics = diagnostics,
+                    ),
+                )
             }
         }
     }
-
     fun awaitIdle(timeoutSeconds: Long = 5L) {
         control.submit {}.get(timeoutSeconds, TimeUnit.SECONDS)
     }
@@ -261,12 +435,14 @@ class UsbHybridSessionOwner(
             if (released) return
             released = true
             epoch = UsbRequestEpoch(epoch.value + 1L)
+            semanticWriteGate = SemanticWriteGate(epoch, playWhenReady = false)
             effects.publishActiveEpoch(epoch)
             pending = null
             authorizedTarget = null
             publishFactsLocked(mutableFacts.value.copy(
                 requestEpoch = epoch.value,
                 activeMode = null,
+                activeTransport = null,
                 sessionId = null,
             claimed = false,
             exclusive = false,
@@ -288,6 +464,7 @@ class UsbHybridSessionOwner(
     ): UsbRequestEpoch = synchronized(publicationLock) {
         check(!released) { "USB Hybrid session owner is released." }
         epoch = UsbRequestEpoch(epoch.value + 1L)
+        semanticWriteGate = SemanticWriteGate(epoch, playWhenReady = false)
         effects.publishActiveEpoch(epoch)
         pending = null
         authorizedTarget = null
@@ -349,6 +526,7 @@ class UsbHybridSessionOwner(
             if (activeSession == previousSession) activeSession = null
             publishFactsLocked(mutableFacts.value.copy(
                 activeMode = null,
+                activeTransport = null,
                 sessionId = null,
                 claimed = false,
                 exclusive = false,

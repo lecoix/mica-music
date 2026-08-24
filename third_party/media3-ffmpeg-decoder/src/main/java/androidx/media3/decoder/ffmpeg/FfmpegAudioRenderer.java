@@ -109,6 +109,21 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
     this.micaPolicy = micaPolicy;
   }
 
+  /**
+   * Compatibility constructor retained for the historical USB prototype caller. Hybrid output
+   * selection is now sink-capability driven, so the legacy preference flag no longer changes
+   * decoder output policy.
+   */
+  public FfmpegAudioRenderer(
+      @Nullable Handler eventHandler,
+      @Nullable AudioRendererEventListener eventListener,
+      AudioSink audioSink,
+      @Nullable String micaRole,
+      @Nullable FfmpegFormatPolicy micaPolicy,
+      boolean preferPcm32ForHighResolution) {
+    this(eventHandler, eventListener, audioSink, micaRole, micaPolicy);
+  }
+
   @Override
   public String getName() {
     return micaRole == null ? TAG : TAG + "[" + micaRole + "]";

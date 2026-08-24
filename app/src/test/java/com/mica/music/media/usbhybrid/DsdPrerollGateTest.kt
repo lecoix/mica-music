@@ -39,4 +39,20 @@ class DsdPrerollGateTest {
         assertFalse(gate.hasStaged())
         assertTrue(gate.isStarted())
     }
+
+    @Test
+    fun pausedSeekStagesNewPositionUntilRendererActuallyStarts() {
+        val gate = DsdPrerollGate()
+        val newPosition = byteArrayOf(7, 8)
+
+        gate.reset(started = false)
+        assertFalse(gate.isStarted())
+        assertTrue(gate.stage(newPosition))
+        assertTrue(gate.hasStaged())
+        assertFalse(gate.stage(byteArrayOf(9, 10)))
+
+        assertArrayEquals(newPosition, gate.arm())
+        assertTrue(gate.isStarted())
+        assertFalse(gate.hasStaged())
+    }
 }

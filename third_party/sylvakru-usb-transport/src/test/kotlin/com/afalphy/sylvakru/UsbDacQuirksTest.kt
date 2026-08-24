@@ -14,8 +14,12 @@ class UsbDacQuirksTest {
             {
               "match": { "vid": "0x20b1", "pid": "0x0002", "label": "XMOS XU208" },
               "dop": { "supported": true, "maxDsd": 256 },
-              "nativeDsd": { "format": "u32le", "maxDsd": 512 },
-              "clock": { "setCurDelayMs": 50, "skipGetCurValidation": true },
+              "nativeDsd": {
+                "format": "u32le",
+                "maxDsd": 512
+              },
+              "clock": { "setCurDelayMs": 50, "skipGetCurValidation": true, "preRollMs": 175 },
+              "streaming": { "resetAlt": true },
               "flags": ["keep-alt-on-pause"]
             },
             {
@@ -39,6 +43,8 @@ class UsbDacQuirksTest {
         assertEquals(512, quirk.nativeDsdMaxDsd)
         assertEquals(50, quirk.clockSetCurDelayMs)
         assertTrue(quirk.clockSkipGetCurValidation)
+        assertTrue(quirk.streamingResetAlt)
+        assertEquals(175, quirk.clockPreRollMs)
         assertEquals(listOf("keep-alt-on-pause"), quirk.flags)
         assertEquals("0x262a:*", entries[1].first)
     }
@@ -76,7 +82,35 @@ class UsbDacQuirksTest {
         assertNull(quirk.nativeDsdFormat)
         assertEquals(0, quirk.clockSetCurDelayMs)
         assertEquals(false, quirk.clockSkipGetCurValidation)
+        assertEquals(false, quirk.streamingResetAlt)
+        assertNull(quirk.clockPreRollMs)
         assertTrue(quirk.flags.isEmpty())
+    }
+
+    @Test
+    fun parsesReferenceVendorCatalogFormat() {
+        val entries = UsbDacQuirks.parseEntries(
+            """
+                {
+                  "version": 2,
+                  "vendors": [
+                    {
+                      "match": { "vid": "0x262a", "label": "SAVITECH" },
+                      "devices": [
+                        { "match": { "pid": "0x0001", "label": "SK02" }, "clock": { "setCurDelayMs": 50 } },
+                        { "match": { "pid": "*" }, "dop": { "supported": false } }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent(),
+        )
+        assertEquals(2, entries.size)
+        assertEquals("0x262a:0x0001", entries[0].first)
+        assertEquals("SK02", entries[0].second.label)
+        assertEquals(50, entries[0].second.clockSetCurDelayMs)
+        assertEquals("SAVITECH", entries[1].second.label)
+        assertEquals(false, entries[1].second.dopSupported)
     }
 
     @Test

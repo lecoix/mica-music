@@ -5,6 +5,7 @@ import androidx.media3.common.C
 object UsbExactPcmPolicy {
     fun bitDepth(pcmEncoding: Int): Int? = when (pcmEncoding) {
         C.ENCODING_PCM_16BIT -> 16
+        C.ENCODING_PCM_24BIT -> 24
         C.ENCODING_PCM_32BIT -> 32
         else -> null
     }

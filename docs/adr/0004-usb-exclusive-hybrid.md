@@ -9,11 +9,13 @@ accepted: 2026-08-20
 
 Hybrid starts from `0b6e982a` and implements a second real output path without importing P1's occurrence/permit/retirement/shadow coordinators. A single control executor owns permission, open, reconfiguration, close and facts publication. Request epoch validity and facts publication form one serialized protocol. Native I/O additionally requires the current `(epoch, sessionId)` at every submit/reap/resubmit boundary.
 
-V1 is deliberately limited to the built-in Fosi SK02 profile, integer PCM16/PCM32, explicit DoP and explicitly experimental Native DSD for DSF. Unknown DACs, PCM24-only targets, float PCM, runtime quirk import, automatic recovery and silent Shared PCM fallback are rejected.
+Hybrid selects any single attached USB Audio device that exposes an isochronous Audio OUT endpoint. Multiple USB Audio output devices are ambiguous and fail closed rather than choosing an arbitrary first device. Stable identity uses VID/PID, bcdDevice/version and endpoint topology; permission-gated product strings are diagnostic metadata, not identity authority.
+
+Exact PCM is capability-driven for integer PCM16/PCM24/PCM32. The imported reference packetizer may losslessly widen samples into a wider USB subslot/resolution, but precision reduction, float PCM, SRC/DSP and silent Shared PCM fallback are rejected. DoP is descriptor-driven. Native DSD remains explicit and follows the imported reference rule: an explicit reviewed quirk wins; otherwise one unambiguous UAC2 RAW_DATA subslot maps to `u8`/`u16le`/`u32le`. Ambiguous or unsupported RAW_DATA widths remain `FramingUnproven`, and vendor/chip identity is never used to guess framing.
 
 Output failures stop and report while preserving queue, position and requested mode. Recovery requires an explicit user retry or manual Shared PCM selection. Stack switching is synchronous break-before-make; a stuck old `release()` prevents a new USB open.
 
-`exclusive`, `transportExact` and `signalExact` are separate facts. Native RAW_DATA descriptors only prove `FramingUnproven`; the SK02 Native profile remains experimental and cannot report `signalExact` until Hybrid-specific qualification evidence exists.
+`exclusive`, `transportExact` and `signalExact` are separate facts. Descriptor-inferred or quirk-provided Native framing does not by itself prove audible/signal exactness; each active device/path remains experimental until Hybrid qualification evidence exists and must not imply `signalExact` merely because framing resolved.
 
 ## Consequences
 

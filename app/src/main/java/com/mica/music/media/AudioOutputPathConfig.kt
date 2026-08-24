@@ -15,6 +15,8 @@ data class AudioOutputPathConfig(
     val dsdDecimationMode: DsdDecimationOutputMode = DsdDecimationOutputMode.IntPcm,
     /** Reserved for P6 USB device binding; unused while [outputMode] is [PlaybackOutputMode.SharedPcm]. */
     val usbAudioDeviceId: Int? = null,
+    /** Explicit throwaway gate; never set by [PRODUCTION]. */
+    val prototypeUsbHost: Boolean = false,
 ) {
     fun logForDiagnostics() {
         DiagnosticLog.event(

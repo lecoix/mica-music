@@ -54,7 +54,8 @@
 | [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) | 当前音频实施范围：实际 ReplayGain 系数的事实来源、兼容契约与测试计划 |
 | [`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md) | 远期 USB 独占采用 USB Host 独立 output adapter 的架构决策 |
 | [`adr/0002-library-snapshot-publication.md`](adr/0002-library-snapshot-publication.md) | 完整曲库 snapshot 的 generation / revision / Room 发布顺序契约 |
-| [`adr/0004-usb-exclusive-hybrid.md`](adr/0004-usb-exclusive-hybrid.md) | USB Exclusive Hybrid 的 owner/epoch、SK02 范围、PCM/DoP/实验 Native 决策与未验证边界 |
+| [`adr/0003-lyrics-timing-offset.md`](adr/0003-lyrics-timing-offset.md) | 全局 + 单曲歌词偏移的语义、持久化、并发与容量契约 |
+| [`adr/0004-usb-exclusive-hybrid.md`](adr/0004-usb-exclusive-hybrid.md) | USB Exclusive Hybrid 的 owner/epoch、通用 USB Audio 选择、PCM/DoP/实验 Native 决策与未验证边界 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |

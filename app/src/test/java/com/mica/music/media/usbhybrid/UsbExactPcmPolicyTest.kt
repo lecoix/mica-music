@@ -7,11 +7,11 @@ import org.junit.Test
 
 class UsbExactPcmPolicyTest {
     @Test
-    fun acceptsOnlyIntegerPcm16AndPcm32() {
+    fun acceptsOnlyIntegerPcm16Pcm24AndPcm32() {
         assertEquals(16, UsbExactPcmPolicy.bitDepth(C.ENCODING_PCM_16BIT))
+        assertEquals(24, UsbExactPcmPolicy.bitDepth(C.ENCODING_PCM_24BIT))
         assertEquals(32, UsbExactPcmPolicy.bitDepth(C.ENCODING_PCM_32BIT))
         assertTrue(UsbExactPcmPolicy.bitDepth(C.ENCODING_PCM_FLOAT) == null)
-        assertTrue(UsbExactPcmPolicy.bitDepth(C.ENCODING_PCM_24BIT) == null)
         assertTrue(UsbExactPcmPolicy.bitDepth(C.ENCODING_PCM_8BIT) == null)
     }
 

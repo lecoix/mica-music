@@ -17,8 +17,8 @@ object UsbStableIdentityDigest {
         val canonical = buildString {
             append(model.vendorId).append(':').append(model.productId).append(':')
             append(model.version.orEmpty()).append('\n')
-            append(model.manufacturerName.orEmpty()).append('\n')
-            append(model.productName.orEmpty()).append('\n')
+            // Product strings may be permission-gated on Android and therefore cannot be part
+            // of reconnect-stable identity. Keep them on UsbDeviceCandidate for diagnostics only.
             model.configurations.sorted().forEach { append(it).append('\n') }
         }
         return MessageDigest.getInstance("SHA-256")

@@ -35,6 +35,13 @@ enum class UsbExclusiveMode {
     USB_NATIVE_DSD_EXPERIMENTAL,
 }
 
+/** The transport that is physically active for the current stream, independent of user policy. */
+enum class UsbActiveTransport {
+    PCM,
+    DOP,
+    NATIVE_DSD,
+}
+
 enum class PermissionState { NOT_REQUIRED, REQUESTED, GRANTED, DENIED }
 
 data class UsbFailure(val code: String, val message: String)
@@ -44,6 +51,7 @@ data class UsbPlaybackFacts(
     val discoveryRevision: Long = 0L,
     val requestedMode: UsbExclusiveMode = UsbExclusiveMode.SHARED_PCM,
     val activeMode: UsbExclusiveMode? = null,
+    val activeTransport: UsbActiveTransport? = null,
     val identity: UsbStableIdentity? = null,
     val runtimeHandle: UsbRuntimeHandle? = null,
     val sessionId: Long? = null,
@@ -58,6 +66,7 @@ data class UsbPlaybackFacts(
     val channels: Int? = null,
     val streamFormat: String? = null,
     val telemetry: UsbRealtimeTelemetry? = null,
+    val sessionDiagnostics: Map<String, Any?>? = null,
     val failure: UsbFailure? = null,
 )
 
@@ -113,11 +122,29 @@ data class UsbRealtimeTelemetry(
 interface UsbHybridRealtimePort {
     fun writePcm(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult
 
+    fun beginPcmTimeline(sessionId: UsbTransportSessionId): UsbRealtimeResult = UsbRealtimeResult.Success
+
+    /** Completed source frames only; excludes USB pre-roll, pause filler and tail padding. */
+    fun consumedPcmSourceFrames(sessionId: UsbTransportSessionId): Long = 0L
+
     fun finishPcm(sessionId: UsbTransportSessionId): UsbRealtimeResult
+
+    fun setVolume(sessionId: UsbTransportSessionId, gainQ16: Int): UsbRealtimeResult = UsbRealtimeResult.Success
+
+    fun pausePcm(sessionId: UsbTransportSessionId): UsbRealtimeResult = UsbRealtimeResult.Success
+
+    fun resumePcm(sessionId: UsbTransportSessionId): UsbRealtimeResult = UsbRealtimeResult.Success
+
+    fun preparePcmSeek(sessionId: UsbTransportSessionId): UsbRealtimeResult {
+        resetPcmForSeek(sessionId)
+        return UsbRealtimeResult.Success
+    }
 
     fun resetPcmForSeek(sessionId: UsbTransportSessionId)
 
     fun telemetry(sessionId: UsbTransportSessionId): UsbRealtimeTelemetry
+
+    fun sessionDiagnostics(sessionId: UsbTransportSessionId): Map<String, Any?> = emptyMap()
 
     fun writeDsd(sessionId: UsbTransportSessionId, data: ByteArray): UsbRealtimeResult
 
@@ -150,6 +177,10 @@ internal fun classifyUsbRealtimeResult(
         UsbRealtimeResult.Retired
     else -> UsbRealtimeResult.Failed(error)
 }
+
+internal fun isUsbRealtimeTransportUnavailableError(message: String): Boolean =
+    message.contains("No such device", ignoreCase = true) ||
+        message.contains("ENODEV", ignoreCase = true)
 
 interface UsbHybridControlEffects {
     /** Must not call back into [UsbHybridSessionOwner]. */

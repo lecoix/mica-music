@@ -81,7 +81,7 @@
 - [x] **播放次数**与**最近播放**（`PlayHistoryStore`）；副标题显示播放次数
 - [x] ~~收藏 / 我喜欢~~（已有歌单，已移除）
 - [x] **歌曲**列表完整流程（权限、选文件夹、扫描、空状态）
-- [x] 设置：主题（跟随系统/浅/深）、强调色、云母背景、封面显示、隐藏状态栏、播放页背景、扫描相关、**元数据调试**（设置 → 扫描）、ALAC 播放方式、权限入口等
+- [x] 设置：主题（跟随系统/浅/深）、强调色、云母背景、封面显示、隐藏状态栏（关闭/仅播放页/仅非播放页/全部）、播放页背景、扫描相关、**元数据调试**（设置 → 扫描）、ALAC 播放方式、权限入口等
 - [x] 歌词页主题：经典列表、歌词云、**信笺**；信笺支持自定义朱印图片、大小、浓度和旋转
 - [x] 睡眠定时：墙钟倒计时，通过当前 ExoPlayer/MediaController 音量接口结束前渐弱并暂停；保留最近使用时长
 - [x] 云母风格 Compose 设计系统（直角、渐变背景、状态栏处理）
@@ -199,7 +199,7 @@
 - [ ] **P2：Android Auto / 车机 MediaSession 验收**：补充真实车机或 Android Auto DHU 的连接、元数据、播放控制与重连验证。
 - [ ] **P2：OEM 车机兼容性验收**：覆盖不同厂商车机/系统控制器的媒体按键、元数据、封面与进程重启行为。
 - [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变
-- [ ] **USB Host 真独占（远期）**：按 [`ADR-0001`](adr/0001-usb-host-exclusive-output.md) 新增独立 output adapter/session；当前不得解除 P6 fail-fast 或把最小 `DefaultAudioSink` 称为 USB 独占
+- [ ] **USB Host 真独占 production path**：单 SK02 debug/QA 可行性原型已工程收口；下一步按 [`ADR-0001`](adr/0001-usb-host-exclusive-output.md) 和 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md) P1 新增正式 output adapter/session。当前不得解除 P6 fail-fast 或把最小 `DefaultAudioSink` 称为 USB 独占
 
 
 

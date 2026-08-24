@@ -107,6 +107,29 @@ class PlaybackArchitectureTest {
     }
 
     @Test
+    fun usbHybridRendererFailureIsOutputFailureAndNeverAutoSkips() {
+        val cause = IllegalStateException("DoP alternate setting is unavailable").apply {
+            stackTrace = arrayOf(
+                StackTraceElement(
+                    "com.mica.music.media.usbhybrid.UsbHybridDsdRenderer",
+                    "configure",
+                    "UsbHybridDsdRenderer.kt",
+                    134,
+                ),
+            )
+        }
+        val error = PlaybackException(
+            "USB DSD output failed",
+            cause,
+            PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+        )
+
+        val kind = PlaybackFailureClassifier.classify(error)
+        assertEquals(PlaybackFailureKind.OUTPUT_FAILED, kind)
+        assertFalse(PlaybackFailureClassifier.allowsAutomaticSkip(kind))
+    }
+
+    @Test
     fun nestedFileNotFoundExceptionIsClassifiedAsMissingSource() {
         val error = PlaybackException(
             "Source error",

@@ -300,6 +300,54 @@ class ServicePlaybackEngineCoordinatorTest {
     }
 
     @Test
+    fun usbOutputFailureStopsOnCurrentItemInsteadOfAutoSkipping() {
+        val songs = listOf(
+            SongFixtures.song("first", container = "DSD", mime = "audio/x-dsf").copy(fileName = "first.dsf"),
+            SongFixtures.song("second", container = "MP3", mime = "audio/mpeg"),
+        )
+        val items = songs.map(SongMediaItemCodec::encode)
+        val cause = IllegalStateException("DoP alternate setting is unavailable").apply {
+            stackTrace = arrayOf(
+                StackTraceElement(
+                    "com.mica.music.media.usbhybrid.UsbHybridDsdRenderer",
+                    "configure",
+                    "UsbHybridDsdRenderer.kt",
+                    134,
+                ),
+            )
+        }
+        val error = ExoPlaybackException.createForRenderer(
+            cause,
+            "UsbHybridDsdRenderer",
+            1,
+            Format.Builder().setSampleMimeType("audio/x-dsf").build(),
+            C.FORMAT_HANDLED,
+            false,
+            ExoPlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+        )
+        val exo = mockExoWithQueue(items, currentIndex = 0)
+        every { exo.playerError } returns error
+        val player = MicaCompositePlayer(exo)
+        var failure: PlaybackFailure? = null
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.onPlaybackFailure = { failure = it }
+        coordinator.start()
+        coordinator.onSelectMediaItem(0, 0L)
+
+        coordinator.onPlayerError(error)
+
+        assertNotNull(failure)
+        assertEquals(PlaybackFailureKind.OUTPUT_FAILED, failure?.kind)
+        verify(exactly = 0) {
+            exo.setMediaItems(any<List<MediaItem>>(), any(), any())
+        }
+        coordinator.release()
+    }
+
+    @Test
     fun duplicateStartAtIsSkippedOnlyWhenPlaybackIsHealthy() {
         val flac = SongFixtures.song("flac", container = "FLAC", mime = "audio/flac")
         val item = SongMediaItemCodec.encode(flac)

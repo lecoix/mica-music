@@ -4,10 +4,15 @@ import android.Manifest
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.widget.Toast
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.PlaybackException
@@ -24,6 +29,8 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.mica.music.MainActivity
 import com.mica.music.MicaApp
+import com.mica.music.isExternalAudioUriRestorableNow
+import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.EqualizerPreferences
@@ -31,15 +38,37 @@ import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
+import com.mica.music.data.preferences.UsbSharedReturnCapability
+import com.mica.music.data.preferences.UsbSharedReturnCapabilityStore
+import com.mica.music.data.preferences.UsbSharedReturnPolicy
+import com.mica.music.media.usbhybrid.DesiredUsbOutput
+import com.mica.music.media.usbhybrid.PermissionState
+import com.mica.music.media.usbhybrid.UsbDeviceCandidate
+import com.mica.music.media.usbhybrid.UsbOutputEffect
+import com.mica.music.media.usbhybrid.UsbOutputEvent
+import com.mica.music.media.usbhybrid.UsbOutputPhase
+import com.mica.music.media.usbhybrid.UsbOutputState
+import com.mica.music.media.usbhybrid.UsbOutputStateMachine
+import com.mica.music.media.usbhybrid.UsbPermissionRequest
+import com.mica.music.media.usbhybrid.UsbPermissionResult
+import com.mica.music.media.usbhybrid.UsbRequestEpoch
+import com.mica.music.media.usbhybrid.UsbRealtimeResult
+import com.mica.music.media.usbhybrid.UsbRuntimeHandle
+import com.mica.music.media.usbhybrid.UsbStreamFormat
+import com.mica.music.media.usbhybrid.UsbTransportSessionId
 import com.mica.music.media.usbhybrid.AndroidUsbHybridControlEffects
-import com.mica.music.media.usbhybrid.Sk02Selection
+import com.mica.music.media.usbhybrid.UsbAudioSelection
+import com.mica.music.media.usbhybrid.UsbActiveTransport
 import com.mica.music.media.usbhybrid.UsbExclusiveMode
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
 import com.mica.music.media.usbhybrid.UsbHybridSessionOwner
 import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
 import com.mica.music.media.usbhybrid.UsbPlaybackFacts
+import com.mica.music.media.usbhybrid.UsbStableIdentity
+import com.mica.music.media.usbhybrid.UsbSharedQuiescencePolicyResolver
 import com.mica.music.media.usbhybrid.UsbTopologyEvent
 import com.mica.music.util.DiagnosticLog
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,7 +78,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 
 /**
- * 播放服务：拥有 ExoPlayer + MediaSession，独立于 Activity 生命周期。
+ * Playback service owns ExoPlayer + MediaSession independently from Activity lifecycle.
  */
 private data class PlaybackStackHandoff(
     val items: List<MediaItem>,
@@ -87,7 +116,58 @@ class MicaMediaService : MediaSessionService() {
     private var usbOwner: UsbHybridSessionOwner? = null
     private var usbFactsJob: Job? = null
     private var activeUsbEpoch: Long? = null
-    private var pendingUsbHandoff: PlaybackStackHandoff? = null
+    private var usbOutputState = UsbOutputState()
+    private var usbOutputHandoff: PlaybackStackHandoff? = null
+    private var usbServiceCreateBootstrapMode: UsbHybridOutputMode? = null
+    private var usbOutputCandidate: UsbDeviceCandidate? = null
+    private var usbOutputOwnerEpoch: UsbRequestEpoch? = null
+    private var usbOutputSwitchReason: String = "service-create"
+    private var usbProbeGeneration: Long = -1L
+    private var usbProbePollAttempts: Int = 0
+    private var usbProbeStableObservations: Int = 0
+    private var usbProbeIdentity: UsbStableIdentity? = null
+    private var usbProbeRuntimeHandle: UsbRuntimeHandle? = null
+    private var usbSharedQuiesceStartedAtMs: Long = 0L
+    private var usbSharedQuiesceSettleMs: Long = 0L
+    private var usbSharedRoutePollGeneration: Long = -1L
+    private var usbSharedRouteProbeStartedAtMs: Long = 0L
+    private var usbSharedAudioAddSerial: Long = 0L
+    private var usbSharedRouteWaitBaselineAddSerial: Long = 0L
+    private var usbSharedReturnProbeIdentity: UsbStableIdentity? = null
+    private var usbSharedAudioDeviceCallbackRegistered: Boolean = false
+    private val usbSharedAudioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            val usbDevice = addedDevices.firstOrNull(::isAndroidUsbAudioOutput) ?: return
+            usbSharedAudioAddSerial += 1
+            DiagnosticLog.event(
+                "UsbOutputState",
+                "shared-audio-device-added serial=$usbSharedAudioAddSerial deviceId=${usbDevice.id} " +
+                    "phase=${usbOutputState.phase}",
+            )
+            when (usbOutputState.phase) {
+                UsbOutputPhase.SharedRouteWaiting -> {
+                    if (usbSharedAudioAddSerial > usbSharedRouteWaitBaselineAddSerial) {
+                        completeSharedRouteRecovery()
+                    }
+                }
+                UsbOutputPhase.SharedReconnectRequired -> {
+                    dispatchUsbOutput(UsbOutputEvent.UsbAttached)
+                    if (usbOutputState.phase == UsbOutputPhase.SharedRouteWaiting) {
+                        completeSharedRouteRecovery()
+                    }
+                }
+                else -> Unit
+            }
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            if (removedDevices.none(::isAndroidUsbAudioOutput)) return
+            DiagnosticLog.event(
+                "UsbOutputState",
+                "shared-audio-device-removed phase=${usbOutputState.phase}",
+            )
+        }
+    }
     private val usbTelemetrySampler = object : Runnable {
         override fun run() {
             val owner = usbOwner ?: return
@@ -99,6 +179,7 @@ class MicaMediaService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        activeOutputPath = UsbHostPrototypeOutput.selectedPath(this)
         val micaApp = application as MicaApp
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val libraryRepository = LibraryRepository(this)
@@ -127,6 +208,7 @@ class MicaMediaService : MediaSessionService() {
         val stack = ExoPlaybackStackFactory.build(this, activeOutputPath)
         installPlaybackStackOwners(stack, micaApp)
         installPlaybackRouteMonitor()
+        installUsbSharedAudioDeviceCallback()
 
         if (LyricsPreferences.externalLyricsMode(this) != com.mica.music.data.ExternalLyricsMode.OFF &&
             DesktopLyricsOverlayController.canDrawOverlays(this)
@@ -153,9 +235,19 @@ class MicaMediaService : MediaSessionService() {
             }
         unregisterUsbOutputPreferenceListener =
             UsbHybridPreferences.registerChangeListener(this) { mode ->
-                mainHandler.post { applyUsbOutputMode(mode, "preference") }
+                mainHandler.post {
+                    if (usbServiceCreateBootstrapMode != null) {
+                        usbServiceCreateBootstrapMode = mode
+                    } else {
+                        applyUsbOutputMode(mode, "preference")
+                    }
+                }
             }
-        applyUsbOutputMode(UsbHybridPreferences.outputMode(this), "service-create")
+        applyUsbOutputModeOnServiceCreate(
+            UsbHybridPreferences.outputMode(this),
+            libraryRepository,
+            micaApp,
+        )
         mainHandler.postDelayed(usbTelemetrySampler, USB_TELEMETRY_INTERVAL_MS)
 
     }
@@ -179,13 +271,8 @@ class MicaMediaService : MediaSessionService() {
         lateinit var owner: UsbHybridSessionOwner
         val effects = AndroidUsbHybridControlEffects(
             context = this,
-            permissionResultSink = { result -> owner.onPermissionResult(result) },
-            topologyEventSink = { event ->
-                when (event) {
-                    UsbTopologyEvent.Attached -> owner.onAttached()
-                    is UsbTopologyEvent.Detached -> owner.onDetached(event.runtimeHandle)
-                }
-            },
+            permissionResultSink = { result -> mainHandler.post { onUsbPermissionResult(result) } },
+            topologyEventSink = { event -> mainHandler.post { onUsbTopologyEvent(event) } },
         )
         owner = UsbHybridSessionOwner(
             effects = effects,
@@ -200,61 +287,564 @@ class MicaMediaService : MediaSessionService() {
         }
     }
 
+    private fun applyUsbOutputModeOnServiceCreate(
+        mode: UsbHybridOutputMode,
+        libraryRepository: LibraryRepository,
+        micaApp: MicaApp,
+    ) {
+        if (mode == UsbHybridOutputMode.SharedPcm) {
+            applyUsbOutputMode(mode, "service-create")
+            return
+        }
+        val snapshot = ServicePlaybackStateStore(this).load()
+        if (snapshot == null || snapshot.queueSongIds.isEmpty()) {
+            applyUsbOutputMode(mode, "service-create")
+            return
+        }
+
+        usbServiceCreateBootstrapMode = mode
+        sessionScope?.launch {
+            val libraryIds = snapshot.queueSongIds
+                .filterNot(TransientPlaybackCatalog::isTransientId)
+                .distinct()
+            val librarySongs = runCatching {
+                libraryRepository.songSummariesByIds(libraryIds)
+            }.getOrDefault(emptyMap())
+            val persistedExternalSongs = snapshot.externalSongs
+                .mapNotNull { external ->
+                    val uri = runCatching { android.net.Uri.parse(external.mediaUri) }.getOrNull()
+                    if (uri != null && isExternalAudioUriRestorableNow(this@MicaMediaService, uri)) {
+                        external.id to external.toSong()
+                    } else {
+                        null
+                    }
+                }
+                .toMap()
+            val songsById = buildMap {
+                putAll(librarySongs)
+                putAll(persistedExternalSongs)
+                snapshot.queueSongIds.forEach { id ->
+                    micaApp.transientPlaybackCatalog.songById(id)?.let { put(id, it) }
+                }
+            }
+            val bootstrap = ServicePlaybackBootstrapResolver.resolve(snapshot, songsById)
+            mainHandler.post {
+                val selectedMode = usbServiceCreateBootstrapMode
+                    ?: UsbHybridPreferences.outputMode(this@MicaMediaService)
+                usbServiceCreateBootstrapMode = null
+                if (selectedMode != UsbHybridOutputMode.SharedPcm && bootstrap != null) {
+                    usbOutputHandoff = PlaybackStackHandoff(
+                        items = bootstrap.songs.map(SongMediaItemCodec::encode),
+                        currentIndex = bootstrap.currentIndex,
+                        positionMs = bootstrap.positionMs,
+                        playWhenReady = false,
+                        repeatMode = bootstrap.repeatMode,
+                        playbackParameters = bootstrap.playbackTuning.toPlaybackParameters(),
+                        volume = compositePlayer?.volume ?: 1f,
+                    )
+                    DiagnosticLog.event(
+                        "PlaybackRestore",
+                        "usb service-create bootstrap items=${bootstrap.songs.size} " +
+                            "index=${bootstrap.currentIndex} positionMs=${bootstrap.positionMs} resumed=false",
+                    )
+                }
+                applyUsbOutputMode(selectedMode, "service-create")
+            }
+        } ?: run {
+            usbServiceCreateBootstrapMode = null
+            applyUsbOutputMode(mode, "service-create")
+        }
+    }
+
     private fun applyUsbOutputMode(mode: UsbHybridOutputMode, reason: String) {
-        val owner = usbOwner ?: return
-        if (mode == UsbHybridOutputMode.SharedPcm &&
-            activeOutputPath == AudioOutputPathConfig.PRODUCTION &&
-            exoPlayer != null && pendingUsbHandoff == null
+        val desired = mode.toDesiredUsbOutput()
+        val phase = usbOutputState.phase
+        if (
+            desired == usbOutputState.desiredMode &&
+            ((desired == DesiredUsbOutput.Shared && phase == UsbOutputPhase.SharedActive && exoPlayer != null) ||
+                (phase is UsbOutputPhase.ExclusiveActive && phase.mode == desired))
         ) {
             return
         }
-        val selection = if (mode == UsbHybridOutputMode.SharedPcm) null else usbEffects?.discoverSk02()
-        val candidate = (selection as? Sk02Selection.Selected)?.candidate
-        val requested = when (mode) {
-            UsbHybridOutputMode.SharedPcm -> UsbExclusiveMode.SHARED_PCM
-            UsbHybridOutputMode.ExactPcm -> UsbExclusiveMode.USB_EXACT_PCM
-            UsbHybridOutputMode.Dop -> UsbExclusiveMode.USB_DOP
-            UsbHybridOutputMode.NativeDsdExperimental ->
-                UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL
+
+        val handoff = capturePlaybackStackHandoff() ?: usbOutputHandoff
+        if (handoff != null) usbOutputHandoff = handoff
+        val playWhenReady = usbOutputState.frozenIntent?.playWhenReady
+            ?: handoff?.playWhenReady
+            ?: compositePlayer?.playWhenReady
+            ?: false
+        val ownerFacts = usbOwner?.facts?.value
+        val returningFromExclusive = desired == DesiredUsbOutput.Shared &&
+            (usbOutputState.desiredMode != DesiredUsbOutput.Shared ||
+                activeOutputPath.outputMode != PlaybackOutputMode.SharedPcm ||
+                ownerFacts?.activeMode != null || ownerFacts?.exclusive == true)
+        val identity = ownerFacts?.identity ?: usbOutputCandidate?.identity
+        val returnIdentity = identity ?: usbSharedReturnProbeIdentity
+        val returnCapability = returnIdentity?.let { UsbSharedReturnCapabilityStore.capability(this, it) }
+        val reconnectRequired = returningFromExclusive &&
+            UsbSharedReturnPolicy.requiresPhysicalReconnect(
+                returnCapability ?: com.mica.music.data.preferences.UsbSharedReturnCapability.Unknown,
+            )
+        usbSharedReturnProbeIdentity = when {
+            returningFromExclusive -> returnIdentity
+            desired != DesiredUsbOutput.Shared -> identity ?: usbSharedReturnProbeIdentity
+            else -> usbSharedReturnProbeIdentity
         }
-        val capturedHandoff = capturePlaybackStackHandoff() ?: pendingUsbHandoff
-        val transition = runCatching {
-            UsbOutputModeSwitchProtocol.retireThenRequest(
-                capture = { capturedHandoff },
-                retire = ::retirePlaybackStackBeforeUsbRequest,
-                request = { owner.request(requested, candidate?.identity, candidate?.runtimeHandle) },
-            )
-        }.getOrElse { error ->
-            pendingUsbHandoff = capturedHandoff
-            owner.failRequest(
-                requested,
-                candidate?.identity,
-                candidate?.runtimeHandle,
-                com.mica.music.media.usbhybrid.UsbFailure(
-                    "STACK_RELEASE_FAILED",
-                    error.message ?: "Old playback stack did not release cleanly.",
-                ),
-            )
+        if (returningFromExclusive) {
+            usbSharedRouteWaitBaselineAddSerial = usbSharedAudioAddSerial
             DiagnosticLog.event(
-                "AudioOutputPath",
-                "switch-aborted reason=$reason mode=$requested release=${error.message}",
+                "UsbOutputState",
+                "shared-return capability=${returnCapability ?: UsbSharedReturnCapability.Unknown} " +
+                    "identity=${returnIdentity?.vendorId}:${returnIdentity?.productId} reconnect=$reconnectRequired " +
+                    "audioAddBaseline=$usbSharedRouteWaitBaselineAddSerial",
             )
-            return
         }
-        val (handoff, epoch) = transition
-        pendingUsbHandoff = handoff
-        if (mode == UsbHybridOutputMode.SharedPcm) {
-            owner.awaitIdle()
-            rebuildPlaybackStack(AudioOutputPathConfig.PRODUCTION, null, reason, handoff)
-            return
-        }
-        DiagnosticLog.event(
-            "UsbHybrid",
-            "request mode=$requested epoch=${epoch.value} reason=$reason " +
-                "selection=${selection?.javaClass?.simpleName}",
+        usbOutputSwitchReason = reason
+        dispatchUsbOutput(
+            UsbOutputEvent.UserSelected(
+                mode = desired,
+                playWhenReady = playWhenReady,
+                sharedReturnRequiresReconnect = reconnectRequired,
+            ),
         )
     }
 
+    private fun dispatchUsbOutput(event: UsbOutputEvent) {
+        val before = usbOutputState
+        val reduction = UsbOutputStateMachine.reduce(before, event)
+        usbOutputState = reduction.state
+        DiagnosticLog.event(
+            "UsbOutputState",
+            "event=${event.javaClass.simpleName} generation=${usbOutputState.generation} " +
+                "desired=${usbOutputState.desiredMode} phase=${before.phase}->${usbOutputState.phase}",
+        )
+        reduction.effects.forEach(::executeUsbOutputEffect)
+    }
+
+    private fun executeUsbOutputEffect(effect: UsbOutputEffect) {
+        when (effect) {
+            UsbOutputEffect.RetirePlayer -> {
+                if (usbOutputState.phase == UsbOutputPhase.SharedQuiescing) {
+                    DiagnosticLog.event(
+                        "UsbOutputState",
+                        "shared-quiesce retire generation=${usbOutputState.generation} audioSessionId=${exoPlayer?.audioSessionId ?: 0}",
+                    )
+                }
+                if (exoPlayer == null) {
+                    if (usbOutputState.phase == UsbOutputPhase.SharedQuiescing) {
+                        dispatchUsbOutput(UsbOutputEvent.SharedQuiesced(usbOutputState.generation))
+                    }
+                    return
+                }
+                runCatching { retirePlaybackStackBeforeUsbRequest() }
+                    .onFailure { error ->
+                        DiagnosticLog.event("UsbOutputState", "retire-player failed error=${error.message}")
+                        if (
+                            usbOutputState.phase == UsbOutputPhase.ExclusivePreparing ||
+                            usbOutputState.phase == UsbOutputPhase.SharedQuiescing
+                        ) {
+                            dispatchUsbOutput(
+                                UsbOutputEvent.PreparationFailed(
+                                    usbOutputState.generation,
+                                    "STACK_RELEASE_FAILED",
+                                    error.message ?: "Old playback stack did not release cleanly.",
+                                ),
+                            )
+                        }
+                    }
+            }
+            UsbOutputEffect.WaitForSharedQuiescence -> scheduleSharedQuiescenceProbe(usbOutputState.generation)
+            UsbOutputEffect.WaitForTarget -> scheduleExclusiveTargetProbe(usbOutputState.generation)
+            UsbOutputEffect.RequestPermission -> requestUsbPermissionForState()
+            UsbOutputEffect.OpenExclusive -> openExclusiveForState()
+            UsbOutputEffect.RetargetExclusive -> retargetExclusiveForState()
+            UsbOutputEffect.CloseExclusive -> closeExclusiveForState()
+            UsbOutputEffect.RestoreFrozenPlaybackIntent -> restoreFrozenPlaybackIntentForState()
+            UsbOutputEffect.WaitForSharedRoute -> scheduleSharedRouteProbe(usbOutputState.generation)
+            UsbOutputEffect.BuildSharedPlayer -> buildSharedPlayerForState()
+            UsbOutputEffect.ShowReconnectRequired -> Toast.makeText(
+                this,
+                "USB \u72ec\u5360\u5df2\u5173\u95ed\uff0c\u8bf7\u91cd\u65b0\u63d2\u62d4 DAC \u4ee5\u6062\u590d Android \u5171\u4eab\u8f93\u51fa",
+                Toast.LENGTH_LONG,
+            ).show()
+            is UsbOutputEffect.ShowError -> {
+                DiagnosticLog.event("UsbOutputState", "failed code=${effect.code} message=${effect.message}")
+                Toast.makeText(this, effect.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun onUsbTopologyEvent(event: UsbTopologyEvent) {
+        when (event) {
+            UsbTopologyEvent.Attached -> {
+                usbOwner?.onAttached()
+                dispatchUsbOutput(UsbOutputEvent.UsbAttached)
+            }
+            is UsbTopologyEvent.Detached -> {
+                val phase = usbOutputState.phase
+                val relevant = usbOutputState.desiredMode != DesiredUsbOutput.Shared ||
+                    phase == UsbOutputPhase.SharedReconnectRequired ||
+                    phase == UsbOutputPhase.SharedRouteWaiting
+                if (!relevant) return
+                capturePlaybackStackHandoff()?.let { usbOutputHandoff = it }
+                val playWhenReady = usbOutputState.frozenIntent?.playWhenReady
+                    ?: usbOutputHandoff?.playWhenReady
+                    ?: false
+                usbOutputCandidate = null
+                dispatchUsbOutput(UsbOutputEvent.UsbDetached(playWhenReady))
+            }
+        }
+    }
+
+    private fun scheduleSharedQuiescenceProbe(generation: Long) {
+        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedQuiescing) return
+        val identity = usbOutputCandidate?.identity ?: run {
+            val selected = usbEffects?.discoverUsbAudioDevice() as? UsbAudioSelection.Selected
+            selected?.candidate?.also { usbOutputCandidate = it }?.identity
+        }
+        val policy = UsbSharedQuiescencePolicyResolver.resolve(Build.MANUFACTURER, Build.MODEL, identity)
+        usbSharedQuiesceStartedAtMs = SystemClock.elapsedRealtime()
+        usbSharedQuiesceSettleMs = policy.settleMs
+        DiagnosticLog.event(
+            "UsbOutputState",
+            "shared-quiesce start generation=$generation settleMs=${policy.settleMs} " +
+                "host=${Build.MANUFACTURER}/${Build.MODEL} identity=${identity?.vendorId}:${identity?.productId}",
+        )
+        mainHandler.postDelayed({ pollSharedQuiescence(generation) }, SHARED_QUIESCE_POLL_MS)
+    }
+
+    private fun pollSharedQuiescence(generation: Long) {
+        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedQuiescing) return
+        val elapsedMs = SystemClock.elapsedRealtime() - usbSharedQuiesceStartedAtMs
+        if (elapsedMs >= usbSharedQuiesceSettleMs) {
+            DiagnosticLog.event(
+                "UsbOutputState",
+                "shared-quiesce complete generation=$generation elapsedMs=$elapsedMs settleMs=$usbSharedQuiesceSettleMs",
+            )
+            dispatchUsbOutput(UsbOutputEvent.SharedQuiesced(generation))
+            return
+        }
+        mainHandler.postDelayed({ pollSharedQuiescence(generation) }, SHARED_QUIESCE_POLL_MS)
+    }
+
+    private fun scheduleExclusiveTargetProbe(generation: Long) {
+        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.ExclusivePreparing) return
+        usbProbeGeneration = generation
+        usbProbePollAttempts = 0
+        usbProbeStableObservations = 0
+        usbProbeIdentity = null
+        usbProbeRuntimeHandle = null
+        mainHandler.post { pollExclusiveTarget(generation) }
+    }
+
+    private fun pollExclusiveTarget(generation: Long) {
+        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.ExclusivePreparing) return
+        when (val selection = usbEffects?.discoverUsbAudioDevice()) {
+            is UsbAudioSelection.Selected -> {
+                val candidate = selection.candidate
+                val same = usbProbeIdentity == candidate.identity && usbProbeRuntimeHandle == candidate.runtimeHandle
+                usbProbeIdentity = candidate.identity
+                usbProbeRuntimeHandle = candidate.runtimeHandle
+                usbProbeStableObservations = if (same) usbProbeStableObservations + 1 else 1
+                usbOutputCandidate = candidate
+                usbSharedReturnProbeIdentity = candidate.identity
+                if (usbProbeStableObservations >= EXCLUSIVE_TARGET_STABLE_OBSERVATIONS) {
+                    dispatchUsbOutput(UsbOutputEvent.TargetStable)
+                    return
+                }
+            }
+            is UsbAudioSelection.Ambiguous -> {
+                dispatchUsbOutput(
+                    UsbOutputEvent.PreparationFailed(
+                        generation,
+                        "MULTIPLE_USB_AUDIO_DEVICES",
+                        "Multiple USB audio output devices are attached; target selection is ambiguous.",
+                    ),
+                )
+                return
+            }
+            UsbAudioSelection.NotFound, null -> {
+                usbProbeStableObservations = 0
+                usbProbeIdentity = null
+                usbProbeRuntimeHandle = null
+                usbOutputCandidate = null
+            }
+        }
+        usbProbePollAttempts += 1
+        if (usbProbePollAttempts >= EXCLUSIVE_TARGET_READY_MAX_POLLS) {
+            dispatchUsbOutput(
+                UsbOutputEvent.PreparationFailed(
+                    generation,
+                    "USB_AUDIO_DEVICE_NOT_READY",
+                    "USB audio device did not become stable and ready for exclusive playback.",
+                ),
+            )
+            return
+        }
+        mainHandler.postDelayed({ pollExclusiveTarget(generation) }, EXCLUSIVE_TARGET_READY_POLL_MS)
+    }
+
+    private fun requestUsbPermissionForState() {
+        val state = usbOutputState
+        if (state.phase != UsbOutputPhase.PermissionWaiting) return
+        val candidate = usbOutputCandidate
+        if (candidate == null) {
+            dispatchUsbOutput(UsbOutputEvent.TargetLost)
+            return
+        }
+        usbEffects?.requestPermission(
+            UsbPermissionRequest(
+                epoch = UsbRequestEpoch(state.generation),
+                mode = state.desiredMode.toExclusiveMode(),
+                identity = candidate.identity,
+                runtimeHandle = candidate.runtimeHandle,
+            ),
+        )
+    }
+
+    private fun onUsbPermissionResult(result: UsbPermissionResult) {
+        val state = usbOutputState
+        if (result.epoch.value != state.generation || state.phase != UsbOutputPhase.PermissionWaiting) return
+        val effects = usbEffects ?: return
+        val currentSelection = effects.discoverUsbAudioDevice()
+        val candidate = (currentSelection as? UsbAudioSelection.Selected)?.candidate
+        if (candidate == null || candidate.identity != result.identity) {
+            usbOutputCandidate = candidate
+            DiagnosticLog.event(
+                "UsbOutputState",
+                "permission-result target-lost generation=${state.generation} callbackRuntime=${result.runtimeHandle} current=${candidate?.runtimeHandle}",
+            )
+            dispatchUsbOutput(UsbOutputEvent.TargetLost)
+            return
+        }
+        usbOutputCandidate = candidate
+        if (!result.granted) {
+            dispatchUsbOutput(UsbOutputEvent.PermissionResult(state.generation, false))
+            return
+        }
+        val runtimeChanged = candidate.runtimeHandle != result.runtimeHandle
+        val permissionStillGranted = if (runtimeChanged) effects.hasPermission(candidate) else true
+        DiagnosticLog.event(
+            "UsbOutputState",
+            "permission-result generation=${state.generation} granted=true runtimeChanged=$runtimeChanged " +
+                "callbackRuntime=${result.runtimeHandle} currentRuntime=${candidate.runtimeHandle} currentPermission=$permissionStillGranted",
+        )
+        if (permissionStillGranted) {
+            dispatchUsbOutput(UsbOutputEvent.PermissionResult(state.generation, true))
+        } else {
+            dispatchUsbOutput(UsbOutputEvent.TargetLost)
+        }
+    }
+
+    private fun openExclusiveForState() {
+        val state = usbOutputState
+        if (state.phase != UsbOutputPhase.ExclusiveOpening) return
+        val candidate = usbOutputCandidate
+        if (candidate == null) {
+            dispatchUsbOutput(UsbOutputEvent.TargetLost)
+            return
+        }
+        val owner = usbOwner ?: return
+        val effects = usbEffects ?: return
+        val epoch = owner.armAuthorizedTarget(
+            state.desiredMode.toExclusiveMode(),
+            candidate.identity,
+            candidate.runtimeHandle,
+        )
+        owner.awaitIdle()
+        if (usbOutputState.generation != state.generation || usbOutputState.phase != UsbOutputPhase.ExclusiveOpening) return
+        usbOutputOwnerEpoch = epoch
+        val binding = UsbHybridPlaybackBinding(owner, effects, epoch)
+        val handoff = usbOutputHandoff
+        rebuildPlaybackStack(
+            state.desiredMode.toOutputPath(),
+            binding,
+            "usb-state-open:${usbOutputSwitchReason}",
+            handoff,
+        )
+    }
+
+    private fun retargetExclusiveForState() {
+        val state = usbOutputState
+        if (state.phase != UsbOutputPhase.ExclusiveOpening) return
+        val owner = usbOwner ?: return
+        val effects = usbEffects ?: return
+        val ownerEpoch = usbOutputOwnerEpoch ?: run {
+            dispatchUsbOutput(UsbOutputEvent.ExclusiveOpenFailed(state.generation, "EXCLUSIVE_OWNER_MISSING", "Exclusive USB ownership was lost before mode retarget."))
+            return
+        }
+        val candidate = usbOutputCandidate ?: (effects.discoverUsbAudioDevice() as? UsbAudioSelection.Selected)?.candidate ?: run {
+            dispatchUsbOutput(UsbOutputEvent.TargetLost)
+            return
+        }
+        usbOutputCandidate = candidate
+        val retainedEpoch = owner.retargetAuthorizedTarget(state.desiredMode.toExclusiveMode(), candidate.identity, candidate.runtimeHandle)
+        if (retainedEpoch != ownerEpoch) {
+            dispatchUsbOutput(UsbOutputEvent.ExclusiveOpenFailed(state.generation, "EXCLUSIVE_EPOCH_CHANGED", "Exclusive USB ownership changed during mode retarget."))
+            return
+        }
+        val binding = UsbHybridPlaybackBinding(owner, effects, ownerEpoch)
+        val handoff = usbOutputHandoff
+        rebuildPlaybackStack(state.desiredMode.toOutputPath(), binding, "usb-state-retarget:${usbOutputSwitchReason}", handoff)
+    }
+
+    private fun closeExclusiveForState() {
+        val owner = usbOwner ?: return
+        runCatching {
+            owner.retireExclusiveSession()
+            owner.awaitIdle()
+        }.onFailure { error ->
+            DiagnosticLog.event("UsbOutputState", "close-exclusive failed error=${error.message}")
+        }
+        usbOutputOwnerEpoch = null
+    }
+
+    private fun restoreFrozenPlaybackIntentForState() {
+        val state = usbOutputState
+        if (state.phase !is UsbOutputPhase.ExclusiveActive) return
+        val semanticPlayWhenReady = state.frozenIntent
+            ?.takeIf { it.generation == state.generation }
+            ?.playWhenReady
+            ?: false
+        DiagnosticLog.event(
+            "UsbOutputState",
+            "restore-frozen-intent generation=${state.generation} desired=${state.desiredMode} " +
+                "transport=${state.activeTransport} playWhenReady=$semanticPlayWhenReady",
+        )
+        usbOutputOwnerEpoch?.let { epoch ->
+            usbOwner?.setSemanticPlayWhenReady(epoch, semanticPlayWhenReady)
+        }
+        if (semanticPlayWhenReady) {
+            compositePlayer?.playExoDirect()
+        } else {
+            compositePlayer?.pauseExoDirect()
+        }
+    }
+
+    private fun isTransientExclusiveOpenFailure(code: String, message: String): Boolean =
+        code.endsWith("OPEN_FAILED") &&
+            message.contains("USBDEVFS_SUBMITURB", ignoreCase = true) &&
+            (message.contains("No such file or directory", ignoreCase = true) ||
+                message.contains("ENOENT", ignoreCase = true))
+
+    private fun buildSharedPlayerForState() {
+        if (usbOutputState.desiredMode != DesiredUsbOutput.Shared || usbOutputState.phase != UsbOutputPhase.SharedActive) return
+        runCatching {
+            usbOwner?.retireExclusiveSession()
+            usbOwner?.awaitIdle()
+        }
+        rebuildPlaybackStack(
+            AudioOutputPathConfig.PRODUCTION,
+            null,
+            "usb-state-shared:${usbOutputSwitchReason}",
+            usbOutputHandoff,
+        )
+        usbOutputOwnerEpoch = null
+    }
+
+    private fun scheduleSharedRouteProbe(generation: Long) {
+        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedRouteWaiting) return
+        usbSharedRoutePollGeneration = generation
+        usbSharedRouteProbeStartedAtMs = SystemClock.elapsedRealtime()
+        if (usbSharedAudioAddSerial > usbSharedRouteWaitBaselineAddSerial) {
+            DiagnosticLog.event(
+                "UsbOutputState",
+                "shared-route add already observed generation=$generation serial=$usbSharedAudioAddSerial " +
+                    "baseline=$usbSharedRouteWaitBaselineAddSerial",
+            )
+            completeSharedRouteRecovery()
+            return
+        }
+        DiagnosticLog.event(
+            "UsbOutputState",
+            "shared-route waiting generation=$generation baseline=$usbSharedRouteWaitBaselineAddSerial " +
+                "serial=$usbSharedAudioAddSerial",
+        )
+        mainHandler.postDelayed({ onSharedRouteTimeout(generation) }, SHARED_RETURN_ROUTE_TIMEOUT_MS)
+    }
+
+    private fun onSharedRouteTimeout(generation: Long) {
+        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedRouteWaiting) return
+        val elapsedMs = SystemClock.elapsedRealtime() - usbSharedRouteProbeStartedAtMs
+        DiagnosticLog.event(
+            "UsbOutputState",
+            "shared-route timeout generation=$generation elapsedMs=$elapsedMs " +
+                "baseline=$usbSharedRouteWaitBaselineAddSerial serial=$usbSharedAudioAddSerial",
+        )
+        if (!usbOutputState.sharedReturnRequiresReconnect) {
+            usbSharedReturnProbeIdentity?.let { identity ->
+                UsbSharedReturnCapabilityStore.setCapability(
+                    this,
+                    identity,
+                    UsbSharedReturnCapability.ReconnectRequired,
+                )
+            }
+        }
+        dispatchUsbOutput(UsbOutputEvent.AndroidSharedRouteUnavailable)
+    }
+
+    private fun completeSharedRouteRecovery() {
+        if (usbOutputState.desiredMode != DesiredUsbOutput.Shared || usbOutputState.phase != UsbOutputPhase.SharedRouteWaiting) return
+        val recoveredAfterReconnect = usbOutputState.sharedReturnRequiresReconnect
+        if (!recoveredAfterReconnect) {
+            usbSharedReturnProbeIdentity?.let { identity ->
+                UsbSharedReturnCapabilityStore.setCapability(
+                    this,
+                    identity,
+                    UsbSharedReturnCapability.HotSwitchVerified,
+                )
+            }
+        }
+        dispatchUsbOutput(UsbOutputEvent.AndroidSharedRouteReady)
+        if (recoveredAfterReconnect) {
+            Toast.makeText(this, "Android \u5171\u4eab\u8f93\u51fa\u5df2\u6062\u590d", Toast.LENGTH_SHORT).show()
+        }
+        usbSharedReturnProbeIdentity = null
+    }
+
+    private fun installUsbSharedAudioDeviceCallback() {
+        if (usbSharedAudioDeviceCallbackRegistered) return
+        val audioManager = getSystemService(AudioManager::class.java) ?: return
+        runCatching {
+            audioManager.registerAudioDeviceCallback(usbSharedAudioDeviceCallback, mainHandler)
+            usbSharedAudioDeviceCallbackRegistered = true
+        }.onFailure { error ->
+            DiagnosticLog.event("UsbOutputState", "shared-audio callback register failed error=${error.message}")
+        }
+    }
+
+    private fun uninstallUsbSharedAudioDeviceCallback() {
+        if (!usbSharedAudioDeviceCallbackRegistered) return
+        val audioManager = getSystemService(AudioManager::class.java)
+        runCatching { audioManager?.unregisterAudioDeviceCallback(usbSharedAudioDeviceCallback) }
+        usbSharedAudioDeviceCallbackRegistered = false
+    }
+
+    private fun isAndroidUsbAudioOutput(device: AudioDeviceInfo): Boolean =
+        device.isSink &&
+            (device.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                device.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                device.type == AudioDeviceInfo.TYPE_USB_ACCESSORY)
+    private fun UsbHybridOutputMode.toDesiredUsbOutput(): DesiredUsbOutput = when (this) {
+        UsbHybridOutputMode.SharedPcm -> DesiredUsbOutput.Shared
+        UsbHybridOutputMode.ExactPcm -> DesiredUsbOutput.ExactPcm
+        UsbHybridOutputMode.Dop -> DesiredUsbOutput.Dop
+        UsbHybridOutputMode.NativeDsdExperimental -> DesiredUsbOutput.NativeDsd
+    }
+
+    private fun DesiredUsbOutput.toExclusiveMode(): UsbExclusiveMode = when (this) {
+        DesiredUsbOutput.Shared -> UsbExclusiveMode.SHARED_PCM
+        DesiredUsbOutput.ExactPcm -> UsbExclusiveMode.USB_EXACT_PCM
+        DesiredUsbOutput.Dop -> UsbExclusiveMode.USB_DOP
+        DesiredUsbOutput.NativeDsd -> UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL
+    }
+
+    private fun DesiredUsbOutput.toOutputPath(): AudioOutputPathConfig = when (this) {
+        DesiredUsbOutput.Shared -> AudioOutputPathConfig.PRODUCTION
+        DesiredUsbOutput.ExactPcm -> AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDirectPcm)
+        DesiredUsbOutput.Dop -> AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDop)
+        DesiredUsbOutput.NativeDsd -> AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbNativeDsdExperimental)
+    }
     private fun retirePlaybackStackBeforeUsbRequest() {
         val oldExo = exoPlayer
         var releaseError: PlaybackException? = null
@@ -279,25 +869,44 @@ class MicaMediaService : MediaSessionService() {
     private fun handleUsbFacts(facts: UsbPlaybackFacts) {
         val owner = usbOwner ?: return
         if (owner.facts.value != facts) return
-        if (facts.permission != com.mica.music.media.usbhybrid.PermissionState.GRANTED) return
-        if (facts.activeMode != null) return
-        val effects = usbEffects ?: return
-        val targetPath = when (facts.requestedMode) {
-            UsbExclusiveMode.SHARED_PCM -> AudioOutputPathConfig.PRODUCTION
-            UsbExclusiveMode.USB_EXACT_PCM ->
-                AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDirectPcm)
-            UsbExclusiveMode.USB_DOP -> AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDop)
-            UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL ->
-                AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbNativeDsdExperimental)
-        }
-        rebuildPlaybackStack(
-            targetPath,
-            UsbHybridPlaybackBinding(owner, effects, com.mica.music.media.usbhybrid.UsbRequestEpoch(facts.requestEpoch)),
-            "permission-granted",
-            pendingUsbHandoff,
-        )
-    }
+        val ownerEpoch = usbOutputOwnerEpoch ?: return
+        if (facts.requestEpoch != ownerEpoch.value) return
+        val state = usbOutputState
+        if (state.phase != UsbOutputPhase.ExclusiveOpening && state.phase !is UsbOutputPhase.ExclusiveActive) return
 
+        facts.failure?.let { failure ->
+            if (state.phase != UsbOutputPhase.ExclusiveOpening) return
+            val transientOwnershipRace = state.desiredMode == DesiredUsbOutput.NativeDsd &&
+                isTransientExclusiveOpenFailure(failure.code, failure.message)
+            dispatchUsbOutput(
+                UsbOutputEvent.ExclusiveOpenFailed(
+                    generation = state.generation,
+                    code = failure.code,
+                    message = failure.message,
+                    transientOwnershipRace = transientOwnershipRace,
+                ),
+            )
+            return
+        }
+
+        val activeTransport = facts.activeTransport ?: return
+        if (facts.sessionId == null || !facts.exclusive || !facts.transportExact) return
+        val shouldPublishTransport = when (state.phase) {
+            UsbOutputPhase.ExclusiveOpening -> true
+            is UsbOutputPhase.ExclusiveActive ->
+                state.activeTransport != activeTransport || state.activeSessionId != facts.sessionId
+            else -> false
+        }
+        if (shouldPublishTransport) {
+            dispatchUsbOutput(
+                UsbOutputEvent.ExclusiveOpenSucceeded(
+                    generation = state.generation,
+                    transport = activeTransport,
+                    sessionId = facts.sessionId,
+                ),
+            )
+        }
+    }
     private fun capturePlaybackStackHandoff(): PlaybackStackHandoff? {
         val player = compositePlayer ?: return null
         val queue = player.playbackQueueSnapshot()
@@ -322,7 +931,7 @@ class MicaMediaService : MediaSessionService() {
         val requestedUsbEpoch = usbBinding?.epoch?.value
         if (exoPlayer != null && target == activeOutputPath && requestedUsbEpoch == activeUsbEpoch) return
         val micaApp = application as MicaApp
-        val handoff = handoffOverride ?: capturePlaybackStackHandoff() ?: pendingUsbHandoff
+        val handoff = handoffOverride ?: capturePlaybackStackHandoff() ?: usbOutputHandoff
         usbOwner?.awaitIdle()
         if (usbBinding != null && usbOwner?.currentEpoch() != usbBinding.epoch) return
         val oldExo = exoPlayer
@@ -341,7 +950,6 @@ class MicaMediaService : MediaSessionService() {
         activeOutputPath = target
         activeUsbEpoch = requestedUsbEpoch
         installPlaybackStackOwners(newStack, micaApp, handoff)
-        pendingUsbHandoff = null
         DiagnosticLog.event(
             "AudioOutputPath",
             "rebuild-complete reason=$reason mode=${target.outputMode} " +
@@ -429,6 +1037,20 @@ class MicaMediaService : MediaSessionService() {
             stack.compositePlayer.playWhenReady = handoff.playWhenReady
         }
 
+        stack.compositePlayer.onUserPlayIntentChanged = { playWhenReady ->
+            usbOutputOwnerEpoch?.let { epoch ->
+                usbOwner?.setSemanticPlayWhenReady(epoch, playWhenReady)
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                dispatchUsbOutput(UsbOutputEvent.UserPlayIntentChanged(playWhenReady))
+            } else {
+                mainHandler.post {
+                    dispatchUsbOutput(UsbOutputEvent.UserPlayIntentChanged(playWhenReady))
+                }
+            }
+        }
+        stack.compositePlayer.shouldDeferUserPlayIntent = { false }
+
         carBluetoothLyricsSession = CarBluetoothLyricsSession(
             context = this,
             player = stack.compositePlayer,
@@ -460,6 +1082,9 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun releasePlaybackStackOwners() {
+        compositePlayer?.retireForReplacement()
+        compositePlayer?.onUserPlayIntentChanged = null
+        compositePlayer?.shouldDeferUserPlayIntent = null
         replayGainStateOwner?.release()
         replayGainStateOwner = null
         playbackStateCoordinator?.release()
@@ -483,6 +1108,7 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        uninstallUsbSharedAudioDeviceCallback()
         playbackRouteMonitor?.release()
         playbackRouteMonitor = null
         unregisterLyricsPreferenceListener?.invoke()
@@ -901,5 +1527,12 @@ class MicaMediaService : MediaSessionService() {
 
     private companion object {
         const val USB_TELEMETRY_INTERVAL_MS = 1_000L
+        const val NATIVE_DSD_HOTPLUG_PRIME_SETTLE_MS = 300L
+        const val SHARED_RETURN_ROUTE_TIMEOUT_MS = 5_000L
+        const val SHARED_QUIESCE_POLL_MS = 50L
+        const val EXCLUSIVE_TARGET_READY_POLL_MS = 100L
+        const val EXCLUSIVE_TARGET_READY_MAX_POLLS = 50
+        const val EXCLUSIVE_TRANSIENT_OPEN_MAX_RETRIES = 2
+        const val EXCLUSIVE_TARGET_STABLE_OBSERVATIONS = 5
     }
 }

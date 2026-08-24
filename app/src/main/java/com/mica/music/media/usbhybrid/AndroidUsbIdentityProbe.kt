@@ -1,9 +1,11 @@
 package com.mica.music.media.usbhybrid
 
+import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 
 object AndroidUsbIdentityProbe {
     fun candidate(device: UsbDevice): UsbDeviceCandidate {
+        var hasAudioOutput = false
         val topology = buildList {
             for (configurationIndex in 0 until device.configurationCount) {
                 val configuration = device.getConfiguration(configurationIndex)
@@ -17,6 +19,12 @@ object AndroidUsbIdentityProbe {
                     }
                     for (endpointIndex in 0 until usbInterface.endpointCount) {
                         val endpoint = usbInterface.getEndpoint(endpointIndex)
+                        if (usbInterface.interfaceClass == UsbConstants.USB_CLASS_AUDIO &&
+                            endpoint.direction == UsbConstants.USB_DIR_OUT &&
+                            endpoint.type == UsbConstants.USB_ENDPOINT_XFER_ISOC
+                        ) {
+                            hasAudioOutput = true
+                        }
                         add(
                             "c${configuration.id}:i${usbInterface.id}:a${usbInterface.alternateSetting}:" +
                                 "class${usbInterface.interfaceClass}:e${endpoint.address}:" +
@@ -47,6 +55,7 @@ object AndroidUsbIdentityProbe {
             runtimeHandle = UsbRuntimeHandle(device.deviceId, device.deviceName),
             manufacturerName = manufacturerName,
             productName = productName,
+            hasAudioOutput = hasAudioOutput,
         )
     }
 

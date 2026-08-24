@@ -54,4 +54,52 @@ class PlaybackErrorMapperTest {
         assertEquals("音频解码失败", presentation.inlineMessage)
         assertNull(presentation.snackbarMessage)
     }
+    @Test
+    fun usbTransportDisconnectIsNotReportedAsFileReadFailure() {
+        val presentation = PlaybackErrorMapper.toPresentation(
+            PlaybackException(
+                "USB DSD write failed: No such device",
+                null,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            ),
+            songTitle = "Test Song",
+        )
+
+        assertEquals("USB 音频设备已断开", presentation.inlineMessage)
+        assertEquals("USB 音频设备已断开，请重新连接并授权", presentation.snackbarMessage)
+    }
+
+    @Test
+    fun usbTransportFailureGetsUsbOutputMessage() {
+        val presentation = PlaybackErrorMapper.toPresentation(
+            PlaybackException(
+                "USB DSD session did not become active",
+                null,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            ),
+            songTitle = "Test Song",
+        )
+
+        assertEquals("USB 音频输出异常", presentation.inlineMessage)
+        assertEquals("USB 音频输出异常，请重新连接设备或重试", presentation.snackbarMessage)
+    }
+
+    @Test
+    fun exactPcmRejectingDsdGetsActionableModeMessage() {
+        val presentation = PlaybackErrorMapper.toPresentation(
+            PlaybackException(
+                "FfmpegAudioRenderer[DsdOnly] error",
+                IllegalStateException("USB Exact PCM accepts only integer PCM16/PCM24/PCM32; encoding=4"),
+                PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+            ),
+            songTitle = "DSD64",
+        )
+
+        assertEquals("USB Exact PCM 不支持当前音频格式", presentation.inlineMessage)
+        assertEquals(
+            "USB Exact PCM 仅支持整数 PCM16/24/32；DSD 请切换到 DoP、Native DSD，或关闭 USB 独占使用 Android 共享输出",
+            presentation.snackbarMessage,
+        )
+    }
+
 }
