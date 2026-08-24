@@ -16,12 +16,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 object DiagnosticLog {
     private const val TAG = "MICA_DIAGNOSTICS"
     private const val MAX_CRASH_FILES = 5
     private const val MAX_BREADCRUMBS = 80
     private const val DIRECTORY = "diagnostics"
+    private const val CURRENT_SESSION_FILE = "current-session.log"
+    private const val PREVIOUS_SESSION_FILE = "previous-session.log"
     private val lock = Any()
     private val fileWriter = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "mica-diagnostic-writer").apply { isDaemon = true }
@@ -40,8 +43,7 @@ object DiagnosticLog {
             if (appContext != null) return
             appContext = applicationContext
             runCatching {
-                diagnosticsDir(applicationContext).resolve("current-session.log")
-                    .writeText("", Charsets.UTF_8)
+                rotateSessionLogs(diagnosticsDir(applicationContext))
             }
             event("App", "process started; ${deviceSummary(applicationContext)}")
             AudioEnvironmentDiagnostics.logEnvironment(applicationContext, "install")
@@ -77,7 +79,7 @@ object DiagnosticLog {
             if (context != null) {
                 fileWriter.execute {
                     runCatching {
-                        diagnosticsDir(context).resolve("current-session.log")
+                        diagnosticsDir(context).resolve(CURRENT_SESSION_FILE)
                             .appendText("$line\n", Charsets.UTF_8)
                     }.onFailure { Log.w(TAG, "Unable to append diagnostics", it) }
                 }
@@ -109,7 +111,9 @@ object DiagnosticLog {
     }
 
     fun shareReport(context: Context, extraReportSection: String? = null): Boolean {
+        ScreenLockDiagnostics.onDiagnosticsExport(context)
         AudioEnvironmentDiagnostics.logEnvironment(context, "export")
+        flushPendingWrites()
         val report = synchronized(lock) {
             runCatching {
                 buildReport(
@@ -140,6 +144,12 @@ object DiagnosticLog {
             context.startActivity(chooser)
             true
         }.getOrDefault(false)
+    }
+
+    private fun flushPendingWrites() {
+        runCatching {
+            fileWriter.submit { }.get(2, TimeUnit.SECONDS)
+        }.onFailure { Log.w(TAG, "Timed out flushing diagnostics before export", it) }
     }
 
     private fun writeCrashFile(context: Context, thread: Thread, throwable: Throwable) {
@@ -183,7 +193,16 @@ object DiagnosticLog {
                     appendLine()
                 }
                 appendLine("Current session:")
-                appendLine(dir.resolve("current-session.log").takeIf(File::exists)?.readText().orEmpty())
+                appendLine(
+                    dir.resolve(CURRENT_SESSION_FILE).takeIf(File::exists)?.readText().orEmpty(),
+                )
+                dir.resolve(PREVIOUS_SESSION_FILE)
+                    .takeIf { it.isFile && it.length() > 0L }
+                    ?.let { previousSession ->
+                        appendLine()
+                        appendLine("===== Previous process session =====")
+                        appendLine(previousSession.readText())
+                    }
                 crashes.forEach { crash ->
                     appendLine()
                     appendLine("===== ${crash.name} =====")
@@ -193,6 +212,15 @@ object DiagnosticLog {
             Charsets.UTF_8,
         )
         return report
+    }
+
+    internal fun rotateSessionLogs(dir: File) {
+        dir.mkdirs()
+        val current = dir.resolve(CURRENT_SESSION_FILE)
+        if (current.isFile && current.length() > 0L) {
+            current.copyTo(dir.resolve(PREVIOUS_SESSION_FILE), overwrite = true)
+        }
+        current.writeText("", Charsets.UTF_8)
     }
 
     private fun diagnosticsDir(context: Context): File =
