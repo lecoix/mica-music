@@ -18,7 +18,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -231,6 +230,7 @@ fun LyricLineBlock(
     lyricLine: LyricLine? = null,
     nextLineTimeMs: Int? = null,
     positionMs: Int = 0,
+    positionRevision: Long = 0L,
     isPlaying: Boolean = false,
     textAlign: TextAlign = TextAlign.Center,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
@@ -274,11 +274,7 @@ fun LyricLineBlock(
     val canFillLineTimed = lyricLineFillEnabled &&
         lyricLine != null &&
         (lyricLine.timeMs > 0 || nextLineTimeMs != null)
-    val shouldRunFillClock = isCurrent && lyricLine != null && (cueRanges.isNotEmpty() || canFillLineTimed)
-    val fillPositionMs = rememberLyricFrameClockPositionMs(
-        anchorPositionMs = positionMs,
-        isPlaying = isPlaying && shouldRunFillClock,
-    )
+    val fillPositionMs = positionMs
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = horizontalAlignment,
@@ -377,25 +373,6 @@ private fun lyricCueRanges(line: LyricLine): List<LyricCueRange> {
             searchFrom = end
         }
     }
-}
-
-@Composable
-private fun rememberLyricFrameClockPositionMs(
-    anchorPositionMs: Int,
-    isPlaying: Boolean,
-): Int {
-    var framePositionMs by remember { mutableIntStateOf(anchorPositionMs) }
-    LaunchedEffect(anchorPositionMs, isPlaying) {
-        framePositionMs = anchorPositionMs
-        if (!isPlaying) return@LaunchedEffect
-        val startFrameNanos = withFrameNanos { it }
-        while (true) {
-            val frameNanos = withFrameNanos { it }
-            val elapsedMs = ((frameNanos - startFrameNanos) / 1_000_000L).toInt()
-            framePositionMs = anchorPositionMs + elapsedMs
-        }
-    }
-    return framePositionMs
 }
 
 private fun lineTimedFillFraction(

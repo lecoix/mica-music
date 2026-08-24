@@ -32,4 +32,28 @@ class HomeLyricsBoundarySyncTest {
         assertEquals(1, syncCount)
         job.join()
     }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun samplesAuthoritativePositionAtBoundedIntervalWithoutLyrics() = runTest {
+        var syncCount = 0
+        val job = launch {
+            awaitNextHomeLyricBoundary(
+                lineStartTimesMs = intArrayOf(),
+                positionMs = 475,
+                playbackSpeed = 1f,
+                isAdvancing = true,
+                syncPosition = { syncCount += 1 },
+                maxPollIntervalMs = 50L,
+            )
+        }
+
+        advanceTimeBy(49)
+        runCurrent()
+        assertEquals(0, syncCount)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(1, syncCount)
+        job.join()
+    }
 }

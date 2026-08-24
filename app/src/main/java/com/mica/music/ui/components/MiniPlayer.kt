@@ -129,6 +129,8 @@ fun MiniPlayer(
     song: Song,
     isPlaying: Boolean,
     positionMs: Int = 0,
+    positionRevision: Long = 0L,
+    playbackSpeed: Float = 1f,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit = {},
     onNext: () -> Unit,
@@ -148,6 +150,7 @@ fun MiniPlayer(
     nextLyricLineTimeMs: Int? = null,
     modifier: Modifier = Modifier,
 ) {
+    val stablePositionMs = positionMs
     val safeBottom = maxOf(
         WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding(),
         HifiSpacing.xs,
@@ -177,7 +180,7 @@ fun MiniPlayer(
         song = song,
         lyricsSession = checkNotNull(lyricsSession),
         isPlaying = isPlaying,
-        positionMs = positionMs,
+        positionMs = stablePositionMs,
         enabled = miniPlayerLyricsEnabled,
         lyricSplitEnabled = lyricSplitEnabled,
         lyricsBilingualDisplayMode = effectiveBilingualMode,
@@ -186,7 +189,7 @@ fun MiniPlayer(
         !miniPlayerLyricsEnabled || !miniPlayerWordLyricsEnabled || !isPlaying -> null
         karaokeLine != null -> karaokeLine.takeIf { it.cues.isNotEmpty() }
         lyricsSession != null -> {
-            val index = NotificationLyrics.lyricIndexForPosition(lyricsSession, positionMs)
+            val index = NotificationLyrics.lyricIndexForPosition(lyricsSession, stablePositionMs)
             lyricsSession.lyrics.getOrNull(index)?.takeIf { it.cues.isNotEmpty() }
         }
         else -> null
@@ -202,7 +205,8 @@ fun MiniPlayer(
         MiniPlayerStyle.FLOATING_ISLAND -> FloatingIslandMiniPlayer(
             song = song,
             isPlaying = isPlaying,
-            positionMs = positionMs,
+            positionMs = stablePositionMs,
+            positionRevision = positionRevision,
             text = displayText,
             karaokeLine = resolvedKaraoke,
             nextLyricLineTimeMs = resolvedNextLineTimeMs,
@@ -217,7 +221,8 @@ fun MiniPlayer(
         MiniPlayerStyle.AUDIOPHILE -> AudiophileMiniPlayer(
             song = song,
             isPlaying = isPlaying,
-            positionMs = positionMs,
+            positionMs = stablePositionMs,
+            positionRevision = positionRevision,
             text = displayText,
             karaokeLine = resolvedKaraoke,
             nextLyricLineTimeMs = resolvedNextLineTimeMs,
@@ -335,6 +340,7 @@ private fun MiniPlayerPrimaryText(
     unfilledColor: Color,
     isPlaying: Boolean,
     positionMs: Int,
+    positionRevision: Long,
     karaokeLine: LyricLine?,
     nextLyricLineTimeMs: Int?,
 ) {
@@ -342,6 +348,7 @@ private fun MiniPlayerPrimaryText(
         NarrowBarSoftKaraokeLyric(
             line = karaokeLine,
             positionMs = positionMs,
+            positionRevision = positionRevision,
             isPlaying = isPlaying,
             nextLineTimeMs = nextLyricLineTimeMs,
             filledColor = color,
@@ -359,6 +366,7 @@ private fun FloatingIslandMiniPlayer(
     song: Song,
     isPlaying: Boolean,
     positionMs: Int,
+    positionRevision: Long,
     text: MiniPlayerText,
     karaokeLine: LyricLine?,
     nextLyricLineTimeMs: Int?,
@@ -442,6 +450,7 @@ private fun FloatingIslandMiniPlayer(
                         unfilledColor = colors.textTertiary,
                         isPlaying = isPlaying,
                         positionMs = positionMs,
+                        positionRevision = positionRevision,
                         karaokeLine = karaokeLine,
                         nextLyricLineTimeMs = nextLyricLineTimeMs,
                     )
@@ -469,6 +478,7 @@ private fun AudiophileMiniPlayer(
     song: Song,
     isPlaying: Boolean,
     positionMs: Int,
+    positionRevision: Long,
     text: MiniPlayerText,
     karaokeLine: LyricLine?,
     nextLyricLineTimeMs: Int?,
@@ -543,6 +553,7 @@ private fun AudiophileMiniPlayer(
                             unfilledColor = colors.textTertiary,
                             isPlaying = isPlaying,
                             positionMs = positionMs,
+                            positionRevision = positionRevision,
                             karaokeLine = karaokeLine,
                             nextLyricLineTimeMs = nextLyricLineTimeMs,
                         )

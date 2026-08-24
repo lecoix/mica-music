@@ -578,6 +578,44 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun ordinaryControllerSamplesDoNotPublishBackwardJitter() {
+        val connector = FakeConnector()
+        var nowMs = 1_000L
+        val controller = controller(connector = connector, monotonicNowMs = { nowMs })
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val song = SongFixtures.song("clock-jitter")
+        val item = MediaItem.Builder().setMediaId(song.id).build()
+        var playerPositionMs = 12_207L
+        every { mediaController.currentMediaItem } returns item
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.currentPosition } answers { playerPositionMs }
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        every { mediaController.playbackParameters } returns PlaybackParameters.DEFAULT
+
+        try {
+            controller.setQueue(listOf(song))
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+            controller.syncPosition()
+            assertEquals(12_207, controller.playbackProgressState.positionMs)
+
+            nowMs = 1_050L
+            playerPositionMs = 12_206L
+            controller.syncPosition()
+            assertEquals(12_257, controller.playbackProgressState.positionMs)
+
+            nowMs = 1_100L
+            playerPositionMs = 12_310L
+            controller.syncPosition()
+            assertEquals(12_307, controller.playbackProgressState.positionMs)
+        } finally {
+            controller.release()
+        }
+    }
+
+    @Test
     fun coldStartBootstrapHydratesPersistedExternalSongWhenLibraryResolverMisses() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)
@@ -1777,6 +1815,43 @@ class PlayerControllerBoundaryTest {
 
         assertEquals(queue[0].id, controller.playbackSurfaceState.currentSong?.id)
         assertEquals(40_000, controller.uiPositionMs())
+        controller.release()
+    }
+
+    @Test
+    fun sameSongRepeatTransitionUsesAuthoritativePlayerPosition() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val song = SongFixtures.song("same-song")
+        val currentItem = MediaItem.Builder().setMediaId(song.id).build()
+        var playerPositionMs = 40_000L
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns currentItem
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.currentPosition } answers { playerPositionMs }
+        every { mediaController.duration } returns 60_000L
+        controller.setQueue(listOf(song))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.syncPosition()
+
+        // Metadata/playlist refresh mislabeled by Media3 as REPEAT must not reset lyrics to zero.
+        listener.captured.onMediaItemTransition(
+            currentItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+        )
+        assertEquals(40_000, controller.uiPositionMs())
+
+        // A real repeat-one wrap is committed only by its authoritative discontinuity.
+        listener.captured.onPositionDiscontinuity(
+            positionInfo(currentItem, 0, 59_900L),
+            positionInfo(currentItem, 0, 0L),
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
+        assertEquals(0, controller.uiPositionMs())
         controller.release()
     }
 

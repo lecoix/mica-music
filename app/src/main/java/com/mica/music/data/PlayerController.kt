@@ -24,6 +24,7 @@ import com.mica.music.media.PlaybackRouter
 import com.mica.music.media.ServicePlaybackStateStore
 import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.util.ScreenLockDiagnostics
 import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
@@ -34,6 +35,7 @@ import kotlinx.coroutines.cancel
 data class PlaybackSurfaceState(
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
+    val playWhenReady: Boolean = false,
     val isBuffering: Boolean = false,
     val playbackError: String? = null,
     val playbackQueueMode: PlaybackQueueMode = PlaybackQueueMode.OFF,
@@ -45,6 +47,7 @@ data class PlaybackProgressState(
     val positionMs: Int = 0,
     val durationMs: Int = 0,
     val pendingSeekMs: Int = -1,
+    val positionRevision: Long = 0L,
 )
 
 data class PlaybackQueueState(
@@ -226,8 +229,18 @@ class PlayerController internal constructor(
         publishProgressState()
     }
 
-    private fun notifyPlaybackProgress(rawMs: Int) {
-        setPositionMsClamped(rawMs)
+    private fun notifyPlaybackProgress(rawMs: Int, allowBackward: Boolean = false) {
+        if (allowBackward || pendingSeekMs >= 0) {
+            timelineCoordinator.setPositionClamped(rawMs, currentSong?.durationSec ?: 0)
+        } else {
+            timelineCoordinator.samplePresentationPosition(
+                rawMs = rawMs,
+                songDurationSec = currentSong?.durationSec ?: 0,
+                isAdvancing = controller?.isPlaying == true,
+                playbackSpeed = playbackTuning.speed,
+            )
+        }
+        publishProgressState()
         reconcilePendingSeekAfterProgress(rawMs)
     }
 
@@ -379,6 +392,8 @@ class PlayerController internal constructor(
     var userMessage by mutableStateOf<UserMessage?>(null)
         private set
 
+    private var playbackErrorUserMessageId: Long? = null
+
     private val songQueue: List<Song>
         get() = queueCoordinator.queue
 
@@ -409,6 +424,7 @@ class PlayerController internal constructor(
         playbackSurfaceState = PlaybackSurfaceState(
             currentSong = currentSong,
             isPlaying = isPlaying,
+            playWhenReady = controller?.playWhenReady == true,
             isBuffering = isBuffering,
             playbackError = playbackError,
             playbackQueueMode = playbackQueueMode,
@@ -422,6 +438,7 @@ class PlayerController internal constructor(
             positionMs = uiPositionMs(),
             durationMs = uiDurationMs(),
             pendingSeekMs = pendingSeekMs,
+            positionRevision = timelineCoordinator.positionRevision,
         )
     }
 
@@ -554,10 +571,12 @@ class PlayerController internal constructor(
                 val shouldResetPosition =
                     reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
                         reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO &&
+                        (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT || currentSongChanged) &&
                         (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED ||
                             currentSongChanged)
                 if (shouldResetPosition) {
                     clearPendingSeek()
+                    timelineCoordinator.markPositionDiscontinuity()
                     setPositionMsClamped(0)
                 }
                 val unsupportedMessage = mediaItem
@@ -610,7 +629,9 @@ class PlayerController internal constructor(
                 clearPendingMediaSelection()
                 isBuffering = false
                 playbackError = presentation.inlineMessage
-                presentation.snackbarMessage?.let(::postUserMessage)
+                playbackErrorUserMessageId = presentation.snackbarMessage
+                    ?.let(::postUserMessage)
+                    ?.id
                 syncIndexFromPlayer(c)
                 publishPlaybackStates()
             }
@@ -628,6 +649,14 @@ class PlayerController internal constructor(
                 }
                 if (playing) {
                     releasePendingRestorePosition(c.currentMediaItem?.mediaId)
+                    if (playbackError != null) {
+                        playbackError = null
+                        val errorMessageId = playbackErrorUserMessageId
+                        if (errorMessageId != null && userMessage?.id == errorMessageId) {
+                            userMessage = null
+                        }
+                        playbackErrorUserMessageId = null
+                    }
                     syncPosition()
                     publishPlayCountIfStarted(c, true)
                 }
@@ -689,6 +718,7 @@ class PlayerController internal constructor(
                     )
                 }
                 if (automatic) {
+                    timelineCoordinator.markPositionDiscontinuity()
                     val songId = newPosition.mediaItem?.mediaId ?: c.currentMediaItem?.mediaId
                     logPlayCountProbe(
                         "playback-boundary reason=auto-transition " +
@@ -696,11 +726,19 @@ class PlayerController internal constructor(
                             "oldPositionMs=${oldPosition.positionMs} " +
                             "newPositionMs=${newPosition.positionMs} isPlaying=${c.isPlaying}",
                     )
+                    notifyPlaybackProgress(
+                        newPosition.positionMs.toInt().coerceAtLeast(0),
+                        allowBackward = true,
+                    )
                 } else if (reason == Player.DISCONTINUITY_REASON_SEEK ||
                     reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
                 ) {
                     clearPendingSeek("discontinuity")
-                    notifyPlaybackProgress(newPosition.positionMs.toInt().coerceAtLeast(0))
+                    timelineCoordinator.markPositionDiscontinuity()
+                    notifyPlaybackProgress(
+                        newPosition.positionMs.toInt().coerceAtLeast(0),
+                        allowBackward = true,
+                    )
                 }
             }
 
@@ -1171,8 +1209,9 @@ class PlayerController internal constructor(
     }
 
     fun pauseIfPlaying() {
-        if (!isPlaying) return
-        controller?.pause()
+        val c = controller ?: return
+        if (!c.playWhenReady) return
+        c.pause()
     }
 
     fun setPlaybackVolume(volume: Float) {
@@ -1233,7 +1272,7 @@ class PlayerController internal constructor(
             return
         }
         playbackError = null
-        if (isPlaying) {
+        if (c.playWhenReady) {
             c.pause()
             return
         }
@@ -1687,7 +1726,9 @@ class PlayerController internal constructor(
         playbackError = null
         if (songQueue.isEmpty()) return null
         val target = resolveNextIndex(forManualSkip = true)
-        DiagnosticLog.event("Player", "manual next target=$target; ${playbackSnapshot()}")
+        val snapshot = playbackSnapshot()
+        DiagnosticLog.event("Player", "manual next target=$target; $snapshot")
+        ScreenLockDiagnostics.onPlaybackManualNext(context, target, snapshot)
         if (target == currentIndex) return null
         TrackSwitchPerformance.armTrigger("button-next")
         trackSkipDirection = TrackSkipDirection.TO_NEXT
@@ -1752,6 +1793,9 @@ class PlayerController internal constructor(
     }
 
     fun clearUserMessage() {
+        if (userMessage?.id == playbackErrorUserMessageId) {
+            playbackErrorUserMessageId = null
+        }
         userMessage = null
     }
 
@@ -1760,8 +1804,8 @@ class PlayerController internal constructor(
         publishSurfaceState()
     }
 
-    private fun postUserMessage(text: String) {
-        userMessage = UserMessage(text)
+    private fun postUserMessage(text: String): UserMessage {
+        return UserMessage(text).also { userMessage = it }
     }
 
     fun release() {
