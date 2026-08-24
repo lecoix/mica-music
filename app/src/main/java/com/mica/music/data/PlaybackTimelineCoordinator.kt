@@ -1,5 +1,7 @@
 package com.mica.music.data
 
+import kotlin.math.roundToLong
+
 internal data class ClearedPendingSeek(
     val reason: String,
     val pendingMs: Int,
@@ -21,9 +23,17 @@ internal class PlaybackTimelineCoordinator(
     var seekUiActive: Boolean = false
         private set
 
+    var positionRevision: Long = 0L
+        private set
+
     private var pendingSeekSetAtElapsedMs = 0L
     private var pendingRestoreSongId: String? = null
     private var pendingRestorePositionMs = 0
+    private var presentationInitialized = false
+    private var presentationAdvancing = false
+    private var presentationAnchorPositionMs = 0L
+    private var presentationAnchorElapsedMs = 0L
+    private var presentationSpeed = 1f
 
     fun setSeekUiActive(active: Boolean) {
         seekUiActive = active
@@ -45,8 +55,42 @@ internal class PlaybackTimelineCoordinator(
     }
 
     fun setPositionClamped(rawMs: Int, songDurationSec: Int) {
-        val maxMs = uiDurationMs(songDurationSec)
-        positionMs = if (maxMs > 0) rawMs.coerceIn(0, maxMs) else rawMs.coerceAtLeast(0)
+        positionMs = clampPosition(rawMs.toLong(), songDurationSec)
+        presentationInitialized = false
+        presentationAdvancing = false
+    }
+
+    fun samplePresentationPosition(
+        rawMs: Int,
+        songDurationSec: Int,
+        isAdvancing: Boolean,
+        playbackSpeed: Float,
+    ) {
+        val nowMs = monotonicNowMs()
+        val candidate = clampPosition(rawMs.toLong(), songDurationSec)
+        val safeSpeed = playbackSpeed.takeIf { it.isFinite() && it > 0f } ?: 1f
+        if (!presentationInitialized) {
+            positionMs = candidate
+            resetPresentationAnchor(nowMs, candidate, isAdvancing, safeSpeed)
+            return
+        }
+
+        val projected = projectedPosition(nowMs, songDurationSec)
+        when {
+            presentationAdvancing && !isAdvancing -> {
+                positionMs = projected
+                resetPresentationAnchor(nowMs, projected, false, safeSpeed)
+            }
+            !presentationAdvancing && isAdvancing -> {
+                resetPresentationAnchor(nowMs, positionMs, true, safeSpeed)
+            }
+            presentationAdvancing && presentationSpeed != safeSpeed -> {
+                positionMs = projected
+                resetPresentationAnchor(nowMs, projected, true, safeSpeed)
+            }
+            presentationAdvancing -> positionMs = projected
+            else -> Unit
+        }
     }
 
     fun updatePlayerDuration(durationMs: Long) {
@@ -56,12 +100,18 @@ internal class PlaybackTimelineCoordinator(
     fun resetDurationForSongChange(songDurationSec: Int): Int {
         val previousSec = durationSec
         durationSec = songDurationSec.coerceAtLeast(0)
+        markPositionDiscontinuity()
         return previousSec
     }
 
     fun armPendingSeek(targetMs: Int) {
+        markPositionDiscontinuity()
         pendingSeekMs = targetMs
         pendingSeekSetAtElapsedMs = monotonicNowMs()
+    }
+
+    fun markPositionDiscontinuity() {
+        positionRevision += 1L
     }
 
     fun reconcilePendingSeek(reportedMs: Int): ClearedPendingSeek? {
@@ -115,5 +165,30 @@ internal class PlaybackTimelineCoordinator(
     private fun clearPendingRestore() {
         pendingRestoreSongId = null
         pendingRestorePositionMs = 0
+    }
+
+    private fun projectedPosition(nowMs: Long, songDurationSec: Int): Int {
+        val elapsedMs = (nowMs - presentationAnchorElapsedMs).coerceAtLeast(0L)
+        val advancedMs = (elapsedMs * presentationSpeed).roundToLong()
+        return clampPosition(presentationAnchorPositionMs + advancedMs, songDurationSec)
+    }
+
+    private fun resetPresentationAnchor(
+        nowMs: Long,
+        positionMs: Int,
+        isAdvancing: Boolean,
+        speed: Float,
+    ) {
+        presentationInitialized = true
+        presentationAnchorElapsedMs = nowMs
+        presentationAnchorPositionMs = positionMs.toLong()
+        presentationAdvancing = isAdvancing
+        presentationSpeed = speed
+    }
+
+    private fun clampPosition(rawMs: Long, songDurationSec: Int): Int {
+        val maxMs = uiDurationMs(songDurationSec).toLong()
+        val clamped = if (maxMs > 0L) rawMs.coerceIn(0L, maxMs) else rawMs.coerceAtLeast(0L)
+        return clamped.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 }

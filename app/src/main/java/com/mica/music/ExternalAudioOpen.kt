@@ -1,9 +1,12 @@
 package com.mica.music
 
+import android.Manifest
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import com.mica.music.data.Song
 import com.mica.music.data.SongSource
@@ -29,24 +32,37 @@ internal fun parseExternalAudioOpenRequest(intent: Intent?): ExternalAudioOpenRe
     return ExternalAudioOpenRequest(uri = uri, mimeType = mimeType)
 }
 
+/** Reports whether this URI can still be read after the current one-shot intent grant is gone. */
+internal fun isExternalAudioUriRestorableNow(context: Context, uri: Uri): Boolean {
+    if (uri.scheme != "content") return false
+    val resolver = context.contentResolver
+    if (resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }) return true
+    if (uri.authority != "media") return false
+    val permission = if (Build.VERSION.SDK_INT >= 33) {
+        Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+    return Build.VERSION.SDK_INT < 23 ||
+        context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+}
+
 /** Persists a provider grant and reports whether this URI can survive a process restart. */
 internal fun persistExternalAudioUriPermission(
     context: Context,
     intent: Intent?,
     request: ExternalAudioOpenRequest,
 ): Boolean {
+    if (isExternalAudioUriRestorableNow(context, request.uri)) return true
     if (request.uri.scheme != "content") return false
-    // MediaStore access is governed by the app's media permission, not a one-shot intent grant.
-    if (request.uri.authority == "media") return true
     val resolver = context.contentResolver
-    if (resolver.persistedUriPermissions.any { it.uri == request.uri }) return true
     val flags = intent?.flags ?: 0
     if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) return false
     val accessFlags = flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
     if (accessFlags == 0) return false
     return runCatching {
         resolver.takePersistableUriPermission(request.uri, accessFlags)
-        resolver.persistedUriPermissions.any { it.uri == request.uri }
+        isExternalAudioUriRestorableNow(context, request.uri)
     }.getOrDefault(false)
 }
 

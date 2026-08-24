@@ -23,5 +23,10 @@ internal fun resolveSettingsTopBarBackAction(
     SettingsTopBarBackAction.PopCategory
 }
 
-internal fun settingsScreenTitle(selectedCategory: SettingsCategory?): String =
-    selectedCategory?.title ?: "设置"
+internal fun settingsScreenTitle(
+    selectedCategory: SettingsCategory?,
+    usbHybridSubpageOpen: Boolean = false,
+): String = when {
+    usbHybridSubpageOpen -> "USB 独占输出"
+    else -> selectedCategory?.title ?: "设置"
+}

@@ -663,8 +663,9 @@ fun HomeScreen(
         uiSettings.globalLyricsOffsetMs,
         songLyricsOffsetMs,
     )
+    val stablePlaybackPositionMs = playbackState.positionMs
     val lyricsPositionMs = LyricsTiming.effectivePositionMs(
-        playbackState.positionMs,
+        stablePlaybackPositionMs,
         effectiveLyricsOffsetMs,
     )
     val infoRowLyricsSession = remember(currentSong?.id, currentSong?.lyricsDocument) {
@@ -674,6 +675,8 @@ fun HomeScreen(
         infoRowLyricsSession?.lyrics?.map { it.timeMs }?.toIntArray() ?: IntArray(0)
     }
     val lyricsVisible = uiSettings.infoRowLyricsEnabled || uiSettings.miniPlayerLyricsEnabled
+    val hasVisibleWordSyncedLyrics = lyricsVisible &&
+        infoRowLyricsSession?.document?.lines?.any { it.tokens.isNotEmpty() } == true
     LaunchedEffect(
         currentSong?.id,
         infoRowLyricsSession,
@@ -682,18 +685,18 @@ fun HomeScreen(
         playbackState.isBuffering,
         playbackState.playbackSpeed,
         lyricsVisible,
+        hasVisibleWordSyncedLyrics,
         effectiveLyricsOffsetMs,
     ) {
-        if (lyricsVisible) {
-            awaitNextHomeLyricBoundary(
-                lineStartTimesMs = lineStartTimesMs,
-                positionMs = playbackState.positionMs,
-                playbackSpeed = playbackState.playbackSpeed,
-                isAdvancing = playbackState.isPlaying && !playbackState.isBuffering,
-                syncPosition = playbackActions.syncPosition,
-                effectiveOffsetMs = effectiveLyricsOffsetMs,
-            )
-        }
+        awaitNextHomeLyricBoundary(
+            lineStartTimesMs = if (lyricsVisible) lineStartTimesMs else IntArray(0),
+            positionMs = playbackState.positionMs,
+            playbackSpeed = playbackState.playbackSpeed,
+            isAdvancing = playbackState.isPlaying && !playbackState.isBuffering,
+            syncPosition = playbackActions.syncPosition,
+            effectiveOffsetMs = effectiveLyricsOffsetMs,
+            maxPollIntervalMs = if (hasVisibleWordSyncedLyrics) 50L else 500L,
+        )
     }
     val activeLyricIndex = remember(infoRowLyricsSession, lyricsPositionMs) {
         infoRowLyricsSession?.let {
@@ -912,6 +915,7 @@ fun HomeScreen(
                                 karaokeLine = infoRowKaraokeLine,
                                 nextLyricLineTimeMs = nextLyricLineTimeMs,
                                 positionMs = lyricsPositionMs,
+                                positionRevision = playbackState.positionRevision,
                                 isPlaying = playbackState.isPlaying,
                                 onSortClick = { sortSheetOpen = true },
                                 onFolderModeClick = { sortSheetOpen = true },
@@ -1147,6 +1151,8 @@ fun HomeScreen(
                         song = song,
                         isPlaying = playbackState.isPlaying,
                         positionMs = lyricsPositionMs,
+                        positionRevision = playbackState.positionRevision,
+                        playbackSpeed = playbackState.playbackSpeed,
                         onPlayPause = playbackActions.togglePlay,
                         onPrevious = playbackActions.previous,
                         onNext = playbackActions.next,

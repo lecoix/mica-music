@@ -214,11 +214,13 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.reorderable)
     implementation(project(":taglib"))
+    implementation(project(":sylvakru-usb-transport"))
     implementation(libs.jaudiotagger)
     implementation(libs.blurview)
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    debugImplementation(project(":usb-sk02-native-prototype"))
 
     testImplementation(libs.junit)
     testImplementation(libs.androidx.test.core)

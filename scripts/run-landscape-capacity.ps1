@@ -60,7 +60,7 @@ function Start-CapacityMode([string]$Mode, [int]$ModeSteps) {
 try {
     Invoke-Adb @("shell", "mkdir", "-p", $deviceDir)
 
-    foreach ($mode in @("queue", "commit")) {
+    foreach ($mode in @("queue", "commit", "handoff")) {
         Start-CapacityMode $mode 1
         Wait-CapacityDone $mode
         Invoke-Adb @("pull", "$deviceDir/capacity-$mode.jsonl", (Join-Path $output "$mode.jsonl"))
@@ -84,7 +84,7 @@ try {
     (& $adb -s $Serial logcat -d -v threadtime -s "MicaCapacity:I" "TrackPerf:I" "AudioTrack:E" "ExoPlayerImplInternal:E" "*:S") |
         Set-Content -LiteralPath (Join-Path $output "capacity-logcat.txt") -Encoding utf8
 
-    $summary = foreach ($mode in @("queue", "commit", "coverflow", "retro", "photo")) {
+    $summary = foreach ($mode in @("queue", "commit", "handoff", "coverflow", "retro", "photo")) {
         $rows = Get-Content -LiteralPath (Join-Path $output "$mode.jsonl") -Encoding utf8 |
             ForEach-Object { $_ | ConvertFrom-Json }
         $settled = $rows | Where-Object { $_.phase -eq "browse-settled" } | Select-Object -Last 1
@@ -96,6 +96,12 @@ try {
         }
         elseif ($mode -eq "commit") {
             $structuralPass = $structuralPass -and $last.firstSongId -eq "capacity-song-9999"
+        }
+        elseif ($mode -eq "handoff") {
+            $structuralPass = $structuralPass -and
+                $last.handoffItemCount -eq 10000 -and
+                $last.handoffReferencesPreserved -eq $true -and
+                $last.handoffWithin5Mb -eq $true
         }
         else {
             $structuralPass = $structuralPass -and

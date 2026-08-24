@@ -2,6 +2,7 @@ package com.mica.music
 
 import android.Manifest
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -40,6 +41,7 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.mica.music.ui.components.UserMessageHost
+import com.mica.music.ui.components.miniPlayerOverlayHeight
 import com.mica.music.MicaApp
 import com.mica.music.ui.navigation.AppNavigationMain
 import com.mica.music.ui.navigation.PlayerSheetOverlay
@@ -54,6 +56,7 @@ import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
 import com.mica.music.util.LyricoTagEditorHost
+import com.mica.music.util.ScreenLockDiagnostics
 import eightbitlab.com.blurview.BlurTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -143,7 +146,28 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        ScreenLockDiagnostics.onWindowFocusChanged(this, hasFocus)
         if (hasFocus) applyWindowStatusBar()
+    }
+
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumedActivity)
+        ScreenLockDiagnostics.onTopResumedActivityChanged(this, isTopResumedActivity)
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        ScreenLockDiagnostics.onUserInteraction(this)
+    }
+
+    override fun onUserLeaveHint() {
+        ScreenLockDiagnostics.onUserLeaveHint(this)
+        super.onUserLeaveHint()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        ScreenLockDiagnostics.onConfigurationChanged(this)
     }
 
     private fun applyWindowStatusBar() {
@@ -267,7 +291,9 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                                 message = playerController.userMessage,
                                 onMessageConsumed = playerController::clearUserMessage,
                                 snackbarHostState = snackbarHostState,
-                                modifier = Modifier.padding(bottom = HifiSpacing.xl),
+                                modifier = Modifier.padding(
+                                    bottom = miniPlayerOverlayHeight(uiSettings.miniPlayerStyle) + HifiSpacing.sm,
+                                ),
                             )
                         },
                     ) {

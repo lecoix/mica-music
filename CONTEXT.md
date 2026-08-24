@@ -66,7 +66,7 @@ _Avoid_: 在每个 Compose root 内分别 `remember` viewport；把像素坐标�
 _Avoid_: 在 UI 层直接写 theme / accent key
 
 **Lyrics preferences（歌词偏好）**：
-`LyricsPreferences`：歌词拆分、双语展示、字号与对齐、列表主题逐字动画预设、通知歌词开关等。列表主题逐字动画预设只改变具有真实逐字时间轴的当前行渲染，默认保持音节抬升；`AppUiSettings`、`NotificationLyricsCoordinator` 与 `NotificationLyrics` 经此读写。
+`LyricsPreferences`：歌词拆分、双语展示、字号与对齐、列表主题逐字动画预设、通知歌词开关与全局歌词偏移等。列表主题逐字动画预设只改变具有真实逐字时间轴的当前行渲染，默认保持音节抬升；`AppUiSettings`、`NotificationLyricsCoordinator` 与 `NotificationLyrics` 经此读写。歌词偏移的正数表示提前，有效值为全局层与 Room 单曲层相加；零偏移不含隐藏提前量，完整决策见 `docs/adr/0003-lyrics-timing-offset.md`。
 _Avoid_: 在通知或播放页组件内直接读 lyric key
 
 **Equalizer preferences（均衡器偏好）**：
@@ -200,7 +200,7 @@ _Avoid_: 在 `MicaMediaService` 的各 callback 中分别重写 offload 推导�
 _Avoid_: 软件播、双后端、libmica_ffmpeg
 
 **USB-exclusive output（USB Host 真独占输出）**：
-远期独立输出路径：App 通过 Android USB Host 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。当前仅有输出模式兼容骨架，生产环境尚未实现；决策见 `docs/adr/0001-usb-host-exclusive-output.md`。
+Hybrid 已接入独立 USB Host 输出路径：App 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。当前代码范围包含 Shared PCM、Exact PCM、显式 DoP 与实验性 Native DSD，并以 descriptor-first + reviewed/runtime quirk 的方式扩展 DAC 兼容；多设备歧义与无法证明的 framing 继续 fail-closed。当前决策与验证边界见 `docs/adr/0004-usb-exclusive-hybrid.md` 和 `docs/USB_EXCLUSIVE_HYBRID_STATUS.md`；ADR-0001 与 `docs/USB_EXCLUSIVE_AUDIO_STATUS.md` 保留为历史原型/架构证据。
 _Avoid_: 把 `AudioTrack.setPreferredDevice`、framework direct support 或现有 `UsbDirectPcm` 最小链称为 USB 独占
 
 **Applied ReplayGain（实际 ReplayGain）**：

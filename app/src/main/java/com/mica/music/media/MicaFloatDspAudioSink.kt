@@ -149,19 +149,25 @@ internal class MicaFloatDspAudioSink(
     private fun drainPendingWrites() {
         while (pendingWrites.isNotEmpty()) {
             val pending = pendingWrites.first()
+            val positionBeforeWrite = pending.buffer.position()
             val accepted = super.handleBuffer(
                 pending.buffer,
                 pending.presentationTimeUs,
                 pending.encodedAccessUnitCount,
             )
             if (!accepted) {
-                consecutiveInnerRejects++
-                SpectrumPcmPipelineDiagnostics.onFloatDspInnerReject(
-                    streak = consecutiveInnerRejects,
-                    mode = pending.mode.name.lowercase(),
-                    bufferBytes = pending.buffer.remaining(),
-                    presentationTimeUs = pending.presentationTimeUs,
-                )
+                if (pending.buffer.position() == positionBeforeWrite) {
+                    consecutiveInnerRejects++
+                    SpectrumPcmPipelineDiagnostics.onFloatDspInnerReject(
+                        streak = consecutiveInnerRejects,
+                        mode = pending.mode.name.lowercase(),
+                        bufferBytes = pending.buffer.remaining(),
+                        presentationTimeUs = pending.presentationTimeUs,
+                    )
+                } else {
+                    // Partial consumption is normal AudioSink backpressure, not a rejection.
+                    consecutiveInnerRejects = 0
+                }
                 return
             }
             consecutiveInnerRejects = 0

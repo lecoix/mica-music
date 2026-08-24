@@ -1026,7 +1026,7 @@ dependencies {
 | 设置 · 歌词 | ✅ | `LYRICS`：歌词主题、对齐/字号/双语/逐字、歌词优先级、通知/信息行等歌词输出 |
 | 列表 / 专辑 / 艺术家显示设置 | ✅ | 不再是 `SettingsCategory`；歌曲排序 Sheet、专辑/艺术家浏览 Sheet 等上下文入口各自持久化显示选项 |
 | 设置 · 曲库与扫描 | ✅ | `LIBRARY`：曲库文件夹、重扫、排除目录、最短时长、深度分析、艺术家分割 |
-| 设置 · 音频与设备 | ✅ | `AUDIO`：ReplayGain、音频焦点等播放/设备相关偏好 |
+| 设置 · 音频与设备 | ✅ | `AUDIO`：ReplayGain、音频焦点，以及独立的“USB 独占输出”子页。USB 子页沿用设置行、选项行、动作行与提示行，不使用 Card、圆形状态点或独立边框；活动状态只读取 owner facts |
 | 设置 · 诊断与系统 | ✅ | `DIAGNOSTICS`：offload 状态与重试、元数据调试、系统空间音频、系统权限与应用信息 |
 | 歌单管理 | ⚠️ | 创建 / 详情 / 删除已有；**无**智能歌单条件 |
 | 专辑 / 歌手聚合 | ⚠️ | 列表 + 九宫格已有；视觉规范未单独成文 |
@@ -1079,7 +1079,7 @@ dependencies {
 | 语义 warning/success | §2.6 token | 未进 `HifiColors` | 低 |
 | Primary Glow | `#A89BFF` 发光 | 已定义未使用 | 低 |
 | Hi‑Res 列表行 | DSD/24bit+ 文件旁标记 | 仅播放页/分析页 | 中 |
-| Hi‑Res 直通设置 | 设置项 | 无 | 低（产品未做） |
+| 通用 Hi‑Res 直通 | 面向任意 DAC 的设置项 | Hybrid v1 仅开放严格匹配的 SK02 PCM16/PCM32、显式 DoP 与实验 Native | 中（未知 DAC、PCM24-only DAC 仍未做） |
 | 进度条播放头 | 矩形 thumb | 无 | 中（seek 仍可用） |
 | 横向 100 点滑杆 C | C 方形 thumb 与窄屏断点 | 尚无独立通用组件；B 已由 `SettingsSliderRow` 实现，限制范围左、当前值右 | 中（C 代码待实现） |
 | 歌词切句动效 | §九待做 | 无 `AnimatedContent` | 低 |
@@ -1092,6 +1092,7 @@ dependencies {
 | 播放页背景 5 模式 | §2.7、`PlayerLowerBackgroundMode.kt` |
 | 封面行为 6 模式 | §2.7、`PlayerCoverFlowMode.kt`（含 `CUSTOM_STANDARD`） |
 | 设置 6 大类 | `SettingsScreen.kt` → `SettingsCategory` |
+| USB 独占输出子页 | 设置 → 音频与设备；平铺显示 DAC、实际输出、显式模式、独占事实、传输状态与诊断动作；偏好值不得推断 ACTIVE |
 | 通知歌词 | 设置 → 歌词 → 歌词输出 |
 | 粒子封面 GLES 现网 / WebView 回退 | `ParticleCoverHost`、`ThreeParticleCoverHost`（回退路径待退役） |
 | Hi‑Res 标志三种样式 | `HiResBadgeStyle.kt`、播放页设置 |
@@ -1100,6 +1101,6 @@ dependencies {
 
 ---
 
-**版本**：v1.3  
-**最后更新**：2026-08-12
+**版本**：v1.4
+**最后更新**：2026-08-21
 **适用平台**：Android 8.0+（minSdk 26）/ Jetpack Compose BOM 2024.10+

@@ -57,5 +57,9 @@ class SettingsNavigationTest {
     fun settingsScreenTitleShowsCategoryOrDefault() {
         assertEquals("设置", settingsScreenTitle(null))
         assertEquals("播放页", settingsScreenTitle(SettingsCategory.PLAYBACK))
+        assertEquals(
+            "USB 独占输出",
+            settingsScreenTitle(SettingsCategory.AUDIO, usbHybridSubpageOpen = true),
+        )
     }
 }

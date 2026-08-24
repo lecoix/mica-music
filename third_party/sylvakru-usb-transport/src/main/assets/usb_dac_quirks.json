@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "vendors": [
+    {
+      "match": { "vid": "0x262a", "label": "iBasso / SAVITECH" },
+      "devices": [
+        {
+          "match": { "pid": "0x1a0b", "label": "iBasso Macaron" },
+          "hardwareVolume": {
+            "enabled": true,
+            "protocol": "ibassoHid",
+            "dsdSupported": true
+          }
+        },
+        {
+          "match": { "pid": "0x0001", "label": "Fosi Audio SK02" },
+          "clock": {
+            "skipGetCurValidation": true,
+            "setCurDelayMs": 50
+          },
+          "streaming": {
+            "resetAlt": true
+          },
+          "nativeDsd": {
+            "format": "u32le",
+            "maxDsd": 256,
+            "qualification": "hiby-reset-alt-direct-native-dsd64-dsd128-dsd256-ab-2026-08-24"
+          }
+        }
+      ]
+    }
+  ]
+}

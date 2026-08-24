@@ -33,8 +33,13 @@ class PlaybackArchitectureTest {
             .copy(fileName = "track.dsf", filePath = "Music/track.dsf")
         val dff = SongFixtures.song("dff", container = "DSD", mime = "audio/x-dsdiff")
             .copy(fileName = "track.dff", filePath = "Music/track.dff")
+        val dsfWithProviderSuffix = dsf.copy(
+            fileName = "track.dsf.dsd",
+            filePath = "Music/track.dsf.dsd",
+        )
 
         assertTrue(PlaybackRouter.decide(dsf) is PlaybackRouteDecision.Supported)
+        assertTrue(PlaybackRouter.decide(dsfWithProviderSuffix) is PlaybackRouteDecision.Supported)
         val dffRoute = PlaybackRouter.decide(dff)
         assertTrue(dffRoute is PlaybackRouteDecision.Unsupported)
         assertEquals(
@@ -99,6 +104,29 @@ class PlaybackArchitectureTest {
                 PlaybackFailureClassifier.classify(error),
             ),
         )
+    }
+
+    @Test
+    fun usbHybridRendererFailureIsOutputFailureAndNeverAutoSkips() {
+        val cause = IllegalStateException("DoP alternate setting is unavailable").apply {
+            stackTrace = arrayOf(
+                StackTraceElement(
+                    "com.mica.music.media.usbhybrid.UsbHybridDsdRenderer",
+                    "configure",
+                    "UsbHybridDsdRenderer.kt",
+                    134,
+                ),
+            )
+        }
+        val error = PlaybackException(
+            "USB DSD output failed",
+            cause,
+            PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+        )
+
+        val kind = PlaybackFailureClassifier.classify(error)
+        assertEquals(PlaybackFailureKind.OUTPUT_FAILED, kind)
+        assertFalse(PlaybackFailureClassifier.allowsAutomaticSkip(kind))
     }
 
     @Test

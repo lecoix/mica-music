@@ -1,7 +1,7 @@
 # DSD / Exo 播放扩展
 
-> 最后更新：2026-08-02
-> 状态：`.dsf` 经 **Media3（Exo）单链路** 播放；`.dff` **不支持播放**（可扫描，播放时提示改用 DSF）。
+> 最后更新：2026-08-14
+> 状态：生产默认仍为 `.dsf` 经 **Media3（Exo）单链路解码为 PCM**；`.dff` **不支持播放**。USB Direct DSD / DoP 已进入 **QA-only Media3 renderer 原型阶段**，但尚未成为生产输出模式。
 
 ---
 
@@ -9,11 +9,12 @@
 
 | 项目 | 说明 |
 |------|------|
-| **主路径** | `.dsf` → `DsfExtractor` → `DsdOnly` `FfmpegAudioRenderer`（`dsd_lsbf_planar`）→ DSD 专用 Sink（PCM 降采样 / 频谱 / EQ）→ `AudioTrack` |
-| **不支持** | `.dff` / DSDIFF：路由层拒绝，不启动 Exo |
-| **不在范围** | USB DAC Native DSD / DoP 直出（以后可在解复用后分叉，与本文路径并存） |
+| **生产主路径** | `.dsf` → `DsfExtractor` → `DsdOnly` `FfmpegAudioRenderer`（`dsd_lsbf_planar`）→ DSD 专用 Sink（PCM 降采样 / 频谱 / EQ）→ `AudioTrack` |
+| **QA Direct DSD 原型** | `.dsf` → `DsfExtractor` → `MicaDirectDsdDoP` → canonical DSD → P5 `DoPCarrierSession` → P3 `ExactCarrierFeeder` → Native `EXACT_FRAMES_ONLY` → USBFS |
+| **不支持** | `.dff` / DSDIFF：生产路由层拒绝，不启动 Exo |
+| **仍不承诺** | 生产 Direct DSD 开关、DSD pause/resume、seek/自动换轨、DSD256、Native RAW_DATA、任意 DAC 兼容性 |
 
-设计取舍：**不在手机端保 DSD 原生比特流**，而是解码为 PCM 后按设备能力降到可播采样率（优先 **176.4 kHz / 24-bit**）。对内置扬声器 / 蓝牙而言，信息量已足够。
+生产设计取舍仍然是：**SharedPcm 不保留 DSD 原生比特流**，而是解码为 PCM 后按设备能力降到可播采样率（优先 **176.4 kHz / 24-bit**）。Direct DSD 是并行的 USB 独占输出分支，不替换内置扬声器 / 蓝牙 / 普通 SharedPcm 路径。
 
 ---
 
@@ -43,6 +44,57 @@ flowchart LR
 | FFmpeg 解码后（每 DSD 字节 → 1 PCM 样本） | 1.4112 MHz | PCM；由 DsdOnly 输出策略接收 |
 | 降采样后（factor=8） | **176.4 kHz** | **24-bit packed** |
 | 进 `AudioTrack` | 176.4 kHz | 与设备能力探测一致 |
+
+### QA Direct DSD 分叉
+
+Direct DSD 不能接在 `AudioOutputProvider` 后面：到那里时 `FfmpegAudioRenderer` / `DsdDecimationAudioProcessor` 已经把 DSD 变成 PCM。当前原型因此在 **renderer 层**、FFmpeg 之前分叉，并继续复用同一个 ExoPlayer / MediaSession / timeline，而不是创建第二套播放器。
+
+```mermaid
+flowchart LR
+    EXT["DsfExtractor\nplanar DSF packets"] --> CAN["DsfExtractorPacketCanonicalizer\ninterleaved MSB-first"]
+    CAN --> R["MicaDirectDsdDoP\nQA-only BaseRenderer"]
+    R --> S["DoPCarrierSession"]
+    S --> F["ExactCarrierFeeder"]
+    F --> N["Native EXACT_FRAMES_ONLY"]
+    N --> U["USBFS / DAC"]
+```
+
+关键合同：
+
+- `DsfExtractor` 的 packet 是 **按声道 planar 的 DSF block**，不是 canonical interleaved DSD；final block 会按每声道相同有效长度压紧。
+- Direct adapter 输出必须与 P5 `DsdContainerReader` 的 canonical 合同逐字节一致：**MSB-first、逐字节声道交错**；DSF LSB-first 输入必须 bit-reverse。
+- `DoPCarrierSession` 是 DoP chronology 的唯一权威：内容、pending half-frame、gap `0x69` 和 `0x05/0xFA` marker 相位都不能在 renderer 或 Native 再实现一套。
+- `ExactCarrierFeeder` 保留 P5 已经产出的 carrier tail；0/short backpressure 不允许后续内容越过。
+- Native `EXACT_FRAMES_ONLY` 只发送已经提供的完整 carrier frame；**不允许**用 PCM zero-fill、旧数据 replay 或 Native 自造 DSD idle 掩盖上游短缺。
+
+### 启动生命周期：prefill readiness ≠ transport armed
+
+Media3 在 prepare/paused 阶段可以驱动 renderer 读取数据，但 renderer 一旦 `ready`，暂停状态下可能不再持续调用 `render()`。因此 Direct DSD 的启动必须拆成两个事实：
+
+1. **ENABLED / prepare**：读取真实 DSD，填充 dormant Native ring；达到既有 transport geometry 推导出的 startup threshold 后只报告 `isReady=true`，仍不启动 USB data queue。
+2. **STARTED / `onStarted()`**：播放 intent 真正进入 STARTED 后才执行一次 exact `arm`。
+
+这样既避免 prepare 阶段过早启动后因 Media3 停止调度而触发 `10004`，也不需要放宽 exact shortage 规则。当前 QA staircase 正在验证这条生命周期；在它跑绿前不增加额外 prebuffer 水位或 pause idle filler。
+
+### 后续 pause / 空窗：需要独立 carrier liveness owner
+
+Direct DSD 的逻辑暂停不能直接套用 PCM pause。目标结构是让**音乐 source chronology**和**USB carrier chronology**分离：
+
+- PLAYING：liveness owner 选择 CONTENT，source reader 正常前进；
+- PAUSED / source gap：source reader 不前进，liveness owner 通过 P5 `writeGapFrames()` 持续提供合法 `0x69` DSD carrier；
+- resume：继续同一 session / marker chronology 的 CONTENT；
+- content 与 gap 只能有一个 owner 写入 P5 session，不能由 Media3 renderer 和另一个 filler 并发竞争。
+
+这层 owner 必须能在 Media3 暂时不调用 `render()` 时继续维持 exact Native ring；它复用 P5/P3 现有 chronology/backpressure 合同，不新增第二个 DoP encoder。
+
+### 参考项目提供的设计证据
+
+- **NeriPlayer（GPLv3，仅作设计观察，不复制代码）**：其 USB-exclusive PCM sink 把 queued/preroll readiness 与 native transport start 分开，支持“先预填、真正 play 时再启动 transport”的生命周期拆分。它的 PCM pause 会停止 transport 并保留 queued/replay state，因此只能说明 PCM 可采用 stop/restart，不能直接推导 DSD pause。
+- **sylvakru（Apache-2.0）**：其 DoP/Native DSD worker 在 pause 时不推进 source reader，而持续发送 `0x69` DSD idle；session 级 encoder 保持 marker phase。曲间空窗另有 idle filler，并在新 content worker 接管前 stop/join，避免 content 与 idle 并发写同一 carrier。
+
+Mica 只吸收上述**生命周期与 ownership 结构**。DSD canonicalization、gap chronology、marker、backpressure 和 Native exact 发送仍以本项目已测试的 P5/P3 合同为权威，不复制参考项目的编码/传输算法。
+
+另外，参考项目后续不仅作为架构观察来源，也可作为 **boundary/capability oracle**：从其接受条件、能力模型和恢复策略抽取约束，反向生成 Mica 自己的 synthetic 极限 fixtures，再验证 exact-only / fail-closed 分类。完整策略见 `docs/USB_COMPATIBILITY_ADVERSARIAL_CORPUS.md`。注意 `REFERENCE_ACCEPTED` 不等于 `MICA_MUST_ACCEPT`；证据不足时 Mica 仍应拒绝猜测。
 
 ---
 
@@ -151,11 +203,13 @@ flowchart LR
 
 ## 已知限制
 
-1. **无 bit-perfect DSD**：输出为解码 + 降采样 PCM，非 DoP / Native DSD。
-2. **无曲首静音裁剪**：自定义链移除了 `SilenceSkippingAudioProcessor`。
-3. **分离 Sink**：生产 renderer split 将 DSD 的 IntPcm Sink 与 FLAC / ALAC / APE 的 float DSP Sink 分开；这不等于 USB DAC Native DSD，也不改变当前 DSD 的 PCM 降采样取舍。任何进一步的音质改动仍须遵守 **Audio quality consent**（`CONTEXT.md`）。
-4. **大文件**：DSD256 单文件体积大，首次缓冲 / seek 可能较慢。
-5. **`.dff`**：不支持播放。
+1. **生产默认仍无 bit-perfect DSD**：SharedPcm 输出为解码 + 降采样 PCM。QA Direct DoP 的 canonical/transport path 已有 SK02 DSD128 物理证据，但尚未完成 Media3 正常 PLAY 生命周期资格，也没有生产入口。
+2. **Direct DSD pause/resume 尚未实现**：未来需要独立 carrier liveness owner；不能复用 PCM pause zero-fill，也不能依赖 Media3 `render()` 在 paused 状态持续被调用。
+3. **无曲首静音裁剪**：SharedPcm 自定义链移除了 `SilenceSkippingAudioProcessor`。
+4. **分离 Sink**：生产 renderer split 将 DSD 的 IntPcm Sink 与 FLAC / ALAC / APE 的 float DSP Sink 分开；Direct DSD 是另一个 renderer 分支，不改变当前 SharedPcm 的 PCM 降采样取舍。任何进一步的音质改动仍须遵守 **Audio quality consent**（`CONTEXT.md`）。
+5. **DSD256 Direct 尚未证明**：当前 SK02 packed-24 endpoint 对 705.6 kHz carrier 的容量不足，不能凭空改用 24-in-32；需要新的明确 packing/capability 证据。
+6. **Native RAW_DATA 尚未证明**：SK02 raw candidate 只保留 `FramingUnproven`，不能从 `bmFormats` 猜 endian/framing。
+7. **`.dff`**：生产播放仍不支持。
 
 ### 音质改动政策
 
@@ -168,6 +222,11 @@ flowchart LR
 | 用途 | 路径 |
 |------|------|
 | DSF 解复用 | `app/.../media/dsf/` |
+| Direct packet canonicalizer（P3/QA） | `app/.../media/dsf/DsfExtractorPacketCanonicalizer.kt` |
+| Direct DSD renderer / pump（P3/QA） | `app/.../media/dsd/DirectDsdMedia3Renderer.kt`、`DirectDsdRendererPump.kt` |
+| DoP session continuity（P5→P3） | `app/.../media/dsd/DoPCarrierSession.kt` |
+| Exact carrier feeder（P3） | `app/.../media/usb/ExactCarrierFeeder.kt` |
+| QA real USB session adapter（P3） | `app/src/debug/.../usbprototype/UsbDirectDsdTransportSession.kt` |
 | Extractor 注册 | `app/.../media/MicaExtractorsFactory.kt` |
 | 渲染 / Sink | `app/.../media/MicaRenderersFactory.kt` |
 | 自定义 Processor 链 | `app/.../media/MicaAudioProcessorChain.kt` |
@@ -183,7 +242,10 @@ flowchart LR
 
 ---
 
-## 后续可扩展（未实现）
+## 后续可扩展 / 当前施工顺序
 
-- 解复用后分叉：**Raw DSD / DoP → USB DAC**（与当前 PCM 路径共用 `DsfExtractor`）
-- 按格式动态 Processor 链（例如仅 DSD 省略 Sonic，普通 FLAC 保留默认尾链）
+1. 先完成 QA Direct DSD 的 **prepare prefill → `onStarted()` arm → 正常 PLAY** 物理 staircase。
+2. 再增加独立 carrier liveness owner，验证 **PLAY → PAUSE(`0x69` gap) → RESUME**，保持 source chronology 与 DoP marker chronology。
+3. 之后才处理 seek reset/re-prefill、自动换轨与 DSD↔PCM mixed queue policy。
+4. 最后再讨论生产输出模式选择/fallback、active-DSD detach/reconnect、DSD256 packing 证据和 Native RAW_DATA。
+5. SharedPcm 的按格式 Processor 链优化可独立推进，不应与 Direct DSD transport 生命周期耦合。

@@ -13,7 +13,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -44,6 +43,7 @@ private const val SoftFillFallbackDurationMs = 2_500
 fun NarrowBarSoftKaraokeLyric(
     line: LyricLine,
     positionMs: Int,
+    positionRevision: Long = 0L,
     isPlaying: Boolean,
     nextLineTimeMs: Int?,
     filledColor: Color,
@@ -60,10 +60,7 @@ fun NarrowBarSoftKaraokeLyric(
     } ?: return
     val displayText = originalRow.text.takeIf { it.isNotBlank() } ?: return
     val cueRanges = remember(line) { narrowBarCueRanges(line) }
-    val framePositionMs = rememberNarrowBarFrameClockPositionMs(
-        anchorPositionMs = positionMs,
-        isPlaying = isPlaying && cueRanges.isNotEmpty(),
-    )
+    val framePositionMs = positionMs
     val fillFraction = if (cueRanges.isNotEmpty()) {
         narrowBarSoftFillFraction(
             line = line,
@@ -247,23 +244,4 @@ private fun narrowBarRowFillFraction(
     val rowLength = (row.endExclusive - row.start).coerceAtLeast(1)
     val filledChars = lineFillFraction.coerceIn(0f, 1f) * lineLength.coerceAtLeast(1)
     return ((filledChars - row.start) / rowLength).coerceIn(0f, 1f)
-}
-
-@Composable
-private fun rememberNarrowBarFrameClockPositionMs(
-    anchorPositionMs: Int,
-    isPlaying: Boolean,
-): Int {
-    var framePositionMs by remember { mutableIntStateOf(anchorPositionMs) }
-    LaunchedEffect(anchorPositionMs, isPlaying) {
-        framePositionMs = anchorPositionMs
-        if (!isPlaying) return@LaunchedEffect
-        val startFrameNanos = withFrameNanos { it }
-        while (true) {
-            val frameNanos = withFrameNanos { it }
-            val elapsedMs = ((frameNanos - startFrameNanos) / 1_000_000L).toInt()
-            framePositionMs = anchorPositionMs + elapsedMs
-        }
-    }
-    return framePositionMs
 }

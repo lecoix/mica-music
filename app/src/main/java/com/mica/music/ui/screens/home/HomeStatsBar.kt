@@ -123,6 +123,7 @@ internal fun LibraryStatsRow(
     karaokeLine: LyricLine? = null,
     nextLyricLineTimeMs: Int? = null,
     positionMs: Int = 0,
+    positionRevision: Long = 0L,
     isPlaying: Boolean = false,
     onSortClick: () -> Unit,
     onFolderModeClick: () -> Unit,
@@ -144,6 +145,7 @@ internal fun LibraryStatsRow(
                 NarrowBarSoftKaraokeLyric(
                     line = karaokeLine,
                     positionMs = positionMs,
+                    positionRevision = positionRevision,
                     isPlaying = isPlaying,
                     nextLineTimeMs = nextLyricLineTimeMs,
                     filledColor = MicaTheme.colors.textSecondary,

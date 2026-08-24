@@ -530,6 +530,7 @@ private fun homePlaybackState(playerController: PlayerController): HomePlaybackS
         currentSong = playerController.playbackSurfaceState.currentSong,
         isPlaying = playerController.playbackSurfaceState.isPlaying,
         positionMs = playerController.playbackProgressState.positionMs,
+        positionRevision = playerController.playbackProgressState.positionRevision,
         queue = playerController.playbackQueueState.queue,
         isBuffering = playerController.playbackSurfaceState.isBuffering,
         playbackSpeed = playerController.playbackSurfaceState.playbackTuning.speed,

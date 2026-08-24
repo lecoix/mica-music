@@ -17,6 +17,7 @@ data class HomePlaybackState(
     val currentSong: Song?,
     val isPlaying: Boolean,
     val positionMs: Int = 0,
+    val positionRevision: Long = 0L,
     val queue: List<Song>,
     val isBuffering: Boolean = false,
     val playbackSpeed: Float = 1f,

@@ -161,7 +161,7 @@ internal suspend fun pollNowPlayingProgress(
 }
 
 internal fun nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics: Boolean): Long =
-    if (hasWordSyncedLyrics) 100L else 500L
+    if (hasWordSyncedLyrics) 50L else 500L
 
 @Composable
 fun NowPlayingScreen(
@@ -474,8 +474,12 @@ fun NowPlayingContent(
         }
     }
 
+    val displayPositionMs = progressState.positionMs.coerceIn(
+        0,
+        progressState.durationMs.coerceAtLeast(0).takeIf { it > 0 } ?: Int.MAX_VALUE,
+    )
     val seekState = rememberPlaybackSeekState(
-        progressState = progressState,
+        progressState = progressState.copy(positionMs = displayPositionMs),
         onSeekUiActiveChanged = actions.setSeekUiActive,
         onSeekToMs = actions.seekToMs,
     )
@@ -1022,8 +1026,17 @@ fun NowPlayingContent(
             }
 
             val lyricsSession = remember(song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
-            val lyricsRenderState = remember(lyricsSession, progressState.positionMs, effectiveLyricsOffsetMs) {
-                lyricsSession.snapshotAt(progressState.positionMs, effectiveLyricsOffsetMs)
+            val lyricsRenderState = remember(
+                lyricsSession,
+                displayPositionMs,
+                progressState.positionRevision,
+                effectiveLyricsOffsetMs,
+            ) {
+                lyricsSession.snapshotAt(
+                    positionMs = displayPositionMs,
+                    effectiveOffsetMs = effectiveLyricsOffsetMs,
+                    positionRevision = progressState.positionRevision,
+                )
             }
             val seekToLyricMs: (Int) -> Unit = remember(effectiveLyricsOffsetMs, actions) {
                 { lyricTimeMs ->

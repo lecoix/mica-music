@@ -1,6 +1,7 @@
 package com.mica.music.media
 
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.data.preferences.UsbHybridOutputMode
 
 /**
  * Output-path configuration fixed at ExoPlayer build time (§7.1 / §7.4 full-mode rebuild).
@@ -14,6 +15,8 @@ data class AudioOutputPathConfig(
     val dsdDecimationMode: DsdDecimationOutputMode = DsdDecimationOutputMode.IntPcm,
     /** Reserved for P6 USB device binding; unused while [outputMode] is [PlaybackOutputMode.SharedPcm]. */
     val usbAudioDeviceId: Int? = null,
+    /** Explicit throwaway gate; never set by [PRODUCTION]. */
+    val prototypeUsbHost: Boolean = false,
 ) {
     fun logForDiagnostics() {
         DiagnosticLog.event(
@@ -23,13 +26,9 @@ data class AudioOutputPathConfig(
     }
 
     /**
-     * Fail fast if a reserved mode is selected before its P4/P6 implementation lands.
-     * Call at Exo stack build so misconfiguration surfaces at startup, not mid-playback.
+     * Hybrid USB modes are active, but DSD FloatPcm remains outside their exact integer contract.
      */
     fun requireSupportedForPlayback() {
-        require(outputMode == PlaybackOutputMode.SharedPcm) {
-            "Output mode $outputMode is reserved (P6 USB); only SharedPcm is active today."
-        }
         require(dsdDecimationMode == DsdDecimationOutputMode.IntPcm) {
             "DSD FloatPcm delivery is reserved (P4); only IntPcm is active today."
         }
@@ -39,4 +38,12 @@ data class AudioOutputPathConfig(
         /** Current production defaults: built-in SharedPcm + DSD 24-bit int decimation. */
         val PRODUCTION = AudioOutputPathConfig()
     }
+}
+
+internal fun UsbHybridOutputMode.toAudioOutputPathConfig(): AudioOutputPathConfig = when (this) {
+    UsbHybridOutputMode.SharedPcm -> AudioOutputPathConfig.PRODUCTION
+    UsbHybridOutputMode.ExactPcm -> AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDirectPcm)
+    UsbHybridOutputMode.Dop -> AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDop)
+    UsbHybridOutputMode.NativeDsdExperimental ->
+        AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbNativeDsdExperimental)
 }

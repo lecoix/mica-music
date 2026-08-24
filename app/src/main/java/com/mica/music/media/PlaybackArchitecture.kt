@@ -75,8 +75,13 @@ object PlaybackRouter {
     fun unsupportedMessage(song: Song): String? =
         (decide(song) as? PlaybackRouteDecision.Unsupported)?.userMessage
 
-    private fun isDsfFile(song: Song): Boolean =
-        song.fileName.substringAfterLast('.', "").equals("dsf", ignoreCase = true)
+    private fun isDsfFile(song: Song): Boolean {
+        val extension = song.fileName.substringAfterLast('.', "")
+        val mime = song.metadata.playbackMimeType
+        return extension.equals("dsf", ignoreCase = true) ||
+            mime.equals("audio/x-dsf", ignoreCase = true) ||
+            mime.equals("audio/dsf", ignoreCase = true)
+    }
 
     private fun isApeFile(song: Song): Boolean {
         val extension = song.fileName.substringAfterLast('.', "").lowercase()
@@ -94,7 +99,7 @@ object PlaybackFailureClassifier {
         findCause<FileNotFoundException>(error)?.let {
             return PlaybackFailureKind.SOURCE_MISSING
         }
-        if (isAudioTrackBufferSizeFailure(error)) {
+        if (isAudioTrackBufferSizeFailure(error) || isUsbHybridOutputFailure(error)) {
             return PlaybackFailureKind.OUTPUT_FAILED
         }
         return when (error.errorCode) {
@@ -121,7 +126,24 @@ object PlaybackFailureClassifier {
 
     fun allowsAutomaticSkip(kind: PlaybackFailureKind): Boolean =
         kind != PlaybackFailureKind.SOURCE_PERMISSION &&
+            kind != PlaybackFailureKind.OUTPUT_FAILED &&
             kind != PlaybackFailureKind.CANCELLED
+
+    private fun isUsbHybridOutputFailure(error: Throwable): Boolean {
+        val visited = HashSet<Throwable>()
+        var current: Throwable? = error
+        while (current != null && visited.add(current)) {
+            if (current.stackTrace.any { element ->
+                    element.className == "com.mica.music.media.usbhybrid.UsbHybridDsdRenderer" ||
+                        element.className == "com.mica.music.media.usbhybrid.UsbHybridPcmAudioSink"
+                }
+            ) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
+    }
 
     private fun isAudioTrackBufferSizeFailure(error: Throwable): Boolean {
         val visited = HashSet<Throwable>()

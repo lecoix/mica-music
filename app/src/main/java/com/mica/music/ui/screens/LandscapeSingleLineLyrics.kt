@@ -84,6 +84,7 @@ internal fun LandscapeSingleLineLyrics(
                     lyricLine = line,
                     nextLineTimeMs = lyrics.getOrNull(index + 1)?.timeMs,
                     positionMs = renderState.positionMs,
+                    positionRevision = renderState.positionRevision,
                     isPlaying = isPlaying,
                     bilingualDisplayMode = singleRowMode,
                 )

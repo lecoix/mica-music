@@ -1,6 +1,7 @@
 package com.mica.music
 
 import android.app.Application
+import android.net.Uri
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.data.PlaybackStatisticsRepository
 import com.mica.music.data.ProcessPlaybackSongResolver
@@ -14,6 +15,7 @@ import com.mica.music.media.ServicePlaybackStateStore
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.AudioEnvironmentDiagnostics
+import com.mica.music.util.ScreenLockDiagnostics
 import com.mica.music.util.SpatialAudioMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,13 +67,27 @@ class MicaApp : Application() {
         ScanCacheManager.runStartupCacheCleanup(this)
         SpatialAudioMonitor.install(this)
         DiagnosticLog.install(this)
+        ScreenLockDiagnostics.install(this)
         BluetoothAudioDiagnostics.install(this)
         AudioEnvironmentDiagnostics.install(this)
         MicaImageLoaders.init(this)
         ServicePlaybackStateStore(this).load()?.externalSongs
-            ?.map { it.toSong() }
+            ?.mapNotNull { snapshot ->
+                val uri = runCatching { Uri.parse(snapshot.mediaUri) }.getOrNull() ?: return@mapNotNull null
+                snapshot.toSong().takeIf { isExternalAudioUriRestorableNow(this, uri) }
+            }
             ?.let { transientPlaybackCatalog.replaceAll(it, restorable = true) }
         // Bind stats persistence before any MediaSession playback can publish sessions.
         playbackStatistics
+    }
+
+    override fun onTrimMemory(level: Int) {
+        ScreenLockDiagnostics.onTrimMemory(this, level)
+        super.onTrimMemory(level)
+    }
+
+    override fun onLowMemory() {
+        ScreenLockDiagnostics.onLowMemory(this)
+        super.onLowMemory()
     }
 }

@@ -14,11 +14,15 @@ import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import androidx.media3.decoder.ffmpeg.FfmpegRendererSupportProbe
 import com.mica.music.data.PlaybackTuning
 import java.util.ArrayList
+import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
+import com.mica.music.media.usbhybrid.UsbHybridPcmAudioSink
+import com.mica.music.media.usbhybrid.UsbHybridDsdRenderer
 
 @UnstableApi
 internal class MicaRenderersFactory(
     context: Context,
     private val outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
+    private val usbBinding: UsbHybridPlaybackBinding? = null,
 ) : DefaultRenderersFactory(context) {
 
     private val alacBlockingSelector = MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
@@ -51,11 +55,7 @@ internal class MicaRenderersFactory(
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink? {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectMinimalSink(
-                context = context,
-                profileLabel = "usb-direct-platform",
-                enableFloatOutput = enableFloatOutput,
-            )
+            return buildUsbExactPcmSink()
         }
         val processorChain = buildUnifiedFixedChain(context)
         PcmFormatDiagnostics.logSinkBuild(
@@ -81,6 +81,17 @@ internal class MicaRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
+        if (outputPath.outputMode == PlaybackOutputMode.UsbDop ||
+            outputPath.outputMode == PlaybackOutputMode.UsbNativeDsdExperimental
+        ) {
+            val binding = checkNotNull(usbBinding) { "USB DSD renderer requires a playback binding." }
+            out.add(
+                UsbHybridDsdRenderer(
+                    binding,
+                    native = outputPath.outputMode == PlaybackOutputMode.UsbNativeDsdExperimental,
+                ),
+            )
+        }
         val tracingListener = if (AudioPipelineDebugDiagnostics.formatTraceEnabled) {
             PipelineAudioRendererEventListener(eventListener)
         } else {
@@ -128,15 +139,17 @@ internal class MicaRenderersFactory(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
-        out.add(
-            FfmpegAudioRenderer(
-                eventHandler,
-                eventListener,
-                buildDsdAudioSink(context),
-                "DsdOnly",
-                MicaRendererSupportPolicies.dsdOnly,
-            ),
-        )
+        if (shouldInstallDecodedDsdRenderer(outputPath.outputMode)) {
+            out.add(
+                FfmpegAudioRenderer(
+                    eventHandler,
+                    eventListener,
+                    buildDsdAudioSink(context),
+                    "DsdOnly",
+                    MicaRendererSupportPolicies.dsdOnly,
+                ),
+            )
+        }
         out.add(
             FfmpegAudioRenderer(
                 eventHandler,
@@ -144,6 +157,7 @@ internal class MicaRenderersFactory(
                 buildPcmAudioSink(context),
                 "PcmOnly",
                 MicaRendererSupportPolicies.pcmOnly,
+                outputPath.prototypeUsbHost,
             ),
         )
         super.buildAudioRenderers(
@@ -160,7 +174,7 @@ internal class MicaRenderersFactory(
 
     private fun buildDsdAudioSink(context: Context): AudioSink {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectDsdSink(context)
+            return buildUsbExactPcmSink()
         }
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled
         val chain = MicaAudioProcessorChain(
@@ -202,11 +216,7 @@ internal class MicaRenderersFactory(
      */
     private fun buildPcmAudioSink(context: Context): AudioSink {
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
-            return buildUsbDirectMinimalSink(
-                context = context,
-                profileLabel = "usb-direct-pcm",
-                enableFloatOutput = true,
-            )
+            return buildUsbExactPcmSink()
         }
         val chain = MicaAudioProcessorChain(
             includePlaybackTuning = false,
@@ -261,6 +271,13 @@ internal class MicaRenderersFactory(
             buildDsdDecimationProcessor(context),
         )
 
+    private fun buildUsbExactPcmSink(): AudioSink {
+        val binding = checkNotNull(usbBinding) {
+            "USB Exact PCM renderer requires a UsbHybridPlaybackBinding."
+        }
+        return UsbHybridPcmAudioSink(binding.owner, binding.realtime, binding.epoch)
+    }
+
     /**
      * P6 USB Direct PCM: empty processor chain, no [MicaFloatDspAudioSink] wrapper.
      * [enableFloatOutput] follows USB DAC capability probe when P6 lands.
@@ -282,10 +299,15 @@ internal class MicaRenderersFactory(
             enableAudioOutputPlaybackParameters = false,
             processorNames = chain.processorNamesForDiagnostics(),
         )
+        val provider = UsbHostPrototypeOutput.createProvider(context, outputPath)
         return DefaultAudioSink.Builder(context)
-            .setEnableFloatOutput(enableFloatOutput)
+            // Keep high-resolution integer decoder output as float. The SK02 prototype provider
+            // accepts it only when every float maps exactly to signed PCM24; it fails closed
+            // instead of silently truncating to PCM16.
+            .setEnableFloatOutput(enableFloatOutput || outputPath.prototypeUsbHost)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessorChain(chain)
+            .setAudioOutputProvider(provider)
             .build()
     }
 
@@ -294,3 +316,12 @@ internal class MicaRenderersFactory(
         const val RENDERER_SPLIT_PROFILE = "RendererSplit"
     }
 }
+
+/**
+ * Explicit USB DSD modes must have exactly one renderer capable of handling raw DSF. Installing
+ * the normal FFmpeg DsdOnly renderer beside [UsbHybridDsdRenderer] lets Media3 choose decoded PCM
+ * and silently bypass the requested DoP/Native payload path.
+ */
+internal fun shouldInstallDecodedDsdRenderer(outputMode: PlaybackOutputMode): Boolean =
+    outputMode != PlaybackOutputMode.UsbDop &&
+        outputMode != PlaybackOutputMode.UsbNativeDsdExperimental

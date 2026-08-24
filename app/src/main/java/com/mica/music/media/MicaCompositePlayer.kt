@@ -3,6 +3,7 @@ package com.mica.music.media
 import android.os.SystemClock
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -30,8 +31,30 @@ class MicaCompositePlayer(
 
     private var requestedVolume = 1f
     private var replayGainVolume = 1f
+    @Volatile private var retiredForReplacement = false
+
+    internal fun retireForReplacement() {
+        if (retiredForReplacement) return
+        retiredForReplacement = true
+        DiagnosticLog.event(
+            "PlaybackStack",
+            "composite-retired player=${System.identityHashCode(this)}",
+        )
+    }
+
+    internal fun isRetiredForReplacement(): Boolean = retiredForReplacement
+
+    private fun rejectRetiredCommand(command: String): Boolean {
+        if (!retiredForReplacement) return false
+        DiagnosticLog.event(
+            "PlaybackStack",
+            "retired-command-dropped player=${System.identityHashCode(this)} command=$command",
+        )
+        return true
+    }
 
     override fun setVolume(volume: Float) {
+        if (rejectRetiredCommand("setVolume")) return
         requestedVolume = volume.coerceIn(0f, 1f)
         exoPlayer.volume = requestedVolume * replayGainVolume
     }
@@ -39,11 +62,14 @@ class MicaCompositePlayer(
     override fun getVolume(): Float = requestedVolume
 
     fun setReplayGainVolume(volume: Float) {
+        if (rejectRetiredCommand("setReplayGainVolume")) return
         replayGainVolume = volume.coerceIn(0f, 1f)
         exoPlayer.volume = requestedVolume * replayGainVolume
     }
 
     internal var playbackCoordinator: ServicePlaybackEngineCoordinator? = null
+    internal var onUserPlayIntentChanged: ((Boolean) -> Unit)? = null
+    internal var shouldDeferUserPlayIntent: (() -> Boolean)? = null
 
     private var queueRevision: Long = 0L
 
@@ -52,26 +78,31 @@ class MicaCompositePlayer(
         startIndex: Int,
         startPositionMs: Long,
     ) {
+        if (rejectRetiredCommand("setMediaItems")) return
         super.setMediaItems(mediaItems, startIndex, startPositionMs)
         queueRevision++
     }
 
     override fun addMediaItem(index: Int, mediaItem: MediaItem) {
+        if (rejectRetiredCommand("addMediaItem")) return
         super.addMediaItem(index, mediaItem)
         queueRevision++
     }
 
     override fun moveMediaItem(currentIndex: Int, newIndex: Int) {
+        if (rejectRetiredCommand("moveMediaItem")) return
         super.moveMediaItem(currentIndex, newIndex)
         queueRevision++
     }
 
     override fun removeMediaItem(index: Int) {
+        if (rejectRetiredCommand("removeMediaItem")) return
         super.removeMediaItem(index)
         queueRevision++
     }
 
     override fun clearMediaItems() {
+        if (rejectRetiredCommand("clearMediaItems")) return
         super.clearMediaItems()
         queueRevision++
     }
@@ -82,6 +113,7 @@ class MicaCompositePlayer(
         startPositionMs: Long = 0L,
         playWhenReady: Boolean = true,
     ) {
+        if (rejectRetiredCommand("startExoPlayback")) return
         val safeIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
         val targetId = mediaItems.getOrNull(safeIndex)?.mediaId
         val switchingItem = targetId != null && targetId != currentMediaItem?.mediaId
@@ -109,6 +141,7 @@ class MicaCompositePlayer(
         positionMs: Long = 0L,
         playWhenReady: Boolean = true,
     ) {
+        if (rejectRetiredCommand("startExistingItem")) return
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
         if (!playWhenReady) exoPlayer.playWhenReady = false
@@ -124,6 +157,7 @@ class MicaCompositePlayer(
 
     /** Selects an unsupported item already present in Exo without rebuilding the playlist. */
     fun selectExistingWithoutPlayback(index: Int, positionMs: Long = 0L) {
+        if (rejectRetiredCommand("selectExistingWithoutPlayback")) return
         if (exoPlayer.mediaItemCount == 0) return
         val safeIndex = index.coerceIn(0, exoPlayer.mediaItemCount - 1)
         exoPlayer.pause()
@@ -138,6 +172,7 @@ class MicaCompositePlayer(
         startIndex: Int,
         startPositionMs: Long = 0L,
     ) {
+        if (rejectRetiredCommand("selectWithoutPlayback")) return
         if (mediaItems.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, mediaItems.lastIndex)
         exoPlayer.pause()
@@ -149,6 +184,7 @@ class MicaCompositePlayer(
 
     /** Stops, seeks, and re-prepares playback to flush processor state (does not rebuild the sink). */
     fun flushPlaybackPipeline(positionMs: Long, resumePlayback: Boolean) {
+        if (rejectRetiredCommand("flushPlaybackPipeline")) return
         exoPlayer.playWhenReady = false
         exoPlayer.stop()
         exoPlayer.seekTo(positionMs.coerceAtLeast(0L))
@@ -167,6 +203,7 @@ class MicaCompositePlayer(
     }
 
     fun setPlaylistIndex(index: Int) {
+        if (rejectRetiredCommand("setPlaylistIndex")) return
         if (mediaItemCount == 0) return
         val safe = index.coerceIn(0, mediaItemCount - 1)
         if (safe == currentMediaItemIndex) return
@@ -174,15 +211,20 @@ class MicaCompositePlayer(
     }
 
     fun playExoDirect() {
+        if (rejectRetiredCommand("playExoDirect")) return
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         exoPlayer.play()
     }
 
     fun pauseExoDirect() {
+        if (rejectRetiredCommand("pauseExoDirect")) return
         exoPlayer.pause()
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
+        if (rejectRetiredCommand("setPlayWhenReady")) return
+        onUserPlayIntentChanged?.invoke(playWhenReady)
+        if (shouldDeferUserPlayIntent?.invoke() == true) return
         if (playWhenReady) {
             playbackCoordinator?.playCurrent() ?: super.setPlayWhenReady(true)
         } else {
@@ -191,35 +233,72 @@ class MicaCompositePlayer(
     }
 
     override fun play() {
+        if (rejectRetiredCommand("play")) return
+        onUserPlayIntentChanged?.invoke(true)
+        if (shouldDeferUserPlayIntent?.invoke() == true) return
         playbackCoordinator?.playCurrent() ?: super.play()
     }
 
     override fun pause() {
+        if (rejectRetiredCommand("pause")) return
+        onUserPlayIntentChanged?.invoke(false)
+        if (shouldDeferUserPlayIntent?.invoke() == true) return
         super.pause()
     }
 
+    override fun prepare() {
+        if (rejectRetiredCommand("prepare")) return
+        super.prepare()
+    }
+
+    override fun stop() {
+        if (rejectRetiredCommand("stop")) return
+        super.stop()
+    }
+
+    override fun setRepeatMode(repeatMode: Int) {
+        if (rejectRetiredCommand("setRepeatMode")) return
+        super.setRepeatMode(repeatMode)
+    }
+
+    override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
+        if (rejectRetiredCommand("setShuffleModeEnabled")) return
+        super.setShuffleModeEnabled(shuffleModeEnabled)
+    }
+
+    override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {
+        if (rejectRetiredCommand("setPlaybackParameters")) return
+        super.setPlaybackParameters(playbackParameters)
+    }
+
     override fun seekTo(positionMs: Long) {
+        if (rejectRetiredCommand("seekToPosition")) return
         super.seekTo(positionMs)
     }
 
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+        if (rejectRetiredCommand("seekToMediaItem")) return
         playbackCoordinator?.onSelectMediaItem(mediaItemIndex, positionMs)
             ?: super.seekTo(mediaItemIndex, positionMs)
     }
 
     override fun seekToNextMediaItem() {
+        if (rejectRetiredCommand("seekToNextMediaItem")) return
         playbackCoordinator?.onSkipToNext() ?: super.seekToNextMediaItem()
     }
 
     override fun seekToPreviousMediaItem() {
+        if (rejectRetiredCommand("seekToPreviousMediaItem")) return
         playbackCoordinator?.onSkipToPrevious() ?: super.seekToPreviousMediaItem()
     }
 
     override fun seekToPrevious() {
+        if (rejectRetiredCommand("seekToPrevious")) return
         playbackCoordinator?.onSkipToPrevious() ?: super.seekToPrevious()
     }
 
     override fun seekToNext() {
+        if (rejectRetiredCommand("seekToNext")) return
         playbackCoordinator?.onSkipToNext() ?: super.seekToNext()
     }
 }

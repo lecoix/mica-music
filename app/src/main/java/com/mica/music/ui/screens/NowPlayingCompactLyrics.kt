@@ -91,6 +91,7 @@ internal fun LyricsSection(
                         colorSpec = colorSpec,
                         lineStepPx = lineStepPx,
                         positionMs = positionMs,
+                        positionRevision = renderState.positionRevision,
                         isPlaying = isPlaying,
                         bilingualDisplayMode = bilingualDisplayMode,
                     )
@@ -127,6 +128,7 @@ private fun CompactLyricsRows(
     colorSpec: AnimationSpec<Color>,
     lineStepPx: Float,
     positionMs: Int,
+    positionRevision: Long,
     isPlaying: Boolean,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
 ) {
@@ -148,6 +150,7 @@ private fun CompactLyricsRows(
                 textStyle = textStyle,
                 colorSpec = colorSpec,
                 positionMs = positionMs,
+                positionRevision = positionRevision,
                 isPlaying = isPlaying,
                 bilingualDisplayMode = bilingualDisplayMode,
             )
@@ -168,6 +171,7 @@ private fun CompactLyricsRows(
                 textStyle = textStyle,
                 colorSpec = colorSpec,
                 positionMs = positionMs,
+                positionRevision = positionRevision,
                 isPlaying = isPlaying,
                 bilingualDisplayMode = bilingualDisplayMode,
             )
@@ -184,6 +188,7 @@ private fun CompactSingleLyricLine(
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
     positionMs: Int,
+    positionRevision: Long,
     isPlaying: Boolean,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
 ) {
@@ -200,6 +205,7 @@ private fun CompactSingleLyricLine(
         lyricLine = lyrics.getOrNull(displayIndex),
         nextLineTimeMs = lyrics.getOrNull(displayIndex + 1)?.timeMs,
         positionMs = positionMs,
+        positionRevision = positionRevision,
         isPlaying = isPlaying,
         bilingualDisplayMode = bilingualDisplayMode,
         parts = partsForIndex(displayIndex),
@@ -215,6 +221,7 @@ private fun CompactThreeLyricLines(
     textStyle: TextStyle,
     colorSpec: AnimationSpec<Color>,
     positionMs: Int,
+    positionRevision: Long,
     isPlaying: Boolean,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
 ) {
@@ -228,6 +235,7 @@ private fun CompactThreeLyricLines(
         lyricLine = lyrics.getOrNull(safeIndex - 1),
         nextLineTimeMs = lyrics.getOrNull(safeIndex)?.timeMs,
         positionMs = positionMs,
+        positionRevision = positionRevision,
         isPlaying = false,
         bilingualDisplayMode = bilingualDisplayMode,
         parts = partsForIndex(safeIndex - 1),
@@ -241,6 +249,7 @@ private fun CompactThreeLyricLines(
         lyricLine = lyrics[safeIndex],
         nextLineTimeMs = lyrics.getOrNull(safeIndex + 1)?.timeMs,
         positionMs = positionMs,
+        positionRevision = positionRevision,
         isPlaying = isPlaying,
         bilingualDisplayMode = bilingualDisplayMode,
         parts = partsForIndex(safeIndex),
@@ -254,6 +263,7 @@ private fun CompactThreeLyricLines(
         lyricLine = lyrics.getOrNull(safeIndex + 1),
         nextLineTimeMs = lyrics.getOrNull(safeIndex + 2)?.timeMs,
         positionMs = positionMs,
+        positionRevision = positionRevision,
         isPlaying = false,
         bilingualDisplayMode = bilingualDisplayMode,
         parts = partsForIndex(safeIndex + 1),

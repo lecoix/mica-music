@@ -378,6 +378,7 @@ internal fun ExpandedLyricsPanel(
                             lyricLine = line,
                             nextLineTimeMs = lyrics.getOrNull(index + 1)?.timeMs,
                             positionMs = positionMs,
+                            positionRevision = renderState.positionRevision,
                             isPlaying = isPlaying,
                             textAlign = textAlign,
                             horizontalAlignment = horizontalAlignment,

@@ -184,8 +184,10 @@ fun PlayerSheetHost(
         MiniPlayer(
             style = uiSettings.miniPlayerStyle,
             song = song,
-            isPlaying = surfaceState.isPlaying,
+            isPlaying = surfaceState.playWhenReady,
             positionMs = lyricsPositionMs,
+            positionRevision = progressState.positionRevision,
+            playbackSpeed = surfaceState.playbackTuning.speed,
             onPlayPause = actions.togglePlay,
             onPrevious = actions.previous,
             onNext = actions.next,

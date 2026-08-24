@@ -21,12 +21,23 @@ class AudioOutputPathConfigTest {
         assertFalse(PlaybackOutputMode.SharedPcm.requiresMinimalProcessorChain)
         assertFalse(PlaybackOutputMode.UsbDirectPcm.allowsSharedPcmDsp)
         assertTrue(PlaybackOutputMode.UsbDirectPcm.requiresMinimalProcessorChain)
-        assertFalse(PlaybackOutputMode.UsbNativeDsd.usesExoPcmChain)
+        assertFalse(PlaybackOutputMode.UsbDop.usesExoPcmChain)
+        assertFalse(PlaybackOutputMode.UsbNativeDsdExperimental.usesExoPcmChain)
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun usbDirectPcm_rejectedUntilP6() {
+    @Test
+    fun usbDirectPcm_isSupportedByHybrid() {
         AudioOutputPathConfig(outputMode = PlaybackOutputMode.UsbDirectPcm).requireSupportedForPlayback()
+    }
+
+    @Test
+    fun explicitDebugPrototype_allowsUsbDirectPcmWithoutChangingProductionDefault() {
+        AudioOutputPathConfig(
+            outputMode = PlaybackOutputMode.UsbDirectPcm,
+            prototypeUsbHost = true,
+        ).requireSupportedForPlayback()
+        assertEquals(PlaybackOutputMode.SharedPcm, AudioOutputPathConfig.PRODUCTION.outputMode)
+        assertFalse(AudioOutputPathConfig.PRODUCTION.prototypeUsbHost)
     }
 
     @Test(expected = IllegalArgumentException::class)
