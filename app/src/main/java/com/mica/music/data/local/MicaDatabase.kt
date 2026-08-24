@@ -18,7 +18,7 @@ import com.mica.music.util.DiagnosticLog
         PlaylistSongEntity::class,
         SongLyricsOffsetEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -68,6 +68,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_15_16,
                             MIGRATION_16_17,
                             MIGRATION_17_18,
+                            MIGRATION_18_19,
                         )
                         .build()
                         .also {

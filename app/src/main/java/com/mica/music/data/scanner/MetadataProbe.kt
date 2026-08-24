@@ -74,6 +74,7 @@ object MetadataProbe {
         out += entry("应用内", "album", song.album)
         out += entry("应用内", "albumArtist", song.albumArtist)
         out += entry("应用内", "copyright", song.copyright)
+        out += entry("应用内", "comment", song.comment)
         out += entry("应用内", "codecLabel", song.codecLabel)
         out += entry("应用内", "fileName", song.fileName)
         out += entry("应用内", "filePath", song.filePath)

@@ -19,6 +19,7 @@ internal object TagLibReader {
         val album: String,
         val albumArtist: String,
         val copyright: String,
+        val comment: String,
         val year: Int,
         val releaseDate: String,
         val durationSec: Int,
@@ -62,6 +63,7 @@ internal object TagLibReader {
                 album = tags.firstValue("ALBUM", "IPRD"),
                 albumArtist = tags.firstValue("ALBUMARTIST", "ALBUM ARTIST"),
                 copyright = tags.firstValue("COPYRIGHT", "ICOP"),
+                comment = tags.firstValue("COMMENT"),
                 year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
                     ?: rawDates.firstNotNullOfOrNull { parseYear(it).takeIf { year -> year > 0 } }
                     ?: 0,

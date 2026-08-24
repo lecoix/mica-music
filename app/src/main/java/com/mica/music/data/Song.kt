@@ -36,6 +36,8 @@ data class Song(
     /** 绝对或可读文件路径（扫描时写入） */
     val filePath: String = "",
     val copyright: String = "",
+    /** 文件 tag COMMENT / COMM / ©cmt 等只读注释；无则空字符串 */
+    val comment: String = "",
     /** 编码器/转码信息（ENCODERSETTINGS、TSSE、FLAC vendor、MP4 ©too 等；无则回退音轨 MIME） */
     val codecLabel: String = "",
     val dateAddedMs: Long = 0L,

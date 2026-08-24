@@ -46,6 +46,7 @@ internal data class TrackDraft(
     val filePath: String = "",
     val albumArtist: String = "",
     val copyright: String = "",
+    val comment: String = "",
     val codecLabel: String = "",
     val dateAddedMs: Long = 0L,
     val dateModifiedMs: Long = 0L,
@@ -68,6 +69,7 @@ internal data class TagInfo(
     val album: String,
     val albumArtist: String,
     val copyright: String,
+    val comment: String,
     val durationSec: Int,
     val year: Int,
     val releaseDate: String = "",
@@ -85,6 +87,7 @@ internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo {
         album = primary.album.ifBlank { fallback.album },
         albumArtist = primary.albumArtist.ifBlank { fallback.albumArtist },
         copyright = primary.copyright.ifBlank { fallback.copyright },
+        comment = primary.comment.ifBlank { fallback.comment },
         durationSec = primary.durationSec.takeIf { it > 0 } ?: fallback.durationSec,
         year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
             ?: primary.year.takeIf { it > 0 }
@@ -151,11 +154,14 @@ object AudioMetadataProbe {
 
     private const val TAG = "AudioMetadataProbe"
     private const val FLAC_METADATA_TRACE = "ScanFlacMeta"
-    internal const val CURRENT_METADATA_SCAN_VERSION = 1
+    internal const val CURRENT_METADATA_SCAN_VERSION = 2
 
     private val albumArtCache = ConcurrentHashMap<String, String?>()
     private val mp4CopyrightMarkers = listOf(
         "cprt".toByteArray(Charsets.US_ASCII),
+    )
+    private val mp4CommentMarkers = listOf(
+        byteArrayOf(0xA9.toByte(), 'c'.code.toByte(), 'm'.code.toByte(), 't'.code.toByte()),
     )
     private val retrieverLyricsKeys = listOf(
         "lyrics",
@@ -203,6 +209,9 @@ object AudioMetadataProbe {
         val copyright = profiler.measureOptional("copyright") {
             readCopyright(appCtx, uri, lyricDraft)
         }
+        val comment = profiler.measureOptional("comment") {
+            readComment(appCtx, uri, lyricDraft)
+        }
         val albumArtUri = profiler.measureOptional("albumArt") {
             resolveAlbumArtFromStoreOnly(context, draft.albumId)
         }
@@ -217,6 +226,7 @@ object AudioMetadataProbe {
                 albumArtUri = albumArtUri,
                 lyricsDocument = lyrics.selectedOrCached(cachedSong),
                 copyrightOverride = copyright,
+                commentOverride = comment,
                 metadataScanVersion = 0,
                 dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
             ),
@@ -328,9 +338,19 @@ object AudioMetadataProbe {
                     )
                 }
             }
+            val comment = tags.comment.ifBlank {
+                profiler.measureOptional("comment") {
+                    readComment(
+                        appCtx,
+                        uri,
+                        enriched.copy(mimeType = metadata.playbackMimeType.ifBlank { enriched.mimeType }),
+                    )
+                }
+            }
             val withMeta = enriched.copy(
                 albumArtist = tags.albumArtist,
                 copyright = copyright,
+                comment = comment,
                 codecLabel = trackProbe?.trackMime ?: metadata.playbackMimeType,
             )
             val artKey = artCacheKey(withMeta)
@@ -412,6 +432,9 @@ object AudioMetadataProbe {
             val copyright = profiler.measureOptional("copyright") {
                 readCopyright(appCtx, uri, lyricDraft)
             }
+            val comment = profiler.measureOptional("comment") {
+                readComment(appCtx, uri, lyricDraft)
+            }
             ScannedSong(
                 song = draft.toSong(
                     appCtx,
@@ -421,6 +444,7 @@ object AudioMetadataProbe {
                     },
                     lyricsDocument = lyrics.selectedOrCached(cachedSong),
                     copyrightOverride = copyright,
+                    commentOverride = comment,
                     dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
                 ),
                 lyrics = lyrics,
@@ -452,6 +476,7 @@ object AudioMetadataProbe {
             album = tagLib.album,
             albumArtist = tagLib.albumArtist,
             copyright = tagLib.copyright,
+            comment = tagLib.comment,
             durationSec = tagLib.durationSec,
             year = tagLib.year,
             releaseDate = tagLib.releaseDate,
@@ -577,6 +602,15 @@ object AudioMetadataProbe {
                 )
             }
         }
+        val comment = MetadataTextFix.normalize(tags.comment).ifBlank {
+            profiler.measureOptional("comment") {
+                readComment(
+                    context,
+                    uri,
+                    draft.copy(mimeType = playbackMime.ifBlank { draft.mimeType }),
+                )
+            }
+        }
         val withMeta = draft.copy(
             title = title,
             artist = artist,
@@ -586,6 +620,7 @@ object AudioMetadataProbe {
             releaseDate = releaseDate,
             albumArtist = albumArtist,
             copyright = copyright,
+            comment = comment,
             codecLabel = trackProbe?.trackMime ?: playbackMime,
         )
         val artKey = artCacheKey(withMeta)
@@ -714,6 +749,20 @@ object AudioMetadataProbe {
             .orEmpty()
     }
 
+    private fun readComment(context: Context, uri: Uri, draft: TrackDraft): String {
+        if (!draft.mayContainMp4EmbeddedLyrics()) return ""
+        val bytes = AudioProbeBytes.readFastForLyrics(
+            context = context,
+            uri = uri,
+            mimeType = draft.mimeType,
+            displayName = draft.displayName,
+        ) ?: return ""
+        return Mp4AtomTextReader.read(bytes, mp4CommentMarkers)
+            ?.let { MetadataTextFix.normalize(it) }
+            ?.takeIf { it.isNotBlank() }
+            .orEmpty()
+    }
+
     private fun parseLyricsTextForScan(raw: String): LyricsDocument? {
         if (raw.isBlank()) return null
         LyricsSanitizer.parseFilteredDocument(raw, LyricsOrigin.EMBEDDED)
@@ -800,6 +849,11 @@ object AudioMetadataProbe {
                 ?.takeIf { it.isNotBlank() }
                 ?: "",
         )
+        val comment = MetadataTextFix.normalize(
+            extractMetadataString(retriever, "comment")
+                ?.takeIf { it.isNotBlank() }
+                ?: "",
+        )
         val trackNumber = MetadataTextFix.parseTrackNumber(
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)
                 ?: extractMetadataString(retriever, "tracknumber"),
@@ -811,6 +865,7 @@ object AudioMetadataProbe {
             album = album,
             albumArtist = albumArtist,
             copyright = copyright,
+            comment = comment,
             durationSec = durationSec,
             year = year,
             releaseDate = releaseDate,
@@ -948,6 +1003,7 @@ object AudioMetadataProbe {
             album = album,
             albumArtist = albumArtist,
             copyright = tags.copyright,
+            comment = tags.comment,
             durationSec = durationSec.takeIf { it > 0 } ?: draft.durationSec,
             year = tags.year.takeIf { it > 0 } ?: draft.year,
             releaseDate = tags.releaseDate.ifBlank { draft.releaseDate },
@@ -1112,6 +1168,7 @@ object AudioMetadataProbe {
         albumArtUri: String?,
         lyricsDocument: LyricsDocument = LyricsDocument(),
         copyrightOverride: String = "",
+        commentOverride: String = "",
         trackNumber: Int = 0,
         discNumber: Int = 0,
         metadataScanVersion: Int = CURRENT_METADATA_SCAN_VERSION,
@@ -1140,6 +1197,7 @@ object AudioMetadataProbe {
             folderPath = folderPath,
             filePath = filePath,
             copyright = copyrightOverride.ifBlank { copyright },
+            comment = commentOverride.ifBlank { comment },
             codecLabel = codecLabel,
             dateAddedMs = dateAddedMsOverride ?: dateAddedMs,
             dateModifiedMs = dateModifiedMs,
@@ -1176,6 +1234,7 @@ object AudioMetadataProbe {
             val album = tag.getFirst(FieldKey.ALBUM)?.trim().orEmpty()
             val albumArtist = tag.getFirst(FieldKey.ALBUM_ARTIST)?.trim().orEmpty()
             val copyright = tag.getFirst(FieldKey.COPYRIGHT)?.trim().orEmpty()
+            val comment = tag.getFirst(FieldKey.COMMENT)?.trim().orEmpty()
             val lyrics = tag.getFirst(FieldKey.LYRICS)?.trim().orEmpty()
             val frontCoverBytes = tag.firstArtwork?.binaryData?.takeIf { it.isNotEmpty() }
             val rawDate = tag.getFirst(FieldKey.YEAR).orEmpty()
@@ -1197,6 +1256,7 @@ object AudioMetadataProbe {
                 album = album,
                 albumArtist = albumArtist,
                 copyright = copyright,
+                comment = comment,
                 durationSec = audioFile.audioHeader?.trackLength?.coerceAtLeast(0) ?: 0,
                 year = year,
                 releaseDate = releaseDate,

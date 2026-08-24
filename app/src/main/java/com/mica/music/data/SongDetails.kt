@@ -35,6 +35,7 @@ object SongDetails {
             song.codecLabel.ifBlank { song.metadata.playbackMimeType }.ifBlank { "—" },
         ),
         SongDetailRow("版权", song.copyright.ifBlank { "—" }),
+        SongDetailRow("注释", song.comment.ifBlank { "—" }),
         SongDetailRow("添加时间", formatTimestamp(song.dateAddedMs)),
         SongDetailRow("修改时间", formatTimestamp(song.dateModifiedMs)),
     )

@@ -20,6 +20,7 @@ internal object SongChangeDiagnostics {
         if (old.folderPath != new.folderPath) add("folderPath")
         if (old.filePath != new.filePath) add("filePath")
         if (old.copyright != new.copyright) add("copyright")
+        if (old.comment != new.comment) add("comment")
         if (old.codecLabel != new.codecLabel) add("codecLabel")
         if (old.dateAddedMs != new.dateAddedMs) add("dateAddedMs")
         if (old.dateModifiedMs != new.dateModifiedMs) add("dateModifiedMs")

@@ -18,6 +18,7 @@ internal object DsdMetadataReader {
         val album: String = "",
         val albumArtist: String = "",
         val copyright: String = "",
+        val comment: String = "",
         val year: Int = 0,
         val releaseDate: String = "",
         val trackNumber: Int = 0,
@@ -194,6 +195,7 @@ internal object DsdMetadataReader {
                 album = text("TALB"),
                 albumArtist = text("TPE2"),
                 copyright = text("TCOP"),
+                comment = text("COMM"),
                 year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
                     ?: year.take(4).toIntOrNull()
                     ?: 0,

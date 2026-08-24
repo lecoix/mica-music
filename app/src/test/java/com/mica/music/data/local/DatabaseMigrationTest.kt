@@ -682,6 +682,45 @@ class DatabaseMigrationTest {
         helper.close()
     }
 
+    @Test
+    fun migrationEighteenToNineteenAddsCommentColumn() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(18) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                            db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_18_19.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").contains("comment"))
+        db.query("SELECT comment FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+        db.execSQL("UPDATE songs SET comment = 'tag comment' WHERE id = 'legacy'")
+        db.query("SELECT comment FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("tag comment", cursor.getString(0))
+        }
+        helper.close()
+    }
+
     private fun tableColumns(
         db: SupportSQLiteDatabase,
         table: String,

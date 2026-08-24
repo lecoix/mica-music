@@ -12,6 +12,7 @@ class AudioMetadataProbeMergeTest {
             album = "",
             albumArtist = "TagLib album artist",
             copyright = "",
+            comment = "TagLib comment",
             durationSec = 120,
             year = 0,
             trackNumber = 7,
@@ -23,6 +24,7 @@ class AudioMetadataProbeMergeTest {
             album = "WAV album",
             albumArtist = "Retriever album artist",
             copyright = "WAV copyright",
+            comment = "",
             durationSec = 121,
             year = 2024,
             releaseDate = "2024-02-29",
@@ -37,6 +39,7 @@ class AudioMetadataProbeMergeTest {
         assertEquals("WAV album", merged.album)
         assertEquals("TagLib album artist", merged.albumArtist)
         assertEquals("WAV copyright", merged.copyright)
+        assertEquals("TagLib comment", merged.comment)
         assertEquals(120, merged.durationSec)
         assertEquals(2024, merged.year)
         assertEquals("2024-02-29", merged.releaseDate)
@@ -52,6 +55,7 @@ class AudioMetadataProbeMergeTest {
             album = "",
             albumArtist = "",
             copyright = "",
+            comment = "",
             durationSec = 120,
             year = 0,
         )
@@ -61,6 +65,7 @@ class AudioMetadataProbeMergeTest {
             album = "ID3 album",
             albumArtist = "",
             copyright = "",
+            comment = "",
             durationSec = 120,
             year = 2001,
         )
@@ -70,6 +75,7 @@ class AudioMetadataProbeMergeTest {
             album = "unknown album",
             albumArtist = "Retriever album artist",
             copyright = "",
+            comment = "",
             durationSec = 121,
             year = 0,
             trackNumber = 11,

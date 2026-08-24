@@ -262,3 +262,9 @@ val MIGRATION_17_18 = object : Migration(17, 18) {
         )
     }
 }
+
+val MIGRATION_18_19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+    }
+}
