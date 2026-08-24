@@ -10,6 +10,12 @@ import android.media.AudioMixerAttributes
 import android.media.AudioTrack
 import android.os.Build
 
+internal fun supportsAttributedAudioDeviceQuery(sdkInt: Int): Boolean =
+    sdkInt >= Build.VERSION_CODES.TIRAMISU
+
+internal fun supportsPreferredMixerAttributes(sdkInt: Int): Boolean =
+    sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
 internal data class UsbPreferredMixerDevice(
     val id: Int,
     val name: String,
@@ -36,6 +42,12 @@ internal data class UsbPreferredMixerStatus(
     val devices: List<UsbPreferredMixerDevice>,
 )
 
+private data class PreferredMixerSnapshot(
+    val sampleRate: Int,
+    val encoding: Int,
+    val bitPerfect: Boolean,
+)
+
 /** Android shared-path preferred mixer controller adapted from the reference MainActivity bridge. */
 internal class UsbPreferredMixerController(context: Context) {
     private val audioManager = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -44,8 +56,8 @@ internal class UsbPreferredMixerController(context: Context) {
         val devices = getUsbAudioDevices()
         val activeDevice = getActiveUsbAudioDevice(devices)
         val outputDevice = activeDevice ?: getActiveOutputDevice()
-        val preferred = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && activeDevice != null) {
-            getPreferredMixerAttributes(activeDevice)
+        val preferred = if (supportsPreferredMixerAttributes(Build.VERSION.SDK_INT) && activeDevice != null) {
+            getPreferredMixerSnapshotApi34(activeDevice)
         } else {
             null
         }
@@ -54,9 +66,9 @@ internal class UsbPreferredMixerController(context: Context) {
             androidSdk = Build.VERSION.SDK_INT,
             activeDeviceId = activeDevice?.id,
             preferredApplied = preferredApplied,
-            preferredSampleRate = preferred?.format?.sampleRate,
-            preferredEncoding = preferred?.format?.encoding?.let(::encodingName),
-            preferredBitPerfect = preferred?.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT,
+            preferredSampleRate = preferred?.sampleRate,
+            preferredEncoding = preferred?.encoding?.let(::encodingName),
+            preferredBitPerfect = preferred?.bitPerfect == true,
             outputDeviceName = outputDevice?.productName?.toString(),
             outputSampleRate = outputSampleRate(outputDevice),
             outputEncoding = outputEncoding(outputDevice),
@@ -69,7 +81,7 @@ internal class UsbPreferredMixerController(context: Context) {
         val devices = getUsbAudioDevices()
         val device = findRequestedDevice(devices, requestedDeviceId)
             ?: return status("No USB audio output device detected.")
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        if (!supportsPreferredMixerAttributes(Build.VERSION.SDK_INT)) {
             return status("USB mixer attributes require Android 14 or newer.")
         }
         return applyPreferredOutputApi34(device, requestedSampleRate)
@@ -79,7 +91,7 @@ internal class UsbPreferredMixerController(context: Context) {
         val devices = getUsbAudioDevices()
         val device = findRequestedDevice(devices, requestedDeviceId)
             ?: return status("No USB audio output device detected.")
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        if (!supportsPreferredMixerAttributes(Build.VERSION.SDK_INT)) {
             return status("USB mixer attributes require Android 14 or newer.")
         }
         val cleared = clearPreferredOutputApi34(device)
@@ -129,14 +141,14 @@ internal class UsbPreferredMixerController(context: Context) {
         audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter { it.isUsbAudioOutput() }
 
     private fun getActiveUsbAudioDevice(devices: List<AudioDeviceInfo>): AudioDeviceInfo? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
-        val activeDevices = audioManager.getAudioDevicesForAttributes(mediaAudioAttributes())
+        if (!supportsAttributedAudioDeviceQuery(Build.VERSION.SDK_INT)) return null
+        val activeDevices = getAudioDevicesForAttributesApi33()
         return activeDevices.firstOrNull { active -> devices.any { it.id == active.id } }
     }
 
     private fun getActiveOutputDevice(): AudioDeviceInfo? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.getAudioDevicesForAttributes(mediaAudioAttributes()).firstOrNull()?.let { return it }
+        if (supportsAttributedAudioDeviceQuery(Build.VERSION.SDK_INT)) {
+            getAudioDevicesForAttributesApi33().firstOrNull()?.let { return it }
         }
         return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
@@ -195,9 +207,13 @@ internal class UsbPreferredMixerController(context: Context) {
         sampleRates = device.sampleRates.toList(),
         encodings = device.encodings.map(::encodingName),
         channelCounts = device.channelCounts.toList(),
-        supportedMixerSampleRates = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) getSupportedMixerSampleRates(device) else emptyList(),
-        supportsBitPerfectMixer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) supportsBitPerfectMixer(device) else false,
+        supportedMixerSampleRates = if (supportsPreferredMixerAttributes(Build.VERSION.SDK_INT)) getSupportedMixerSampleRates(device) else emptyList(),
+        supportsBitPerfectMixer = if (supportsPreferredMixerAttributes(Build.VERSION.SDK_INT)) supportsBitPerfectMixer(device) else false,
     )
+
+    @TargetApi(Build.VERSION_CODES.TIRAMISU)
+    private fun getAudioDevicesForAttributesApi33(): List<AudioDeviceInfo> =
+        audioManager.getAudioDevicesForAttributes(mediaAudioAttributes())
 
     @TargetApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private fun getSupportedMixerSampleRates(device: AudioDeviceInfo): List<Int> = try {
@@ -214,8 +230,14 @@ internal class UsbPreferredMixerController(context: Context) {
     }
 
     @TargetApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-    private fun getPreferredMixerAttributes(device: AudioDeviceInfo): AudioMixerAttributes? = try {
-        audioManager.getPreferredMixerAttributes(mediaAudioAttributes(), device)
+    private fun getPreferredMixerSnapshotApi34(device: AudioDeviceInfo): PreferredMixerSnapshot? = try {
+        audioManager.getPreferredMixerAttributes(mediaAudioAttributes(), device)?.let { preferred ->
+            PreferredMixerSnapshot(
+                sampleRate = preferred.format.sampleRate,
+                encoding = preferred.format.encoding,
+                bitPerfect = preferred.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT,
+            )
+        }
     } catch (_: RuntimeException) {
         null
     }
