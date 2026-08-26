@@ -4,7 +4,7 @@ Mica Music uses the following major open source components. This file is a
 release checklist seed; before a public release, include the full license text
 and copyright notice required by each dependency.
 
-Last reviewed: **2026-08-12**
+Last reviewed: **2026-08-26**
 
 ## Runtime Dependencies
 
@@ -21,6 +21,8 @@ Last reviewed: **2026-08-12**
 | Calvin Reorderable | Apache License 2.0 |
 | BlurView 3.x (`com.github.Dimezis:BlurView`, JitPack **version-3.2.0**) | Apache License 2.0 |
 | Mica vendored TagLib Android wrapper（基于 Kyant0/taglib 1.0.6，`third_party/taglib/`） | Apache License 2.0（仓库根 `third_party/taglib/LICENSE`） |
+| SylvaKru USB-exclusive transport / protocol code（`third_party/sylvakru-usb-transport/`；参考 `huya688zdx/sylvakru` commit `3f2578692499e403d7eddc6fdbe52d1b6a1b2206`，其 README 说明基于原版 `AfalpHy/sylvakru`） | Apache License 2.0；模块内保留参考 `LICENSE`、Mica `NOTICE` 与派生/修改声明 |
+| libusb 1.0.30（vendored 于 `third_party/libusb-1.0.30/`，用于 USB 独占 native transport） | LGPL 2.1 或更高版本（见 `third_party/libusb-1.0.30/COPYING` / `README`） |
 | TagLib C++ 2.2.1（vendored 于 `third_party/taglib/src/main/cpp/taglib/`） | LGPL 2.1 或 MPL 1.1（上游同时附带 `COPYING.LGPL` / `COPYING.MPL`） |
 | utfcpp（TagLib submodule，`3rdparty/utfcpp`） | Boost Software License 1.0 |
 | jAudiotagger | LGPL 2.1 |
@@ -41,6 +43,18 @@ Particle cover **production rendering** uses Android **OpenGL ES 2.0** platform 
   Apache License 2.0 text.
 - **BlurView** (Dimezis): preserve copyright and Apache 2.0 notice; distributed
   via JitPack — verify `version-3.2.0` tag notice at release time.
+- **SylvaKru USB-exclusive code**: preserve `third_party/sylvakru-usb-transport/LICENSE`
+  and `NOTICE`, the source-level derivative/modification headers, and the provenance
+  in that module's `README.md`. The audited reference is
+  `huya688zdx/sylvakru@3f2578692499e403d7eddc6fdbe52d1b6a1b2206`; its own README
+  credits the original `AfalpHy/sylvakru`, and its Apache-2.0 `LICENSE` states
+  `Copyright 2025-2026 AfalpHy`. The reference snapshot had no separate `NOTICE`
+  file. Do not describe the current Mica transport as wholly byte-for-byte
+  upstream: substantial Media3/session/libusb adaptation is Mica-specific.
+- **libusb 1.0.30**: it is vendored source under LGPL-2.1-or-later. Preserve its
+  `COPYING`/copyright notices and keep the corresponding source available with
+  binary distributions that include the USB-exclusive native transport; re-check
+  relinking/source-offer obligations as part of the release packaging review.
 - **Jellyfin `media3-ffmpeg-decoder`**: preserve Apache 2.0 notice for the Java/JNI
   wrapper; when the app ships the locally built `libffmpegJNI.so`, also satisfy FFmpeg
   / LGPL distribution requirements below.

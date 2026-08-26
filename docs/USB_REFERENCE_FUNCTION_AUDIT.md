@@ -13,13 +13,48 @@ Status vocabulary:
 - `NOT_APPLICABLE`: reference helper belongs to a subsystem Mica intentionally does not use.
 - `MICA_EXTENSION`: behavior absent from the reference and backed by Mica physical evidence.
 
+## Provenance and license boundary
+
+This audit is also the provenance ledger for Mica's USB-exclusive implementation.
+The audited reference is `https://github.com/huya688zdx/sylvakru.git` at commit
+`3f2578692499e403d7eddc6fdbe52d1b6a1b2206`. That fork's README states that it
+is based on the original `AfalpHy/sylvakru` project. The reference is distributed
+under Apache License 2.0; its `LICENSE` identifies `Copyright 2025-2026 AfalpHy`.
+The reference snapshot contains no separate upstream `NOTICE` file.
+
+Mica keeps an exact copy of that reference license at
+`third_party/sylvakru-usb-transport/LICENSE`, plus a module-level `NOTICE` and
+README describing the source and Mica modifications. Reference-derived source
+files carry a derivative/modification header where the file format permits it.
+The JSON quirk database cannot carry comments and is therefore attributed in the
+module README/NOTICE instead.
+
+The status vocabulary above is an engineering classification, not a licensing
+classification. `EQUIVALENT`, `MICA_STRICTER`, and `MEDIA3_REPLACED` may still
+contain or derive from reference implementation details even when the resulting
+file is not text-identical.
+
+A 2026-08-26 text-provenance pass over the current production implementation
+measured approximately:
+
+- **44.7%** verbatim effective-line overlap within the low-level
+  `third_party/sylvakru-usb-transport` implementation; and
+- **33.2%** verbatim effective-line overlap when the complete Mica USB-exclusive
+  feature is counted, including Mica's Media3/Hybrid/state/settings integration.
+
+These figures deliberately separate **verbatim text reuse** from **behavioral
+porting**. They must not be read as saying the remaining code is unrelated to the
+reference: the function audit below accounts for all **142 / 142** unique
+reference function names (144 declarations), with most mapped as `EQUIVALENT`
+rather than `EXACT`.
+
 ## Audited functions
 
 | Reference function / group | Mica implementation | Status | Audit notes |
 | --- | --- | --- | --- |
-| `UsbDsd.kt` all functions | same vendored file | EXACT | Normalized full-file comparison equal. |
-| `UsbStreamTransition.kt` all functions | same vendored file | EXACT | Normalized full-file comparison equal. |
-| `UsbDiagnostics.kt` all functions | same vendored file | EXACT | Normalized full-file comparison equal. |
+| `UsbDsd.kt` reference functions | same vendored file | EXACT | Reference implementation body remains identical; Mica adds only the provenance/modification header required for redistributed derived source. |
+| `UsbStreamTransition.kt` reference functions | same vendored file plus Mica-only helpers | EXACT | Reference function bodies remain identical; the file also contains Mica-only recovery/tail-reserve helpers and the provenance/modification header. |
+| `UsbDiagnostics.kt` reference functions | same vendored file | EXACT | Reference implementation body remains identical; Mica adds only the provenance/modification header. |
 | `UsbExclusiveNative.open` | `UsbExclusiveNative.open` -> `openRaw` JNI | MICA_STRICTER | Reference dup/claim/SETINTERFACE/feedback-arm behavior is retained. Mica additionally publishes/checks an active epoch, returns an owned native `sessionId`, and fails a stale open before it can replace the current session. |
 | `UsbExclusiveNative.writePcm` | same JNI with `epoch/sessionId` | MICA_STRICTER | Reference PCM chunking and ISO submission are retained; stale-session writes are rejected before submission. |
 | `UsbExclusiveNative.writeIsoPackets` | same JNI with `epoch/sessionId` | MICA_STRICTER | Reference packet-count/length validation and batched ISO submission are retained; every submission is additionally session fenced. |

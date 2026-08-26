@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-08-12
+> 最后整理：2026-08-26
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -48,6 +48,7 @@
 | [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库扫描架构、TagLib fork 接入、增量复用、性能实测与冷扫上界结论 |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`USB_EXCLUSIVE_HYBRID_STATUS.md`](USB_EXCLUSIVE_HYBRID_STATUS.md) | Hybrid 已实现软件范围、验证证据、实机/长测门禁与已知风险 |
+| [`USB_REFERENCE_FUNCTION_AUDIT.md`](USB_REFERENCE_FUNCTION_AUDIT.md) | USB 独占对 SylvaKru 参考实现的逐函数映射、EXACT/EQUIVALENT/Mica 改写分类，以及 Apache-2.0 provenance/归属边界 |
 | [`ADDING_AUDIO_FORMAT_SUPPORT.md`](ADDING_AUDIO_FORMAT_SUPPORT.md) | 新增音频格式的端到端接入、基准对比与排障指南；含 APE 大帧、频谱时钟和 JNI 扩容案例 |
 | [`SPECTRUM_STALL_BUG.md`](SPECTRUM_STALL_BUG.md) | **频谱停滞**问题档案（根因、日志特征、tap/write 解耦修复、回归清单、输出设备参考调研） |
 | [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md) | Exo PCM **改造计划**（**§0 摘要、§18 Gate/验收**；P1 过渡态；P2–P6） |
@@ -140,3 +141,4 @@
 | 2026-08-07 | 全量文档审计：同步歌单 Room（schema v17）、播放状态所有权收拢、offload 熔断、外部队列恢复边界、歌词结构化角色；补录 `TESTING` / `SETTINGS_AUDIT_MATRIX` / `APP_UPDATE` 到索引 |
 | 2026-08-06 | 新增 `SPECTRUM_STALL_BUG.md`：VORACITY 频谱停滞根因、解耦修复与输出设备参考调研 |
 | 2026-08-15 | 新增 `HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md`：记录 OXF-AN10 真机验证的 MediaSession artwork URI 兼容方案及未来选项 |
+| 2026-08-26 | USB 开源 provenance 补全：`OPEN_SOURCE_NOTICES` 加入 SylvaKru/libusb；`USB_REFERENCE_FUNCTION_AUDIT` 增加 Apache-2.0 来源与逐字/适配边界；第三方 transport 保留 LICENSE/NOTICE/修改声明 |

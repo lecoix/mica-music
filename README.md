@@ -99,6 +99,23 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 ---
 
+## 开源与第三方代码
+
+Mica 的 USB 独占播放底层并非完全从零实现。`third_party/sylvakru-usb-transport/`
+包含从 SylvaKru USB-exclusive 实现直接复制、拆分重组或按行为适配的代码。
+当前审计参考为 `huya688zdx/sylvakru` commit
+`3f2578692499e403d7eddc6fdbe52d1b6a1b2206`；该参考 fork 的 README 说明其基于
+原版 `AfalpHy/sylvakru`。相关代码按 Apache License 2.0 使用和再分发。
+
+模块内保留参考许可证全文、归属/修改声明与详细 provenance：
+[`third_party/sylvakru-usb-transport/README.md`](./third_party/sylvakru-usb-transport/README.md)、
+[`third_party/sylvakru-usb-transport/NOTICE`](./third_party/sylvakru-usb-transport/NOTICE)。
+项目级第三方声明见 [`docs/OPEN_SOURCE_NOTICES.md`](./docs/OPEN_SOURCE_NOTICES.md)。
+USB 的逐函数来源/适配分类见
+[`docs/USB_REFERENCE_FUNCTION_AUDIT.md`](./docs/USB_REFERENCE_FUNCTION_AUDIT.md)。
+
+---
+
 
 ## 相关文件
 

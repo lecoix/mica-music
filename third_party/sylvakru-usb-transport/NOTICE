@@ -1,0 +1,30 @@
+Mica Music — SylvaKru USB transport attribution
+
+This module includes and adapts software from the SylvaKru USB-exclusive
+implementation.
+
+Audited reference repository:
+  https://github.com/huya688zdx/sylvakru.git
+Reference snapshot:
+  3f2578692499e403d7eddc6fdbe52d1b6a1b2206
+
+The reference fork states that it is based on the original AfalpHy/sylvakru
+project. The reference distribution is licensed under the Apache License,
+Version 2.0, and its LICENSE identifies:
+
+  Copyright 2025-2026 AfalpHy
+
+A copy of that Apache-2.0 license text is retained in this module as LICENSE.
+The audited reference snapshot did not contain a separate upstream NOTICE file.
+
+Mica modifications include Media3 integration, transport/session ownership
+fencing, stricter fail-closed behavior, libusb stream-service infrastructure,
+state-machine integration, device-specific qualified extensions, and other
+adaptations documented in README.md and docs/USB_REFERENCE_FUNCTION_AUDIT.md.
+
+Reference-derived files are marked as modified/adapted for Mica where the file
+format permits comments. The usb_dac_quirks.json asset is also derived from the
+reference device database and has Mica-specific additions; because JSON does
+not permit comments, its attribution is recorded here and in README.md.
+
+This notice is informational and does not modify the Apache License 2.0.
