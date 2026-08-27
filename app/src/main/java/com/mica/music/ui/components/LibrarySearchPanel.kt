@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
+import com.mica.music.data.preferences.LibraryZoomPage
 
 @Composable
 fun LibrarySearchPanel(
@@ -39,6 +40,7 @@ fun LibrarySearchPanel(
         onSongOpenMenu = onSongOpenMenu,
         emptyMessage = emptyMessage,
         listBottomPadding = listBottomPadding,
+        zoomPage = LibraryZoomPage.SEARCH,
         modifier = modifier.fillMaxSize(),
     )
 }

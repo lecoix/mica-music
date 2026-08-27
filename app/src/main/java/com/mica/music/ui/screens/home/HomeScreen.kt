@@ -1066,9 +1066,23 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        onAlbumGridColumnsChange = { columns ->
+                            val normalized = columns.coerceIn(1, 4)
+                            uiState = uiState.copy(
+                                browseSort = uiState.browseSort.copy(albumGridColumns = normalized),
+                            )
+                            LibraryBrowseSettings.setAlbumBrowseGridColumns(context, normalized)
+                        },
                         artistSortField = uiState.browseSort.artistSortField,
                         artistSortDirection = uiState.browseSort.artistSortDirection,
                         artistGridColumns = uiState.browseSort.artistGridColumns,
+                        onArtistGridColumnsChange = { columns ->
+                            val normalized = columns.coerceIn(1, 4)
+                            uiState = uiState.copy(
+                                browseSort = uiState.browseSort.copy(artistGridColumns = normalized),
+                            )
+                            LibraryBrowseSettings.setArtistBrowseGridColumns(context, normalized)
+                        },
                         folderBrowseMode = uiState.browseSort.folderBrowseMode,
                         artistListState = artistListState,
                         artistGridState = artistGridState,
@@ -1103,9 +1117,23 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        onAlbumGridColumnsChange = { columns ->
+                            val normalized = columns.coerceIn(1, 4)
+                            uiState = uiState.copy(
+                                browseSort = uiState.browseSort.copy(albumGridColumns = normalized),
+                            )
+                            LibraryBrowseSettings.setAlbumBrowseGridColumns(context, normalized)
+                        },
                         artistSortField = uiState.browseSort.artistSortField,
                         artistSortDirection = uiState.browseSort.artistSortDirection,
                         artistGridColumns = uiState.browseSort.artistGridColumns,
+                        onArtistGridColumnsChange = { columns ->
+                            val normalized = columns.coerceIn(1, 4)
+                            uiState = uiState.copy(
+                                browseSort = uiState.browseSort.copy(artistGridColumns = normalized),
+                            )
+                            LibraryBrowseSettings.setArtistBrowseGridColumns(context, normalized)
+                        },
                         artistListState = artistListState,
                         artistGridState = artistGridState,
                         albumListState = albumListState,

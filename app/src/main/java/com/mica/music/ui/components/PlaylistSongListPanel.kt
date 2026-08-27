@@ -34,6 +34,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
+import com.mica.music.data.preferences.LibraryZoomPage
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -87,6 +88,7 @@ fun PlaylistSongListPanel(
             fastScrollSortDirection = sortDirection,
             listBottomPadding = listBottomPadding,
             infoVisibility = infoVisibility,
+            zoomPage = LibraryZoomPage.PLAYLIST,
             modifier = modifier,
         )
         return
