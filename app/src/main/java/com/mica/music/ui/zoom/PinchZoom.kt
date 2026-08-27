@@ -576,6 +576,70 @@ data class PinchZoomGridAnchor(
     val centerDeltaPx: Int,
 )
 
+/**
+ * Owns the reusable anchor lifecycle shared by the library pinch-zoom hosts.
+ *
+ * Rendering strategy, preset persistence and external list/grid synchronization intentionally stay
+ * with each host. This object only answers one question: which preset worlds have been aligned to
+ * the current visible anchor for the active gesture/external transition?
+ */
+@Stable
+internal class PinchZoomGridAnchorCoordinator internal constructor(
+    private val states: List<LazyGridState>,
+    initialAlignedIndex: Int,
+) {
+    var anchor by mutableStateOf<PinchZoomGridAnchor?>(null)
+        private set
+
+    private var alignedPresetIndices by mutableStateOf(setOf(initialAlignedIndex))
+
+    fun beginGesture(sourceIndex: Int) {
+        if (sourceIndex !in states.indices) return
+        alignedPresetIndices = setOf(sourceIndex)
+        anchor = states[sourceIndex].capturePinchZoomAnchor()
+    }
+
+    suspend fun alignPresetPair(firstIndex: Int, secondIndex: Int) {
+        val currentAnchor = anchor ?: return
+        setOf(firstIndex, secondIndex).forEach { index ->
+            if (index in states.indices && index !in alignedPresetIndices) {
+                states[index].restorePinchZoomAnchor(currentAnchor)
+                alignedPresetIndices = alignedPresetIndices + index
+            }
+        }
+    }
+
+    suspend fun alignExternalPreset(sourceIndex: Int, targetIndex: Int) {
+        if (sourceIndex !in states.indices || targetIndex !in states.indices) return
+        if (targetIndex in alignedPresetIndices) return
+        val sourceAnchor = states[sourceIndex].capturePinchZoomAnchor() ?: return
+        anchor = sourceAnchor
+        states[targetIndex].restorePinchZoomAnchor(sourceAnchor)
+        alignedPresetIndices = alignedPresetIndices + targetIndex
+    }
+
+    fun resetTo(index: Int) {
+        if (index !in states.indices) return
+        anchor = null
+        alignedPresetIndices = setOf(index)
+    }
+}
+
+@Composable
+internal fun rememberPinchZoomGridAnchorCoordinator(
+    states: List<LazyGridState>,
+    initialAlignedIndex: Int,
+    stateKey: Any? = Unit,
+): PinchZoomGridAnchorCoordinator {
+    require(states.isNotEmpty()) { "states must not be empty" }
+    return remember(stateKey, states.size) {
+        PinchZoomGridAnchorCoordinator(
+            states = states,
+            initialAlignedIndex = initialAlignedIndex.coerceIn(states.indices),
+        )
+    }
+}
+
 fun LazyGridState.capturePinchZoomAnchor(): PinchZoomGridAnchor? {
     val info = layoutInfo
     if (info.visibleItemsInfo.isEmpty()) return null

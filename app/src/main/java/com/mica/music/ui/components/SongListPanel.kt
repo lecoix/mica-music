@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.zIndex
-import com.mica.music.data.ArtistNames
 import com.mica.music.data.FastScrollIndex
 import com.mica.music.data.LibraryFastScrollIndex
 import com.mica.music.data.MusicLibrary
@@ -60,15 +59,10 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.coverColor
-import com.mica.music.ui.zoom.PinchZoomGridAnchor
 import com.mica.music.ui.zoom.PinchZoomItemRect
-import com.mica.music.ui.zoom.capturePinchZoomAnchor
-import com.mica.music.ui.zoom.visiblePinchZoomItemRects
-import com.mica.music.ui.zoom.calculatePinchZoomItemMorph
-import com.mica.music.ui.zoom.pinchZoomItemBoundsMorph
 import com.mica.music.ui.zoom.pinchZoomGesture
+import com.mica.music.ui.zoom.rememberPinchZoomGridAnchorCoordinator
 import com.mica.music.ui.zoom.rememberPinchZoomState
-import com.mica.music.ui.zoom.restorePinchZoomAnchor
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
@@ -162,20 +156,14 @@ fun SongListPanel(
         },
     )
     val segment = zoomState.segment
-    var gestureAnchor by remember(zoomPage) { mutableStateOf<PinchZoomGridAnchor?>(null) }
-    var gestureAnchorSource by remember(zoomPage) { mutableStateOf(initialIndex) }
-    var gestureAlignedPresetIndices by remember(zoomPage) { mutableStateOf(setOf(initialIndex)) }
+    val anchorCoordinator = rememberPinchZoomGridAnchorCoordinator(
+        states = states,
+        initialAlignedIndex = initialIndex,
+        stateKey = zoomPage,
+    )
 
-    LaunchedEffect(segment.lowerIndex, segment.upperIndex, gestureAnchor, zoomState.gestureActive) {
-        val anchor = gestureAnchor
-        if (anchor != null) {
-            setOf(segment.lowerIndex, segment.upperIndex).forEach { index ->
-                if (index !in gestureAlignedPresetIndices) {
-                    states[index].restorePinchZoomAnchor(anchor)
-                    gestureAlignedPresetIndices = gestureAlignedPresetIndices + index
-                }
-            }
-        }
+    LaunchedEffect(segment.lowerIndex, segment.upperIndex, anchorCoordinator.anchor, zoomState.gestureActive) {
+        anchorCoordinator.alignPresetPair(segment.lowerIndex, segment.upperIndex)
         zoomState.markGestureGeometryReady()
     }
 
@@ -185,9 +173,7 @@ fun SongListPanel(
         val settled = zoomState.settledIndex
         // The target grid was already aligned when the gesture pair was introduced. Never restore
         // it again when the pair collapses at settle; that second scroll caused the visible jump.
-        gestureAnchor = null
-        gestureAnchorSource = settled
-        gestureAlignedPresetIndices = setOf(settled)
+        anchorCoordinator.resetTo(settled)
         val state = states[settled]
         snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
             .collectLatest { (index, offset) ->
@@ -204,9 +190,7 @@ fun SongListPanel(
                     enabled = zoomEnabled,
                     onGestureStart = { _ ->
                         val source = zoomState.settledIndex
-                        gestureAnchorSource = source
-                        gestureAlignedPresetIndices = setOf(source)
-                        gestureAnchor = states[source].capturePinchZoomAnchor()
+                        anchorCoordinator.beginGesture(source)
                     },
                 ),
         ) {
@@ -404,108 +388,6 @@ private fun SongZoomGeometryLayer(
         }
     }
 }
-
-@Composable
-private fun SongZoomLayer(
-    songs: List<Song>,
-    preset: SongZoomPreset,
-    landscape: Boolean,
-    state: LazyGridState,
-    counterpartState: LazyGridState,
-    morphProgress: Float,
-    morphFromLower: Boolean,
-    transitionActive: Boolean,
-    currentSongId: String?,
-    isPlaying: Boolean,
-    onSongClick: (String) -> Unit,
-    onSongOpenMenu: ((Song) -> Unit)?,
-    listBottomPadding: Dp,
-    selectionMode: Boolean,
-    selectedSongIds: Set<String>,
-    onSelectionToggle: (String) -> Unit,
-    infoVisibility: SongListInfoVisibility,
-    interactive: Boolean,
-    modifier: Modifier,
-) {
-    val columns = preset.columns(landscape)
-    val currentRects = state.visiblePinchZoomItemRects()
-    val counterpartRects = counterpartState.visiblePinchZoomItemRects()
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        state = state,
-        userScrollEnabled = interactive,
-        modifier = modifier,
-        contentPadding = if (preset.gridTile) {
-            PaddingValues(
-                start = HifiSpacing.md,
-                end = HifiSpacing.md,
-                bottom = listBottomPadding,
-            )
-        } else {
-            PaddingValues(bottom = listBottomPadding)
-        },
-        horizontalArrangement = if (preset.gridTile) {
-            Arrangement.spacedBy(HifiSpacing.md)
-        } else {
-            Arrangement.Start
-        },
-        verticalArrangement = if (preset.gridTile) {
-            Arrangement.spacedBy(HifiSpacing.lg)
-        } else {
-            Arrangement.Top
-        },
-    ) {
-        gridItemsIndexed(songs, key = { _, song -> song.id }) { _, song ->
-            val itemMorph = calculatePinchZoomItemMorph(
-                current = currentRects[song.id],
-                counterpart = counterpartRects[song.id],
-                progress = morphProgress,
-                fromLower = morphFromLower,
-                transitionActive = transitionActive,
-            )
-            val morphModifier = Modifier.pinchZoomItemBoundsMorph(itemMorph)
-            val isCurrent = currentSongId == song.id
-            val click = {
-                if (selectionMode) onSelectionToggle(song.id) else onSongClick(song.id)
-            }
-            if (preset.gridTile) {
-                SongZoomGridTile(
-                    song = song,
-                    isCurrent = isCurrent,
-                    isPlaying = isCurrent && isPlaying,
-                    onClick = if (interactive) click else ({}),
-                    onLongClick = if (interactive && !selectionMode) {
-                        onSongOpenMenu?.let { open -> { open(song) } }
-                    } else {
-                        null
-                    },
-                    selected = song.id in selectedSongIds,
-                    selectionMode = selectionMode,
-                    modifier = morphModifier,
-                )
-            } else {
-                SongRow(
-                    song = song,
-                    isCurrent = isCurrent,
-                    isPlaying = isCurrent && isPlaying,
-                    onClick = if (interactive) click else ({}),
-                    onLongClick = if (interactive && !selectionMode) {
-                        onSongOpenMenu?.let { open -> { open(song) } }
-                    } else {
-                        null
-                    },
-                    selectionMode = selectionMode,
-                    isSelected = song.id in selectedSongIds,
-                    showCover = preset.showCover,
-                    compact = preset.compact,
-                    infoVisibility = infoVisibility,
-                    modifier = morphModifier,
-                )
-            }
-        }
-    }
-}
-
 
 private data class SongZoomMorphRecord(
     val song: Song,
@@ -912,55 +794,4 @@ private fun interpolateSongZoomRect(
         widthPx = lerp(lower.widthPx, upper.widthPx).coerceAtLeast(1f),
         heightPx = lerp(lower.heightPx, upper.heightPx).coerceAtLeast(1f),
     )
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SongZoomGridTile(
-    song: Song,
-    isCurrent: Boolean,
-    isPlaying: Boolean,
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)?,
-    selected: Boolean,
-    selectionMode: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-            ),
-        verticalArrangement = Arrangement.spacedBy(HifiSpacing.xs),
-    ) {
-        SongCover(
-            albumArtUri = song.albumArtUri,
-            fallbackColor = song.coverColor,
-            contentDescription = song.title,
-            decodeTarget = CoverDecodeTarget.forCompactCover(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = song.title,
-                style = MicaTheme.typography.bodyMd,
-                color = if (selected || isCurrent) MicaTheme.colors.accent else MicaTheme.colors.textPrimary,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            if (isPlaying) {
-                PlayingIndicator(modifier = Modifier.size(12.dp))
-            }
-        }
-        Text(
-            text = if (selectionMode && selected) "已选择" else ArtistNames.normalizeDisplay(song.artist),
-            style = MicaTheme.typography.bodySm,
-            color = MicaTheme.colors.textSecondary,
-            maxLines = 1,
-        )
-    }
 }

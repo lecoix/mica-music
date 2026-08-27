@@ -89,15 +89,13 @@ import com.mica.music.ui.components.SongRow
 import com.mica.music.ui.components.songListColumnsFor
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
-import com.mica.music.ui.zoom.PinchZoomGridAnchor
 import com.mica.music.ui.zoom.PinchZoomItemRect
-import com.mica.music.ui.zoom.capturePinchZoomAnchor
 import com.mica.music.ui.zoom.visiblePinchZoomItemRects
 import com.mica.music.ui.zoom.calculatePinchZoomItemMorph
 import com.mica.music.ui.zoom.pinchZoomItemBoundsMorph
 import com.mica.music.ui.zoom.pinchZoomGesture
+import com.mica.music.ui.zoom.rememberPinchZoomGridAnchorCoordinator
 import com.mica.music.ui.zoom.rememberPinchZoomState
-import com.mica.music.ui.zoom.restorePinchZoomAnchor
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -912,27 +910,19 @@ private fun DetailZoomHost(
         },
     )
     val segment = zoomState.segment
-    var gestureAnchor by remember(page) { mutableStateOf<PinchZoomGridAnchor?>(null) }
-    var gestureAnchorSource by remember(page) { mutableStateOf(initialIndex) }
-    var gestureAlignedPresetIndices by remember(page) { mutableStateOf(setOf(initialIndex)) }
+    val anchorCoordinator = rememberPinchZoomGridAnchorCoordinator(
+        states = states,
+        initialAlignedIndex = initialIndex,
+        stateKey = page,
+    )
 
-    LaunchedEffect(segment.lowerIndex, segment.upperIndex, gestureAnchor, zoomState.gestureActive) {
-        val anchor = gestureAnchor
-        if (anchor != null) {
-            setOf(segment.lowerIndex, segment.upperIndex).forEach { index ->
-                if (index !in gestureAlignedPresetIndices) {
-                    states[index].restorePinchZoomAnchor(anchor)
-                    gestureAlignedPresetIndices = gestureAlignedPresetIndices + index
-                }
-            }
-        }
+    LaunchedEffect(segment.lowerIndex, segment.upperIndex, anchorCoordinator.anchor, zoomState.gestureActive) {
+        anchorCoordinator.alignPresetPair(segment.lowerIndex, segment.upperIndex)
         zoomState.markGestureGeometryReady()
     }
     LaunchedEffect(zoomState.settledIndex, page) {
         val settled = zoomState.settledIndex
-        gestureAnchor = null
-        gestureAnchorSource = settled
-        gestureAlignedPresetIndices = setOf(settled)
+        anchorCoordinator.resetTo(settled)
         val state = states[settled]
         snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
             .collectLatest { (index, offset) -> listState.scrollToItem(index, offset) }
@@ -945,9 +935,7 @@ private fun DetailZoomHost(
                 state = zoomState,
                 onGestureStart = { _ ->
                     val source = zoomState.settledIndex
-                    gestureAnchorSource = source
-                    gestureAlignedPresetIndices = setOf(source)
-                    gestureAnchor = states[source].capturePinchZoomAnchor()
+                    anchorCoordinator.beginGesture(source)
                 },
             ),
     ) {
@@ -1416,45 +1404,29 @@ private fun BrowseGroupList(
         motionEnabled = motionEnabled,
         onSettledIndexChanged = { onGridColumnsChange(orderedColumns[it]) },
     )
-    var gestureAnchor by remember { mutableStateOf<PinchZoomGridAnchor?>(null) }
-    var gestureAnchorSource by remember { mutableStateOf(externalIndex) }
-    var gestureAlignedPresetIndices by remember { mutableStateOf(setOf(externalIndex)) }
+    val anchorCoordinator = rememberPinchZoomGridAnchorCoordinator(
+        states = states,
+        initialAlignedIndex = externalIndex,
+    )
     var previousExternalIndex by remember { mutableStateOf(externalIndex) }
     val segment = zoomState.segment
 
-    LaunchedEffect(segment.lowerIndex, segment.upperIndex, gestureAnchor, zoomState.gestureActive) {
-        val anchor = gestureAnchor
-        if (anchor != null) {
-            setOf(segment.lowerIndex, segment.upperIndex).forEach { index ->
-                if (index !in gestureAlignedPresetIndices) {
-                    states[index].restorePinchZoomAnchor(anchor)
-                    gestureAlignedPresetIndices = gestureAlignedPresetIndices + index
-                }
-            }
-        }
+    LaunchedEffect(segment.lowerIndex, segment.upperIndex, anchorCoordinator.anchor, zoomState.gestureActive) {
+        anchorCoordinator.alignPresetPair(segment.lowerIndex, segment.upperIndex)
         zoomState.markGestureGeometryReady()
     }
 
     LaunchedEffect(externalIndex) {
         if (externalIndex != previousExternalIndex) {
             val sourceIndex = previousExternalIndex
-            if (externalIndex !in gestureAlignedPresetIndices) {
-                states[sourceIndex].capturePinchZoomAnchor()?.let { anchor ->
-                    gestureAnchorSource = sourceIndex
-                    gestureAnchor = anchor
-                    states[externalIndex].restorePinchZoomAnchor(anchor)
-                    gestureAlignedPresetIndices = gestureAlignedPresetIndices + externalIndex
-                }
-            }
+            anchorCoordinator.alignExternalPreset(sourceIndex, externalIndex)
             previousExternalIndex = externalIndex
         }
     }
 
     LaunchedEffect(zoomState.settledIndex) {
         val index = zoomState.settledIndex
-        gestureAnchor = null
-        gestureAnchorSource = index
-        gestureAlignedPresetIndices = setOf(index)
+        anchorCoordinator.resetTo(index)
         val state = states[index]
         snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
             .collectLatest { (itemIndex, offset) ->
@@ -1478,9 +1450,7 @@ private fun BrowseGroupList(
                     state = zoomState,
                     onGestureStart = { _ ->
                         val source = zoomState.settledIndex
-                        gestureAnchorSource = source
-                        gestureAlignedPresetIndices = setOf(source)
-                        gestureAnchor = states[source].capturePinchZoomAnchor()
+                        anchorCoordinator.beginGesture(source)
                     },
                 ),
         ) {
@@ -1999,44 +1969,6 @@ private fun albumRowSubtitle(group: BrowseGroup): String =
         ReleaseDates.displayLabel(group.year, group.releaseDate).takeIf { it.isNotBlank() },
         "${group.songCount} 首",
     ).joinToString(" · ")
-
-@Composable
-private fun BrowseGroupGridTile(
-    group: BrowseGroup,
-    onClick: () -> Unit,
-    titleMaxLines: Int = 2,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
-    ) {
-        SongCover(
-            albumArtUri = group.albumArtUri,
-            fallbackColor = Color(group.coverColorArgb),
-            contentDescription = group.title,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f),
-        )
-        Text(
-            text = group.title,
-            style = MicaTheme.typography.bodyMd,
-            color = MicaTheme.colors.textPrimary,
-            maxLines = titleMaxLines,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = "${group.songCount} 首",
-            style = MicaTheme.typography.bodySm,
-            color = MicaTheme.colors.textSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
 
 @Composable
 private fun FolderContentList(
