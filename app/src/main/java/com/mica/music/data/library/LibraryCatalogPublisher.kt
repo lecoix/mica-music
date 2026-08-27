@@ -99,7 +99,6 @@ internal class LibraryCatalogPublisher(
         }
 
     fun applyCurrentSort(diagnosticReason: String? = null) {
-        if (scannedSongs.isEmpty()) return
         val startedMs = SystemClock.elapsedRealtime()
         val presentation = LibraryPresentationBuilder.prepare(
             scannedSongs,
@@ -120,7 +119,7 @@ internal class LibraryCatalogPublisher(
     }
 
     fun persistSongsAsync() {
-        if (scannedSongs.isEmpty() || backing.lastScanAtMs == null) return
+        if (backing.lastScanAtMs == null) return
         val snapshot = backing.songs
         val scanAt = backing.lastScanAtMs!!
         val source = backing.lastScanSource

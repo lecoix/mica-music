@@ -13,7 +13,10 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verifyOrder
 import io.mockk.verify
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -130,5 +133,53 @@ class ServicePlaybackStateCoordinatorTest {
 
         verify(atLeast = 1) { store.clear(any()) }
         verify(exactly = 0) { store.saveQueue(any(), any()) }
+    }
+
+    @Test
+    fun clearingActiveQueueClearsSnapshotAfterOlderQueueSaveCompletes() {
+        val store = mockk<ServicePlaybackStateStore>(relaxed = true)
+        val handler = mockk<Handler>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val item = MediaItem.Builder().setMediaId("one").build()
+        val oldSaveStarted = CountDownLatch(1)
+        val releaseOldSave = CountDownLatch(1)
+        var mediaItemCount = 1
+        var persistedSongIds = listOf("stale")
+
+        every { store.load() } returns null
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.mediaItemCount } answers { mediaItemCount }
+        every { player.getMediaItemAt(0) } returns item
+        every { player.currentMediaItem } answers { if (mediaItemCount > 0) item else null }
+        every { store.saveQueue(any(), any()) } answers {
+            oldSaveStarted.countDown()
+            assertTrue(releaseOldSave.await(5, TimeUnit.SECONDS))
+            persistedSongIds = firstArg<ServiceQueueSnapshot>().songIds
+        }
+        every { store.clear(any()) } answers {
+            persistedSongIds = emptyList()
+        }
+
+        val coordinator = ServicePlaybackStateCoordinator(
+            player = player,
+            store = store,
+            handler = handler,
+            initialQualityMode = AudioQualityMode.HIFI,
+        )
+        coordinator.start()
+        listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
+        assertTrue(oldSaveStarted.await(5, TimeUnit.SECONDS))
+
+        mediaItemCount = 0
+        listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
+        releaseOldSave.countDown()
+        coordinator.release()
+
+        assertTrue(persistedSongIds.isEmpty())
+        verifyOrder {
+            store.saveQueue(any(), any())
+            store.clear(any())
+        }
     }
 }

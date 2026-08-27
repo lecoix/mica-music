@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.zIndex
 import com.mica.music.data.ArtistNames
+import com.mica.music.data.FastScrollIndex
 import com.mica.music.data.LibraryFastScrollIndex
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
@@ -108,11 +109,13 @@ fun SongListPanel(
     val context = LocalContext.current
     val motionEnabled = rememberMicaMotionEnabled()
     val externalListState = listState ?: rememberLazyListState()
-    val resolvedFastScrollLabels = when {
-        fastScrollLabels != null -> fastScrollLabels
-        fastScrollSortField != null -> songs.timedFastScrollLabels(fastScrollSortField)
-        else -> null
-    }
+    val fallbackFastScrollIndex = rememberSongListFastScrollIndex(
+        songs = songs,
+        field = fastScrollSortField.takeIf { fastScrollLabels == null },
+    )
+    val resolvedFastScrollLabels = fastScrollLabels ?: fallbackFastScrollIndex?.labels
+    val resolvedFastScrollSectionTargets =
+        fastScrollSectionTargets ?: fallbackFastScrollIndex?.sectionTargets
 
     if (songs.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -266,7 +269,7 @@ fun SongListPanel(
     } else {
         AlphabetFastScroller(
             labels = resolvedFastScrollLabels,
-            sectionTargetsOverride = fastScrollSectionTargets,
+            sectionTargetsOverride = resolvedFastScrollSectionTargets,
             scrollToIndex = { states[zoomState.dominantIndex].scrollToItem(it) },
             descending = fastScrollSortDirection == SortDirection.DESC,
             fullHeightOverlay = SongZoomOrder[zoomState.dominantIndex].columns(landscape) > 1,
@@ -280,15 +283,21 @@ fun SongListPanel(
 internal fun songListColumnsFor(widthDp: Int, heightDp: Int): Int =
     if (widthDp > heightDp) 2 else 1
 
-private fun List<Song>.timedFastScrollLabels(field: SongSortField): List<String>? {
+@Composable
+internal fun rememberSongListFastScrollIndex(
+    songs: List<Song>,
+    field: SongSortField?,
+): FastScrollIndex? = remember(songs, field) {
+    if (field == null) return@remember null
     val startedMs = SystemClock.elapsedRealtime()
-    val labels = LibraryFastScrollIndex.labelsForSongs(this, field)
+    val index = LibraryFastScrollIndex.forSongs(songs, field)
     DiagnosticLog.event(
         "LibraryUi",
-        "songList fastScrollLabels durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-            "songs=$size field=$field labels=${labels?.size ?: 0}",
+        "songList fastScrollIndex durMs=${SystemClock.elapsedRealtime() - startedMs} " +
+            "songs=${songs.size} field=$field labels=${index?.labels?.size ?: 0} " +
+            "sections=${index?.sectionTargets?.size ?: 0}",
     )
-    return labels
+    index
 }
 
 private enum class SongZoomPreset(

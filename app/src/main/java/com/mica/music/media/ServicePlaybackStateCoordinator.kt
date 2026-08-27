@@ -36,10 +36,14 @@ internal class ServicePlaybackStateCoordinator(
             if (!tryRestore()) {
                 val songIds = currentSongIds()
                 val externalSongs = currentExternalSongs()
-                if (
-                    songIds.isNotEmpty() &&
-                    (songIds != lastPersistedQueueIds || externalSongs != lastPersistedExternalSongs)
-                ) {
+                if (songIds.isEmpty()) {
+                    if (!lastPersistedQueueIds.isNullOrEmpty()) {
+                        queueRevision++
+                        lastPersistedQueueIds = emptyList()
+                        lastPersistedExternalSongs = emptyList()
+                        submit(sync = false) { store.clear() }
+                    }
+                } else if (songIds != lastPersistedQueueIds || externalSongs != lastPersistedExternalSongs) {
                     queueRevision++
                     lastPersistedQueueIds = songIds
                     lastPersistedExternalSongs = externalSongs

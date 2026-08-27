@@ -201,6 +201,8 @@ _Avoid_: 软件播、双后端、libmica_ffmpeg
 
 **USB-exclusive output（USB Host 真独占输出）**：
 Hybrid 已接入独立 USB Host 输出路径：App 持有目标 USB audio interface，负责权限、claim、格式协商、传输与释放，并绕过系统共享 `AudioTrack`。当前代码范围包含 Shared PCM、Exact PCM、显式 DoP 与实验性 Native DSD，并以 descriptor-first + reviewed/runtime quirk 的方式扩展 DAC 兼容；多设备歧义与无法证明的 framing 继续 fail-closed。当前决策与验证边界见 `docs/adr/0004-usb-exclusive-hybrid.md` 和 `docs/USB_EXCLUSIVE_HYBRID_STATUS.md`；ADR-0001 与 `docs/USB_EXCLUSIVE_AUDIO_STATUS.md` 保留为历史原型/架构证据。
+
+Service 的 USB output operation ID 区分每次异步等待、探测与权限请求；模式 `generation` 继续表示用户输出意图，native request epoch 继续表示底层会话所有权。新操作、阶段切换及 Service 销毁必须使旧 operation 失效，任何外部调用或延迟回调返回后都要在副作用前重新校验。USB 拔出事件仅在已知 `runtimeHandle` 匹配当前候选或 owner 目标时释放播放；目标未知时保留原有断开处理。
 _Avoid_: 把 `AudioTrack.setPreferredDevice`、framework direct support 或现有 `UsbDirectPcm` 最小链称为 USB 独占
 
 **Applied ReplayGain（实际 ReplayGain）**：

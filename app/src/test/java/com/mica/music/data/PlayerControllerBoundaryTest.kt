@@ -65,6 +65,61 @@ class PlayerControllerBoundaryTest {
         controller.release()
     }
 
+    @Test
+    fun metadataRefreshBeforeConnectionReplacesSameIdPendingQueue() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val submittedItems = slot<List<MediaItem>>()
+        val cached = SongFixtures.song("same-id").copy(title = "Cached title")
+        val refreshed = cached.copy(title = "Refreshed title")
+        every { mediaController.currentMediaItem } returns null
+        every { mediaController.mediaItemCount } returns 0
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 0L
+
+        controller.setQueue(listOf(cached))
+        controller.connectIfNeeded()
+        controller.setQueue(listOf(refreshed))
+        connector.requests.single().onConnected(mediaController)
+
+        verify(exactly = 1) {
+            mediaController.setMediaItems(capture(submittedItems), 0, 0L)
+        }
+        assertEquals("Refreshed title", SongMediaItemCodec.decode(submittedItems.captured.single())?.title)
+        controller.release()
+    }
+
+    @Test
+    fun playbackRefreshBeforeConnectionReplacesSameIdPendingQueue() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val submittedItems = slot<List<MediaItem>>()
+        val cached = SongFixtures.song("same-id").copy(mediaUri = "content://cached")
+        val refreshed = cached.copy(
+            mediaUri = "content://refreshed",
+            metadata = cached.metadata.copy(playbackMimeType = "audio/flac"),
+        )
+        every { mediaController.currentMediaItem } returns null
+        every { mediaController.mediaItemCount } returns 0
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 0L
+
+        controller.setQueue(listOf(cached))
+        controller.connectIfNeeded()
+        controller.setQueue(listOf(refreshed))
+        connector.requests.single().onConnected(mediaController)
+
+        verify(exactly = 1) {
+            mediaController.setMediaItems(capture(submittedItems), 0, 0L)
+        }
+        val submitted = SongMediaItemCodec.decode(submittedItems.captured.single())
+        assertEquals("content://refreshed", submitted?.mediaUri)
+        assertEquals("audio/flac", submitted?.metadata?.playbackMimeType)
+        controller.release()
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun rapidEquivalentPlaylistChangesAreDebouncedAndRebuiltOnce() = runTest {

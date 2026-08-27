@@ -14,6 +14,7 @@ import com.afalphy.sylvakru.UsbExclusiveAudioTransport
 import com.afalphy.sylvakru.UsbExclusiveNative
 import com.mica.music.data.preferences.UsbHybridPreferences
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /** Android boundary for the owner. It never selects an arbitrary first UAC device. */
@@ -54,7 +55,7 @@ class AndroidUsbHybridControlEffects(
         }
     }
 
-    private val permissionAction = "${appContext.packageName}.USB_HYBRID_PERMISSION"
+    private val permissionAction = "${appContext.packageName}.USB_HYBRID_PERMISSION.${UUID.randomUUID()}"
     private val topologyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -106,6 +107,9 @@ class AndroidUsbHybridControlEffects(
     }
 
     override fun requestPermission(request: UsbPermissionRequest) {
+        // The output owner has already superseded the previous attempt. Keep only the request
+        // whose instance-scoped broadcast is still allowed to complete.
+        pendingRequests.clear()
         val candidate = findCandidate(request.runtimeHandle)
         if (candidate == null || candidate.second != request.identity) {
             permissionResultSink(

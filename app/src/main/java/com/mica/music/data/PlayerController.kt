@@ -1028,7 +1028,10 @@ class PlayerController internal constructor(
                 preserveId?.let { queueCoordinator.replaceOrder(playbackOrderState.moveTo(it)) }
                 publishPlaybackStates()
             }
-            controller?.let { c ->
+            val c = controller
+            if (c == null) {
+                pendingQueue = songQueue
+            } else {
                 if (c.mediaItemCount > 0) {
                     syncQueueToService(
                         c = c,
@@ -1037,12 +1040,12 @@ class PlayerController internal constructor(
                         preserveCurrentPlayback = true,
                     )
                 }
+                syncPlaybackState()
             }
-            controller?.let { syncPlaybackState() }
             DiagnosticLog.event(
                 "LibraryQueue",
                 "setQueue playbackUnchanged durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${controller?.mediaItemCount ?: 0} " +
+                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${c?.mediaItemCount ?: 0} " +
                     metadataDiff,
             )
             return
@@ -1053,13 +1056,16 @@ class PlayerController internal constructor(
         publishPlaybackStates()
 
         if (sameOrderAndIds) {
-            controller?.let {
-                applyQueue(it, orderedQueue, preservePlayback = true, preserveSongId = preserveId)
+            val c = controller
+            if (c == null) {
+                pendingQueue = orderedQueue
+            } else {
+                applyQueue(c, orderedQueue, preservePlayback = true, preserveSongId = preserveId)
             }
             DiagnosticLog.event(
                 "LibraryQueue",
                 "setQueue sameOrderApply durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${controller?.mediaItemCount ?: 0}",
+                    "previous=$previousQueueSize new=${newQueue.size} controllerItems=${c?.mediaItemCount ?: 0}",
             )
             return
         }

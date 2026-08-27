@@ -68,6 +68,7 @@ import com.mica.music.media.usbhybrid.UsbStableIdentity
 import com.mica.music.media.usbhybrid.UsbSharedQuiescencePolicyResolver
 import com.mica.music.media.usbhybrid.UsbTopologyEvent
 import com.mica.music.util.DiagnosticLog
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +89,12 @@ private data class PlaybackStackHandoff(
     val repeatMode: Int,
     val playbackParameters: PlaybackParameters,
     val volume: Float,
+)
+
+private data class UsbOutputOperation(
+    val id: Long,
+    val generation: Long,
+    val phase: UsbOutputPhase,
 )
 
 @UnstableApi
@@ -135,6 +142,8 @@ class MicaMediaService : MediaSessionService() {
     private var usbSharedRouteWaitBaselineAddSerial: Long = 0L
     private var usbSharedReturnProbeIdentity: UsbStableIdentity? = null
     private var usbSharedAudioDeviceCallbackRegistered: Boolean = false
+    private var usbOutputOperation: UsbOutputOperation? = null
+    private var usbOutputDestroyed: Boolean = false
     private val usbSharedAudioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
             val usbDevice = addedDevices.firstOrNull(::isAndroidUsbAudioOutput) ?: return
@@ -271,8 +280,16 @@ class MicaMediaService : MediaSessionService() {
         lateinit var owner: UsbHybridSessionOwner
         val effects = AndroidUsbHybridControlEffects(
             context = this,
-            permissionResultSink = { result -> mainHandler.post { onUsbPermissionResult(result) } },
-            topologyEventSink = { event -> mainHandler.post { onUsbTopologyEvent(event) } },
+            permissionResultSink = { result ->
+                mainHandler.post {
+                    if (!usbOutputDestroyed) onUsbPermissionResult(result)
+                }
+            },
+            topologyEventSink = { event ->
+                mainHandler.post {
+                    if (!usbOutputDestroyed) onUsbTopologyEvent(event)
+                }
+            },
         )
         owner = UsbHybridSessionOwner(
             effects = effects,
@@ -413,12 +430,45 @@ class MicaMediaService : MediaSessionService() {
         val before = usbOutputState
         val reduction = UsbOutputStateMachine.reduce(before, event)
         usbOutputState = reduction.state
+        if (before.generation != reduction.state.generation || before.phase != reduction.state.phase) {
+            invalidateUsbOutputOperation()
+        }
         DiagnosticLog.event(
             "UsbOutputState",
             "event=${event.javaClass.simpleName} generation=${usbOutputState.generation} " +
                 "desired=${usbOutputState.desiredMode} phase=${before.phase}->${usbOutputState.phase}",
         )
         reduction.effects.forEach(::executeUsbOutputEffect)
+    }
+
+    private fun beginUsbOutputOperation(generation: Long, phase: UsbOutputPhase): UsbOutputOperation? {
+        if (usbOutputDestroyed || usbOutputState.generation != generation || usbOutputState.phase != phase) return null
+        return UsbOutputOperation(
+            id = nextUsbOutputOperationId.incrementAndGet(),
+            generation = generation,
+            phase = phase,
+        ).also { usbOutputOperation = it }
+    }
+
+    private fun isCurrentUsbOutputOperation(operation: UsbOutputOperation): Boolean =
+        !usbOutputDestroyed &&
+            usbOutputOperation == operation &&
+            usbOutputState.generation == operation.generation &&
+            usbOutputState.phase == operation.phase
+
+    private fun invalidateUsbOutputOperation() {
+        usbOutputOperation = null
+    }
+
+    private fun postUsbOutputOperation(
+        operation: UsbOutputOperation,
+        delayMs: Long = 0L,
+        action: () -> Unit,
+    ) {
+        val guarded = Runnable {
+            if (isCurrentUsbOutputOperation(operation)) action()
+        }
+        if (delayMs > 0L) mainHandler.postDelayed(guarded, delayMs) else mainHandler.post(guarded)
     }
 
     private fun executeUsbOutputEffect(effect: UsbOutputEffect) {
@@ -486,6 +536,10 @@ class MicaMediaService : MediaSessionService() {
                     phase == UsbOutputPhase.SharedReconnectRequired ||
                     phase == UsbOutputPhase.SharedRouteWaiting
                 if (!relevant) return
+                // A hub can detach another device while our DAC remains connected. Match before
+                // invalidating its operation or releasing playback; unknown targets keep existing handling.
+                val targetRuntime = usbOutputCandidate?.runtimeHandle ?: usbOwner?.facts?.value?.runtimeHandle
+                if (targetRuntime != null && targetRuntime != event.runtimeHandle) return
                 capturePlaybackStackHandoff()?.let { usbOutputHandoff = it }
                 val playWhenReady = usbOutputState.frozenIntent?.playWhenReady
                     ?: usbOutputHandoff?.playWhenReady
@@ -498,6 +552,7 @@ class MicaMediaService : MediaSessionService() {
 
     private fun scheduleSharedQuiescenceProbe(generation: Long) {
         if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedQuiescing) return
+        val operation = beginUsbOutputOperation(generation, UsbOutputPhase.SharedQuiescing) ?: return
         val identity = usbOutputCandidate?.identity ?: run {
             val selected = usbEffects?.discoverUsbAudioDevice() as? UsbAudioSelection.Selected
             selected?.candidate?.also { usbOutputCandidate = it }?.identity
@@ -510,11 +565,12 @@ class MicaMediaService : MediaSessionService() {
             "shared-quiesce start generation=$generation settleMs=${policy.settleMs} " +
                 "host=${Build.MANUFACTURER}/${Build.MODEL} identity=${identity?.vendorId}:${identity?.productId}",
         )
-        mainHandler.postDelayed({ pollSharedQuiescence(generation) }, SHARED_QUIESCE_POLL_MS)
+        postUsbOutputOperation(operation, SHARED_QUIESCE_POLL_MS) { pollSharedQuiescence(operation) }
     }
 
-    private fun pollSharedQuiescence(generation: Long) {
-        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedQuiescing) return
+    private fun pollSharedQuiescence(operation: UsbOutputOperation) {
+        if (!isCurrentUsbOutputOperation(operation)) return
+        val generation = operation.generation
         val elapsedMs = SystemClock.elapsedRealtime() - usbSharedQuiesceStartedAtMs
         if (elapsedMs >= usbSharedQuiesceSettleMs) {
             DiagnosticLog.event(
@@ -524,22 +580,26 @@ class MicaMediaService : MediaSessionService() {
             dispatchUsbOutput(UsbOutputEvent.SharedQuiesced(generation))
             return
         }
-        mainHandler.postDelayed({ pollSharedQuiescence(generation) }, SHARED_QUIESCE_POLL_MS)
+        postUsbOutputOperation(operation, SHARED_QUIESCE_POLL_MS) { pollSharedQuiescence(operation) }
     }
 
     private fun scheduleExclusiveTargetProbe(generation: Long) {
         if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.ExclusivePreparing) return
+        val operation = beginUsbOutputOperation(generation, UsbOutputPhase.ExclusivePreparing) ?: return
         usbProbeGeneration = generation
         usbProbePollAttempts = 0
         usbProbeStableObservations = 0
         usbProbeIdentity = null
         usbProbeRuntimeHandle = null
-        mainHandler.post { pollExclusiveTarget(generation) }
+        postUsbOutputOperation(operation) { pollExclusiveTarget(operation) }
     }
 
-    private fun pollExclusiveTarget(generation: Long) {
-        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.ExclusivePreparing) return
-        when (val selection = usbEffects?.discoverUsbAudioDevice()) {
+    private fun pollExclusiveTarget(operation: UsbOutputOperation) {
+        if (!isCurrentUsbOutputOperation(operation)) return
+        val generation = operation.generation
+        val selection = usbEffects?.discoverUsbAudioDevice()
+        if (!isCurrentUsbOutputOperation(operation)) return
+        when (selection) {
             is UsbAudioSelection.Selected -> {
                 val candidate = selection.candidate
                 val same = usbProbeIdentity == candidate.identity && usbProbeRuntimeHandle == candidate.runtimeHandle
@@ -581,12 +641,13 @@ class MicaMediaService : MediaSessionService() {
             )
             return
         }
-        mainHandler.postDelayed({ pollExclusiveTarget(generation) }, EXCLUSIVE_TARGET_READY_POLL_MS)
+        postUsbOutputOperation(operation, EXCLUSIVE_TARGET_READY_POLL_MS) { pollExclusiveTarget(operation) }
     }
 
     private fun requestUsbPermissionForState() {
         val state = usbOutputState
         if (state.phase != UsbOutputPhase.PermissionWaiting) return
+        val operation = beginUsbOutputOperation(state.generation, UsbOutputPhase.PermissionWaiting) ?: return
         val candidate = usbOutputCandidate
         if (candidate == null) {
             dispatchUsbOutput(UsbOutputEvent.TargetLost)
@@ -594,7 +655,7 @@ class MicaMediaService : MediaSessionService() {
         }
         usbEffects?.requestPermission(
             UsbPermissionRequest(
-                epoch = UsbRequestEpoch(state.generation),
+                epoch = UsbRequestEpoch(operation.id),
                 mode = state.desiredMode.toExclusiveMode(),
                 identity = candidate.identity,
                 runtimeHandle = candidate.runtimeHandle,
@@ -604,9 +665,11 @@ class MicaMediaService : MediaSessionService() {
 
     private fun onUsbPermissionResult(result: UsbPermissionResult) {
         val state = usbOutputState
-        if (result.epoch.value != state.generation || state.phase != UsbOutputPhase.PermissionWaiting) return
+        val operation = usbOutputOperation ?: return
+        if (result.epoch.value != operation.id || !isCurrentUsbOutputOperation(operation)) return
         val effects = usbEffects ?: return
         val currentSelection = effects.discoverUsbAudioDevice()
+        if (!isCurrentUsbOutputOperation(operation)) return
         val candidate = (currentSelection as? UsbAudioSelection.Selected)?.candidate
         if (candidate == null || candidate.identity != result.identity) {
             usbOutputCandidate = candidate
@@ -744,6 +807,7 @@ class MicaMediaService : MediaSessionService() {
 
     private fun scheduleSharedRouteProbe(generation: Long) {
         if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedRouteWaiting) return
+        val operation = beginUsbOutputOperation(generation, UsbOutputPhase.SharedRouteWaiting) ?: return
         usbSharedRoutePollGeneration = generation
         usbSharedRouteProbeStartedAtMs = SystemClock.elapsedRealtime()
         if (usbSharedAudioAddSerial > usbSharedRouteWaitBaselineAddSerial) {
@@ -760,11 +824,12 @@ class MicaMediaService : MediaSessionService() {
             "shared-route waiting generation=$generation baseline=$usbSharedRouteWaitBaselineAddSerial " +
                 "serial=$usbSharedAudioAddSerial",
         )
-        mainHandler.postDelayed({ onSharedRouteTimeout(generation) }, SHARED_RETURN_ROUTE_TIMEOUT_MS)
+        postUsbOutputOperation(operation, SHARED_RETURN_ROUTE_TIMEOUT_MS) { onSharedRouteTimeout(operation) }
     }
 
-    private fun onSharedRouteTimeout(generation: Long) {
-        if (generation != usbOutputState.generation || usbOutputState.phase != UsbOutputPhase.SharedRouteWaiting) return
+    private fun onSharedRouteTimeout(operation: UsbOutputOperation) {
+        if (!isCurrentUsbOutputOperation(operation)) return
+        val generation = operation.generation
         val elapsedMs = SystemClock.elapsedRealtime() - usbSharedRouteProbeStartedAtMs
         DiagnosticLog.event(
             "UsbOutputState",
@@ -1108,6 +1173,8 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        usbOutputDestroyed = true
+        invalidateUsbOutputOperation()
         uninstallUsbSharedAudioDeviceCallback()
         playbackRouteMonitor?.release()
         playbackRouteMonitor = null
@@ -1526,6 +1593,7 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private companion object {
+        private val nextUsbOutputOperationId = AtomicLong()
         const val USB_TELEMETRY_INTERVAL_MS = 1_000L
         const val NATIVE_DSD_HOTPLUG_PRIME_SETTLE_MS = 300L
         const val SHARED_RETURN_ROUTE_TIMEOUT_MS = 5_000L
