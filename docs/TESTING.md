@@ -198,7 +198,7 @@ Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极�
 
 最近一批状态所有权与持久化边界改动，除既有的 `micaCheck` 全量门禁外，重点回归套件：
 
-- `PlaybackTimelineCoordinatorTest` / `PlaybackTuningCoordinatorTest` / `PlayerControllerQueueModelTest`：时间轴、调音与队列 UI 状态的单一 owner 语义；`PlaybackQueueMirrorTest` / `MediaControllerQueueSyncTest` / `PlayerControllerBoundaryTest` 覆盖陈旧队列镜像与旧连接回调被拒绝。
+- `PlaybackTimelineCoordinatorTest` / `PlaybackTuningCoordinatorTest` / `PlayerControllerQueueModelTest`：时间轴、调音与队列 UI 状态的单一 owner 语义；`PlayerControllerQueueModelTest.playerControllerFacadeDoesNotOwnRuntimeInternals` 另冻结 `PlayerController → PlaybackRuntime` 的 facade/runtime ownership 边界；`PlaybackQueueMirrorTest` / `MediaControllerQueueSyncTest` / `PlayerControllerBoundaryTest` 覆盖陈旧队列镜像与旧连接回调被拒绝。
 - `AudioPipelineCoordinatorTest` / `AudioOffloadCircuitBreakerTest` / `AudioOffloadPreferencesRobolectricTest`：EQ / 频谱 / offload 偏好变化使旧熔断任务失效；确认失速后回 PCM、按 build fingerprint 记录失败、手动重试与系统更新后重试。
 - `ExternalAudioOpenTest` / `TransientPlaybackCatalogTest` / `ServicePlaybackStateCoordinatorTest`：只有 MediaStore authority 或已持久化 grant 的外部 URI 才进入恢复快照，不可存续临时队列不落盘。
 - `PlaylistStoreTest` / `RoomMigrationContractTest` / `DatabaseMigrationTest`：歌单写库成功后才更新内存；`mica_playlists` JSON 一次性迁移与 `16→17` 建表契约。

@@ -5,12 +5,33 @@ import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.testutil.SongFixtures
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class PlayerControllerQueueModelTest {
+
+    @Test
+    fun playerControllerFacadeDoesNotOwnRuntimeInternals() {
+        val fields = PlayerController::class.java.declaredFields
+        assertEquals(
+            PlaybackRuntime::class.java,
+            fields.single { it.name == "runtime" }.type,
+        )
+        val names = fields.map { it.name }.toSet()
+        listOf(
+            "connectionSession",
+            "queueCoordinator",
+            "timelineCoordinator",
+            "tuningCoordinator",
+            "playbackStatistics",
+            "pendingMediaSelection",
+        ).forEach { forbidden ->
+            assertFalse("PlayerController facade must not own $forbidden", forbidden in names)
+        }
+    }
 
     @Test
     fun serviceQueueMirrorPrefersCompleteLibrarySong() {
@@ -302,9 +323,12 @@ class PlayerControllerQueueModelTest {
         }
 
         private fun queueCoordinator(controller: PlayerController): PlaybackQueueCoordinator {
-            val field = PlayerController::class.java.getDeclaredField("queueCoordinator")
-            field.isAccessible = true
-            return field.get(controller) as PlaybackQueueCoordinator
+            val runtimeField = PlayerController::class.java.getDeclaredField("runtime")
+            runtimeField.isAccessible = true
+            val runtime = runtimeField.get(controller) as PlaybackRuntime
+            val queueField = PlaybackRuntime::class.java.getDeclaredField("queueCoordinator")
+            queueField.isAccessible = true
+            return queueField.get(runtime) as PlaybackQueueCoordinator
         }
     }
 }

@@ -120,8 +120,12 @@ _Avoid_: shuffle mode、repeat mode（拆开描述时仍用枚举名）
 _Avoid_: 在业务层手写 `index + 1`
 
 **PlayerController**：
-App 侧播放**命令门面** + Compose 状态镜像：队列变更经 `MediaController` 写入服务；`songQueue` / `PlaybackQueueState` 由服务队列镜像填充，**不是**出声权威源。队列、时间轴与调音三块可变 UI 状态分别由 `PlaybackQueueCoordinator`、`PlaybackTimelineCoordinator`、`PlaybackTuningCoordinator` 收口；`PlaybackConnectionSession` 用连接 generation 拒绝旧连接回调，陈旧队列镜像结果在请求号、本地 revision 或当前连接变化时被丢弃。
-_Avoid_: player view model、media player（指底层引擎时）
+App 侧播放**命令门面** + Compose 状态投影。只保留 UI-facing 命令、`PlaybackSurfaceState` / `PlaybackProgressState` / `PlaybackQueueState` / `UserMessage` 镜像以及进程级统计发布回调；不得重新持有 `MediaController` connection、`Player.Listener`、queue/timeline/tuning/statistics owner 或 pending selection。所有播放 application coordination 委托给单一 `PlaybackRuntime`。
+_Avoid_: player view model、media player（指底层引擎时）；把 callback / queue orchestration 重新塞回 facade
+
+**PlaybackRuntime**：
+App 侧非 Compose 的播放 application runtime，也是 `PlayerController` 背后的 deep implementation。它拥有 `PlaybackConnectionSession` 与实际 `Player.Listener` 语义、`PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator` / `PlaybackStatisticsTracker`、pending selection、队列 ↔ `MediaController` 同步、seek / tuning / shuffle / transport 命令执行及 App 侧轻量 session/bootstrap 编排；通过单一 `PlaybackRuntimeSnapshot` 向 facade 发布状态。`PlaybackConnectionSession` 继续用连接 generation 拒绝旧回调，陈旧队列镜像继续由请求号、本地 revision 与当前连接校验拒绝。
+_Avoid_: 让 Compose state 进入 runtime；为了缩短 runtime 再拆一组只转发 lambda 的 shallow coordinator
 
 **SleepTimerController（睡眠定时器控制器）**：
 `MicaApp` 持有的进程级播放策略；倒计时、淡出和到期暂停必须独立于 `MainViewModel` / Activity 生命周期。启动定时器时保存当前 App 播放增益，淡出只缩放该基线，到期或取消后恢复该基线；到期通知经短生命周期事件流交给当前 UI，不持有 Composable 或 ViewModel 回调。它不持久化倒计时，进程死亡后不恢复。
