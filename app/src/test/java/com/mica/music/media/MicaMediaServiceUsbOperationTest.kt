@@ -8,10 +8,13 @@ import androidx.media3.common.util.UnstableApi
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
+import com.mica.music.media.usbhybrid.AndroidUsbHybridControlEffects
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
 import com.mica.music.media.usbhybrid.FrozenPlaybackIntent
 import com.mica.music.media.usbhybrid.UsbActiveTransport
 import com.mica.music.media.usbhybrid.UsbDeviceCandidate
+import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
+import com.mica.music.media.usbhybrid.UsbHybridSessionOwner
 import com.mica.music.media.usbhybrid.UsbOutputEvent
 import com.mica.music.media.usbhybrid.UsbOutputPhase
 import com.mica.music.media.usbhybrid.UsbOutputState
@@ -50,55 +53,58 @@ class MicaMediaServiceUsbOperationTest {
         hasAudioOutput = true,
     )
 
-    @Test fun restartingSameRouteWaitInvalidatesItsPreviousTimer() {
-        val service = serviceWith(routeWaiting())
-        val first = service.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
-        val second = service.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
+    @Test fun restartingSameRouteWaitInvalidatesItsPreviousTimer() = coordinatorWith(routeWaiting()).use { fixture ->
+        val first = fixture.coordinator.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
+        val second = fixture.coordinator.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
 
-        assertFalse(service.isCurrent(first))
-        assertTrue(service.isCurrent(second))
+        assertFalse(fixture.coordinator.isCurrent(first))
+        assertTrue(fixture.coordinator.isCurrent(second))
     }
 
-    @Test fun playIntentAndNoOpAttachDoNotCancelCurrentRouteWait() {
-        val service = serviceWith(routeWaiting())
-        val operation = service.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
+    @Test fun playIntentAndNoOpAttachDoNotCancelCurrentRouteWait() = coordinatorWith(routeWaiting()).use { fixture ->
+        val operation = fixture.coordinator.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
 
-        service.dispatch(UsbOutputEvent.UserPlayIntentChanged(false))
-        service.topology(UsbTopologyEvent.Attached(dacRuntime, hasAudioOutput = true))
+        fixture.coordinator.dispatch(UsbOutputEvent.UserPlayIntentChanged(false))
+        fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Attached(dacRuntime, hasAudioOutput = true))
 
-        assertTrue(service.isCurrent(operation))
+        assertTrue(fixture.coordinator.isCurrent(operation))
     }
 
-    @Test fun recreatedServiceDoesNotAcceptPreviousServicesPermissionId() {
-        val first = serviceWith(permissionWaiting()).beginOperation(6L, UsbOutputPhase.PermissionWaiting)
-        val second = serviceWith(permissionWaiting()).beginOperation(6L, UsbOutputPhase.PermissionWaiting)
-
-        assertNotEquals(first.operationId(), second.operationId())
+    @Test fun recreatedCoordinatorDoesNotAcceptPreviousPermissionId() {
+        coordinatorWith(permissionWaiting()).use { firstFixture ->
+            coordinatorWith(permissionWaiting()).use { secondFixture ->
+                val first = firstFixture.coordinator.beginOperation(6L, UsbOutputPhase.PermissionWaiting)
+                val second = secondFixture.coordinator.beginOperation(6L, UsbOutputPhase.PermissionWaiting)
+                assertNotEquals(first.operationId(), second.operationId())
+            }
+        }
     }
 
-    @Test fun destroyedServiceRejectsItsCurrentAndFutureOperations() {
-        val service = serviceWith(routeWaiting())
-        val operation = service.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
+    @Test fun closedCoordinatorRejectsItsCurrentAndFutureOperations() = coordinatorWith(routeWaiting()).use { fixture ->
+        val operation = fixture.coordinator.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
 
-        service.setField("usbOutputDestroyed", true)
+        fixture.coordinator.close()
 
-        assertFalse(service.isCurrent(operation))
-        assertNull(service.beginOperationOrNull(4L, UsbOutputPhase.SharedRouteWaiting))
+        assertFalse(fixture.coordinator.isCurrent(operation))
+        assertNull(fixture.coordinator.beginOperationOrNull(4L, UsbOutputPhase.SharedRouteWaiting))
     }
 
     @Test fun queuedUsbDispatchCannotMutateStateAfterServiceDestroy() {
         val controller = Robolectric.buildService(MicaMediaService::class.java)
         val service = controller.create().get()
         shadowOf(Looper.getMainLooper()).idle()
+        val coordinator = service.coordinator()
         val beforeDestroy = routeWaiting()
-        service.setField("usbOutputState", beforeDestroy)
+        coordinator.setField("state", beforeDestroy)
         val mainHandler = service.getField("mainHandler") as Handler
-        mainHandler.post { service.dispatch(UsbOutputEvent.UserPlayIntentChanged(false)) }
+        mainHandler.post {
+            coordinator.submit(UsbOutputCommand.PlaybackIntentChanged(false))
+        }
 
         controller.destroy()
         shadowOf(Looper.getMainLooper()).idle()
 
-        assertEquals(beforeDestroy, service.state())
+        assertEquals(beforeDestroy, coordinator.stateForTest())
     }
 
     @Test fun queuedUsbPreferenceCannotRewriteBootstrapModeAfterServiceDestroy() {
@@ -133,27 +139,29 @@ class MicaMediaServiceUsbOperationTest {
         }
     }
 
-    @Test fun applyUsbOutputModeCannotWriteHandoffStateAfterServiceDestroy() {
+    @Test fun applyUsbOutputModeCannotWriteCoordinatorStateAfterServiceDestroy() {
         val controller = Robolectric.buildService(MicaMediaService::class.java)
         val service = controller.create().get()
         shadowOf(Looper.getMainLooper()).idle()
+        val coordinator = service.coordinator()
         val beforeDestroy = routeWaiting()
-        service.setField("usbOutputState", beforeDestroy)
-        service.setField("usbOutputSwitchReason", "before-destroy")
+        coordinator.setField("state", beforeDestroy)
+        coordinator.setField("switchReason", "before-destroy")
 
         controller.destroy()
         service.applyMode(UsbHybridOutputMode.Dop, "late-preference")
 
-        assertEquals(beforeDestroy, service.state())
-        assertEquals("before-destroy", service.getField("usbOutputSwitchReason"))
-        assertNull(service.getField("usbOutputHandoff"))
+        assertEquals(beforeDestroy, coordinator.stateForTest())
+        assertEquals("before-destroy", coordinator.getField("switchReason"))
+        assertNull(coordinator.getField("outputHandoff"))
     }
 
     @Test fun queuedAudioDeviceCallbackCannotWriteSerialAfterServiceDestroy() {
         val controller = Robolectric.buildService(MicaMediaService::class.java)
         val service = controller.create().get()
         shadowOf(Looper.getMainLooper()).idle()
-        service.setField("usbSharedAudioAddSerial", 17L)
+        val coordinator = service.coordinator()
+        coordinator.setField("sharedAudioAddSerial", 17L)
         val callback = service.getField("usbSharedAudioDeviceCallback") as AudioDeviceCallback
         val mainHandler = service.getField("mainHandler") as Handler
         val usbAudioDevice = mockk<AudioDeviceInfo>()
@@ -165,18 +173,18 @@ class MicaMediaServiceUsbOperationTest {
         controller.destroy()
         shadowOf(Looper.getMainLooper()).idle()
 
-        assertEquals(17L, service.getField("usbSharedAudioAddSerial"))
+        assertEquals(17L, coordinator.getField("sharedAudioAddSerial"))
     }
 
-    @Test fun oldRouteTimeoutCannotMatchReattachedWait() {
-        val service = serviceWith(routeWaiting()).also { it.setField("usbOutputCandidate", candidate) }
-        val old = service.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
+    @Test fun oldRouteTimeoutCannotMatchReattachedWait() = coordinatorWith(routeWaiting()).use { fixture ->
+        fixture.coordinator.setField("candidate", candidate)
+        val old = fixture.coordinator.beginOperation(4L, UsbOutputPhase.SharedRouteWaiting)
 
-        service.topology(UsbTopologyEvent.Detached(dacRuntime))
-        service.topology(UsbTopologyEvent.Attached(dacRuntime, hasAudioOutput = true))
+        fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Detached(dacRuntime))
+        fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Attached(dacRuntime, hasAudioOutput = true))
 
-        assertFalse(service.isCurrent(old))
-        assertEquals(UsbOutputPhase.SharedRouteWaiting, service.state().phase)
+        assertFalse(fixture.coordinator.isCurrent(old))
+        assertEquals(UsbOutputPhase.SharedRouteWaiting, fixture.coordinator.stateForTest().phase)
     }
 
     @Test fun oldProbeCannotMatchReattachedTargetProbe() {
@@ -186,33 +194,28 @@ class MicaMediaServiceUsbOperationTest {
             generation = 8L,
             frozenIntent = FrozenPlaybackIntent(8L, true),
         )
-        val service = serviceWith(preparing).also { it.setField("usbOutputCandidate", candidate) }
-        val old = service.beginOperation(8L, UsbOutputPhase.ExclusivePreparing)
+        coordinatorWith(preparing).use { fixture ->
+            fixture.coordinator.setField("candidate", candidate)
+            val old = fixture.coordinator.beginOperation(8L, UsbOutputPhase.ExclusivePreparing)
 
-        service.topology(UsbTopologyEvent.Detached(dacRuntime))
-        service.topology(UsbTopologyEvent.Attached(dacRuntime, hasAudioOutput = true))
+            fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Detached(dacRuntime))
+            fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Attached(dacRuntime, hasAudioOutput = true))
 
-        assertFalse(service.isCurrent(old))
-        assertEquals(UsbOutputPhase.ExclusivePreparing, service.state().phase)
+            assertFalse(fixture.coordinator.isCurrent(old))
+            assertEquals(UsbOutputPhase.ExclusivePreparing, fixture.coordinator.stateForTest().phase)
+        }
     }
 
     @Test fun activeUnrelatedDetachKeepsTargetAndPlaybackState() {
-        val active = UsbOutputState(
-            desiredMode = DesiredUsbOutput.ExactPcm,
-            phase = UsbOutputPhase.ExclusiveActive(DesiredUsbOutput.ExactPcm),
-            generation = 10L,
-            frozenIntent = FrozenPlaybackIntent(10L, true),
-            targetStable = true,
-            permissionGranted = true,
-            activeTransport = UsbActiveTransport.PCM,
-            activeSessionId = 71L,
-        )
-        val service = serviceWith(active).also { it.setField("usbOutputCandidate", candidate) }
+        val active = exclusiveActive(generation = 10L, sessionId = 71L)
+        coordinatorWith(active).use { fixture ->
+            fixture.coordinator.setField("candidate", candidate)
 
-        service.topology(UsbTopologyEvent.Detached(otherRuntime))
+            fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Detached(otherRuntime))
 
-        assertEquals(active, service.state())
-        assertSame(candidate, service.getField("usbOutputCandidate"))
+            assertEquals(active, fixture.coordinator.stateForTest())
+            assertSame(candidate, fixture.coordinator.getField("candidate"))
+        }
     }
 
     @Test fun nonAudioAttachDoesNotRestartAnExclusiveTargetProbe() {
@@ -222,71 +225,58 @@ class MicaMediaServiceUsbOperationTest {
             generation = 11L,
             frozenIntent = FrozenPlaybackIntent(11L, true),
         )
-        val service = serviceWith(preparing)
-        val operation = service.beginOperation(11L, UsbOutputPhase.ExclusivePreparing)
+        coordinatorWith(preparing).use { fixture ->
+            val operation = fixture.coordinator.beginOperation(11L, UsbOutputPhase.ExclusivePreparing)
 
-        service.topology(UsbTopologyEvent.Attached(otherRuntime, hasAudioOutput = false))
+            fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Attached(otherRuntime, hasAudioOutput = false))
 
-        assertEquals(preparing, service.state())
-        assertTrue(service.isCurrent(operation))
+            assertEquals(preparing, fixture.coordinator.stateForTest())
+            assertTrue(fixture.coordinator.isCurrent(operation))
+        }
     }
 
     @Test fun activeUnrelatedAudioAttachKeepsTargetAndPlaybackState() {
-        val active = UsbOutputState(
-            desiredMode = DesiredUsbOutput.ExactPcm,
-            phase = UsbOutputPhase.ExclusiveActive(DesiredUsbOutput.ExactPcm),
-            generation = 12L,
-            frozenIntent = FrozenPlaybackIntent(12L, true),
-            targetStable = true,
-            permissionGranted = true,
-            activeTransport = UsbActiveTransport.PCM,
-            activeSessionId = 72L,
-        )
-        val service = serviceWith(active).also { it.setField("usbOutputCandidate", candidate) }
+        val active = exclusiveActive(generation = 12L, sessionId = 72L)
+        coordinatorWith(active).use { fixture ->
+            fixture.coordinator.setField("candidate", candidate)
 
-        service.topology(UsbTopologyEvent.Attached(otherRuntime, hasAudioOutput = true))
+            fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Attached(otherRuntime, hasAudioOutput = true))
 
-        assertEquals(active, service.state())
-        assertSame(candidate, service.getField("usbOutputCandidate"))
+            assertEquals(active, fixture.coordinator.stateForTest())
+            assertSame(candidate, fixture.coordinator.getField("candidate"))
+        }
     }
 
-    @Test fun unrelatedAudioAttachDoesNotReplacePermissionWaitOperation() {
-        val service = serviceWith(permissionWaiting()).also { it.setField("usbOutputCandidate", candidate) }
-        val operation = service.beginOperation(6L, UsbOutputPhase.PermissionWaiting)
+    @Test fun unrelatedAudioAttachDoesNotReplacePermissionWaitOperation() = coordinatorWith(permissionWaiting()).use { fixture ->
+        fixture.coordinator.setField("candidate", candidate)
+        val operation = fixture.coordinator.beginOperation(6L, UsbOutputPhase.PermissionWaiting)
 
-        service.topology(UsbTopologyEvent.Attached(otherRuntime, hasAudioOutput = true))
+        fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Attached(otherRuntime, hasAudioOutput = true))
 
-        assertEquals(UsbOutputPhase.PermissionWaiting, service.state().phase)
-        assertTrue(service.isCurrent(operation))
+        assertEquals(UsbOutputPhase.PermissionWaiting, fixture.coordinator.stateForTest().phase)
+        assertTrue(fixture.coordinator.isCurrent(operation))
     }
 
     @Test fun targetDetachDisconnectsAndClearsCandidate() {
-        val active = UsbOutputState(
-            desiredMode = DesiredUsbOutput.ExactPcm,
-            phase = UsbOutputPhase.ExclusiveActive(DesiredUsbOutput.ExactPcm),
-            generation = 10L,
-            frozenIntent = FrozenPlaybackIntent(10L, true),
-            targetStable = true,
-            permissionGranted = true,
-            activeTransport = UsbActiveTransport.PCM,
-            activeSessionId = 71L,
-        )
-        val service = serviceWith(active).also { it.setField("usbOutputCandidate", candidate) }
+        val active = exclusiveActive(generation = 10L, sessionId = 71L)
+        coordinatorWith(active).use { fixture ->
+            fixture.coordinator.setField("candidate", candidate)
 
-        service.topology(UsbTopologyEvent.Detached(dacRuntime))
+            fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Detached(dacRuntime))
 
-        assertEquals(UsbOutputPhase.Disconnected, service.state().phase)
-        assertNull(service.getField("usbOutputCandidate"))
+            assertEquals(UsbOutputPhase.Disconnected, fixture.coordinator.stateForTest().phase)
+            assertNull(fixture.coordinator.getField("candidate"))
+        }
     }
 
-    @Test fun lateOldRuntimeDetachCannotCancelNewPermissionWait() {
-        val service = serviceWith(permissionWaiting()).also { it.setField("usbOutputCandidate", candidate) }
-        val operation = service.beginOperation(6L, UsbOutputPhase.PermissionWaiting)
+    @Test fun lateOldRuntimeDetachCannotCancelNewPermissionWait() = coordinatorWith(permissionWaiting()).use { fixture ->
+        fixture.coordinator.setField("candidate", candidate)
+        val operation = fixture.coordinator.beginOperation(6L, UsbOutputPhase.PermissionWaiting)
 
-        service.topology(UsbTopologyEvent.Detached(otherRuntime))
+        fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Detached(otherRuntime))
 
-        assertEquals(UsbOutputPhase.PermissionWaiting, service.state().phase)
-        assertTrue(service.isCurrent(operation))
+        assertEquals(UsbOutputPhase.PermissionWaiting, fixture.coordinator.stateForTest().phase)
+        assertTrue(fixture.coordinator.isCurrent(operation))
     }
 
     @Test fun unknownTargetPreservesExistingDisconnectHandling() {
@@ -295,12 +285,22 @@ class MicaMediaServiceUsbOperationTest {
             phase = UsbOutputPhase.ExclusivePreparing,
             generation = 12L,
         )
-        val service = serviceWith(preparing)
-
-        service.topology(UsbTopologyEvent.Detached(otherRuntime))
-
-        assertEquals(UsbOutputPhase.Disconnected, service.state().phase)
+        coordinatorWith(preparing).use { fixture ->
+            fixture.coordinator.onTopologyEvent(UsbTopologyEvent.Detached(otherRuntime))
+            assertEquals(UsbOutputPhase.Disconnected, fixture.coordinator.stateForTest().phase)
+        }
     }
+
+    private fun exclusiveActive(generation: Long, sessionId: Long) = UsbOutputState(
+        desiredMode = DesiredUsbOutput.ExactPcm,
+        phase = UsbOutputPhase.ExclusiveActive(DesiredUsbOutput.ExactPcm),
+        generation = generation,
+        frozenIntent = FrozenPlaybackIntent(generation, true),
+        targetStable = true,
+        permissionGranted = true,
+        activeTransport = UsbActiveTransport.PCM,
+        activeSessionId = sessionId,
+    )
 
     private fun routeWaiting() = UsbOutputState(
         desiredMode = DesiredUsbOutput.Shared,
@@ -317,20 +317,68 @@ class MicaMediaServiceUsbOperationTest {
         targetStable = true,
     )
 
-    private fun serviceWith(state: UsbOutputState) = MicaMediaService().also {
-        it.setField("usbOutputState", state)
+    private fun coordinatorWith(state: UsbOutputState): CoordinatorFixture {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        lateinit var coordinator: DefaultUsbOutputCoordinator
+        val effects = AndroidUsbHybridControlEffects(
+            application,
+            permissionResultSink = { result -> coordinator.onPermissionResult(result) },
+            topologyEventSink = { event -> coordinator.onTopologyEvent(event) },
+        )
+        val owner = UsbHybridSessionOwner(effects)
+        coordinator = DefaultUsbOutputCoordinator(
+            context = application,
+            mainHandler = Handler(Looper.getMainLooper()),
+            effects = effects,
+            owner = owner,
+            playback = FakePlaybackPort(),
+        )
+        coordinator.setField("state", state)
+        return CoordinatorFixture(coordinator, owner, effects)
     }
 
-    private fun MicaMediaService.beginOperation(generation: Long, phase: UsbOutputPhase): Any =
+    private data class CoordinatorFixture(
+        val coordinator: DefaultUsbOutputCoordinator,
+        val owner: UsbHybridSessionOwner,
+        val effects: AndroidUsbHybridControlEffects,
+    ) : AutoCloseable {
+        override fun close() {
+            coordinator.close()
+            owner.close()
+            effects.close()
+        }
+    }
+
+    private class FakePlaybackPort : UsbOutputPlaybackPort {
+        override fun captureHandoff(): UsbPlaybackStackHandoff? = null
+        override fun hasPlaybackStack(): Boolean = false
+        override fun isSharedOutputActive(): Boolean = true
+        override fun currentPlayWhenReady(): Boolean = false
+        override fun currentAudioSessionId(): Int? = null
+        override fun retireBeforeUsbRequest() = Unit
+        override fun rebuildShared(handoff: UsbPlaybackStackHandoff?, reason: String) = Unit
+        override fun rebuildExclusive(
+            mode: DesiredUsbOutput,
+            binding: UsbHybridPlaybackBinding,
+            handoff: UsbPlaybackStackHandoff?,
+            reason: String,
+        ) = Unit
+        override fun restorePlaybackIntent(playWhenReady: Boolean) = Unit
+    }
+
+    private fun MicaMediaService.coordinator(): DefaultUsbOutputCoordinator =
+        getField("usbOutputCoordinator") as DefaultUsbOutputCoordinator
+
+    private fun DefaultUsbOutputCoordinator.beginOperation(generation: Long, phase: UsbOutputPhase): Any =
         requireNotNull(beginOperationOrNull(generation, phase))
 
-    private fun MicaMediaService.beginOperationOrNull(generation: Long, phase: UsbOutputPhase): Any? =
-        javaClass.getDeclaredMethod("beginUsbOutputOperation", Long::class.javaPrimitiveType, UsbOutputPhase::class.java)
+    private fun DefaultUsbOutputCoordinator.beginOperationOrNull(generation: Long, phase: UsbOutputPhase): Any? =
+        javaClass.getDeclaredMethod("beginOperation", Long::class.javaPrimitiveType, UsbOutputPhase::class.java)
             .apply { isAccessible = true }
             .invoke(this, generation, phase)
 
-    private fun MicaMediaService.isCurrent(operation: Any): Boolean =
-        javaClass.getDeclaredMethod("isCurrentUsbOutputOperation", operation.javaClass)
+    private fun DefaultUsbOutputCoordinator.isCurrent(operation: Any): Boolean =
+        javaClass.getDeclaredMethod("isCurrentOperation", operation.javaClass)
             .apply { isAccessible = true }
             .invoke(this, operation) as Boolean
 
@@ -338,8 +386,8 @@ class MicaMediaServiceUsbOperationTest {
         .apply { isAccessible = true }
         .getLong(this)
 
-    private fun MicaMediaService.dispatch(event: UsbOutputEvent) {
-        javaClass.getDeclaredMethod("dispatchUsbOutput", UsbOutputEvent::class.java)
+    private fun DefaultUsbOutputCoordinator.dispatch(event: UsbOutputEvent) {
+        javaClass.getDeclaredMethod("dispatch", UsbOutputEvent::class.java)
             .apply { isAccessible = true }
             .invoke(this, event)
     }
@@ -352,14 +400,6 @@ class MicaMediaServiceUsbOperationTest {
         ).apply { isAccessible = true }
             .invoke(this, mode, reason)
     }
-
-    private fun MicaMediaService.topology(event: UsbTopologyEvent) {
-        javaClass.getDeclaredMethod("onUsbTopologyEvent", UsbTopologyEvent::class.java)
-            .apply { isAccessible = true }
-            .invoke(this, event)
-    }
-
-    private fun MicaMediaService.state(): UsbOutputState = getField("usbOutputState") as UsbOutputState
 
     private fun Any.setField(name: String, value: Any?) {
         javaClass.getDeclaredField(name).apply { isAccessible = true }.set(this, value)
