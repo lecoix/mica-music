@@ -11,9 +11,13 @@ P1 and rewrite results are design input only and are never counted as Hybrid PAS
   devices are ambiguous and rejected rather than choosing an arbitrary first device. Stable identity
   uses VID/PID, bcdDevice/version and endpoint topology; manufacturer/product strings are diagnostic
   metadata only because Android may expose them only after permission.
-- Permission, open, reconfigure, close, driver recovery, telemetry and facts publication are owned
-  by one control executor. Mode change, retry, target detach, release and service recreation mint a
-  request epoch; attach changes only discovery revision.
+- Application-level output coordination is owned by `UsbOutputCoordinator`: Android topology,
+  output-permission callbacks, target stabilization, shared-route recovery, owner facts, telemetry
+  sampling and reducer effects enter one coordinator lifecycle. User mode intent uses a mode
+  generation and async waits use `UsbOutputOperationId`; neither is a native ownership epoch.
+- Native open/reconfigure/close and facts publication remain owned by `UsbHybridSessionOwner` and its
+  single control executor. Only that owner mints `UsbRequestEpoch`; attach changes discovery revision,
+  while authorized arm/retarget/retire/release fence physical session ownership.
 - Native submit/reap/resubmit/flush/telemetry/close require `(epoch, sessionId)`. A stale close can
   clean only its own session and cannot close a newer winner.
 - PCM accepts integer PCM16, PCM24 and PCM32. Exact-width transport is preferred; when the DAC only

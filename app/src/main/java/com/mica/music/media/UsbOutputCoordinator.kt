@@ -1,7 +1,9 @@
 package com.mica.music.media
 
 import android.content.Context
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.SystemClock
@@ -19,14 +21,16 @@ import com.mica.music.media.usbhybrid.UsbAudioSelection
 import com.mica.music.media.usbhybrid.UsbDeviceCandidate
 import com.mica.music.media.usbhybrid.UsbExclusiveMode
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
+import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
 import com.mica.music.media.usbhybrid.UsbHybridSessionOwner
 import com.mica.music.media.usbhybrid.UsbOutputEffect
 import com.mica.music.media.usbhybrid.UsbOutputEvent
+import com.mica.music.media.usbhybrid.UsbOutputOperationId
+import com.mica.music.media.usbhybrid.UsbOutputPermissionRequest
+import com.mica.music.media.usbhybrid.UsbOutputPermissionResult
 import com.mica.music.media.usbhybrid.UsbOutputPhase
 import com.mica.music.media.usbhybrid.UsbOutputState
 import com.mica.music.media.usbhybrid.UsbOutputStateMachine
-import com.mica.music.media.usbhybrid.UsbPermissionRequest
-import com.mica.music.media.usbhybrid.UsbPermissionResult
 import com.mica.music.media.usbhybrid.UsbPlaybackFacts
 import com.mica.music.media.usbhybrid.UsbRequestEpoch
 import com.mica.music.media.usbhybrid.UsbRuntimeHandle
@@ -35,6 +39,13 @@ import com.mica.music.media.usbhybrid.UsbStableIdentity
 import com.mica.music.media.usbhybrid.UsbTopologyEvent
 import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 internal data class UsbPlaybackStackHandoff(
     val items: List<MediaItem>,
@@ -82,23 +93,26 @@ internal interface UsbOutputPlaybackPort {
 }
 
 private data class UsbOutputOperation(
-    val id: Long,
+    val id: UsbOutputOperationId,
     val generation: Long,
     val phase: UsbOutputPhase,
 )
 
 /**
  * Owns the application-level USB output protocol above [UsbOutputStateMachine] and below the
- * playback service. Android callback registration is intentionally still outside this first
- * extraction step; callbacks enter through the narrow methods on this implementation.
+ * playback service, including Android callback registration, owner facts and asynchronous
+ * operation fencing. The service sees only commands plus the narrow playback port.
  */
 internal class DefaultUsbOutputCoordinator(
     private val context: Context,
     private val mainHandler: Handler,
-    private val effects: AndroidUsbHybridControlEffects,
-    private val owner: UsbHybridSessionOwner,
     private val playback: UsbOutputPlaybackPort,
 ) : UsbOutputCoordinator {
+    private val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private lateinit var effects: AndroidUsbHybridControlEffects
+    private lateinit var owner: UsbHybridSessionOwner
+    private var ownerFactsJob: Job? = null
+    private var audioDeviceCallbackRegistered: Boolean = false
     private var state = UsbOutputState()
     private var outputHandoff: UsbPlaybackStackHandoff? = null
     private var candidate: UsbDeviceCandidate? = null
@@ -121,6 +135,62 @@ internal class DefaultUsbOutputCoordinator(
     @Volatile
     private var closed: Boolean = false
 
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            this@DefaultUsbOutputCoordinator.onAudioDevicesAdded(addedDevices)
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            this@DefaultUsbOutputCoordinator.onAudioDevicesRemoved(removedDevices)
+        }
+    }
+
+    private val telemetrySampler = object : Runnable {
+        override fun run() {
+            if (closed) return
+            owner.refreshTelemetry(effects)
+            mainHandler.postDelayed(this, USB_TELEMETRY_INTERVAL_MS)
+        }
+    }
+
+    init {
+        installRuntime()
+    }
+
+    private fun installRuntime() {
+        effects = AndroidUsbHybridControlEffects(
+            context = context,
+            permissionResultSink = { result ->
+                mainHandler.post {
+                    if (!closed) owner.onPermissionResult(result)
+                }
+            },
+            topologyEventSink = { event ->
+                mainHandler.post {
+                    if (!closed) onTopologyEvent(event)
+                }
+            },
+            outputPermissionResultSink = { result ->
+                mainHandler.post {
+                    if (!closed) onOutputPermissionResult(result)
+                }
+            },
+        )
+        owner = UsbHybridSessionOwner(
+            effects = effects,
+            factsPublisher = UsbHybridRuntimeMonitor::publishFromOwner,
+        )
+        ownerFactsJob = runtimeScope.launch {
+            owner.facts.collectLatest { facts ->
+                mainHandler.post {
+                    if (!closed) onOwnerFacts(facts)
+                }
+            }
+        }
+        installAudioDeviceCallback()
+        mainHandler.postDelayed(telemetrySampler, USB_TELEMETRY_INTERVAL_MS)
+    }
+
     override fun start(initialMode: UsbHybridOutputMode) {
         submit(UsbOutputCommand.SelectMode(initialMode, "service-create"))
     }
@@ -137,21 +207,30 @@ internal class DefaultUsbOutputCoordinator(
     }
 
     override fun close() {
+        if (closed) return
         closed = true
         invalidateOperation()
+        uninstallAudioDeviceCallback()
+        mainHandler.removeCallbacks(telemetrySampler)
+        ownerFactsJob?.cancel()
+        ownerFactsJob = null
+        runtimeScope.cancel()
+        runCatching {
+            if (playback.hasPlaybackStack()) playback.retireBeforeUsbRequest()
+        }.onFailure { error ->
+            DiagnosticLog.event("UsbOutputState", "coordinator-close playback-retire failed error=${error.message}")
+        }
+        runCatching { owner.close() }
+            .onFailure { error -> DiagnosticLog.event("UsbOutputState", "coordinator-close owner failed error=${error.message}") }
+        runCatching { effects.close() }
+            .onFailure { error -> DiagnosticLog.event("UsbOutputState", "coordinator-close android-effects failed error=${error.message}") }
     }
 
-    /** Temporary bootstrap seam; removed from Service ownership in the next extraction step. */
-    fun seedHandoff(handoff: UsbPlaybackStackHandoff?) {
-        if (!closed && handoff != null) outputHandoff = handoff
-    }
-
-    /** Temporary Android seam; the next extraction step wires this directly from the adapter. */
-    fun onPermissionResult(result: UsbPermissionResult) {
+    internal fun onOutputPermissionResult(result: UsbOutputPermissionResult) {
         if (closed) return
         val current = state
         val activeOperation = operation ?: return
-        if (result.epoch.value != activeOperation.id || !isCurrentOperation(activeOperation)) return
+        if (result.operationId != activeOperation.id || !isCurrentOperation(activeOperation)) return
         val currentSelection = effects.discoverUsbAudioDevice()
         if (!isCurrentOperation(activeOperation)) return
         val currentCandidate = (currentSelection as? UsbAudioSelection.Selected)?.candidate
@@ -185,8 +264,7 @@ internal class DefaultUsbOutputCoordinator(
         }
     }
 
-    /** Temporary Android seam; the next extraction step wires this directly from the adapter. */
-    fun onTopologyEvent(event: UsbTopologyEvent) {
+    internal fun onTopologyEvent(event: UsbTopologyEvent) {
         if (closed) return
         when (event) {
             is UsbTopologyEvent.Attached -> {
@@ -221,8 +299,7 @@ internal class DefaultUsbOutputCoordinator(
         }
     }
 
-    /** Temporary owner-facts seam; the next extraction step collects owner facts internally. */
-    fun onOwnerFacts(facts: UsbPlaybackFacts) {
+    internal fun onOwnerFacts(facts: UsbPlaybackFacts) {
         if (closed || owner.facts.value != facts) return
         val activeOwnerEpoch = ownerEpoch ?: return
         if (facts.requestEpoch != activeOwnerEpoch.value) return
@@ -263,7 +340,7 @@ internal class DefaultUsbOutputCoordinator(
         }
     }
 
-    fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+    internal fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
         if (closed) return
         val usbDevice = addedDevices.firstOrNull(::isAndroidUsbAudioOutput) ?: return
         sharedAudioAddSerial += 1
@@ -283,13 +360,27 @@ internal class DefaultUsbOutputCoordinator(
         }
     }
 
-    fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+    internal fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
         if (closed || removedDevices.none(::isAndroidUsbAudioOutput)) return
         DiagnosticLog.event("UsbOutputState", "shared-audio-device-removed phase=${state.phase}")
     }
 
-    fun refreshTelemetry() {
-        if (!closed) owner.refreshTelemetry(effects)
+    private fun installAudioDeviceCallback() {
+        if (audioDeviceCallbackRegistered) return
+        val audioManager = context.getSystemService(AudioManager::class.java) ?: return
+        runCatching {
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler)
+            audioDeviceCallbackRegistered = true
+        }.onFailure { error ->
+            DiagnosticLog.event("UsbOutputState", "shared-audio callback register failed error=${error.message}")
+        }
+    }
+
+    private fun uninstallAudioDeviceCallback() {
+        if (!audioDeviceCallbackRegistered) return
+        val audioManager = context.getSystemService(AudioManager::class.java)
+        runCatching { audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback) }
+        audioDeviceCallbackRegistered = false
     }
 
     internal fun stateForTest(): UsbOutputState = state
@@ -363,7 +454,7 @@ internal class DefaultUsbOutputCoordinator(
     private fun beginOperation(generation: Long, phase: UsbOutputPhase): UsbOutputOperation? {
         if (closed || state.generation != generation || state.phase != phase) return null
         return UsbOutputOperation(
-            id = nextOperationId.incrementAndGet(),
+            id = UsbOutputOperationId(nextOperationId.incrementAndGet()),
             generation = generation,
             phase = phase,
         ).also { operation = it }
@@ -533,9 +624,9 @@ internal class DefaultUsbOutputCoordinator(
             dispatch(UsbOutputEvent.TargetLost)
             return
         }
-        effects.requestPermission(
-            UsbPermissionRequest(
-                epoch = UsbRequestEpoch(currentOperation.id),
+        effects.requestOutputPermission(
+            UsbOutputPermissionRequest(
+                operationId = currentOperation.id,
                 mode = current.desiredMode.toExclusiveMode(),
                 identity = currentCandidate.identity,
                 runtimeHandle = currentCandidate.runtimeHandle,
@@ -731,6 +822,7 @@ internal class DefaultUsbOutputCoordinator(
 
     private companion object {
         private val nextOperationId = AtomicLong()
+        const val USB_TELEMETRY_INTERVAL_MS = 1_000L
         const val SHARED_RETURN_ROUTE_TIMEOUT_MS = 5_000L
         const val SHARED_QUIESCE_POLL_MS = 50L
         const val EXCLUSIVE_TARGET_READY_POLL_MS = 100L

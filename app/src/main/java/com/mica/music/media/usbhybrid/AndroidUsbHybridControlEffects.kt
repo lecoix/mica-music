@@ -22,10 +22,12 @@ class AndroidUsbHybridControlEffects(
     context: Context,
     private val permissionResultSink: (UsbPermissionResult) -> Unit,
     private val topologyEventSink: (UsbTopologyEvent) -> Unit,
+    private val outputPermissionResultSink: (UsbOutputPermissionResult) -> Unit = {},
 ) : UsbHybridControlEffects, UsbHybridRealtimePort, AutoCloseable {
     private val appContext = context.applicationContext
     private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
     private val pendingRequests = ConcurrentHashMap<Long, UsbPermissionRequest>()
+    private val pendingOutputPermissionRequests = ConcurrentHashMap<Long, UsbOutputPermissionRequest>()
     private val transport = UsbExclusiveAudioTransport(appContext)
     @Volatile
     private var publishedEpoch: Long = 0L
@@ -33,8 +35,7 @@ class AndroidUsbHybridControlEffects(
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != permissionAction) return
-            val epoch = intent.getLongExtra(EXTRA_EPOCH, Long.MIN_VALUE)
-            val request = pendingRequests.remove(epoch) ?: return
+            val requestId = intent.getLongExtra(EXTRA_PERMISSION_REQUEST_ID, Long.MIN_VALUE)
             val device = if (Build.VERSION.SDK_INT >= 33) {
                 intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
             } else {
@@ -42,16 +43,33 @@ class AndroidUsbHybridControlEffects(
                 intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
             }
             val observed = device?.let(AndroidUsbIdentityProbe::candidate)
-            permissionResultSink(
-                UsbPermissionResult(
-                    epoch = request.epoch,
-                    mode = request.mode,
-                    identity = observed?.identity ?: request.identity,
-                    runtimeHandle = observed?.runtimeHandle ?: request.runtimeHandle,
-                    granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false) &&
-                        observed != null,
-                ),
-            )
+            val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false) && observed != null
+            when (intent.getStringExtra(EXTRA_PERMISSION_DOMAIN)) {
+                PERMISSION_DOMAIN_OWNER -> {
+                    val request = pendingRequests.remove(requestId) ?: return
+                    permissionResultSink(
+                        UsbPermissionResult(
+                            epoch = request.epoch,
+                            mode = request.mode,
+                            identity = observed?.identity ?: request.identity,
+                            runtimeHandle = observed?.runtimeHandle ?: request.runtimeHandle,
+                            granted = granted,
+                        ),
+                    )
+                }
+                PERMISSION_DOMAIN_OUTPUT -> {
+                    val request = pendingOutputPermissionRequests.remove(requestId) ?: return
+                    outputPermissionResultSink(
+                        UsbOutputPermissionResult(
+                            operationId = request.operationId,
+                            mode = request.mode,
+                            identity = observed?.identity ?: request.identity,
+                            runtimeHandle = observed?.runtimeHandle ?: request.runtimeHandle,
+                            granted = granted,
+                        ),
+                    )
+                }
+            }
         }
     }
 
@@ -145,12 +163,57 @@ class AndroidUsbHybridControlEffects(
         }
 
         pendingRequests[request.epoch.value] = request
-        val intent = Intent(permissionAction)
-            .setPackage(appContext.packageName)
-            .putExtra(EXTRA_EPOCH, request.epoch.value)
+        val intent = permissionIntent(
+            requestId = request.epoch.value,
+            domain = PERMISSION_DOMAIN_OWNER,
+        )
         val pendingIntent = PendingIntent.getBroadcast(
             appContext,
-            request.epoch.value.hashCode(),
+            permissionRequestCode(request.epoch.value, PERMISSION_DOMAIN_OWNER),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+        )
+        usbManager.requestPermission(device, pendingIntent)
+    }
+
+    fun requestOutputPermission(request: UsbOutputPermissionRequest) {
+        pendingOutputPermissionRequests.clear()
+        val candidate = findCandidate(request.runtimeHandle)
+        if (candidate == null || candidate.second != request.identity) {
+            outputPermissionResultSink(
+                UsbOutputPermissionResult(
+                    operationId = request.operationId,
+                    mode = request.mode,
+                    identity = candidate?.second ?: request.identity,
+                    runtimeHandle = candidate?.first?.let { UsbRuntimeHandle(it.deviceId, it.deviceName) }
+                        ?: request.runtimeHandle,
+                    granted = false,
+                ),
+            )
+            return
+        }
+        val device = candidate.first
+        if (usbManager.hasPermission(device)) {
+            outputPermissionResultSink(
+                UsbOutputPermissionResult(
+                    operationId = request.operationId,
+                    mode = request.mode,
+                    identity = request.identity,
+                    runtimeHandle = request.runtimeHandle,
+                    granted = true,
+                ),
+            )
+            return
+        }
+
+        pendingOutputPermissionRequests[request.operationId.value] = request
+        val intent = permissionIntent(
+            requestId = request.operationId.value,
+            domain = PERMISSION_DOMAIN_OUTPUT,
+        )
+        val pendingIntent = PendingIntent.getBroadcast(
+            appContext,
+            permissionRequestCode(request.operationId.value, PERMISSION_DOMAIN_OUTPUT),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
         )
@@ -352,6 +415,7 @@ class AndroidUsbHybridControlEffects(
 
     override fun close() {
         pendingRequests.clear()
+        pendingOutputPermissionRequests.clear()
         transport.close()
         runCatching { appContext.unregisterReceiver(permissionReceiver) }
         runCatching { appContext.unregisterReceiver(topologyReceiver) }
@@ -377,7 +441,19 @@ class AndroidUsbHybridControlEffects(
 
     private fun safeDeviceString(value: () -> String?): String? = runCatching(value).getOrNull()
 
+    private fun permissionIntent(requestId: Long, domain: String): Intent =
+        Intent(permissionAction)
+            .setPackage(appContext.packageName)
+            .putExtra(EXTRA_PERMISSION_REQUEST_ID, requestId)
+            .putExtra(EXTRA_PERMISSION_DOMAIN, domain)
+
+    private fun permissionRequestCode(requestId: Long, domain: String): Int =
+        31 * requestId.hashCode() + domain.hashCode()
+
     private companion object {
-        const val EXTRA_EPOCH = "usb_hybrid_epoch"
+        const val EXTRA_PERMISSION_REQUEST_ID = "usb_hybrid_permission_request_id"
+        const val EXTRA_PERMISSION_DOMAIN = "usb_hybrid_permission_domain"
+        const val PERMISSION_DOMAIN_OWNER = "owner_epoch"
+        const val PERMISSION_DOMAIN_OUTPUT = "output_operation"
     }
 }

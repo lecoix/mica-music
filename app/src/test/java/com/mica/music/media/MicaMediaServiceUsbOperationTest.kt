@@ -8,13 +8,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
-import com.mica.music.media.usbhybrid.AndroidUsbHybridControlEffects
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
 import com.mica.music.media.usbhybrid.FrozenPlaybackIntent
 import com.mica.music.media.usbhybrid.UsbActiveTransport
 import com.mica.music.media.usbhybrid.UsbDeviceCandidate
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
-import com.mica.music.media.usbhybrid.UsbHybridSessionOwner
 import com.mica.music.media.usbhybrid.UsbOutputEvent
 import com.mica.music.media.usbhybrid.UsbOutputPhase
 import com.mica.music.media.usbhybrid.UsbOutputState
@@ -87,6 +85,26 @@ class MicaMediaServiceUsbOperationTest {
 
         assertFalse(fixture.coordinator.isCurrent(operation))
         assertNull(fixture.coordinator.beginOperationOrNull(4L, UsbOutputPhase.SharedRouteWaiting))
+    }
+
+    @Test fun serviceDoesNotOwnUsbAndroidRuntimeInternals() {
+        val declaredFields = MicaMediaService::class.java.declaredFields
+        val serviceFields = declaredFields.map { it.name }.toSet()
+        assertEquals(
+            UsbOutputCoordinator::class.java,
+            declaredFields.single { it.name == "usbOutputCoordinator" }.type,
+        )
+
+        listOf(
+            "usbEffects",
+            "usbOwner",
+            "usbFactsJob",
+            "usbSharedAudioDeviceCallback",
+            "usbSharedAudioDeviceCallbackRegistered",
+            "usbTelemetrySampler",
+        ).forEach { forbidden ->
+            assertFalse("MicaMediaService must not own $forbidden", forbidden in serviceFields)
+        }
     }
 
     @Test fun queuedUsbDispatchCannotMutateStateAfterServiceDestroy() {
@@ -162,7 +180,7 @@ class MicaMediaServiceUsbOperationTest {
         shadowOf(Looper.getMainLooper()).idle()
         val coordinator = service.coordinator()
         coordinator.setField("sharedAudioAddSerial", 17L)
-        val callback = service.getField("usbSharedAudioDeviceCallback") as AudioDeviceCallback
+        val callback = coordinator.getField("audioDeviceCallback") as AudioDeviceCallback
         val mainHandler = service.getField("mainHandler") as Handler
         val usbAudioDevice = mockk<AudioDeviceInfo>()
         every { usbAudioDevice.isSink } returns true
@@ -319,33 +337,20 @@ class MicaMediaServiceUsbOperationTest {
 
     private fun coordinatorWith(state: UsbOutputState): CoordinatorFixture {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
-        lateinit var coordinator: DefaultUsbOutputCoordinator
-        val effects = AndroidUsbHybridControlEffects(
-            application,
-            permissionResultSink = { result -> coordinator.onPermissionResult(result) },
-            topologyEventSink = { event -> coordinator.onTopologyEvent(event) },
-        )
-        val owner = UsbHybridSessionOwner(effects)
-        coordinator = DefaultUsbOutputCoordinator(
+        val coordinator = DefaultUsbOutputCoordinator(
             context = application,
             mainHandler = Handler(Looper.getMainLooper()),
-            effects = effects,
-            owner = owner,
             playback = FakePlaybackPort(),
         )
         coordinator.setField("state", state)
-        return CoordinatorFixture(coordinator, owner, effects)
+        return CoordinatorFixture(coordinator)
     }
 
     private data class CoordinatorFixture(
         val coordinator: DefaultUsbOutputCoordinator,
-        val owner: UsbHybridSessionOwner,
-        val effects: AndroidUsbHybridControlEffects,
     ) : AutoCloseable {
         override fun close() {
             coordinator.close()
-            owner.close()
-            effects.close()
         }
     }
 

@@ -188,9 +188,9 @@ Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极�
 
 ### USB 输出 operation 与旧回调隔离
 
-- `MicaMediaServiceUsbOperationTest`：覆盖同阶段重启、拔出后快速重插、Service 销毁、跨 Service 权限 ID、旧探测结果，以及 DAC 与扩展坞上无关设备在 attach/detach 两个方向的 `runtimeHandle` 过滤；非音频 attach 不得替换当前探测 operation，权限等待和独占活动态不得被无关音频设备重启。销毁交错测试会先把 dispatch、preference 与 audio-device callback 排入 paused main looper，再执行真实 `onDestroy()` 并放行旧任务，断言 USB state、bootstrap mode、handoff、switch reason 与 audio-add serial 均不再写入。
-- `AndroidUsbPermissionLifetimeTest`：验证权限广播 action 按适配器实例隔离，旧实例广播不能与新 Service 的请求共享身份；attach 广播必须发布设备 `runtimeHandle` 与音频输出相关性。
-- 正确性来自 operation ID / phase / generation 的重新校验；移除 Handler 回调和清空 pending map 仅是资源清理，不能代替有效性协议。
+- `MicaMediaServiceUsbOperationTest`：现主要验证 `UsbOutputCoordinator` 的 operation/phase/generation 交错、拔出后快速重插、无关 attach/detach、销毁后旧任务失效，并有结构断言禁止 `MicaMediaService` 重新持有 `usbEffects`、`usbOwner`、facts job、AudioDeviceCallback 或 telemetry sampler；Service 字段必须以 `UsbOutputCoordinator` interface 暴露，而不是实现类。
+- `AndroidUsbPermissionLifetimeTest`：验证权限广播 action 按 adapter 实例隔离、attach 必须发布 `runtimeHandle` 与音频相关性，并验证相同数值的 `UsbOutputOperationId` 与 `UsbRequestEpoch` 处在独立 pending/broadcast domain，任何一方回调都不能消费另一方请求。
+- 正确性来自 `mode generation` / `UsbOutputOperationId` / `UsbRequestEpoch` 三域隔离，以及 operation ID / phase / generation 的重新校验；移除 Handler 回调和清空 pending map 仅是资源清理，不能代替有效性协议。
 
 软件测试不能证明扩展坞供电、总线带宽、OEM USB 路由、权限弹窗或持续出声。涉及这些结论时仍需真实 DAC、扩展坞与目标手机验收。
 

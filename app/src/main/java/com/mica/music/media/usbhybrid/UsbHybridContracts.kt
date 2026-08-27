@@ -3,6 +3,10 @@ package com.mica.music.media.usbhybrid
 @JvmInline
 value class UsbRequestEpoch(val value: Long)
 
+/** Application-level USB output attempt identity. Never doubles as a native session epoch. */
+@JvmInline
+value class UsbOutputOperationId(val value: Long)
+
 @JvmInline
 value class UsbDiscoveryRevision(val value: Long)
 
@@ -82,6 +86,21 @@ data class UsbPermissionRequest(
 
 data class UsbPermissionResult(
     val epoch: UsbRequestEpoch,
+    val mode: UsbExclusiveMode,
+    val identity: UsbStableIdentity,
+    val runtimeHandle: UsbRuntimeHandle,
+    val granted: Boolean,
+)
+
+data class UsbOutputPermissionRequest(
+    val operationId: UsbOutputOperationId,
+    val mode: UsbExclusiveMode,
+    val identity: UsbStableIdentity,
+    val runtimeHandle: UsbRuntimeHandle,
+)
+
+data class UsbOutputPermissionResult(
+    val operationId: UsbOutputOperationId,
     val mode: UsbExclusiveMode,
     val identity: UsbStableIdentity,
     val runtimeHandle: UsbRuntimeHandle,

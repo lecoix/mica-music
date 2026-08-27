@@ -65,7 +65,7 @@
 
 | 设置 | 持久化 owner / key | 运行时消费点与条件 | 状态 | 处理建议 |
 | --- | --- | --- | --- | --- |
-| USB 独占输出模式 | `UsbHybridPreferences` / `usb_hybrid_output_mode` | `MicaMediaService` 通过 Hybrid owner 以 break-before-make 重建输出栈；仅严格匹配单个 Fosi SK02，默认 Shared PCM，失败不自动回退 | `CONDITIONAL` | 保留为“音频与设备”的独立子页；Shared、Exact PCM、DoP、实验 Native 必须显式选择 |
+| USB 独占输出模式 | `UsbHybridPreferences` / `usb_hybrid_output_mode` | `MicaMediaService` 只把偏好变化提交给 `UsbOutputCoordinator`；Coordinator 通过窄 playback port 与 `UsbHybridSessionOwner` 以 break-before-make 重建输出栈，默认 Shared PCM，失败不自动回退 | `CONDITIONAL` | 保留为“音频与设备”的独立子页；Shared、Exact PCM、DoP、实验 Native 必须显式选择 |
 | USB 当前状态与格式 | 不持久化；`UsbHybridRuntimeMonitor.facts` | owner 发布 permission、claimed、exclusive、transportExact、signalExact、实际格式、epoch/session 与失败原因 | `ACTIVE` | UI 只显示 facts，不得从所选模式推断 ACTIVE；状态必须有文字，不能只靠颜色 |
 | USB 授权并重试 / 切回 Shared PCM | 无独立 key；动作交给 Hybrid owner / 模式偏好 | 重试产生新 request epoch；切回 Shared PCM 同步执行输出栈切换 | `ACTIVE` | 作为动作行，不和偏好状态混写；失败后保持请求模式、队列和位置 |
 | USB 诊断导出 | 无普通偏好；`UsbHybridDiagnosticsReport` | 导出 APK、stable/runtime identity、descriptor digest、协商结果、URB telemetry 与最近错误，不导出原始 serial | `ACTIVE` | 保留在 USB 子页“支持与诊断”；v1 不提供运行时 JSON quirk 导入 |

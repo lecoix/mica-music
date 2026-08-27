@@ -4,9 +4,6 @@ import android.Manifest
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioDeviceCallback
-import android.media.AudioDeviceInfo
-import android.media.AudioManager
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
@@ -37,21 +34,13 @@ import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
-import com.mica.music.media.usbhybrid.UsbPermissionResult
-import com.mica.music.media.usbhybrid.AndroidUsbHybridControlEffects
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
-import com.mica.music.media.usbhybrid.UsbHybridSessionOwner
-import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
-import com.mica.music.media.usbhybrid.UsbPlaybackFacts
-import com.mica.music.media.usbhybrid.UsbTopologyEvent
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collectLatest
 
 /**
  * Playback service owns ExoPlayer + MediaSession independently from Activity lifecycle.
@@ -78,33 +67,12 @@ class MicaMediaService : MediaSessionService() {
     private var playbackRouteMonitor: PlaybackRouteMonitor? = null
     private var audioOffloadCircuitBreaker: AudioOffloadCircuitBreaker? = null
     private var audioPipelineCoordinator: AudioPipelineCoordinator? = null
-    private var usbEffects: AndroidUsbHybridControlEffects? = null
-    private var usbOwner: UsbHybridSessionOwner? = null
-    private var usbFactsJob: Job? = null
-    private var usbOutputCoordinator: DefaultUsbOutputCoordinator? = null
+    private var usbOutputCoordinator: UsbOutputCoordinator? = null
     private var activeUsbEpoch: Long? = null
     private var usbServiceCreateBootstrapMode: UsbHybridOutputMode? = null
-    private var usbSharedAudioDeviceCallbackRegistered: Boolean = false
+    private var usbBootstrapHandoff: UsbPlaybackStackHandoff? = null
     @Volatile
     private var usbOutputDestroyed: Boolean = false
-    private val usbSharedAudioDeviceCallback = object : AudioDeviceCallback() {
-        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
-            if (usbOutputDestroyed) return
-            usbOutputCoordinator?.onAudioDevicesAdded(addedDevices)
-        }
-
-        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
-            if (usbOutputDestroyed) return
-            usbOutputCoordinator?.onAudioDevicesRemoved(removedDevices)
-        }
-    }
-    private val usbTelemetrySampler = object : Runnable {
-        override fun run() {
-            if (usbOutputDestroyed) return
-            usbOutputCoordinator?.refreshTelemetry()
-            mainHandler.postDelayed(this, USB_TELEMETRY_INTERVAL_MS)
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -132,13 +100,11 @@ class MicaMediaService : MediaSessionService() {
         PcmDeliveryExperiment.logActiveExperiments()
         spectrumAnalyzerStateOwner = SpectrumAnalyzerStateOwner(this).also { it.start() }
 
-        installUsbHybridOwner()
         activeOutputPath = AudioOutputPathConfig.PRODUCTION
         val stack = ExoPlaybackStackFactory.build(this, activeOutputPath)
         installPlaybackStackOwners(stack, micaApp)
         installUsbOutputCoordinator()
         installPlaybackRouteMonitor()
-        installUsbSharedAudioDeviceCallback()
 
         if (LyricsPreferences.externalLyricsMode(this) != com.mica.music.data.ExternalLyricsMode.OFF &&
             DesktopLyricsOverlayController.canDrawOverlays(this)
@@ -179,7 +145,6 @@ class MicaMediaService : MediaSessionService() {
             libraryRepository,
             micaApp,
         )
-        mainHandler.postDelayed(usbTelemetrySampler, USB_TELEMETRY_INTERVAL_MS)
 
     }
 
@@ -198,47 +163,12 @@ class MicaMediaService : MediaSessionService() {
         }
     }
 
-    private fun installUsbHybridOwner() {
-        lateinit var owner: UsbHybridSessionOwner
-        val effects = AndroidUsbHybridControlEffects(
-            context = this,
-            permissionResultSink = { result ->
-                mainHandler.post {
-                    if (!usbOutputDestroyed) onUsbPermissionResult(result)
-                }
-            },
-            topologyEventSink = { event ->
-                mainHandler.post {
-                    if (!usbOutputDestroyed) onUsbTopologyEvent(event)
-                }
-            },
-        )
-        owner = UsbHybridSessionOwner(
-            effects = effects,
-            factsPublisher = UsbHybridRuntimeMonitor::publishFromOwner,
-        )
-        usbEffects = effects
-        usbOwner = owner
-        usbFactsJob = sessionScope?.launch {
-            owner.facts.collectLatest { facts ->
-                mainHandler.post usbFacts@{
-                    if (usbOutputDestroyed) return@usbFacts
-                    handleUsbFacts(facts)
-                }
-            }
-        }
-    }
-
     private fun installUsbOutputCoordinator() {
-        val effects = usbEffects ?: return
-        val owner = usbOwner ?: return
         usbOutputCoordinator = DefaultUsbOutputCoordinator(
             context = this,
             mainHandler = mainHandler,
-            effects = effects,
-            owner = owner,
             playback = object : UsbOutputPlaybackPort {
-                override fun captureHandoff(): UsbPlaybackStackHandoff? = capturePlaybackStackHandoff()
+                override fun captureHandoff(): UsbPlaybackStackHandoff? = captureUsbPlaybackHandoff()
 
                 override fun hasPlaybackStack(): Boolean = exoPlayer != null
 
@@ -328,16 +258,14 @@ class MicaMediaService : MediaSessionService() {
                     ?: UsbHybridPreferences.outputMode(this@MicaMediaService)
                 usbServiceCreateBootstrapMode = null
                 if (selectedMode != UsbHybridOutputMode.SharedPcm && bootstrap != null) {
-                    usbOutputCoordinator?.seedHandoff(
-                        UsbPlaybackStackHandoff(
-                            items = bootstrap.songs.map(SongMediaItemCodec::encode),
-                            currentIndex = bootstrap.currentIndex,
-                            positionMs = bootstrap.positionMs,
-                            playWhenReady = false,
-                            repeatMode = bootstrap.repeatMode,
-                            playbackParameters = bootstrap.playbackTuning.toPlaybackParameters(),
-                            volume = compositePlayer?.volume ?: 1f,
-                        ),
+                    usbBootstrapHandoff = UsbPlaybackStackHandoff(
+                        items = bootstrap.songs.map(SongMediaItemCodec::encode),
+                        currentIndex = bootstrap.currentIndex,
+                        positionMs = bootstrap.positionMs,
+                        playWhenReady = false,
+                        repeatMode = bootstrap.repeatMode,
+                        playbackParameters = bootstrap.playbackTuning.toPlaybackParameters(),
+                        volume = compositePlayer?.volume ?: 1f,
                     )
                     DiagnosticLog.event(
                         "PlaybackRestore",
@@ -357,39 +285,6 @@ class MicaMediaService : MediaSessionService() {
     private fun applyUsbOutputMode(mode: UsbHybridOutputMode, reason: String) {
         if (usbOutputDestroyed) return
         usbOutputCoordinator?.submit(UsbOutputCommand.SelectMode(mode, reason))
-    }
-
-    private fun onUsbPermissionResult(result: UsbPermissionResult) {
-        if (usbOutputDestroyed) return
-        usbOutputCoordinator?.onPermissionResult(result)
-    }
-
-    private fun onUsbTopologyEvent(event: UsbTopologyEvent) {
-        if (usbOutputDestroyed) return
-        usbOutputCoordinator?.onTopologyEvent(event)
-    }
-
-    private fun handleUsbFacts(facts: UsbPlaybackFacts) {
-        if (usbOutputDestroyed) return
-        usbOutputCoordinator?.onOwnerFacts(facts)
-    }
-
-    private fun installUsbSharedAudioDeviceCallback() {
-        if (usbSharedAudioDeviceCallbackRegistered) return
-        val audioManager = getSystemService(AudioManager::class.java) ?: return
-        runCatching {
-            audioManager.registerAudioDeviceCallback(usbSharedAudioDeviceCallback, mainHandler)
-            usbSharedAudioDeviceCallbackRegistered = true
-        }.onFailure { error ->
-            DiagnosticLog.event("UsbOutputState", "shared-audio callback register failed error=${error.message}")
-        }
-    }
-
-    private fun uninstallUsbSharedAudioDeviceCallback() {
-        if (!usbSharedAudioDeviceCallbackRegistered) return
-        val audioManager = getSystemService(AudioManager::class.java)
-        runCatching { audioManager?.unregisterAudioDeviceCallback(usbSharedAudioDeviceCallback) }
-        usbSharedAudioDeviceCallbackRegistered = false
     }
 
     private fun DesiredUsbOutput.toOutputPath(): AudioOutputPathConfig = when (this) {
@@ -419,6 +314,14 @@ class MicaMediaService : MediaSessionService() {
             )
         }
     }
+    private fun captureUsbPlaybackHandoff(): UsbPlaybackStackHandoff? {
+        capturePlaybackStackHandoff()?.let { live ->
+            usbBootstrapHandoff = null
+            return live
+        }
+        return usbBootstrapHandoff.also { usbBootstrapHandoff = null }
+    }
+
     private fun capturePlaybackStackHandoff(): UsbPlaybackStackHandoff? {
         val player = compositePlayer ?: return null
         val queue = player.playbackQueueSnapshot()
@@ -444,8 +347,8 @@ class MicaMediaService : MediaSessionService() {
         if (exoPlayer != null && target == activeOutputPath && requestedUsbEpoch == activeUsbEpoch) return
         val micaApp = application as MicaApp
         val handoff = handoffOverride ?: capturePlaybackStackHandoff()
-        usbOwner?.awaitIdle()
-        if (usbBinding != null && usbOwner?.currentEpoch() != usbBinding.epoch) return
+        usbBinding?.owner?.awaitIdle()
+        if (usbBinding != null && usbBinding.owner.currentEpoch() != usbBinding.epoch) return
         val oldExo = exoPlayer
         releasePlaybackStackOwners()
         oldExo?.release()
@@ -619,7 +522,6 @@ class MicaMediaService : MediaSessionService() {
     override fun onDestroy() {
         usbOutputDestroyed = true
         usbOutputCoordinator?.close()
-        uninstallUsbSharedAudioDeviceCallback()
         playbackRouteMonitor?.release()
         playbackRouteMonitor = null
         unregisterLyricsPreferenceListener?.invoke()
@@ -628,9 +530,6 @@ class MicaMediaService : MediaSessionService() {
         unregisterAudioOffloadPreferenceListener = null
         unregisterUsbOutputPreferenceListener?.invoke()
         unregisterUsbOutputPreferenceListener = null
-        mainHandler.removeCallbacks(usbTelemetrySampler)
-        usbFactsJob?.cancel()
-        usbFactsJob = null
         sessionScope?.cancel()
         sessionScope = null
         trustedMediaItemResolver = null
@@ -644,10 +543,6 @@ class MicaMediaService : MediaSessionService() {
         compositePlayer = null
         activeUsbEpoch = null
         usbOutputCoordinator = null
-        usbOwner?.close()
-        usbOwner = null
-        usbEffects?.close()
-        usbEffects = null
         clearListener()
         super.onDestroy()
     }
@@ -1035,9 +930,5 @@ class MicaMediaService : MediaSessionService() {
         audioOffloadCircuitBreaker = breaker
         exo.addListener(breaker)
         exo.addAudioOffloadListener(breaker)
-    }
-
-    private companion object {
-        const val USB_TELEMETRY_INTERVAL_MS = 1_000L
     }
 }
