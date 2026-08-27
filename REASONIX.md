@@ -14,8 +14,10 @@
 ## Layout
 
 - `app/src/main/java/com/mica/music/`
-  - `data/` — `Song`, Room（曲库 + `PlaylistStore` 歌单）, scanner, `PlayerController`（Compose/UI facade）, `PlaybackRuntime`（非 Compose application runtime）, `PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator`, `PlaybackConnectionSession`, `AppUiSettings`, `PlaybackQueueMode`, `PlayerCoverFlowMode`, `PlayerLowerBackgroundMode`
-  - `media/` — Exo 播放管线、`MicaMediaService`、`AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、`MicaCompositePlayer`、`ServicePlaybackStateStore`、`ServicePlaybackEngineCoordinator`、DSF、EQ（`media/eq/`）
+  - `data/` — `Song`, Room（曲库 + `PlaylistStore` 歌单）, scanner, preferences、`AppUiSettings`、`PlaybackQueueMode`、`PlaybackTuning` 等共享 domain；`data/playback/` 持有 `ServicePlaybackStateStore` 与恢复快照 persistence model。`data/` 不得 import 顶层 `media/` / `playback/` implementation package
+  - `playback/` — `PlayerController`（Compose/UI facade）、`PlaybackRuntime`（非 Compose application runtime）、connection、queue/timeline/tuning/statistics coordinator、MediaController queue sync 与睡眠定时器
+  - `media/` — Exo 播放管线、`MicaMediaService`、`AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、`MicaCompositePlayer`、`ServicePlaybackEngineCoordinator`、DSF、EQ implementation（`media/eq/`）
+  - `audio/` / `usb/` — 跨 data/media/playback 共享的 neutral contract/value：`AudioQualityMode`、`EqBandConstants`、`UsbStableIdentity`
   - `ui/components/` — `PlayerSheetHost`, `MiniPlayer`, `SongRow`, `LyricsDisplay`, …
   - `ui/screens/` — `HomeScreen`, `NowPlayingScreen`, `CustomPlayerLowerPanel`（`CUSTOM_STANDARD` 竖屏自由布局编辑/渲染）, `SettingsScreen`, …
   - `ui/screens/player/` — `PlayerPageLayoutEngine`、封面流 View 岛（`CoverFlowRails`）、粒子封面（现网 `ParticleCoverHost` / `ParticleCoverRenderer` GLES；`ThreeParticleCoverHost` WebView 回退）、拍立得（`PhotoStackTransitionHost`）

@@ -1,4 +1,6 @@
-package com.mica.music.data
+package com.mica.music.playback
+
+import com.mica.music.data.Song
 
 internal data class PlaybackQueueModel(
     val queue: List<Song> = emptyList(),

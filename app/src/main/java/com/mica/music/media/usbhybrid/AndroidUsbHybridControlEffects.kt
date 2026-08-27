@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context

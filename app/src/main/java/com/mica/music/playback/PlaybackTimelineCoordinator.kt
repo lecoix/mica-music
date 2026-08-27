@@ -1,4 +1,4 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import kotlin.math.roundToLong
 
@@ -11,6 +11,13 @@ internal data class ClearedPendingSeek(
 internal class PlaybackTimelineCoordinator(
     private val monotonicNowMs: () -> Long,
 ) {
+    internal companion object {
+        const val PENDING_SEEK_CONVERGE_TOLERANCE_MS = 1_500
+        const val PENDING_SEEK_MAX_AGE_MS = 4_000L
+        const val PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS = 500L
+        const val PENDING_SEEK_AHEAD_DRIFT_MS = 1_500
+    }
+
     var positionMs: Int = 0
         private set
 
@@ -191,4 +198,25 @@ internal class PlaybackTimelineCoordinator(
         val clamped = if (maxMs > 0L) rawMs.coerceIn(0L, maxMs) else rawMs.coerceAtLeast(0L)
         return clamped.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
+}
+
+internal fun evaluatePendingSeekClear(
+    pendingMs: Int,
+    reportedMs: Int,
+    pendingAgeMs: Long,
+): String? {
+    if (pendingMs < 0) return null
+    val drift = kotlin.math.abs(reportedMs - pendingMs)
+    if (drift <= PlaybackTimelineCoordinator.PENDING_SEEK_CONVERGE_TOLERANCE_MS) {
+        return "converged driftMs=$drift"
+    }
+    if (pendingAgeMs > PlaybackTimelineCoordinator.PENDING_SEEK_MAX_AGE_MS) {
+        return "timeout ageMs=$pendingAgeMs driftMs=$drift"
+    }
+    if (pendingAgeMs > PlaybackTimelineCoordinator.PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS &&
+        reportedMs - pendingMs > PlaybackTimelineCoordinator.PENDING_SEEK_AHEAD_DRIFT_MS
+    ) {
+        return "ahead-drift ageMs=$pendingAgeMs pendingMs=$pendingMs reportedMs=$reportedMs"
+    }
+    return null
 }

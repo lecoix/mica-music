@@ -40,7 +40,7 @@ import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.EqSelection
 import com.mica.music.media.EqualizerSnapshot
 import com.mica.music.media.MicaEqualizerManager
-import com.mica.music.media.eq.EqBandConstants
+import com.mica.music.audio.eq.EqBandConstants
 import com.mica.music.ui.components.AccentTextChoice
 import com.mica.music.ui.components.EqualizerBandBar
 import com.mica.music.ui.components.EqualizerBandSlider

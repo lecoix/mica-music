@@ -124,8 +124,12 @@ App 侧播放**命令门面** + Compose 状态投影。只保留 UI-facing 命�
 _Avoid_: player view model、media player（指底层引擎时）；把 callback / queue orchestration 重新塞回 facade
 
 **PlaybackRuntime**：
-App 侧非 Compose 的播放 application runtime，也是 `PlayerController` 背后的 deep implementation。它拥有 `PlaybackConnectionSession` 与实际 `Player.Listener` 语义、`PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator` / `PlaybackStatisticsTracker`、pending selection、队列 ↔ `MediaController` 同步、seek / tuning / shuffle / transport 命令执行及 App 侧轻量 session/bootstrap 编排；通过单一 `PlaybackRuntimeSnapshot` 向 facade 发布状态。`PlaybackConnectionSession` 继续用连接 generation 拒绝旧回调，陈旧队列镜像继续由请求号、本地 revision 与当前连接校验拒绝。
+App 侧非 Compose 的播放 application runtime，也是 `PlayerController` 背后的 deep implementation。`PlayerController`、`PlaybackRuntime`、`PlaybackConnectionSession`、queue/timeline/tuning/statistics coordinator 与 MediaController queue sync 均归属顶层 `playback/` application package。Runtime 拥有实际 `Player.Listener` 语义、pending selection、队列 ↔ `MediaController` 同步、seek / tuning / shuffle / transport 命令执行及 App 侧轻量 session/bootstrap 编排；通过单一 `PlaybackRuntimeSnapshot` 向 facade 发布状态。`PlaybackConnectionSession` 继续用连接 generation 拒绝旧回调，陈旧队列镜像继续由请求号、本地 revision 与当前连接校验拒绝。
 _Avoid_: 让 Compose state 进入 runtime；为了缩短 runtime 再拆一组只转发 lambda 的 shallow coordinator
+
+**Playback package ownership（播放包依赖方向）**：
+`data/` 保留曲库、Room、偏好和跨层 domain/value；播放恢复快照持久化归 `data/playback/ServicePlaybackStateStore`。`media/` 持有 Media3 service、音频管线与 transport implementation；`playback/` 持有 App 侧播放 application coordination。跨层都需要的 `AudioQualityMode` / `EqBandConstants` 与 `UsbStableIdentity` 下沉到 neutral `audio/` / `usb/`。`data/` 禁止反向 import 顶层 `media/` 或 `playback/`，由 `DataLayerDependencyStructureTest` 持续守卫。
+_Avoid_: 为消除依赖而造只转发接口；把 transport/runtime 类型重新塞进 data；把真正的共享值对象留在 implementation package
 
 **SleepTimerController（睡眠定时器控制器）**：
 `MicaApp` 持有的进程级播放策略；倒计时、淡出和到期暂停必须独立于 `MainViewModel` / Activity 生命周期。启动定时器时保存当前 App 播放增益，淡出只缩放该基线，到期或取消后恢复该基线；到期通知经短生命周期事件流交给当前 UI，不持有 Composable 或 ViewModel 回调。它不持久化倒计时，进程死亡后不恢复。

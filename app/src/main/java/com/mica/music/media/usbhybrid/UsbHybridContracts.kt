@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 @JvmInline
 value class UsbRequestEpoch(val value: Long)
 
@@ -9,13 +11,6 @@ value class UsbOutputOperationId(val value: Long)
 
 @JvmInline
 value class UsbDiscoveryRevision(val value: Long)
-
-data class UsbStableIdentity(
-    val vendorId: Int,
-    val productId: Int,
-    val bcdDevice: Int?,
-    val descriptorDigest: String,
-)
 
 data class UsbRuntimeHandle(
     val deviceId: Int,

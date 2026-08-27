@@ -15,8 +15,8 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
-import com.mica.music.data.PlaybackQueueState
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackQueueState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.Song
 import com.mica.music.data.usesCompactLyricsLinePreference

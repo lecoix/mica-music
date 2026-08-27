@@ -1,6 +1,6 @@
 package com.mica.music.media
 
-import com.mica.music.media.eq.EqBandConstants
+import com.mica.music.audio.eq.EqBandConstants
 import com.mica.music.media.eq.EqBandMapper
 import com.mica.music.media.eq.SoftwareEqualizer
 import com.mica.music.testutil.SongFixtures

@@ -24,7 +24,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.toLyricsDocumentCompat
-import com.mica.music.data.toMediaItem
+import com.mica.music.playback.toMediaItem
 import com.mica.music.media.ape.ApeFormat
 import com.mica.music.media.dsf.DsfFormat
 import com.mica.music.testutil.ContractTestSupport.await

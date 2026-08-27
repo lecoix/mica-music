@@ -35,7 +35,7 @@ import com.mica.music.media.usbhybrid.UsbPlaybackFacts
 import com.mica.music.media.usbhybrid.UsbRequestEpoch
 import com.mica.music.media.usbhybrid.UsbRuntimeHandle
 import com.mica.music.media.usbhybrid.UsbSharedQuiescencePolicyResolver
-import com.mica.music.media.usbhybrid.UsbStableIdentity
+import com.mica.music.usb.UsbStableIdentity
 import com.mica.music.media.usbhybrid.UsbTopologyEvent
 import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.atomic.AtomicLong

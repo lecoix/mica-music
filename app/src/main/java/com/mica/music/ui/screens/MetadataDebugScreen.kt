@@ -36,7 +36,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.MusicLibrary
-import com.mica.music.data.PlayerController
+import com.mica.music.playback.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.scanner.MetadataEntry
 import com.mica.music.data.scanner.MetadataProbe

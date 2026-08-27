@@ -93,17 +93,15 @@ class PlaybackStatisticsRepositoryTest {
     }
 
     @Test
-    fun bindWiresPlayerControllerCallbacks() = runTest {
+    fun playbackEventSinkPersistsPlayCount() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val controller = PlayerController(context)
         val repo = PlaybackStatisticsRepository(
             context = context,
             ioDispatcher = dispatcher,
             mainDispatcher = dispatcher,
         )
-        repo.bind(controller)
 
-        controller.onSongPlayStarted?.invoke("song-d")
+        repo.playStartedSink("song-d")
         advanceUntilIdle()
 
         assertEquals(1, PlayHistoryStore.getStats(context, "song-d").count)

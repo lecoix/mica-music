@@ -1,5 +1,7 @@
 package com.mica.music.data
 
+import com.mica.music.playback.PlaybackQueueNavigation
+import com.mica.music.playback.PlaybackQueueNavigationPlan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

@@ -2,7 +2,7 @@ package com.mica.music.data.preferences
 
 import android.content.Context
 import android.os.Build
-import com.mica.music.media.usbhybrid.UsbStableIdentity
+import com.mica.music.usb.UsbStableIdentity
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 

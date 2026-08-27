@@ -1,10 +1,13 @@
-package com.mica.music.data
+package com.mica.music.playback
+
+import com.mica.music.data.playback.ServicePlaybackStateStore
 
 import android.content.Context
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.mica.music.data.*
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 
@@ -61,10 +64,10 @@ class PlayerController internal constructor(
     )
 
     internal companion object {
-        const val PENDING_SEEK_CONVERGE_TOLERANCE_MS = PlaybackRuntime.PENDING_SEEK_CONVERGE_TOLERANCE_MS
-        const val PENDING_SEEK_MAX_AGE_MS = PlaybackRuntime.PENDING_SEEK_MAX_AGE_MS
-        const val PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS = PlaybackRuntime.PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS
-        const val PENDING_SEEK_AHEAD_DRIFT_MS = PlaybackRuntime.PENDING_SEEK_AHEAD_DRIFT_MS
+        const val PENDING_SEEK_CONVERGE_TOLERANCE_MS = PlaybackTimelineCoordinator.PENDING_SEEK_CONVERGE_TOLERANCE_MS
+        const val PENDING_SEEK_MAX_AGE_MS = PlaybackTimelineCoordinator.PENDING_SEEK_MAX_AGE_MS
+        const val PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS = PlaybackTimelineCoordinator.PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS
+        const val PENDING_SEEK_AHEAD_DRIFT_MS = PlaybackTimelineCoordinator.PENDING_SEEK_AHEAD_DRIFT_MS
         const val QUEUE_MIRROR_DEBOUNCE_MS = PlaybackRuntime.QUEUE_MIRROR_DEBOUNCE_MS
     }
 
@@ -207,29 +210,4 @@ class PlayerController internal constructor(
     fun clearPlaybackError() = runtime.clearPlaybackError()
 
     fun release() = runtime.release()
-}
-
-/**
- * 鍒ゆ柇 seek 鍚庢槸鍚﹀簲鏀惧純 [PlayerController] 鐨?pending UI 閽夋銆?
- * @return 娓呴櫎鍘熷洜锛沗null` 琛ㄧず缁х画閽変綇 pending銆?
- */
-internal fun evaluatePendingSeekClear(
-    pendingMs: Int,
-    reportedMs: Int,
-    pendingAgeMs: Long,
-): String? {
-    if (pendingMs < 0) return null
-    val drift = kotlin.math.abs(reportedMs - pendingMs)
-    if (drift <= PlayerController.PENDING_SEEK_CONVERGE_TOLERANCE_MS) {
-        return "converged driftMs=$drift"
-    }
-    if (pendingAgeMs > PlayerController.PENDING_SEEK_MAX_AGE_MS) {
-        return "timeout ageMs=$pendingAgeMs driftMs=$drift"
-    }
-    if (pendingAgeMs > PlayerController.PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS &&
-        reportedMs - pendingMs > PlayerController.PENDING_SEEK_AHEAD_DRIFT_MS
-    ) {
-        return "ahead-drift ageMs=$pendingAgeMs pendingMs=$pendingMs reportedMs=$reportedMs"
-    }
-    return null
 }

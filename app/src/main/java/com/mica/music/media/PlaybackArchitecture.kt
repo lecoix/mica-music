@@ -6,8 +6,6 @@ import com.mica.music.data.Song
 import java.io.FileNotFoundException
 import java.util.concurrent.atomic.AtomicLong
 
-enum class AudioQualityMode { HIFI, DSP }
-
 enum class PlaybackFailureKind {
     SOURCE_PERMISSION,
     SOURCE_MISSING,

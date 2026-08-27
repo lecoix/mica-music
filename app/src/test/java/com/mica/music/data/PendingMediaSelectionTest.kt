@@ -1,5 +1,6 @@
 package com.mica.music.data
 
+import com.mica.music.playback.PendingMediaSelection
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

@@ -5,13 +5,13 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mica.music.data.AppUiSettings
-import com.mica.music.data.LibraryPlaybackQueueCoordinator
+import com.mica.music.playback.LibraryPlaybackQueueCoordinator
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.StartupBrowseTarget
-import com.mica.music.data.asLibraryPlaybackQueueTarget
+import com.mica.music.playback.asLibraryPlaybackQueueTarget
 import com.mica.music.data.preferences.LibraryBrowseSettings
-import com.mica.music.data.toLibraryQueueSyncInput
+import com.mica.music.playback.toLibraryQueueSyncInput
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
 

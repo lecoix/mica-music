@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.CompletableFuture

@@ -1,7 +1,7 @@
 package com.mica.music.data.preferences
 
 import android.content.Context
-import com.mica.music.media.eq.EqBandConstants
+import com.mica.music.audio.eq.EqBandConstants
 
 /** 均衡器开关、预设索引、频段与全局增益偏好。 */
 object EqualizerPreferences {

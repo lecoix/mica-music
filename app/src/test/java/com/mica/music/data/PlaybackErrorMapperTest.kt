@@ -1,5 +1,6 @@
 package com.mica.music.data
 
+import com.mica.music.playback.PlaybackErrorMapper
 import androidx.media3.common.PlaybackException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

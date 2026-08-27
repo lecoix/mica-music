@@ -196,6 +196,7 @@
 - [x] **ExoPlayer 单链路优先**：普通格式与扩展格式统一走 ExoPlayer / Media3 解码播放，避免旧的多播放管线分叉
 - [x] **内存流式解码**：已移除整首 `.pcm` 落盘播放路径；seek 与进度状态跟随 ExoPlayer 当前播放状态
 - [x] **MediaSession 外部控制边界**：已完成连接能力与命令限制的基础边界；保留系统媒体控件、蓝牙和车机所需的标准播放命令，不做品牌包名白名单。Android Auto / OEM 真机验收仍见下方 P2 项
+- [x] **播放 application package ownership 收口**：`PlayerController` / `PlaybackRuntime` / connection / queue-timeline-tuning-statistics coordinator 与 MediaController queue sync 已集中到顶层 `playback/`；恢复快照 persistence 位于 `data/playback/`，共享 audio/USB 值对象下沉到 neutral package。`DataLayerDependencyStructureTest` 保证 `data/` 不再反向依赖 `media/` / `playback/` implementation
 - [ ] **P2：Android Auto / 车机 MediaSession 验收**：补充真实车机或 Android Auto DHU 的连接、元数据、播放控制与重连验证。
 - [ ] **P2：OEM 车机兼容性验收**：覆盖不同厂商车机/系统控制器的媒体按键、元数据、封面与进程重启行为。
 - [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变

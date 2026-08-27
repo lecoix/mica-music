@@ -19,7 +19,6 @@ import com.mica.music.data.LyricsOrigin
 import com.mica.music.data.LyricsSlots
 import com.mica.music.data.LyricsProbeResult
 import com.mica.music.data.local.SongEntity
-import com.mica.music.media.AlacPlayback
 import com.mica.music.util.DiagnosticLog
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger

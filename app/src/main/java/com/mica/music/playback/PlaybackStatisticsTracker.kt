@@ -1,4 +1,4 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 internal enum class PlaybackMediaTransition {
     Explicit,

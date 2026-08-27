@@ -15,7 +15,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection

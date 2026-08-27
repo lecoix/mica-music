@@ -1,7 +1,8 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.mica.music.data.Song
 import com.mica.music.media.SongMediaItemCodec
 
 internal data class QueueSyncResult(

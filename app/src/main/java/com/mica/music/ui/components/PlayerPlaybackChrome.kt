@@ -26,7 +26,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.data.PlaybackQueueMode
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing

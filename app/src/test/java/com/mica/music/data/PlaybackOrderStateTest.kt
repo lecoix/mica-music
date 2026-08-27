@@ -1,5 +1,6 @@
 package com.mica.music.data
 
+import com.mica.music.playback.PlaybackOrderState
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

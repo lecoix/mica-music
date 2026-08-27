@@ -1,4 +1,4 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import kotlin.random.Random
 

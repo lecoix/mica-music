@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 internal data class UsbSharedQuiescencePolicy(val settleMs: Long)
 
 /**

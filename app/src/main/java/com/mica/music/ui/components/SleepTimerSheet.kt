@@ -55,7 +55,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import com.mica.music.data.SleepTimerController
+import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.preferences.SleepTimerPreferences
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSpacing

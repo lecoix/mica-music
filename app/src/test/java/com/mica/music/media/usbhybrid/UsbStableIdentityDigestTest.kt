@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test

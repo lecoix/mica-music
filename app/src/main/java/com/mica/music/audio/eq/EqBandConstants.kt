@@ -1,4 +1,4 @@
-package com.mica.music.media.eq
+package com.mica.music.audio.eq
 
 /** 10 段对数分布软件均衡器中心频率（Hz）。 */
 object EqBandConstants {

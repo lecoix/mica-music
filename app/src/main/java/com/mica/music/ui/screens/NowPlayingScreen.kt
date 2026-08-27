@@ -59,16 +59,16 @@ import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.LyricsTiming
 import com.mica.music.data.SongLyricsOffsetStore
-import com.mica.music.data.PlaybackProgressState
-import com.mica.music.data.PlaybackQueueState
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackProgressState
+import com.mica.music.playback.PlaybackQueueState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlaylistStore
-import com.mica.music.data.SleepTimerController
+import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
 import com.mica.music.data.TrackSkipDirection
@@ -2109,7 +2109,7 @@ fun NowPlayingContent(
                     sleepTimer.start(minutes)
                     sleepTimerSheetOpen = false
                     scope.launch {
-                        val label = com.mica.music.data.SleepTimerController.presetLabel(minutes)
+                        val label = com.mica.music.playback.SleepTimerController.presetLabel(minutes)
                         snackbarHostState.showSnackbar("将在 $label 后停止播放")
                     }
                 },

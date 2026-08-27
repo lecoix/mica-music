@@ -24,8 +24,8 @@ import androidx.navigation.navArgument
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
-import com.mica.music.data.PlayerController
-import com.mica.music.data.SleepTimerController
+import com.mica.music.playback.PlayerController
+import com.mica.music.playback.SleepTimerController
 import com.mica.music.ui.components.PlayerSheetHost
 import com.mica.music.ui.components.miniPlayerListClearance
 import com.mica.music.ui.motion.MicaMotion

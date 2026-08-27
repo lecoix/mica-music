@@ -17,7 +17,7 @@ import com.mica.music.media.usbhybrid.UsbOutputEvent
 import com.mica.music.media.usbhybrid.UsbOutputPhase
 import com.mica.music.media.usbhybrid.UsbOutputState
 import com.mica.music.media.usbhybrid.UsbRuntimeHandle
-import com.mica.music.media.usbhybrid.UsbStableIdentity
+import com.mica.music.usb.UsbStableIdentity
 import com.mica.music.media.usbhybrid.UsbTopologyEvent
 import io.mockk.every
 import io.mockk.mockk

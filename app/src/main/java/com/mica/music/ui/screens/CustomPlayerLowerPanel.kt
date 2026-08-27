@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.data.PlaybackContentColorMode
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.HiResBadgeAppearance

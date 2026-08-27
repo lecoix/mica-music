@@ -88,14 +88,17 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 │   └── …
 └── app/src/main/java/com/mica/music/
     ├── MainActivity.kt     # BlurTarget + 双 ComposeView
-    ├── data/
-    ├── media/
+    ├── audio/              # 跨层共享的音频值模型/常量
+    ├── data/               # 曲库、Room、偏好与持久化
+    ├── playback/           # App 侧播放 facade/runtime/coordinators
+    ├── media/              # Media3 service、音频管线与 transport
+    ├── usb/                # 跨层共享的 USB identity
     └── ui/
 ```
 
 `data/MockData.kt` 为早期占位，**主流程已不再使用**。
 
-`data/` 下另有 `PlaybackQueueCoordinator` / `PlaybackTimelineCoordinator` / `PlaybackTuningCoordinator` 与 Room 后端的 `PlaylistStore`；`media/` 下为 `AudioPipelineCoordinator` 与 `AudioOffloadCircuitBreaker` 等协调模块。
+`playback/` 集中持有 `PlayerController`、`PlaybackRuntime`、connection、queue/timeline/tuning/statistics coordinator 与队列同步逻辑；`data/playback/ServicePlaybackStateStore` 只负责播放恢复快照持久化。`data/` 不得反向依赖 `media/` 或 `playback/` implementation package，该约束由 `DataLayerDependencyStructureTest` 守卫。`media/` 继续持有 `AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、Media3 service 与 USB transport runtime；跨层共用的 `AudioQualityMode` / `EqBandConstants` 与 `UsbStableIdentity` 分别位于 neutral `audio/` / `usb/`。
 
 ---
 

@@ -1,4 +1,4 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import android.content.Context
 import androidx.compose.runtime.getValue

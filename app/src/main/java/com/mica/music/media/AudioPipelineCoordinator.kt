@@ -1,5 +1,7 @@
 package com.mica.music.media
 
+import com.mica.music.audio.AudioQualityMode
+
 internal data class AudioPipelineState(
     val equalizerEnabled: Boolean,
     val spectrumTapEnabled: Boolean,

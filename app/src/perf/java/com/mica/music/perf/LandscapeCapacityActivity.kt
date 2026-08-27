@@ -16,7 +16,7 @@ import androidx.compose.material3.Surface
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import com.mica.music.data.PlaybackQueueModel
+import com.mica.music.playback.PlaybackQueueModel
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.media.MicaCompositePlayer

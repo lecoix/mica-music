@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertFalse

@@ -27,10 +27,10 @@ import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.LyricsTiming
 import com.mica.music.data.PlaylistStore
-import com.mica.music.data.PlaybackProgressState
-import com.mica.music.data.PlaybackQueueState
-import com.mica.music.data.PlaybackSurfaceState
-import com.mica.music.data.SleepTimerController
+import com.mica.music.playback.PlaybackProgressState
+import com.mica.music.playback.PlaybackQueueState
+import com.mica.music.playback.PlaybackSurfaceState
+import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled

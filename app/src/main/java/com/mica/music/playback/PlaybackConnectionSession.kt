@@ -1,4 +1,4 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController

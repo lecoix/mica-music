@@ -1,7 +1,9 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.mica.music.data.Song
+import com.mica.music.media.SongMediaItemCodec
 
 internal data class QueueOrderSignature(
     val mediaIds: List<String>,
@@ -58,3 +60,14 @@ internal object PlaybackQueueMirror {
         )
     }
 }
+
+/**
+ * MediaItem 只承载播放/会话所需的轻量字段；曲库中的完整 Song（例如歌词）优先。
+ */
+internal fun resolveMirroredSong(
+    item: MediaItem,
+    resolver: ((String) -> Song?)?,
+): Song? = item.mediaId
+    .takeIf { it.isNotBlank() }
+    ?.let { resolver?.invoke(it) }
+    ?: SongMediaItemCodec.decode(item)

@@ -16,12 +16,12 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mica.music.data.LyricLine
-import com.mica.music.data.MediaControllerConnection
-import com.mica.music.data.MediaControllerConnector
+import com.mica.music.playback.MediaControllerConnection
+import com.mica.music.playback.MediaControllerConnector
 import com.mica.music.data.PlaybackSession
-import com.mica.music.data.PlaybackSessionStorage
+import com.mica.music.playback.PlaybackSessionStorage
 import com.mica.music.data.PlaybackSongResolver
-import com.mica.music.data.PlayerController
+import com.mica.music.playback.PlayerController
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.preferences.LyricsPreferences

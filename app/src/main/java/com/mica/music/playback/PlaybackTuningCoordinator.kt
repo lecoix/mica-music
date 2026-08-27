@@ -1,5 +1,6 @@
-package com.mica.music.data
+package com.mica.music.playback
 
+import com.mica.music.data.PlaybackTuning
 import kotlin.math.abs
 
 internal class PlaybackTuningCoordinator {

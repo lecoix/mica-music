@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 

@@ -7,7 +7,7 @@ import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SongIdentity
 import com.mica.music.data.preferences.LibraryBrowseSettings
-import com.mica.music.media.ServicePlaybackStateStore
+import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

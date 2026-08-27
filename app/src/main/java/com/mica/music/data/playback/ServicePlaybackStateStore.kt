@@ -1,4 +1,6 @@
-package com.mica.music.media
+package com.mica.music.data.playback
+
+import com.mica.music.audio.AudioQualityMode
 
 import android.content.Context
 import androidx.media3.common.Player

@@ -1,5 +1,7 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.usb.UsbStableIdentity
+
 data class UsbDeviceCandidate(
     val identity: UsbStableIdentity,
     val runtimeHandle: UsbRuntimeHandle,

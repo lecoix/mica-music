@@ -1,4 +1,4 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import android.content.ComponentName
 import android.content.Context
@@ -9,6 +9,8 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import androidx.media3.session.SessionToken
+import com.mica.music.data.PlaybackSession
+import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.MicaMediaService
 import com.mica.music.media.PlaybackBoundarySessionEvent

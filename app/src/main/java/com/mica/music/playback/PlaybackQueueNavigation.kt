@@ -1,4 +1,4 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 internal sealed class PlaybackQueueNavigationPlan {
     abstract val serviceIndex: Int

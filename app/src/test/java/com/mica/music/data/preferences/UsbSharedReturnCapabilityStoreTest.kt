@@ -1,6 +1,6 @@
 package com.mica.music.data.preferences
 
-import com.mica.music.media.usbhybrid.UsbStableIdentity
+import com.mica.music.usb.UsbStableIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals

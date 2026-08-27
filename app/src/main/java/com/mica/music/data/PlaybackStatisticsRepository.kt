@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Process-lifetime owner for play-count / listen-seconds persistence.
  *
- * Binds [PlayerController] publish callbacks once for the process. Writes go to
+ * Exposes narrow playback-event sinks; the app composition root wires producers to them. Writes go to
  * [PlayHistoryStore] on a scope that outlives Activity/ViewModel. Optional presentation
  * sinks (typically the current [MusicLibrary]) may refresh Compose song rows; missing
  * or released sinks must never block persistence.
@@ -26,16 +26,9 @@ class PlaybackStatisticsRepository(
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val presentation = AtomicReference<PresentationSink?>(null)
-    private var bound = false
 
-    fun bind(playerController: PlayerController) {
-        if (bound) return
-        bound = true
-        playerController.onSongPlayStarted = { songId -> recordPlay(songId) }
-        playerController.onSongListenSecondsAdded = { songId, seconds ->
-            recordListenSeconds(songId, seconds)
-        }
-    }
+    val playStartedSink: (String) -> Unit = ::recordPlay
+    val listenSecondsSink: (String, Long) -> Unit = ::recordListenSeconds
 
     fun attachPresentationSink(token: Any, sink: (songId: String, stats: PlayStats) -> Unit) {
         presentation.set(PresentationSink(token, sink))

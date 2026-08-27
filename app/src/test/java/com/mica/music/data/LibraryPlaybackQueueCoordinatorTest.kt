@@ -1,5 +1,7 @@
 package com.mica.music.data
 
+import com.mica.music.playback.LibraryPlaybackQueueCoordinator
+import com.mica.music.playback.LibraryQueueSyncInput
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

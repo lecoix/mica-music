@@ -1,8 +1,10 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import android.os.SystemClock
 import com.mica.music.LibraryQueueSyncPlan
 import com.mica.music.LibraryQueueSyncPolicy
+import com.mica.music.data.MusicLibrary
+import com.mica.music.data.Song
 import com.mica.music.util.DiagnosticLog
 
 data class LibraryQueueSyncInput(

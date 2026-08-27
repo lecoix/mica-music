@@ -1,4 +1,4 @@
-﻿package com.mica.music.ui.screens
+package com.mica.music.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -19,7 +19,7 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsWordAnimationPreset
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.HiResBadgeAppearance

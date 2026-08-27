@@ -1,5 +1,7 @@
 package com.mica.music.media.eq
 
+import com.mica.music.audio.eq.EqBandConstants
+
 import kotlin.math.ln
 import kotlin.math.max
 

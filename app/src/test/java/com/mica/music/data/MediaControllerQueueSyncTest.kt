@@ -3,6 +3,8 @@ package com.mica.music.data
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.mica.music.media.SongMediaItemCodec
+import com.mica.music.playback.MediaControllerQueueSync
+import com.mica.music.playback.PlaybackQueueSyncPlan
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk

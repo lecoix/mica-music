@@ -1,4 +1,4 @@
-﻿package com.mica.music.data
+package com.mica.music.playback
 
 import android.content.Context
 import android.os.Handler
@@ -12,10 +12,11 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import com.mica.music.data.*
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PendingPlaybackNavigation
 import com.mica.music.media.PlaybackRouter
-import com.mica.music.media.ServicePlaybackStateStore
+import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.ScreenLockDiagnostics
@@ -86,10 +87,6 @@ internal class PlaybackRuntime(
     private val listenSecondsSink: (String, Long) -> Unit,
 ) {
     internal companion object {
-        const val PENDING_SEEK_CONVERGE_TOLERANCE_MS = 1_500
-        const val PENDING_SEEK_MAX_AGE_MS = 4_000L
-        const val PENDING_SEEK_DRIFT_BAILOUT_MIN_AGE_MS = 500L
-        const val PENDING_SEEK_AHEAD_DRIFT_MS = 1_500
         const val QUEUE_MIRROR_DEBOUNCE_MS = 100L
     }
 
@@ -1554,17 +1551,4 @@ internal fun Song.toMediaItem(): MediaItem =
 
 internal fun Song.toMediaItem(context: Context): MediaItem =
     com.mica.music.media.SongMediaItemCodec.encodeForSession(context, this)
-
-/**
- * MediaItem 只承载播放/会话所需的轻量字段；曲库中的完整 Song（例如歌词）优先。
- */
-internal fun resolveMirroredSong(
-    item: MediaItem,
-    resolver: ((String) -> Song?)?,
-): Song? = item.mediaId
-    .takeIf { it.isNotBlank() }
-    ?.let { resolver?.invoke(it) }
-    ?: SongMediaItemCodec.decode(item)
-
-
 

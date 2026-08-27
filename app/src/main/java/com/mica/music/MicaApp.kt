@@ -6,12 +6,12 @@ import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.data.PlaybackStatisticsRepository
 import com.mica.music.data.ProcessPlaybackSongResolver
 import com.mica.music.data.PlaylistStore
-import com.mica.music.data.PlayerController
-import com.mica.music.data.SleepTimerController
+import com.mica.music.playback.PlayerController
+import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.media.DesktopLyricsOverlayStateStore
-import com.mica.music.media.ServicePlaybackStateStore
+import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.AudioEnvironmentDiagnostics
@@ -55,7 +55,10 @@ class MicaApp : Application() {
         PlaybackStatisticsRepository(
             context = this,
             isPersistentSong = { !TransientPlaybackCatalog.isTransientId(it) },
-        ).also { it.bind(playerController) }
+        ).also { statistics ->
+            playerController.onSongPlayStarted = statistics.playStartedSink
+            playerController.onSongListenSecondsAdded = statistics.listenSecondsSink
+        }
     }
 
     val playlistStore: PlaylistStore by lazy(LazyThreadSafetyMode.NONE) {

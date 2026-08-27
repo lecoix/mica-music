@@ -7,7 +7,7 @@ import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.EqCustomProfile
 import com.mica.music.data.EqCustomProfileStore
 import com.mica.music.data.EqSelection
-import com.mica.music.media.eq.EqBandConstants
+import com.mica.music.audio.eq.EqBandConstants
 import com.mica.music.media.eq.EqBandMapper
 import com.mica.music.media.eq.EqPresetLabels
 import com.mica.music.media.eq.SoftwareEqualizer

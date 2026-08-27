@@ -8,7 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.LyricsRenderState
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
 import com.mica.music.ui.components.PlaybackSeekState

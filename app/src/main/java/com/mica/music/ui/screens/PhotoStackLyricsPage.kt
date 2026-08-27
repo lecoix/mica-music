@@ -10,7 +10,7 @@ import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.data.LyricsWordAnimationPreset
-import com.mica.music.data.PlaybackSurfaceState
+import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.LowerPanelFrame
 import com.mica.music.ui.theme.PlayerContentColors

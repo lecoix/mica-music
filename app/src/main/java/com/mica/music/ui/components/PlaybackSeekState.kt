@@ -7,7 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.mica.music.data.PlaybackProgressState
+import com.mica.music.playback.PlaybackProgressState
 import kotlin.math.min
 import kotlin.math.roundToInt
 

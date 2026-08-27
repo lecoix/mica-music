@@ -1,5 +1,7 @@
 package com.mica.music.media.eq
 
+import com.mica.music.audio.eq.EqBandConstants
+
 import android.media.AudioFormat
 import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
