@@ -59,7 +59,13 @@ class AndroidUsbHybridControlEffects(
     private val topologyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> topologyEventSink(UsbTopologyEvent.Attached)
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> usbDeviceExtra(intent)?.let { device ->
+                    runCatching { AndroidUsbIdentityProbe.candidate(device) }.getOrNull()?.let { candidate ->
+                        topologyEventSink(
+                            UsbTopologyEvent.Attached(candidate.runtimeHandle, candidate.hasAudioOutput),
+                        )
+                    }
+                }
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> usbDeviceExtra(intent)?.let { device ->
                     topologyEventSink(
                         UsbTopologyEvent.Detached(UsbRuntimeHandle(device.deviceId, device.deviceName)),

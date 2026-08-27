@@ -243,7 +243,10 @@ internal object UsbOutputStateMachine {
                 state.copy(phase = UsbOutputPhase.SharedRouteWaiting),
                 listOf(UsbOutputEffect.WaitForSharedRoute),
             )
-        state.desiredMode != DesiredUsbOutput.Shared -> UsbOutputReduction(
+        state.desiredMode != DesiredUsbOutput.Shared &&
+            (state.phase == UsbOutputPhase.Disconnected ||
+                state.phase == UsbOutputPhase.ExclusivePreparing ||
+                state.phase is UsbOutputPhase.Failed) -> UsbOutputReduction(
             state.copy(phase = UsbOutputPhase.ExclusivePreparing),
             listOf(UsbOutputEffect.WaitForTarget),
         )

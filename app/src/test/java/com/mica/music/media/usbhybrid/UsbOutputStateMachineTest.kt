@@ -64,6 +64,31 @@ class UsbOutputStateMachineTest {
         assertTrue(changed.effects.isEmpty())
     }
 
+    @Test fun attachDoesNotRestartAnExclusiveSessionThatAlreadyOwnsItsTarget() {
+        val active = UsbOutputState(
+            desiredMode = DesiredUsbOutput.ExactPcm,
+            phase = UsbOutputPhase.ExclusiveActive(DesiredUsbOutput.ExactPcm),
+            generation = 8L,
+            frozenIntent = FrozenPlaybackIntent(8L, true),
+            targetStable = true,
+            permissionGranted = true,
+            activeTransport = UsbActiveTransport.PCM,
+            activeSessionId = 52L,
+        )
+
+        val attached = reduce(active, UsbOutputEvent.UsbAttached)
+
+        assertEquals(active, attached.state)
+        assertTrue(attached.effects.isEmpty())
+
+        listOf(UsbOutputPhase.PermissionWaiting, UsbOutputPhase.ExclusiveOpening).forEach { phase ->
+            val transition = active.copy(phase = phase, activeTransport = null, activeSessionId = null)
+            val unchanged = reduce(transition, UsbOutputEvent.UsbAttached)
+            assertEquals(transition, unchanged.state)
+            assertTrue(unchanged.effects.isEmpty())
+        }
+    }
+
     @Test fun stalePermissionCallbackCannotAdvanceNewGeneration() {
         val first = reduce(UsbOutputState(), UsbOutputEvent.UserSelected(DesiredUsbOutput.NativeDsd, true)).state
         val prepared = reduce(first, UsbOutputEvent.SharedQuiesced(first.generation)).state

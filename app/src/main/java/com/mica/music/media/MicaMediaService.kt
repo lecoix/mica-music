@@ -143,9 +143,11 @@ class MicaMediaService : MediaSessionService() {
     private var usbSharedReturnProbeIdentity: UsbStableIdentity? = null
     private var usbSharedAudioDeviceCallbackRegistered: Boolean = false
     private var usbOutputOperation: UsbOutputOperation? = null
+    @Volatile
     private var usbOutputDestroyed: Boolean = false
     private val usbSharedAudioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            if (usbOutputDestroyed) return
             val usbDevice = addedDevices.firstOrNull(::isAndroidUsbAudioOutput) ?: return
             usbSharedAudioAddSerial += 1
             DiagnosticLog.event(
@@ -170,6 +172,7 @@ class MicaMediaService : MediaSessionService() {
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            if (usbOutputDestroyed) return
             if (removedDevices.none(::isAndroidUsbAudioOutput)) return
             DiagnosticLog.event(
                 "UsbOutputState",
@@ -179,6 +182,7 @@ class MicaMediaService : MediaSessionService() {
     }
     private val usbTelemetrySampler = object : Runnable {
         override fun run() {
+            if (usbOutputDestroyed) return
             val owner = usbOwner ?: return
             val effects = usbEffects ?: return
             owner.refreshTelemetry(effects)
@@ -244,7 +248,8 @@ class MicaMediaService : MediaSessionService() {
             }
         unregisterUsbOutputPreferenceListener =
             UsbHybridPreferences.registerChangeListener(this) { mode ->
-                mainHandler.post {
+                mainHandler.post usbPreference@{
+                    if (usbOutputDestroyed) return@usbPreference
                     if (usbServiceCreateBootstrapMode != null) {
                         usbServiceCreateBootstrapMode = mode
                     } else {
@@ -299,7 +304,10 @@ class MicaMediaService : MediaSessionService() {
         usbOwner = owner
         usbFactsJob = sessionScope?.launch {
             owner.facts.collectLatest { facts ->
-                mainHandler.post { handleUsbFacts(facts) }
+                mainHandler.post usbFacts@{
+                    if (usbOutputDestroyed) return@usbFacts
+                    handleUsbFacts(facts)
+                }
             }
         }
     }
@@ -309,11 +317,13 @@ class MicaMediaService : MediaSessionService() {
         libraryRepository: LibraryRepository,
         micaApp: MicaApp,
     ) {
+        if (usbOutputDestroyed) return
         if (mode == UsbHybridOutputMode.SharedPcm) {
             applyUsbOutputMode(mode, "service-create")
             return
         }
         val snapshot = ServicePlaybackStateStore(this).load()
+        if (usbOutputDestroyed) return
         if (snapshot == null || snapshot.queueSongIds.isEmpty()) {
             applyUsbOutputMode(mode, "service-create")
             return
@@ -345,7 +355,9 @@ class MicaMediaService : MediaSessionService() {
                 }
             }
             val bootstrap = ServicePlaybackBootstrapResolver.resolve(snapshot, songsById)
-            mainHandler.post {
+            if (usbOutputDestroyed) return@launch
+            mainHandler.post usbBootstrap@{
+                if (usbOutputDestroyed) return@usbBootstrap
                 val selectedMode = usbServiceCreateBootstrapMode
                     ?: UsbHybridPreferences.outputMode(this@MicaMediaService)
                 usbServiceCreateBootstrapMode = null
@@ -368,12 +380,14 @@ class MicaMediaService : MediaSessionService() {
                 applyUsbOutputMode(selectedMode, "service-create")
             }
         } ?: run {
+            if (usbOutputDestroyed) return
             usbServiceCreateBootstrapMode = null
             applyUsbOutputMode(mode, "service-create")
         }
     }
 
     private fun applyUsbOutputMode(mode: UsbHybridOutputMode, reason: String) {
+        if (usbOutputDestroyed) return
         val desired = mode.toDesiredUsbOutput()
         val phase = usbOutputState.phase
         if (
@@ -398,6 +412,7 @@ class MicaMediaService : MediaSessionService() {
         val identity = ownerFacts?.identity ?: usbOutputCandidate?.identity
         val returnIdentity = identity ?: usbSharedReturnProbeIdentity
         val returnCapability = returnIdentity?.let { UsbSharedReturnCapabilityStore.capability(this, it) }
+        if (usbOutputDestroyed) return
         val reconnectRequired = returningFromExclusive &&
             UsbSharedReturnPolicy.requiresPhysicalReconnect(
                 returnCapability ?: com.mica.music.data.preferences.UsbSharedReturnCapability.Unknown,
@@ -427,6 +442,7 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun dispatchUsbOutput(event: UsbOutputEvent) {
+        if (usbOutputDestroyed) return
         val before = usbOutputState
         val reduction = UsbOutputStateMachine.reduce(before, event)
         usbOutputState = reduction.state
@@ -525,8 +541,20 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun onUsbTopologyEvent(event: UsbTopologyEvent) {
+        if (usbOutputDestroyed) return
         when (event) {
-            UsbTopologyEvent.Attached -> {
+            is UsbTopologyEvent.Attached -> {
+                if (!event.hasAudioOutput) return
+                val phase = usbOutputState.phase
+                if (
+                    phase == UsbOutputPhase.PermissionWaiting ||
+                    phase == UsbOutputPhase.ExclusiveOpening ||
+                    phase is UsbOutputPhase.ExclusiveActive
+                ) {
+                    val currentRuntimeHandle = usbOutputCandidate?.runtimeHandle
+                        ?: usbOwner?.facts?.value?.runtimeHandle
+                    if (currentRuntimeHandle != event.runtimeHandle) return
+                }
                 usbOwner?.onAttached()
                 dispatchUsbOutput(UsbOutputEvent.UsbAttached)
             }
@@ -932,6 +960,7 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun handleUsbFacts(facts: UsbPlaybackFacts) {
+        if (usbOutputDestroyed) return
         val owner = usbOwner ?: return
         if (owner.facts.value != facts) return
         val ownerEpoch = usbOutputOwnerEpoch ?: return

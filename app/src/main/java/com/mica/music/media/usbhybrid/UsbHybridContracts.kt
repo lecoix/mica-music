@@ -19,7 +19,10 @@ data class UsbRuntimeHandle(
 )
 
 sealed interface UsbTopologyEvent {
-    data object Attached : UsbTopologyEvent
+    data class Attached(
+        val runtimeHandle: UsbRuntimeHandle,
+        val hasAudioOutput: Boolean,
+    ) : UsbTopologyEvent
     data class Detached(val runtimeHandle: UsbRuntimeHandle) : UsbTopologyEvent
 }
 
