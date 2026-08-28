@@ -9,7 +9,9 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.remote.RemoteHttpPlaybackRequest
 import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
+import com.mica.music.data.playback.ServiceRemoteSongSnapshot
 import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemoteMediaMetadataExtras
 import com.mica.music.data.remote.RemotePlaybackUriCodec
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
@@ -126,6 +128,8 @@ class MicaRoutingDataSourceTest {
             assertEquals(mediaId, remoteSong.id)
             assertEquals(stableUri, remoteSong.mediaUri)
             assertEquals(stableUri, controllerItem.localConfiguration?.uri?.toString())
+            assertTrue(RemoteMediaMetadataExtras.isTrustedProjection(controllerItem.mediaMetadata.extras))
+            assertEquals(mediaId, ServiceRemoteSongSnapshot.fromMediaItem(controllerItem)?.id)
             assertFalse(controllerItem.toString().contains("credential"))
             assertFalse(controllerItem.toString().contains("token"))
 

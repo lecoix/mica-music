@@ -246,10 +246,11 @@ data class ServiceRemoteSongSnapshot(
             }
             return ServiceRemoteSongSnapshot(
                 id = id,
-                title = metadata.title?.toString().orEmpty(),
-                artist = metadata.artist?.toString().orEmpty(),
-                album = metadata.albumTitle?.toString().orEmpty(),
-                albumArtist = metadata.albumArtist?.toString().orEmpty(),
+                title = RemoteMediaMetadataExtras.title(extras).ifBlank { metadata.title?.toString().orEmpty() },
+                artist = RemoteMediaMetadataExtras.artist(extras).ifBlank { metadata.artist?.toString().orEmpty() },
+                album = RemoteMediaMetadataExtras.album(extras).ifBlank { metadata.albumTitle?.toString().orEmpty() },
+                albumArtist = RemoteMediaMetadataExtras.albumArtist(extras)
+                    .ifBlank { metadata.albumArtist?.toString().orEmpty() },
                 durationSec = ((metadata.durationMs ?: 0L).coerceAtLeast(0L) / 1000L).toInt(),
                 containerName = suffix.ifBlank { mimeType.substringAfter('/', "") }.uppercase(),
                 playbackMimeType = mimeType,
@@ -521,6 +522,8 @@ class ServicePlaybackStateStore(context: Context) {
         )
         val songId = legacy.getString(LEGACY_KEY_SONG_ID, null)
             ?.takeIf(String::isNotBlank)
+            ?.takeUnless(TransientPlaybackCatalog::isTransientId)
+            ?.takeUnless(RemoteMediaIdCodec::isRemoteId)
             ?: return null
         return ServicePlaybackSnapshot(
             queueSongIds = listOf(songId),

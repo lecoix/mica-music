@@ -104,10 +104,11 @@ internal object RemoteMediaItemCodec {
 
         return Song(
             id = item.mediaId,
-            title = item.mediaMetadata.title?.toString().orEmpty(),
-            artist = item.mediaMetadata.artist?.toString().orEmpty(),
-            album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
-            albumArtist = item.mediaMetadata.albumArtist?.toString().orEmpty(),
+            title = RemoteMediaMetadataExtras.title(extras).ifBlank { item.mediaMetadata.title?.toString().orEmpty() },
+            artist = RemoteMediaMetadataExtras.artist(extras).ifBlank { item.mediaMetadata.artist?.toString().orEmpty() },
+            album = RemoteMediaMetadataExtras.album(extras).ifBlank { item.mediaMetadata.albumTitle?.toString().orEmpty() },
+            albumArtist = RemoteMediaMetadataExtras.albumArtist(extras)
+                .ifBlank { item.mediaMetadata.albumArtist?.toString().orEmpty() },
             durationSec = durationSec,
             metadata = TrackMetadata(
                 containerName = suffix.ifBlank { mimeType.substringAfter('/', "") }.uppercase(),

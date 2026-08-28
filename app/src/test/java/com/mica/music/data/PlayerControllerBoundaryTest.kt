@@ -548,6 +548,55 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun coldStartPendingQueuePublishesSavedPositionOnFirstControllerConnection() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = ServicePlaybackStateStore(context)
+        val queue = SongFixtures.queue(2)
+        val connector = FakeConnector()
+        val controller = controller(
+            connector = connector,
+            songResolver = PlaybackSongResolver { id -> queue.firstOrNull { it.id == id } },
+        )
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val submittedItems = slot<List<MediaItem>>()
+        store.clear(sync = true)
+        store.save(
+            ServicePlaybackSnapshot(
+                queueSongIds = queue.map { it.id },
+                currentIndex = 1,
+                positionMs = 42_000L,
+                repeatMode = Player.REPEAT_MODE_OFF,
+                shuffleEnabled = false,
+                playWhenReady = false,
+                qualityMode = AudioQualityMode.HIFI,
+            ),
+            sync = true,
+        )
+        val restoredItem = MediaItem.Builder().setMediaId(queue[1].id).build()
+        every { mediaController.mediaItemCount } returns 0
+        every { mediaController.currentMediaItem } returns restoredItem
+        every { mediaController.currentMediaItemIndex } returns 1
+        every { mediaController.currentPosition } returns 42_000L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns false
+
+        try {
+            assertTrue(controller.bootstrapQueue { id -> queue.firstOrNull { it.id == id } })
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+
+            verify(exactly = 1) {
+                mediaController.setMediaItems(capture(submittedItems), 1, 42_000L)
+            }
+            assertEquals(queue.map { it.id }, submittedItems.captured.map { it.mediaId })
+            assertEquals(42_000, controller.uiPositionMs())
+        } finally {
+            controller.release()
+            store.clear(sync = true)
+        }
+    }
+
+    @Test
     fun selectingAnotherSongAfterColdStartRestoreStartsAtBeginning() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)

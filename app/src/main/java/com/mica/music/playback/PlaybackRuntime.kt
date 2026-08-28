@@ -657,7 +657,12 @@ internal class PlaybackRuntime(
 
     private fun onConnected(c: MediaController) {
         pendingQueue?.let {
-            applyQueue(c, it, preservePlayback = true)
+            applyQueue(
+                c = c,
+                newQueue = it,
+                preservePlayback = true,
+                startPositionMs = timelineCoordinator.pendingRestorePosition()?.toLong() ?: 0L,
+            )
             pendingQueue = null
         }
         pendingSingleSongId?.let { songId ->
@@ -1000,6 +1005,7 @@ internal class PlaybackRuntime(
         newQueue: List<Song>,
         preservePlayback: Boolean = false,
         preserveSongId: String? = preserveSongIdForQueue(),
+        startPositionMs: Long = 0L,
     ) {
         if (newQueue.isEmpty()) {
             c.clearMediaItems()
@@ -1015,12 +1021,13 @@ internal class PlaybackRuntime(
         val foundOldSong = preservePlayback && keepIndex >= 0
         queueCoordinator.replaceCurrentIndex(if (foundOldSong) keepIndex else 0)
         publishPlaybackStates()
+        val initialPositionMs = startPositionMs.coerceAtLeast(0L)
         if (c.isPlaying && !foundOldSong) {
-            c.setMediaItems(newQueue.map { it.toMediaItem(appCtx) }, currentIndex, 0L)
+            c.setMediaItems(newQueue.map { it.toMediaItem(appCtx) }, currentIndex, initialPositionMs)
             c.play()
             postUserMessage("当前歌曲已从库中移除")
         } else if (c.mediaItemCount == 0) {
-            c.setMediaItems(newQueue.map { it.toMediaItem(appCtx) }, currentIndex, 0L)
+            c.setMediaItems(newQueue.map { it.toMediaItem(appCtx) }, currentIndex, initialPositionMs)
         } else syncExoQueuePreservingPlayback()
     }
 
@@ -1652,8 +1659,10 @@ internal fun summarizePlaybackUnchangedQueueDiff(
 }
 
 internal fun Song.toMediaItem(): MediaItem =
-    com.mica.music.media.SongMediaItemCodec.encode(this)
+    if (isRemote) com.mica.music.media.RemoteMediaItemCodec.encode(this)
+    else com.mica.music.media.SongMediaItemCodec.encode(this)
 
 internal fun Song.toMediaItem(context: Context): MediaItem =
-    com.mica.music.media.SongMediaItemCodec.encodeForSession(context, this)
+    if (isRemote) com.mica.music.media.RemoteMediaItemCodec.encode(this)
+    else com.mica.music.media.SongMediaItemCodec.encodeForSession(context, this)
 

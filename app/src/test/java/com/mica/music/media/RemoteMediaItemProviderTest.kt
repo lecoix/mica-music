@@ -3,6 +3,7 @@ package com.mica.music.media
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.SongSource
+import com.mica.music.data.playback.ServiceRemoteSongSnapshot
 import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteMediaIdCodec
@@ -61,6 +62,10 @@ class RemoteMediaItemProviderTest {
         assertTrue(item.mediaMetadata.artworkUri?.toString()?.contains("credential") == false)
         val extras = requireNotNull(item.mediaMetadata.extras)
         assertTrue(RemoteMediaMetadataExtras.isTrustedProjection(extras))
+        assertEquals("Remote Song", RemoteMediaMetadataExtras.title(extras))
+        assertEquals("Artist", RemoteMediaMetadataExtras.artist(extras))
+        assertEquals("Album", RemoteMediaMetadataExtras.album(extras))
+        assertEquals("", RemoteMediaMetadataExtras.albumArtist(extras))
         assertEquals("audio/flac", RemoteMediaMetadataExtras.mimeType(extras))
         assertEquals("track-9.flac", RemoteMediaMetadataExtras.fileName(extras))
         assertEquals("flac", RemoteMediaMetadataExtras.suffix(extras))
@@ -71,6 +76,10 @@ class RemoteMediaItemProviderTest {
         assertEquals(
             setOf(
                 "mica.remote.metadata.version",
+                "mica.remote.metadata.title",
+                "mica.remote.metadata.artist",
+                "mica.remote.metadata.album",
+                "mica.remote.metadata.albumArtist",
                 "mica.remote.metadata.mime",
                 "mica.remote.metadata.fileName",
                 "mica.remote.metadata.suffix",
@@ -121,6 +130,43 @@ class RemoteMediaItemProviderTest {
             decoded.albumArtUri,
         )
         assertTrue(!decoded.lyricsLoaded)
+    }
+
+    @Test
+    fun `notification-visible metadata cannot corrupt canonical remote restore projection`() {
+        val summary = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-1", "track-9"),
+            title = "Remote Song",
+            artist = "Artist",
+            album = "Album",
+            albumArtist = "Album Artist",
+            durationSec = 123,
+            mimeTypeHint = "audio/flac",
+            fileName = "track-9.flac",
+            suffix = "flac",
+        )
+        val trusted = RemoteMediaItemCodec.encode(summary)
+        val overlaid = trusted.buildUpon()
+            .setMediaMetadata(
+                trusted.mediaMetadata.buildUpon()
+                    .setTitle("Current lyric line")
+                    .setDisplayTitle("Current lyric line")
+                    .setArtist("Remote Song - Artist")
+                    .build(),
+            )
+            .build()
+
+        val decoded = requireNotNull(RemoteMediaItemCodec.decode(overlaid))
+        val snapshot = requireNotNull(ServiceRemoteSongSnapshot.fromMediaItem(overlaid))
+
+        assertEquals("Remote Song", decoded.title)
+        assertEquals("Artist", decoded.artist)
+        assertEquals("Album", decoded.album)
+        assertEquals("Album Artist", decoded.albumArtist)
+        assertEquals("Remote Song", snapshot.title)
+        assertEquals("Artist", snapshot.artist)
+        assertEquals("Album", snapshot.album)
+        assertEquals("Album Artist", snapshot.albumArtist)
     }
 
     @Test

@@ -136,6 +136,21 @@ class ServicePlaybackStateStoreTest {
     }
 
     @Test
+    fun legacySessionDoesNotInventIncompleteRemoteServiceSnapshot() {
+        val remoteSong = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-legacy", "track-legacy"),
+            title = "Legacy Remote",
+        ).toPlaybackSong()
+        context.getSharedPreferences("mica_playback_session", Context.MODE_PRIVATE)
+            .edit()
+            .putString("song_id", remoteSong.id)
+            .putInt("position_ms", 9_000)
+            .commit()
+
+        assertNull(store.load())
+    }
+
+    @Test
     fun remoteSnapshotRejectsAuthenticatedOrArbitraryUri() {
         val remoteSong = RemoteTrackSummary(
             ref = RemoteTrackRef("nav-1", "track-9"),
