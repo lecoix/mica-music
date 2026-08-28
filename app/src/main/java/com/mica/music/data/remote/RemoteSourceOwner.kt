@@ -19,6 +19,13 @@ class RemoteSourceOwner(initial: RemoteSourceInstance) {
     fun beginOperation(): RemoteOperationToken = synchronized(lock) {
         RemoteOperationToken(instance.id, configRevision, operationGeneration)
     }
+    fun beginOperationSnapshot(): RemoteOperationSnapshot = synchronized(lock) {
+        val source = RemoteSourceSnapshot(instance, configRevision, operationGeneration)
+        RemoteOperationSnapshot(
+            source = source,
+            token = RemoteOperationToken(instance.id, configRevision, operationGeneration),
+        )
+    }
 
     fun isCurrent(token: RemoteOperationToken): Boolean = synchronized(lock) {
         token.sourceInstanceId == instance.id &&

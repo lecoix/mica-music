@@ -42,3 +42,22 @@ data class RemoteOperationToken(
     val configRevision: Long,
     val operationGeneration: Long,
 )
+data class RemoteOperationSnapshot(
+    val source: RemoteSourceSnapshot,
+    val token: RemoteOperationToken,
+)
+data class RemoteTrackSummary(
+    val ref: RemoteTrackRef,
+    val title: String,
+    val artist: String = "",
+    val album: String = "",
+    val albumArtist: String = "",
+    val durationSec: Int = 0,
+    val mimeTypeHint: String = "",
+) {
+    val mediaId: String get() = RemoteMediaIdCodec.encode(ref)
+}
+
+fun interface RemoteTrackSummaryLookup {
+    suspend fun find(refs: List<RemoteTrackRef>): Map<RemoteTrackRef, RemoteTrackSummary>
+}
