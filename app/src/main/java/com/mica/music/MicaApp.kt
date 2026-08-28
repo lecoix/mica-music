@@ -11,6 +11,7 @@ import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.remote.AndroidKeystoreRemoteCredentialStore
 import com.mica.music.data.remote.RemoteCatalogRepository
+import com.mica.music.data.remote.RemoteSourceManager
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.media.DesktopLyricsOverlayStateStore
 import com.mica.music.data.playback.ServicePlaybackStateStore
@@ -38,6 +39,9 @@ class MicaApp : Application() {
     /** Android-Keystore-backed credential material, referenced from remote source rows by opaque ID. */
     val remoteCredentialStore: AndroidKeystoreRemoteCredentialStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         AndroidKeystoreRemoteCredentialStore(this)
+    }
+    internal val remoteSourceManager: RemoteSourceManager by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        RemoteSourceManager(remoteCatalogRepository, remoteCredentialStore)
     }
 
     /** Process-lifetime playback lookup; it must not capture a ViewModel or Activity callback. */
