@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import com.mica.music.MicaApp
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsSession
 import com.mica.music.data.LyricsSync
@@ -22,6 +23,8 @@ import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
 import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.preferences.LyricsPreferences
 import kotlinx.coroutines.CoroutineScope
@@ -46,8 +49,24 @@ internal class NotificationLyricsCoordinator(
     private val desktopLyrics: DesktopLyricsOverlayStateStore? = null,
     private val transientSongResolver: ((String) -> Song?)? = null,
     private val songLoader: suspend (LyricsLoadSpec) -> Song? = { spec ->
-        transientSongResolver?.invoke(spec.songId)
-            ?: LibraryRepository(context.applicationContext).songById(spec.songId, spec.priority)
+        transientSongResolver?.invoke(spec.songId) ?: run {
+            val remoteRef = RemoteMediaIdCodec.decode(spec.songId)
+            if (remoteRef != null) {
+                val app = context.applicationContext as? MicaApp
+                    ?: error("Remote lyrics require the Mica application owner")
+                app.remoteCatalogRepository
+                    .find(listOf(remoteRef))
+                    .get(remoteRef)
+                    ?.toPlaybackSong()
+                    ?.let { remoteSong ->
+                        app.remoteLyricsRepository.songWithLyrics(remoteSong).also { hydrated ->
+                            check(hydrated.lyricsLoaded) { "Remote lyrics load did not complete" }
+                        }
+                    }
+            } else {
+                LibraryRepository(context.applicationContext).songById(spec.songId, spec.priority)
+            }
+        }
     },
 ) {
     private val appContext = context.applicationContext
@@ -213,7 +232,9 @@ internal class NotificationLyricsCoordinator(
         // cannot drift or perform duplicate lyric work.
         carBluetoothLyrics?.setEnabled(notificationEnabled)
         val item = player.currentMediaItem
-        val decoded = item?.let(SongMediaItemCodec::decode)
+        val decoded = item?.let { mediaItem ->
+            RemoteMediaItemCodec.decode(mediaItem) ?: SongMediaItemCodec.decode(mediaItem)
+        }
         if (item == null || decoded == null) {
             carBluetoothLyrics?.clear()
             desktopLyrics?.clear()

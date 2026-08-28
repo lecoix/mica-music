@@ -71,6 +71,18 @@ class NavidromeRequestFactoryTest {
     }
 
     @Test
+    fun `lyrics requests keep song id or legacy lookup fields distinct`() {
+        val structured = query(factory.lyricsBySongId(source, credential, "song/id 9").url)
+        val legacy = query(factory.legacyLyrics(source, credential, "Artist / Name", "Title ?").url)
+
+        assertEquals("song/id 9", structured["id"])
+        assertFalse(structured.containsKey("artist"))
+        assertEquals("Artist / Name", legacy["artist"])
+        assertEquals("Title ?", legacy["title"])
+        assertFalse(legacy.containsKey("id"))
+    }
+
+    @Test
     fun `transcoding parameters appear only when explicitly requested`() {
         val query = query(
             factory.stream(

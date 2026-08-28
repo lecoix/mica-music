@@ -5,6 +5,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.mica.music.data.Song
 import com.mica.music.data.SongSource
+import com.mica.music.data.TrackMetadata
 import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteMediaIdCodec
@@ -78,6 +79,56 @@ internal object RemoteMediaItemCodec {
                 song.metadata.playbackMimeType.takeIf(String::isNotBlank)?.let(::setMimeType)
             }
             .build()
+    }
+
+    fun decode(item: MediaItem): Song? {
+        val trackRef = RemoteMediaIdCodec.decode(item.mediaId) ?: return null
+        val extras = item.mediaMetadata.extras
+        if (!RemoteMediaMetadataExtras.isTrustedProjection(extras)) return null
+
+        val stableUri = RemotePlaybackUriCodec.encode(item.mediaId)
+        item.localConfiguration?.uri?.toString()?.let { actualUri ->
+            if (actualUri != stableUri) return null
+        }
+        val mimeType = RemoteMediaMetadataExtras.mimeType(extras)
+            .ifBlank { item.localConfiguration?.mimeType.orEmpty() }
+        val suffix = RemoteMediaMetadataExtras.suffix(extras)
+        val stableArtworkUri = item.mediaMetadata.artworkUri?.toString()?.let { artworkUri ->
+            RemoteArtworkUriCodec.decodeForSource(artworkUri, trackRef.sourceInstanceId)
+                ?.let { artworkUri }
+                ?: return null
+        }
+        val durationSec = ((item.mediaMetadata.durationMs ?: 0L).coerceAtLeast(0L) / 1000L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+
+        return Song(
+            id = item.mediaId,
+            title = item.mediaMetadata.title?.toString().orEmpty(),
+            artist = item.mediaMetadata.artist?.toString().orEmpty(),
+            album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
+            albumArtist = item.mediaMetadata.albumArtist?.toString().orEmpty(),
+            durationSec = durationSec,
+            metadata = TrackMetadata(
+                containerName = suffix.ifBlank { mimeType.substringAfter('/', "") }.uppercase(),
+                sampleRateHz = 0,
+                bitsPerSample = null,
+                bitrateKbps = 0,
+                channelCount = 0,
+                playbackMimeType = mimeType,
+            ),
+            albumArtUri = stableArtworkUri,
+            coverColorArgb = 0,
+            mediaUri = stableUri,
+            playbackUri = null,
+            fileName = RemoteMediaMetadataExtras.fileName(extras),
+            sizeBytes = RemoteMediaMetadataExtras.sizeBytes(extras),
+            year = RemoteMediaMetadataExtras.year(extras),
+            trackNumber = RemoteMediaMetadataExtras.trackNumber(extras),
+            discNumber = RemoteMediaMetadataExtras.discNumber(extras),
+            lyricsLoaded = false,
+            source = SongSource.REMOTE,
+        )
     }
 }
 

@@ -110,6 +110,32 @@ internal class NavidromeRequestFactory(
         },
     )
 
+    fun lyricsBySongId(
+        source: RemoteSourceSnapshot,
+        credential: RemoteCredentialSnapshot,
+        trackId: String,
+    ): NavidromeRequest = request(
+        source = source,
+        credential = credential,
+        operation = "getLyricsBySongId",
+        operationParameters = mapOf("id" to trackId),
+    )
+
+    fun legacyLyrics(
+        source: RemoteSourceSnapshot,
+        credential: RemoteCredentialSnapshot,
+        artist: String,
+        title: String,
+    ): NavidromeRequest = request(
+        source = source,
+        credential = credential,
+        operation = "getLyrics",
+        operationParameters = linkedMapOf(
+            "artist" to artist,
+            "title" to title,
+        ),
+    )
+
     private fun request(
         source: RemoteSourceSnapshot,
         credential: RemoteCredentialSnapshot,

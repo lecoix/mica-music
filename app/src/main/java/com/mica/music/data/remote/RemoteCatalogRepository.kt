@@ -45,6 +45,17 @@ class RemoteCatalogRepository internal constructor(
             trackCount = trackDao.countForSource(entity.id),
         )
     }
+
+    suspend fun sourceStatus(sourceInstanceId: String): RemoteSourceStatus? =
+        sourceDao.getById(sourceInstanceId)?.let { entity ->
+            RemoteSourceStatus(
+                instance = entity.toRemoteSourceInstance(),
+                configRevision = entity.configRevision,
+                catalogRevision = entity.catalogRevision,
+                lastSyncAtMs = entity.lastSyncAtMs,
+                trackCount = trackDao.countForSource(entity.id),
+            )
+        }
     suspend fun sourceSnapshot(sourceInstanceId: String): RemoteSourceSnapshot? = mutex.withLock {
         ownerForLocked(sourceInstanceId)?.snapshot()
     }

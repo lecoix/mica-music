@@ -2,6 +2,8 @@
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.local.MicaDatabase
 import com.mica.music.data.remote.navidrome.NavidromeHttpExecutor
 import com.mica.music.data.remote.navidrome.NavidromeRequestFactory
@@ -113,6 +115,32 @@ class RemoteSourceManagerTest {
     }
 
     @Test
+    fun successfulSyncInvalidatesRemoteLyricsMemoryForThatSourceIncludingRemovedTracks() = runTest {
+        var searchCalls = 0
+        val manager = manager(
+            NavidromeHttpExecutor { request ->
+                when {
+                    request.url.contains("/rest/search3?") -> {
+                        searchCalls++
+                        searchResponse(if (searchCalls == 1) "song-1" else "song-2")
+                    }
+                    else -> okResponse()
+                }
+            },
+        )
+        val source = manager.createNavidrome("Home", "https://music.example", "alice", "secret")
+        manager.syncNavidrome(source.id)
+        val removedMediaId = repository.tracksForSource(source.id).single().mediaId
+        SharedLyricsMemoryCache.load(removedMediaId, "test-revision", 77) { LyricsDocument() }
+        assertTrue(SharedLyricsMemoryCache.get(removedMediaId, "test-revision", 77) != null)
+
+        manager.syncNavidrome(source.id)
+
+        assertEquals(null, SharedLyricsMemoryCache.get(removedMediaId, "test-revision", 77))
+        assertEquals("song-2", repository.tracksForSource(source.id).single().ref.opaqueTrackId)
+    }
+
+    @Test
     fun disablingSourceInvalidatesOldOperationAndBlocksNetworkUse() = runTest {
         var calls = 0
         val manager = manager(NavidromeHttpExecutor { calls += 1; okResponse() })
@@ -159,8 +187,8 @@ class RemoteSourceManagerTest {
 
     private fun okResponse(): String = """{"subsonic-response":{"status":"ok"}}"""
 
-    private fun searchResponse(): String =
-        """{"subsonic-response":{"status":"ok","searchResult3":{"song":[{"id":"song-1","title":"One","artist":"Artist","album":"Album","duration":120,"contentType":"audio/flac","suffix":"flac"}]}}}"""
+    private fun searchResponse(songId: String = "song-1"): String =
+        """{"subsonic-response":{"status":"ok","searchResult3":{"song":[{"id":"$songId","title":"One","artist":"Artist","album":"Album","duration":120,"contentType":"audio/flac","suffix":"flac"}]}}}"""
 
     private class FakeCredentialStore : MutableSecureRemoteCredentialStore {
         private val values = linkedMapOf<String, RemoteCredentialSnapshot>()

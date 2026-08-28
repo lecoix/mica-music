@@ -1,6 +1,8 @@
 package com.mica.music.media
 
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.SongSource
 import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteMediaIdCodec
@@ -11,6 +13,7 @@ import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.RemoteTrackSummaryLookup
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -78,6 +81,73 @@ class RemoteMediaItemProviderTest {
             ),
             extras.keySet(),
         )
+    }
+
+    @Test
+    fun `trusted remote media item decodes to safe remote song projection`() {
+        val summary = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-1", "track-9"),
+            title = "Remote Song",
+            artist = "Artist",
+            album = "Album",
+            albumArtist = "Album Artist",
+            durationSec = 123,
+            mimeTypeHint = "audio/flac",
+            fileName = "track-9.flac",
+            suffix = "flac",
+            sizeBytes = 987654L,
+            year = 2026,
+            trackNumber = 9,
+            discNumber = 2,
+            artworkOpaqueId = "cover-9",
+        )
+        val item = RemoteMediaItemCodec.encode(summary)
+
+        val decoded = requireNotNull(RemoteMediaItemCodec.decode(item))
+
+        assertEquals(SongSource.REMOTE, decoded.source)
+        assertEquals(summary.mediaId, decoded.id)
+        assertEquals(RemotePlaybackUriCodec.encode(summary.mediaId), decoded.mediaUri)
+        assertNull(decoded.playbackUri)
+        assertEquals("audio/flac", decoded.metadata.playbackMimeType)
+        assertEquals("FLAC", decoded.metadata.containerName)
+        assertEquals("track-9.flac", decoded.fileName)
+        assertEquals(987654L, decoded.sizeBytes)
+        assertEquals(2026, decoded.year)
+        assertEquals(9, decoded.trackNumber)
+        assertEquals(2, decoded.discNumber)
+        assertEquals(
+            RemoteArtworkUriCodec.encode(RemoteArtworkRef("nav-1", "cover-9")),
+            decoded.albumArtUri,
+        )
+        assertTrue(!decoded.lyricsLoaded)
+    }
+
+    @Test
+    fun `remote decoder rejects authenticated transport uri and cross-source artwork`() {
+        val summary = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-1", "track-9"),
+            title = "Remote Song",
+            artworkOpaqueId = "cover-9",
+        )
+        val trusted = RemoteMediaItemCodec.encode(summary)
+        val authenticatedTransport = trusted.buildUpon()
+            .setUri("https://music.example/rest/stream?id=track-9&t=secret&s=salt")
+            .build()
+        val wrongArtwork = trusted.buildUpon()
+            .setMediaMetadata(
+                trusted.mediaMetadata.buildUpon()
+                    .setArtworkUri(
+                        Uri.parse(
+                            RemoteArtworkUriCodec.encode(RemoteArtworkRef("nav-2", "cover-9")),
+                        ),
+                    )
+                    .build(),
+            )
+            .build()
+
+        assertNull(RemoteMediaItemCodec.decode(authenticatedTransport))
+        assertNull(RemoteMediaItemCodec.decode(wrongArtwork))
     }
 
     @Test

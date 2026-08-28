@@ -1,5 +1,6 @@
 ﻿package com.mica.music.data.remote
 
+import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.remote.navidrome.NavidromeException
 import com.mica.music.data.remote.navidrome.NavidromeHttpExecutor
 import com.mica.music.data.remote.navidrome.NavidromeProtocolCatalogApi
@@ -80,6 +81,7 @@ internal class RemoteSourceManager internal constructor(
             enabled = enabled,
         )
         catalogRepository.upsertSource(updated)
+        invalidateSourceLyrics(sourceInstanceId)
         return updated
     }
 
@@ -88,6 +90,7 @@ internal class RemoteSourceManager internal constructor(
         if (current.enabled == enabled) return current
         val updated = current.copy(enabled = enabled)
         catalogRepository.upsertSource(updated)
+        invalidateSourceLyrics(sourceInstanceId)
         return updated
     }
 
@@ -111,6 +114,7 @@ internal class RemoteSourceManager internal constructor(
         )
         val updated = current.copy(credentialRef = nextCredentialRef)
         catalogRepository.upsertSource(updated)
+        invalidateSourceLyrics(sourceInstanceId)
         return updated
     }
 
@@ -133,12 +137,26 @@ internal class RemoteSourceManager internal constructor(
     ): NavidromeSyncResult {
         val source = requireNavidromeSource(sourceInstanceId)
         require(source.enabled) { "Remote source is disabled" }
-        return NavidromeSourceSync(
+        val previousMediaIds = catalogRepository.tracksForSource(sourceInstanceId)
+            .mapTo(linkedSetOf(), RemoteTrackSummary::mediaId)
+        val result = NavidromeSourceSync(
             catalogRepository = catalogRepository,
             credentialStore = credentialStore,
             executor = navidromeExecutor,
             requestFactory = navidromeRequestFactory,
         ).sync(sourceInstanceId, limit)
+        invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
+        return result
+    }
+
+    private suspend fun invalidateSourceLyrics(
+        sourceInstanceId: String,
+        additionalMediaIds: Collection<String> = emptyList(),
+    ) {
+        val mediaIds = additionalMediaIds.toMutableSet()
+        catalogRepository.tracksForSource(sourceInstanceId)
+            .mapTo(mediaIds, RemoteTrackSummary::mediaId)
+        SharedLyricsMemoryCache.invalidateSongs(mediaIds)
     }
 
     private suspend fun requireSource(sourceInstanceId: String): RemoteSourceInstance =
