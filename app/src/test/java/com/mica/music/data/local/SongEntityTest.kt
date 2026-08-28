@@ -4,6 +4,7 @@ import com.mica.music.testutil.SongFixtures
 import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricsFormat
 import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.SongSource
 import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.data.toLyricsDocumentCompat
 import org.json.JSONObject
@@ -28,6 +29,15 @@ class SongEntityTest {
 
         assertEquals(song.copy(totalListenSeconds = 0L, lastPlayedAtMs = 0), restored)
         assertEquals(7, entity.queueOrder)
+    }
+
+    @Test
+    fun nonLibrarySongCannotEnterLocalSongsTableProjection() {
+        val remote = SongFixtures.song("remote").copy(source = SongSource.REMOTE)
+        val transient = SongFixtures.song("external").copy(source = SongSource.TRANSIENT_EXTERNAL)
+
+        assertTrue(runCatching { remote.toEntity(0) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { transient.toEntity(0) }.exceptionOrNull() is IllegalArgumentException)
     }
 
     @Test

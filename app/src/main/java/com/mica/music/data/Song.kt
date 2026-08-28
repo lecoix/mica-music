@@ -3,6 +3,7 @@ package com.mica.music.data
 enum class SongSource {
     LIBRARY,
     TRANSIENT_EXTERNAL,
+    REMOTE,
 }
 
 data class Song(
@@ -60,6 +61,7 @@ data class Song(
     val source: SongSource = SongSource.LIBRARY,
 ) {
     val isTransient: Boolean get() = source == SongSource.TRANSIENT_EXTERNAL
+    val isRemote: Boolean get() = source == SongSource.REMOTE
 
     val effectivePlaybackUri: String get() = playbackUri ?: mediaUri
 

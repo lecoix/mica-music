@@ -3,6 +3,8 @@ package com.mica.music.playback
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.mica.music.data.Song
+import com.mica.music.data.playback.ServiceRemoteSongSnapshot
+import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.media.SongMediaItemCodec
 
 internal data class QueueOrderSignature(
@@ -67,7 +69,11 @@ internal object PlaybackQueueMirror {
 internal fun resolveMirroredSong(
     item: MediaItem,
     resolver: ((String) -> Song?)?,
-): Song? = item.mediaId
-    .takeIf { it.isNotBlank() }
-    ?.let { resolver?.invoke(it) }
-    ?: SongMediaItemCodec.decode(item)
+): Song? {
+    val mediaId = item.mediaId.takeIf { it.isNotBlank() } ?: return null
+    resolver?.invoke(mediaId)?.let { return it }
+    if (RemoteMediaIdCodec.isRemoteId(mediaId)) {
+        return ServiceRemoteSongSnapshot.fromMediaItem(item)?.toSong()
+    }
+    return SongMediaItemCodec.decode(item)
+}

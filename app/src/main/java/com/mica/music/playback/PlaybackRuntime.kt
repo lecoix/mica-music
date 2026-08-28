@@ -813,8 +813,12 @@ internal class PlaybackRuntime(
         val snapshot = ServicePlaybackStateStore(appCtx).load() ?: return false
         val session = sessionStorage.load()
         val persistedExternalSongs = snapshot.externalSongs.associateBy { it.id }
+        val persistedRemoteSongs = snapshot.remoteSongs.associateBy { it.id }
         val hydrated = snapshot.queueSongIds.mapNotNull { id ->
-            songResolver.resolve(id) ?: resolveSong(id) ?: persistedExternalSongs[id]?.toSong()
+            songResolver.resolve(id) ?:
+                resolveSong(id) ?:
+                persistedExternalSongs[id]?.toSong() ?:
+                persistedRemoteSongs[id]?.toSong()
         }
         if (hydrated.isEmpty()) return false
         val preserveId = snapshot.currentSongId.ifBlank {

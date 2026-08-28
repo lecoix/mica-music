@@ -5,6 +5,7 @@ import androidx.room.PrimaryKey
 import com.mica.music.data.LoudnessAnalysis
 import com.mica.music.data.ReplayGainTags
 import com.mica.music.data.Song
+import com.mica.music.data.SongSource
 import com.mica.music.data.TrackMetadata
 
 @Entity(tableName = "song_lyrics_offsets")
@@ -323,4 +324,8 @@ fun Song.toEntity(queueOrder: Int, preservedLyricsJson: String? = null): SongEnt
     loudnessSourceModifiedMs = loudnessAnalysis.sourceModifiedMs,
     loudnessAnalyzerRevision = loudnessAnalysis.analyzerRevision,
     videoCoverUri = videoCoverUri,
-)
+).also {
+    require(source == SongSource.LIBRARY) {
+        "Only local library songs may be persisted in the songs table"
+    }
+}

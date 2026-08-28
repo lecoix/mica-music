@@ -3,7 +3,10 @@ package com.mica.music.media
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.mica.music.data.Song
+import com.mica.music.data.SongSource
 import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemoteMediaMetadataExtras
 import com.mica.music.data.remote.RemotePlaybackUriCodec
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.RemoteTrackSummaryLookup
@@ -18,6 +21,7 @@ internal object RemoteMediaItemCodec {
             .setAlbumArtist(track.albumArtist)
             .setDurationMs(track.durationSec.coerceAtLeast(0) * 1000L)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setExtras(RemoteMediaMetadataExtras.encode(track))
             .build()
         return MediaItem.Builder()
             .setMediaId(mediaId)
@@ -25,6 +29,32 @@ internal object RemoteMediaItemCodec {
             .setMediaMetadata(metadata)
             .apply {
                 track.mimeTypeHint.takeIf(String::isNotBlank)?.let(::setMimeType)
+            }
+            .build()
+    }
+
+    fun encode(song: Song): MediaItem {
+        require(song.source == SongSource.REMOTE) { "Remote media item requires a remote song" }
+        require(RemoteMediaIdCodec.isRemoteId(song.id)) { "Remote song media id is invalid" }
+        val stableUri = RemotePlaybackUriCodec.encode(song.id)
+        require(song.mediaUri == stableUri && song.playbackUri == null) {
+            "Remote song must use only the stable Mica playback URI"
+        }
+        val metadata = MediaMetadata.Builder()
+            .setTitle(song.title)
+            .setArtist(song.artist)
+            .setAlbumTitle(song.album)
+            .setAlbumArtist(song.albumArtist)
+            .setDurationMs(song.durationSec.coerceAtLeast(0) * 1000L)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setExtras(RemoteMediaMetadataExtras.encode(song))
+            .build()
+        return MediaItem.Builder()
+            .setMediaId(song.id)
+            .setUri(Uri.parse(stableUri))
+            .setMediaMetadata(metadata)
+            .apply {
+                song.metadata.playbackMimeType.takeIf(String::isNotBlank)?.let(::setMimeType)
             }
             .build()
     }

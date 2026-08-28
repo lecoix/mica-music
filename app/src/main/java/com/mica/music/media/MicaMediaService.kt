@@ -34,6 +34,7 @@ import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
+import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.navidrome.NavidromeStreamRequestResolver
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.ChannelBalancePreferences
@@ -252,6 +253,7 @@ class MicaMediaService : MediaSessionService() {
         sessionScope?.launch {
             val libraryIds = snapshot.queueSongIds
                 .filterNot(TransientPlaybackCatalog::isTransientId)
+                .filterNot(RemoteMediaIdCodec::isRemoteId)
                 .distinct()
             val librarySongs = runCatching {
                 libraryRepository.songSummariesByIds(libraryIds)
@@ -266,9 +268,13 @@ class MicaMediaService : MediaSessionService() {
                     }
                 }
                 .toMap()
+            val persistedRemoteSongs = snapshot.remoteSongs.associate { remote ->
+                remote.id to remote.toSong()
+            }
             val songsById = buildMap {
                 putAll(librarySongs)
                 putAll(persistedExternalSongs)
+                putAll(persistedRemoteSongs)
                 snapshot.queueSongIds.forEach { id ->
                     micaApp.transientPlaybackCatalog.songById(id)?.let { put(id, it) }
                 }
@@ -282,7 +288,10 @@ class MicaMediaService : MediaSessionService() {
                 usbServiceCreateBootstrapMode = null
                 if (selectedMode != UsbHybridOutputMode.SharedPcm && bootstrap != null) {
                     usbBootstrapHandoff = UsbPlaybackStackHandoff(
-                        items = bootstrap.songs.map(SongMediaItemCodec::encode),
+                        items = bootstrap.songs.map { song ->
+                            if (song.isRemote) RemoteMediaItemCodec.encode(song)
+                            else SongMediaItemCodec.encode(song)
+                        },
                         currentIndex = bootstrap.currentIndex,
                         positionMs = bootstrap.positionMs,
                         playWhenReady = false,

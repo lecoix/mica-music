@@ -3,6 +3,7 @@ package com.mica.music.data.playback
 import com.mica.music.audio.AudioQualityMode
 
 import android.content.Context
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.ReplayGainTags
@@ -10,6 +11,9 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongSource
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.TransientPlaybackCatalog
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemoteMediaMetadataExtras
+import com.mica.music.data.remote.RemotePlaybackUriCodec
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -130,6 +134,113 @@ data class ServiceExternalSongSnapshot(
     }
 }
 
+/** Safe persisted UI/queue projection for a remote track. Contains no endpoint or credential data. */
+data class ServiceRemoteSongSnapshot(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val albumArtist: String,
+    val durationSec: Int,
+    val containerName: String,
+    val playbackMimeType: String,
+    val mediaUri: String,
+    val fileName: String = "",
+    val sizeBytes: Long = 0L,
+    val year: Int = 0,
+    val trackNumber: Int = 0,
+    val discNumber: Int = 0,
+) {
+    init {
+        require(RemoteMediaIdCodec.isRemoteId(id)) { "Remote snapshot requires a remote media id" }
+        require(mediaUri == RemotePlaybackUriCodec.encode(id)) {
+            "Remote snapshot URI must be the stable Mica remote URI"
+        }
+    }
+
+    fun toSong(): Song = Song(
+        id = id,
+        title = title,
+        artist = artist,
+        album = album,
+        albumArtist = albumArtist,
+        durationSec = durationSec.coerceAtLeast(0),
+        metadata = TrackMetadata(
+            containerName = containerName,
+            sampleRateHz = 0,
+            bitsPerSample = null,
+            bitrateKbps = 0,
+            channelCount = 0,
+            playbackMimeType = playbackMimeType,
+        ),
+        albumArtUri = null,
+        coverColorArgb = 0,
+        mediaUri = mediaUri,
+        playbackUri = null,
+        fileName = fileName,
+        sizeBytes = sizeBytes.coerceAtLeast(0L),
+        year = year.coerceAtLeast(0),
+        trackNumber = trackNumber.coerceAtLeast(0),
+        discNumber = discNumber.coerceAtLeast(0),
+        lyricsLoaded = false,
+        source = SongSource.REMOTE,
+    )
+
+    companion object {
+        fun from(song: Song): ServiceRemoteSongSnapshot {
+            require(song.source == SongSource.REMOTE) { "Only remote songs can create remote snapshots" }
+            require(RemoteMediaIdCodec.isRemoteId(song.id)) { "Remote song id is invalid" }
+            val stableUri = RemotePlaybackUriCodec.encode(song.id)
+            require(song.mediaUri == stableUri && song.playbackUri == null) {
+                "Remote song must not contain a transport/authenticated URI"
+            }
+            return ServiceRemoteSongSnapshot(
+                id = song.id,
+                title = song.title,
+                artist = song.artist,
+                album = song.album,
+                albumArtist = song.albumArtist,
+                durationSec = song.durationSec,
+                containerName = song.metadata.containerName,
+                playbackMimeType = song.metadata.playbackMimeType,
+                mediaUri = stableUri,
+                fileName = song.fileName,
+                sizeBytes = song.sizeBytes,
+                year = song.year,
+                trackNumber = song.trackNumber,
+                discNumber = song.discNumber,
+            )
+        }
+
+        fun fromMediaItem(item: MediaItem): ServiceRemoteSongSnapshot? {
+            val id = item.mediaId.takeIf(RemoteMediaIdCodec::isRemoteId) ?: return null
+            val metadata = item.mediaMetadata
+            val extras = metadata.extras
+            if (!RemoteMediaMetadataExtras.isTrustedProjection(extras)) return null
+            val mimeType = RemoteMediaMetadataExtras.mimeType(extras)
+                .ifBlank { item.localConfiguration?.mimeType.orEmpty() }
+            val suffix = RemoteMediaMetadataExtras.suffix(extras)
+            val stableUri = RemotePlaybackUriCodec.encode(id)
+            return ServiceRemoteSongSnapshot(
+                id = id,
+                title = metadata.title?.toString().orEmpty(),
+                artist = metadata.artist?.toString().orEmpty(),
+                album = metadata.albumTitle?.toString().orEmpty(),
+                albumArtist = metadata.albumArtist?.toString().orEmpty(),
+                durationSec = ((metadata.durationMs ?: 0L).coerceAtLeast(0L) / 1000L).toInt(),
+                containerName = suffix.ifBlank { mimeType.substringAfter('/', "") }.uppercase(),
+                playbackMimeType = mimeType,
+                mediaUri = stableUri,
+                fileName = RemoteMediaMetadataExtras.fileName(extras),
+                sizeBytes = RemoteMediaMetadataExtras.sizeBytes(extras),
+                year = RemoteMediaMetadataExtras.year(extras),
+                trackNumber = RemoteMediaMetadataExtras.trackNumber(extras),
+                discNumber = RemoteMediaMetadataExtras.discNumber(extras),
+            )
+        }
+    }
+}
+
 data class ServicePlaybackSnapshot(
     val queueSongIds: List<String>,
     val currentIndex: Int,
@@ -142,12 +253,14 @@ data class ServicePlaybackSnapshot(
     val queueRevision: Long = 0L,
     val currentSongId: String = queueSongIds.getOrNull(currentIndex).orEmpty(),
     val externalSongs: List<ServiceExternalSongSnapshot> = emptyList(),
+    val remoteSongs: List<ServiceRemoteSongSnapshot> = emptyList(),
 )
 
 internal data class ServiceQueueSnapshot(
     val songIds: List<String>,
     val revision: Long,
     val externalSongs: List<ServiceExternalSongSnapshot> = emptyList(),
+    val remoteSongs: List<ServiceRemoteSongSnapshot> = emptyList(),
 )
 
 internal data class ServicePlaybackCursor(
@@ -207,6 +320,7 @@ class ServicePlaybackStateStore(context: Context) {
                 songIds = snapshot.queueSongIds,
                 revision = snapshot.queueRevision,
                 externalSongs = snapshot.externalSongs,
+                remoteSongs = snapshot.remoteSongs,
             ),
             sync,
         )
@@ -240,6 +354,17 @@ class ServicePlaybackStateStore(context: Context) {
                         .filter {
                             TransientPlaybackCatalog.isTransientId(it.id) &&
                                 it.mediaUri.isNotBlank()
+                        }
+                        .forEach { put(it.toJson()) }
+                },
+            )
+            .put(
+                KEY_REMOTE_SONGS,
+                JSONArray().apply {
+                    snapshot.remoteSongs
+                        .filter { remote ->
+                            RemoteMediaIdCodec.isRemoteId(remote.id) &&
+                                remote.mediaUri == RemotePlaybackUriCodec.encode(remote.id)
                         }
                         .forEach { put(it.toJson()) }
                 },
@@ -282,6 +407,7 @@ class ServicePlaybackStateStore(context: Context) {
             }
             if (queue.isEmpty()) return null
             val externalSongs = parseExternalSongs(queueJsonObject.optJSONArray(KEY_EXTERNAL_SONGS))
+            val remoteSongs = parseRemoteSongs(queueJsonObject.optJSONArray(KEY_REMOTE_SONGS))
             val queueRevision = queueJsonObject.optLong(KEY_QUEUE_REVISION, 0L)
             val cursorRevision = cursorJson.optLong(KEY_QUEUE_REVISION, -1L)
             val currentSongId = cursorJson.optString(KEY_CURRENT_SONG_ID)
@@ -315,6 +441,7 @@ class ServicePlaybackStateStore(context: Context) {
                 queueRevision = queueRevision,
                 currentSongId = currentSongId,
                 externalSongs = externalSongs,
+                remoteSongs = remoteSongs,
             )
                 .takeIf { queueRevision == cursorRevision || currentSongId in queue }
         }.getOrNull()
@@ -332,6 +459,7 @@ class ServicePlaybackStateStore(context: Context) {
             }
             if (queue.isEmpty()) return null
             val externalSongs = parseExternalSongs(json.optJSONArray(KEY_EXTERNAL_SONGS))
+            val remoteSongs = parseRemoteSongs(json.optJSONArray(KEY_REMOTE_SONGS))
             val currentIndex = json.optInt(KEY_CURRENT_INDEX, 0).coerceIn(0, queue.lastIndex)
             ServicePlaybackSnapshot(
                 queueSongIds = queue,
@@ -357,6 +485,7 @@ class ServicePlaybackStateStore(context: Context) {
                 ),
                 currentSongId = queue[currentIndex],
                 externalSongs = externalSongs,
+                remoteSongs = remoteSongs,
             )
         }.getOrNull()
     }
@@ -421,6 +550,15 @@ class ServicePlaybackStateStore(context: Context) {
         }
     }
 
+    private fun parseRemoteSongs(json: JSONArray?): List<ServiceRemoteSongSnapshot> {
+        if (json == null) return emptyList()
+        return buildList {
+            for (index in 0 until json.length()) {
+                json.optJSONObject(index)?.toRemoteSongOrNull()?.let(::add)
+            }
+        }
+    }
+
     private companion object {
         const val PREFS_NAME = "mica_service_playback_state"
         const val KEY_SNAPSHOT = "snapshot"
@@ -428,6 +566,7 @@ class ServicePlaybackStateStore(context: Context) {
         const val KEY_CURSOR_SNAPSHOT = "cursor_snapshot"
         const val KEY_QUEUE = "queue"
         const val KEY_EXTERNAL_SONGS = "external_songs"
+        const val KEY_REMOTE_SONGS = "remote_songs"
         const val KEY_CURRENT_INDEX = "current_index"
         const val KEY_CURRENT_SONG_ID = "current_song_id"
         const val KEY_QUEUE_REVISION = "queue_revision"
@@ -442,6 +581,47 @@ class ServicePlaybackStateStore(context: Context) {
         const val LEGACY_KEY_SONG_ID = "song_id"
         const val LEGACY_KEY_POSITION_MS = "position_ms"
     }
+}
+
+private fun ServiceRemoteSongSnapshot.toJson(): JSONObject = JSONObject().apply {
+    put("id", id)
+    put("title", title)
+    put("artist", artist)
+    put("album", album)
+    put("album_artist", albumArtist)
+    put("duration_sec", durationSec)
+    put("container", containerName)
+    put("mime", playbackMimeType)
+    put("media_uri", mediaUri)
+    put("file_name", fileName)
+    put("size_bytes", sizeBytes)
+    put("year", year)
+    put("track_number", trackNumber)
+    put("disc_number", discNumber)
+}
+
+private fun JSONObject.toRemoteSongOrNull(): ServiceRemoteSongSnapshot? {
+    val id = optString("id").takeIf(RemoteMediaIdCodec::isRemoteId) ?: return null
+    val expectedUri = RemotePlaybackUriCodec.encode(id)
+    val mediaUri = optString("media_uri").takeIf { it == expectedUri } ?: return null
+    return runCatching {
+        ServiceRemoteSongSnapshot(
+            id = id,
+            title = optString("title"),
+            artist = optString("artist"),
+            album = optString("album"),
+            albumArtist = optString("album_artist"),
+            durationSec = optInt("duration_sec", 0).coerceAtLeast(0),
+            containerName = optString("container"),
+            playbackMimeType = optString("mime"),
+            mediaUri = mediaUri,
+            fileName = optString("file_name"),
+            sizeBytes = optLong("size_bytes", 0L).coerceAtLeast(0L),
+            year = optInt("year", 0).coerceAtLeast(0),
+            trackNumber = optInt("track_number", 0).coerceAtLeast(0),
+            discNumber = optInt("disc_number", 0).coerceAtLeast(0),
+        )
+    }.getOrNull()
 }
 
 private fun ServiceExternalSongSnapshot.toJson(): JSONObject = JSONObject().apply {
