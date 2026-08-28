@@ -33,6 +33,8 @@ import com.mica.music.isExternalAudioUriRestorableNow
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
+import com.mica.music.data.remote.navidrome.NavidromeStreamRequestResolver
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.EqualizerPreferences
@@ -71,6 +73,7 @@ class MicaMediaService : MediaSessionService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
+    private var remoteHttpPlaybackResolver: RemoteHttpPlaybackRequestResolver? = null
     private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
     private var unregisterAudioOffloadPreferenceListener: (() -> Unit)? = null
     private var unregisterUsbOutputPreferenceListener: (() -> Unit)? = null
@@ -90,10 +93,16 @@ class MicaMediaService : MediaSessionService() {
         val micaApp = application as MicaApp
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val libraryRepository = LibraryRepository(this)
+        val remoteMediaItemProvider = TrustedRemoteMediaItemProvider(micaApp.remoteCatalogRepository)
         trustedMediaItemResolver = TrustedMediaItemResolver(
             transientSongById = micaApp.transientPlaybackCatalog::songById,
             librarySongsById = libraryRepository::songSummariesByIds,
+            remoteMediaItemsById = remoteMediaItemProvider::resolve,
             mediaItemFactory = { song -> ExternalMediaItemCodec.encode(this, song) },
+        )
+        remoteHttpPlaybackResolver = NavidromeStreamRequestResolver(
+            sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+            credentialStore = micaApp.remoteCredentialStore,
         )
         setListener(object : MediaSessionService.Listener {
             override fun onForegroundServiceStartNotAllowedException() {
@@ -111,7 +120,11 @@ class MicaMediaService : MediaSessionService() {
         spectrumAnalyzerStateOwner = SpectrumAnalyzerStateOwner(this).also { it.start() }
 
         activeOutputPath = AudioOutputPathConfig.PRODUCTION
-        val stack = ExoPlaybackStackFactory.build(this, activeOutputPath)
+        val stack = ExoPlaybackStackFactory.build(
+            context = this,
+            outputPath = activeOutputPath,
+            remoteResolver = remoteHttpPlaybackResolver,
+        )
         installPlaybackStackOwners(stack, micaApp)
         installUsbOutputCoordinator()
         installPlaybackRouteMonitor()
@@ -364,7 +377,14 @@ class MicaMediaService : MediaSessionService() {
         oldExo?.release()
         exoPlayer = null
         compositePlayer = null
-        val newStack = runCatching { ExoPlaybackStackFactory.build(this, target, usbBinding) }
+        val newStack = runCatching {
+            ExoPlaybackStackFactory.build(
+                context = this,
+                outputPath = target,
+                usbBinding = usbBinding,
+                remoteResolver = remoteHttpPlaybackResolver,
+            )
+        }
             .getOrElse { error ->
                 DiagnosticLog.event(
                     "AudioOutputPath",
@@ -545,6 +565,7 @@ class MicaMediaService : MediaSessionService() {
         sessionScope?.cancel()
         sessionScope = null
         trustedMediaItemResolver = null
+        remoteHttpPlaybackResolver = null
         releasePlaybackStackOwners()
         spectrumAnalyzerStateOwner?.release()
         spectrumAnalyzerStateOwner = null
