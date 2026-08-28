@@ -57,10 +57,13 @@ class AudioMathTest {
     }
 
     @Test
-    fun fiveBandInputMapsToTenFiniteBands() {
+    fun fiveBandInputExpandsToPairedUiBands() {
         val mapped = EqBandMapper.normalizeLevels(listOf(-1_000, -500, 0, 500, 1_000))
-        assertEquals(EqBandConstants.BAND_COUNT, mapped.size)
-        assertTrue(mapped.all { it in -2_000..2_000 })
+
+        assertArrayEquals(
+            shortArrayOf(-1_000, -1_000, -500, -500, 0, 0, 500, 500, 1_000, 1_000),
+            mapped,
+        )
     }
 
     @Test
@@ -86,22 +89,19 @@ class AudioMathTest {
     }
 
     @Test
-    fun limiterIsMonotonicAndStaysBelowMinusOneDbfs() {
+    fun flatEqualizerIsTransparentAtFullScale() {
         val equalizer = SoftwareEqualizer()
         equalizer.configure(44_100, 1)
         equalizer.setEnabled(true)
-        val samples = floatArrayOf(0.70f, 0.80f, 0.88f, 0.90f, 1.20f)
+        val samples = floatArrayOf(-1.0f, -0.90f, -0.70f, 0.70f, 0.90f, 1.0f)
         val buffer = ByteBuffer.allocate(samples.size * 4).order(ByteOrder.LITTLE_ENDIAN)
         samples.forEach(buffer::putFloat)
         val bytes = buffer.array()
+        val original = bytes.copyOf()
 
         equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
 
-        val output = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val limited = FloatArray(samples.size) { output.float }
-        assertTrue((1 until limited.size).all { limited[it] >= limited[it - 1] })
-        val ceiling = Math.pow(10.0, -1.0 / 20.0).toFloat()
-        assertTrue(limited.all { it <= ceiling })
+        assertArrayEquals(original, bytes)
     }
 
     @Test

@@ -43,6 +43,7 @@ internal class MicaFloatDspAudioSink(
     private var linearPcm = false
 
     private val pendingWrites = ArrayDeque<PendingWrite>()
+    private val recycledWriteBuffers = ArrayDeque<ByteBuffer>()
     private var scratchBytes = ByteArray(0)
     private var scratchDirect: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
 
@@ -171,7 +172,8 @@ internal class MicaFloatDspAudioSink(
                 return
             }
             consecutiveInnerRejects = 0
-            pendingWrites.removeFirst()
+            val completed = pendingWrites.removeFirst()
+            recycleWriteBuffer(completed.buffer)
         }
     }
 
@@ -253,14 +255,39 @@ internal class MicaFloatDspAudioSink(
     }
 
     private fun copyBuffer(source: ByteBuffer): ByteBuffer {
-        val copy = ByteBuffer.allocateDirect(source.remaining()).order(source.order())
+        val required = source.remaining()
+        val copy = acquireWriteBuffer(required, source.order())
         copy.put(source.duplicate())
         copy.flip()
         return copy
     }
 
+    private fun acquireWriteBuffer(required: Int, order: ByteOrder): ByteBuffer {
+        var match: ByteBuffer? = null
+        val candidates = recycledWriteBuffers.size
+        repeat(candidates) {
+            val candidate = recycledWriteBuffers.removeFirst()
+            if (match == null && candidate.capacity() >= required) {
+                match = candidate
+            } else {
+                recycledWriteBuffers.addLast(candidate)
+            }
+        }
+        return (match ?: ByteBuffer.allocateDirect(required))
+            .order(order)
+            .apply { clear() }
+    }
+
+    private fun recycleWriteBuffer(buffer: ByteBuffer) {
+        if (recycledWriteBuffers.size >= MAX_RECYCLED_WRITE_BUFFERS) return
+        buffer.clear()
+        recycledWriteBuffers.addLast(buffer)
+    }
+
     private fun clearPendingWrites() {
-        pendingWrites.clear()
+        while (pendingWrites.isNotEmpty()) {
+            recycleWriteBuffer(pendingWrites.removeFirst().buffer)
+        }
     }
 
     private fun media3EncodingToAndroid(encoding: Int): Int = when (encoding) {
@@ -277,6 +304,10 @@ internal class MicaFloatDspAudioSink(
         val encodedAccessUnitCount: Int,
         val mode: WriteMode,
     )
+
+    private companion object {
+        const val MAX_RECYCLED_WRITE_BUFFERS = 8
+    }
 
     private enum class WriteMode {
         PASSTHROUGH,

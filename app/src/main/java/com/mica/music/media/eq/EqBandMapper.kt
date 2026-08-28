@@ -18,6 +18,14 @@ object EqBandMapper {
         ) {
             return ShortArray(targetHz.size) { source[it].second }
         }
+        val sourceCenters = source.map { it.first }
+        if (targetHz.contentEquals(EqBandConstants.CENTER_HZ) &&
+            AndroidFiveBandEqModel.isLegacyFiveBandCenters(sourceCenters)
+        ) {
+            return AndroidFiveBandEqModel.expandDeviceLevels(
+                ShortArray(source.size) { source[it].second },
+            )
+        }
 
         val sorted = source.sortedBy { it.first }
         val minHz = sorted.first().first.toDouble().coerceAtLeast(1.0)
@@ -44,9 +52,8 @@ object EqBandMapper {
         if (levels.size == EqBandConstants.BAND_COUNT) {
             return levels.toShortArray()
         }
-        if (levels.size == 5) {
-            val typical5Hz = intArrayOf(60, 230, 910, 3_600, 14_000)
-            return mapToSoftwareBands(typical5Hz.zip(levels))
+        if (levels.size == AndroidFiveBandEqModel.BAND_COUNT) {
+            return AndroidFiveBandEqModel.expandDeviceLevels(levels.toShortArray())
         }
         val source = levels.mapIndexed { index, level ->
             val hz = EqBandConstants.CENTER_HZ.getOrElse(index) { EqBandConstants.CENTER_HZ.last() }
