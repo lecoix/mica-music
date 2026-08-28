@@ -1,0 +1,44 @@
+package com.mica.music.data.remote
+
+enum class RemoteSourceType {
+    NAVIDROME,
+    WEBDAV,
+    SMB,
+}
+
+data class RemoteSourceInstance(
+    val id: String,
+    val type: RemoteSourceType,
+    val displayName: String,
+    val endpoint: String,
+    val credentialRef: String,
+    val enabled: Boolean = true,
+) {
+    init {
+        require(id.isNotBlank()) { "Remote source id must not be blank" }
+        require(displayName.isNotBlank()) { "Remote source displayName must not be blank" }
+        require(endpoint.isNotBlank()) { "Remote source endpoint must not be blank" }
+    }
+}
+
+data class RemoteTrackRef(
+    val sourceInstanceId: String,
+    val opaqueTrackId: String,
+) {
+    init {
+        require(sourceInstanceId.isNotBlank()) { "sourceInstanceId must not be blank" }
+        require(opaqueTrackId.isNotBlank()) { "opaqueTrackId must not be blank" }
+    }
+}
+
+data class RemoteSourceSnapshot(
+    val instance: RemoteSourceInstance,
+    val configRevision: Long,
+    val operationGeneration: Long,
+)
+
+data class RemoteOperationToken(
+    val sourceInstanceId: String,
+    val configRevision: Long,
+    val operationGeneration: Long,
+)
