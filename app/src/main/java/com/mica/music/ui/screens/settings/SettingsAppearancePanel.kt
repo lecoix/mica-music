@@ -69,7 +69,7 @@ internal fun AppearanceSettingsPanel(
         subtitle = if (uiSettings.accentColor == AppAccentColor.CUSTOM) {
             "自定义：${formatAccentHex(uiSettings.customAccentColorArgb)}"
         } else {
-            "动态取色：Android 12+ 跟随系统主题色"
+            "动态取色：需要Android 12+，跟随系统主题色"
         },
         choices = AccentColorChoices,
         selectedValue = uiSettings.accentColor.ordinal,
@@ -161,7 +161,7 @@ internal fun AppearanceSettingsPanel(
 
     SettingsChoiceRow(
         title = "侧栏歌单样式",
-        subtitle = "逐个显示歌单，或进入歌单总览页管理歌单",
+        subtitle = "侧栏逐个显示歌单，或进入歌单总览页管理歌单",
         choices = PlaylistSidebarStyleChoices,
         selectedValue = uiSettings.playlistSidebarStyle.ordinal,
         onSelect = { ordinal ->
@@ -194,7 +194,7 @@ internal fun AppearanceSettingsPanel(
 
     SettingsToggleRow(
         title = "迷你播放栏歌词",
-        subtitle = "播放中在迷你播放栏显示当前歌词，关闭后显示歌名和歌手",
+        subtitle = "播放中在迷你播放栏显示当前歌词",
         checked = uiSettings.miniPlayerLyricsEnabled,
         onCheckedChange = { uiSettings.updateMiniPlayerLyricsEnabled(it) },
     )
@@ -202,7 +202,7 @@ internal fun AppearanceSettingsPanel(
     if (uiSettings.miniPlayerLyricsEnabled) {
         SettingsToggleRow(
             title = "迷你播放栏逐字歌词",
-            subtitle = "开启后以柔边逐字填充显示，且仅显示原文；无逐字时间轴时回退为整行",
+            subtitle = "开启后以柔边逐字填充显示，且仅显示原文；无逐字时间轴时回退为整行歌词",
             checked = uiSettings.miniPlayerWordLyricsEnabled,
             onCheckedChange = { uiSettings.updateMiniPlayerWordLyricsEnabled(it) },
         )

@@ -81,7 +81,7 @@ internal fun AudioSettingsPanel(
     SettingsSectionTitle("声道处理")
     SettingsSliderRow(
         title = "左右声道平衡",
-        subtitle = "仅 Shared PCM 生效；-100% 仅左、0% 居中、+100% 仅右；只衰减另一侧",
+        subtitle = "仅 Shared PCM 生效",
         value = channelBalancePercent,
         valueRange = ChannelBalancePreferences.MIN_PERCENT..ChannelBalancePreferences.MAX_PERCENT,
         suffix = "%",
