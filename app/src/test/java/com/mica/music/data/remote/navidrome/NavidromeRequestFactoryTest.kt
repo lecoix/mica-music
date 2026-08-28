@@ -58,6 +58,19 @@ class NavidromeRequestFactoryTest {
     }
 
     @Test
+    fun `cover art request keeps artwork id opaque and authentication just in time`() {
+        val request = factory.coverArt(source, credential, "cover/id 9")
+        val query = query(request.url)
+
+        assertEquals("https://music.example/navidrome/rest/getCoverArt", URI(request.url).let { "${it.scheme}://${it.authority}${it.path}" })
+        assertEquals("cover/id 9", query["id"])
+        assertEquals("alice", query["u"])
+        assertEquals("fixedsalt", query["s"])
+        assertFalse(request.toString().contains("fixedsalt"))
+        assertTrue(request.toString().contains("url=<redacted>"))
+    }
+
+    @Test
     fun `transcoding parameters appear only when explicitly requested`() {
         val query = query(
             factory.stream(

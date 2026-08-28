@@ -84,6 +84,12 @@
             android:grantUriPermissions="true" />
 
         <provider
+            android:name=".data.remote.RemoteArtworkContentProvider"
+            android:authorities="${applicationId}.remoteart"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"

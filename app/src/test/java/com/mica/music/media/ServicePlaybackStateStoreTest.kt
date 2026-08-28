@@ -22,6 +22,8 @@ import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.SongSource
+import com.mica.music.data.remote.RemoteArtworkRef
+import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.toPlaybackSong
@@ -98,6 +100,7 @@ class ServicePlaybackStateStoreTest {
             durationSec = 123,
             mimeTypeHint = "audio/flac",
             suffix = "flac",
+            artworkOpaqueId = "cover-9",
         ).toPlaybackSong()
         val remote = ServiceRemoteSongSnapshot.from(remoteSong)
         val snapshot = ServicePlaybackSnapshot(
@@ -118,10 +121,16 @@ class ServicePlaybackStateStoreTest {
         assertEquals(snapshot, restored)
         assertEquals(SongSource.REMOTE, restoredSong.source)
         assertTrue(restoredSong.mediaUri.startsWith("mica-remote://track/"))
+        assertEquals(
+            RemoteArtworkUriCodec.encode(RemoteArtworkRef("nav-1", "cover-9")),
+            restoredSong.albumArtUri,
+        )
         assertNull(restoredSong.playbackUri)
         val raw = context.getSharedPreferences("mica_service_playback_state", Context.MODE_PRIVATE)
             .all.values.joinToString("|")
         assertFalse(raw.contains("/rest/stream"))
+        assertFalse(raw.contains("/rest/getCoverArt"))
+        assertTrue(raw.contains(RemoteArtworkUriCodec.authority))
         assertFalse(raw.contains("password"))
         assertFalse(raw.contains("token"))
     }
@@ -132,15 +141,23 @@ class ServicePlaybackStateStoreTest {
             ref = RemoteTrackRef("nav-1", "track-9"),
             title = "Remote Nine",
         ).toPlaybackSong()
-        val failure = runCatching {
+        val transportFailure = runCatching {
             ServiceRemoteSongSnapshot.from(
                 remoteSong.copy(
                     mediaUri = "https://music.example/rest/stream?id=track-9&t=secret&s=salt",
                 ),
             )
         }.exceptionOrNull()
+        val artworkFailure = runCatching {
+            ServiceRemoteSongSnapshot.from(
+                remoteSong.copy(
+                    albumArtUri = RemoteArtworkUriCodec.encode(RemoteArtworkRef("other-source", "cover-9")),
+                ),
+            )
+        }.exceptionOrNull()
 
-        assertTrue(failure is IllegalArgumentException)
+        assertTrue(transportFailure is IllegalArgumentException)
+        assertTrue(artworkFailure is IllegalArgumentException)
     }
 
     @Test

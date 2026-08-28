@@ -1,6 +1,8 @@
 package com.mica.music.media
 
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.remote.RemoteArtworkRef
+import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.RemoteMediaMetadataExtras
 import com.mica.music.data.remote.RemotePlaybackUriCodec
@@ -33,6 +35,7 @@ class RemoteMediaItemProviderTest {
             year = 2026,
             trackNumber = 9,
             discNumber = 2,
+            artworkOpaqueId = "cover-9",
         )
         val mediaId = RemoteMediaIdCodec.encode(ref)
         val provider = TrustedRemoteMediaItemProvider(
@@ -48,6 +51,11 @@ class RemoteMediaItemProviderTest {
         assertEquals(RemotePlaybackUriCodec.encode(mediaId), item.localConfiguration?.uri?.toString())
         assertEquals("audio/flac", item.localConfiguration?.mimeType)
         assertEquals("Remote Song", item.mediaMetadata.title?.toString())
+        assertEquals(
+            RemoteArtworkUriCodec.encode(RemoteArtworkRef("nav-1", "cover-9")),
+            item.mediaMetadata.artworkUri?.toString(),
+        )
+        assertTrue(item.mediaMetadata.artworkUri?.toString()?.contains("credential") == false)
         val extras = requireNotNull(item.mediaMetadata.extras)
         assertTrue(RemoteMediaMetadataExtras.isTrustedProjection(extras))
         assertEquals("audio/flac", RemoteMediaMetadataExtras.mimeType(extras))

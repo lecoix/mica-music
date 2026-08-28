@@ -772,11 +772,11 @@ class MicaMediaService : MediaSessionService() {
 
     private fun grantArtworkUriPermissions(targetPackage: String, mediaItems: List<MediaItem>) {
         if (targetPackage.isBlank()) return
-        val artworkAuthority = "$packageName.artwork"
+        val artworkAuthorities = setOf("$packageName.artwork", "$packageName.remoteart")
         mediaItems.forEach { mediaItem ->
             val artworkUri = mediaItem.mediaMetadata.artworkUri ?: return@forEach
             if (artworkUri.scheme?.equals("content", ignoreCase = true) != true ||
-                artworkUri.authority != artworkAuthority
+                artworkUri.authority !in artworkAuthorities
             ) {
                 return@forEach
             }

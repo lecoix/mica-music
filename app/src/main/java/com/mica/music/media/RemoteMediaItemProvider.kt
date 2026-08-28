@@ -5,6 +5,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.mica.music.data.Song
 import com.mica.music.data.SongSource
+import com.mica.music.data.remote.RemoteArtworkRef
+import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.RemoteMediaMetadataExtras
 import com.mica.music.data.remote.RemotePlaybackUriCodec
@@ -21,6 +23,17 @@ internal object RemoteMediaItemCodec {
             .setAlbumArtist(track.albumArtist)
             .setDurationMs(track.durationSec.coerceAtLeast(0) * 1000L)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .apply {
+                track.artworkOpaqueId.takeIf(String::isNotBlank)?.let { artworkId ->
+                    setArtworkUri(
+                        Uri.parse(
+                            RemoteArtworkUriCodec.encode(
+                                RemoteArtworkRef(track.ref.sourceInstanceId, artworkId),
+                            ),
+                        ),
+                    )
+                }
+            }
             .setExtras(RemoteMediaMetadataExtras.encode(track))
             .build()
         return MediaItem.Builder()
@@ -35,10 +48,17 @@ internal object RemoteMediaItemCodec {
 
     fun encode(song: Song): MediaItem {
         require(song.source == SongSource.REMOTE) { "Remote media item requires a remote song" }
-        require(RemoteMediaIdCodec.isRemoteId(song.id)) { "Remote song media id is invalid" }
+        val trackRef = RemoteMediaIdCodec.decode(song.id)
+            ?: throw IllegalArgumentException("Remote song media id is invalid")
         val stableUri = RemotePlaybackUriCodec.encode(song.id)
         require(song.mediaUri == stableUri && song.playbackUri == null) {
             "Remote song must use only the stable Mica playback URI"
+        }
+        val stableArtworkUri = song.albumArtUri?.let { value ->
+            require(RemoteArtworkUriCodec.decodeForSource(value, trackRef.sourceInstanceId) != null) {
+                "Remote song artwork must use the stable Mica artwork URI for its source"
+            }
+            Uri.parse(value)
         }
         val metadata = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -47,6 +67,7 @@ internal object RemoteMediaItemCodec {
             .setAlbumArtist(song.albumArtist)
             .setDurationMs(song.durationSec.coerceAtLeast(0) * 1000L)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .apply { stableArtworkUri?.let(::setArtworkUri) }
             .setExtras(RemoteMediaMetadataExtras.encode(song))
             .build()
         return MediaItem.Builder()

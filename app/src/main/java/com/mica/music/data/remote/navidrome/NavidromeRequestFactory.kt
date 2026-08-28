@@ -95,6 +95,21 @@ internal class NavidromeRequestFactory(
         },
     )
 
+    fun coverArt(
+        source: RemoteSourceSnapshot,
+        credential: RemoteCredentialSnapshot,
+        artworkId: String,
+        sizePx: Int? = null,
+    ): NavidromeRequest = request(
+        source = source,
+        credential = credential,
+        operation = "getCoverArt",
+        operationParameters = buildMap {
+            put("id", artworkId)
+            sizePx?.takeIf { it > 0 }?.let { put("size", it.toString()) }
+        },
+    )
+
     private fun request(
         source: RemoteSourceSnapshot,
         credential: RemoteCredentialSnapshot,

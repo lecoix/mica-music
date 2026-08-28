@@ -28,7 +28,9 @@ fun RemoteTrackSummary.toPlaybackSong(): Song {
             channelCount = 0,
             playbackMimeType = mimeTypeHint,
         ),
-        albumArtUri = null,
+        albumArtUri = artworkOpaqueId.takeIf(String::isNotBlank)?.let { artworkId ->
+            RemoteArtworkUriCodec.encode(RemoteArtworkRef(ref.sourceInstanceId, artworkId))
+        },
         coverColorArgb = 0,
         mediaUri = stableUri,
         playbackUri = null,

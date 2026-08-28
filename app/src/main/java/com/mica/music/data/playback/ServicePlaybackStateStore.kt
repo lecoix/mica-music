@@ -11,6 +11,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongSource
 import com.mica.music.data.TrackMetadata
 import com.mica.music.data.TransientPlaybackCatalog
+import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.RemoteMediaMetadataExtras
 import com.mica.music.data.remote.RemotePlaybackUriCodec
@@ -145,6 +146,7 @@ data class ServiceRemoteSongSnapshot(
     val containerName: String,
     val playbackMimeType: String,
     val mediaUri: String,
+    val albumArtUri: String? = null,
     val fileName: String = "",
     val sizeBytes: Long = 0L,
     val year: Int = 0,
@@ -152,9 +154,16 @@ data class ServiceRemoteSongSnapshot(
     val discNumber: Int = 0,
 ) {
     init {
-        require(RemoteMediaIdCodec.isRemoteId(id)) { "Remote snapshot requires a remote media id" }
+        val trackRef = RemoteMediaIdCodec.decode(id)
+            ?: throw IllegalArgumentException("Remote snapshot requires a remote media id")
         require(mediaUri == RemotePlaybackUriCodec.encode(id)) {
             "Remote snapshot URI must be the stable Mica remote URI"
+        }
+        require(
+            albumArtUri == null ||
+                RemoteArtworkUriCodec.decodeForSource(albumArtUri, trackRef.sourceInstanceId) != null,
+        ) {
+            "Remote snapshot artwork must use the stable Mica artwork URI for its source"
         }
     }
 
@@ -173,7 +182,7 @@ data class ServiceRemoteSongSnapshot(
             channelCount = 0,
             playbackMimeType = playbackMimeType,
         ),
-        albumArtUri = null,
+        albumArtUri = albumArtUri,
         coverColorArgb = 0,
         mediaUri = mediaUri,
         playbackUri = null,
@@ -189,10 +198,17 @@ data class ServiceRemoteSongSnapshot(
     companion object {
         fun from(song: Song): ServiceRemoteSongSnapshot {
             require(song.source == SongSource.REMOTE) { "Only remote songs can create remote snapshots" }
-            require(RemoteMediaIdCodec.isRemoteId(song.id)) { "Remote song id is invalid" }
+            val trackRef = RemoteMediaIdCodec.decode(song.id)
+                ?: throw IllegalArgumentException("Remote song id is invalid")
             val stableUri = RemotePlaybackUriCodec.encode(song.id)
             require(song.mediaUri == stableUri && song.playbackUri == null) {
                 "Remote song must not contain a transport/authenticated URI"
+            }
+            require(
+                song.albumArtUri == null ||
+                    RemoteArtworkUriCodec.decodeForSource(song.albumArtUri, trackRef.sourceInstanceId) != null,
+            ) {
+                "Remote song artwork must use the stable Mica artwork URI for its source"
             }
             return ServiceRemoteSongSnapshot(
                 id = song.id,
@@ -204,6 +220,7 @@ data class ServiceRemoteSongSnapshot(
                 containerName = song.metadata.containerName,
                 playbackMimeType = song.metadata.playbackMimeType,
                 mediaUri = stableUri,
+                albumArtUri = song.albumArtUri,
                 fileName = song.fileName,
                 sizeBytes = song.sizeBytes,
                 year = song.year,
@@ -213,7 +230,8 @@ data class ServiceRemoteSongSnapshot(
         }
 
         fun fromMediaItem(item: MediaItem): ServiceRemoteSongSnapshot? {
-            val id = item.mediaId.takeIf(RemoteMediaIdCodec::isRemoteId) ?: return null
+            val trackRef = RemoteMediaIdCodec.decode(item.mediaId) ?: return null
+            val id = item.mediaId
             val metadata = item.mediaMetadata
             val extras = metadata.extras
             if (!RemoteMediaMetadataExtras.isTrustedProjection(extras)) return null
@@ -221,6 +239,11 @@ data class ServiceRemoteSongSnapshot(
                 .ifBlank { item.localConfiguration?.mimeType.orEmpty() }
             val suffix = RemoteMediaMetadataExtras.suffix(extras)
             val stableUri = RemotePlaybackUriCodec.encode(id)
+            val stableArtworkUri = metadata.artworkUri?.toString()?.let { artworkUri ->
+                RemoteArtworkUriCodec.decodeForSource(artworkUri, trackRef.sourceInstanceId)
+                    ?.let { artworkUri }
+                    ?: return null
+            }
             return ServiceRemoteSongSnapshot(
                 id = id,
                 title = metadata.title?.toString().orEmpty(),
@@ -231,6 +254,7 @@ data class ServiceRemoteSongSnapshot(
                 containerName = suffix.ifBlank { mimeType.substringAfter('/', "") }.uppercase(),
                 playbackMimeType = mimeType,
                 mediaUri = stableUri,
+                albumArtUri = stableArtworkUri,
                 fileName = RemoteMediaMetadataExtras.fileName(extras),
                 sizeBytes = RemoteMediaMetadataExtras.sizeBytes(extras),
                 year = RemoteMediaMetadataExtras.year(extras),
@@ -593,6 +617,7 @@ private fun ServiceRemoteSongSnapshot.toJson(): JSONObject = JSONObject().apply 
     put("container", containerName)
     put("mime", playbackMimeType)
     put("media_uri", mediaUri)
+    albumArtUri?.let { put("album_art_uri", it) }
     put("file_name", fileName)
     put("size_bytes", sizeBytes)
     put("year", year)
@@ -615,6 +640,7 @@ private fun JSONObject.toRemoteSongOrNull(): ServiceRemoteSongSnapshot? {
             containerName = optString("container"),
             playbackMimeType = optString("mime"),
             mediaUri = mediaUri,
+            albumArtUri = optString("album_art_uri").takeIf(String::isNotBlank),
             fileName = optString("file_name"),
             sizeBytes = optLong("size_bytes", 0L).coerceAtLeast(0L),
             year = optInt("year", 0).coerceAtLeast(0),
