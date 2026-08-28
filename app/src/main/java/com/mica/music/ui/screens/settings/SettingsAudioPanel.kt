@@ -9,12 +9,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.MusicLibrary
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
 import com.mica.music.media.usbhybrid.UsbHybridSettingsPresentation
+import com.mica.music.media.loudness.LoudnessScanManager
+import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsNavigationRow
 import com.mica.music.ui.components.SettingsSectionTitle
@@ -23,12 +26,14 @@ import com.mica.music.ui.components.SettingsToggleRow
 @Composable
 internal fun AudioSettingsPanel(
     uiSettings: AppUiSettings,
+    library: MusicLibrary,
     onOpenUsbExclusive: () -> Unit,
 ) {
     val context = LocalContext.current
     var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
     var usbMode by remember { mutableStateOf(UsbHybridPreferences.outputMode(context)) }
     val usbFacts by UsbHybridRuntimeMonitor.facts.collectAsState()
+    val loudnessScan by LoudnessScanManager.state.collectAsState()
 
     DisposableEffect(context) {
         val unregister = UsbHybridPreferences.registerChangeListener(context) { mode ->
@@ -40,12 +45,30 @@ internal fun AudioSettingsPanel(
     SettingsSectionTitle("音频标准化")
     SettingsChoiceRow(
         title = "ReplayGain",
-        subtitle = "按标签降低音量并防止削波；无有效标签时保持原始音量",
+        subtitle = "优先使用文件标签；按曲目缺少标签时使用 Mica 响度分析数据",
         choices = ReplayGainChoices,
         selectedValue = replayGainMode.ordinal,
         onSelect = { ordinal ->
             replayGainMode = ReplayGainMode.entries[ordinal]
             ReplayGainPreferences.setMode(context, replayGainMode)
+        },
+    )
+    SettingsActionRow(
+        title = if (loudnessScan.running) "正在扫描曲库响度" else "扫描曲库响度",
+        subtitle = when {
+            loudnessScan.running -> buildString {
+                append(loudnessScan.progressLabel)
+                if (loudnessScan.currentTitle.isNotBlank()) append(" · ${loudnessScan.currentTitle}")
+                append(" · 成功 ${loudnessScan.succeeded} · 跳过 ${loudnessScan.skipped} · 失败 ${loudnessScan.failed}")
+            }
+            loudnessScan.total > 0 ->
+                "上次：成功 ${loudnessScan.succeeded} · 跳过 ${loudnessScan.skipped} · 失败 ${loudnessScan.failed}；文件未变的结果会复用"
+            else -> "分析整套曲库；文件未变且已有结果的歌曲会跳过，PCM 不落盘"
+        },
+        onClick = {
+            if (!loudnessScan.running) {
+                LoudnessScanManager.startLibraryScan(context, library, missingOnly = true)
+            }
         },
     )
 

@@ -125,6 +125,22 @@ class DsdDecimationAudioProcessorTest {
     }
 
     @Test
+    fun configure_forcedAnalysisRate_isDeterministicAcrossDsdMultiples() {
+        val processor = DsdDecimationAudioProcessor(
+            context = RuntimeEnvironment.getApplication(),
+            decimationOutputMode = DsdDecimationOutputMode.FloatPcm,
+            forcedTargetSampleRateHz = 176_400,
+        )
+        val output = processor.configure(
+            AudioProcessor.AudioFormat(705_600, 2, C.ENCODING_PCM_FLOAT),
+        )
+
+        assertEquals(176_400, output.sampleRate)
+        assertEquals(2, output.channelCount)
+        assertEquals(C.ENCODING_PCM_FLOAT, output.encoding)
+    }
+
+    @Test
     fun resolveOutputEncoding_mapsModeToMedia3Encoding() {
         val format = AlacPcmFormat(sampleRateHz = 176_400, channelCount = 2, bitsPerSample = 24)
         assertEquals(

@@ -2,6 +2,7 @@ package com.mica.music.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.mica.music.data.LoudnessAnalysis
 import com.mica.music.data.ReplayGainTags
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
@@ -79,6 +80,12 @@ data class SongEntity(
     val replayGainTrackPeak: Float? = null,
     val replayGainAlbumDb: Float? = null,
     val replayGainAlbumPeak: Float? = null,
+    val loudnessIntegratedLufs: Float? = null,
+    val loudnessSamplePeak: Float? = null,
+    val loudnessTrackGainDb: Float? = null,
+    val loudnessSourceSizeBytes: Long = 0L,
+    val loudnessSourceModifiedMs: Long = 0L,
+    val loudnessAnalyzerRevision: Int = 0,
     val videoCoverUri: String? = null,
 )
 
@@ -121,6 +128,12 @@ data class SongSummaryEntity(
     val replayGainTrackPeak: Float?,
     val replayGainAlbumDb: Float?,
     val replayGainAlbumPeak: Float?,
+    val loudnessIntegratedLufs: Float?,
+    val loudnessSamplePeak: Float?,
+    val loudnessTrackGainDb: Float?,
+    val loudnessSourceSizeBytes: Long,
+    val loudnessSourceModifiedMs: Long,
+    val loudnessAnalyzerRevision: Int,
     val videoCoverUri: String?,
 )
 
@@ -182,6 +195,14 @@ fun SongEntity.toSong(): Song = Song(
     embeddedLyricsProbeRevision = embeddedLyricsProbeRevision,
     playCount = playCount,
     replayGain = ReplayGainTags(replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak),
+    loudnessAnalysis = LoudnessAnalysis(
+        integratedLufs = loudnessIntegratedLufs,
+        samplePeak = loudnessSamplePeak,
+        trackGainDb = loudnessTrackGainDb,
+        sourceSizeBytes = loudnessSourceSizeBytes,
+        sourceModifiedMs = loudnessSourceModifiedMs,
+        analyzerRevision = loudnessAnalyzerRevision,
+    ),
     lyricsDocument = LyricsDocumentCodec.decode(lyricsJson),
     videoCoverUri = videoCoverUri,
 )
@@ -222,6 +243,14 @@ fun SongSummaryEntity.toSong(): Song = Song(
     embeddedLyricsProbeRevision = embeddedLyricsProbeRevision,
     playCount = playCount,
     replayGain = ReplayGainTags(replayGainTrackDb, replayGainTrackPeak, replayGainAlbumDb, replayGainAlbumPeak),
+    loudnessAnalysis = LoudnessAnalysis(
+        integratedLufs = loudnessIntegratedLufs,
+        samplePeak = loudnessSamplePeak,
+        trackGainDb = loudnessTrackGainDb,
+        sourceSizeBytes = loudnessSourceSizeBytes,
+        sourceModifiedMs = loudnessSourceModifiedMs,
+        analyzerRevision = loudnessAnalyzerRevision,
+    ),
     lyricsLoaded = false,
     videoCoverUri = videoCoverUri,
 )
@@ -287,5 +316,11 @@ fun Song.toEntity(queueOrder: Int, preservedLyricsJson: String? = null): SongEnt
     replayGainTrackPeak = replayGain.trackPeak,
     replayGainAlbumDb = replayGain.albumGainDb,
     replayGainAlbumPeak = replayGain.albumPeak,
+    loudnessIntegratedLufs = loudnessAnalysis.integratedLufs,
+    loudnessSamplePeak = loudnessAnalysis.samplePeak,
+    loudnessTrackGainDb = loudnessAnalysis.trackGainDb,
+    loudnessSourceSizeBytes = loudnessAnalysis.sourceSizeBytes,
+    loudnessSourceModifiedMs = loudnessAnalysis.sourceModifiedMs,
+    loudnessAnalyzerRevision = loudnessAnalysis.analyzerRevision,
     videoCoverUri = videoCoverUri,
 )

@@ -128,6 +128,7 @@ fun AboutScreen(
             LicenseRow("BlurView（Dimezis）", "Apache License 2.0")
             LicenseRow("Kyant Taglib（元数据 JNI）", "Apache License 2.0")
             LicenseRow("jAudiotagger", "LGPL 2.1")
+            LicenseRow("libebur128（R128 算法参考）", "MIT License")
             LicenseRow("Three.js（粒子封面 WebView 资产）", "MIT License")
             AboutParagraph(
                 "完整开源声明维护在仓库 docs/OPEN_SOURCE_NOTICES.md" ,

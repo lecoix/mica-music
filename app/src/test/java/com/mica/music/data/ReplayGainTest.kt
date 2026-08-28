@@ -22,12 +22,12 @@ class ReplayGainTest {
     }
 
     @Test
-    fun policyDefaultsToUnityAndNeverAmplifies() {
+    fun policyDefaultsToUnityAndAllowsPeakSafeAmplification() {
         val tags = ReplayGainTags(trackGainDb = 6f, trackPeak = 0.5f)
 
         assertEquals(1f, ReplayGainPolicy.linearGain(tags, ReplayGainMode.OFF))
         assertEquals(1f, ReplayGainPolicy.linearGain(ReplayGainTags(), ReplayGainMode.TRACK))
-        assertEquals(1f, ReplayGainPolicy.linearGain(tags, ReplayGainMode.TRACK))
+        assertEquals(1.995f, ReplayGainPolicy.linearGain(tags, ReplayGainMode.TRACK), 0.002f)
     }
 
     @Test
@@ -70,14 +70,14 @@ class ReplayGainTest {
     }
 
     @Test
-    fun selectedPositiveGainReportsTagButNotSignalModification() {
+    fun selectedPositiveGainReportsAmplification() {
         val decision = ReplayGainPolicy.resolve(
             ReplayGainTags(trackGainDb = 6f, trackPeak = 0.5f),
             ReplayGainMode.TRACK,
         )
 
         assertEquals(ReplayGainSource.TRACK_TAG, decision.source)
-        assertEquals(1f, decision.linearFactor)
-        assertFalse(decision.modifiesSignal)
+        assertEquals(1.995f, decision.linearFactor, 0.002f)
+        assertTrue(decision.modifiesSignal)
     }
 }

@@ -15,6 +15,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -28,6 +29,14 @@ class ReplayGainStateOwnerTest {
     @Before
     fun clearPreferences() {
         MicaSettingsStore.prefs(context).edit().clear().commit()
+        MicaEqualizerManager.onReplayGainDspActiveChanged = null
+        MicaEqualizerManager.setReplayGain(enabled = false, factor = 1f)
+    }
+
+    @After
+    fun resetReplayGainDsp() {
+        MicaEqualizerManager.onReplayGainDspActiveChanged = null
+        MicaEqualizerManager.setReplayGain(enabled = false, factor = 1f)
     }
 
     @Test
@@ -39,13 +48,14 @@ class ReplayGainStateOwnerTest {
             ReplayGainTags(trackGainDb = -6.0206f),
             ReplayGainMode.TRACK,
         )
+        assertEquals(0.5f, MicaEqualizerManager.equalizer.replayGainLinearFactor(), 0.0001f)
         val unity = owner.apply(null, ReplayGainMode.TRACK)
 
-        verify { player.setReplayGainVolume(match { factor -> kotlin.math.abs(factor - 0.5f) < 0.0001f }) }
-        verify { player.setReplayGainVolume(1f) }
+        verify(exactly = 2) { player.setReplayGainVolume(1f) }
         assertEquals(unity, owner.current)
         assertEquals(0.5f, attenuated.linearFactor, 0.0001f)
         assertEquals(ReplayGainSource.MISSING_TAG, owner.current.source)
+        assertEquals(1f, MicaEqualizerManager.equalizer.replayGainLinearFactor(), 0f)
     }
 
     @Test
@@ -83,5 +93,7 @@ class ReplayGainStateOwnerTest {
 
         assertEquals(ReplayGainSource.TRACK_TAG, owner.current.source)
         assertEquals(0.5f, owner.current.linearFactor, 0.0001f)
+        assertEquals(0.5f, MicaEqualizerManager.equalizer.replayGainLinearFactor(), 0.0001f)
+        verify(atLeast = 1) { player.setReplayGainVolume(1f) }
     }
 }

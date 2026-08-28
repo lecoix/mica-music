@@ -18,7 +18,7 @@ internal class MicaEqualizerSpectrumTap(
     }
 
     override fun isActive(): Boolean =
-        equalizer.isEnabled() || MicaSpectrumAnalyzer.isAnalysisActive()
+        equalizer.isProcessingRequired() || MicaSpectrumAnalyzer.isAnalysisActive()
 
     override fun process(
         bytes: ByteArray,

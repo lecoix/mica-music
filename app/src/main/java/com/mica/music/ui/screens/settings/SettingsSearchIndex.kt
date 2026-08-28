@@ -161,7 +161,8 @@ internal object SettingsSearchIndex {
         setting("library.deep-probe", "深度分析音质与封面", "扫描", "封面", "音质", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SCAN, availability = "会增加扫描时间和耗电"),
         setting("library.artist-split", "艺术家分割", "艺人", "艺术家", "分隔符", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_ARTIST),
 
-        setting("audio.replaygain", "ReplayGain", "音量", "标准化", "按曲目", "按专辑", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "只有曲目包含有效 ReplayGain 标签时才改变增益"),
+        setting("audio.replaygain", "ReplayGain", "音量", "标准化", "按曲目", "按专辑", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "优先使用文件 ReplayGain 标签；按曲目缺少标签时可使用 Mica 响度分析结果"),
+        setting("audio.loudness-scan", "扫描曲库响度", "R128", "LUFS", "响度", "标准化", "ReplayGain", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "分析完整音频但不保存 PCM；文件未变且已有结果时自动复用"),
         setting("audio.focus", "独占音频焦点", "音频焦点", "暂停其他应用", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "下次开始播放或切歌时生效"),
         setting(
             "audio.usb-exclusive",

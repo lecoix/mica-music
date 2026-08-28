@@ -385,6 +385,7 @@ fun SettingsScreen(
                         } else {
                             AudioSettingsPanel(
                                 uiSettings = uiSettings,
+                                library = library,
                                 onOpenUsbExclusive = { usbHybridSubpageOpen = true },
                             )
                         }

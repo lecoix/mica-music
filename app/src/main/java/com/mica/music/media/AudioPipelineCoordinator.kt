@@ -7,10 +7,17 @@ internal data class AudioPipelineState(
     val spectrumTapEnabled: Boolean,
     val offloadPreferenceEnabled: Boolean,
     val circuitOpen: Boolean = false,
+    val replayGainDspEnabled: Boolean = false,
+    val pcmSessionLatched: Boolean = false,
 ) {
+    val softwareDspRequested: Boolean
+        get() = equalizerEnabled || spectrumTapEnabled || replayGainDspEnabled
+
     val offloadEnabled: Boolean
         get() = !equalizerEnabled &&
             !spectrumTapEnabled &&
+            !replayGainDspEnabled &&
+            !pcmSessionLatched &&
             offloadPreferenceEnabled &&
             !circuitOpen
 }
@@ -22,17 +29,19 @@ internal class AudioPipelineCoordinator(
     private val applyConfiguration: (AudioPipelineState) -> Unit,
     private val persistQualityMode: (AudioQualityMode) -> Unit,
     private val flushPipeline: (String) -> Unit,
+    private val isOffloadedPlayback: () -> Boolean = { false },
 ) {
-    private var state = initialState
+    private var state = initialState.copy(
+        pcmSessionLatched = initialState.pcmSessionLatched || initialState.softwareDspRequested,
+    )
 
     fun applyInitialConfiguration() = applyConfiguration(state)
 
     fun onEqualizerEnabledChanged(enabled: Boolean) {
-        invalidateCircuitBreaker()
-        state = state.copy(equalizerEnabled = enabled)
         persistQualityMode(if (enabled) AudioQualityMode.DSP else AudioQualityMode.HIFI)
-        applyConfiguration(state)
-        flushPipeline("equalizer-enabled=$enabled")
+        updateSoftwareDspState("equalizer-enabled=$enabled") {
+            it.copy(equalizerEnabled = enabled)
+        }
     }
 
     fun onOffloadPreferenceChanged(enabled: Boolean) {
@@ -53,10 +62,16 @@ internal class AudioPipelineCoordinator(
     }
 
     fun onSpectrumTapEnabledChanged(enabled: Boolean) {
-        invalidateCircuitBreaker()
-        state = state.copy(spectrumTapEnabled = enabled)
-        applyConfiguration(state)
-        flushPipeline("spectrum-enabled=$enabled")
+        updateSoftwareDspState("spectrum-enabled=$enabled") {
+            it.copy(spectrumTapEnabled = enabled)
+        }
+    }
+
+    fun onReplayGainDspEnabledChanged(enabled: Boolean) {
+        if (state.replayGainDspEnabled == enabled) return
+        updateSoftwareDspState("replaygain-dsp-enabled=$enabled") {
+            it.copy(replayGainDspEnabled = enabled)
+        }
     }
 
     fun onOffloadCircuitOpened() {
@@ -68,5 +83,26 @@ internal class AudioPipelineCoordinator(
     fun onRouteChanged(reason: String) {
         invalidateCircuitBreaker()
         flushPipeline(reason)
+    }
+
+    private inline fun updateSoftwareDspState(
+        reason: String,
+        transform: (AudioPipelineState) -> AudioPipelineState,
+    ) {
+        val wasOffloadEnabled = state.offloadEnabled
+        val previousDspRequested = state.softwareDspRequested
+        val transformed = transform(state)
+        state = transformed.copy(
+            pcmSessionLatched = transformed.pcmSessionLatched ||
+                previousDspRequested ||
+                transformed.softwareDspRequested,
+        )
+        if (wasOffloadEnabled == state.offloadEnabled) return
+
+        invalidateCircuitBreaker()
+        applyConfiguration(state)
+        if (wasOffloadEnabled && !state.offloadEnabled && isOffloadedPlayback()) {
+            flushPipeline("offload-to-pcm:$reason")
+        }
     }
 }

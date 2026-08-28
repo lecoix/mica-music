@@ -3,6 +3,7 @@ package com.mica.music.data
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.log10
 
 data class SongDetailRow(
     val label: String,
@@ -11,7 +12,8 @@ data class SongDetailRow(
 
 object SongDetails {
 
-    fun buildRows(song: Song, library: MusicLibrary): List<SongDetailRow> = listOf(
+    fun buildRows(song: Song, library: MusicLibrary): List<SongDetailRow> = buildList {
+        addAll(listOf(
         SongDetailRow("标题", song.title),
         SongDetailRow("艺术家", ArtistNames.normalizeDisplay(song.artist)),
         SongDetailRow("专辑", song.album.ifBlank { "—" }),
@@ -26,6 +28,9 @@ object SongDetails {
         SongDetailRow("比特率", song.metadata.bitrateLabel),
         SongDetailRow("采样率", sampleRateLabel(song.metadata)),
         SongDetailRow("位深", bitDepthLabel(song.metadata.bitsPerSample)),
+        SongDetailRow("综合响度", loudnessLabel(song)),
+        SongDetailRow("采样峰值", loudnessPeakLabel(song)),
+        SongDetailRow("标准化增益", loudnessGainLabel(song)),
         SongDetailRow("大小", formatFileSize(song.sizeBytes)),
         SongDetailRow("格式", song.metadata.containerName.ifBlank { "—" }),
         SongDetailRow("路径", displayPath(song)),
@@ -38,7 +43,8 @@ object SongDetails {
         SongDetailRow("注释", song.comment.ifBlank { "—" }),
         SongDetailRow("添加时间", formatTimestamp(song.dateAddedMs)),
         SongDetailRow("修改时间", formatTimestamp(song.dateModifiedMs)),
-    )
+        ))
+    }
 
     fun mediaSourceLabel(song: Song, library: MusicLibrary): String = when {
         song.id.startsWith("ms_") -> "MediaStore 媒体库"
@@ -69,6 +75,22 @@ object SongDetails {
 
     private fun bitDepthLabel(bits: Int?): String =
         bits?.takeIf { it > 0 }?.let { "$it bit" } ?: "—"
+
+    private fun loudnessLabel(song: Song): String =
+        song.loudnessAnalysis.takeIf { it.matches(song) }?.integratedLufs
+            ?.let { "%.1f LUFS · Mica 分析".format(it) }
+            ?: "—"
+
+    private fun loudnessPeakLabel(song: Song): String =
+        song.loudnessAnalysis.takeIf { it.matches(song) }?.samplePeak
+            ?.takeIf { it > 0f }
+            ?.let { peak -> "%.2f dBFS".format(20.0 * log10(peak.toDouble())) }
+            ?: "—"
+
+    private fun loudnessGainLabel(song: Song): String =
+        song.loudnessAnalysis.takeIf { it.matches(song) }?.trackGainDb
+            ?.let { "%+.1f dB".format(it) }
+            ?: "—"
 
     fun formatFileSize(bytes: Long): String = when {
         bytes <= 0L -> "—"

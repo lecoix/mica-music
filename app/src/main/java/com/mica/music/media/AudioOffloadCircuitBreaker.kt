@@ -47,6 +47,10 @@ internal class AudioOffloadCircuitBreaker(
         private set
 
     private var isOffloadedPlayback = false
+
+    val currentlyOffloaded: Boolean
+        get() = isOffloadedPlayback
+
     private var generation = 0L
     private var confirmationGeneration = 0L
     private var stallTask: Runnable? = null

@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.mica.music.data.LoudnessAnalysis
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.PlaybackMimeResolver
 import com.mica.music.data.Song
@@ -134,6 +135,12 @@ object SongMediaItemCodec {
             song.replayGain.trackPeak?.let { putFloat("${PREFIX}replayGainTrackPeak", it) }
             song.replayGain.albumGainDb?.let { putFloat("${PREFIX}replayGainAlbumDb", it) }
             song.replayGain.albumPeak?.let { putFloat("${PREFIX}replayGainAlbumPeak", it) }
+            song.loudnessAnalysis.integratedLufs?.let { putFloat("${PREFIX}loudnessIntegratedLufs", it) }
+            song.loudnessAnalysis.samplePeak?.let { putFloat("${PREFIX}loudnessSamplePeak", it) }
+            song.loudnessAnalysis.trackGainDb?.let { putFloat("${PREFIX}loudnessTrackGainDb", it) }
+            putLong("${PREFIX}loudnessSourceSizeBytes", song.loudnessAnalysis.sourceSizeBytes)
+            putLong("${PREFIX}loudnessSourceModifiedMs", song.loudnessAnalysis.sourceModifiedMs)
+            putInt("${PREFIX}loudnessAnalyzerRevision", song.loudnessAnalysis.analyzerRevision)
             putString(LYRICS_REVISION, lyricsRevision)
             putString(METADATA_REVISION, metadataRevision(song, lyricsRevision))
         }
@@ -213,6 +220,20 @@ object SongMediaItemCodec {
                 albumPeak = extras.getFloat("${PREFIX}replayGainAlbumPeak").takeIf {
                     extras.containsKey("${PREFIX}replayGainAlbumPeak")
                 },
+            ),
+            loudnessAnalysis = LoudnessAnalysis(
+                integratedLufs = extras.getFloat("${PREFIX}loudnessIntegratedLufs").takeIf {
+                    extras.containsKey("${PREFIX}loudnessIntegratedLufs")
+                },
+                samplePeak = extras.getFloat("${PREFIX}loudnessSamplePeak").takeIf {
+                    extras.containsKey("${PREFIX}loudnessSamplePeak")
+                },
+                trackGainDb = extras.getFloat("${PREFIX}loudnessTrackGainDb").takeIf {
+                    extras.containsKey("${PREFIX}loudnessTrackGainDb")
+                },
+                sourceSizeBytes = extras.getLong("${PREFIX}loudnessSourceSizeBytes", 0L),
+                sourceModifiedMs = extras.getLong("${PREFIX}loudnessSourceModifiedMs", 0L),
+                analyzerRevision = extras.getInt("${PREFIX}loudnessAnalyzerRevision", 0),
             ),
             lyricsLoaded = false,
             source = extras.getString(SOURCE)?.let { encoded ->

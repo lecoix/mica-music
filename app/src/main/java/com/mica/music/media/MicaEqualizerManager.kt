@@ -20,6 +20,7 @@ import com.mica.music.media.eq.SoftwareEqualizerAudioProcessor
 object MicaEqualizerManager {
 
     var onEnabledChanged: ((Boolean) -> Unit)? = null
+    var onReplayGainDspActiveChanged: ((Boolean) -> Unit)? = null
 
     private val softwareEqualizer = SoftwareEqualizer()
     val audioProcessor: SoftwareEqualizerAudioProcessor = SoftwareEqualizerAudioProcessor(softwareEqualizer)
@@ -72,6 +73,14 @@ object MicaEqualizerManager {
     fun release() {
         releaseSystemOnly()
         softwareEqualizer.setEnabled(false)
+        softwareEqualizer.setReplayGain(enabled = false, factor = 1f)
+    }
+
+    fun setReplayGain(enabled: Boolean, factor: Float) {
+        val wasActive = softwareEqualizer.isReplayGainHostEnabled()
+        softwareEqualizer.setReplayGain(enabled, factor)
+        val active = softwareEqualizer.isReplayGainHostEnabled()
+        if (wasActive != active) onReplayGainDspActiveChanged?.invoke(active)
     }
 
     fun snapshot(context: Context): EqualizerSnapshot {

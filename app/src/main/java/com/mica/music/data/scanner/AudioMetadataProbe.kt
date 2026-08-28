@@ -228,7 +228,7 @@ object AudioMetadataProbe {
                 commentOverride = comment,
                 metadataScanVersion = 0,
                 dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
-            ),
+            ).preserveLoudnessFrom(cachedSong),
             lyrics = lyrics,
         )
     }
@@ -655,7 +655,7 @@ object AudioMetadataProbe {
                 trackNumber = tags.trackNumber,
                 discNumber = tags.discNumber,
                 dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
-            ).copy(replayGain = tagLib.replayGain),
+            ).copy(replayGain = tagLib.replayGain).preserveLoudnessFrom(cachedSong),
             lyrics = lyrics,
         )
         } finally {
@@ -1035,7 +1035,7 @@ object AudioMetadataProbe {
                 trackNumber = tags.trackNumber,
                 discNumber = tags.discNumber,
                 dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
-            ),
+            ).preserveLoudnessFrom(cachedSong),
             lyrics = lyrics,
         )
     }
@@ -1278,6 +1278,13 @@ object AudioMetadataProbe {
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         return ext in setOf("wav", "wave") || mimeType.equals("audio/wav", true) ||
             mimeType.equals("audio/x-wav", true)
+    }
+
+    private fun Song.preserveLoudnessFrom(cachedSong: Song?): Song {
+        val cached = cachedSong?.loudnessAnalysis
+            ?.takeIf { it.matchesSource(sizeBytes, dateModifiedMs) }
+            ?: return this
+        return copy(loudnessAnalysis = cached)
     }
 
     private fun TagLibReader.Result.hasCoreTagGaps(): Boolean =

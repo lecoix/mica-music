@@ -4,7 +4,7 @@ Mica Music uses the following major open source components. This file is a
 release checklist seed; before a public release, include the full license text
 and copyright notice required by each dependency.
 
-Last reviewed: **2026-08-26**
+Last reviewed: **2026-08-28**
 
 ## Runtime Dependencies
 
@@ -27,6 +27,7 @@ Last reviewed: **2026-08-26**
 | utfcpp（TagLib submodule，`3rdparty/utfcpp`） | Boost Software License 1.0 |
 | jAudiotagger | LGPL 2.1 |
 | FFmpeg (linked inside `libffmpegJNI.so` for DSF / extended codec decode) | LGPL 2.1+ by default; current build script does not enable GPL or nonfree components |
+| libebur128（R128 算法参考；未链接其二进制） | MIT License；Mica 的 Kotlin 响度分析器适配其 K-weighting 系数构造和默认声道映射；Copyright (c) 2011 Jan Kokemüller |
 
 ## Bundled Assets (non-Maven)
 
@@ -58,6 +59,9 @@ Particle cover **production rendering** uses Android **OpenGL ES 2.0** platform 
 - **Jellyfin `media3-ffmpeg-decoder`**: preserve Apache 2.0 notice for the Java/JNI
   wrapper; when the app ships the locally built `libffmpegJNI.so`, also satisfy FFmpeg
   / LGPL distribution requirements below.
+- **libebur128**: Mica does not bundle or link libebur128 itself. The R128 analyzer
+  adapts its K-weighting coefficient construction and default channel mapping under
+  the MIT License; preserve the source-level attribution and upstream copyright notice.
 - **FFmpeg** binary distribution requires preserving FFmpeg / LGPL notices and
   providing a way to obtain the corresponding source or build scripts
   (`scripts/build-media3-ffmpeg-dsd.ps1`, `third_party/media3-ffmpeg-decoder/`).

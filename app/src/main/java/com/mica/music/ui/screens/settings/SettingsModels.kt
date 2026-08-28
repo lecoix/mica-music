@@ -231,7 +231,7 @@ internal enum class SettingsCategory(
     ),
     AUDIO(
         title = "音频与设备",
-        subtitle = "ReplayGain、音频焦点、USB 独占输出",
+        subtitle = "ReplayGain、响度扫描、音频焦点、USB 独占输出",
     ),
     DIAGNOSTICS(
         title = "诊断与系统",

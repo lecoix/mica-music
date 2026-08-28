@@ -121,6 +121,83 @@ class AudioMathTest {
     }
 
     @Test
+    fun replayGainAmplifiesThroughSharedDspWhenEqIsDisabled() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 1)
+        equalizer.setReplayGain(enabled = true, factor = 2f)
+        val samples = FloatArray(8_192) { 0.25f }
+        val buffer = ByteBuffer.allocate(samples.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+        samples.forEach(buffer::putFloat)
+        val bytes = buffer.array()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        val output = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        output.position(bytes.size - 4)
+        assertTrue(equalizer.isProcessingRequired())
+        assertEquals(0.5f, output.float, 0.01f)
+    }
+
+    @Test
+    fun replayGainPositiveGainIsCaughtByLinkedLimiter() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 1)
+        equalizer.setReplayGain(enabled = true, factor = 2f)
+        val samples = FloatArray(8_192) { 0.75f }
+        val buffer = ByteBuffer.allocate(samples.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+        samples.forEach(buffer::putFloat)
+        val bytes = buffer.array()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        val output = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        var peak = 0f
+        while (output.hasRemaining()) peak = maxOf(peak, kotlin.math.abs(output.float))
+        assertTrue(peak <= 0.98f)
+        assertTrue(peak > 0.9f)
+    }
+
+    @Test
+    fun replayGainUnityBypassResetsSmoothingOriginForTheNextTrack() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 1)
+        equalizer.setReplayGain(enabled = true, factor = 2f)
+        val settle = ByteBuffer.allocate(8_192 * 4).order(ByteOrder.LITTLE_ENDIAN).apply {
+            repeat(8_192) { putFloat(0.25f) }
+        }.array()
+        equalizer.processInterleaved(settle, 0, settle.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        equalizer.setReplayGain(enabled = true, factor = 1f)
+        val unity = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putFloat(0.25f).array()
+        equalizer.processInterleaved(unity, 0, unity.size, AudioFormat.ENCODING_PCM_FLOAT)
+        assertEquals(0.25f, ByteBuffer.wrap(unity).order(ByteOrder.LITTLE_ENDIAN).float, 0f)
+
+        equalizer.setReplayGain(enabled = true, factor = 1.5f)
+        val next = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putFloat(0.25f).array()
+        equalizer.processInterleaved(next, 0, next.size, AudioFormat.ENCODING_PCM_FLOAT)
+        val firstNextSample = ByteBuffer.wrap(next).order(ByteOrder.LITTLE_ENDIAN).float
+
+        assertTrue(firstNextSample in 0.25f..0.375f)
+    }
+
+    @Test
+    fun replayGainHostAtUnityLeavesPcmBitsUntouched() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 1)
+        equalizer.setReplayGain(enabled = true, factor = 1f)
+        val buffer = ByteBuffer.allocate(4 * 4).order(ByteOrder.LITTLE_ENDIAN).apply {
+            floatArrayOf(-1f, -0.25f, 0.25f, 1f).forEach(::putFloat)
+        }
+        val bytes = buffer.array()
+        val original = bytes.copyOf()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        assertTrue(equalizer.isProcessingRequired())
+        assertArrayEquals(original, bytes)
+    }
+
+    @Test
     fun dsdOutputPolicyAvoidsUltrahighRatesOnBluetooth() {
         val bluetooth = DsdOutputPolicy.candidates(
             channelCount = 2,

@@ -20,6 +20,7 @@ import kotlin.math.roundToInt
 class DsdDecimationAudioProcessor(
     private val context: Context,
     private val decimationOutputMode: DsdDecimationOutputMode = DsdDecimationOutputMode.IntPcm,
+    private val forcedTargetSampleRateHz: Int? = null,
 ) : AudioProcessor {
 
     private var inputFormat = AudioProcessor.AudioFormat.NOT_SET
@@ -50,11 +51,20 @@ class DsdDecimationAudioProcessor(
             return inputAudioFormat
         }
 
-        val target = resolveDsdDecimationTarget(
-            context = context,
-            inputRateHz = inputAudioFormat.sampleRate,
-            channelCount = inputAudioFormat.channelCount,
-        )
+        val target = forcedTargetSampleRateHz
+            ?.takeIf { it > 0 && inputAudioFormat.sampleRate % it == 0 }
+            ?.let { rate ->
+                AlacPcmFormat(
+                    sampleRateHz = rate,
+                    channelCount = inputAudioFormat.channelCount,
+                    bitsPerSample = 24,
+                ) to (inputAudioFormat.sampleRate / rate)
+            }
+            ?: resolveDsdDecimationTarget(
+                context = context,
+                inputRateHz = inputAudioFormat.sampleRate,
+                channelCount = inputAudioFormat.channelCount,
+            )
         if (target == null) {
             clearState()
             return inputAudioFormat

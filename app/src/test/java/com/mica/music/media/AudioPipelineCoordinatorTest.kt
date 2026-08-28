@@ -24,7 +24,7 @@ class AudioPipelineCoordinatorTest {
     }
 
     @Test
-    fun enablingEqualizerInvalidatesBreakerBeforeApplyingPcmAndFlushingOnce() {
+    fun enablingEqualizerWhileOffloadedSwitchesToPcmOnce() {
         val effects = mutableListOf<String>()
         val coordinator = AudioPipelineCoordinator(
             initialState = AudioPipelineState(
@@ -37,16 +37,50 @@ class AudioPipelineCoordinatorTest {
             applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
             persistQualityMode = { effects += "quality=$it" },
             flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { true },
         )
 
         coordinator.onEqualizerEnabledChanged(true)
 
         assertEquals(
             listOf(
-                "invalidate",
                 "quality=DSP",
+                "invalidate",
                 "apply:offload=false",
-                "flush:equalizer-enabled=true",
+                "flush:offload-to-pcm:equalizer-enabled=true",
+            ),
+            effects,
+        )
+    }
+
+    @Test
+    fun equalizerAndSpectrumToggleSeamlesslyOncePcmSessionIsLatched() {
+        val effects = mutableListOf<String>()
+        val coordinator = AudioPipelineCoordinator(
+            initialState = AudioPipelineState(
+                equalizerEnabled = false,
+                spectrumTapEnabled = false,
+                offloadPreferenceEnabled = true,
+            ),
+            invalidateCircuitBreaker = { effects += "invalidate" },
+            resetCircuitBreaker = { effects += "reset" },
+            applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
+            persistQualityMode = { effects += "quality=$it" },
+            flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { false },
+        )
+
+        coordinator.onEqualizerEnabledChanged(true)
+        coordinator.onEqualizerEnabledChanged(false)
+        coordinator.onSpectrumTapEnabledChanged(true)
+        coordinator.onSpectrumTapEnabledChanged(false)
+
+        assertEquals(
+            listOf(
+                "quality=DSP",
+                "invalidate",
+                "apply:offload=false",
+                "quality=HIFI",
             ),
             effects,
         )
@@ -77,6 +111,65 @@ class AudioPipelineCoordinatorTest {
     }
 
     @Test
+    fun enablingReplayGainDspDisablesOffloadAndDeduplicatesTheModeBoundary() {
+        val effects = mutableListOf<String>()
+        val coordinator = AudioPipelineCoordinator(
+            initialState = AudioPipelineState(
+                equalizerEnabled = false,
+                spectrumTapEnabled = false,
+                offloadPreferenceEnabled = true,
+            ),
+            invalidateCircuitBreaker = { effects += "invalidate" },
+            resetCircuitBreaker = { effects += "reset" },
+            applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
+            persistQualityMode = { effects += "quality=$it" },
+            flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { true },
+        )
+
+        coordinator.onReplayGainDspEnabledChanged(true)
+        coordinator.onReplayGainDspEnabledChanged(true)
+
+        assertEquals(
+            listOf(
+                "invalidate",
+                "apply:offload=false",
+                "flush:offload-to-pcm:replaygain-dsp-enabled=true",
+            ),
+            effects,
+        )
+    }
+
+    @Test
+    fun disablingLastReplayGainDspDoesNotJumpBackToOffload() {
+        val effects = mutableListOf<String>()
+        val coordinator = AudioPipelineCoordinator(
+            initialState = AudioPipelineState(
+                equalizerEnabled = false,
+                spectrumTapEnabled = false,
+                offloadPreferenceEnabled = true,
+            ),
+            invalidateCircuitBreaker = { effects += "invalidate" },
+            resetCircuitBreaker = { effects += "reset" },
+            applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
+            persistQualityMode = { effects += "quality=$it" },
+            flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { false },
+        )
+
+        coordinator.onReplayGainDspEnabledChanged(true)
+        coordinator.onReplayGainDspEnabledChanged(false)
+
+        assertEquals(
+            listOf(
+                "invalidate",
+                "apply:offload=false",
+            ),
+            effects,
+        )
+    }
+
+    @Test
     fun staleOffloadStallCannotCrossANewerSpectrumConfiguration() {
         val effects = mutableListOf<String>()
         val scheduler = ManualScheduler()
@@ -102,6 +195,7 @@ class AudioPipelineCoordinatorTest {
             applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
             persistQualityMode = { effects += "quality=$it" },
             flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { true },
         )
         breaker = AudioOffloadCircuitBreaker(
             snapshot = { snapshot },
@@ -119,7 +213,7 @@ class AudioPipelineCoordinatorTest {
         assertEquals(
             listOf(
                 "apply:offload=false",
-                "flush:spectrum-enabled=true",
+                "flush:offload-to-pcm:spectrum-enabled=true",
             ),
             effects,
         )

@@ -50,6 +50,7 @@ data class Song(
     /** 最近一次开始播放的时间戳（毫秒），未播放过为 0 */
     val lastPlayedAtMs: Long = 0L,
     val replayGain: ReplayGainTags = ReplayGainTags(),
+    val loudnessAnalysis: LoudnessAnalysis = LoudnessAnalysis(),
     val lyricsDocument: LyricsDocument = LyricsDocument(),
     /** False when the lyrics payload was intentionally omitted from a lightweight library row. */
     val lyricsLoaded: Boolean = true,

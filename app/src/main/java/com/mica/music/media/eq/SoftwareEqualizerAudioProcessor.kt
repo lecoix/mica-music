@@ -27,7 +27,7 @@ class SoftwareEqualizerAudioProcessor(
         return outputFormat
     }
 
-    override fun isActive(): Boolean = equalizer.isEnabled()
+    override fun isActive(): Boolean = equalizer.isProcessingRequired()
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (inputBuffer.hasRemaining()) {

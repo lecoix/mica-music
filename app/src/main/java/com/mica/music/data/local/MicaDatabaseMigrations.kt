@@ -268,3 +268,14 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
         db.execSQL("ALTER TABLE songs ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_19_20 = object : Migration(19, 20) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN loudnessIntegratedLufs REAL")
+        db.execSQL("ALTER TABLE songs ADD COLUMN loudnessSamplePeak REAL")
+        db.execSQL("ALTER TABLE songs ADD COLUMN loudnessTrackGainDb REAL")
+        db.execSQL("ALTER TABLE songs ADD COLUMN loudnessSourceSizeBytes INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE songs ADD COLUMN loudnessSourceModifiedMs INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE songs ADD COLUMN loudnessAnalyzerRevision INTEGER NOT NULL DEFAULT 0")
+    }
+}

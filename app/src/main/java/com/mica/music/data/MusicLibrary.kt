@@ -175,6 +175,20 @@ class MusicLibrary internal constructor(
         backing.catalog.applyPlayStats(songId, stats)
     }
 
+    fun applyLoudnessAnalysis(
+        songId: String,
+        analysis: LoudnessAnalysis,
+        notifyQueueMetadata: Boolean = true,
+    ) {
+        if (backing.released) return
+        backing.catalog.applyLoudnessAnalysis(songId, analysis, notifyQueueMetadata)
+    }
+
+    fun notifyLoudnessScanCompleted() {
+        if (backing.released) return
+        backing.catalog.notifyQueueMetadataChanged()
+    }
+
     fun searchSongs(query: String): List<Song> {
         val locale = Locale.getDefault()
         val queryLower = query.trim().lowercase(locale)

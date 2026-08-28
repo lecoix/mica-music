@@ -26,6 +26,8 @@ class SoftwareEqualizer {
         val enabled: Boolean,
         val levelsMillibels: ShortArray,
         val globalGainMillibels: Short,
+        val replayGainHostEnabled: Boolean,
+        val replayGainLinearFactor: Float,
         val revision: Long,
     )
 
@@ -34,6 +36,8 @@ class SoftwareEqualizer {
             enabled = false,
             levelsMillibels = EqBandConstants.defaultLevels(),
             globalGainMillibels = EqBandConstants.DEFAULT_GLOBAL_GAIN_MILLIBELS,
+            replayGainHostEnabled = false,
+            replayGainLinearFactor = 1f,
             revision = 0L,
         ),
     )
@@ -51,6 +55,8 @@ class SoftwareEqualizer {
     private var currentPreampGain = 1.0
     private var targetGlobalGain = 1.0
     private var currentGlobalGain = 1.0
+    private var targetReplayGain = 1.0
+    private var currentReplayGain = 1.0
     private var gainSmoothingCoefficient = smoothingCoefficient(sampleRateHz)
     private var ditherState = 0x4D494341
 
@@ -111,6 +117,31 @@ class SoftwareEqualizer {
     }
 
     fun currentGlobalGainMillibels(): Short = targetSettings.get().globalGainMillibels
+
+    fun setReplayGain(enabled: Boolean, factor: Float) {
+        val safe = factor.takeIf { it.isFinite() && it >= 0f }?.coerceAtMost(16f) ?: 1f
+        updateTarget { old ->
+            if (old.replayGainHostEnabled == enabled && old.replayGainLinearFactor == safe) old
+            else old.copy(
+                replayGainHostEnabled = enabled,
+                replayGainLinearFactor = safe,
+                revision = old.revision + 1L,
+            )
+        }
+    }
+
+    fun isReplayGainHostEnabled(): Boolean = targetSettings.get().replayGainHostEnabled
+
+    fun replayGainLinearFactor(): Float = targetSettings.get().replayGainLinearFactor
+
+    fun isProcessingRequired(): Boolean {
+        val settings = targetSettings.get()
+        val eqActive = settings.enabled && (
+            settings.levelsMillibels.any { it != 0.toShort() } ||
+                settings.globalGainMillibels != 0.toShort()
+            )
+        return eqActive || settings.replayGainHostEnabled
+    }
 
     /** Called by the renderer/audio thread when its stream is flushed or reconfigured. */
     fun resetFilters() {
@@ -314,10 +345,16 @@ class SoftwareEqualizer {
     private fun processFrame() {
         currentPreampGain = smoothGain(currentPreampGain, targetPreampGain)
         currentGlobalGain = smoothGain(currentGlobalGain, targetGlobalGain)
+        currentReplayGain = smoothGain(currentReplayGain, targetReplayGain)
+        val eqActive = appliedEnabled && !appliedFlat
         repeat(channelCount) { channel ->
-            var sample = frameScratch[channel] * currentPreampGain
-            filters[channel].forEach { filter -> sample = filter.process(sample) }
-            frameScratch[channel] = sample * currentGlobalGain
+            var sample = frameScratch[channel]
+            if (eqActive) {
+                sample *= currentPreampGain
+                filters[channel].forEach { filter -> sample = filter.process(sample) }
+                sample *= currentGlobalGain
+            }
+            frameScratch[channel] = sample * currentReplayGain
         }
         limiter.processFrame(frameScratch, channelCount)
     }
@@ -328,10 +365,12 @@ class SoftwareEqualizer {
             if (snapGains) {
                 currentPreampGain = targetPreampGain
                 currentGlobalGain = targetGlobalGain
+                currentReplayGain = targetReplayGain
             }
             return
         }
 
+        val wasProcessingActive = processingActive()
         val enabledChanged = settings.enabled != appliedEnabled
         appliedEnabled = settings.enabled
         appliedFlat = settings.levelsMillibels.all { it == 0.toShort() } &&
@@ -341,6 +380,7 @@ class SoftwareEqualizer {
         val plan = EqHeadroomPlanner.plan(settings.levelsMillibels, sampleRateHz)
         targetPreampGain = 10.0.pow(plan.preampDb / 20.0)
         targetGlobalGain = 10.0.pow(settings.globalGainMillibels / 2_000.0)
+        targetReplayGain = settings.replayGainLinearFactor.toDouble()
 
         deviceLevels.indices.forEach { index ->
             updateFilter(index, deviceLevels[index])
@@ -350,13 +390,18 @@ class SoftwareEqualizer {
             currentPreampGain = targetPreampGain
             currentGlobalGain = targetGlobalGain
         }
-        if (!appliedEnabled || appliedFlat || enabledChanged) {
+        val processingNow = processingActive()
+        if (snapGains || appliedRevision == Long.MIN_VALUE || !processingNow) {
+            currentReplayGain = targetReplayGain
+        }
+        if (!processingNow || wasProcessingActive != processingNow || enabledChanged) {
             resetDspState()
         }
         appliedRevision = settings.revision
     }
 
-    private fun processingActive(): Boolean = appliedEnabled && !appliedFlat
+    private fun processingActive(): Boolean =
+        (appliedEnabled && !appliedFlat) || targetReplayGain != 1.0
 
     private fun updateFilter(index: Int, millibels: Short) {
         val gainDb = millibels / 100.0

@@ -30,11 +30,13 @@ import com.mica.music.MainActivity
 import com.mica.music.MicaApp
 import com.mica.music.isExternalAudioUriRestorableNow
 import com.mica.music.data.TransientPlaybackCatalog
+import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
@@ -402,12 +404,10 @@ class MicaMediaService : MediaSessionService() {
         mediaSession?.setPlayer(stack.compositePlayer)
 
         if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
-            replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
-        }
-        if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
             installAudioOffloadCircuitBreaker(stack.exoPlayer)
             installAudioPipelineCoordinator(stack.exoPlayer)
             wireEqualizerAndSpectrumHandlers()
+            replayGainStateOwner = ReplayGainStateOwner(this, stack.compositePlayer).also { it.start() }
         }
 
         playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
@@ -519,6 +519,7 @@ class MicaMediaService : MediaSessionService() {
         audioOffloadCircuitBreaker = null
         audioPipelineCoordinator = null
         MicaEqualizerManager.onEnabledChanged = null
+        MicaEqualizerManager.onReplayGainDspActiveChanged = null
         MicaSpectrumAnalyzer.onEnabledChanged = null
         MicaEqualizerManager.release()
     }
@@ -796,6 +797,12 @@ class MicaMediaService : MediaSessionService() {
             }
         }
 
+        MicaEqualizerManager.onReplayGainDspActiveChanged = { enabled ->
+            mainHandler.post {
+                audioPipelineCoordinator?.onReplayGainDspEnabledChanged(enabled)
+            }
+        }
+
         MicaSpectrumAnalyzer.onEnabledChanged = { enabled ->
             mainHandler.post {
                 audioPipelineCoordinator?.onSpectrumTapEnabledChanged(enabled)
@@ -859,6 +866,7 @@ class MicaMediaService : MediaSessionService() {
                 equalizerEnabled = EqualizerPreferences.equalizerEnabled(this),
                 spectrumTapEnabled = spectrumTapEnabled(),
                 offloadPreferenceEnabled = preferenceState.enabled,
+                replayGainDspEnabled = ReplayGainPreferences.mode(this) != ReplayGainMode.OFF,
             ),
             invalidateCircuitBreaker = {
                 audioOffloadCircuitBreaker?.invalidateExternalBoundary()
@@ -873,6 +881,9 @@ class MicaMediaService : MediaSessionService() {
                 playbackStateCoordinator?.setQualityMode(mode)
             },
             flushPipeline = ::flushAudioPipeline,
+            isOffloadedPlayback = {
+                audioOffloadCircuitBreaker?.currentlyOffloaded == true
+            },
         ).also { it.applyInitialConfiguration() }
     }
 
@@ -896,6 +907,7 @@ class MicaMediaService : MediaSessionService() {
             "AudioQuality",
             "mode=${if (state.equalizerEnabled) "DSP" else "HIFI"} " +
                 "dsp=${state.equalizerEnabled} spectrum=${state.spectrumTapEnabled} " +
+                "replayGain=${state.replayGainDspEnabled} pcmLatched=${state.pcmSessionLatched} " +
                 "offload=${state.offloadEnabled} preference=${state.offloadPreferenceEnabled} " +
                 "circuitOpen=${state.circuitOpen}",
         )

@@ -65,6 +65,28 @@ interface SongDao {
     @Query("UPDATE songs SET queueOrder = :queueOrder WHERE id = :songId")
     suspend fun updateQueueOrder(songId: String, queueOrder: Int)
 
+    @Query(
+        """
+        UPDATE songs SET
+            loudnessIntegratedLufs = :integratedLufs,
+            loudnessSamplePeak = :samplePeak,
+            loudnessTrackGainDb = :trackGainDb,
+            loudnessSourceSizeBytes = :sourceSizeBytes,
+            loudnessSourceModifiedMs = :sourceModifiedMs,
+            loudnessAnalyzerRevision = :analyzerRevision
+        WHERE id = :songId
+        """,
+    )
+    suspend fun updateLoudnessAnalysis(
+        songId: String,
+        integratedLufs: Float?,
+        samplePeak: Float?,
+        trackGainDb: Float?,
+        sourceSizeBytes: Long,
+        sourceModifiedMs: Long,
+        analyzerRevision: Int,
+    )
+
     @Transaction
     suspend fun updateQueueOrders(songIds: List<String>) {
         songIds.forEachIndexed { index, songId -> updateQueueOrder(songId, index) }

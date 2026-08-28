@@ -3,6 +3,7 @@ package com.mica.music.data.library
 import android.os.SystemClock
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.LibraryPresentationBuilder
+import com.mica.music.data.LoudnessAnalysis
 import com.mica.music.data.PlayStats
 import com.mica.music.data.PlayStatsSnapshot
 import com.mica.music.data.Song
@@ -197,6 +198,27 @@ internal class LibraryCatalogPublisher(
                 }
             }
         }
+    }
+
+    fun applyLoudnessAnalysis(
+        songId: String,
+        analysis: LoudnessAnalysis,
+        notifyQueueMetadata: Boolean,
+    ) {
+        val scannedIndex = scannedSongs.indexOfFirst { it.id == songId }
+        if (scannedIndex < 0) return
+        val updated = scannedSongs[scannedIndex].copy(loudnessAnalysis = analysis)
+        scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updated }
+        val visibleIndex = backing.songs.indexOfFirst { it.id == songId }
+        if (visibleIndex >= 0) {
+            backing.catalogRevision++
+            if (notifyQueueMetadata) backing.queueMetadataRevision++
+            backing.replaceSongAt(visibleIndex, updated)
+        }
+    }
+
+    fun notifyQueueMetadataChanged() {
+        backing.queueMetadataRevision++
     }
 
     suspend fun prepareLibrarySongs(

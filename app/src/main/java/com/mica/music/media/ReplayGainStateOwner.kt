@@ -49,26 +49,38 @@ internal class ReplayGainStateOwner(
     }
 
     fun release() {
-        if (!started) return
-        started = false
-        preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
-        player.removeListener(playerListener)
+        if (started) {
+            started = false
+            preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
+            player.removeListener(playerListener)
+        }
+        MicaEqualizerManager.setReplayGain(enabled = false, factor = 1f)
+        player.setReplayGainVolume(1f)
     }
 
     private fun apply(mediaItem: MediaItem?) {
-        val tags = mediaItem?.let(SongMediaItemCodec::decode)?.replayGain
-        apply(tags, ReplayGainPreferences.mode(appContext))
+        val song = mediaItem?.let(SongMediaItemCodec::decode)
+        val mode = ReplayGainPreferences.mode(appContext)
+        val loudness = song?.loudnessAnalysis?.takeIf { it.matches(song) }
+        val next = ReplayGainPolicy.resolve(song?.replayGain ?: ReplayGainTags(), mode, loudness)
+        applyResolved(next)
     }
 
     internal fun apply(tags: ReplayGainTags?, mode: ReplayGainMode): AppliedReplayGain {
         val next = ReplayGainPolicy.resolve(tags ?: ReplayGainTags(), mode)
-        player.setReplayGainVolume(next.linearFactor)
+        applyResolved(next)
+        return next
+    }
+
+    private fun applyResolved(next: AppliedReplayGain) {
+        val dspEnabled = next.mode != ReplayGainMode.OFF
+        MicaEqualizerManager.setReplayGain(dspEnabled, next.linearFactor)
+        player.setReplayGainVolume(1f)
         current = next
         DiagnosticLog.event(
             "ReplayGain",
             "mode=${next.mode} source=${next.source} factor=${next.linearFactor} " +
-                "modifiesSignal=${next.modifiesSignal}",
+                "dsp=$dspEnabled playerFactor=1.0 modifiesSignal=${next.modifiesSignal}",
         )
-        return next
     }
 }
