@@ -23,6 +23,14 @@ interface RemoteTrackDao {
         opaqueTrackIds: List<String>,
     ): List<RemoteTrackEntity>
 
+    @Query(
+        "SELECT t.* FROM remote_tracks t " +
+            "INNER JOIN remote_sources s ON s.id = t.sourceInstanceId " +
+            "WHERE s.enabled = 1 " +
+            "ORDER BY s.displayName COLLATE NOCASE ASC, s.id ASC, t.catalogPosition ASC",
+    )
+    suspend fun getForEnabledSources(): List<RemoteTrackEntity>
+
     @Query("SELECT COUNT(*) FROM remote_tracks WHERE sourceInstanceId = :sourceInstanceId")
     suspend fun countForSource(sourceInstanceId: String): Int
 

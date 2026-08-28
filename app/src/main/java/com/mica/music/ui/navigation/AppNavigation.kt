@@ -24,6 +24,7 @@ import androidx.navigation.navArgument
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
+import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.playback.PlayerController
 import com.mica.music.playback.SleepTimerController
 import com.mica.music.ui.components.PlayerSheetHost
@@ -74,6 +75,7 @@ fun AppNavigation(
     coordinator: AppNavigationCoordinator,
     library: MusicLibrary,
     playlistStore: PlaylistStore,
+    remoteCatalogRepository: RemoteCatalogRepository,
     playerController: PlayerController,
     sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
@@ -83,6 +85,7 @@ fun AppNavigation(
         coordinator = coordinator,
         library = library,
         playlistStore = playlistStore,
+        remoteCatalogRepository = remoteCatalogRepository,
         playerController = playerController,
         uiSettings = uiSettings,
     )
@@ -93,6 +96,7 @@ fun AppNavigationMain(
     coordinator: AppNavigationCoordinator,
     library: MusicLibrary,
     playlistStore: PlaylistStore,
+    remoteCatalogRepository: RemoteCatalogRepository,
     playerController: PlayerController,
     uiSettings: AppUiSettings,
 ) {
@@ -165,6 +169,7 @@ fun AppNavigationMain(
             HomeScreen(
                 library = library,
                 playlistStore = playlistStore,
+                remoteCatalogRepository = remoteCatalogRepository,
                 playbackState = homePlaybackState,
                 playbackActions = homePlaybackActions,
                 uiSettings = uiSettings,

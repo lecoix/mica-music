@@ -69,6 +69,7 @@ import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
 import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.UserPlaylist
+import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.media.NotificationLyrics
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.components.HomeDrawerPanel
@@ -103,6 +104,7 @@ private const val HomeDrawerSwipePositionThreshold = 0.5f
 fun HomeScreen(
     library: MusicLibrary,
     playlistStore: PlaylistStore,
+    remoteCatalogRepository: RemoteCatalogRepository,
     playbackState: HomePlaybackState,
     playbackActions: HomePlaybackActions,
     uiSettings: AppUiSettings,
@@ -142,6 +144,7 @@ fun HomeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val appName = stringResource(R.string.app_name)
     val songListState = rememberLazyListState()
+    val remoteListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val artistListState = rememberLazyListState()
     val artistGridState = rememberLazyGridState()
     val albumListState = rememberLazyListState()
@@ -490,7 +493,11 @@ fun HomeScreen(
 
     LaunchedEffect(uiState.section, uiState.activePlaylistId) {
         when (uiState.section) {
-            HomeSection.Songs, HomeSection.Artists, HomeSection.Albums, HomeSection.Folders ->
+            HomeSection.Songs,
+            HomeSection.Artists,
+            HomeSection.Albums,
+            HomeSection.Folders,
+            HomeSection.Remote ->
                 LibraryBrowseSettings.setLastHomeLocation(context, uiState.section.name, null)
             HomeSection.Playlist -> LibraryBrowseSettings.setLastHomeLocation(
                 context,
@@ -867,6 +874,7 @@ fun HomeScreen(
                     uiState = uiState.copy(searchQuery = query)
                 },
                 motionEnabled = motionEnabled,
+                showSearchAction = uiState.section != HomeSection.Remote,
                 onLeadingClick = {
                     when {
                         showFolderMenuButton -> drawerOpen = !drawerOpen
@@ -1002,6 +1010,16 @@ fun HomeScreen(
                         onMoveSong = { from, to ->
                             library.moveSongInLibrary(from, to)
                         },
+                    )
+                    HomePaneKey.Remote -> RemoteLibraryPane(
+                        repository = remoteCatalogRepository,
+                        currentSongId = currentSong?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onQueueSongs = playbackActions.setQueue,
+                        onSongClick = onSongClick,
+                        listState = remoteListState,
+                        listBottomPadding = listBottomPadding,
+                        modifier = Modifier.fillMaxSize(),
                     )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
                         library = library,

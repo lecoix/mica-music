@@ -4,6 +4,7 @@ import com.mica.music.data.AlbumBrowseKey
 internal sealed interface HomePaneKey {
     data object Search : HomePaneKey
     data object Songs : HomePaneKey
+    data object Remote : HomePaneKey
     data object Analysis : HomePaneKey
     data object Folders : HomePaneKey
     data object PlaylistOverview : HomePaneKey
@@ -43,6 +44,7 @@ data class HomeNavigationBackResult(
 /** 主页分区栈深度：用于前进/返回滑动方向。 */
 internal fun homePaneDepth(key: HomePaneKey): Int = when (key) {
     HomePaneKey.Songs, HomePaneKey.Search -> 0
+    HomePaneKey.Remote -> homeSectionOrder(HomeSection.Remote) * 10
     is HomePaneKey.Browse -> homeSectionOrder(key.section) * 10 + browseDestinationDepth(key.destination)
     HomePaneKey.Folders -> homeSectionOrder(HomeSection.Folders) * 10
     HomePaneKey.Analysis -> homeSectionOrder(HomeSection.LibraryAnalysis) * 10
@@ -61,10 +63,11 @@ internal fun homeSectionOrder(section: HomeSection): Int = when (section) {
     HomeSection.Artists -> 1
     HomeSection.Albums -> 2
     HomeSection.Folders -> 3
-    HomeSection.Recent -> 4
-    HomeSection.Playlist -> 5
-    HomeSection.LibraryAnalysis -> 6
-    HomeSection.Settings -> 7
+    HomeSection.Remote -> 4
+    HomeSection.Recent -> 5
+    HomeSection.Playlist -> 6
+    HomeSection.LibraryAnalysis -> 7
+    HomeSection.Settings -> 8
 }
 
 internal fun resolveHomePaneKey(
@@ -75,6 +78,7 @@ internal fun resolveHomePaneKey(
 ): HomePaneKey = when {
     searchOpen -> HomePaneKey.Search
     section == HomeSection.Songs -> HomePaneKey.Songs
+    section == HomeSection.Remote -> HomePaneKey.Remote
     section == HomeSection.Folders -> HomePaneKey.Folders
     section == HomeSection.LibraryAnalysis -> HomePaneKey.Analysis
     section == HomeSection.Playlist && activePlaylistId == null -> HomePaneKey.PlaylistOverview

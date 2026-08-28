@@ -7,6 +7,7 @@ enum class HomeSection {
     Artists,
     Albums,
     Folders,
+    Remote,
     Recent,
     Playlist,
     LibraryAnalysis,

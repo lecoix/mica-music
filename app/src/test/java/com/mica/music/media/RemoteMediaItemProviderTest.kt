@@ -2,13 +2,14 @@ package com.mica.music.media
 
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemoteMediaMetadataExtras
 import com.mica.music.data.remote.RemotePlaybackUriCodec
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.RemoteTrackSummaryLookup
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -26,6 +27,12 @@ class RemoteMediaItemProviderTest {
             album = "Album",
             durationSec = 123,
             mimeTypeHint = "audio/flac",
+            fileName = "track-9.flac",
+            suffix = "flac",
+            sizeBytes = 987654L,
+            year = 2026,
+            trackNumber = 9,
+            discNumber = 2,
         )
         val mediaId = RemoteMediaIdCodec.encode(ref)
         val provider = TrustedRemoteMediaItemProvider(
@@ -41,7 +48,28 @@ class RemoteMediaItemProviderTest {
         assertEquals(RemotePlaybackUriCodec.encode(mediaId), item.localConfiguration?.uri?.toString())
         assertEquals("audio/flac", item.localConfiguration?.mimeType)
         assertEquals("Remote Song", item.mediaMetadata.title?.toString())
-        assertNull(item.mediaMetadata.extras)
+        val extras = requireNotNull(item.mediaMetadata.extras)
+        assertTrue(RemoteMediaMetadataExtras.isTrustedProjection(extras))
+        assertEquals("audio/flac", RemoteMediaMetadataExtras.mimeType(extras))
+        assertEquals("track-9.flac", RemoteMediaMetadataExtras.fileName(extras))
+        assertEquals("flac", RemoteMediaMetadataExtras.suffix(extras))
+        assertEquals(987654L, RemoteMediaMetadataExtras.sizeBytes(extras))
+        assertEquals(2026, RemoteMediaMetadataExtras.year(extras))
+        assertEquals(9, RemoteMediaMetadataExtras.trackNumber(extras))
+        assertEquals(2, RemoteMediaMetadataExtras.discNumber(extras))
+        assertEquals(
+            setOf(
+                "mica.remote.metadata.version",
+                "mica.remote.metadata.mime",
+                "mica.remote.metadata.fileName",
+                "mica.remote.metadata.suffix",
+                "mica.remote.metadata.sizeBytes",
+                "mica.remote.metadata.year",
+                "mica.remote.metadata.trackNumber",
+                "mica.remote.metadata.discNumber",
+            ),
+            extras.keySet(),
+        )
     }
 
     @Test

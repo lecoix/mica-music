@@ -132,6 +132,10 @@ class RemoteCatalogRepository internal constructor(
     suspend fun tracksForSource(sourceInstanceId: String): List<RemoteTrackSummary> =
         trackDao.getForSource(sourceInstanceId).map { it.toRemoteTrackSummary() }
 
+    /** Aggregate snapshot for browsing. Disabled source catalogs remain isolated and hidden. */
+    suspend fun tracksForEnabledSources(): List<RemoteTrackSummary> =
+        trackDao.getForEnabledSources().map { it.toRemoteTrackSummary() }
+
     override suspend fun find(refs: List<RemoteTrackRef>): Map<RemoteTrackRef, RemoteTrackSummary> {
         if (refs.isEmpty()) return emptyMap()
         val requested = refs.distinct()

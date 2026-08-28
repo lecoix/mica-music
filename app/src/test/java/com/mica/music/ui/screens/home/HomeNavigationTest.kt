@@ -153,6 +153,34 @@ class HomeNavigationTest {
     }
 
     @Test
+    fun resolveHomePaneKeyUsesDedicatedRemotePane() {
+        val key = resolveHomePaneKey(
+            searchOpen = false,
+            section = HomeSection.Remote,
+            activePlaylistId = null,
+            browseDestination = BrowseDestination.Root,
+        )
+
+        assertEquals(HomePaneKey.Remote, key)
+        assertTrue(homePaneDepth(HomePaneKey.Folders) < homePaneDepth(key))
+        assertTrue(homePaneDepth(key) < homePaneDepth(HomePaneKey.Browse(HomeSection.Recent, BrowseDestination.Root)))
+    }
+
+    @Test
+    fun remoteRootTitleIsExplicit() {
+        assertEquals(
+            "远程曲库",
+            resolveTopBarTitle(
+                appName = "Mica",
+                section = HomeSection.Remote,
+                playlistName = null,
+                searchOpen = false,
+                browseDestination = BrowseDestination.Root,
+            ),
+        )
+    }
+
+    @Test
     fun homePaneDepthOrdersBrowseSections() {
         val artistBrowse = HomePaneKey.Browse(
             section = HomeSection.Artists,

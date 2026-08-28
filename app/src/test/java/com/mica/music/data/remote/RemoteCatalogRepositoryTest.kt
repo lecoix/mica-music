@@ -107,6 +107,39 @@ class RemoteCatalogRepositoryTest {
     }
 
     @Test
+    fun enabledSourceAggregateHidesDisabledCatalogAndPreservesSourceOrder() = runTest {
+        val zulu = source("zulu").copy(displayName = "Zulu")
+        val alpha = source("alpha").copy(displayName = "Alpha")
+        val hidden = source("hidden").copy(displayName = "Hidden", enabled = false)
+        repository.upsertSource(zulu)
+        repository.upsertSource(alpha)
+        repository.upsertSource(hidden)
+        assertTrue(
+            repository.publishCatalogIfCurrent(
+                repository.beginOperation(zulu.id)!!.token,
+                listOf(track(zulu.id, "z-1"), track(zulu.id, "z-2")),
+            ),
+        )
+        assertTrue(
+            repository.publishCatalogIfCurrent(
+                repository.beginOperation(alpha.id)!!.token,
+                listOf(track(alpha.id, "a-1")),
+            ),
+        )
+        assertTrue(
+            repository.publishCatalogIfCurrent(
+                repository.beginOperation(hidden.id)!!.token,
+                listOf(track(hidden.id, "hidden-1")),
+            ),
+        )
+
+        assertEquals(
+            listOf("a-1", "z-1", "z-2"),
+            repository.tracksForEnabledSources().map { it.ref.opaqueTrackId },
+        )
+    }
+
+    @Test
     fun configRevisionSurvivesRepositoryRecreation() = runTest {
         val source = source("nav-1")
         repository.upsertSource(source)

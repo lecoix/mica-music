@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -67,6 +68,7 @@ internal fun resolveTopBarTitle(
         HomeSection.Artists -> "艺术家"
         HomeSection.Albums -> "专辑"
         HomeSection.Folders -> "文件夹"
+        HomeSection.Remote -> "远程曲库"
         HomeSection.Recent -> "最近播放"
         HomeSection.LibraryAnalysis -> "音乐库分析"
         HomeSection.Settings -> "设置"
@@ -82,6 +84,7 @@ internal fun HomeTopBar(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     motionEnabled: Boolean,
+    showSearchAction: Boolean = true,
     onLeadingClick: () -> Unit,
     onSearchClick: () -> Unit,
 ) {
@@ -188,16 +191,20 @@ internal fun HomeTopBar(
                             .padding(horizontal = HifiSpacing.xs),
                         textAlign = TextAlign.Center,
                     )
-                    IconButton(
-                        onClick = onSearchClick,
-                        modifier = Modifier.size(HifiSize.touchTarget),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Search,
-                            contentDescription = "搜索",
-                            tint = MicaTheme.colors.textPrimary,
-                            modifier = Modifier.size(HifiSize.iconLg),
-                        )
+                    if (showSearchAction) {
+                        IconButton(
+                            onClick = onSearchClick,
+                            modifier = Modifier.size(HifiSize.touchTarget),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Search,
+                                contentDescription = "搜索",
+                                tint = MicaTheme.colors.textPrimary,
+                                modifier = Modifier.size(HifiSize.iconLg),
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.size(HifiSize.touchTarget))
                     }
                 }
             }

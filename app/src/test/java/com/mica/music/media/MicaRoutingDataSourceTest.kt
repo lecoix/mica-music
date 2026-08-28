@@ -12,6 +12,10 @@ import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
 import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.RemotePlaybackUriCodec
 import com.mica.music.data.remote.RemoteTrackRef
+import com.mica.music.data.remote.RemoteTrackSummary
+import com.mica.music.data.remote.RemoteTrackSummaryLookup
+import com.mica.music.data.remote.toPlaybackSong
+import com.mica.music.playback.toMediaItem
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -21,6 +25,7 @@ import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -83,6 +88,87 @@ class MicaRoutingDataSourceTest {
             assertEquals("bytes=4-", requests.single().headers["range"])
             assertTrue(requests.single().target.contains("t=secret"))
             assertEquals(stableUri, dataSpec.uri.toString())
+        }
+    }
+
+    @Test
+    fun remoteLibrarySongQueueProjectionReachesTrustedJitPlaybackWithoutPersistingAuthUrl() = runTest {
+        val payload = "remote-audio".toByteArray()
+        val requests = CopyOnWriteArrayList<TestRequest>()
+        TinyHttpServer { request ->
+            requests += request
+            TestResponse(
+                status = 200,
+                headers = mapOf("Content-Type" to "audio/flac"),
+                body = payload,
+            )
+        }.use { server ->
+            val ref = RemoteTrackRef("nav-acceptance", "track-42")
+            val summary = RemoteTrackSummary(
+                ref = ref,
+                title = "Acceptance Song",
+                artist = "Remote Artist",
+                album = "Remote Album",
+                durationSec = 42,
+                mimeTypeHint = "audio/flac",
+                fileName = "track-42.flac",
+                sizeBytes = 4242L,
+                year = 2026,
+                trackNumber = 4,
+            )
+            val mediaId = RemoteMediaIdCodec.encode(ref)
+            val stableUri = RemotePlaybackUriCodec.encode(mediaId)
+            val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+
+            // This is the exact projection and MediaItem conversion used by the Home queue path.
+            val remoteSong = summary.toPlaybackSong()
+            val controllerItem = remoteSong.toMediaItem(context)
+            assertEquals(mediaId, remoteSong.id)
+            assertEquals(stableUri, remoteSong.mediaUri)
+            assertEquals(stableUri, controllerItem.localConfiguration?.uri?.toString())
+            assertFalse(controllerItem.toString().contains("credential"))
+            assertFalse(controllerItem.toString().contains("token"))
+
+            // The service boundary discards caller-owned URI/metadata and rebuilds by stable remote ID.
+            val provider = TrustedRemoteMediaItemProvider(
+                RemoteTrackSummaryLookup { refs ->
+                    assertEquals(listOf(ref), refs)
+                    mapOf(ref to summary)
+                },
+            )
+            val trustedResolver = TrustedMediaItemResolver(
+                transientSongById = { null },
+                librarySongsById = { emptyMap() },
+                remoteMediaItemsById = provider::resolve,
+            )
+            val trustedItem = trustedResolver.resolve(listOf(controllerItem)).mediaItems.single()
+            assertEquals(mediaId, trustedItem.mediaId)
+            assertEquals(stableUri, trustedItem.localConfiguration?.uri?.toString())
+
+            var jitResolvedId: String? = null
+            val dataSource = factory(
+                RemoteHttpPlaybackRequestResolver { requestedId ->
+                    jitResolvedId = requestedId
+                    RemoteHttpPlaybackRequest(
+                        url = "${server.baseUrl}/audio?u=alice&t=secret-token&s=secret-salt",
+                        sourceInstanceId = ref.sourceInstanceId,
+                        sourceConfigRevision = 3,
+                        credentialRevision = 9,
+                    )
+                },
+            ).createDataSource()
+            val playbackSpec = DataSpec(trustedItem.localConfiguration!!.uri)
+
+            dataSource.open(playbackSpec)
+            val received = readAll(dataSource)
+            dataSource.close()
+
+            assertEquals(mediaId, jitResolvedId)
+            assertArrayEquals(payload, received)
+            assertEquals(stableUri, playbackSpec.uri.toString())
+            assertTrue(requests.single().target.contains("secret-token"))
+            assertFalse(trustedItem.toString().contains("secret-token"))
+            assertFalse(controllerItem.toString().contains("secret-token"))
         }
     }
 

@@ -301,6 +301,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                             coordinator = coordinator,
                             library = library,
                             playlistStore = viewModel.playlistStore,
+                            remoteCatalogRepository = (application as MicaApp).remoteCatalogRepository,
                             playerController = playerController,
                             uiSettings = uiSettings,
                         )

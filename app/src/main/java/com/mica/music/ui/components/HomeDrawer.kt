@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Analytics
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.History
@@ -93,6 +94,9 @@ fun HomeDrawerPanel(
             },
             DrawerItem("文件夹", Icons.Outlined.Folder, selectedSection == HomeSection.Folders) {
                 onSectionSelected(HomeSection.Folders)
+            },
+            DrawerItem("远程曲库", Icons.Outlined.Cloud, selectedSection == HomeSection.Remote) {
+                onSectionSelected(HomeSection.Remote)
             },
         ) + if (playlistSidebarStyle == PlaylistSidebarStyle.OVERVIEW) {
         listOf(

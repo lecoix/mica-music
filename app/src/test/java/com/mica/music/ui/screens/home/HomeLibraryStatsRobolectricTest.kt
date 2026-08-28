@@ -5,6 +5,7 @@ import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.FolderBrowseMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -85,6 +86,23 @@ class HomeLibraryStatsRobolectricTest {
         assertEquals(true, hierarchy?.showFolderModeAction)
         assertEquals(listOf("0 个文件夹", "扁平浏览"), flat?.segments)
         assertEquals(true, flat?.showFolderModeAction)
+    }
+
+    @Test
+    fun remoteSectionDoesNotReuseLocalLibraryStatsOrScanActions() {
+        val library = MusicLibrary(ApplicationProvider.getApplicationContext())
+
+        assertNull(
+            resolveLibraryStatsBarModel(
+                section = HomeSection.Remote,
+                browseDestination = BrowseDestination.Root,
+                library = library,
+                activePlaylistId = null,
+                playlistSongCount = 0,
+                playlistSortField = null,
+                playlistSortDirection = null,
+            ),
+        )
     }
 
     @Test
