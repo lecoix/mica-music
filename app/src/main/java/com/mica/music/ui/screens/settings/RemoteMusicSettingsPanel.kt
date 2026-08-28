@@ -277,6 +277,13 @@ private fun NavidromeSourceDialog(
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textTertiary,
                 )
+                if (endpoint.trim().startsWith("http://", ignoreCase = true)) {
+                    Text(
+                        text = "HTTP 不加密：登录参数和音频可能被同一网络中的设备看到或篡改。仅在可信局域网中使用；公网连接建议使用 HTTPS。",
+                        style = MicaTheme.typography.caption,
+                        color = MicaTheme.colors.textTertiary,
+                    )
+                }
             }
         },
         confirmButton = {
