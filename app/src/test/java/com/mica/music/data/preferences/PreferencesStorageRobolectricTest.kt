@@ -44,6 +44,7 @@ class PreferencesStorageRobolectricTest {
                 -5,
                 shuffleEnabled = true,
                 shuffleSourceIds = listOf("song-a", "song-b", "song-c"),
+                shuffleSeed = 123456789L,
             ),
             sync = true,
         )
@@ -53,6 +54,7 @@ class PreferencesStorageRobolectricTest {
                 0,
                 shuffleEnabled = true,
                 shuffleSourceIds = listOf("song-a", "song-b", "song-c"),
+                shuffleSeed = 123456789L,
             ),
             PlaybackSessionStore.load(context),
         )

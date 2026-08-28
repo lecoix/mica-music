@@ -28,6 +28,7 @@ class SoftwareEqualizer {
         val globalGainMillibels: Short,
         val replayGainHostEnabled: Boolean,
         val replayGainLinearFactor: Float,
+        val channelBalancePercent: Int,
         val revision: Long,
     )
 
@@ -38,6 +39,7 @@ class SoftwareEqualizer {
             globalGainMillibels = EqBandConstants.DEFAULT_GLOBAL_GAIN_MILLIBELS,
             replayGainHostEnabled = false,
             replayGainLinearFactor = 1f,
+            channelBalancePercent = 0,
             revision = 0L,
         ),
     )
@@ -57,6 +59,10 @@ class SoftwareEqualizer {
     private var currentGlobalGain = 1.0
     private var targetReplayGain = 1.0
     private var currentReplayGain = 1.0
+    private var targetLeftBalanceGain = 1.0
+    private var currentLeftBalanceGain = 1.0
+    private var targetRightBalanceGain = 1.0
+    private var currentRightBalanceGain = 1.0
     private var gainSmoothingCoefficient = smoothingCoefficient(sampleRateHz)
     private var ditherState = 0x4D494341
 
@@ -134,13 +140,24 @@ class SoftwareEqualizer {
 
     fun replayGainLinearFactor(): Float = targetSettings.get().replayGainLinearFactor
 
+    fun setChannelBalancePercent(percent: Int) {
+        val safe = percent.coerceIn(-100, 100)
+        updateTarget { old ->
+            if (old.channelBalancePercent == safe) old
+            else old.copy(channelBalancePercent = safe, revision = old.revision + 1L)
+        }
+    }
+
+    fun channelBalancePercent(): Int = targetSettings.get().channelBalancePercent
+
     fun isProcessingRequired(): Boolean {
         val settings = targetSettings.get()
         val eqActive = settings.enabled && (
             settings.levelsMillibels.any { it != 0.toShort() } ||
                 settings.globalGainMillibels != 0.toShort()
             )
-        return eqActive || settings.replayGainHostEnabled
+        val balanceActive = channelCount >= 2 && settings.channelBalancePercent != 0
+        return eqActive || settings.replayGainHostEnabled || balanceActive
     }
 
     /** Called by the renderer/audio thread when its stream is flushed or reconfigured. */
@@ -346,6 +363,8 @@ class SoftwareEqualizer {
         currentPreampGain = smoothGain(currentPreampGain, targetPreampGain)
         currentGlobalGain = smoothGain(currentGlobalGain, targetGlobalGain)
         currentReplayGain = smoothGain(currentReplayGain, targetReplayGain)
+        currentLeftBalanceGain = smoothGain(currentLeftBalanceGain, targetLeftBalanceGain)
+        currentRightBalanceGain = smoothGain(currentRightBalanceGain, targetRightBalanceGain)
         val eqActive = appliedEnabled && !appliedFlat
         repeat(channelCount) { channel ->
             var sample = frameScratch[channel]
@@ -356,7 +375,13 @@ class SoftwareEqualizer {
             }
             frameScratch[channel] = sample * currentReplayGain
         }
-        limiter.processFrame(frameScratch, channelCount)
+        if (channelCount >= 2) {
+            frameScratch[0] *= currentLeftBalanceGain
+            frameScratch[1] *= currentRightBalanceGain
+        }
+        if (eqActive || abs(currentReplayGain - 1.0) > 1e-9) {
+            limiter.processFrame(frameScratch, channelCount)
+        }
     }
 
     private fun applyPendingSettings(snapGains: Boolean = false) {
@@ -366,6 +391,8 @@ class SoftwareEqualizer {
                 currentPreampGain = targetPreampGain
                 currentGlobalGain = targetGlobalGain
                 currentReplayGain = targetReplayGain
+                currentLeftBalanceGain = targetLeftBalanceGain
+                currentRightBalanceGain = targetRightBalanceGain
             }
             return
         }
@@ -381,6 +408,9 @@ class SoftwareEqualizer {
         targetPreampGain = 10.0.pow(plan.preampDb / 20.0)
         targetGlobalGain = 10.0.pow(settings.globalGainMillibels / 2_000.0)
         targetReplayGain = settings.replayGainLinearFactor.toDouble()
+        val balance = settings.channelBalancePercent.coerceIn(-100, 100)
+        targetLeftBalanceGain = if (balance > 0) 1.0 - balance / 100.0 else 1.0
+        targetRightBalanceGain = if (balance < 0) 1.0 + balance / 100.0 else 1.0
 
         deviceLevels.indices.forEach { index ->
             updateFilter(index, deviceLevels[index])
@@ -393,6 +423,8 @@ class SoftwareEqualizer {
         val processingNow = processingActive()
         if (snapGains || appliedRevision == Long.MIN_VALUE || !processingNow) {
             currentReplayGain = targetReplayGain
+            currentLeftBalanceGain = targetLeftBalanceGain
+            currentRightBalanceGain = targetRightBalanceGain
         }
         if (!processingNow || wasProcessingActive != processingNow || enabledChanged) {
             resetDspState()
@@ -400,8 +432,11 @@ class SoftwareEqualizer {
         appliedRevision = settings.revision
     }
 
-    private fun processingActive(): Boolean =
-        (appliedEnabled && !appliedFlat) || targetReplayGain != 1.0
+    private fun processingActive(): Boolean {
+        val balanceActive = channelCount >= 2 &&
+            (targetLeftBalanceGain != 1.0 || targetRightBalanceGain != 1.0)
+        return (appliedEnabled && !appliedFlat) || targetReplayGain != 1.0 || balanceActive
+    }
 
     private fun updateFilter(index: Int, millibels: Short) {
         val gainDb = millibels / 100.0

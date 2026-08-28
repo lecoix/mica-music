@@ -3,6 +3,7 @@ package com.mica.music.media
 import android.content.Context
 import android.media.audiofx.Equalizer
 import androidx.media3.common.util.UnstableApi
+import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.EqCustomProfile
 import com.mica.music.data.EqCustomProfileStore
@@ -21,6 +22,7 @@ object MicaEqualizerManager {
 
     var onEnabledChanged: ((Boolean) -> Unit)? = null
     var onReplayGainDspActiveChanged: ((Boolean) -> Unit)? = null
+    var onChannelBalanceDspActiveChanged: ((Boolean) -> Unit)? = null
 
     private val softwareEqualizer = SoftwareEqualizer()
     val audioProcessor: SoftwareEqualizerAudioProcessor = SoftwareEqualizerAudioProcessor(softwareEqualizer)
@@ -74,6 +76,7 @@ object MicaEqualizerManager {
         releaseSystemOnly()
         softwareEqualizer.setEnabled(false)
         softwareEqualizer.setReplayGain(enabled = false, factor = 1f)
+        softwareEqualizer.setChannelBalancePercent(ChannelBalancePreferences.CENTER)
     }
 
     fun setReplayGain(enabled: Boolean, factor: Float) {
@@ -81,6 +84,18 @@ object MicaEqualizerManager {
         softwareEqualizer.setReplayGain(enabled, factor)
         val active = softwareEqualizer.isReplayGainHostEnabled()
         if (wasActive != active) onReplayGainDspActiveChanged?.invoke(active)
+    }
+
+    fun setChannelBalancePercent(context: Context, percent: Int) {
+        val safe = percent.coerceIn(
+            ChannelBalancePreferences.MIN_PERCENT,
+            ChannelBalancePreferences.MAX_PERCENT,
+        )
+        val wasActive = softwareEqualizer.channelBalancePercent() != ChannelBalancePreferences.CENTER
+        ChannelBalancePreferences.setBalancePercent(context, safe)
+        softwareEqualizer.setChannelBalancePercent(safe)
+        val active = safe != ChannelBalancePreferences.CENTER
+        if (wasActive != active) onChannelBalanceDspActiveChanged?.invoke(active)
     }
 
     fun snapshot(context: Context): EqualizerSnapshot {
@@ -196,6 +211,7 @@ object MicaEqualizerManager {
         val enabled = EqualizerPreferences.equalizerEnabled(context)
         softwareEqualizer.setEnabled(enabled)
         softwareEqualizer.setGlobalGainMillibels(EqualizerPreferences.equalizerGlobalGainMillibels(context))
+        softwareEqualizer.setChannelBalancePercent(ChannelBalancePreferences.balancePercent(context))
         when (val selection = EqCustomProfileStore.getSelection(context)) {
             is EqSelection.System -> applySystemPreset(context, selection.index)
             EqSelection.Draft -> restoreCustomBands(context)

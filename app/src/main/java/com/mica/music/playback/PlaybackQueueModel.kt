@@ -85,6 +85,7 @@ internal data class PlaybackQueueModel(
                 playbackIds = mirroredIds,
                 currentId = mirrored.getOrNull(safeIndex)?.id,
                 shuffleEnabled = preserveShuffleEnabled,
+                shuffleSeed = order.shuffleSeed.takeIf { preserveShuffleEnabled },
             ),
         )
     }
@@ -103,6 +104,7 @@ internal data class PlaybackQueueModel(
                 playbackIds = nextQueue.map { it.id },
                 currentId = nextQueue.getOrNull(safeIndex)?.id,
                 shuffleEnabled = preserveShuffleEnabled,
+                shuffleSeed = order.shuffleSeed.takeIf { preserveShuffleEnabled },
             ),
         )
     }

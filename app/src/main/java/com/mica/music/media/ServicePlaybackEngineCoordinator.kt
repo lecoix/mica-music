@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -362,6 +363,17 @@ internal class ServicePlaybackEngineCoordinator(
         if (queueSize <= 0) return 0
         val current = player.currentMediaItemIndex.coerceIn(0, queueSize - 1)
         if (queueMode() == PlaybackQueueMode.REPEAT_ONE && !manual) return current
+        if (player.shuffleModeEnabled) {
+            val shuffled = player.nextMediaItemIndex
+            if (shuffled != C.INDEX_UNSET) return shuffled
+            return if (manual || queueMode() == PlaybackQueueMode.REPEAT_ALL) {
+                player.currentTimeline.getFirstWindowIndex(true)
+                    .takeIf { it != C.INDEX_UNSET }
+                    ?: current
+            } else {
+                current
+            }
+        }
         if (current < queueSize - 1) return current + 1
         return when {
             manual -> 0
@@ -374,6 +386,13 @@ internal class ServicePlaybackEngineCoordinator(
         val queueSize = player.mediaItemCount
         if (queueSize <= 0) return 0
         val current = player.currentMediaItemIndex.coerceIn(0, queueSize - 1)
+        if (player.shuffleModeEnabled) {
+            val shuffled = player.previousMediaItemIndex
+            if (shuffled != C.INDEX_UNSET) return shuffled
+            return player.currentTimeline.getLastWindowIndex(true)
+                .takeIf { it != C.INDEX_UNSET }
+                ?: current
+        }
         return if (current > 0) current - 1 else queueSize - 1
     }
 

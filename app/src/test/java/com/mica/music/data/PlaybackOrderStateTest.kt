@@ -1,6 +1,7 @@
 package com.mica.music.data
 
 import com.mica.music.playback.PlaybackOrderState
+import com.mica.music.playback.PlaybackShuffleOrder
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -23,6 +24,45 @@ class PlaybackOrderStateTest {
         assertEquals("c", order.playbackIds.first())
         assertEquals(source.toSet(), order.playbackIds.toSet())
         assertEquals(source.size, order.playbackIds.distinct().size)
+        assertTrue(order.shuffleSeed != null)
+    }
+
+    @Test
+    fun sameSeedProducesSameLogicalOrderFromDifferentPhysicalOrders() {
+        val seed = 0x1234_5678L
+        val first = PlaybackShuffleOrder.orderedIds(
+            ids = listOf("a", "b", "c", "d", "e"),
+            currentId = "c",
+            seed = seed,
+        )
+        val second = PlaybackShuffleOrder.orderedIds(
+            ids = listOf("e", "c", "a", "d", "b"),
+            currentId = "c",
+            seed = seed,
+        )
+
+        assertEquals(first, second)
+        assertEquals("c", first.first())
+    }
+
+    @Test
+    fun shuffleSeedSurvivesQueueRefreshAndClearsWhenDisabled() {
+        val shuffled = PlaybackOrderState.fromSource(
+            sourceIds = listOf("a", "b", "c", "d"),
+            currentId = "b",
+            shuffleEnabled = true,
+            shuffleSeed = 42L,
+        )
+
+        val refreshed = shuffled.withQueue(listOf("d", "c", "b", "a", "e"), preserveId = "b")
+        val normal = refreshed.setShuffleEnabled(false)
+
+        assertEquals(42L, refreshed.shuffleSeed)
+        assertEquals(
+            PlaybackShuffleOrder.orderedIds(listOf("d", "c", "b", "a", "e"), "b", 42L),
+            refreshed.playbackIds,
+        )
+        assertNull(normal.shuffleSeed)
     }
 
     @Test

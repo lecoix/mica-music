@@ -21,10 +21,13 @@ internal object PlaybackQueueNavigation {
         val seekIndex = queueIds.indexOfFirst { it == songId }
             .takeIf { it >= 0 }
             ?: requestedIndex
-        val targetAlreadyAligned = serviceItemCount == queueIds.size &&
-            serviceMediaIdAt(seekIndex) == songId
+        val serviceIndexById = if (serviceItemCount == queueIds.size) {
+            (0 until serviceItemCount).firstOrNull { serviceMediaIdAt(it) == songId }
+        } else {
+            null
+        }
         return when {
-            targetAlreadyAligned -> PlaybackQueueNavigationPlan.SeekAligned(seekIndex)
+            serviceIndexById != null -> PlaybackQueueNavigationPlan.SeekAligned(serviceIndexById)
             currentMediaId != null && currentMediaId != songId ->
                 PlaybackQueueNavigationPlan.CarryQueuePayload(seekIndex)
             else -> PlaybackQueueNavigationPlan.SyncQueue(seekIndex)

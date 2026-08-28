@@ -170,6 +170,36 @@ class AudioPipelineCoordinatorTest {
     }
 
     @Test
+    fun channelBalanceLeavesOffloadOnceThenStaysInPcmWhenRecentered() {
+        val effects = mutableListOf<String>()
+        val coordinator = AudioPipelineCoordinator(
+            initialState = AudioPipelineState(
+                equalizerEnabled = false,
+                spectrumTapEnabled = false,
+                offloadPreferenceEnabled = true,
+            ),
+            invalidateCircuitBreaker = { effects += "invalidate" },
+            resetCircuitBreaker = { effects += "reset" },
+            applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
+            persistQualityMode = { effects += "quality=$it" },
+            flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { true },
+        )
+
+        coordinator.onChannelBalanceDspEnabledChanged(true)
+        coordinator.onChannelBalanceDspEnabledChanged(false)
+
+        assertEquals(
+            listOf(
+                "invalidate",
+                "apply:offload=false",
+                "flush:offload-to-pcm:channel-balance-enabled=true",
+            ),
+            effects,
+        )
+    }
+
+    @Test
     fun staleOffloadStallCannotCrossANewerSpectrumConfiguration() {
         val effects = mutableListOf<String>()
         val scheduler = ManualScheduler()

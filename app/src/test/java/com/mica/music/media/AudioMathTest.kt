@@ -198,6 +198,81 @@ class AudioMathTest {
     }
 
     @Test
+    fun channelBalanceTowardRightOnlyAttenuatesLeftChannel() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 2)
+        equalizer.setChannelBalancePercent(100)
+        val frames = 8_192
+        val buffer = ByteBuffer.allocate(frames * 2 * 4).order(ByteOrder.LITTLE_ENDIAN).apply {
+            repeat(frames) {
+                putFloat(0.25f)
+                putFloat(0.25f)
+            }
+        }
+        val bytes = buffer.array()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        val output = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        output.position(bytes.size - 8)
+        val left = output.float
+        val right = output.float
+        assertTrue(equalizer.isProcessingRequired())
+        assertEquals(0f, left, 0.01f)
+        assertEquals(0.25f, right, 0.001f)
+    }
+
+    @Test
+    fun channelBalanceTowardLeftScalesOnlyRightChannel() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 2)
+        equalizer.setChannelBalancePercent(-50)
+        val frames = 8_192
+        val buffer = ByteBuffer.allocate(frames * 2 * 4).order(ByteOrder.LITTLE_ENDIAN).apply {
+            repeat(frames) {
+                putFloat(0.25f)
+                putFloat(0.25f)
+            }
+        }
+        val bytes = buffer.array()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        val output = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        output.position(bytes.size - 8)
+        val left = output.float
+        val right = output.float
+        assertEquals(0.25f, left, 0.001f)
+        assertEquals(0.125f, right, 0.01f)
+    }
+
+    @Test
+    fun centeredChannelBalanceIsTransparentAndMonoIsUnaffected() {
+        val centered = SoftwareEqualizer()
+        centered.configure(44_100, 2)
+        centered.setChannelBalancePercent(0)
+        val stereo = ByteBuffer.allocate(4 * 4).order(ByteOrder.LITTLE_ENDIAN).apply {
+            floatArrayOf(-1f, 0.25f, -0.25f, 1f).forEach(::putFloat)
+        }.array()
+        val originalStereo = stereo.copyOf()
+        centered.processInterleaved(stereo, 0, stereo.size, AudioFormat.ENCODING_PCM_FLOAT)
+        assertArrayEquals(originalStereo, stereo)
+
+        val mono = SoftwareEqualizer()
+        mono.configure(44_100, 1)
+        mono.setChannelBalancePercent(100)
+        assertFalse(mono.isProcessingRequired())
+        val monoBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putFloat(0.25f).array()
+        mono.processInterleaved(monoBytes, 0, monoBytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+        assertEquals(0.25f, ByteBuffer.wrap(monoBytes).order(ByteOrder.LITTLE_ENDIAN).float, 0f)
+
+        val monoPcm16 = byteArrayOf(0x34, 0x12)
+        val originalMonoPcm16 = monoPcm16.copyOf()
+        mono.processInterleaved(monoPcm16, 0, monoPcm16.size, AudioFormat.ENCODING_PCM_16BIT)
+        assertArrayEquals(originalMonoPcm16, monoPcm16)
+    }
+
+    @Test
     fun dsdOutputPolicyAvoidsUltrahighRatesOnBluetooth() {
         val bluetooth = DsdOutputPolicy.candidates(
             channelCount = 2,

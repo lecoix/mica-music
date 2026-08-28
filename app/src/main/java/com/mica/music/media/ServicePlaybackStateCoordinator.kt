@@ -80,7 +80,8 @@ internal class ServicePlaybackStateCoordinator(
         }
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-            if (shuffleModeEnabled) player.shuffleModeEnabled = false
+            // App shuffle may temporarily use Media3's native ShuffleOrder without physically
+            // rebuilding the playlist. Persist the cursor, but do not force native shuffle off.
             persistCursor(force = true)
         }
 

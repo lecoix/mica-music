@@ -11,16 +11,19 @@ import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.ReplayGainMode
+import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
 import com.mica.music.media.usbhybrid.UsbHybridSettingsPresentation
 import com.mica.music.media.loudness.LoudnessScanManager
+import com.mica.music.media.MicaEqualizerManager
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsNavigationRow
 import com.mica.music.ui.components.SettingsSectionTitle
+import com.mica.music.ui.components.SettingsSliderRow
 import com.mica.music.ui.components.SettingsToggleRow
 
 @Composable
@@ -31,6 +34,9 @@ internal fun AudioSettingsPanel(
 ) {
     val context = LocalContext.current
     var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
+    var channelBalancePercent by remember {
+        mutableStateOf(ChannelBalancePreferences.balancePercent(context))
+    }
     var usbMode by remember { mutableStateOf(UsbHybridPreferences.outputMode(context)) }
     val usbFacts by UsbHybridRuntimeMonitor.facts.collectAsState()
     val loudnessScan by LoudnessScanManager.state.collectAsState()
@@ -69,6 +75,19 @@ internal fun AudioSettingsPanel(
             if (!loudnessScan.running) {
                 LoudnessScanManager.startLibraryScan(context, library, missingOnly = true)
             }
+        },
+    )
+
+    SettingsSectionTitle("声道处理")
+    SettingsSliderRow(
+        title = "左右声道平衡",
+        subtitle = "仅 Shared PCM 生效；-100% 仅左、0% 居中、+100% 仅右；只衰减另一侧",
+        value = channelBalancePercent,
+        valueRange = ChannelBalancePreferences.MIN_PERCENT..ChannelBalancePreferences.MAX_PERCENT,
+        suffix = "%",
+        onValueChange = { value ->
+            channelBalancePercent = value
+            MicaEqualizerManager.setChannelBalancePercent(context, value)
         },
     )
 

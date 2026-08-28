@@ -1528,6 +1528,9 @@ class PlayerControllerBoundaryTest {
         every { mediaController.repeatMode } returns Player.REPEAT_MODE_OFF
         every { mediaController.shuffleModeEnabled } returns false
         every { mediaController.duration } returns 60_000L
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(sourceQueue[firstArg()].id).build()
+        }
 
         controller.connectIfNeeded()
         connector.requests.single().onConnected(mediaController)

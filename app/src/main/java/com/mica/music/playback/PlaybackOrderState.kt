@@ -7,6 +7,7 @@ internal data class PlaybackOrderState(
     val playbackIds: List<String> = emptyList(),
     val currentId: String? = null,
     val shuffleEnabled: Boolean = false,
+    val shuffleSeed: Long? = null,
 ) {
     val currentOrderIndex: Int
         get() = currentId
@@ -51,6 +52,7 @@ internal data class PlaybackOrderState(
             sourceIds = distinctIds,
             currentId = nextCurrent,
             shuffleEnabled = shuffleEnabled,
+            shuffleSeed = shuffleSeed,
             random = random,
         )
     }
@@ -105,6 +107,7 @@ internal data class PlaybackOrderState(
             sourceIds = sourceIds.ifEmpty { playbackIds },
             currentId = currentId,
             shuffleEnabled = enabled,
+            shuffleSeed = if (enabled) shuffleSeed ?: random.nextLong() else null,
             random = random,
         )
 
@@ -113,6 +116,7 @@ internal data class PlaybackOrderState(
             sourceIds: List<String>,
             currentId: String?,
             shuffleEnabled: Boolean,
+            shuffleSeed: Long? = null,
             random: Random = Random.Default,
         ): PlaybackOrderState {
             val distinctIds = sourceIds.filter { it.isNotBlank() }.distinct()
@@ -122,8 +126,9 @@ internal data class PlaybackOrderState(
             val safeCurrent = currentId
                 ?.takeIf { distinctIds.contains(it) }
                 ?: distinctIds.first()
-            val playback = if (shuffleEnabled) {
-                listOf(safeCurrent) + distinctIds.filterNot { it == safeCurrent }.shuffled(random)
+            val effectiveSeed = if (shuffleEnabled) shuffleSeed ?: random.nextLong() else null
+            val playback = if (shuffleEnabled && effectiveSeed != null) {
+                PlaybackShuffleOrder.orderedIds(distinctIds, safeCurrent, effectiveSeed)
             } else {
                 distinctIds
             }
@@ -132,6 +137,7 @@ internal data class PlaybackOrderState(
                 playbackIds = playback,
                 currentId = safeCurrent,
                 shuffleEnabled = shuffleEnabled,
+                shuffleSeed = effectiveSeed,
             )
         }
     }

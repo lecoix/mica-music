@@ -163,6 +163,7 @@ internal object SettingsSearchIndex {
 
         setting("audio.replaygain", "ReplayGain", "音量", "标准化", "按曲目", "按专辑", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "优先使用文件 ReplayGain 标签；按曲目缺少标签时可使用 Mica 响度分析结果"),
         setting("audio.loudness-scan", "扫描曲库响度", "R128", "LUFS", "响度", "标准化", "ReplayGain", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "分析完整音频但不保存 PCM；文件未变且已有结果时自动复用"),
+        setting("audio.channel-balance", "左右声道平衡", "声道", "平衡", "左声道", "右声道", "balance", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "仅 Shared PCM 软件处理路径生效；USB 独占输出保持原始声道"),
         setting("audio.focus", "独占音频焦点", "音频焦点", "暂停其他应用", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "下次开始播放或切歌时生效"),
         setting(
             "audio.usb-exclusive",

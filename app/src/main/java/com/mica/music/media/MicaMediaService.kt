@@ -19,6 +19,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionError
@@ -33,6 +34,7 @@ import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.preferences.AudioOffloadPreferences
+import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
@@ -41,6 +43,7 @@ import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
+import com.mica.music.playback.PlaybackShuffleOrder
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +67,7 @@ class MicaMediaService : MediaSessionService() {
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
     private var carBluetoothLyricsSession: CarBluetoothLyricsSession? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
+    private var activeAppShuffleRequest: PlaybackShuffleRequest? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
@@ -441,6 +445,7 @@ class MicaMediaService : MediaSessionService() {
             coordinator.onRestoreCompleted = {
                 restoredFromStore = true
                 mainHandler.post {
+                    activeAppShuffleRequest?.let(::applyAppShuffleRequest)
                     logRestoredSongDiagnostics()
                     if (handoff?.playWhenReady == true) {
                         compositePlayer?.playWhenReady = true
@@ -455,6 +460,7 @@ class MicaMediaService : MediaSessionService() {
             stack.compositePlayer.prepare()
             stack.compositePlayer.playWhenReady = handoff.playWhenReady
         }
+        activeAppShuffleRequest?.let(::applyAppShuffleRequest)
 
         stack.compositePlayer.onUserPlayIntentChanged = { playWhenReady ->
             if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -520,6 +526,7 @@ class MicaMediaService : MediaSessionService() {
         audioPipelineCoordinator = null
         MicaEqualizerManager.onEnabledChanged = null
         MicaEqualizerManager.onReplayGainDspActiveChanged = null
+        MicaEqualizerManager.onChannelBalanceDspActiveChanged = null
         MicaSpectrumAnalyzer.onEnabledChanged = null
         MicaEqualizerManager.release()
     }
@@ -583,6 +590,7 @@ class MicaMediaService : MediaSessionService() {
                     .buildUpon()
                     .add(ExternalLyricsSessionCommands.toggleDesktopLyrics)
                     .add(ExternalLyricsSessionCommands.toggleDesktopLock)
+                    .add(PlaybackShuffleSessionCommand.command)
                     .build()
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                     .setAvailablePlayerCommands(defaultResult.availablePlayerCommands)
@@ -605,6 +613,13 @@ class MicaMediaService : MediaSessionService() {
                 args: Bundle,
             ): ListenableFuture<SessionResult> {
                 val identity = controllerIdentity(controller)
+                PlaybackShuffleSessionCommand.decode(customCommand, args)?.let { request ->
+                    if (identity.packageName != packageName) {
+                        return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                    }
+                    mainHandler.post { applyAppShuffleRequest(request) }
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
                 if (customCommand.customAction ==
                     ExternalLyricsSessionCommands.TOGGLE_DESKTOP_LYRICS_ACTION &&
                     isMediaNotificationController(session, controller)
@@ -757,6 +772,31 @@ class MicaMediaService : MediaSessionService() {
             notificationController.uid == controller.uid
     }
 
+    private fun applyAppShuffleRequest(request: PlaybackShuffleRequest) {
+        val exo = exoPlayer ?: return
+        if (!request.enabled) {
+            activeAppShuffleRequest = null
+            exo.shuffleModeEnabled = false
+            DiagnosticLog.event("Shuffle", "service mode=off items=${exo.mediaItemCount}")
+            return
+        }
+        val seed = request.seed ?: return
+        activeAppShuffleRequest = request
+        val physicalIds = List(exo.mediaItemCount) { index -> exo.getMediaItemAt(index).mediaId }
+        val indices = PlaybackShuffleOrder.physicalIndices(
+            physicalIds = physicalIds,
+            currentId = exo.currentMediaItem?.mediaId,
+            seed = seed,
+        )
+        if (indices.size != physicalIds.size) return
+        exo.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(indices, seed))
+        exo.shuffleModeEnabled = true
+        DiagnosticLog.event(
+            "Shuffle",
+            "service mode=on seed=$seed items=${physicalIds.size} current=${exo.currentMediaItem?.mediaId}",
+        )
+    }
+
     private fun updateMediaButtonPreferences() {
         mediaSession?.setMediaButtonPreferences(
             ExternalLyricsSessionCommands.mediaButtonPreferences(this),
@@ -800,6 +840,12 @@ class MicaMediaService : MediaSessionService() {
         MicaEqualizerManager.onReplayGainDspActiveChanged = { enabled ->
             mainHandler.post {
                 audioPipelineCoordinator?.onReplayGainDspEnabledChanged(enabled)
+            }
+        }
+
+        MicaEqualizerManager.onChannelBalanceDspActiveChanged = { enabled ->
+            mainHandler.post {
+                audioPipelineCoordinator?.onChannelBalanceDspEnabledChanged(enabled)
             }
         }
 
@@ -867,6 +913,8 @@ class MicaMediaService : MediaSessionService() {
                 spectrumTapEnabled = spectrumTapEnabled(),
                 offloadPreferenceEnabled = preferenceState.enabled,
                 replayGainDspEnabled = ReplayGainPreferences.mode(this) != ReplayGainMode.OFF,
+                channelBalanceDspEnabled =
+                    ChannelBalancePreferences.balancePercent(this) != ChannelBalancePreferences.CENTER,
             ),
             invalidateCircuitBreaker = {
                 audioOffloadCircuitBreaker?.invalidateExternalBoundary()
@@ -907,7 +955,8 @@ class MicaMediaService : MediaSessionService() {
             "AudioQuality",
             "mode=${if (state.equalizerEnabled) "DSP" else "HIFI"} " +
                 "dsp=${state.equalizerEnabled} spectrum=${state.spectrumTapEnabled} " +
-                "replayGain=${state.replayGainDspEnabled} pcmLatched=${state.pcmSessionLatched} " +
+                "replayGain=${state.replayGainDspEnabled} balance=${state.channelBalanceDspEnabled} " +
+                "pcmLatched=${state.pcmSessionLatched} " +
                 "offload=${state.offloadEnabled} preference=${state.offloadPreferenceEnabled} " +
                 "circuitOpen=${state.circuitOpen}",
         )

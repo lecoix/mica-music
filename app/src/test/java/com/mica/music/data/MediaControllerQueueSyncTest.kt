@@ -5,6 +5,7 @@ import androidx.media3.common.Player
 import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.playback.MediaControllerQueueSync
 import com.mica.music.playback.PlaybackQueueSyncPlan
+import com.mica.music.playback.QueueMove
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
@@ -132,6 +133,60 @@ class MediaControllerQueueSyncTest {
             player.replaceMediaItem(0, match { SongMediaItemCodec.decode(it)?.title == "new" })
         }
         verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+    }
+
+    @Test
+    fun reorderedSameQueueUsesIncrementalMovesInsteadOfResettingPlayback() {
+        val source = SongFixtures.queue(4)
+        val desired = listOf(source[2], source[0], source[3], source[1])
+        val player = mockPlayer(
+            source.map(SongMediaItemCodec::encode),
+            currentIndex = 2,
+            currentPosition = 34_567L,
+        )
+        every { player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+
+        val plan = MediaControllerQueueSync.planSync(
+            player = player,
+            queue = desired,
+            targetIndex = 0,
+            positionMs = 0L,
+            preserveCurrentPlayback = true,
+        )
+
+        assertTrue(plan is PlaybackQueueSyncPlan.MoveMediaItems)
+        assertEquals(
+            listOf(
+                QueueMove(fromIndex = 2, toIndex = 0),
+                QueueMove(fromIndex = 3, toIndex = 2),
+            ),
+            (plan as PlaybackQueueSyncPlan.MoveMediaItems).moves,
+        )
+        assertEquals(0, plan.result.startIndex)
+
+        MediaControllerQueueSync.executeSyncPlan(player, plan)
+
+        verify(exactly = 1) { player.moveMediaItem(2, 0) }
+        verify(exactly = 1) { player.moveMediaItem(3, 2) }
+        verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+    }
+
+    @Test
+    fun reorderedQueueWithChangedMetadataStillUsesFullSyncFallback() {
+        val source = SongFixtures.queue(3)
+        val desired = listOf(source[1].copy(title = "refreshed"), source[0], source[2])
+        val player = mockPlayer(source.map(SongMediaItemCodec::encode), currentIndex = 1)
+        every { player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+
+        val plan = MediaControllerQueueSync.planSync(
+            player = player,
+            queue = desired,
+            targetIndex = 0,
+            positionMs = 0L,
+            preserveCurrentPlayback = true,
+        )
+
+        assertTrue(plan is PlaybackQueueSyncPlan.SetMediaItems)
     }
 
     @Test

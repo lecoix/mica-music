@@ -9,6 +9,7 @@ data class PlaybackSession(
     val positionMs: Int,
     val shuffleEnabled: Boolean = false,
     val shuffleSourceIds: List<String> = emptyList(),
+    val shuffleSeed: Long? = null,
 )
 
 object PlaybackSessionStore {
@@ -18,6 +19,7 @@ object PlaybackSessionStore {
     private const val KEY_POSITION_MS = "position_ms"
     private const val KEY_SHUFFLE_ENABLED = "shuffle_enabled"
     private const val KEY_SHUFFLE_SOURCE_IDS = "shuffle_source_ids"
+    private const val KEY_SHUFFLE_SEED = "shuffle_seed"
 
     fun save(context: Context, session: PlaybackSession?, sync: Boolean = false) {
         val editor = prefs(context).edit()
@@ -28,6 +30,7 @@ object PlaybackSessionStore {
                     .remove(KEY_POSITION_MS)
                     .remove(KEY_SHUFFLE_ENABLED)
                     .remove(KEY_SHUFFLE_SOURCE_IDS)
+                    .remove(KEY_SHUFFLE_SEED)
                     .commit()
             } else {
                 editor
@@ -35,6 +38,7 @@ object PlaybackSessionStore {
                     .remove(KEY_POSITION_MS)
                     .remove(KEY_SHUFFLE_ENABLED)
                     .remove(KEY_SHUFFLE_SOURCE_IDS)
+                    .remove(KEY_SHUFFLE_SEED)
                     .apply()
             }
             return
@@ -46,8 +50,11 @@ object PlaybackSessionStore {
         val sourceIds = session.shuffleSourceIds.filter { it.isNotBlank() }.distinct()
         if (session.shuffleEnabled && sourceIds.isNotEmpty()) {
             editor.putString(KEY_SHUFFLE_SOURCE_IDS, JSONArray(sourceIds).toString())
+            session.shuffleSeed?.let { editor.putLong(KEY_SHUFFLE_SEED, it) }
+                ?: editor.remove(KEY_SHUFFLE_SEED)
         } else {
             editor.remove(KEY_SHUFFLE_SOURCE_IDS)
+            editor.remove(KEY_SHUFFLE_SEED)
         }
         if (sync) editor.commit() else editor.apply()
     }
@@ -60,6 +67,9 @@ object PlaybackSessionStore {
             positionMs = prefs.getInt(KEY_POSITION_MS, 0).coerceAtLeast(0),
             shuffleEnabled = prefs.getBoolean(KEY_SHUFFLE_ENABLED, false),
             shuffleSourceIds = decodeSongIds(prefs.getString(KEY_SHUFFLE_SOURCE_IDS, null)),
+            shuffleSeed = prefs.getLong(KEY_SHUFFLE_SEED, 0L).takeIf {
+                prefs.contains(KEY_SHUFFLE_SEED)
+            },
         )
     }
 

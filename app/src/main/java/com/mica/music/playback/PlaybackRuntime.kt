@@ -16,6 +16,7 @@ import com.mica.music.data.*
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PendingPlaybackNavigation
 import com.mica.music.media.PlaybackRouter
+import com.mica.music.media.PlaybackShuffleSessionCommand
 import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.util.DiagnosticLog
@@ -249,6 +250,7 @@ internal class PlaybackRuntime(
                 positionMs = uiPositionMs(),
                 shuffleEnabled = shuffleEnabled,
                 shuffleSourceIds = if (shuffleEnabled) playbackOrderState.sourceIds else emptyList(),
+                shuffleSeed = if (shuffleEnabled) playbackOrderState.shuffleSeed else null,
             ),
             sync = sync,
         )
@@ -266,25 +268,34 @@ internal class PlaybackRuntime(
         return restored + playbackIds.filterNot(restoredSet::contains)
     }
 
-    private fun restorePersistedShuffleStateOnConnect(c: Player) {
+    private fun restorePersistedShuffleStateOnConnect(c: MediaController) {
         if (c.mediaItemCount <= 0) return
         val session = sessionStorage.load() ?: return
         if (!session.shuffleEnabled || session.shuffleSourceIds.isEmpty()) return
-        val playbackIds = songQueue.map { it.id }
-        val sourceIds = if (playbackIds.isEmpty()) {
-            session.shuffleSourceIds.filter { it.isNotBlank() }.distinct()
-        } else {
-            restoredShuffleSourceIds(session, playbackIds) ?: return
-        }
+        val physicalIds = List(c.mediaItemCount) { index -> c.getMediaItemAt(index).mediaId }
+        val sourceIds = restoredShuffleSourceIds(session, physicalIds) ?: return
         if (sourceIds.isEmpty()) return
-        queueCoordinator.replaceOrder(
-            PlaybackOrderState(
+        val currentId = c.currentMediaItem?.mediaId ?: session.songId
+        val order = session.shuffleSeed?.let { seed ->
+            PlaybackOrderState.fromSource(
                 sourceIds = sourceIds,
-                playbackIds = playbackIds.ifEmpty { playbackOrderState.playbackIds },
-                currentId = c.currentMediaItem?.mediaId ?: session.songId,
+                currentId = currentId,
                 shuffleEnabled = true,
-            ),
+                shuffleSeed = seed,
+            )
+        } ?: PlaybackOrderState(
+            sourceIds = sourceIds,
+            playbackIds = physicalIds,
+            currentId = currentId,
+            shuffleEnabled = true,
+            shuffleSeed = null,
         )
+        if (songQueue.isEmpty()) {
+            queueCoordinator.replaceOrder(order)
+        } else {
+            applyPlaybackOrderState(order, songQueue)
+        }
+        session.shuffleSeed?.let { seed -> sendAppShuffleCommand(c, enabled = true, seed = seed) }
     }
 
     internal fun restoreSession(session: PlaybackSession) {
@@ -294,13 +305,32 @@ internal class PlaybackRuntime(
             sessionStorage.clear()
             return
         }
-        queueCoordinator.replaceOrder(
-            playbackOrderState
-                .withQueue(songQueue.map { it.id }, preserveId = session.songId)
-                .setShuffleEnabled(session.shuffleEnabled),
-        )
+        val sourceIds = songQueue.map { it.id }
+        val nextOrder = if (session.shuffleEnabled) {
+            session.shuffleSeed?.let { seed ->
+                PlaybackOrderState.fromSource(
+                    sourceIds = sourceIds,
+                    currentId = session.songId,
+                    shuffleEnabled = true,
+                    shuffleSeed = seed,
+                )
+            } ?: PlaybackOrderState(
+                sourceIds = session.shuffleSourceIds.takeIf { it.isNotEmpty() } ?: sourceIds,
+                playbackIds = sourceIds,
+                currentId = session.songId,
+                shuffleEnabled = true,
+                shuffleSeed = null,
+            )
+        } else {
+            PlaybackOrderState.fromSource(
+                sourceIds = sourceIds,
+                currentId = session.songId,
+                shuffleEnabled = false,
+            )
+        }
+        queueCoordinator.replaceOrder(nextOrder)
         if (session.shuffleEnabled) {
-            applyPlaybackOrderState(playbackOrderState, songQueue)
+            applyPlaybackOrderState(nextOrder, songQueue)
         } else {
             queueCoordinator.replaceCurrentIndex(index)
         }
@@ -755,16 +785,26 @@ internal class PlaybackRuntime(
         if (c != null && c.mediaItemCount > 0) {
             val session = sessionStorage.load()
             syncQueueMirrorFromPlayer(c, resolver = resolveSong)
-            val playbackIds = songQueue.map { it.id }
-            restoredShuffleSourceIds(session, playbackIds)?.let { sourceIds ->
-                queueCoordinator.replaceOrder(
-                    PlaybackOrderState(
+            val physicalIds = songQueue.map { it.id }
+            restoredShuffleSourceIds(session, physicalIds)?.let { sourceIds ->
+                val currentId = currentSong?.id
+                val seed = session?.shuffleSeed
+                val order = seed?.let {
+                    PlaybackOrderState.fromSource(
                         sourceIds = sourceIds,
-                        playbackIds = playbackIds,
-                        currentId = currentSong?.id,
+                        currentId = currentId,
                         shuffleEnabled = true,
-                    ),
+                        shuffleSeed = it,
+                    )
+                } ?: PlaybackOrderState(
+                    sourceIds = sourceIds,
+                    playbackIds = physicalIds,
+                    currentId = currentId,
+                    shuffleEnabled = true,
+                    shuffleSeed = null,
                 )
+                applyPlaybackOrderState(order, songQueue)
+                seed?.let { sendAppShuffleCommand(c, enabled = true, seed = it) }
                 syncPlaybackQueueModeFromPlayer(c)
                 publishPlaybackStates()
             }
@@ -783,15 +823,23 @@ internal class PlaybackRuntime(
         val playbackIds = hydrated.map { it.id }
         val restoredSourceIds = restoredShuffleSourceIds(session, playbackIds)
         if (restoredSourceIds != null) {
-            applyPlaybackOrderState(
-                PlaybackOrderState(
+            val currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } }
+            val seed = session?.shuffleSeed
+            val order = seed?.let {
+                PlaybackOrderState.fromSource(
                     sourceIds = restoredSourceIds,
-                    playbackIds = playbackIds,
-                    currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } },
+                    currentId = currentId,
                     shuffleEnabled = true,
-                ),
-                hydrated,
+                    shuffleSeed = it,
+                )
+            } ?: PlaybackOrderState(
+                sourceIds = restoredSourceIds,
+                playbackIds = playbackIds,
+                currentId = currentId,
+                shuffleEnabled = true,
+                shuffleSeed = null,
             )
+            applyPlaybackOrderState(order, hydrated)
             if (c == null) pendingQueue = songQueue
             playbackQueueMode = PlaybackQueueMode.SHUFFLE
             publishPlaybackStates()
@@ -1294,8 +1342,14 @@ internal class PlaybackRuntime(
             return
         }
         MediaControllerQueueSync.executeSyncPlan(c, plan)
+        val syncAction = when (plan) {
+            is PlaybackQueueSyncPlan.MoveMediaItems -> "controller-moveMediaItems"
+            is PlaybackQueueSyncPlan.ReplaceMediaItems -> "controller-replaceMediaItems"
+            is PlaybackQueueSyncPlan.SetMediaItems -> "controller-setMediaItems"
+            is PlaybackQueueSyncPlan.Skip -> "controller-skip"
+        }
         logQueueSyncMs(
-            if (plan is PlaybackQueueSyncPlan.ReplaceMediaItems) "controller-replaceMediaItems" else "controller-setMediaItems",
+            syncAction,
             syncStartedNs,
             "items=${result.itemsCount} startIndex=${result.startIndex} preserve=${result.preserveCurrentPlayback} " +
                 "aligned=${result.queueAligned} targetMismatch=${result.targetMismatch} reusedMap=${result.reusedMap}",
@@ -1325,22 +1379,18 @@ internal class PlaybackRuntime(
         when (mode) {
             PlaybackQueueMode.OFF -> {
                 setAppShuffleEnabled(false, c)
-                c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_OFF
             }
             PlaybackQueueMode.REPEAT_ALL -> {
                 setAppShuffleEnabled(false, c)
-                c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_ALL
             }
             PlaybackQueueMode.REPEAT_ONE -> {
                 setAppShuffleEnabled(false, c)
-                c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_ONE
             }
             PlaybackQueueMode.SHUFFLE -> {
                 setAppShuffleEnabled(true, c)
-                c.shuffleModeEnabled = false
                 c.repeatMode = Player.REPEAT_MODE_OFF
             }
         }
@@ -1348,16 +1398,67 @@ internal class PlaybackRuntime(
 
     private fun setAppShuffleEnabled(enabled: Boolean, c: MediaController) {
         if (songQueue.isNotEmpty() && playbackOrderState.shuffleEnabled != enabled) {
+            val serviceIds = List(c.mediaItemCount) { index -> c.getMediaItemAt(index).mediaId }
             val order = if (enabled) {
-                playbackOrderState.withQueue(songQueue.map { it.id }, preserveSongIdForQueue()).setShuffleEnabled(true)
-            } else playbackOrderState.setShuffleEnabled(false)
+                playbackOrderState
+                    .withQueue(songQueue.map { it.id }, preserveSongIdForQueue())
+                    .setShuffleEnabled(true)
+            } else {
+                playbackOrderState.setShuffleEnabled(false)
+            }
             applyPlaybackOrderState(order, songQueue)
-            syncQueueToService(c, currentIndex, runCatching { c.currentPosition }.getOrDefault(0L), true)
-        } else queueCoordinator.replaceOrder(playbackOrderState.copy(shuffleEnabled = enabled))
+
+            val desiredSet = order.playbackIds.toSet()
+            val sameServiceSet = serviceIds.size == order.playbackIds.size &&
+                serviceIds.size == serviceIds.distinct().size &&
+                desiredSet.size == order.playbackIds.size &&
+                serviceIds.toSet() == desiredSet
+            if (enabled && sameServiceSet) {
+                sendAppShuffleCommand(c, enabled = true, seed = order.shuffleSeed)
+            } else {
+                c.shuffleModeEnabled = false
+                if (serviceIds != order.playbackIds) {
+                    syncQueueToService(
+                        c,
+                        currentIndex,
+                        runCatching { c.currentPosition }.getOrDefault(0L),
+                        preserveCurrentPlayback = true,
+                    )
+                }
+            }
+        } else {
+            queueCoordinator.replaceOrder(playbackOrderState.copy(shuffleEnabled = enabled))
+            if (!enabled) c.shuffleModeEnabled = false
+        }
+        if (!enabled) sendAppShuffleCommand(c, enabled = false, seed = null)
         playbackQueueMode = if (enabled) PlaybackQueueMode.SHUFFLE
         else if (playbackQueueMode == PlaybackQueueMode.SHUFFLE) PlaybackQueueMode.OFF else playbackQueueMode
         maybePersistPlaybackSession(force = true)
         publishPlaybackStates()
+    }
+
+    private fun sendAppShuffleCommand(c: MediaController, enabled: Boolean, seed: Long?) {
+        if (!enabled) {
+            c.sendCustomCommand(
+                PlaybackShuffleSessionCommand.command,
+                PlaybackShuffleSessionCommand.encode(enabled = false, seed = null),
+            )
+            c.shuffleModeEnabled = false
+            DiagnosticLog.event(
+                "Shuffle",
+                "controller mode=off items=${c.mediaItemCount} current=${c.currentMediaItem?.mediaId}",
+            )
+            return
+        }
+        val safeSeed = seed ?: return
+        c.sendCustomCommand(
+            PlaybackShuffleSessionCommand.command,
+            PlaybackShuffleSessionCommand.encode(enabled = true, seed = safeSeed),
+        )
+        DiagnosticLog.event(
+            "Shuffle",
+            "controller mode=on seed=$safeSeed items=${c.mediaItemCount} current=${c.currentMediaItem?.mediaId}",
+        )
     }
 
     private fun syncPlaybackQueueModeFromPlayer(c: Player) {
