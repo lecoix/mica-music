@@ -1,4 +1,4 @@
-package com.mica.music.data.remote
+﻿package com.mica.music.data.remote
 
 import android.content.Context
 import androidx.room.withTransaction
@@ -36,6 +36,15 @@ class RemoteCatalogRepository internal constructor(
     suspend fun source(sourceInstanceId: String): RemoteSourceInstance? =
         sourceDao.getById(sourceInstanceId)?.toRemoteSourceInstance()
 
+    suspend fun sourceStatuses(): List<RemoteSourceStatus> = sourceDao.getAll().map { entity ->
+        RemoteSourceStatus(
+            instance = entity.toRemoteSourceInstance(),
+            configRevision = entity.configRevision,
+            catalogRevision = entity.catalogRevision,
+            lastSyncAtMs = entity.lastSyncAtMs,
+            trackCount = trackDao.countForSource(entity.id),
+        )
+    }
     suspend fun sourceSnapshot(sourceInstanceId: String): RemoteSourceSnapshot? = mutex.withLock {
         ownerForLocked(sourceInstanceId)?.snapshot()
     }
@@ -151,3 +160,5 @@ class RemoteCatalogRepository internal constructor(
             )
         }
 }
+
+

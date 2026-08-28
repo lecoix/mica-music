@@ -1,4 +1,4 @@
-package com.mica.music.data.local
+﻿package com.mica.music.data.local
 
 import androidx.room.Dao
 import androidx.room.Insert
@@ -22,6 +22,9 @@ interface RemoteTrackDao {
         sourceInstanceId: String,
         opaqueTrackIds: List<String>,
     ): List<RemoteTrackEntity>
+
+    @Query("SELECT COUNT(*) FROM remote_tracks WHERE sourceInstanceId = :sourceInstanceId")
+    suspend fun countForSource(sourceInstanceId: String): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tracks: List<RemoteTrackEntity>)
