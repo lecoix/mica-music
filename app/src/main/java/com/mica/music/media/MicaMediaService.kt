@@ -771,23 +771,21 @@ class MicaMediaService : MediaSessionService() {
         }
 
     private fun grantArtworkUriPermissions(targetPackage: String, mediaItems: List<MediaItem>) {
-        if (targetPackage.isBlank()) return
-        val artworkAuthorities = setOf("$packageName.artwork", "$packageName.remoteart")
+        val targetPackages = ArtworkUriGrantPolicy.targetPackages(targetPackage)
+        if (targetPackages.isEmpty()) return
         mediaItems.forEach { mediaItem ->
             val artworkUri = mediaItem.mediaMetadata.artworkUri ?: return@forEach
-            if (artworkUri.scheme?.equals("content", ignoreCase = true) != true ||
-                artworkUri.authority !in artworkAuthorities
-            ) {
-                return@forEach
-            }
-            runCatching {
-                grantUriPermission(targetPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.onFailure { error ->
-                DiagnosticLog.event(
-                    "MediaSession",
-                    "artwork-grant-failed package=$targetPackage uri=$artworkUri " +
-                        "error=${error.javaClass.simpleName}",
-                )
+            if (!ArtworkUriGrantPolicy.isGrantable(packageName, artworkUri)) return@forEach
+            targetPackages.forEach { grantPackage ->
+                runCatching {
+                    grantUriPermission(grantPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }.onFailure { error ->
+                    DiagnosticLog.event(
+                        "MediaSession",
+                        "artwork-grant-failed package=$grantPackage uri=$artworkUri " +
+                            "error=${error.javaClass.simpleName}",
+                    )
+                }
             }
         }
     }

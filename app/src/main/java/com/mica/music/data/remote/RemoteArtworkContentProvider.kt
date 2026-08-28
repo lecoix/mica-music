@@ -9,6 +9,7 @@ import com.mica.music.MicaApp
 import com.mica.music.data.remote.navidrome.NavidromeArtworkHttpStreamer
 import com.mica.music.data.remote.navidrome.NavidromeArtworkRequestResolver
 import com.mica.music.util.DiagnosticLog
+import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,7 @@ import kotlinx.coroutines.runBlocking
 class RemoteArtworkContentProvider : ContentProvider() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val streamer = NavidromeArtworkHttpStreamer()
+    private val artworkCache = RemoteArtworkByteCache()
 
     override fun onCreate(): Boolean = true
 
@@ -57,18 +59,32 @@ class RemoteArtworkContentProvider : ContentProvider() {
         )
         val request = runBlocking(Dispatchers.IO) { resolver.resolve(ref) }
             ?: throw FileNotFoundException("Remote artwork source is unavailable")
+        val cacheKey = RemoteArtworkCacheKey(
+            sourceInstanceId = request.sourceInstanceId,
+            sourceConfigRevision = request.sourceConfigRevision,
+            credentialRevision = request.credentialRevision,
+            opaqueArtworkId = ref.opaqueArtworkId,
+        )
         val pipe = ParcelFileDescriptor.createPipe()
         val readSide = pipe[0]
         val writeSide = pipe[1]
         scope.launch {
             ParcelFileDescriptor.AutoCloseOutputStream(writeSide).use { output ->
-                runCatching { streamer.stream(request, output) }
-                    .onFailure { failure ->
-                        DiagnosticLog.event(
-                            "RemoteArtwork",
-                            "stream-failed source=${ref.sourceInstanceId} error=${failure.javaClass.simpleName}",
-                        )
+                runCatching {
+                    val bytes = artworkCache.getOrLoad(cacheKey) {
+                        ByteArrayOutputStream().use { buffer ->
+                            streamer.stream(request, buffer)
+                            buffer.toByteArray()
+                        }
                     }
+                    output.write(bytes)
+                    output.flush()
+                }.onFailure { failure ->
+                    DiagnosticLog.event(
+                        "RemoteArtwork",
+                        "stream-failed source=${ref.sourceInstanceId} error=${failure.javaClass.simpleName}",
+                    )
+                }
             }
         }
         return readSide
