@@ -58,6 +58,7 @@
 | [`adr/0002-library-snapshot-publication.md`](adr/0002-library-snapshot-publication.md) | 完整曲库 snapshot 的 generation / revision / Room 发布顺序契约 |
 | [`adr/0003-lyrics-timing-offset.md`](adr/0003-lyrics-timing-offset.md) | 全局 + 单曲歌词偏移的语义、持久化、并发与容量契约 |
 | [`adr/0004-usb-exclusive-hybrid.md`](adr/0004-usb-exclusive-hybrid.md) | USB Exclusive Hybrid 的 owner/epoch、通用 USB Audio 选择、PCM/DoP/实验 Native 决策与未验证边界 |
+| [`adr/0005-local-music-video-playback.md`](adr/0005-local-music-video-playback.md) | 本地 MV 的音乐音频权威、单 Exo 合并时间线、Surface lease、下一首开关语义与失败回退 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |

@@ -2102,12 +2102,14 @@ class PlayerControllerBoundaryTest {
             onDisconnected: () -> Unit,
             onFailure: (Throwable) -> Unit,
             onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+            onPlaybackStackRebuilt: () -> Unit,
         ): MediaControllerConnection {
             val request = Request(
                 onConnected,
                 onDisconnected,
                 onFailure,
                 onPlaybackBoundary,
+                onPlaybackStackRebuilt,
                 FakeConnection(),
             )
             requests += request
@@ -2119,6 +2121,7 @@ class PlayerControllerBoundaryTest {
             val onDisconnected: () -> Unit,
             val onFailure: (Throwable) -> Unit,
             val onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+            val onPlaybackStackRebuilt: () -> Unit,
             val connection: FakeConnection,
         )
     }

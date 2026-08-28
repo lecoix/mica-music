@@ -35,6 +35,8 @@
 
 不新增 Controller API。封面流切歌动画由 View 监听 `currentIndex`（`CoverFlowCarouselHost.update` → `updateCurrentIndex`）驱动；拍立得经 `PhotoStackCarouselNavigationBridge`；粒子封面切歌由 `ParticleCoverHost` 内部阶段动画 + 播放器 `currentIndex` 同步。
 
+音乐 MV 是此规则的窄例外：不向 UI 暴露可提交 URI 的通用 Controller API，只在 `NowPlayingActions` 暴露 attach/detach 当前播放视频输出。`PlaybackRuntime` 的单一 Surface lease 校验 TextureView、mediaId 和 Controller identity；仅 `STANDARD`、Activity RESUMED、歌词页关闭时挂载。静态封面始终在下层，首帧后淡入；黑色 1:1 Fit，不裁剪。切歌转场用既有静态封面 wipe 承接，只允许一个真实视频 Surface。
+
 **互斥**：同一时刻仅一种封面行为层挂载（`NowPlayingCoverSection` 分支）。`CUSTOM_STANDARD` / `PARTICLE_COVER` / `PHOTO_STACK` **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。
 
 横屏平行 / 复古另有页面局部状态 `landscapeCoverFlowImmersive`：稳定播放态长按标题进入，仅保留背景与封面流区域并隐藏全部系统栏；以平行封面带中心封面本体高度铺满屏幕为基准计算外层缩放，复古立体复用相同缩放数字。中心封面本体上下居中，倒影不参与尺寸或居中计算。返回优先退出，旋转、切主题或进入歌词页也退出。该状态不写入 `AppUiSettings`，不新增 Controller API，也不复用竖屏 `immersiveLower`。封面底边进度/频谱属于封面流区域，继续由现有设置和 `PlayerPageFrame` 决定。

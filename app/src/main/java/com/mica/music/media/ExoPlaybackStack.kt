@@ -25,14 +25,20 @@ internal object ExoPlaybackStackFactory {
         context: Context,
         outputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION,
         usbBinding: UsbHybridPlaybackBinding? = null,
+        isMusicVideoEnabledFor: (androidx.media3.common.MediaItem) -> Boolean =
+            MusicVideoPlaybackPolicyCodec::isEnabled,
     ): ExoPlaybackStack {
         outputPath.requireSupportedForPlayback()
         outputPath.logForDiagnostics()
         val dataSourceFactory = DefaultDataSource.Factory(context)
         val renderersFactory = MicaRenderersFactory(context, outputPath, usbBinding)
-        val mediaSourceFactory = DefaultMediaSourceFactory(
+        val baseMediaSourceFactory = DefaultMediaSourceFactory(
             dataSourceFactory,
             MicaExtractorsFactory.create(),
+        )
+        val mediaSourceFactory = MusicVideoMediaSourceFactory(
+            delegate = baseMediaSourceFactory,
+            isEnabledFor = isMusicVideoEnabledFor,
         )
         val playbackAudioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -45,6 +51,7 @@ internal object ExoPlaybackStackFactory {
             setParameters(
                 buildUponParameters()
                     .setConstrainAudioChannelCountToDeviceCapabilities(true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
                     .build(),
             )
         }

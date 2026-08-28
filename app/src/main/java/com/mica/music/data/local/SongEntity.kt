@@ -87,6 +87,8 @@ data class SongEntity(
     val loudnessSourceModifiedMs: Long = 0L,
     val loudnessAnalyzerRevision: Int = 0,
     val videoCoverUri: String? = null,
+    val musicVideoUri: String? = null,
+    val musicVideoRevision: String = "",
 )
 
 /** Room projection used by catalog loading; deliberately excludes the large lyrics payload. */
@@ -135,6 +137,8 @@ data class SongSummaryEntity(
     val loudnessSourceModifiedMs: Long,
     val loudnessAnalyzerRevision: Int,
     val videoCoverUri: String?,
+    val musicVideoUri: String?,
+    val musicVideoRevision: String,
 )
 
 data class LyricsJsonRow(val lyricsJson: String)
@@ -205,6 +209,8 @@ fun SongEntity.toSong(): Song = Song(
     ),
     lyricsDocument = LyricsDocumentCodec.decode(lyricsJson),
     videoCoverUri = videoCoverUri,
+    musicVideoUri = musicVideoUri,
+    musicVideoRevision = musicVideoRevision,
 )
 
 fun SongSummaryEntity.toSong(): Song = Song(
@@ -253,6 +259,8 @@ fun SongSummaryEntity.toSong(): Song = Song(
     ),
     lyricsLoaded = false,
     videoCoverUri = videoCoverUri,
+    musicVideoUri = musicVideoUri,
+    musicVideoRevision = musicVideoRevision,
 )
 
 /** 用于增量扫描：元数据或路径变化时判定为「已更新」。 */
@@ -274,6 +282,8 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(discNumber); append('\u0001')
     append(albumArtUri); append('\u0001')
     append(videoCoverUri); append('\u0001')
+    append(musicVideoUri); append('\u0001')
+    append(musicVideoRevision); append('\u0001')
     append(externalLyricsSignature); append('\u0001')
 }
 
@@ -323,4 +333,6 @@ fun Song.toEntity(queueOrder: Int, preservedLyricsJson: String? = null): SongEnt
     loudnessSourceModifiedMs = loudnessAnalysis.sourceModifiedMs,
     loudnessAnalyzerRevision = loudnessAnalysis.analyzerRevision,
     videoCoverUri = videoCoverUri,
+    musicVideoUri = musicVideoUri,
+    musicVideoRevision = musicVideoRevision,
 )

@@ -4,6 +4,7 @@ import com.mica.music.data.playback.ServicePlaybackStateStore
 
 import android.content.Context
 import android.os.SystemClock
+import android.view.TextureView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -20,6 +21,7 @@ data class PlaybackSurfaceState(
     val playbackQueueMode: PlaybackQueueMode = PlaybackQueueMode.OFF,
     val playbackTuning: PlaybackTuning = PlaybackTuning(),
     val currentIndex: Int = 0,
+    val videoState: PlaybackVideoState = PlaybackVideoState(),
 )
 
 data class PlaybackProgressState(
@@ -111,6 +113,7 @@ class PlayerController internal constructor(
             playbackQueueMode = snapshot.playbackQueueMode,
             playbackTuning = snapshot.playbackTuning,
             currentIndex = snapshot.currentIndex,
+            videoState = snapshot.videoState,
         )
         playbackProgressState = PlaybackProgressState(
             positionMs = snapshot.positionMs,
@@ -208,6 +211,12 @@ class PlayerController internal constructor(
     fun clearUserMessage() = runtime.clearUserMessage()
 
     fun clearPlaybackError() = runtime.clearPlaybackError()
+
+    fun attachMusicVideoOutput(textureView: TextureView): Long? =
+        runtime.attachMusicVideoOutput(textureView)
+
+    fun detachMusicVideoOutput(textureView: TextureView, leaseId: Long) =
+        runtime.detachMusicVideoOutput(textureView, leaseId)
 
     fun release() = runtime.release()
 }

@@ -141,6 +141,20 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun musicVideoPairingSurvivesCacheRoundTrip() = runTest {
+        val song = SongFixtures.song("music-video").copy(
+            musicVideoUri = "content://library/music-video.mp4",
+            musicVideoRevision = "content://library/music-video.mp4|123|456",
+        )
+
+        repository.save(listOf(song), 100, ScanSource.FOLDER, 1)
+
+        val cached = repository.loadCached()!!.songs.single()
+        assertEquals(song.musicVideoUri, cached.musicVideoUri)
+        assertEquals(song.musicVideoRevision, cached.musicVideoRevision)
+    }
+
+    @Test
     fun songByIdLoadsSingleSongWithLyrics() = runTest {
         val song = SongFixtures.song("with-lyrics")
         repository.save(listOf(song), 100, ScanSource.DEVICE, 1)

@@ -82,6 +82,9 @@ import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHaloFraction
 import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
 import com.mica.music.ui.screens.player.view.VideoAlbumCoverHost
+import com.mica.music.ui.screens.player.view.MusicVideoHost
+import com.mica.music.playback.PlaybackVideoState
+import android.view.TextureView
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
@@ -108,6 +111,9 @@ internal fun NowPlayingCoverSection(
     isPlaying: Boolean,
     coverFlowMode: PlayerCoverFlowMode,
     videoAlbumCoverEnabled: Boolean,
+    musicVideoState: PlaybackVideoState,
+    attachMusicVideoOutput: (TextureView) -> Long?,
+    detachMusicVideoOutput: (TextureView, Long) -> Unit,
     trackSkipDirection: TrackSkipDirection?,
     particleCoverTuning: ParticleCoverTuning,
     lyricsExpanded: Boolean,
@@ -548,9 +554,15 @@ internal fun NowPlayingCoverSection(
                         } else {
                             { localWipeProgress.value }
                         }
+                        val musicVideoVisible = musicVideoState.effective &&
+                            musicVideoState.mediaId == coverVisibleSong.id &&
+                            !coverVisibleSong.musicVideoUri.isNullOrBlank() &&
+                            coverFlowMode == PlayerCoverFlowMode.STANDARD &&
+                            !lyricsExpanded
                         fun videoUriOf(track: Song): String? =
                             track.videoCoverUri?.takeIf {
                                 videoAlbumCoverEnabled &&
+                                    !musicVideoVisible &&
                                     coverFlowMode == PlayerCoverFlowMode.STANDARD &&
                                     failedVideoCovers[it] != true
                             }
@@ -625,6 +637,23 @@ internal fun NowPlayingCoverSection(
                                         publishHoldoverOnSuccess = false,
                                     )
                                 }
+                            }
+                            if (musicVideoVisible) {
+                                val musicVideoWipeModifier = if (coverOutgoing != null) {
+                                    Modifier.trackWipeLayer(
+                                        progress = coverWipeProgress,
+                                        direction = coverWipeDirection,
+                                        incoming = true,
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                                MusicVideoHost(
+                                    state = musicVideoState,
+                                    attach = attachMusicVideoOutput,
+                                    detach = detachMusicVideoOutput,
+                                    modifier = musicVideoWipeModifier.size(cover.width, cover.height),
+                                )
                             }
                             // One call-site + key(uri): video→normal must NOT move the host between
                             // separate incoming/outgoing branches (that remounted AndroidView and flashed).

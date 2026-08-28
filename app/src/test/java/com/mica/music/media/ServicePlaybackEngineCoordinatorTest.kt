@@ -8,6 +8,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ExoPlaybackException
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
+import io.mockk.slot
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertEquals
@@ -18,9 +19,56 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 class ServicePlaybackEngineCoordinatorTest {
+
+    @Test
+    fun musicVideoErrorRebuildsCurrentItemAsAudioOnlyOnceAtSamePosition() {
+        val song = SongFixtures.song("mv").copy(
+            musicVideoUri = "content://library/mv.mp4",
+            musicVideoRevision = "content://library/mv.mp4|123|456",
+        )
+        val item = MusicVideoPlaybackPolicyCodec.withEnabled(SongMediaItemCodec.encode(song), true)
+        val error = ExoPlaybackException.createForSource(
+            IOException("bad video"),
+            ExoPlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        )
+        val exo = mockExoWithQueue(listOf(item), currentIndex = 0, positionMs = 12_345L)
+        every { exo.playerError } returns error
+        val submitted = slot<List<MediaItem>>()
+        every { exo.setMediaItems(capture(submitted), 0, 12_345L) } returns Unit
+        val player = MicaCompositePlayer(exo)
+        var ordinaryFailure: PlaybackFailure? = null
+        var fallbackSongId: String? = null
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.onPlaybackFailure = { ordinaryFailure = it }
+        coordinator.onMusicVideoFallback = { fallbackSongId = it.id }
+        coordinator.start()
+        coordinator.onSelectMediaItem(0, 12_345L)
+
+        coordinator.onPlayerError(error)
+
+        val recovered = submitted.captured.single()
+        assertFalse(MusicVideoPlaybackPolicyCodec.isEnabled(recovered))
+        assertEquals(song.musicVideoRevision, MusicVideoPlaybackPolicyCodec.fallbackRevision(recovered))
+        assertEquals("mv", fallbackSongId)
+        assertEquals(null, ordinaryFailure)
+        coordinator.release()
+    }
+
+    @Test
+    fun sameMusicVideoRevisionTripsCircuitBreakerOnlyOnce() {
+        val registry = MusicVideoFailureRegistry()
+
+        assertTrue(registry.tripIfFirst("song", "revision"))
+        assertFalse(registry.tripIfFirst("song", "revision"))
+        assertTrue(registry.tripIfFirst("song", "new-revision"))
+    }
 
     @Test
     fun playbackStateControlsSpectrumClockWithoutAnActiveRequest() {

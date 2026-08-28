@@ -72,6 +72,8 @@ internal fun mergeExternalAudioProbeResult(existing: Song?, probed: Song): Song 
         albumArtUri = probed.albumArtUri ?: existing.albumArtUri,
         playbackUri = existing.playbackUri,
         videoCoverUri = existing.videoCoverUri,
+        musicVideoUri = null,
+        musicVideoRevision = "",
         playCount = existing.playCount,
         totalListenSeconds = existing.totalListenSeconds,
         lastPlayedAtMs = existing.lastPlayedAtMs,

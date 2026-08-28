@@ -11,6 +11,7 @@ internal class PlaybackConnectionSession(
     private val onDisconnected: (MediaController?) -> Unit,
     private val onFailure: (Throwable) -> Unit,
     private val onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+    private val onPlaybackStackRebuilt: () -> Unit,
 ) {
     var controller: MediaController? = null
         private set
@@ -75,6 +76,9 @@ internal class PlaybackConnectionSession(
             },
             onPlaybackBoundary = { boundary ->
                 if (requestGeneration == generation) onPlaybackBoundary(boundary)
+            },
+            onPlaybackStackRebuilt = {
+                if (requestGeneration == generation) onPlaybackStackRebuilt()
             },
         )
         if (requestGeneration == generation) {

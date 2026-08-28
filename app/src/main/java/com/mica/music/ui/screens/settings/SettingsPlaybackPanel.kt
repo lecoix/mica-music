@@ -106,8 +106,14 @@ internal fun PlaybackSettingsPanel(
 
     if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) {
         SettingsToggleRow(
+            title = "音乐 MV",
+            subtitle = "同目录同文件名 MP4 只显示画面，音乐仍是唯一声音来源；切换从下一首歌曲生效",
+            checked = uiSettings.musicVideoEnabled,
+            onCheckedChange = uiSettings::updateMusicVideoEnabled,
+        )
+        SettingsToggleRow(
             title = "视频专辑封面",
-            subtitle = "默认关闭；开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准播放页静音循环播放",
+            subtitle = "开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准播放页静音循环播放",
             checked = uiSettings.videoAlbumCoverEnabled,
             onCheckedChange = uiSettings::updateVideoAlbumCoverEnabled,
         )

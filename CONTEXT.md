@@ -331,6 +331,11 @@ _Avoid_: edge seek bar、overlay progress
 默认关闭，仅 `PlayerCoverFlowMode.STANDARD` 的全屏播放页生效。文件夹扫描只索引歌曲同目录 `.mp4` 的名称与 URI：文件名精确等于专辑名优先，否则以 NFKC、空白折叠和 `Locale.ROOT` 大小写归一化匹配；不做标点/后缀模糊匹配，空/未知专辑或多候选歧义回退静态封面。独立短生命周期 Media3 播放器禁用音轨，随音乐暂停，后台、锁屏、离页或切歌释放；视频沿用静态封面矩形居中裁切，首帧前及错误时显示静态图或已缓存海报。索引构建为 O(歌曲数 + MP4 数)，文件夹遍历本身不打开视频；选项开启时在曲库发布后对去重后的匹配 URI 单线程后台抽首帧写入海报缓存（命中跳过、新扫描取消旧任务），不阻塞扫库进度。
 _Avoid_: 复用主音频播放器、请求视频权限做设备全盘扫描、为匹配同步解析视频、对未匹配 MP4 解码、模糊匹配不同文件夹或同名歧义专辑
 
+**Music video sidecar（音乐 MV sidecar）**：
+文件夹曲库内与音乐文件同目录、同基本文件名的一对一 MP4。音乐文件是唯一声音来源；主 Service 的单 ExoPlayer 以 audio-only 音乐源和 video-only MP4 源组成同一时间线。独立 `music_video_enabled` 默认关闭，变化从下一首不同歌曲生效；仅标准封面、前台 RESUMED、非歌词页时启用视频 renderer 和 Surface。画面位于纯黑 1:1 容器内按像素宽高比 Fit，优先级为 MV > 视频专辑封面 > 静态封面。详见 ADR-0005。
+
+_Avoid_: 双播放器同步、播放 MP4 音轨、人工偏移/字幕/PiP/模糊后缀匹配、后台解码、全曲库海报或末帧预取、因 MV 改变采样率/位深/音频 renderer/DSP/USB 输出模式
+
 **Standard progress（标准进度区）**：
 下半屏 chrome 中的常规进度条与时间显示；与封面底边进度二选一为主显示。
 _Avoid_: normal progress bar（契约外简称）

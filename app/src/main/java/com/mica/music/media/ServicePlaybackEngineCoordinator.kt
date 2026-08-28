@@ -12,10 +12,12 @@ internal class ServicePlaybackEngineCoordinator(
     private val player: MicaCompositePlayer,
     private val context: android.content.Context,
     private val requestState: ServicePlaybackRequestState = ServicePlaybackRequestState(),
+    private val musicVideoFailures: MusicVideoFailureRegistry = MusicVideoFailureRegistry(),
 ) : AlacSessionCommandHandler, Player.Listener {
 
     var onPlaybackFailure: ((PlaybackFailure) -> Unit)? = null
     var onPlaybackBoundary: ((ConfirmedPlaybackBoundary) -> Unit)? = null
+    var onMusicVideoFallback: ((Song) -> Unit)? = null
 
     fun start() {
         player.playbackCoordinator = this
@@ -29,6 +31,7 @@ internal class ServicePlaybackEngineCoordinator(
         MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
         onPlaybackFailure = null
         onPlaybackBoundary = null
+        onMusicVideoFallback = null
     }
 
     fun playCurrent() {
@@ -111,11 +114,43 @@ internal class ServicePlaybackEngineCoordinator(
         ) {
             return
         }
+        if (recoverFromMusicVideoFailure(song, error)) return
         val kind = PlaybackFailureClassifier.classify(error)
         handleFailure(
             request.id,
             PlaybackFailure(kind, error.message ?: "Media3 playback failed", error),
         )
+    }
+
+    private fun recoverFromMusicVideoFailure(song: Song, error: PlaybackException): Boolean {
+        val item = player.currentMediaItem ?: return false
+        if (!MusicVideoPlaybackPolicyCodec.isEnabled(item) || song.musicVideoUri.isNullOrBlank()) return false
+        val queue = player.playbackQueueSnapshot()
+        if (queue.items.isEmpty()) return false
+        val index = queue.currentIndex.coerceIn(0, queue.items.lastIndex)
+        if (queue.items[index].mediaId != song.id) return false
+        if (!musicVideoFailures.tripIfFirst(song.id, song.musicVideoRevision)) return false
+        val positionMs = player.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = player.playWhenReady
+        val repeatMode = player.repeatMode
+        val shuffleEnabled = player.shuffleModeEnabled
+        val playbackParameters = player.playbackParameters
+        val audioOnlyItems = queue.items.toMutableList().apply {
+            this[index] = MusicVideoPlaybackPolicyCodec.afterFailure(this[index], song.musicVideoRevision)
+        }
+        val recoveryRequest = requestState.begin(song, positionMs)
+        DiagnosticLog.event(
+            "MusicVideo",
+            "fallback request=${recoveryRequest.id} song=${song.id} revision=${song.musicVideoRevision} " +
+                "positionMs=$positionMs error=${error.errorCodeName}",
+            error,
+        )
+        player.startExoPlayback(audioOnlyItems, index, positionMs, playWhenReady)
+        player.repeatMode = repeatMode
+        player.shuffleModeEnabled = shuffleEnabled
+        player.playbackParameters = playbackParameters
+        onMusicVideoFallback?.invoke(song)
+        return true
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {

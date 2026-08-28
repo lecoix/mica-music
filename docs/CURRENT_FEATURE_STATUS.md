@@ -41,3 +41,8 @@
 - `PlaylistStore.kt`銆乣PlaylistRepository.kt`銆乣PlaylistDao.kt`
 - `PlaybackQueueCoordinator.kt`銆乣PlaybackTimelineCoordinator.kt`銆乣PlaybackTuningCoordinator.kt`銆乣PlaybackConnectionSession.kt`
 - `AudioPipelineCoordinator.kt`銆乣AudioOffloadCircuitBreaker.kt`銆乣AudioOffloadPreferences.kt`
+# 本地音乐 MV（2026-08-29）
+
+- 软件实现：文件夹 sidecar 配对、Room v21、MediaItem metadata revision、独立默认关闭开关、下一首生效、audio-only + video-only 单 Exo 时间线、标准封面 TextureView lease、黑色 Fit、一次纯音频错误回退。
+- 自动测试：聚焦 JVM/Robolectric 已覆盖 matcher、10k+10k heap proxy、数据往返、开关 generation、Surface 旧事件/播放栈重建和错误熔断。
+- 未验证：真实 H.264 首帧与 codec 兼容、暂停/seek/变速/短长视频、30 分钟漂移、Shared PCM/蓝牙/USB Exact PCM/DoP/Native DSD 的实际音频路径与音质。当前状态不得表述为真机完成。

@@ -56,6 +56,10 @@ data class Song(
     val lyricsLoaded: Boolean = true,
     /** Optional silent looping MP4 used only by the standard full-player cover. */
     val videoCoverUri: String? = null,
+    /** Optional same-directory, same-base-name MP4 whose video follows the song timeline. */
+    val musicVideoUri: String? = null,
+    /** Lightweight sidecar revision composed from URI, size, and last-modified time. */
+    val musicVideoRevision: String = "",
     /** Whether this song belongs to the persisted library or the current process session only. */
     val source: SongSource = SongSource.LIBRARY,
 ) {

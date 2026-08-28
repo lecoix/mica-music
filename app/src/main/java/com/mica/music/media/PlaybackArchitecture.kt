@@ -43,7 +43,7 @@ sealed interface PlaybackRouteDecision {
 
 object PlaybackSourceRevision {
     fun of(song: Song): String =
-        "${song.id}|${song.mediaUri}|${song.sizeBytes}|${song.dateModifiedMs}"
+        "${song.id}|${song.mediaUri}|${song.sizeBytes}|${song.dateModifiedMs}|${song.musicVideoRevision}"
 }
 
 object PlaybackRouter {

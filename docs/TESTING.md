@@ -212,6 +212,13 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 
 - [ ] **有 Service 持久化队列**：上次播放中/暂停有队列与进度 → 杀进程 → 冷启动 → 迷你栏/播放页/通知为同一首；**播放队列顺序不被整库列表排序覆盖**；恢复后处于暂停（不自动续播，除非产品另有约定）。
 - [ ] **无 Service 持久化、Room 有缓存**：清数据后只扫过库、从未形成 service 队列 → 冷启动 → 列表快速出现；若播放器队列为空，应装入曲库（或 bootstrap 行为与旧版一致）。
+
+## 本地音乐 MV
+
+- JVM：`MusicVideoMatcherTest`（精确/归一化/目录/歧义/10k+10k）、Room 20→21、Entity/Summary/MediaItem codec。
+- 交错：开关旧 generation 不得覆盖最新值；旧 Surface detach/首帧/Controller 事件不得影响当前 lease；播放栈重建只重绑当前 controller+mediaId。
+- 错误：坏 MP4 首次只重建当前项为纯音频并保留位置/意图/模式；相同 revision 不二次尝试，纯音频错误走原路径。
+- 真机待验：MP3、FLAC、ALAC/DSF Shared PCM；蓝牙；USB Exact PCM、DoP、Native DSD；暂停、seek、0.5×–2×、循环、短/长视频、后台恢复和 30 分钟漂移。构建/JVM 结果不得替代音画和音质结论。
 - [ ] **Room 空库**：首次安装或空库 → 授权扫描 → 扫描完成后列表与队列行为正常。
 - [ ] **从通知/桌面图标二次进入**：划掉 Activity 后从通知或桌面再开，`MediaController` 重连，UI 队列/当前曲不回退默认。
 - [ ] **诊断**：日志中 `LibraryStartup loadCached` 与 `LibraryQueue libraryIds` 各出现一次为主；不应短时间连续多次 `setQueue` 刷屏。

@@ -6,6 +6,8 @@
 
 ## 已实现
 
+- [x] 本地音乐 MV 软件链路：同目录同基本文件名 MP4、音乐唯一出声、单 Exo 合并时间线、独立默认关闭开关、标准封面 Surface lease、一次纯音频回退；真机音画与 USB/DSD 验收仍见 `CURRENT_FEATURE_STATUS.md` / ADR-0005。
+
 ### 曲库与扫描
 
 - [x] 通过系统目录（SAF）或 **MediaStore** 扫描本地音频

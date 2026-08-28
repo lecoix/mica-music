@@ -29,6 +29,7 @@ object PlaybackUiPreferences {
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     internal const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
     private const val KEY_VIDEO_ALBUM_COVER_ENABLED = "video_album_cover_enabled"
+    internal const val KEY_MUSIC_VIDEO_ENABLED = "music_video_enabled"
     private const val KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE = "custom_standard_cover_tap_play_pause"
     private const val KEY_CUSTOM_PLAYER_LOWER_ORDER = "custom_player_lower_order"
     private const val KEY_CUSTOM_PLAYER_LOWER_HIDDEN = "custom_player_lower_hidden"
@@ -185,6 +186,27 @@ object PlaybackUiPreferences {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_VIDEO_ALBUM_COVER_ENABLED, enabled)
             .apply()
+    }
+
+    fun musicVideoEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_MUSIC_VIDEO_ENABLED, false)
+
+    fun setMusicVideoEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_MUSIC_VIDEO_ENABLED, enabled)
+            .apply()
+    }
+
+    internal fun registerMusicVideoChangeListener(
+        context: Context,
+        listener: (Boolean) -> Unit,
+    ): () -> Unit {
+        val preferences = MicaSettingsStore.prefs(context)
+        val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_MUSIC_VIDEO_ENABLED) listener(musicVideoEnabled(context))
+        }
+        preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
+        return { preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener) }
     }
 
     fun customStandardCoverTapPlayPause(context: Context): Boolean =

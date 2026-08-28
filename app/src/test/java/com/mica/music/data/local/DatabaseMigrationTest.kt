@@ -19,6 +19,35 @@ import org.robolectric.annotation.Config
 class DatabaseMigrationTest {
 
     @Test
+    fun migrationTwentyToTwentyOneAddsNullableMusicVideoAndEmptyRevision() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(20) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_20_21.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").containsAll(listOf("musicVideoUri", "musicVideoRevision")))
+        db.query("SELECT musicVideoUri, musicVideoRevision FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertEquals("", cursor.getString(1))
+        }
+        helper.close()
+    }
+
+    @Test
     fun migrationOneToTwoAddsColumnsWithSafeDefaults() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val helper = FrameworkSQLiteOpenHelperFactory().create(

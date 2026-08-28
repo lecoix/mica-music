@@ -14,6 +14,7 @@ import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.MicaMediaService
 import com.mica.music.media.PlaybackBoundarySessionEvent
+import com.mica.music.media.PlaybackStackSessionEvent
 
 internal interface MediaControllerConnection {
     fun cancel()
@@ -25,6 +26,7 @@ internal interface MediaControllerConnector {
         onDisconnected: () -> Unit,
         onFailure: (Throwable) -> Unit,
         onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+        onPlaybackStackRebuilt: () -> Unit,
     ): MediaControllerConnection
 }
 
@@ -42,6 +44,7 @@ internal class AndroidMediaControllerConnector(
         onDisconnected: () -> Unit,
         onFailure: (Throwable) -> Unit,
         onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+        onPlaybackStackRebuilt: () -> Unit,
     ): MediaControllerConnection {
         val token = SessionToken(
             context,
@@ -59,6 +62,9 @@ internal class AndroidMediaControllerConnector(
                     args: android.os.Bundle,
                 ) = Futures.immediateFuture(
                     if (PlaybackBoundarySessionEvent.decode(command, args)?.also(onPlaybackBoundary) != null) {
+                        SessionResult(SessionResult.RESULT_SUCCESS)
+                    } else if (PlaybackStackSessionEvent.matches(command)) {
+                        onPlaybackStackRebuilt()
                         SessionResult(SessionResult.RESULT_SUCCESS)
                     } else {
                         SessionResult(SessionError.ERROR_NOT_SUPPORTED)

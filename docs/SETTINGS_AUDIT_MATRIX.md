@@ -48,6 +48,7 @@
 | 播放页 UI 颜色 | `LyricsPreferences` / `player_page_text_color` | 播放页文字、信息行、进度条和底部控件 | `ACTIVE` | 与背景放在同一详情页 |
 | 播放页特殊主题 | `PlaybackUiPreferences` / `player_cover_flow_mode` | `PlayerCoverFlowMode` 决定标准、粒子、折叠、复古、拍立得等页面路径 | `ACTIVE` | 作为主题选择入口；专属选项进入主题详情 |
 | 视频专辑封面 | `PlaybackUiPreferences` / `video_album_cover_enabled` | 扫描预取和播放页视频封面；播放页说明限定标准主题/特定页面条件 | `CONDITIONAL` | 仅在支持视频封面的主题下显示；需设备和文件样本验收 |
+| 音乐 MV | `PlaybackUiPreferences` / `music_video_enabled` | Service 队列项有效策略 + 标准播放页 Surface；默认关闭，当前曲不重建，下一首不同歌曲生效 | `CONDITIONAL` | 音乐唯一出声；MP4 永久 video-only；真机音画与各输出路径待验收 |
 | 点击封面暂停/播放 | `PlaybackUiPreferences` / `custom_standard_cover_tap_play_pause` | 仅 `CUSTOM_STANDARD` 生效 | `CONDITIONAL` | 留在“自定义标准主题”详情，不放公共播放页 |
 | 自定义播放页下半区布局 | `PlaybackUiPreferences` / `custom_player_lower_*` | 仅 `CUSTOM_STANDARD`；`PlayerLowerLayoutConfig` 保存顺序、显隐、缩放、间距、边界、歌词行数以及 `freeformEnabled` / 每组件二维 offset。设置页只保留“进入播放页布局编辑”入口；竖屏播放页空白处长按也可进入编辑，连续手势先写局部草稿，保存后才持久化 | `CONDITIONAL` | 保留播放页内自由布局编辑器；横屏不提供编辑入口，不再把旧的顺序/边界/大小控制散落为普通设置行 |
 | 封面底边进度 | `PlaybackUiPreferences` / `cover_edge_progress` | `SettingsPlaybackPanel` 先按主题/背景 capability 判断；`CUSTOM_STANDARD`、拍立得及标准主题无效背景组合不显示该入口，支持的特殊主题继续使用各自覆盖规则 | `CONDITIONAL` | capability 隐藏已落地；后续只需保持主题契约与 UI 条件同步 |

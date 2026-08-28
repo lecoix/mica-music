@@ -119,6 +119,7 @@ import com.mica.music.util.deleteSongEverywhere
 import com.mica.music.util.logBackFlow
 import com.mica.music.util.openSongInTagEditor
 import com.mica.music.util.shareSong
+import android.view.TextureView
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -145,6 +146,8 @@ data class NowPlayingActions(
     val resetPlaybackTuning: () -> Unit,
     val peekTrackSkipDirection: () -> TrackSkipDirection?,
     val consumeTrackSkipDirection: () -> TrackSkipDirection?,
+    val attachMusicVideoOutput: (TextureView) -> Long?,
+    val detachMusicVideoOutput: (TextureView, Long) -> Unit,
 )
 
 internal suspend fun pollNowPlayingProgress(
@@ -960,6 +963,9 @@ fun NowPlayingContent(
                     videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled &&
                         (!landscapeMode || uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) &&
                         !lyricsExpanded,
+                    musicVideoState = surfaceState.videoState,
+                    attachMusicVideoOutput = actions.attachMusicVideoOutput,
+                    detachMusicVideoOutput = actions.detachMusicVideoOutput,
                     trackSkipDirection = effectiveTrackWipeDirection,
                     particleCoverTuning = uiSettings.particleCoverTuning,
                     lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
