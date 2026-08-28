@@ -20,7 +20,11 @@ set(CMAKE_CXX_STANDARD 11)
 
 project(libffmpegJNI C CXX)
 
-set(ffmpeg_location "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg")
+set(
+  ffmpeg_location
+  "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg"
+  CACHE PATH
+  "Path to the configured FFmpeg source tree and android-libs outputs")
 set(ffmpeg_binaries "${ffmpeg_location}/android-libs/${ANDROID_ABI}")
 
 foreach(ffmpeg_lib avutil swresample avcodec)

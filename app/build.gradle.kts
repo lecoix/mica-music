@@ -15,6 +15,9 @@ providers.gradleProperty("mica.alternateBuildDir").orNull?.let { alternateDir ->
 val qaSideBySide = providers.gradleProperty("mica.qaSideBySide")
     .map(String::toBoolean)
     .getOrElse(false)
+val abiSplitApks = providers.gradleProperty("mica.abiSplitApks")
+    .map(String::toBoolean)
+    .getOrElse(false)
 
 val media3FfmpegLocalAar = file("libs/media3-ffmpeg-decoder-dsd.aar")
 val media3FfmpegGeneratedAar =
@@ -68,8 +71,17 @@ android {
         )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            // 仅 64 位真机；自编 FFmpeg 也只编 arm64-v8a
-            abiFilters += listOf("arm64-v8a")
+            // Package both supported ABIs; each self-owned native library must exist for both.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = abiSplitApks
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = true
         }
     }
 

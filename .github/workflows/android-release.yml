@@ -151,28 +151,42 @@ jobs:
             --no-configuration-cache
           ./gradlew :app:assembleRelease \
             --no-configuration-cache \
+            -Pmica.abiSplitApks=true \
             -Pmica.update.domesticUrl="$UPDATE_DOMESTIC_MANIFEST_URL"
 
-      - name: Verify release APK signature
+      - name: Prepare and verify release APKs
+        env:
+          VERSION_NAME: ${{ steps.metadata.outputs.version_name }}
         run: |
           set -euo pipefail
-          APK_PATH="app/build/outputs/apk/release/app-release.apk"
-          if [[ ! -f "$APK_PATH" ]]; then
-            echo "Release APK not found: $APK_PATH" >&2
-            exit 1
-          fi
+          SOURCE_DIR="app/build/outputs/apk/release"
+          RELEASE_DIR="release-apks"
+          bash scripts/prepare_release_apks.sh \
+            "$SOURCE_DIR" \
+            "$RELEASE_DIR" \
+            "$VERSION_NAME" \
+            release
+
           APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [[ -z "$APKSIGNER" ]]; then
             echo "Android apksigner was not found" >&2
             exit 1
           fi
-          "$APKSIGNER" verify --verbose "$APK_PATH"
+          shopt -s nullglob
+          APK_PATHS=("$RELEASE_DIR"/*.apk)
+          if [[ "${#APK_PATHS[@]}" -ne 3 ]]; then
+            echo "Expected exactly 3 prepared APKs, found ${#APK_PATHS[@]}" >&2
+            exit 1
+          fi
+          for apk in "${APK_PATHS[@]}"; do
+            "$APKSIGNER" verify --verbose "$apk"
+          done
 
-      - name: Upload release APK artifact
+      - name: Upload release APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mica-release-apk-${{ steps.metadata.outputs.tag }}
-          path: app/build/outputs/apk/release/app-release.apk
+          name: mica-release-apks-${{ steps.metadata.outputs.tag }}
+          path: release-apks/*.apk
           if-no-files-found: error
           retention-days: 90
 
@@ -184,19 +198,24 @@ jobs:
           NOTES_FILE: ${{ steps.release_notes.outputs.file }}
         run: |
           set -euo pipefail
-          APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          shopt -s nullglob
+          APK_PATHS=(release-apks/*.apk)
+          if [[ "${#APK_PATHS[@]}" -ne 3 ]]; then
+            echo "Expected exactly 3 release APKs, found ${#APK_PATHS[@]}" >&2
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK_PATH" --clobber
+            gh release upload "$TAG" "${APK_PATHS[@]}" --clobber
             if [[ "$NOTES_SOURCE" != "none" && -s "$NOTES_FILE" ]]; then
               gh release edit "$TAG" --notes-file "$NOTES_FILE"
             fi
           elif [[ "$NOTES_SOURCE" != "none" && -s "$NOTES_FILE" ]]; then
-            gh release create "$TAG" "$APK_PATH" \
+            gh release create "$TAG" "${APK_PATHS[@]}" \
               --target "$GITHUB_SHA" \
               --title "Mica $TAG" \
               --notes-file "$NOTES_FILE"
           else
-            gh release create "$TAG" "$APK_PATH" \
+            gh release create "$TAG" "${APK_PATHS[@]}" \
               --target "$GITHUB_SHA" \
               --title "Mica $TAG" \
               --generate-notes
