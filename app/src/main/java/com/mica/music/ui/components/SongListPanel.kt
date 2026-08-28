@@ -94,6 +94,9 @@ fun SongListPanel(
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
     infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
+    locateSongId: String? = null,
+    locateRequestKey: Int = 0,
+    onLocateConsumed: (Int) -> Unit = {},
     zoomPage: LibraryZoomPage = LibraryZoomPage.SONGS,
     zoomEnabled: Boolean = true,
     modifier: Modifier = Modifier,
@@ -179,6 +182,16 @@ fun SongListPanel(
             .collectLatest { (index, offset) ->
                 externalListState.scrollToItem(index, offset)
             }
+    }
+
+    LaunchedEffect(locateRequestKey, locateSongId) {
+        if (locateRequestKey > 0 && locateSongId != null) {
+            val targetIndex = songs.indexOfFirst { it.id == locateSongId }
+            if (targetIndex >= 0) {
+                states[zoomState.settledIndex].animateScrollToItem(targetIndex)
+            }
+            onLocateConsumed(locateRequestKey)
+        }
     }
 
     val zoomContent: @Composable () -> Unit = {

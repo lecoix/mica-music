@@ -33,6 +33,9 @@ internal fun HomeLibraryPane(
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
     onMoveSong: (Int, Int) -> Unit = { _, _ -> },
+    locateSongId: String? = null,
+    locateRequestKey: Int = 0,
+    onLocateConsumed: (Int) -> Unit = {},
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
 ) {
     val folderLabel = library.libraryFolderLabel
@@ -85,6 +88,9 @@ internal fun HomeLibraryPane(
                 selectedSongIds = selectedSongIds,
                 onSelectionToggle = onSelectionToggle,
                 onMoveSong = onMoveSong,
+                locateSongId = locateSongId,
+                locateRequestKey = locateRequestKey,
+                onLocateConsumed = onLocateConsumed,
                 songListInfoVisibility = songListInfoVisibility,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -109,6 +115,9 @@ private fun LibrarySongsPanel(
     selectedSongIds: Set<String>,
     onSelectionToggle: (String) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
+    locateSongId: String?,
+    locateRequestKey: Int,
+    onLocateConsumed: (Int) -> Unit,
     songListInfoVisibility: SongListInfoVisibility,
     modifier: Modifier = Modifier,
 ) {
@@ -127,6 +136,9 @@ private fun LibrarySongsPanel(
             sortDirection = library.sortDirection,
             listBottomPadding = listBottomPadding,
             infoVisibility = songListInfoVisibility,
+            locateSongId = locateSongId,
+            locateRequestKey = locateRequestKey,
+            onLocateConsumed = onLocateConsumed,
             modifier = modifier,
         )
     } else {
@@ -146,6 +158,9 @@ private fun LibrarySongsPanel(
             selectedSongIds = selectedSongIds,
             onSelectionToggle = onSelectionToggle,
             infoVisibility = songListInfoVisibility,
+            locateSongId = locateSongId,
+            locateRequestKey = locateRequestKey,
+            onLocateConsumed = onLocateConsumed,
             modifier = modifier,
         )
     }

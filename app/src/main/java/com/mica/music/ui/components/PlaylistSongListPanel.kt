@@ -57,6 +57,9 @@ fun PlaylistSongListPanel(
     sortDirection: SortDirection = library.sortDirection,
     listBottomPadding: Dp = 0.dp,
     infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
+    locateSongId: String? = null,
+    locateRequestKey: Int = 0,
+    onLocateConsumed: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val configuration = LocalConfiguration.current
@@ -88,6 +91,9 @@ fun PlaylistSongListPanel(
             fastScrollSortDirection = sortDirection,
             listBottomPadding = listBottomPadding,
             infoVisibility = infoVisibility,
+            locateSongId = locateSongId,
+            locateRequestKey = locateRequestKey,
+            onLocateConsumed = onLocateConsumed,
             zoomPage = LibraryZoomPage.PLAYLIST,
             modifier = modifier,
         )
@@ -105,6 +111,21 @@ fun PlaylistSongListPanel(
 
     val lazyListState = rememberLazyListState()
     val lazyGridState = rememberLazyGridState()
+
+    LaunchedEffect(locateRequestKey, locateSongId, columns) {
+        if (locateRequestKey > 0 && locateSongId != null) {
+            val targetIndex = songs.indexOfFirst { it.id == locateSongId }
+            if (targetIndex >= 0) {
+                if (columns > 1) {
+                    lazyGridState.animateScrollToItem(targetIndex)
+                } else {
+                    lazyListState.animateScrollToItem(targetIndex)
+                }
+            }
+            onLocateConsumed(locateRequestKey)
+        }
+    }
+
     val reorderListState = rememberReorderableLazyListState(lazyListState) { from, to ->
         val moved = items.removeAt(from.index)
         items.add(to.index, moved)

@@ -142,6 +142,8 @@ fun HomeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val appName = stringResource(R.string.app_name)
     val songListState = rememberLazyListState()
+    var pendingLocateSongId by remember { mutableStateOf<String?>(null) }
+    var pendingLocateRequestKey by remember { mutableStateOf(0) }
     val artistListState = rememberLazyListState()
     val artistGridState = rememberLazyGridState()
     val albumListState = rememberLazyListState()
@@ -470,10 +472,8 @@ fun HomeScreen(
             browseStack = emptyList(),
             section = HomeSection.Songs,
         )
-        scope.launch {
-            delay(MicaMotion.DurationShortMs.toLong())
-            songListState.animateScrollToItem(index)
-        }
+        pendingLocateSongId = song.id
+        pendingLocateRequestKey = locateCurrentSongRequest
     }
 
     LaunchedEffect(playlistStore.playlists, uiState.activePlaylistId) {
@@ -1001,6 +1001,14 @@ fun HomeScreen(
                         onSelectionToggle = ::toggleSongSelection,
                         onMoveSong = { from, to ->
                             library.moveSongInLibrary(from, to)
+                        },
+                        locateSongId = pendingLocateSongId,
+                        locateRequestKey = pendingLocateRequestKey,
+                        onLocateConsumed = { requestKey ->
+                            if (pendingLocateRequestKey == requestKey) {
+                                pendingLocateSongId = null
+                                pendingLocateRequestKey = 0
+                            }
                         },
                     )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
