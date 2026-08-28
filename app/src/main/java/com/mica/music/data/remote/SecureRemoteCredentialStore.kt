@@ -8,6 +8,13 @@ fun interface SecureRemoteCredentialStore {
     suspend fun resolve(credentialRef: String): RemoteCredentialSnapshot?
 }
 
+interface MutableSecureRemoteCredentialStore : SecureRemoteCredentialStore {
+    suspend fun put(
+        credentialRef: String,
+        material: RemoteCredentialMaterial,
+    ): RemoteCredentialSnapshot
+}
+
 class RemoteCredentialSnapshot(
     val credentialRef: String,
     val revision: Long,
