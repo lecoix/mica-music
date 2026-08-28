@@ -6,11 +6,20 @@ package com.mica.music.data.remote
  * A source edit or explicit invalidation advances the operation generation. Results captured from
  * an older generation must not publish after the source has changed.
  */
-class RemoteSourceOwner(initial: RemoteSourceInstance) {
+class RemoteSourceOwner(
+    initial: RemoteSourceInstance,
+    initialConfigRevision: Long = 1L,
+    initialOperationGeneration: Long = 1L,
+) {
+    init {
+        require(initialConfigRevision >= 1L) { "initialConfigRevision must be positive" }
+        require(initialOperationGeneration >= 1L) { "initialOperationGeneration must be positive" }
+    }
+
     private val lock = Any()
     private var instance: RemoteSourceInstance = initial
-    private var configRevision: Long = 1L
-    private var operationGeneration: Long = 1L
+    private var configRevision: Long = initialConfigRevision
+    private var operationGeneration: Long = initialOperationGeneration
 
     fun snapshot(): RemoteSourceSnapshot = synchronized(lock) {
         RemoteSourceSnapshot(instance, configRevision, operationGeneration)

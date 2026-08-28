@@ -279,3 +279,54 @@ val MIGRATION_19_20 = object : Migration(19, 20) {
         db.execSQL("ALTER TABLE songs ADD COLUMN loudnessAnalyzerRevision INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+val MIGRATION_20_21 = object : Migration(20, 21) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS remote_sources (
+                id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                displayName TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                credentialRef TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                configRevision INTEGER NOT NULL,
+                catalogRevision INTEGER NOT NULL,
+                lastSyncAtMs INTEGER NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS remote_tracks (
+                sourceInstanceId TEXT NOT NULL,
+                opaqueTrackId TEXT NOT NULL,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                album TEXT NOT NULL,
+                albumArtist TEXT NOT NULL,
+                durationSec INTEGER NOT NULL,
+                mimeTypeHint TEXT NOT NULL,
+                fileName TEXT NOT NULL,
+                suffix TEXT NOT NULL,
+                sizeBytes INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                trackNumber INTEGER NOT NULL,
+                discNumber INTEGER NOT NULL,
+                albumOpaqueId TEXT NOT NULL,
+                artistOpaqueId TEXT NOT NULL,
+                artworkOpaqueId TEXT NOT NULL,
+                catalogPosition INTEGER NOT NULL,
+                PRIMARY KEY(sourceInstanceId, opaqueTrackId),
+                FOREIGN KEY(sourceInstanceId) REFERENCES remote_sources(id) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_remote_tracks_sourceInstanceId " +
+                "ON remote_tracks(sourceInstanceId)",
+        )
+    }
+}

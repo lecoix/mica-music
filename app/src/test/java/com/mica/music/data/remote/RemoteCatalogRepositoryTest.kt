@@ -1,0 +1,156 @@
+package com.mica.music.data.remote
+
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.local.MicaDatabase
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+@RunWith(RobolectricTestRunner::class)
+class RemoteCatalogRepositoryTest {
+    private lateinit var database: MicaDatabase
+    private lateinit var repository: RemoteCatalogRepository
+
+    @Before
+    fun setUp() {
+        database = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            MicaDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        repository = RemoteCatalogRepository(database) { 1234L }
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    @Test
+    fun sourceAndCatalogRoundTripUsesStableRemoteIdentity() = runTest {
+        val source = source("nav-1")
+        val sourceSnapshot = repository.upsertSource(source)
+        val operation = repository.beginOperation(source.id)
+        assertNotNull(operation)
+
+        val track = track(source.id, "song-9", title = "Nine")
+        assertTrue(repository.publishCatalogIfCurrent(operation!!.token, listOf(track)))
+
+        assertEquals(1L, sourceSnapshot.configRevision)
+        assertEquals(listOf(source), repository.sources())
+        assertEquals(listOf(track), repository.tracksForSource(source.id))
+        assertEquals(track, repository.find(listOf(track.ref))[track.ref])
+
+        val stored = database.remoteSourceDao().getById(source.id)!!
+        assertEquals("credential/nav-1", stored.credentialRef)
+        assertEquals(1L, stored.catalogRevision)
+        assertEquals(1234L, stored.lastSyncAtMs)
+    }
+
+    @Test
+    fun staleGenerationCannotReplaceNewerCatalog() = runTest {
+        val source = source("nav-1")
+        repository.upsertSource(source)
+        val first = repository.beginOperation(source.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(first, listOf(track(source.id, "old"))))
+
+        val stale = repository.beginOperation(source.id)!!.token
+        repository.invalidateOperations(source.id)
+        val current = repository.beginOperation(source.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(current, listOf(track(source.id, "new"))))
+
+        assertFalse(repository.publishCatalogIfCurrent(stale, listOf(track(source.id, "stale"))))
+        assertEquals(listOf("new"), repository.tracksForSource(source.id).map { it.ref.opaqueTrackId })
+    }
+
+    @Test
+    fun sourceEditInvalidatesOldOperationWithoutClearingPublishedCatalog() = runTest {
+        val source = source("nav-1")
+        repository.upsertSource(source)
+        val original = repository.beginOperation(source.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(original, listOf(track(source.id, "kept"))))
+
+        val stale = repository.beginOperation(source.id)!!.token
+        val edited = source.copy(endpoint = "https://new.example")
+        val editedSnapshot = repository.upsertSource(edited)
+
+        assertEquals(2L, editedSnapshot.configRevision)
+        assertFalse(repository.publishCatalogIfCurrent(stale, listOf(track(source.id, "wrong"))))
+        assertEquals(listOf("kept"), repository.tracksForSource(source.id).map { it.ref.opaqueTrackId })
+        assertEquals("https://new.example", repository.source(source.id)?.endpoint)
+    }
+
+    @Test
+    fun publishingOneSourceDoesNotMutateAnotherSourceSnapshot() = runTest {
+        val a = source("a")
+        val b = source("b")
+        repository.upsertSource(a)
+        repository.upsertSource(b)
+        val a1 = repository.beginOperation(a.id)!!.token
+        val b1 = repository.beginOperation(b.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(a1, listOf(track(a.id, "a-1"))))
+        assertTrue(repository.publishCatalogIfCurrent(b1, listOf(track(b.id, "b-1"))))
+
+        val a2 = repository.beginOperation(a.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(a2, listOf(track(a.id, "a-2"))))
+
+        assertEquals(listOf("a-2"), repository.tracksForSource(a.id).map { it.ref.opaqueTrackId })
+        assertEquals(listOf("b-1"), repository.tracksForSource(b.id).map { it.ref.opaqueTrackId })
+        assertEquals(1L, database.remoteSourceDao().getById(b.id)!!.catalogRevision)
+    }
+
+    @Test
+    fun configRevisionSurvivesRepositoryRecreation() = runTest {
+        val source = source("nav-1")
+        repository.upsertSource(source)
+        repository.upsertSource(source.copy(displayName = "Edited"))
+
+        val recreated = RemoteCatalogRepository(database)
+        val snapshot = recreated.sourceSnapshot(source.id)
+
+        assertEquals(2L, snapshot?.configRevision)
+        assertEquals("Edited", snapshot?.instance?.displayName)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun catalogPublicationRejectsMixedSourceTracks() = runTest {
+        val source = source("nav-1")
+        repository.upsertSource(source)
+        val token = repository.beginOperation(source.id)!!.token
+        repository.publishCatalogIfCurrent(token, listOf(track("other", "bad")))
+    }
+
+    private fun source(id: String) = RemoteSourceInstance(
+        id = id,
+        type = RemoteSourceType.NAVIDROME,
+        displayName = "Source $id",
+        endpoint = "https://$id.example",
+        credentialRef = "credential/$id",
+    )
+
+    private fun track(sourceId: String, remoteId: String, title: String = remoteId) = RemoteTrackSummary(
+        ref = RemoteTrackRef(sourceId, remoteId),
+        title = title,
+        artist = "Artist",
+        album = "Album",
+        albumArtist = "Album Artist",
+        durationSec = 123,
+        mimeTypeHint = "audio/flac",
+        fileName = "$remoteId.flac",
+        suffix = "flac",
+        sizeBytes = 456L,
+        year = 2026,
+        trackNumber = 2,
+        discNumber = 1,
+        albumOpaqueId = "album-1",
+        artistOpaqueId = "artist-1",
+        artworkOpaqueId = "cover-1",
+    )
+}

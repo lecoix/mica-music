@@ -54,6 +54,15 @@ data class RemoteTrackSummary(
     val albumArtist: String = "",
     val durationSec: Int = 0,
     val mimeTypeHint: String = "",
+    val fileName: String = "",
+    val suffix: String = "",
+    val sizeBytes: Long = 0L,
+    val year: Int = 0,
+    val trackNumber: Int = 0,
+    val discNumber: Int = 0,
+    val albumOpaqueId: String = "",
+    val artistOpaqueId: String = "",
+    val artworkOpaqueId: String = "",
 ) {
     val mediaId: String get() = RemoteMediaIdCodec.encode(ref)
 }
