@@ -17,7 +17,7 @@
 - 真机 SMB 播放已通过；修复了“先 `setQueue` 再 `playSong`”导致旧队列 binder 回调抢回 current item 的竞态，现改为原子“替换队列并播放指定曲目”。
 - 真机非零 seek 已验证：M4A 从约 25.8 s 跳到 98.541 s 后，SMBJ 从字节偏移 7,381,641 开始实际读取，随后继续正常播放。
 - FLAC 中段 seek/冷启动恢复曾因 extractor 的细碎读取被 1:1 放大为 SMB 网络往返而长时间 buffering。参考 `tsm-player` 的有界预取思路，Mica 保留 SMBJ 精确 `File.read(fileOffset, ...)`，并在每个 `SmbDataSource` 内增加单个 1 MiB 有界 read-ahead window；无后台预取线程，异常仍保持为 I/O 失败而非伪装 EOF。真机 AIZO FLAC 在 63.505 s 冷恢复后的首批非零 SMB 读取从 14,821,727 字节开始，单次请求 1,048,576 字节，2 s 内进入正常播放。
-- SMB1 仍明确禁用；错误凭据/服务器不可用的类型化错误分类有确定性测试覆盖，本轮未重跑这两项真机负例。
+- SMB1 仍明确禁用。2026-08-30 已补齐真机负例：debug-only QA 控制面使用当前 Android Keystore 凭据进行错误密码连接，287 ms 内得到 `AUTH`；连接当前源相邻的不可达端口，26 ms 内得到 `CONNECT`；随后原凭据立即恢复并成功列目录。完整播放链另通过撤销 `adb reverse tcp:1445` 模拟服务器不可达，Mica 进入 Media3 `Source error`，根因为 SMB `ECONNREFUSED`；恢复 1445→445 转发并冷启动后错误清除，原远程曲目从保存位置恢复并继续播放。
 
 ## 已确定的产品范围
 

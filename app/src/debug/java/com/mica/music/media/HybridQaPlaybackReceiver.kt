@@ -6,12 +6,21 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.mica.music.MicaApp
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.remote.RemoteCredentialMaterial
+import com.mica.music.data.remote.RemoteSourceType
+import com.mica.music.data.remote.smb.SmbException
+import com.mica.music.data.remote.smb.SmbFailureKind
+import com.mica.music.data.remote.smb.SmbLogin
+import com.mica.music.data.remote.smb.SmbPathCodec
+import com.mica.music.data.remote.smb.SmbjSessionFactory
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import kotlinx.coroutines.runBlocking
@@ -31,6 +40,59 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                 Log.e(TAG, "control failed action=$action", error)
             }
             pending.finish()
+            return
+        }
+        if (action == "${appContext.packageName}.debug.SMB_QA_NEGATIVE_CONTRACT") {
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == RemoteSourceType.SMB }
+                            ?: error("No enabled SMB source is configured")
+                        val material = app.remoteCredentialStore.resolve(source.credentialRef)?.material
+                            as? RemoteCredentialMaterial.UsernamePassword
+                            ?: error("Configured SMB source has no username/password credential")
+                        val endpoint = SmbPathCodec.parse(source.endpoint)
+                        val validLogin = SmbLogin.parse(material.username, material.password)
+                        val factory = SmbjSessionFactory()
+
+                        val authStartedMs = SystemClock.elapsedRealtime()
+                        val authFailure = runCatching {
+                            factory.open(
+                                endpoint,
+                                SmbLogin.parse(material.username, material.password + "#mica-invalid"),
+                            ).close()
+                        }.exceptionOrNull()
+                        val authElapsedMs = SystemClock.elapsedRealtime() - authStartedMs
+                        require(authFailure is SmbException && authFailure.kind == SmbFailureKind.AUTH) {
+                            "Wrong-password SMB attempt did not fail as AUTH"
+                        }
+
+                        val unreachablePort = if (endpoint.port == 65535) 65534 else endpoint.port + 1
+                        val unreachableStartedMs = SystemClock.elapsedRealtime()
+                        val unreachableFailure = runCatching {
+                            factory.open(endpoint.copy(port = unreachablePort), validLogin).close()
+                        }.exceptionOrNull()
+                        val unreachableElapsedMs = SystemClock.elapsedRealtime() - unreachableStartedMs
+                        require(unreachableFailure is SmbException && unreachableFailure.kind == SmbFailureKind.CONNECT) {
+                            "Unreachable SMB attempt did not fail as CONNECT"
+                        }
+
+                        val recoveredEntryCount = factory.open(endpoint, validLogin).use { session ->
+                            session.list(endpoint.serverPath()).size
+                        }
+                        Log.i(
+                            TAG,
+                            "complete action=$action authKind=AUTH authMs=$authElapsedMs " +
+                                "unreachableKind=CONNECT unreachableMs=$unreachableElapsedMs recoveredEntries=$recoveredEntryCount",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
+                }
+                pending.finish()
+            }.start()
             return
         }
         val future = MediaController.Builder(
