@@ -36,8 +36,7 @@ internal fun RemoteLibraryPane(
     repository: RemoteCatalogRepository,
     currentSongId: String?,
     isPlaying: Boolean,
-    onQueueSongs: (List<Song>) -> Unit,
-    onSongClick: (String) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     listState: LazyListState,
     listBottomPadding: Dp,
     modifier: Modifier = Modifier,
@@ -123,8 +122,7 @@ internal fun RemoteLibraryPane(
                     isCurrent = isCurrent,
                     isPlaying = isCurrent && isPlaying,
                     onClick = {
-                        onQueueSongs(songs)
-                        onSongClick(song.id)
+                        onQueueSongClick(songs, song.id)
                     },
                     onLongClick = null,
                 )

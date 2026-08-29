@@ -11,6 +11,7 @@ import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.SecureRemoteCredentialStore
+import com.mica.music.util.DiagnosticLog
 import java.io.IOException
 import kotlin.math.min
 
@@ -61,6 +62,8 @@ internal class SmbStreamRequestResolver(
     }
 }
 
+internal const val SMB_READ_AHEAD_BYTES = 1024 * 1024
+
 @UnstableApi
 internal class SmbDataSource(
     private val request: SmbPlaybackRequest,
@@ -71,6 +74,10 @@ internal class SmbDataSource(
     private var openedSpec: DataSpec? = null
     private var readPosition: Long = 0L
     private var bytesRemaining: Long = 0L
+    private val readAheadBuffer = ByteArray(SMB_READ_AHEAD_BYTES)
+    private var readAheadOffset = 0
+    private var readAheadLength = 0
+    private var firstReadLogged = false
 
     override fun open(dataSpec: DataSpec): Long {
         check(openedSpec == null) { "SMB DataSource is already open" }
@@ -92,10 +99,17 @@ internal class SmbDataSource(
             }
             readPosition = dataSpec.position
             bytesRemaining = min(available, requestedLength)
+            readAheadOffset = 0
+            readAheadLength = 0
+            firstReadLogged = false
             session = nextSession
             file = nextFile
             openedSpec = dataSpec
             transferStarted(dataSpec)
+            DiagnosticLog.event(
+                "SmbDataSource",
+                "open mediaUri=${dataSpec.uri} position=${dataSpec.position} length=${dataSpec.length} remaining=$bytesRemaining",
+            )
             return bytesRemaining
         } catch (failure: Throwable) {
             runCatching { nextFile?.close() }
@@ -111,18 +125,41 @@ internal class SmbDataSource(
         if (length == 0) return 0
         val currentFile = file ?: throw IOException("SMB DataSource is not open")
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
-        val requested = min(length.toLong(), bytesRemaining).toInt()
-        val read = currentFile.read(readPosition, buffer, offset, requested)
-        if (read < 0) {
-            throw IOException("SMB file ended before the declared length")
+
+        if (readAheadOffset >= readAheadLength) {
+            val protocolReadLength = min(SMB_READ_AHEAD_BYTES.toLong(), bytesRemaining).toInt()
+            val startPosition = readPosition
+            val fetched = currentFile.read(startPosition, readAheadBuffer, 0, protocolReadLength)
+            if (fetched < 0) {
+                throw IOException("SMB file ended before the declared length")
+            }
+            if (fetched == 0) {
+                throw IOException("SMB file read made no progress")
+            }
+            readAheadOffset = 0
+            readAheadLength = fetched
+            if (!firstReadLogged) {
+                firstReadLogged = true
+                DiagnosticLog.event(
+                    "SmbDataSource",
+                    "first-read mediaUri=${openedSpec?.uri} position=$startPosition requested=$protocolReadLength read=$fetched",
+                )
+            }
         }
-        if (read == 0) {
-            throw IOException("SMB file read made no progress")
-        }
-        readPosition += read
-        bytesRemaining -= read
-        bytesTransferred(read)
-        return read
+
+        val buffered = readAheadLength - readAheadOffset
+        val copied = min(min(length.toLong(), bytesRemaining), buffered.toLong()).toInt()
+        readAheadBuffer.copyInto(
+            destination = buffer,
+            destinationOffset = offset,
+            startIndex = readAheadOffset,
+            endIndex = readAheadOffset + copied,
+        )
+        readAheadOffset += copied
+        readPosition += copied
+        bytesRemaining -= copied
+        bytesTransferred(copied)
+        return copied
     }
 
     override fun getUri(): Uri? = openedSpec?.uri
@@ -136,6 +173,9 @@ internal class SmbDataSource(
         session = null
         readPosition = 0L
         bytesRemaining = 0L
+        readAheadOffset = 0
+        readAheadLength = 0
+        firstReadLogged = false
         var firstFailure: Throwable? = null
         try {
             currentFile?.close()

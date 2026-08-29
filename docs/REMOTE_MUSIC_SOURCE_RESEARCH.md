@@ -10,7 +10,15 @@
 - Navidrome / OpenSubsonic MVP 已实现并接入统一远程曲库、JIT 播放解析和凭据边界。
 - WebDAV MVP 已实现；真机已覆盖配置、鉴权、PROPFIND、递归同步、播放与非零 Range seek。
 - SMB2/SMB3 MVP 已实现到协议 adapter、递归同步、稳定媒体身份、JIT 凭据解析与 Media3 offset-read DataSource；SMB1 明确不启用。
-- SMB 单元/路由回归与 QA 构建已通过；真实 Android + SMB 服务器的端到端 smoke 仍需一个设备可访问且可认证的 SMB2/SMB3 测试端点。
+- SMB 单元/路由回归与 QA 构建已通过；真实 Android + SMB2/SMB3 端到端验收已于 2026-08-30 完成，详见下节。
+## 2026-08-30 SMB 真机验收
+
+- 真实 Android + Windows SMB2/SMB3 链路已打通：递归同步并原子发布 264 首远程曲目，远程曲库可浏览。
+- 真机 SMB 播放已通过；修复了“先 `setQueue` 再 `playSong`”导致旧队列 binder 回调抢回 current item 的竞态，现改为原子“替换队列并播放指定曲目”。
+- 真机非零 seek 已验证：M4A 从约 25.8 s 跳到 98.541 s 后，SMBJ 从字节偏移 7,381,641 开始实际读取，随后继续正常播放。
+- FLAC 中段 seek/冷启动恢复曾因 extractor 的细碎读取被 1:1 放大为 SMB 网络往返而长时间 buffering。参考 `tsm-player` 的有界预取思路，Mica 保留 SMBJ 精确 `File.read(fileOffset, ...)`，并在每个 `SmbDataSource` 内增加单个 1 MiB 有界 read-ahead window；无后台预取线程，异常仍保持为 I/O 失败而非伪装 EOF。真机 AIZO FLAC 在 63.505 s 冷恢复后的首批非零 SMB 读取从 14,821,727 字节开始，单次请求 1,048,576 字节，2 s 内进入正常播放。
+- SMB1 仍明确禁用；错误凭据/服务器不可用的类型化错误分类有确定性测试覆盖，本轮未重跑这两项真机负例。
+
 ## 已确定的产品范围
 
 - 设置中合并为一个“远程曲库”入口。

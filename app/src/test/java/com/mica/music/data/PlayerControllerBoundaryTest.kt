@@ -1773,6 +1773,77 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun laterSetQueueSupersedesPendingAtomicQueuePlaybackBeforeConnection() {
+        PendingPlaybackNavigation.clear()
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val requestedQueue = listOf(
+            SongFixtures.song("remote-a"),
+            SongFixtures.song("remote-b"),
+        )
+        val replacementQueue = listOf(
+            SongFixtures.song("local-a"),
+            SongFixtures.song("local-b"),
+        )
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val submittedItems = slot<List<MediaItem>>()
+        every { mediaController.mediaItemCount } returns 0
+        every { mediaController.currentMediaItem } returns null
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.duration } returns 0L
+
+        controller.playQueueSong(requestedQueue, "remote-b")
+        controller.setQueue(replacementQueue)
+        connector.requests.single().onConnected(mediaController)
+
+        verify(exactly = 1) { mediaController.setMediaItems(capture(submittedItems), 1, 0L) }
+        verify(exactly = 0) { mediaController.play() }
+        assertEquals(replacementQueue.map { it.id }, submittedItems.captured.map(MediaItem::mediaId))
+        assertEquals(replacementQueue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
+        assertNull(PendingPlaybackNavigation.consumeNavigationOverride())
+        controller.release()
+    }
+
+    @Test
+    fun playQueueSongSetsTargetStartIndexAndCarriesQueuePayloadAcrossBinderLag() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val oldItem = MediaItem.Builder().setMediaId("old-song").build()
+        val queue = listOf(
+            SongFixtures.song("song-a"),
+            SongFixtures.song("song-b"),
+            SongFixtures.song("song-c"),
+        )
+        every { mediaController.currentMediaItem } returns oldItem
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.getMediaItemAt(0) } returns oldItem
+        every { mediaController.currentPosition } returns 9_000L
+        every { mediaController.duration } returns 60_000L
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+        PendingPlaybackNavigation.clear()
+
+        controller.playQueueSong(queue, "song-b")
+
+        val submittedItems = slot<List<MediaItem>>()
+        verify(exactly = 1) {
+            mediaController.setMediaItems(capture(submittedItems), 1, 0L)
+        }
+        verify(exactly = 1) { mediaController.seekTo(1, 0L) }
+        verify(exactly = 1) { mediaController.play() }
+        assertEquals(queue.map { it.id }, submittedItems.captured.map(MediaItem::mediaId))
+        assertEquals("song-b", controller.playbackSurfaceState.currentSong?.id)
+        val navigation = PendingPlaybackNavigation.consumeNavigationOverride()
+        assertEquals("song-b", navigation?.targetSongId)
+        assertEquals(queue.map { it.id }, navigation?.queue?.items?.map(MediaItem::mediaId))
+        controller.release()
+    }
+
+    @Test
     fun playSongSwitchCarriesQueuePayloadWhenServiceQueueIsNotAligned() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)

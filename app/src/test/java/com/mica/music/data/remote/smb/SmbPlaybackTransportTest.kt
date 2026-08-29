@@ -85,10 +85,51 @@ class SmbPlaybackTransportTest {
         assertEquals(2, second)
         assertEquals(C.RESULT_END_OF_INPUT, eof)
         assertArrayEquals("4567".toByteArray(), output)
-        assertEquals(listOf(4L, 6L), file.offsets)
+        assertEquals(listOf(4L), file.offsets)
+        assertEquals(listOf(4), file.requestedLengths)
         assertEquals(stableUri, openedUri)
         assertTrue(file.closed)
         assertTrue(session.closed)
+    }
+
+    @Test
+    fun tinyReadsShareOneBoundedProtocolReadAheadWindow() {
+        val payload = ByteArray(SMB_READ_AHEAD_BYTES + 64) { index -> (index % 251).toByte() }
+        val file = FakeFile(payload)
+        val dataSource = SmbDataSource(request(), SmbSessionFactory { _, _ -> FakeSession(file) })
+        val start = 17L
+        dataSource.open(DataSpec.Builder().setUri(Uri.parse("mica-remote://track/stable")).setPosition(start).build())
+
+        val output = ByteArray(20)
+        repeat(10) { index ->
+            assertEquals(2, dataSource.read(output, index * 2, 2))
+        }
+        dataSource.close()
+
+        assertArrayEquals(payload.copyOfRange(start.toInt(), start.toInt() + output.size), output)
+        assertEquals(listOf(start), file.offsets)
+        assertEquals(listOf(SMB_READ_AHEAD_BYTES), file.requestedLengths)
+    }
+
+    @Test
+    fun readAheadRefillsAtNextSequentialProtocolOffset() {
+        val payload = ByteArray(SMB_READ_AHEAD_BYTES + 32) { index -> (index % 239).toByte() }
+        val file = FakeFile(payload)
+        val dataSource = SmbDataSource(request(), SmbSessionFactory { _, _ -> FakeSession(file) })
+        dataSource.open(DataSpec(Uri.parse("mica-remote://track/stable")))
+
+        val first = ByteArray(SMB_READ_AHEAD_BYTES)
+        var filled = 0
+        while (filled < first.size) {
+            filled += dataSource.read(first, filled, first.size - filled)
+        }
+        val tail = ByteArray(8)
+        assertEquals(8, dataSource.read(tail, 0, tail.size))
+        dataSource.close()
+
+        assertEquals(listOf(0L, SMB_READ_AHEAD_BYTES.toLong()), file.offsets)
+        assertEquals(listOf(SMB_READ_AHEAD_BYTES, 32), file.requestedLengths)
+        assertArrayEquals(payload.copyOfRange(SMB_READ_AHEAD_BYTES, SMB_READ_AHEAD_BYTES + 8), tail)
     }
 
     @Test
@@ -128,10 +169,12 @@ class SmbPlaybackTransportTest {
     ) : SmbRandomAccessFile {
         override val length: Long get() = declaredLength
         val offsets = mutableListOf<Long>()
+        val requestedLengths = mutableListOf<Int>()
         var closed = false
 
         override fun read(fileOffset: Long, buffer: ByteArray, offset: Int, length: Int): Int {
             offsets += fileOffset
+            requestedLengths += length
             if (fileOffset >= payload.size) return -1
             val count = minOf(length, payload.size - fileOffset.toInt())
             payload.copyInto(buffer, offset, fileOffset.toInt(), fileOffset.toInt() + count)

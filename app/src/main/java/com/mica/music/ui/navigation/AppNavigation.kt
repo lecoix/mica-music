@@ -178,6 +178,11 @@ fun AppNavigationMain(
                     playerController.playSongById(songId)
                     coordinator.playerExpanded = true
                 },
+                onQueueSongClick = { queue, songId ->
+                    logBackFlow("player-overlay open source=queue-song-click song=$songId items=${queue.size}")
+                    playerController.playQueueSong(queue, songId)
+                    coordinator.playerExpanded = true
+                },
                 onMiniPlayerExpand = {
                     logBackFlow("player-overlay open source=mini-player")
                     coordinator.playerExpanded = true
