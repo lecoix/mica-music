@@ -33,9 +33,11 @@ import com.mica.music.isExternalAudioUriRestorableNow
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.remote.CompositeRemoteHttpPlaybackRequestResolver
 import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
 import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.navidrome.NavidromeStreamRequestResolver
+import com.mica.music.data.remote.webdav.WebDavStreamRequestResolver
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.EqualizerPreferences
@@ -101,9 +103,15 @@ class MicaMediaService : MediaSessionService() {
             remoteMediaItemsById = remoteMediaItemProvider::resolve,
             mediaItemFactory = { song -> ExternalMediaItemCodec.encode(this, song) },
         )
-        remoteHttpPlaybackResolver = NavidromeStreamRequestResolver(
-            sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
-            credentialStore = micaApp.remoteCredentialStore,
+        remoteHttpPlaybackResolver = CompositeRemoteHttpPlaybackRequestResolver(
+            NavidromeStreamRequestResolver(
+                sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+                credentialStore = micaApp.remoteCredentialStore,
+            ),
+            WebDavStreamRequestResolver(
+                sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+                credentialStore = micaApp.remoteCredentialStore,
+            ),
         )
         setListener(object : MediaSessionService.Listener {
             override fun onForegroundServiceStartNotAllowedException() {

@@ -7,6 +7,8 @@ import com.mica.music.data.remote.navidrome.NavidromeProtocolCatalogApi
 import com.mica.music.data.remote.navidrome.NavidromeRequestFactory
 import com.mica.music.data.remote.navidrome.NavidromeSourceSync
 import com.mica.music.data.remote.navidrome.NavidromeSyncResult
+import com.mica.music.data.remote.webdav.WebDavSourceSync
+import com.mica.music.data.remote.webdav.WebDavSyncResult
 import java.net.URI
 import java.util.UUID
 
@@ -22,7 +24,7 @@ internal class RemoteSourceManager internal constructor(
     private val credentialStore: MutableSecureRemoteCredentialStore,
     private val navidromeExecutor: NavidromeHttpExecutor,
     private val navidromeRequestFactory: NavidromeRequestFactory = NavidromeRequestFactory(),
-    private val sourceIdProvider: () -> String = { "navidrome-${UUID.randomUUID()}" },
+    private val sourceIdProvider: (RemoteSourceType) -> String = { type -> "${type.name.lowercase()}-${UUID.randomUUID()}" },
     private val credentialRefProvider: (String) -> String = { sourceId ->
         "remote-credential/$sourceId/${UUID.randomUUID()}"
     },
@@ -45,7 +47,7 @@ internal class RemoteSourceManager internal constructor(
         password: String,
         enabled: Boolean = true,
     ): RemoteSourceInstance {
-        val sourceId = sourceIdProvider().trim()
+        val sourceId = sourceIdProvider(RemoteSourceType.NAVIDROME).trim()
         require(sourceId.isNotBlank()) { "Generated remote source id must not be blank" }
         val credentialRef = credentialRefProvider(sourceId).trim()
         require(credentialRef.isNotBlank()) { "Generated credentialRef must not be blank" }
@@ -68,6 +70,35 @@ internal class RemoteSourceManager internal constructor(
         return instance
     }
 
+    suspend fun createWebDav(
+        displayName: String,
+        endpoint: String,
+        username: String,
+        password: String,
+        enabled: Boolean = true,
+    ): RemoteSourceInstance {
+        val sourceId = sourceIdProvider(RemoteSourceType.WEBDAV).trim()
+        require(sourceId.isNotBlank()) { "Generated remote source id must not be blank" }
+        val credentialRef = credentialRefProvider(sourceId).trim()
+        require(credentialRef.isNotBlank()) { "Generated credentialRef must not be blank" }
+        val instance = RemoteSourceInstance(
+            id = sourceId,
+            type = RemoteSourceType.WEBDAV,
+            displayName = normalizeDisplayName(displayName),
+            endpoint = normalizeHttpEndpoint(endpoint),
+            credentialRef = credentialRef,
+            enabled = enabled,
+        )
+        credentialStore.put(
+            credentialRef,
+            RemoteCredentialMaterial.UsernamePassword(
+                username = normalizeUsername(username),
+                password = normalizePassword(password),
+            ),
+        )
+        catalogRepository.upsertSource(instance)
+        return instance
+    }
     suspend fun updateSourceConfig(
         sourceInstanceId: String,
         displayName: String,
@@ -100,35 +131,35 @@ internal class RemoteSourceManager internal constructor(
         password: String,
     ): RemoteSourceInstance {
         val current = requireNavidromeSource(sourceInstanceId)
-        val nextCredentialRef = credentialRefProvider(sourceInstanceId).trim()
-        require(nextCredentialRef.isNotBlank()) { "Generated credentialRef must not be blank" }
-        require(nextCredentialRef != current.credentialRef) {
-            "Credential rotation must allocate a new credentialRef"
-        }
-        credentialStore.put(
-            nextCredentialRef,
-            RemoteCredentialMaterial.UsernamePassword(
-                username = normalizeUsername(username),
-                password = normalizePassword(password),
-            ),
-        )
-        val updated = current.copy(credentialRef = nextCredentialRef)
-        catalogRepository.upsertSource(updated)
-        invalidateSourceLyrics(sourceInstanceId)
-        return updated
+        return rotateUsernamePasswordCredentials(current, username, password)
     }
 
+    suspend fun rotateWebDavCredentials(
+        sourceInstanceId: String,
+        username: String,
+        password: String,
+    ): RemoteSourceInstance {
+        val current = requireWebDavSource(sourceInstanceId)
+        return rotateUsernamePasswordCredentials(current, username, password)
+    }
     suspend fun testConnection(sourceInstanceId: String) {
-        val source = requireNavidromeSource(sourceInstanceId)
+        val source = requireSource(sourceInstanceId)
         require(source.enabled) { "Remote source is disabled" }
-        val owner = catalogRepository.sourceOwner(sourceInstanceId)
-            ?: error("Remote source disappeared before connection test")
-        NavidromeProtocolCatalogApi(
-            sourceOwner = owner,
-            credentialStore = credentialStore,
-            executor = navidromeExecutor,
-            requestFactory = navidromeRequestFactory,
-        ).ping()
+        when (source.type) {
+            RemoteSourceType.NAVIDROME -> {
+                val owner = catalogRepository.sourceOwner(sourceInstanceId)
+                    ?: error("Remote source disappeared before connection test")
+                NavidromeProtocolCatalogApi(
+                    sourceOwner = owner,
+                    credentialStore = credentialStore,
+                    executor = navidromeExecutor,
+                    requestFactory = navidromeRequestFactory,
+                ).ping()
+            }
+            RemoteSourceType.WEBDAV -> WebDavSourceSync(catalogRepository, credentialStore)
+                .testConnection(sourceInstanceId)
+            RemoteSourceType.SMB -> throw IllegalArgumentException("SMB source is not implemented yet")
+        }
     }
 
     suspend fun syncNavidrome(
@@ -149,6 +180,44 @@ internal class RemoteSourceManager internal constructor(
         return result
     }
 
+    suspend fun syncWebDav(
+        sourceInstanceId: String,
+        limit: Int = Int.MAX_VALUE,
+    ): WebDavSyncResult {
+        val source = requireWebDavSource(sourceInstanceId)
+        require(source.enabled) { "Remote source is disabled" }
+        val previousMediaIds = catalogRepository.tracksForSource(sourceInstanceId)
+            .mapTo(linkedSetOf(), RemoteTrackSummary::mediaId)
+        val result = WebDavSourceSync(
+            catalogRepository = catalogRepository,
+            credentialStore = credentialStore,
+        ).sync(sourceInstanceId, limit)
+        invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
+        return result
+    }
+
+    private suspend fun rotateUsernamePasswordCredentials(
+        current: RemoteSourceInstance,
+        username: String,
+        password: String,
+    ): RemoteSourceInstance {
+        val nextCredentialRef = credentialRefProvider(current.id).trim()
+        require(nextCredentialRef.isNotBlank()) { "Generated credentialRef must not be blank" }
+        require(nextCredentialRef != current.credentialRef) {
+            "Credential rotation must allocate a new credentialRef"
+        }
+        credentialStore.put(
+            nextCredentialRef,
+            RemoteCredentialMaterial.UsernamePassword(
+                username = normalizeUsername(username),
+                password = normalizePassword(password),
+            ),
+        )
+        val updated = current.copy(credentialRef = nextCredentialRef)
+        catalogRepository.upsertSource(updated)
+        invalidateSourceLyrics(current.id)
+        return updated
+    }
     private suspend fun invalidateSourceLyrics(
         sourceInstanceId: String,
         additionalMediaIds: Collection<String> = emptyList(),
@@ -170,6 +239,12 @@ internal class RemoteSourceManager internal constructor(
             }
         }
 
+    private suspend fun requireWebDavSource(sourceInstanceId: String): RemoteSourceInstance =
+        requireSource(sourceInstanceId).also { source ->
+            require(source.type == RemoteSourceType.WEBDAV) {
+                "Source $sourceInstanceId is not WebDAV"
+            }
+        }
     companion object {
         internal fun normalizeHttpEndpoint(raw: String): String {
             val trimmed = raw.trim().trimEnd('/')
@@ -197,4 +272,3 @@ internal class RemoteSourceManager internal constructor(
             value.also { require(it.isNotBlank()) { "Password must not be blank" } }
     }
 }
-

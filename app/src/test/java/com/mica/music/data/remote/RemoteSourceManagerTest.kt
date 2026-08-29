@@ -1,4 +1,4 @@
-﻿package com.mica.music.data.remote
+package com.mica.music.data.remote
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -156,6 +156,27 @@ class RemoteSourceManagerTest {
     }
 
     @Test
+    fun webDavSourceUsesIndependentTypeIdentityAndCredentialRotation() = runTest {
+        val manager = manager(executor = NavidromeHttpExecutor { okResponse() })
+        val source = manager.createWebDav(
+            displayName = " Files ",
+            endpoint = "https://dav.example/music/",
+            username = " alice ",
+            password = "old-secret",
+        )
+
+        assertEquals(RemoteSourceType.WEBDAV, source.type)
+        assertEquals("Files", source.displayName)
+        assertEquals("https://dav.example/music", source.endpoint)
+        val oldRef = source.credentialRef
+        val rotated = manager.rotateWebDavCredentials(source.id, "alice", "new-secret")
+
+        assertNotEquals(oldRef, rotated.credentialRef)
+        assertEquals(RemoteSourceType.WEBDAV, repository.source(source.id)?.type)
+        assertEquals("new-secret", (credentials.resolve(rotated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
+        assertEquals("old-secret", (credentials.resolve(oldRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
+    }
+    @Test
     fun endpointValidationRejectsEmbeddedCredentialAndQuery() {
         val embedded = runCatching {
             RemoteSourceManager.normalizeHttpEndpoint("https://alice:secret@music.example")
@@ -181,7 +202,7 @@ class RemoteSourceManagerTest {
         credentialStore = credentials,
         navidromeExecutor = executor,
         navidromeRequestFactory = NavidromeRequestFactory(saltProvider = { "fixedsalt" }),
-        sourceIdProvider = { "nav-1" },
+        sourceIdProvider = { _ -> "nav-1" },
         credentialRefProvider = { sourceId -> "credential/$sourceId/${++credentialCounter}" },
     )
 

@@ -49,7 +49,7 @@ internal fun RemoteMusicSettingsPanel() {
     var loading by remember { mutableStateOf(true) }
     var busySourceId by remember { mutableStateOf<String?>(null) }
     var transientMessage by remember { mutableStateOf<String?>(null) }
-    var addDialogOpen by remember { mutableStateOf(false) }
+    var addSourceType by remember { mutableStateOf<RemoteSourceType?>(null) }
     var editSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
     var credentialSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
 
@@ -85,7 +85,13 @@ internal fun RemoteMusicSettingsPanel() {
     SettingsActionRow(
         title = "添加 Navidrome / OpenSubsonic",
         subtitle = "使用 Subsonic API；默认请求原始音频，不主动转码",
-        onClick = { addDialogOpen = true },
+        onClick = { addSourceType = RemoteSourceType.NAVIDROME },
+        enabled = busySourceId == null,
+    )
+    SettingsActionRow(
+        title = "添加 WebDAV",
+        subtitle = "递归枚举 WebDAV 目录；播放使用严格 Range 语义",
+        onClick = { addSourceType = RemoteSourceType.WEBDAV },
         enabled = busySourceId == null,
     )
 
@@ -119,29 +125,33 @@ internal fun RemoteMusicSettingsPanel() {
             )
             SettingsActionRow(
                 title = "测试连接",
-                subtitle = if (busy) "正在执行…" else "发送一次 Subsonic ping，不修改曲库",
+                subtitle = if (busy) "正在执行…" else connectionTestSubtitle(source.type),
                 onClick = {
                     runSourceAction(source.id, "${source.displayName} 连接正常") {
                         manager.testConnection(source.id)
                     }
                 },
-                enabled = source.enabled && !busy,
+                enabled = source.enabled && !busy && source.type != RemoteSourceType.SMB,
             )
             SettingsActionRow(
                 title = "同步曲库",
                 subtitle = if (busy) "正在同步…" else "重新枚举该来源并原子替换它自己的曲库快照",
                 onClick = {
                     runSourceAction(source.id, "${source.displayName} 同步完成") {
-                        manager.syncNavidrome(source.id)
+                        when (source.type) {
+                            RemoteSourceType.NAVIDROME -> manager.syncNavidrome(source.id)
+                            RemoteSourceType.WEBDAV -> manager.syncWebDav(source.id)
+                            RemoteSourceType.SMB -> error("SMB source is not implemented yet")
+                        }
                     }
                 },
-                enabled = source.enabled && !busy,
+                enabled = source.enabled && !busy && source.type != RemoteSourceType.SMB,
             )
             SettingsActionRow(
                 title = "更新登录信息",
                 subtitle = "密码不会回显；保存时切换到新的加密 credentialRef",
                 onClick = { credentialSource = source },
-                enabled = !busy,
+                enabled = !busy && source.type != RemoteSourceType.SMB,
             )
         }
     }
@@ -150,22 +160,34 @@ internal fun RemoteMusicSettingsPanel() {
         SettingsTipRow(message)
     }
 
-    if (addDialogOpen) {
-        NavidromeSourceDialog(
-            title = "添加 Navidrome",
-            initialName = "Navidrome",
+    addSourceType?.let { sourceType ->
+        HttpRemoteSourceDialog(
+            title = when (sourceType) {
+                RemoteSourceType.NAVIDROME -> "添加 Navidrome"
+                RemoteSourceType.WEBDAV -> "添加 WebDAV"
+                RemoteSourceType.SMB -> "添加 SMB"
+            },
+            initialName = when (sourceType) {
+                RemoteSourceType.NAVIDROME -> "Navidrome"
+                RemoteSourceType.WEBDAV -> "WebDAV"
+                RemoteSourceType.SMB -> "SMB"
+            },
             initialEndpoint = "",
             includeCredentials = true,
             confirmLabel = "添加",
-            onDismiss = { addDialogOpen = false },
+            onDismiss = { addSourceType = null },
             onConfirm = { name, endpoint, username, password ->
-                if (busySourceId != null) return@NavidromeSourceDialog
+                if (busySourceId != null) return@HttpRemoteSourceDialog
                 busySourceId = NEW_SOURCE_BUSY_ID
                 scope.launch {
                     runCatching {
-                        manager.createNavidrome(name, endpoint, username, password)
+                        when (sourceType) {
+                            RemoteSourceType.NAVIDROME -> manager.createNavidrome(name, endpoint, username, password)
+                            RemoteSourceType.WEBDAV -> manager.createWebDav(name, endpoint, username, password)
+                            RemoteSourceType.SMB -> error("SMB source is not implemented yet")
+                        }
                     }.onSuccess {
-                        addDialogOpen = false
+                        addSourceType = null
                         transientMessage = "已添加 ${it.displayName}"
                         refreshRevision++
                     }.onFailure {
@@ -178,7 +200,7 @@ internal fun RemoteMusicSettingsPanel() {
     }
 
     editSource?.let { source ->
-        NavidromeSourceDialog(
+        HttpRemoteSourceDialog(
             title = "编辑来源",
             initialName = source.displayName,
             initialEndpoint = source.endpoint,
@@ -200,12 +222,16 @@ internal fun RemoteMusicSettingsPanel() {
     }
 
     credentialSource?.let { source ->
-        NavidromeCredentialDialog(
+        RemoteCredentialDialog(
             sourceName = source.displayName,
             onDismiss = { credentialSource = null },
             onConfirm = { username, password ->
                 runSourceAction(source.id, "${source.displayName} 登录信息已更新") {
-                    manager.rotateNavidromeCredentials(source.id, username, password)
+                    when (source.type) {
+                        RemoteSourceType.NAVIDROME -> manager.rotateNavidromeCredentials(source.id, username, password)
+                        RemoteSourceType.WEBDAV -> manager.rotateWebDavCredentials(source.id, username, password)
+                        RemoteSourceType.SMB -> error("SMB source is not implemented yet")
+                    }
                     credentialSource = null
                 }
             },
@@ -214,7 +240,7 @@ internal fun RemoteMusicSettingsPanel() {
 }
 
 @Composable
-private fun NavidromeSourceDialog(
+private fun HttpRemoteSourceDialog(
     title: String,
     initialName: String,
     initialEndpoint: String,
@@ -297,7 +323,7 @@ private fun NavidromeSourceDialog(
 }
 
 @Composable
-private fun NavidromeCredentialDialog(
+private fun RemoteCredentialDialog(
     sourceName: String,
     onDismiss: () -> Unit,
     onConfirm: (username: String, password: String) -> Unit,
@@ -340,6 +366,12 @@ private fun NavidromeCredentialDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+private fun connectionTestSubtitle(type: RemoteSourceType): String = when (type) {
+    RemoteSourceType.NAVIDROME -> "发送一次 Subsonic ping，不修改曲库"
+    RemoteSourceType.WEBDAV -> "发送一次 PROPFIND Depth 0，不修改曲库"
+    RemoteSourceType.SMB -> "SMB 尚未实现"
 }
 
 private fun buildSourceSubtitle(status: RemoteSourceStatus): String {
