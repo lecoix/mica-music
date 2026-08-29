@@ -114,7 +114,7 @@ Mica 只吸收上述**生命周期与 ownership 结构**。DSD canonicalization�
 - 基于 Jellyfin/Media3 FFmpeg 扩展，补丁要点：
   - `FfmpegLibrary`：`audio/dsd` → 解码器名 `dsd_lsbf_planar`
   - `ffmpeg_jni.cc`：`createContext` 对 DSD codec 设置 `sample_rate` / `ch_layout`；输出经 `swresample` 转为请求格式（float 或 s16）
-- Native 构建：`scripts/build-media3-ffmpeg-dsd.ps1`（Docker）→ `libffmpegJNI.so` 打入 `src/main/jniLibs/arm64-v8a/`
+- Native 构建：`scripts/build-media3-ffmpeg-dsd.ps1`（Docker）当前直接生成 `arm64-v8a` 的 `libffmpegJNI.so`；项目的 ARMv7 发布还必须同时提供 `src/main/jniLibs/armeabi-v7a/` 对应产物，不能只扩大 App 的 `abiFilters`。
 - App 依赖：检测到本地 so 时使用该模块，否则回退 Maven 坐标（无 DSD）。
 
 ### 3. 渲染与 Sink：`MicaRenderersFactory`
@@ -157,7 +157,7 @@ Mica 只吸收上述**生命周期与 ownership 结构**。DSD canonicalization�
 .\scripts\build-media3-ffmpeg-dsd.ps1
 ```
 
-确认 `third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so` 存在后再编 APK。`perf` 变体需 library 模块同步 `perf` buildType。
+确认 `third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so` 和 `armeabi-v7a/libffmpegJNI.so` 均存在后再编 ABI split APK。`perf` 变体需 library 模块同步 `perf` buildType；发布 workflow 还会逐包检查 FFmpeg、TagLib、USB transport、libusb 和 `libc++_shared.so` 等 native library。
 
 ---
 

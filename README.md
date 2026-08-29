@@ -2,7 +2,7 @@
 
 > 极简直角 · 多种主题 · 自定义
 
-一款不专业的 **本地 HiFi 播放器**，特色包括：多种主题样式、丰富的自定义选项、内嵌/外挂歌词优先级自由调整与 ALAC/DSF/APE 支持。
+一款不怎么专业的 **本地 HiFi 播放器**，特色包括：多种主题样式、丰富的自定义选项、内嵌/外挂歌词优先级自由调整、USB 独占功能与 ALAC/DSF/APE 支持。
 
 ---
 <p align="center">
@@ -27,7 +27,7 @@
 - **Android Studio**：Hedgehog (2023.1.1) 或更新
 - **JDK**：17
 - **Android SDK**：API 35（compileSdk）/ API 26+（minSdk）
-- **设备**：Android 8.0+，**arm64-v8a**（项目目前仅编 64 位；Media3 FFmpeg 扩展包含在工程内）
+- **设备**：Android 8.0+，支持 **arm64-v8a** 和 **armeabi-v7a**；Media3 FFmpeg 扩展包含在工程内
 
 ### 自行编译
 
@@ -54,6 +54,8 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 . .\scripts\use-utf8-console.ps1
 ```
 
+发布构建启用 ABI split 时会生成 arm64、ARMv7 和通用 APK；GitHub Actions 还会检查三包的 ABI/native library 集合并执行签名校验。正式发布以 [`docs/APP_UPDATE.md`](docs/APP_UPDATE.md) 和 Actions 结果为准，不能用本地 unsigned 包代替。
+
 
 ---
 
@@ -61,16 +63,16 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 | 模块 | 说明 |
 |------|------|
-| **播放页主题** | 标准 / 自定义 / **粒子封面**（GLES）/ 平行封面带 / 复古立体 / **拍立得回忆** |
-| **播放页背景** | 主题色、封面渐变、封面模糊、流光溢彩 |
-| **播放页其他行为** | 沉浸模式、频谱条（可选）、封面底边进度、共享封面转场 |
-| **播放** | Media3 ExoPlayer 单链路；Jellyfin FFmpeg 扩展解码 ALAC/DSF/APE；音频管线协调 + offload 失速熔断；顺序/循环/随机；10 段软件 EQ；通知歌词（可选） |
-| **曲库扫描** | MediaStore 或 SAF；深度元数据、封面缓存与取色、增量同步 |
-| **持久化** | Room 曲库与歌单（schema v17）；`ServicePlaybackStateStore` 冷启动恢复队列与进度（外部队列仅在权限可存续时恢复） |
+| **播放页主题** | 标准 / 自定义 / **粒子封面** / 平行封面带 / 复古立体 / **拍立得回忆** |
+| **播放页背景** | 主题色、封面渐变、封面模糊、动态流光 |
+| **播放页其他行为** | 沉浸模式、频谱条、共享封面转场、拖动缩放显隐播放页组件 |
+| **播放** | USB 独占（Exact PCM / DoP / 实验性 Native DSD）；Media3 ExoPlayer 单链路；Jellyfin FFmpeg 扩展解码 ALAC/DSF/APE；音频管线协调 + offload 失速熔断；顺序/循环/随机；10 段软件 EQ；通知歌词（可选）；标准主题本地音乐 MV（默认关闭，音乐唯一出声） |
+| **曲库扫描** | MediaStore 或 SAF；自托管 TagLib 深度元数据；封面缓存与取色；增量同步 |
+| **持久化** | Room 曲库与歌单（schema v21）；`ServicePlaybackStateStore` 冷启动恢复队列与进度（外部队列仅在权限可存续时恢复） |
 | **歌词** | 内嵌 + 外挂 `.lrc` `逐字歌词` `TTML歌词`；三行歌词、展开歌词页、双语/逐字等设置 |
-| **浏览** | 歌曲 / 歌手 / 专辑 / 最近 / 歌单 / 音乐库分析 |
-| **迷你栏** | 浮岛毛玻璃（BlurView）/ 极简 Hi‑Fi 底栏 |
-| **界面** | 可自定义配置强调色&背景色、自定义背景图片、全局动效（`MicaMotion`）、横屏模式 |
+| **浏览** | 歌曲 / 歌手 / 专辑 / 最近播放 / 歌单 / 音乐库分析 |
+| **迷你栏** | 浮岛毛玻璃（BlurView）/ 极简 Hi‑Fi 底栏 / 迷你歌词 |
+| **界面** | 可自定义配置强调色&背景色、自定义背景图片、横屏模式 |
 
 ---
 

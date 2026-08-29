@@ -22,6 +22,7 @@
 | `cyclePlaybackQueueMode` | 播放模式循环 |
 | `toggleImmersiveLower` | 沉浸模式 |
 | `insertPlayNext` / `setQueue` | 长按菜单 |
+| `attachMusicVideoOutput` / `detachMusicVideoOutput` | 仅标准主题当前歌曲的 TextureView 输出；由 `PlaybackRuntime` 校验 lease、mediaId 与 Controller identity |
 
 ## 封面手势 → Controller
 

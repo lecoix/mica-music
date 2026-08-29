@@ -12,6 +12,8 @@ Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入
 
 清单格式：
 
+下面的版本号仅用于说明字段格式；发布时由 workflow 从 `app/build.gradle.kts` 和 `v` 标签生成当前值。
+
 ```json
 {
   "versionName": "0.2.5.0",
@@ -33,6 +35,14 @@ Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入
 3. 创建或更新 GitHub Release，上传 APK；更新日志优先使用附注 tag 的 `-m` 正文，否则回退 GitHub 自动生成 notes。
 4. 生成 `site/update.json`，把版本号、更新日志、123 下载页和 GitHub Release 页写入清单。
 5. 将只包含 `update.json` 的 Pages artifact 部署到 GitHub Pages。
+
+Release workflow 通过 `-Pmica.abiSplitApks=true` 生成三个 ABI 产物，再由 `scripts/prepare_release_apks.sh` 检查并重命名为：
+
+- `Mica_<version>_64bit.apk`（`arm64-v8a`）
+- `Mica_<version>_32bit.apk`（`armeabi-v7a`）
+- `Mica_<version>_universal.apk`（两个 ABI）
+
+三包都会执行 `apksigner verify`；本地 unsigned 构建或单一 debug APK 不能替代该发布检查。
 
 因此，日常发布不需要手动编辑或上传 `update.json`。正常发布只需要：
 

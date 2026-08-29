@@ -42,7 +42,7 @@ _Avoid_: 静态地按相邻歌词开始时间插入间奏
 _Avoid_: 从普通 LRC 的相邻开始时间推断歌词云间奏；让光团拦截歌词点击
 
 **Playlist（歌单）**：
-用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v17）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。
+用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v21）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。v21 的 `20→21` 迁移增加歌曲的 `musicVideoUri` 与 `musicVideoRevision`。
 _Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`
 
 **Library scan settings（曲库扫描设置）**：
