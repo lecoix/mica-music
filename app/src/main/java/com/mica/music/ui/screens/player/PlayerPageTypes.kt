@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.CompactLyricsLineMode
+import com.mica.music.ui.theme.HifiSize
 
 /** 播放页主场景（互斥优先级：Lyrics > Immersive > Normal）。 */
 enum class PlayerPageScene {
@@ -81,6 +82,22 @@ data class LowerPanelFrame(
     val lyricLineSlots: Int,
     val hideInfoAndLyrics: Boolean,
 )
+
+private const val PhotoStackListLyricsBottomGapFraction = 0.05f
+
+/** 拍立得 LIST 歌词页保留五按钮控制行，底部留白取有效屏高 5% 与剩余空间上限的较小值。 */
+internal fun LowerPanelFrame.forPhotoStackListLyricsPage(
+    effectiveScreenHeight: Dp,
+): LowerPanelFrame {
+    val bottomGap = minOf(
+        effectiveScreenHeight.coerceAtLeast(0.dp) * PhotoStackListLyricsBottomGapFraction,
+        controlsBottomPadding,
+    )
+    return copy(
+        chromeHeight = HifiSize.touchTarget + bottomGap,
+        controlsBottomPadding = bottomGap,
+    )
+}
 
 @Immutable
 data class PlayerPageFrame(

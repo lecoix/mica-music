@@ -2038,6 +2038,7 @@ fun NowPlayingContent(
                             surfaceState = surfaceState,
                             colors = playerUiColors,
                             lower = lyricsFrame.lower,
+                            effectiveScreenHeight = screenHeight,
                             seekState = seekState,
                             lyricsPageImmersive = uiSettings.lyricsPageImmersive,
                             lyricsAlignment = uiSettings.lyricsPageAlignment,
