@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.ui.theme.HifiSpacing
@@ -32,6 +35,7 @@ internal fun LandscapeClassicLeftColumn(
     maxCoverSize: Dp,
     modifier: Modifier = Modifier,
     contentGap: Dp = HifiSpacing.sm,
+    onCoverBoundsResolved: (Rect) -> Unit = {},
     coverContent: @Composable (effectiveCoverSize: Dp, coverModifier: Modifier) -> Unit,
     titleContent: @Composable () -> Unit,
     chromeContent: @Composable () -> Unit,
@@ -55,7 +59,10 @@ internal fun LandscapeClassicLeftColumn(
                     Box(
                         modifier = Modifier
                             .size(coverSize)
-                            .align(Alignment.Center),
+                            .align(Alignment.Center)
+                            .onGloballyPositioned { coordinates ->
+                                onCoverBoundsResolved(coordinates.boundsInRoot())
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         coverContent(coverSize, Modifier.fillMaxSize())

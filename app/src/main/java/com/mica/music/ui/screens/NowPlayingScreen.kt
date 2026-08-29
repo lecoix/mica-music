@@ -1232,6 +1232,9 @@ fun NowPlayingContent(
                     landscapePlan.coverLaneWidthDp,
                     screenHeight.value * 0.50f,
                 ).dp
+                var landscapeCoverFlowLyricsCoverBounds by remember(classicCoverSize) {
+                    mutableStateOf<Rect?>(null)
+                }
                 val lyricsColors = rememberLyricsContentColors(
                     appearance.contentColors,
                     uiSettings.lyricsPageTextColorMode,
@@ -1258,8 +1261,11 @@ fun NowPlayingContent(
                             ),
                             edgePadding = landscapeEdgePadding,
                             coverHeight = previewFrame.cover.height,
+                            coverBlockHeight = previewFrame.cover.blockHeight,
+                            coverTopPadding = previewFrame.cover.topPadding,
                             contentPadding = contentPadding,
                             lyricsCoverSize = classicCoverSize,
+                            lyricsCoverBoundsInRoot = landscapeCoverFlowLyricsCoverBounds,
                             coverLaneWidth = landscapePlan.coverLaneWidthDp.dp,
                             horizontalPadding = landscapePlan.horizontalPaddingDp.dp,
                             topPadding = landscapeTopPadding,
@@ -1338,6 +1344,15 @@ fun NowPlayingContent(
                                             LandscapeClassicLeftColumn(
                                                 maxCoverSize = classicCoverSize,
                                                 modifier = Modifier.fillMaxSize(),
+                                                onCoverBoundsResolved = { resolvedBounds ->
+                                                    if (
+                                                        landscapeCoverFlowLyricsCoverBounds !=
+                                                        resolvedBounds
+                                                    ) {
+                                                        landscapeCoverFlowLyricsCoverBounds =
+                                                            resolvedBounds
+                                                    }
+                                                },
                                                 coverContent = { _, coverModifier ->
                                                     Box(coverModifier)
                                                 },
@@ -1505,6 +1520,8 @@ fun NowPlayingContent(
                             exit = coverFlowCloudExitStyle,
                             edgePadding = landscapeEdgePadding,
                             coverHeight = previewFrame.cover.height,
+                            coverBlockHeight = previewFrame.cover.blockHeight,
+                            coverTopPadding = previewFrame.cover.topPadding,
                             contentPadding = contentPadding,
                             lyricsCoverSize = classicCoverSize,
                             coverLaneWidth = landscapePlan.coverLaneWidthDp.dp,

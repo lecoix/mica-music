@@ -20,10 +20,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.Dp
@@ -55,8 +59,11 @@ internal fun LandscapeCoverFlowCoverLayer(
     immersiveReferenceCenterScale: Float = 0.76f,
     edgePadding: Dp,
     coverHeight: Dp,
+    coverBlockHeight: Dp = coverHeight,
+    coverTopPadding: Dp = 0.dp,
     contentPadding: PaddingValues,
     lyricsCoverSize: Dp,
+    lyricsCoverBoundsInRoot: Rect? = null,
     coverLaneWidth: Dp,
     horizontalPadding: Dp,
     topPadding: Dp,
@@ -66,8 +73,19 @@ internal fun LandscapeCoverFlowCoverLayer(
 ) {
     val t = progress.coerceIn(0f, 1f)
     val foldProgress = 1f - t
+    val density = LocalDensity.current
+    val layerBoundsInRoot = remember { mutableStateOf<Rect?>(null) }
 
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInRoot()
+                if (layerBoundsInRoot.value != bounds) {
+                    layerBoundsInRoot.value = bounds
+                }
+            },
+    ) {
         val bottomInset = contentPadding.calculateBottomPadding()
         val contentHeight = (maxHeight - bottomInset).coerceAtLeast(1.dp)
         val barHeight = (contentHeight * 0.22f).coerceIn(72.dp, 88.dp)
@@ -112,24 +130,48 @@ internal fun LandscapeCoverFlowCoverLayer(
             immersiveT,
         )
 
-        val lyricsCoverScale = (
-            lyricsCoverSize.value / safeCoverHeight.value.coerceAtLeast(0.01f)
-            ).coerceIn(0.2f, 1.5f)
-        val lyricsCenterX = horizontalPadding + coverLaneWidth / 2
         val playerCenterX = maxWidth / 2
-        val lyricsLaneHeight = (contentHeight - topPadding).coerceAtLeast(1.dp)
-        val lyricsCoverTop = topPadding + (lyricsLaneHeight - lyricsCoverSize) / 4
-        val lyricsCoverTranslationY =
-            lyricsCoverTop + lyricsCoverSize / 2 - safeCoverHeight / 2
+        val measuredBounds = lyricsCoverBoundsInRoot?.takeIf {
+            it.width > 0f && it.height > 0f
+        }
+        val layerBounds = layerBoundsInRoot.value
+        val targetCoverSize = measuredBounds?.let { bounds ->
+            with(density) { minOf(bounds.width, bounds.height).toDp() }
+        } ?: lyricsCoverSize
+        val fallbackLaneHeight = (contentHeight - topPadding).coerceAtLeast(1.dp)
+        val fallbackCoverTop = topPadding + (fallbackLaneHeight - targetCoverSize) / 4
+        val targetCenterX = if (measuredBounds != null && layerBounds != null) {
+            with(density) {
+                (measuredBounds.center.x - layerBounds.left).toDp()
+            }
+        } else {
+            horizontalPadding + coverLaneWidth / 2
+        }
+        val targetCenterY = if (measuredBounds != null && layerBounds != null) {
+            with(density) {
+                (measuredBounds.center.y - layerBounds.top).toDp()
+            }
+        } else {
+            fallbackCoverTop + targetCoverSize / 2
+        }
+        val lyricsTargetPose = landscapeCoverFlowLyricsTargetPose(
+            sourceCoverHeight = safeCoverHeight,
+            sourceLayerHeight = coverBlockHeight,
+            sourceCoverTop = coverTopPadding,
+            targetCoverSize = targetCoverSize,
+            targetCenterX = targetCenterX,
+            targetCenterY = targetCenterY,
+            playerCenterX = playerCenterX,
+        )
 
         val pose = landscapeCoverFlowCoverPose(
             progress = t,
             exit = exit,
             playerCoverScale = effectivePlayerScale,
             playerCoverTranslationY = effectivePlayerTranslationY,
-            lyricsCoverScale = lyricsCoverScale,
-            lyricsCoverTranslationY = lyricsCoverTranslationY,
-            coverTranslationXTarget = lyricsCenterX - playerCenterX,
+            lyricsCoverScale = lyricsTargetPose.scale,
+            lyricsCoverTranslationY = lyricsTargetPose.translationY,
+            coverTranslationXTarget = lyricsTargetPose.translationX,
         )
 
         coverContent(
@@ -251,6 +293,38 @@ internal data class LandscapeCoverFlowCoverPose(
     val alpha: Float,
     val rotationX: Float,
 )
+
+internal data class LandscapeCoverFlowLyricsTargetPose(
+    val scale: Float,
+    val translationX: Dp,
+    val translationY: Dp,
+)
+
+/** Maps the center cover exactly into the measured classic-lyrics cover slot. */
+internal fun landscapeCoverFlowLyricsTargetPose(
+    sourceCoverHeight: Dp,
+    sourceLayerHeight: Dp = sourceCoverHeight,
+    sourceCoverTop: Dp = 0.dp,
+    targetCoverSize: Dp,
+    targetCenterX: Dp,
+    targetCenterY: Dp,
+    playerCenterX: Dp,
+): LandscapeCoverFlowLyricsTargetPose {
+    val safeSourceHeight = sourceCoverHeight.coerceAtLeast(1.dp)
+    val scale = (
+        targetCoverSize.value / safeSourceHeight.value.coerceAtLeast(0.01f)
+        ).coerceIn(0.2f, 1.5f)
+    val safeLayerHeight = sourceLayerHeight.coerceAtLeast(1.dp)
+    val transformOriginY = safeLayerHeight * 0.45f
+    val sourceCoverCenterY = sourceCoverTop + safeSourceHeight / 2
+    val transformedCoverCenterY = transformOriginY +
+        (sourceCoverCenterY - transformOriginY) * scale
+    return LandscapeCoverFlowLyricsTargetPose(
+        scale = scale,
+        translationX = targetCenterX - playerCenterX,
+        translationY = targetCenterY - transformedCoverCenterY,
+    )
+}
 
 internal fun landscapeCoverFlowCoverPose(
     progress: Float,
