@@ -1,5 +1,7 @@
 ﻿package com.mica.music.media.usbhybrid
 
+import com.mica.music.media.PlaybackOutputAvailability
+
 internal enum class DesiredUsbOutput { Shared, ExactPcm, Dop, NativeDsd }
 
 internal data class FrozenPlaybackIntent(val generation: Long, val playWhenReady: Boolean)
@@ -29,6 +31,21 @@ internal data class UsbOutputState(
     val activeTransport: UsbActiveTransport? = null,
     val activeSessionId: Long? = null,
 )
+
+internal fun UsbOutputPhase.toPlaybackOutputAvailability(): PlaybackOutputAvailability = when (this) {
+    UsbOutputPhase.SharedActive,
+    is UsbOutputPhase.ExclusiveActive,
+    -> PlaybackOutputAvailability.STABLE
+    UsbOutputPhase.SharedQuiescing,
+    UsbOutputPhase.ExclusivePreparing,
+    UsbOutputPhase.ExclusiveOpening,
+    UsbOutputPhase.SharedRouteWaiting,
+    -> PlaybackOutputAvailability.SWITCHING
+    UsbOutputPhase.PermissionWaiting -> PlaybackOutputAvailability.WAITING_FOR_PERMISSION
+    UsbOutputPhase.Disconnected -> PlaybackOutputAvailability.WAITING_FOR_DEVICE
+    UsbOutputPhase.SharedReconnectRequired -> PlaybackOutputAvailability.RECONNECT_REQUIRED
+    is UsbOutputPhase.Failed -> PlaybackOutputAvailability.FAILED
+}
 
 internal sealed interface UsbOutputEvent {
     data class UserSelected(

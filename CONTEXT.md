@@ -113,6 +113,7 @@ _Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `
 
 **PlaybackQueueMode（播放模式）**：
 队列推进策略：顺序（OFF）→ 列表循环（REPEAT_ALL）→ 单曲循环（REPEAT_ONE）→ 随机（SHUFFLE）。
+随机模式只消费当前生成的随机顺序一轮，必须与列表循环互斥并保持 Media3 repeat 为 OFF。随机顺序最后一首自然播放完成后进入结束态并停留在该曲，不得自动回绕、重新洗牌、重播当前曲或启动下一轮；用户主动点击“下一首”仍属于显式导航，可以回到当前随机顺序第一首。
 _Avoid_: shuffle mode、repeat mode（拆开描述时仍用枚举名）
 
 **PlaybackQueueNavigator**：
@@ -168,7 +169,13 @@ _Avoid_: add to queue（未强调「紧挨下一首」时）
 播放页 UI **只读**以下三态；不得绕过它们直接摸 `PlayerController` 内部字段。
 
 **PlaybackSurfaceState**：
-表面播放态：当前曲、播放 / 缓冲 / 错误、播放模式、队列当前下标。
+表面播放态：当前曲、播放执行态、用户播放意图、输出可用态、播放模式与队列当前下标。三个维度必须正交，禁止再用 `playWhenReady` 同时表示“正在出声”“用户希望恢复播放”和“输出链路可用”。
+
+- `PlaybackExecutionState` 只描述 Media3 实际执行：`UNAVAILABLE / IDLE / PAUSED / PREPARING / BUFFERING / PLAYING / SUPPRESSED / ENDED / ERROR`。
+- `PlaybackIntent` 只描述语义播放意图：`PLAY / PAUSE`。USB 输出切换期间以 Coordinator 当前 generation 的 frozen intent 为准，技术性 retire/rebuild 不得改写为用户暂停。
+- `PlaybackOutputAvailability` 只描述输出链路：`INACTIVE / STABLE / SWITCHING / WAITING_FOR_PERMISSION / WAITING_FOR_DEVICE / RECONNECT_REQUIRED / FAILED`。USB reducer 的内部 phase 必须在 Coordinator owner 内折叠后发布，不得直接泄漏给播放页。
+
+主播放按钮显示的是可执行动作而不是裸 `playWhenReady`：自然曲尾 `ENDED` 必须显示“播放”，点击后从当前曲 0ms 重启；`BUFFERING / PREPARING / SUPPRESSED` 且仍有 `PLAY` 意图时显示“暂停”，允许取消继续播放。输出切换的详细视觉和禁用策略仍由播放页组件根据 `PlaybackOutputAvailability` 决定，不得反推或覆盖执行态。
 _Avoid_: player state（笼统说法）、alacStreamActive
 
 **PlaybackProgressState**：

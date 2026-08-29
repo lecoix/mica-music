@@ -276,6 +276,9 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 - 删除文件失败但曲库移除成功时，确认播放队列和所有歌单仍移除该歌曲，Snackbar 文案表达“已从曲库移除但无法删除文件”。
 - 展开播放页，测试播放/暂停、上一首、下一首、seek、歌词行内 seek、队列 Sheet 跳转、移动和删除。
 - 切换 repeat/shuffle，确认播放页图标、通知控制和自然下一首顺序一致。
+- 随机模式使用固定 seed 的最小队列验证完整一轮：当前曲之后每首恰好播放一次；随机顺序最后一首自然完成后进入 `STATE_ENDED`，保持最后一首与随机模式，不得自动 seek、prepare、play、回绕或重新洗牌。结束后用户主动点击“下一首”可以回到本轮随机顺序第一首，但必须记录为手动导航。
+- 播放状态三维验证：分别观察 `PlaybackExecutionState`、`PlaybackIntent` 与 `PlaybackOutputAvailability`。曲尾允许 `ENDED + PLAY` 但按钮必须显示“播放”，点击后仅从当前曲 0ms 重启；缓冲/音频焦点抑制不得伪装成暂停；Controller 断开后 `isPlaying` 必须立即为 false。
+- USB 独占切换矩阵：Shared quiesce、exclusive prepare/open、等待权限、等待设备、返回 Shared、需重插和失败必须折叠到对应输出态；切换期间保留当前 generation 的语义播放意图。创建新 Coordinator 后释放旧 Coordinator 的延迟发布，断言旧 publisher 无法覆盖新输出态。
 - 后台、锁屏、蓝牙控制、划掉 Activity 后重新打开，确认 `MediaController` 重连后 UI 状态不回退到默认队列或默认播放模式。
 - 开启通知歌词，播放带逐字/逐行歌词的歌曲，确认通知歌词随进度更新；关闭后确认通知恢复普通元数据。
 - 曲库扫描设置修改后重新扫描，确认最短时长、纳入非音乐音频、深度元数据探测和排除目录仍生效；相关偏好应经 `LibraryScanSettings` 进入 `ScanOptions`。

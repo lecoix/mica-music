@@ -200,7 +200,7 @@ internal fun PlayerPlaybackControlsSection(
             )
         }
         SharpPlayPauseButton(
-            isPlaying = surfaceState.playWhenReady,
+            isPlaying = surfaceState.playbackStatus.showsPauseAction,
             onToggle = onTogglePlay,
             onLongPress = onPlayLongPress,
             size = HifiSize.iconXxl * visualScale,

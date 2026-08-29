@@ -18,6 +18,7 @@ import com.mica.music.data.*
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PendingPlaybackNavigation
 import com.mica.music.media.PlaybackRouter
+import com.mica.music.media.PlaybackOutputStatus
 import com.mica.music.media.PlaybackShuffleSessionCommand
 import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.media.SongMediaItemCodec
@@ -29,6 +30,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 internal class PendingMediaSelection {
     private var targetSongId: String? = null
@@ -57,9 +61,9 @@ internal class PendingMediaSelection {
 internal data class PlaybackRuntimeSnapshot(
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
-    val playWhenReady: Boolean = false,
     val isBuffering: Boolean = false,
     val playbackError: String? = null,
+    val playbackStatus: PlaybackStatus = PlaybackStatus(),
     val playbackQueueMode: PlaybackQueueMode = PlaybackQueueMode.OFF,
     val playbackTuning: PlaybackTuning = PlaybackTuning(),
     val currentIndex: Int = 0,
@@ -84,6 +88,7 @@ internal class PlaybackRuntime(
     private val mediaControllerConnector: MediaControllerConnector,
     private val sessionStorage: PlaybackSessionStorage,
     private val songResolver: PlaybackSongResolver,
+    outputStatusFlow: StateFlow<PlaybackOutputStatus>,
     dispatcher: CoroutineDispatcher,
     private val queueMirrorDispatcher: CoroutineDispatcher,
     monotonicNowMs: () -> Long,
@@ -99,11 +104,22 @@ internal class PlaybackRuntime(
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var deferredPlaybackPublish: Runnable? = null
+    private var outputStatus: PlaybackOutputStatus = outputStatusFlow.value
     internal val queueCoordinator = PlaybackQueueCoordinator(
         scope = scope,
         workerDispatcher = queueMirrorDispatcher,
         mirrorDebounceMs = QUEUE_MIRROR_DEBOUNCE_MS,
     )
+
+    init {
+        scope.launch {
+            outputStatusFlow.collect { next ->
+                if (next.revision <= outputStatus.revision) return@collect
+                outputStatus = next
+                publishSurfaceState()
+            }
+        }
+    }
     private val timelineCoordinator = PlaybackTimelineCoordinator(monotonicNowMs)
     private val tuningCoordinator = PlaybackTuningCoordinator()
     private val playbackOrderState: PlaybackOrderState
@@ -394,7 +410,8 @@ internal class PlaybackRuntime(
     private fun publishQueueState() = publishSnapshot()
 
     private fun publishSnapshot() {
-        val currentMediaItem = controller?.currentMediaItem
+        val activeController = controller
+        val currentMediaItem = activeController?.currentMediaItem
         val currentMediaId = currentMediaItem?.mediaId ?: currentSong?.id
         val musicVideoPolicyEnabled = currentMediaItem
             ?.takeIf { currentSong?.musicVideoUri != null && it.mediaId == currentSong?.id }
@@ -405,13 +422,28 @@ internal class PlaybackRuntime(
             effective = musicVideoEffective,
             rawState = playbackVideoState,
         )
+        val actualIsPlaying = activeController?.isPlaying == true
+        val actualPlayWhenReady = activeController?.playWhenReady == true
+        val actualPlaybackState = activeController?.playbackState
+        val status = resolvePlaybackStatus(
+            hasCurrentSong = currentSong != null,
+            controllerConnected = activeController != null && connectionSession.isConnected,
+            playbackState = actualPlaybackState,
+            isPlaying = actualIsPlaying,
+            playWhenReady = actualPlayWhenReady,
+            pendingOutputPlayIntent = outputStatus.pendingPlayIntent,
+            playbackSuppressionReason = activeController?.playbackSuppressionReason
+                ?: Player.PLAYBACK_SUPPRESSION_REASON_NONE,
+            playbackError = playbackError,
+            outputAvailability = outputStatus.availability,
+        )
         stateSink(
             PlaybackRuntimeSnapshot(
                 currentSong = currentSong,
-                isPlaying = isPlaying,
-                playWhenReady = controller?.playWhenReady == true,
-                isBuffering = isBuffering,
+                isPlaying = actualIsPlaying,
+                isBuffering = actualPlaybackState == Player.STATE_BUFFERING,
                 playbackError = playbackError,
+                playbackStatus = status,
                 playbackQueueMode = playbackQueueMode,
                 playbackTuning = playbackTuning,
                 currentIndex = currentIndex,
@@ -752,6 +784,8 @@ internal class PlaybackRuntime(
     private fun onControllerDisconnected(disconnectedController: MediaController?) {
         disconnectedController?.let(musicVideoOutputCoordinator::detachForController)
         playbackStatistics.observePlayback(disconnectedController?.currentMediaItem?.mediaId, false)
+        isPlaying = false
+        isBuffering = false
         queueCoordinator.clearMirror()
         pendingMediaSelection.clear()
         playbackStatistics.reset(null)
@@ -1216,6 +1250,13 @@ internal class PlaybackRuntime(
             return
         }
         playbackError = null
+        if (c.playbackState == Player.STATE_ENDED) {
+            releasePendingRestorePosition(currentSong?.id)
+            val restartIndex = c.currentMediaItemIndex.coerceAtLeast(0)
+            c.seekTo(restartIndex, 0L)
+            c.play()
+            return
+        }
         if (c.playWhenReady) {
             c.pause()
             return

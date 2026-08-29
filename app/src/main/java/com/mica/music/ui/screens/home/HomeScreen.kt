@@ -297,12 +297,11 @@ fun HomeScreen(
         when (action) {
             PlaylistOverviewAction.OPEN -> {
                 drawerOpen = false
-                uiState = uiState.copy(
-                    section = HomeSection.Playlist,
-                    activePlaylistId = playlist.id,
-                    browseDestination = BrowseDestination.Root,
-                    browseStack = emptyList(),
-                    searchOpen = false,
+                applyNavigationSnapshot(
+                    navigateToPlaylistFromOverview(
+                        snapshot = currentNavigationSnapshot(),
+                        playlistId = playlist.id,
+                    ),
                 )
             }
             PlaylistOverviewAction.RENAME -> {

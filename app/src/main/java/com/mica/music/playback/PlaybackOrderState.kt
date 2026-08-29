@@ -22,7 +22,9 @@ internal data class PlaybackOrderState(
             repeatOne && !manualSkip -> playbackIds[current]
             current < playbackIds.lastIndex -> playbackIds[current + 1]
             repeatAll || manualSkip -> playbackIds.first()
-            else -> playbackIds[current]
+            // Natural completion consumes one playback order exactly once. Returning null keeps
+            // the terminal boundary explicit so callers cannot mistake the last item for a replay.
+            else -> null
         }
     }
 

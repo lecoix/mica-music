@@ -15,6 +15,8 @@ Exact PCM is capability-driven for integer PCM16/PCM24/PCM32. The imported refer
 
 Output failures stop and report while preserving queue, position and requested mode. Recovery requires an explicit user retry or manual Shared PCM selection. Stack switching is synchronous break-before-make; a stuck old `release()` prevents a new USB open.
 
+Playback presentation consumes a coordinator-owned projection rather than the reducer phase itself. `SharedActive` and `ExclusiveActive` project to `STABLE`; quiesce/prepare/open/shared-route recovery project to `SWITCHING`; permission, device wait, reconnect-required and failure remain distinct. The process monitor owns a monotonic publication revision and a unique publisher identity per coordinator, so a retired coordinator cannot publish over its successor. This output state remains orthogonal to Media3 execution state and the frozen semantic play intent.
+
 `exclusive`, `transportExact` and `signalExact` are separate facts. Descriptor-inferred or quirk-provided Native framing does not by itself prove audible/signal exactness; each active device/path remains experimental until Hybrid qualification evidence exists and must not imply `signalExact` merely because framing resolved.
 
 ## Consequences

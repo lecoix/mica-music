@@ -37,6 +37,7 @@ import com.mica.music.media.usbhybrid.UsbRuntimeHandle
 import com.mica.music.media.usbhybrid.UsbSharedQuiescencePolicyResolver
 import com.mica.music.usb.UsbStableIdentity
 import com.mica.music.media.usbhybrid.UsbTopologyEvent
+import com.mica.music.media.usbhybrid.toPlaybackOutputAvailability
 import com.mica.music.util.DiagnosticLog
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
@@ -108,6 +109,7 @@ internal class DefaultUsbOutputCoordinator(
     private val mainHandler: Handler,
     private val playback: UsbOutputPlaybackPort,
 ) : UsbOutputCoordinator {
+    private val outputStatusPublisher = PlaybackOutputStatusMonitor.openPublisher()
     private val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var effects: AndroidUsbHybridControlEffects
     private lateinit var owner: UsbHybridSessionOwner
@@ -154,6 +156,7 @@ internal class DefaultUsbOutputCoordinator(
     }
 
     init {
+        publishOutputStatus()
         installRuntime()
     }
 
@@ -209,6 +212,7 @@ internal class DefaultUsbOutputCoordinator(
     override fun close() {
         if (closed) return
         closed = true
+        outputStatusPublisher.close()
         invalidateOperation()
         uninstallAudioDeviceCallback()
         mainHandler.removeCallbacks(telemetrySampler)
@@ -442,6 +446,7 @@ internal class DefaultUsbOutputCoordinator(
         val before = state
         val reduction = UsbOutputStateMachine.reduce(before, event)
         state = reduction.state
+        publishOutputStatus()
         if (before.generation != state.generation || before.phase != state.phase) invalidateOperation()
         DiagnosticLog.event(
             "UsbOutputState",
@@ -449,6 +454,15 @@ internal class DefaultUsbOutputCoordinator(
                 "desired=${state.desiredMode} phase=${before.phase}->${state.phase}",
         )
         reduction.effects.forEach(::executeEffect)
+    }
+
+    private fun publishOutputStatus() {
+        val phase = state.phase
+        outputStatusPublisher.publish(
+            availability = phase.toPlaybackOutputAvailability(),
+            pendingPlayIntent = state.frozenIntent?.playWhenReady ?: playback.currentPlayWhenReady(),
+            failureMessage = (phase as? UsbOutputPhase.Failed)?.message,
+        )
     }
 
     private fun beginOperation(generation: Long, phase: UsbOutputPhase): UsbOutputOperation? {

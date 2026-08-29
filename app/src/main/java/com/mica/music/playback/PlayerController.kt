@@ -9,15 +9,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mica.music.data.*
+import com.mica.music.media.PlaybackOutputStatus
+import com.mica.music.media.PlaybackOutputStatusMonitor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 
 data class PlaybackSurfaceState(
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
-    val playWhenReady: Boolean = false,
     val isBuffering: Boolean = false,
     val playbackError: String? = null,
+    val playbackStatus: PlaybackStatus = PlaybackStatus(),
     val playbackQueueMode: PlaybackQueueMode = PlaybackQueueMode.OFF,
     val playbackTuning: PlaybackTuning = PlaybackTuning(),
     val currentIndex: Int = 0,
@@ -48,6 +51,7 @@ class PlayerController internal constructor(
     mediaControllerConnector: MediaControllerConnector,
     sessionStorage: PlaybackSessionStorage,
     songResolver: PlaybackSongResolver,
+    outputStatusFlow: StateFlow<PlaybackOutputStatus> = PlaybackOutputStatusMonitor.status,
     dispatcher: CoroutineDispatcher,
     queueMirrorDispatcher: CoroutineDispatcher = Dispatchers.Default,
     monotonicNowMs: () -> Long = { SystemClock.elapsedRealtime() },
@@ -95,6 +99,7 @@ class PlayerController internal constructor(
         mediaControllerConnector = mediaControllerConnector,
         sessionStorage = sessionStorage,
         songResolver = songResolver,
+        outputStatusFlow = outputStatusFlow,
         dispatcher = dispatcher,
         queueMirrorDispatcher = queueMirrorDispatcher,
         monotonicNowMs = monotonicNowMs,
@@ -107,9 +112,9 @@ class PlayerController internal constructor(
         playbackSurfaceState = PlaybackSurfaceState(
             currentSong = snapshot.currentSong,
             isPlaying = snapshot.isPlaying,
-            playWhenReady = snapshot.playWhenReady,
             isBuffering = snapshot.isBuffering,
             playbackError = snapshot.playbackError,
+            playbackStatus = snapshot.playbackStatus,
             playbackQueueMode = snapshot.playbackQueueMode,
             playbackTuning = snapshot.playbackTuning,
             currentIndex = snapshot.currentIndex,
