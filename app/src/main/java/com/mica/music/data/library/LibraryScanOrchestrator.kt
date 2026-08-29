@@ -7,6 +7,7 @@ import com.mica.music.data.AlbumArtRepairPlan
 import com.mica.music.data.CURRENT_LYRICS_PARSER_VERSION
 import com.mica.music.data.ScanSource
 import com.mica.music.data.SharedLyricsMemoryCache
+import com.mica.music.data.Song
 import com.mica.music.data.scanner.ScanResult
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CancellationException
@@ -245,6 +246,11 @@ internal class LibraryScanOrchestrator(
         if (backing.released) return
         val generation = ++backing.scanGeneration
         val scanStartedMs = SystemClock.elapsedRealtime()
+        val metadataRefreshLibrarySnapshot = if (forceRefreshSongIds.isEmpty()) {
+            emptyList()
+        } else {
+            catalog.scannedSongsSnapshot().takeIf { it.isNotEmpty() } ?: backing.songs
+        }
         DiagnosticLog.event(
             "LibraryScan",
             "performScan start source=$source generation=$generation " +
@@ -302,24 +308,34 @@ internal class LibraryScanOrchestrator(
                     "technicalFailed=${result.probeStats.technicalFailed}",
             )
             if (!backing.isActiveGeneration(generation)) return
+            val songsForPublish = mergeMetadataRefreshIntoSnapshot(
+                scannedSongs = result.songs,
+                previousSongs = metadataRefreshLibrarySnapshot,
+                targetSongIds = forceRefreshSongIds,
+            )
+            val totalSizeMbForPublish = if (forceRefreshSongIds.isEmpty()) {
+                result.totalSizeMb
+            } else {
+                (songsForPublish.sumOf { it.sizeBytes.coerceAtLeast(0L) } / (1024L * 1024L)).toInt()
+            }
             val lyricsReadFailed = result.probeStats.hasLyricsReadFailures()
             if (lyricsReadFailed) {
                 backing.scanEnvironment.persistLyricsRetryRequired(true)
             }
             val scanAtMs = backing.scanEnvironment.currentTimeMillis()
             if (publishSongs(
-                    raw = result.songs,
+                    raw = songsForPublish,
                     generation = generation,
                     source = source,
                     scanAtMs = scanAtMs,
-                    totalSizeMb = result.totalSizeMb,
+                    totalSizeMb = totalSizeMbForPublish,
                 ) == null
             ) {
                 return
             }
             if (source == ScanSource.FOLDER && backing.isActiveGeneration(generation)) {
                 backing.scanEnvironment.enqueueVideoCoverPosterPrefetch(
-                    result.songs.mapNotNull { it.videoCoverUri },
+                    songsForPublish.mapNotNull { it.videoCoverUri },
                 )
             }
             if (!lyricsReadFailed && backing.isActiveGeneration(generation)) {
@@ -346,6 +362,26 @@ internal class LibraryScanOrchestrator(
                         "generation=$generation songs=${backing.songs.size} error=${backing.lastScanError != null}",
                 )
             }
+        }
+    }
+
+    private fun mergeMetadataRefreshIntoSnapshot(
+        scannedSongs: List<Song>,
+        previousSongs: List<Song>,
+        targetSongIds: Set<String>,
+    ): List<Song> {
+        if (targetSongIds.isEmpty() || previousSongs.isEmpty()) return scannedSongs
+        val scannedById = scannedSongs.associateBy(Song::id)
+        return previousSongs.map { previous ->
+            if (previous.id !in targetSongIds) return@map previous
+            val fresh = scannedById[previous.id] ?: return@map previous
+            fresh.copy(
+                mediaUri = previous.mediaUri,
+                fileName = previous.fileName,
+                folderPath = previous.folderPath,
+                filePath = previous.filePath,
+                dateAddedMs = previous.dateAddedMs,
+            )
         }
     }
 

@@ -155,18 +155,101 @@ class LibraryScanOrchestratorTest {
     fun targetedSongRefreshUsesOneOffProbeTargetWithoutGlobalLyricsRefresh() = runTest {
         val scanner = ControlledScanner()
         val harness = scanHarness(scanner)
-        val target = SongFixtures.song("target")
+        val target = SongFixtures.song("target").copy(
+            title = "Old title",
+            mediaUri = "content://media/external/audio/media/42",
+            fileName = "track.flac",
+            folderPath = "QQmusic/song",
+            filePath = "QQmusic/song/track.flac",
+            sizeBytes = 100L,
+            dateAddedMs = 10L,
+            dateModifiedMs = 20L,
+        )
         val other = SongFixtures.song("other")
         harness.backing.replaceSongs(listOf(target, other))
+        val refreshedTarget = target.copy(
+            title = "New title",
+            mediaUri = "content://media/external/audio/media/42",
+            fileName = "TRACK.flac",
+            folderPath = "qqmusic/song",
+            filePath = "qqmusic/song/TRACK.flac",
+            sizeBytes = 120L,
+            dateAddedMs = 999L,
+            dateModifiedMs = 30L,
+        )
 
         val refresh = async { harness.orchestrator.refreshSongMetadata(target.id) }
         runCurrent()
 
         assertEquals(setOf(target.id), scanner.deviceRequests.single().forceRefreshSongIds)
         assertFalse(scanner.deviceRequests.single().forceRefreshLyrics)
-        scanner.deviceRequests.single().result.complete(ScanResult(listOf(target, other), 2))
+        val scannerChangedOther = other.copy(title = "Scanner should not refresh this")
+        val transientExtra = SongFixtures.song("transient-extra")
+        scanner.deviceRequests.single().result.complete(
+            ScanResult(listOf(refreshedTarget, scannerChangedOther, transientExtra), 2),
+        )
         refresh.await()
 
+        assertEquals(setOf(target.id, other.id), harness.backing.songs.map { it.id }.toSet())
+        val published = harness.backing.songs.single { it.id == target.id }
+        assertEquals("New title", published.title)
+        assertEquals(120L, published.sizeBytes)
+        assertEquals(30L, published.dateModifiedMs)
+        assertEquals(target.mediaUri, published.mediaUri)
+        assertEquals(target.fileName, published.fileName)
+        assertEquals(target.folderPath, published.folderPath)
+        assertEquals(target.filePath, published.filePath)
+        assertEquals(target.dateAddedMs, published.dateAddedMs)
+        assertEquals(other.title, harness.backing.songs.single { it.id == other.id }.title)
+        harness.backing.release()
+    }
+
+    @Test
+    fun targetedSongRefreshKeepsPreviousRowWhenTargetTemporarilyDisappearsFromScanner() = runTest {
+        val scanner = ControlledScanner()
+        val harness = scanHarness(scanner)
+        val target = SongFixtures.song("target-missing").copy(
+            title = "Old title",
+            folderPath = "QQmusic/song",
+            filePath = "QQmusic/song/track.flac",
+        )
+        val other = SongFixtures.song("other-kept")
+        harness.backing.replaceSongs(listOf(target, other))
+
+        val refresh = async { harness.orchestrator.refreshSongMetadata(target.id) }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(other), 1))
+        refresh.await()
+
+        assertEquals(setOf(target.id, other.id), harness.backing.songs.map { it.id }.toSet())
+        assertEquals("Old title", harness.backing.songs.single { it.id == target.id }.title)
+        assertEquals("QQmusic/song", harness.backing.songs.single { it.id == target.id }.folderPath)
+        harness.backing.release()
+    }
+
+    @Test
+    fun fullDiscoveryScanAllowsStorageLocationToChange() = runTest {
+        val scanner = ControlledScanner()
+        val harness = scanHarness(scanner)
+        val previous = SongFixtures.song("moved").copy(
+            folderPath = "Music/A",
+            filePath = "Music/A/track.flac",
+        )
+        harness.backing.replaceSongs(listOf(previous))
+        val moved = previous.copy(
+            folderPath = "Music/B",
+            filePath = "Music/B/track.flac",
+            dateModifiedMs = previous.dateModifiedMs + 1L,
+        )
+
+        val scan = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(moved), 1))
+        scan.await()
+
+        val published = harness.backing.songs.single()
+        assertEquals("Music/B", published.folderPath)
+        assertEquals("Music/B/track.flac", published.filePath)
         harness.backing.release()
     }
 
