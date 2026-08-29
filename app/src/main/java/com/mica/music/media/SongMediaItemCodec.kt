@@ -112,6 +112,8 @@ object SongMediaItemCodec {
             putString("${PREFIX}mime", song.metadata.playbackMimeType)
             putString("${PREFIX}albumArtUri", song.albumArtUri)
             putString("${PREFIX}videoCoverUri", song.videoCoverUri)
+            putString(MusicVideoMediaSourceFactory.MUSIC_VIDEO_URI_EXTRA, song.musicVideoUri)
+            putString("${PREFIX}musicVideoRevision", song.musicVideoRevision)
             putString(SOURCE, song.source.name)
             putInt("${PREFIX}coverColorArgb", song.coverColorArgb)
             putString("${PREFIX}mediaUri", song.mediaUri)
@@ -189,6 +191,8 @@ object SongMediaItemCodec {
             ),
             albumArtUri = extras.getString("${PREFIX}albumArtUri"),
             videoCoverUri = extras.getString("${PREFIX}videoCoverUri"),
+            musicVideoUri = extras.getString(MusicVideoMediaSourceFactory.MUSIC_VIDEO_URI_EXTRA),
+            musicVideoRevision = extras.getString("${PREFIX}musicVideoRevision").orEmpty(),
             coverColorArgb = extras.getInt("${PREFIX}coverColorArgb", 0),
             mediaUri = mediaUri,
             playbackUri = extras.getString("${PREFIX}playbackUri"),

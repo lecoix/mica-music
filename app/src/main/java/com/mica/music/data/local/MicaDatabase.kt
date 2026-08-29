@@ -20,7 +20,7 @@ import com.mica.music.util.DiagnosticLog
         RemoteSourceEntity::class,
         RemoteTrackEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -77,6 +77,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_18_19,
                             MIGRATION_19_20,
                             MIGRATION_20_21,
+                            MIGRATION_21_22,
                         )
                         .build()
                         .also {

@@ -305,6 +305,7 @@
 | 迷你栏 → 播放页共享封面 | 第一版已实现 | `SHARED_ELEMENT_ANIMATION_NOTES.md` |
 | 封面流（平行 / 复古）切歌 / 拖动 | 已实现（View 岛） | `COVER_FLOW_IMPLEMENTATION.md` |
 | 粒子封面 / 拍立得转场 | 已实现（View / GLES 岛） | `CONTEXT.md`、`PARTICLE_COVER_OPENGL_MIGRATION.md` §0、`COVER_FLOW_IMPLEMENTATION.md` §13 |
+| 本地音乐 MV | 软件链路已实现，真机验收待完成 | `CONTEXT.md`、`docs/adr/0005-local-music-video-playback.md`、`docs/PLAYER_PAGE_CONTRACT.md` |
 | 列表项 → 播放共享元素 | 待做 | `TODO.md` |
 | 歌词行切换 / 双语动效 | 待做 | `TODO.md` |
 

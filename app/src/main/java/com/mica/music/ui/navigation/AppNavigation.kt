@@ -532,6 +532,8 @@ private fun rememberNowPlayingActions(
             resetPlaybackTuning = playerController::resetPlaybackTuning,
             peekTrackSkipDirection = playerController::peekTrackSkipDirection,
             consumeTrackSkipDirection = playerController::consumeTrackSkipDirection,
+            attachMusicVideoOutput = playerController::attachMusicVideoOutput,
+            detachMusicVideoOutput = playerController::detachMusicVideoOutput,
         )
     }
 

@@ -61,13 +61,13 @@ val motionEnabled = rememberMicaMotionEnabled()
 
 ### 4.1 主页 `HomePaneKey`（`homePaneDepth`）
 
-定义于 `HomeScreen.kt`：
+定义于 `HomeNavigation.kt`：
 
 | Depth | Pane |
 |-------|------|
 | 0 | `Songs`、`Search` |
-| 1 | `Analysis`、`Playlist`、`Browse(Root)` |
-| 2 | `Browse(Artist/Album 详情)` |
+| 1 | `Analysis`、`PlaylistOverview`、`Browse(Root)` |
+| 2 | `Playlist(详情)`、`Browse(Artist/Album 详情)` |
 
 - 侧栏切换「歌曲 / 歌手 / 专辑 / 最近 / 歌单 / 分析」→ `AnimatedContent` + `homePaneWithSearchTransition`。
 - **搜索**：进入/退出 Search 时**强制**走与「前进/返回」相同的全宽横向推入（不依赖 depth 差），见 `homePaneWithSearchTransition`。

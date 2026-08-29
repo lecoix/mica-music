@@ -42,7 +42,7 @@ _Avoid_: 静态地按相邻歌词开始时间插入间奏
 _Avoid_: 从普通 LRC 的相邻开始时间推断歌词云间奏；让光团拦截歌词点击
 
 **Playlist（歌单）**：
-用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v17）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。
+用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v21）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。v21 的 `20→21` 迁移增加歌曲的 `musicVideoUri` 与 `musicVideoRevision`。
 _Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`
 
 **Library scan settings（曲库扫描设置）**：
@@ -113,6 +113,7 @@ _Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `
 
 **PlaybackQueueMode（播放模式）**：
 队列推进策略：顺序（OFF）→ 列表循环（REPEAT_ALL）→ 单曲循环（REPEAT_ONE）→ 随机（SHUFFLE）。
+随机模式只消费当前生成的随机顺序一轮，必须与列表循环互斥并保持 Media3 repeat 为 OFF。随机顺序最后一首自然播放完成后进入结束态并停留在该曲，不得自动回绕、重新洗牌、重播当前曲或启动下一轮；用户主动点击“下一首”仍属于显式导航，可以回到当前随机顺序第一首。
 _Avoid_: shuffle mode、repeat mode（拆开描述时仍用枚举名）
 
 **PlaybackQueueNavigator**：
@@ -168,7 +169,13 @@ _Avoid_: add to queue（未强调「紧挨下一首」时）
 播放页 UI **只读**以下三态；不得绕过它们直接摸 `PlayerController` 内部字段。
 
 **PlaybackSurfaceState**：
-表面播放态：当前曲、播放 / 缓冲 / 错误、播放模式、队列当前下标。
+表面播放态：当前曲、播放执行态、用户播放意图、输出可用态、播放模式与队列当前下标。三个维度必须正交，禁止再用 `playWhenReady` 同时表示“正在出声”“用户希望恢复播放”和“输出链路可用”。
+
+- `PlaybackExecutionState` 只描述 Media3 实际执行：`UNAVAILABLE / IDLE / PAUSED / PREPARING / BUFFERING / PLAYING / SUPPRESSED / ENDED / ERROR`。
+- `PlaybackIntent` 只描述语义播放意图：`PLAY / PAUSE`。USB 输出切换期间以 Coordinator 当前 generation 的 frozen intent 为准，技术性 retire/rebuild 不得改写为用户暂停。
+- `PlaybackOutputAvailability` 只描述输出链路：`INACTIVE / STABLE / SWITCHING / WAITING_FOR_PERMISSION / WAITING_FOR_DEVICE / RECONNECT_REQUIRED / FAILED`。USB reducer 的内部 phase 必须在 Coordinator owner 内折叠后发布，不得直接泄漏给播放页。
+
+主播放按钮显示的是可执行动作而不是裸 `playWhenReady`：自然曲尾 `ENDED` 必须显示“播放”，点击后从当前曲 0ms 重启；`BUFFERING / PREPARING / SUPPRESSED` 且仍有 `PLAY` 意图时显示“暂停”，允许取消继续播放。输出切换的详细视觉和禁用策略仍由播放页组件根据 `PlaybackOutputAvailability` 决定，不得反推或覆盖执行态。
 _Avoid_: player state（笼统说法）、alacStreamActive
 
 **PlaybackProgressState**：
@@ -330,6 +337,11 @@ _Avoid_: edge seek bar、overlay progress
 **Video album cover（视频专辑封面）**：
 默认关闭，仅 `PlayerCoverFlowMode.STANDARD` 的全屏播放页生效。文件夹扫描只索引歌曲同目录 `.mp4` 的名称与 URI：文件名精确等于专辑名优先，否则以 NFKC、空白折叠和 `Locale.ROOT` 大小写归一化匹配；不做标点/后缀模糊匹配，空/未知专辑或多候选歧义回退静态封面。独立短生命周期 Media3 播放器禁用音轨，随音乐暂停，后台、锁屏、离页或切歌释放；视频沿用静态封面矩形居中裁切，首帧前及错误时显示静态图或已缓存海报。索引构建为 O(歌曲数 + MP4 数)，文件夹遍历本身不打开视频；选项开启时在曲库发布后对去重后的匹配 URI 单线程后台抽首帧写入海报缓存（命中跳过、新扫描取消旧任务），不阻塞扫库进度。
 _Avoid_: 复用主音频播放器、请求视频权限做设备全盘扫描、为匹配同步解析视频、对未匹配 MP4 解码、模糊匹配不同文件夹或同名歧义专辑
+
+**Music video sidecar（音乐 MV sidecar）**：
+文件夹曲库内与音乐文件同目录、同基本文件名的一对一 MP4。音乐文件是唯一声音来源；主 Service 的单 ExoPlayer 以 audio-only 音乐源和 video-only MP4 源组成同一时间线。独立 `music_video_enabled` 默认关闭，变化从下一首不同歌曲生效；仅标准封面、前台 RESUMED、非歌词页时启用视频 renderer 和 Surface。画面位于纯黑 1:1 容器内按像素宽高比 Fit，优先级为 MV > 视频专辑封面 > 静态封面。详见 ADR-0005。
+
+_Avoid_: 双播放器同步、播放 MP4 音轨、人工偏移/字幕/PiP/模糊后缀匹配、后台解码、全曲库海报或末帧预取、因 MV 改变采样率/位深/音频 renderer/DSP/USB 输出模式
 
 **Standard progress（标准进度区）**：
 下半屏 chrome 中的常规进度条与时间显示；与封面底边进度二选一为主显示。

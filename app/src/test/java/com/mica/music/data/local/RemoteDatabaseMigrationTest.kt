@@ -13,14 +13,20 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class RemoteDatabaseMigrationTest {
     @Test
-    fun migration20To21CreatesRemoteTablesWithExpectedKeysAndNoSecretColumns() {
+    fun migration21To22CreatesRemoteTablesWithExpectedKeysAndNoSecretColumns() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
                 .name(null)
                 .callback(
-                    object : SupportSQLiteOpenHelper.Callback(20) {
-                        override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                    object : SupportSQLiteOpenHelper.Callback(21) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                "CREATE TABLE songs (" +
+                                    "id TEXT NOT NULL PRIMARY KEY, musicVideoUri TEXT, " +
+                                    "musicVideoRevision TEXT NOT NULL DEFAULT '')",
+                            )
+                        }
                         override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
                     },
                 )
@@ -28,7 +34,7 @@ class RemoteDatabaseMigrationTest {
         )
         val db = helper.writableDatabase
         try {
-            MIGRATION_20_21.migrate(db)
+            MIGRATION_21_22.migrate(db)
 
             val sourceColumns = tableColumns(db, "remote_sources")
             assertEquals(

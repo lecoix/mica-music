@@ -602,6 +602,31 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun photoStackListLyricsPage_capsFivePercentBottomGapToAvailableSpace() {
+        val playbackFrame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        val lyricsLower = playbackFrame.lower.forPhotoStackListLyricsPage(800.dp)
+
+        assertTrue(playbackFrame.lower.controlsBottomPadding > 0.dp)
+        assertTrue(playbackFrame.lower.chromeHeight > 48.dp)
+        assertEquals(40.dp, lyricsLower.controlsBottomPadding)
+        assertEquals(88.dp, lyricsLower.chromeHeight)
+
+        val heightConstrained = playbackFrame.lower
+            .copy(controlsBottomPadding = 24.dp)
+            .forPhotoStackListLyricsPage(800.dp)
+        assertEquals(24.dp, heightConstrained.controlsBottomPadding)
+        assertEquals(72.dp, heightConstrained.chromeHeight)
+    }
+
+    @Test
     fun photoStackSpectrumUsesExistingGuards() {
         val switching = PlayerPageLayoutEngine.computeFrame(
             input = baseInput(

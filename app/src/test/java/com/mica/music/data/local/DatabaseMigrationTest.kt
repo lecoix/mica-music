@@ -19,6 +19,138 @@ import org.robolectric.annotation.Config
 class DatabaseMigrationTest {
 
     @Test
+    fun migrationTwentyToTwentyOneAddsNullableMusicVideoAndEmptyRevision() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(20) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_20_21.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").containsAll(listOf("musicVideoUri", "musicVideoRevision")))
+        db.query("SELECT musicVideoUri, musicVideoRevision FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertEquals("", cursor.getString(1))
+        }
+        helper.close()
+    }
+
+    @Test
+    fun migrationTwentyOneToTwentyTwoAddsRemoteTablesToMainlineSchema() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(21) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            "CREATE TABLE songs (" +
+                                "id TEXT NOT NULL PRIMARY KEY, musicVideoUri TEXT, " +
+                                "musicVideoRevision TEXT NOT NULL DEFAULT '')",
+                        )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_21_22.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").containsAll(listOf("musicVideoUri", "musicVideoRevision")))
+        assertTrue(tableExists(db, "remote_sources"))
+        assertTrue(tableExists(db, "remote_tracks"))
+        helper.close()
+    }
+
+    @Test
+    fun migrationTwentyOneToTwentyTwoAddsMusicVideoColumnsToRemoteFeatureSchema() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(21) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                        db.execSQL(
+                            """
+                            CREATE TABLE remote_sources (
+                                id TEXT NOT NULL,
+                                type TEXT NOT NULL,
+                                displayName TEXT NOT NULL,
+                                endpoint TEXT NOT NULL,
+                                credentialRef TEXT NOT NULL,
+                                enabled INTEGER NOT NULL,
+                                configRevision INTEGER NOT NULL,
+                                catalogRevision INTEGER NOT NULL,
+                                lastSyncAtMs INTEGER NOT NULL,
+                                PRIMARY KEY(id)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            CREATE TABLE remote_tracks (
+                                sourceInstanceId TEXT NOT NULL,
+                                opaqueTrackId TEXT NOT NULL,
+                                title TEXT NOT NULL,
+                                artist TEXT NOT NULL,
+                                album TEXT NOT NULL,
+                                albumArtist TEXT NOT NULL,
+                                durationSec INTEGER NOT NULL,
+                                mimeTypeHint TEXT NOT NULL,
+                                fileName TEXT NOT NULL,
+                                suffix TEXT NOT NULL,
+                                sizeBytes INTEGER NOT NULL,
+                                year INTEGER NOT NULL,
+                                trackNumber INTEGER NOT NULL,
+                                discNumber INTEGER NOT NULL,
+                                albumOpaqueId TEXT NOT NULL,
+                                artistOpaqueId TEXT NOT NULL,
+                                artworkOpaqueId TEXT NOT NULL,
+                                catalogPosition INTEGER NOT NULL,
+                                PRIMARY KEY(sourceInstanceId, opaqueTrackId),
+                                FOREIGN KEY(sourceInstanceId) REFERENCES remote_sources(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            "INSERT INTO remote_sources VALUES " +
+                                "('remote', 'SMB', 'SMB', 'smb://host/share', 'credential', 1, 1, 1, 123)",
+                        )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_21_22.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").containsAll(listOf("musicVideoUri", "musicVideoRevision")))
+        db.query("SELECT displayName, catalogRevision FROM remote_sources WHERE id = 'remote'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("SMB", cursor.getString(0))
+            assertEquals(1L, cursor.getLong(1))
+        }
+        helper.close()
+    }
+
+    @Test
     fun migrationOneToTwoAddsColumnsWithSafeDefaults() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val helper = FrameworkSQLiteOpenHelperFactory().create(
@@ -730,6 +862,12 @@ class DatabaseMigrationTest {
             while (cursor.moveToNext()) add(cursor.getString(nameIndex))
         }
     }
+
+    private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
+        db.query(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            arrayOf(table),
+        ).use { cursor -> cursor.moveToFirst() }
 
     private fun discNumberFor(db: SupportSQLiteDatabase, id: String): Int =
         db.query("SELECT discNumber FROM songs WHERE id = '$id'").use { cursor ->

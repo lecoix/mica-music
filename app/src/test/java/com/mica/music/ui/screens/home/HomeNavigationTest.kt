@@ -195,6 +195,44 @@ class HomeNavigationTest {
     }
 
     @Test
+    fun playlistDetailIsDeeperThanPlaylistOverview() {
+        assertTrue(
+            homePaneDepth(HomePaneKey.Playlist("p1")) >
+                homePaneDepth(HomePaneKey.PlaylistOverview),
+        )
+    }
+
+    @Test
+    fun overviewPlaylistDetailPushesOverviewAndBackRestoresIt() {
+        val overview = snapshot(section = HomeSection.Playlist)
+        val detail = navigateToPlaylistFromOverview(overview, "p1")
+
+        assertEquals(HomeSection.Playlist, detail.section)
+        assertEquals("p1", detail.activePlaylistId)
+        assertEquals(
+            listOf(BrowseStackFrame(section = HomeSection.Playlist)),
+            detail.browseStack,
+        )
+        assertTrue(canNavigateBack(detail))
+
+        val back = navigateBack(detail).snapshot
+        assertEquals(HomeSection.Playlist, back.section)
+        assertEquals(null, back.activePlaylistId)
+        assertEquals(emptyList<BrowseStackFrame>(), back.browseStack)
+    }
+
+    @Test
+    fun flatPlaylistDetailDoesNotCreateBackDestination() {
+        val detail = snapshot(
+            section = HomeSection.Playlist,
+            activePlaylistId = "p1",
+        )
+
+        assertFalse(canNavigateBack(detail))
+        assertEquals(detail, navigateBack(detail).snapshot)
+    }
+
+    @Test
     fun pushBrowseDestinationKeepsFolderOffStack() {
         val updated = pushBrowseDestination(
             snapshot(

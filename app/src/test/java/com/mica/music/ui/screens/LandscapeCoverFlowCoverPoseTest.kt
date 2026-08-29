@@ -56,6 +56,30 @@ class LandscapeCoverFlowCoverPoseTest {
     }
 
     @Test
+    fun lyricsTargetPoseMapsTheSourceCoverExactlyIntoTheMeasuredSlot() {
+        val pose = landscapeCoverFlowLyricsTargetPose(
+            sourceCoverHeight = 280.dp,
+            sourceLayerHeight = 330.dp,
+            sourceCoverTop = 20.dp,
+            targetCoverSize = 84.dp,
+            targetCenterX = 150.dp,
+            targetCenterY = 142.dp,
+            playerCenterX = 500.dp,
+        )
+        val transformOriginY = 330f * 0.45f
+        val transformedTop =
+            transformOriginY + (20f - transformOriginY) * pose.scale + pose.translationY.value
+        val transformedBottom =
+            transformOriginY + (300f - transformOriginY) * pose.scale +
+                pose.translationY.value
+
+        assertEquals(0.3f, pose.scale, 0.001f)
+        assertEquals((-350).dp, pose.translationX)
+        assertEquals(100f, transformedTop, 0.01f)
+        assertEquals(184f, transformedBottom, 0.01f)
+    }
+
+    @Test
     fun cloudFoldShrinksInPlaceWithoutLaneShift() {
         val pose = landscapeCoverFlowCoverPose(
             progress = 1f,

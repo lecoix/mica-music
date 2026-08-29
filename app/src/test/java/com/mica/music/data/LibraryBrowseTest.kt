@@ -413,6 +413,27 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun folderBrowseKeepsCaseDistinctPathsSeparateWhenScannerDoesNotReconcileThem() {
+        val songs = listOf(
+            song("upper", "QQmusic/song"),
+            song("lower", "qqmusic/song"),
+        )
+
+        assertEquals(
+            setOf("QQmusic:1", "qqmusic:1"),
+            LibraryBrowse.folderGroups(songs, emptyList())
+                .map { "${it.title}:${it.songCount}" }
+                .toSet(),
+        )
+        assertEquals(
+            setOf("QQmusic/song:1", "qqmusic/song:1"),
+            LibraryBrowse.musicFolderGroups(songs)
+                .map { "${it.pathSegments.joinToString("/")}:${it.songCount}" }
+                .toSet(),
+        )
+    }
+
+    @Test
     fun folderBrowseUsesFilePathToRecoverOldMediaStoreFolderPaths() {
         val songs = listOf(
             song(

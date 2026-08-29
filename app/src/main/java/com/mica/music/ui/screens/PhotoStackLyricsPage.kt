@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsRenderState
@@ -13,6 +14,7 @@ import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.LowerPanelFrame
+import com.mica.music.ui.screens.player.forPhotoStackListLyricsPage
 import com.mica.music.ui.theme.PlayerContentColors
 
 /**
@@ -25,6 +27,7 @@ internal fun PhotoStackLyricsPage(
     surfaceState: PlaybackSurfaceState,
     colors: PlayerContentColors,
     lower: LowerPanelFrame,
+    effectiveScreenHeight: Dp,
     seekState: PlaybackSeekState,
     lyricsPageImmersive: Boolean,
     lyricsAlignment: LyricsPageAlignment,
@@ -69,7 +72,7 @@ internal fun PhotoStackLyricsPage(
             surfaceState = surfaceState,
             colors = colors,
             seekState = seekState,
-            lower = lower,
+            lower = lower.forPhotoStackListLyricsPage(effectiveScreenHeight),
             spectrumEnabled = false,
             hidden = lyricsPageImmersive,
             onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,

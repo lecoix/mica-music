@@ -22,6 +22,7 @@
 | `cyclePlaybackQueueMode` | 播放模式循环 |
 | `toggleImmersiveLower` | 沉浸模式 |
 | `insertPlayNext` / `setQueue` | 长按菜单 |
+| `attachMusicVideoOutput` / `detachMusicVideoOutput` | 仅标准主题当前歌曲的 TextureView 输出；由 `PlaybackRuntime` 校验 lease、mediaId 与 Controller identity |
 
 ## 封面手势 → Controller
 
@@ -34,6 +35,8 @@
 | **粒子封面**（`PARTICLE_COVER`） | [`ParticleCoverPlayerLayer`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt) + [`ParticleCoverHost`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverHost.kt) | 全屏 GLES 层；切歌分解动画；**不**走标准轻扫/封面流。详见 [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) §0 |
 
 不新增 Controller API。封面流切歌动画由 View 监听 `currentIndex`（`CoverFlowCarouselHost.update` → `updateCurrentIndex`）驱动；拍立得经 `PhotoStackCarouselNavigationBridge`；粒子封面切歌由 `ParticleCoverHost` 内部阶段动画 + 播放器 `currentIndex` 同步。
+
+音乐 MV 是此规则的窄例外：不向 UI 暴露可提交 URI 的通用 Controller API，只在 `NowPlayingActions` 暴露 attach/detach 当前播放视频输出。`PlaybackRuntime` 的单一 Surface lease 校验 TextureView、mediaId 和 Controller identity；仅 `STANDARD`、Activity RESUMED、歌词页关闭时挂载。静态封面始终在下层，首帧后淡入；黑色 1:1 Fit，不裁剪。切歌转场用既有静态封面 wipe 承接，只允许一个真实视频 Surface。
 
 **互斥**：同一时刻仅一种封面行为层挂载（`NowPlayingCoverSection` 分支）。`CUSTOM_STANDARD` / `PARTICLE_COVER` / `PHOTO_STACK` **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。
 

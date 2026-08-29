@@ -9,6 +9,8 @@ internal data class VideoCoverFile(
     val uri: String,
     val folderPath: String,
     val baseName: String,
+    val sizeBytes: Long = 0L,
+    val lastModifiedMs: Long = 0L,
 )
 
 private val VideoCoverWhitespace = Regex("\\s+")

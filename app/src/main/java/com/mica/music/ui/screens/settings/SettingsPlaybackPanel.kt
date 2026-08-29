@@ -60,7 +60,7 @@ internal fun PlaybackSettingsPanel(
 
     SettingsChoiceRow(
         title = "播放页特殊主题",
-        subtitle = "选择播放页的封面与下半区呈现方式；主题会决定下方可用的专属选项",
+        subtitle = "主题会决定下方可用的专属选项",
         choices = PlayerCoverFlowChoices,
         selectedValue = uiSettings.playerCoverFlowMode.ordinal,
         onSelect = { ordinal ->
@@ -94,7 +94,7 @@ internal fun PlaybackSettingsPanel(
 
     SettingsChoiceRow(
         title = "播放页 UI 颜色",
-        subtitle = "信息行、歌名、艺人、专辑、进度条与底部五个按钮；动态取色：稳定主色 + 语义色阶（浅色更鲜艳）",
+        subtitle = "影响信息行、歌名、艺人、专辑、进度条与底部按钮",
         choices = PlaybackContentColorChoices,
         selectedValue = uiSettings.playerPageTextColorMode.ordinal,
         onSelect = { ordinal ->
@@ -106,8 +106,14 @@ internal fun PlaybackSettingsPanel(
 
     if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) {
         SettingsToggleRow(
+            title = "音乐 MV",
+            subtitle = "扫匹配同目录同文件名 MP4，只同步显示画面；切换后从下一首歌曲生效，仅在标准主题生效",
+            checked = uiSettings.musicVideoEnabled,
+            onCheckedChange = uiSettings::updateMusicVideoEnabled,
+        )
+        SettingsToggleRow(
             title = "视频专辑封面",
-            subtitle = "默认关闭；开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准播放页静音循环播放",
+            subtitle = "开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准主题生效",
             checked = uiSettings.videoAlbumCoverEnabled,
             onCheckedChange = uiSettings::updateVideoAlbumCoverEnabled,
         )
@@ -117,7 +123,7 @@ internal fun PlaybackSettingsPanel(
         SettingsActionRow(
             title = "进入播放页布局编辑",
             subtitle = if (canOpenCustomPlayerLayoutEditor) {
-                "打开播放页，直接拖动、双指缩放或设置六个元素的显隐"
+                "拖动组件、双指缩放或设置组件显隐"
             } else {
                 "请先播放一首歌曲"
             },
@@ -142,11 +148,11 @@ internal fun PlaybackSettingsPanel(
             title = "封面底边进度",
             subtitle = when {
                 uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.PARTICLE_COVER ->
-                    "开启后隐藏进度条与频谱；关闭后使用普通布局"
+                    "当前主题下开启后将隐藏进度条与频谱"
                 uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD ->
-                    "开启后将进度条与频谱移到专辑图底边；关闭后使用普通布局"
+                    "开启后将进度条与频谱移到专辑图底边"
                 else ->
-                    "当前特殊主题支持将进度条与频谱移到专辑图底边；关闭后使用普通布局"
+                    "当前特殊主题支持将进度条与频谱移到专辑图底边"
             },
             checked = uiSettings.coverEdgeProgress,
             onCheckedChange = { uiSettings.updateCoverEdgeProgress(it) },
@@ -155,15 +161,14 @@ internal fun PlaybackSettingsPanel(
 
     SettingsToggleRow(
         title = "播放时屏幕常亮",
-        subtitle = "仅在播放页打开且正在播放时防止熄屏；暂停或离开播放页后恢复系统设置",
         checked = uiSettings.keepScreenOnWhenPlaying,
         onCheckedChange = { uiSettings.updateKeepScreenOnWhenPlaying(it) },
     )
 
     if (uiSettings.playerCoverFlowMode.supportsImmersiveLower) {
         SettingsToggleRow(
-            title = "下半屏沉浸",
-            subtitle = "封面以下仅保留主题必要信息；拍立得回忆会把歌名、歌手与进度收进相纸，轻点播放/暂停、长按照片退出",
+            title = "沉浸模式",
+            subtitle = "标准主题在封面以下仅保留标题与艺术家；拍立得回忆会把歌名、歌手与进度收进相纸，轻点播放/暂停、长按照片退出",
             checked = uiSettings.playerImmersiveLower,
             onCheckedChange = uiSettings::updatePlayerImmersiveLower,
         )
@@ -172,7 +177,7 @@ internal fun PlaybackSettingsPanel(
     if (uiSettings.playerCoverFlowMode.usesCompactLyricsLinePreference()) {
         SettingsChoiceRow(
             title = "折叠歌词行数",
-            subtitle = "自动：按可用高度在一行与三行间切换；三行显示上一句/当前/下一句；一行仅当前句",
+            subtitle = "自动：按可用高度在一行与三行间切换",
             choices = CompactLyricsLineModeChoices,
             selectedValue = uiSettings.compactLyricsLineMode.ordinal,
             onSelect = { ordinal ->
@@ -183,7 +188,7 @@ internal fun PlaybackSettingsPanel(
 
     SettingsToggleRow(
         title = "隐藏歌名括号内容",
-        subtitle = "播放页和歌词页仅显示括号前后的歌名；不修改曲库原始标题",
+        subtitle = "不会修改曲库原始标题",
         checked = uiSettings.stripSongTitleParentheses,
         onCheckedChange = { uiSettings.updateStripSongTitleParentheses(it) },
     )
@@ -194,7 +199,6 @@ internal fun PlaybackSettingsPanel(
 
     SettingsToggleRow(
         title = "频谱条",
-        subtitle = "显示随音乐跳动的频段条；位置跟随当前进度条布局",
         checked = uiSettings.spectrumEnabled,
         onCheckedChange = { uiSettings.updateSpectrumEnabled(it) },
     )
@@ -224,7 +228,7 @@ internal fun PlaybackSettingsPanel(
     SettingsToggleRow("时间", "显示当前系统时间", playerInfo.showCurrentTime, { checked ->
         updatePlayerInfo { it.copy(showCurrentTime = checked) }
     })
-    SettingsToggleRow("自定义文字", "在信息行末尾追加自定义文字", playerInfo.showCustomText, { checked ->
+    SettingsToggleRow("自定义文字", "追加自定义文字", playerInfo.showCustomText, { checked ->
         updatePlayerInfo { it.copy(showCustomText = checked) }
     })
     SettingsTextFieldRow(
@@ -239,7 +243,6 @@ internal fun PlaybackSettingsPanel(
 
     SettingsChoiceRow(
         title = "标志样式",
-        subtitle = "Hi-Res 曲目在信息行右侧显示的标志",
         choices = HiResBadgeStyleChoices,
         selectedValue = uiSettings.hiResBadgeStyle.ordinal,
         onSelect = { ordinal ->

@@ -164,7 +164,10 @@ object FolderScanner {
             probed = probed.get(),
         )
         ScanResult(
-            songs = attachVideoCovers(songs, loaded.videoCovers),
+            songs = MusicVideoMatcher.attach(
+                attachVideoCovers(songs, loaded.videoCovers),
+                loaded.videoCovers,
+            ),
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
             probeStats = ScanProbeStats(
@@ -401,7 +404,13 @@ object FolderScanner {
             ext == "mp4" -> {
                 val baseName = name.substringBeforeLast('.')
                 if (baseName.isNotBlank()) {
-                    videoOut += VideoCoverFile(uri.toString(), folderPath, baseName)
+                    videoOut += VideoCoverFile(
+                        uri = uri.toString(),
+                        folderPath = folderPath,
+                        baseName = baseName,
+                        sizeBytes = size,
+                        lastModifiedMs = lastModified,
+                    )
                 }
             }
             mime.startsWith("audio/") || ext in audioExtensions -> {

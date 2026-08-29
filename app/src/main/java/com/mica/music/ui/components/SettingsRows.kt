@@ -86,7 +86,7 @@ fun SettingsNavigationRow(
 @Composable
 fun SettingsToggleRow(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -104,12 +104,14 @@ fun SettingsToggleRow(
                 style = MicaTheme.typography.bodyLg,
                 color = MicaTheme.colors.textPrimary,
             )
-            Text(
-                text = subtitle,
-                style = MicaTheme.typography.caption,
-                color = MicaTheme.colors.textTertiary,
-                modifier = Modifier.padding(top = HifiSpacing.xxs),
-            )
+            subtitle?.takeIf { it.isNotBlank() }?.let { text ->
+                Text(
+                    text = text,
+                    style = MicaTheme.typography.caption,
+                    color = MicaTheme.colors.textTertiary,
+                    modifier = Modifier.padding(top = HifiSpacing.xxs),
+                )
+            }
         }
         TextToggle(checked = checked, onCheckedChange = onCheckedChange)
     }

@@ -1,10 +1,12 @@
 # Mica 功能清单
 
-> 最后整理：2026-08-07。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
+> 最后整理：2026-08-29。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
 
 ---
 
 ## 已实现
+
+- [x] 本地音乐 MV 软件链路：同目录同基本文件名 MP4、音乐唯一出声、单 Exo 合并时间线、独立默认关闭开关、标准封面 Surface lease、一次纯音频回退；真机音画与 USB/DSD 验收仍见 `CURRENT_FEATURE_STATUS.md` / ADR-0005。
 
 ### 曲库与扫描
 
@@ -16,7 +18,7 @@
 - [x] 播放次数记录（`PlayHistoryStore`，供「最近播放」等）
 - [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（不自动续播）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
 - [x] 文件夹浏览模式：层级浏览与**扁平浏览**均已持久化；扁平模式只列出直接包含歌曲的目录，不把仅包含子目录的父目录重复列出
-- [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（schema v17）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
+- [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（当前 schema v21）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
 
 
 
@@ -232,7 +234,7 @@
   - **治本**：View + Canvas 七轨（`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)`）——无 Compose 槽位重建、Coil 缓存位图直绘、`railOffset` 单轨末帧连续。
   - **仍保留的通用优化**：模糊背景 `.size(384)` 降采样；`SongCover` `stableMemoryCacheKey`；`[MicaImageLoaders](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt)` 预载。
   - **验收**：平行 / 复古 × 各播放页背景下连续切歌与拖动；无闪帧、无松手跳变。
-- [x] **歌单功能正式化**：歌单已有侧栏列表 / 新建 / 详情 / 播放 / 删除、重命名、导入导出 JSON、歌曲封面与自定义封面管理；2026-08-07 起持久化迁至 Room（schema v17）。尚未实现智能歌单条件
+- [x] **歌单功能正式化**：歌单已有侧栏列表 / 新建 / 详情 / 播放 / 删除、重命名、导入导出 JSON、歌曲封面与自定义封面管理；持久化已迁至 Room（当前 schema v21）。尚未实现智能歌单条件
 - [ ] **歌曲年份信息**
   - **月日信息**
 ---

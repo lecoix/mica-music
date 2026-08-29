@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-08-26
+> 最后整理：2026-08-29
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -58,6 +58,7 @@
 | [`adr/0002-library-snapshot-publication.md`](adr/0002-library-snapshot-publication.md) | 完整曲库 snapshot 的 generation / revision / Room 发布顺序契约 |
 | [`adr/0003-lyrics-timing-offset.md`](adr/0003-lyrics-timing-offset.md) | 全局 + 单曲歌词偏移的语义、持久化、并发与容量契约 |
 | [`adr/0004-usb-exclusive-hybrid.md`](adr/0004-usb-exclusive-hybrid.md) | USB Exclusive Hybrid 的 owner/epoch、通用 USB Audio 选择、PCM/DoP/实验 Native 决策与未验证边界 |
+| [`adr/0005-local-music-video-playback.md`](adr/0005-local-music-video-playback.md) | 本地 MV 的音乐音频权威、单 Exo 合并时间线、Surface lease、下一首开关语义与失败回退 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
@@ -138,7 +139,8 @@
 | 2026-08-01 | 新增 `ADDING_AUDIO_FORMAT_SUPPORT.md`：沉淀 APE 接入中的帧边界、seek、频谱时钟和 JNI 缓冲区扩容经验 |
 | 2026-08-02 | 更新 SDK、封面行为、Hi‑Res、DSD renderer split 与 TODO 状态；新增 `CURRENT_FEATURE_STATUS.md`，补录外部音频、扁平浏览、Letter、睡眠定时和 Room v15 |
 | 2026-08-07 | 新增 `LIBRARY_SCAN.md`：扫描流水线、性能 (9)(10)(11) 与暂缓优化方向 |
-| 2026-08-07 | 全量文档审计：同步歌单 Room（schema v17）、播放状态所有权收拢、offload 熔断、外部队列恢复边界、歌词结构化角色；补录 `TESTING` / `SETTINGS_AUDIT_MATRIX` / `APP_UPDATE` 到索引 |
+| 2026-08-07 | 全量文档审计：同步歌单 Room（当时 schema v17）、播放状态所有权收拢、offload 熔断、外部队列恢复边界、歌词结构化角色；补录 `TESTING` / `SETTINGS_AUDIT_MATRIX` / `APP_UPDATE` 到索引 |
 | 2026-08-06 | 新增 `SPECTRUM_STALL_BUG.md`：VORACITY 频谱停滞根因、解耦修复与输出设备参考调研 |
 | 2026-08-15 | 新增 `HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md`：记录 OXF-AN10 真机验证的 MediaSession artwork URI 兼容方案及未来选项 |
 | 2026-08-26 | USB 开源 provenance 补全：`OPEN_SOURCE_NOTICES` 加入 SylvaKru/libusb；`USB_REFERENCE_FUNCTION_AUDIT` 增加 Apache-2.0 来源与逐字/适配边界；第三方 transport 保留 LICENSE/NOTICE/修改声明 |
+| 2026-08-29 | 同步当前工作树：Room v21、ARMv7/arm64 ABI 发布边界、本地音乐 MV、设置文案和真机未验收范围；重写损坏编码的 `CURRENT_FEATURE_STATUS.md` |

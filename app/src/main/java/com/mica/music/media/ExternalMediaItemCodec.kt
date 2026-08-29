@@ -21,6 +21,7 @@ internal object ExternalMediaItemCodec {
     private const val VERSION_KEY = "mica.external.version"
     private const val SOURCE_KEY = "mica.external.source"
     private const val COVER_COLOR_KEY = "mica.external.coverColorArgb"
+    private const val MUSIC_VIDEO_REVISION_KEY = "mica.external.musicVideoRevision"
     private const val VERSION = 1
 
     fun encode(
@@ -33,6 +34,8 @@ internal object ExternalMediaItemCodec {
             putInt(VERSION_KEY, VERSION)
             putString(SOURCE_KEY, song.source.name)
             putInt(COVER_COLOR_KEY, song.coverColorArgb)
+            putString(MusicVideoMediaSourceFactory.MUSIC_VIDEO_URI_EXTRA, song.musicVideoUri)
+            putString(MUSIC_VIDEO_REVISION_KEY, song.musicVideoRevision)
         }
         val metadata = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -92,6 +95,8 @@ internal object ExternalMediaItemCodec {
             albumArtUri = metadata.artworkUri?.toString(),
             coverColorArgb = extras.getInt(COVER_COLOR_KEY, 0),
             mediaUri = mediaUri,
+            musicVideoUri = extras.getString(MusicVideoMediaSourceFactory.MUSIC_VIDEO_URI_EXTRA),
+            musicVideoRevision = extras.getString(MUSIC_VIDEO_REVISION_KEY).orEmpty(),
             source = source,
         )
     }

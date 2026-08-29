@@ -180,7 +180,7 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 ### P1 状态写入、迁移与系统事件契约
 
 - `NotificationLyricsMedia3ContractTest.realQueueWritesKeepPlayerAndMirrorAlignedWithoutFalsePlayCounts`：真实 ExoPlayer/MediaSession/MediaController/PlayerController 连续执行三次 metadata replacement、preserve-current 重排、移动、删除当前/非当前项及删空；同时断言 Player 队列、UI 镜像、当前曲、进度和播放计数回调。
-- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 v17，`DatabaseMigrationTest` 另覆盖 `14→15`（重建 album browse group 纳入专辑艺术家）、`15→16`（`songs.embeddedLyricsProbeRevision`）与 `16→17`（`playlists` / `playlist_songs`），迁移后通过真实 `SongDao`/`LibraryMetaDao` 读回代表数据，`16→17` 建表另有独立契约测试。
+- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 v21，`DatabaseMigrationTest` 另覆盖 `14→15`（重建 album browse group 纳入专辑艺术家）、`15→16`（`songs.embeddedLyricsProbeRevision`）、`16→17`（`playlists` / `playlist_songs`）、`17→18`（单曲歌词偏移）、`18→19`（comment）、`19→20`（响度字段）与 `20→21`（`musicVideoUri` / `musicVideoRevision`），迁移后通过真实 DAO 读回代表数据。
 - `SongIdentityMigrationTest`：验证旧 URI hash ID 到稳定文档 ID 的一次性迁移，以及播放列表、播放历史、播放会话和曲库浏览偏好的引用同步。
 - `MicaMediaServiceNoisyReceiverTest`：Robolectric 验证 Service 只保留 Media3 内置 noisy receiver，一次广播只暂停一次，销毁时完成注销。设备端普通 App/shell UID 不能伪造受保护的 `AUDIO_BECOMING_NOISY`；OEM 音频焦点、真实耳机拔出和连续系统事件仍属于设备矩阵。
 
@@ -201,7 +201,7 @@ Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极�
 - `PlaybackTimelineCoordinatorTest` / `PlaybackTuningCoordinatorTest` / `PlayerControllerQueueModelTest`：时间轴、调音与队列 UI 状态的单一 owner 语义；`PlayerControllerQueueModelTest.playerControllerFacadeDoesNotOwnRuntimeInternals` 另冻结 `PlayerController → PlaybackRuntime` 的 facade/runtime ownership 边界；`PlaybackQueueMirrorTest` / `MediaControllerQueueSyncTest` / `PlayerControllerBoundaryTest` 覆盖陈旧队列镜像与旧连接回调被拒绝。
 - `AudioPipelineCoordinatorTest` / `AudioOffloadCircuitBreakerTest` / `AudioOffloadPreferencesRobolectricTest`：EQ / 频谱 / offload 偏好变化使旧熔断任务失效；确认失速后回 PCM、按 build fingerprint 记录失败、手动重试与系统更新后重试。
 - `ExternalAudioOpenTest` / `TransientPlaybackCatalogTest` / `ServicePlaybackStateCoordinatorTest`：只有 MediaStore authority 或已持久化 grant 的外部 URI 才进入恢复快照，不可存续临时队列不落盘。
-- `PlaylistStoreTest` / `RoomMigrationContractTest` / `DatabaseMigrationTest`：歌单写库成功后才更新内存；`mica_playlists` JSON 一次性迁移与 `16→17` 建表契约。
+- `PlaylistStoreTest` / `RoomMigrationContractTest` / `DatabaseMigrationTest`：歌单写库成功后才更新内存；`mica_playlists` JSON 一次性迁移与完整 `16→21` schema 演进契约。
 - `LyricDisplayRowsTest` / `LyricsCloudLayoutTest` / `LyricsTimelineEngineTest`：入库不把显示分隔符改写成 `TRANSLATION`，歌词云逐字进度按 token 角色与行结束时间计算。
 
 ### a257a0f 架构重构：P1 真机验收清单
@@ -212,6 +212,13 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 
 - [ ] **有 Service 持久化队列**：上次播放中/暂停有队列与进度 → 杀进程 → 冷启动 → 迷你栏/播放页/通知为同一首；**播放队列顺序不被整库列表排序覆盖**；恢复后处于暂停（不自动续播，除非产品另有约定）。
 - [ ] **无 Service 持久化、Room 有缓存**：清数据后只扫过库、从未形成 service 队列 → 冷启动 → 列表快速出现；若播放器队列为空，应装入曲库（或 bootstrap 行为与旧版一致）。
+
+## 本地音乐 MV
+
+- JVM：`MusicVideoMatcherTest`（精确/归一化/目录/歧义/10k+10k）、Room 20→21、Entity/Summary/MediaItem codec。
+- 交错：开关旧 generation 不得覆盖最新值；旧 Surface detach/首帧/Controller 事件不得影响当前 lease；播放栈重建只重绑当前 controller+mediaId。
+- 错误：坏 MP4 首次只重建当前项为纯音频并保留位置/意图/模式；相同 revision 不二次尝试，纯音频错误走原路径。
+- 真机待验：MP3、FLAC、ALAC/DSF Shared PCM；蓝牙；USB Exact PCM、DoP、Native DSD；暂停、seek、0.5×–2×、循环、短/长视频、后台恢复和 30 分钟漂移。构建/JVM 结果不得替代音画和音质结论。
 - [ ] **Room 空库**：首次安装或空库 → 授权扫描 → 扫描完成后列表与队列行为正常。
 - [ ] **从通知/桌面图标二次进入**：划掉 Activity 后从通知或桌面再开，`MediaController` 重连，UI 队列/当前曲不回退默认。
 - [ ] **诊断**：日志中 `LibraryStartup loadCached` 与 `LibraryQueue libraryIds` 各出现一次为主；不应短时间连续多次 `setQueue` 刷屏。
@@ -269,6 +276,9 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 - 删除文件失败但曲库移除成功时，确认播放队列和所有歌单仍移除该歌曲，Snackbar 文案表达“已从曲库移除但无法删除文件”。
 - 展开播放页，测试播放/暂停、上一首、下一首、seek、歌词行内 seek、队列 Sheet 跳转、移动和删除。
 - 切换 repeat/shuffle，确认播放页图标、通知控制和自然下一首顺序一致。
+- 随机模式使用固定 seed 的最小队列验证完整一轮：当前曲之后每首恰好播放一次；随机顺序最后一首自然完成后进入 `STATE_ENDED`，保持最后一首与随机模式，不得自动 seek、prepare、play、回绕或重新洗牌。结束后用户主动点击“下一首”可以回到本轮随机顺序第一首，但必须记录为手动导航。
+- 播放状态三维验证：分别观察 `PlaybackExecutionState`、`PlaybackIntent` 与 `PlaybackOutputAvailability`。曲尾允许 `ENDED + PLAY` 但按钮必须显示“播放”，点击后仅从当前曲 0ms 重启；缓冲/音频焦点抑制不得伪装成暂停；Controller 断开后 `isPlaying` 必须立即为 false。
+- USB 独占切换矩阵：Shared quiesce、exclusive prepare/open、等待权限、等待设备、返回 Shared、需重插和失败必须折叠到对应输出态；切换期间保留当前 generation 的语义播放意图。创建新 Coordinator 后释放旧 Coordinator 的延迟发布，断言旧 publisher 无法覆盖新输出态。
 - 后台、锁屏、蓝牙控制、划掉 Activity 后重新打开，确认 `MediaController` 重连后 UI 状态不回退到默认队列或默认播放模式。
 - 开启通知歌词，播放带逐字/逐行歌词的歌曲，确认通知歌词随进度更新；关闭后确认通知恢复普通元数据。
 - 曲库扫描设置修改后重新扫描，确认最短时长、纳入非音乐音频、深度元数据探测和排除目录仍生效；相关偏好应经 `LibraryScanSettings` 进入 `ScanOptions`。
@@ -321,7 +331,7 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 
 - 在已有 `mica_settings` 的设备上直接安装新包（不清数据）：上述各项应读出旧值，无需迁移步骤。
 - 已有旧 `mica_playlists` JSON 的设备首次启动后，歌单列表、歌曲顺序、排序、封面与自定义封面应一次性迁入 Room，后续增删改不再依赖 JSON；旧 key 可保留但不作为运行时事实来源。
-- 已有 Room v15/v16 数据库的设备升级后，`15→16` 只补 `embeddedLyricsProbeRevision` 列，`16→17` 建 `playlists` / `playlist_songs` 空表；不应丢失歌曲、歌词、浏览分组或播放历史。
+- 已有 Room v15/v16 数据库的设备升级到当前 v21 后，必须依次完成 `15→16`、`16→17`、`17→18`、`18→19`、`19→20` 和 `20→21`，不应丢失歌曲、歌词、浏览分组、播放历史或歌单；`20→21` 为旧歌曲写入空的 MV revision，并保持 `musicVideoUri` 为空。
 
 ### 并行真机 QA 包
 

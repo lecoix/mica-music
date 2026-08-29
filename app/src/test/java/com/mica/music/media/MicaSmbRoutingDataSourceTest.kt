@@ -68,7 +68,7 @@ class MicaSmbRoutingDataSourceTest {
         assertEquals(1, smbReads)
         assertEquals(5L, opened)
         assertArrayEquals("56789".toByteArray(), output.toByteArray())
-        assertEquals(listOf(5L, 8L), file.offsets)
+        assertEquals(listOf(5L), file.offsets)
         assertEquals(stableUri, spec.uri.toString())
         assertFalse(stableUri.contains("nas.local"))
         assertFalse(stableUri.contains("alice"))

@@ -119,6 +119,7 @@ import com.mica.music.util.deleteSongEverywhere
 import com.mica.music.util.logBackFlow
 import com.mica.music.util.openSongInTagEditor
 import com.mica.music.util.shareSong
+import android.view.TextureView
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -145,6 +146,8 @@ data class NowPlayingActions(
     val resetPlaybackTuning: () -> Unit,
     val peekTrackSkipDirection: () -> TrackSkipDirection?,
     val consumeTrackSkipDirection: () -> TrackSkipDirection?,
+    val attachMusicVideoOutput: (TextureView) -> Long?,
+    val detachMusicVideoOutput: (TextureView, Long) -> Unit,
 )
 
 internal suspend fun pollNowPlayingProgress(
@@ -960,6 +963,9 @@ fun NowPlayingContent(
                     videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled &&
                         (!landscapeMode || uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) &&
                         !lyricsExpanded,
+                    musicVideoState = surfaceState.videoState,
+                    attachMusicVideoOutput = actions.attachMusicVideoOutput,
+                    detachMusicVideoOutput = actions.detachMusicVideoOutput,
                     trackSkipDirection = effectiveTrackWipeDirection,
                     particleCoverTuning = uiSettings.particleCoverTuning,
                     lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
@@ -1226,6 +1232,9 @@ fun NowPlayingContent(
                     landscapePlan.coverLaneWidthDp,
                     screenHeight.value * 0.50f,
                 ).dp
+                var landscapeCoverFlowLyricsCoverBounds by remember(classicCoverSize) {
+                    mutableStateOf<Rect?>(null)
+                }
                 val lyricsColors = rememberLyricsContentColors(
                     appearance.contentColors,
                     uiSettings.lyricsPageTextColorMode,
@@ -1252,8 +1261,11 @@ fun NowPlayingContent(
                             ),
                             edgePadding = landscapeEdgePadding,
                             coverHeight = previewFrame.cover.height,
+                            coverBlockHeight = previewFrame.cover.blockHeight,
+                            coverTopPadding = previewFrame.cover.topPadding,
                             contentPadding = contentPadding,
                             lyricsCoverSize = classicCoverSize,
+                            lyricsCoverBoundsInRoot = landscapeCoverFlowLyricsCoverBounds,
                             coverLaneWidth = landscapePlan.coverLaneWidthDp.dp,
                             horizontalPadding = landscapePlan.horizontalPaddingDp.dp,
                             topPadding = landscapeTopPadding,
@@ -1332,6 +1344,15 @@ fun NowPlayingContent(
                                             LandscapeClassicLeftColumn(
                                                 maxCoverSize = classicCoverSize,
                                                 modifier = Modifier.fillMaxSize(),
+                                                onCoverBoundsResolved = { resolvedBounds ->
+                                                    if (
+                                                        landscapeCoverFlowLyricsCoverBounds !=
+                                                        resolvedBounds
+                                                    ) {
+                                                        landscapeCoverFlowLyricsCoverBounds =
+                                                            resolvedBounds
+                                                    }
+                                                },
                                                 coverContent = { _, coverModifier ->
                                                     Box(coverModifier)
                                                 },
@@ -1499,6 +1520,8 @@ fun NowPlayingContent(
                             exit = coverFlowCloudExitStyle,
                             edgePadding = landscapeEdgePadding,
                             coverHeight = previewFrame.cover.height,
+                            coverBlockHeight = previewFrame.cover.blockHeight,
+                            coverTopPadding = previewFrame.cover.topPadding,
                             contentPadding = contentPadding,
                             lyricsCoverSize = classicCoverSize,
                             coverLaneWidth = landscapePlan.coverLaneWidthDp.dp,
@@ -2015,6 +2038,7 @@ fun NowPlayingContent(
                             surfaceState = surfaceState,
                             colors = playerUiColors,
                             lower = lyricsFrame.lower,
+                            effectiveScreenHeight = screenHeight,
                             seekState = seekState,
                             lyricsPageImmersive = uiSettings.lyricsPageImmersive,
                             lyricsAlignment = uiSettings.lyricsPageAlignment,

@@ -155,6 +155,29 @@ fun BrowseGroupDisplaySheet(
                 placeholder = "输入自定义文本",
                 enabled = customEnabled,
             )
+            if (!isArtist) {
+                Text("专辑副行", style = MicaTheme.typography.caption, color = MicaTheme.colors.textSecondary)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+                ) {
+                    listOf(
+                        "艺术家" to info.showAlbumSubtitleArtist,
+                        "发行日期" to info.showAlbumSubtitleReleaseDate,
+                        "歌曲数量" to info.showAlbumSubtitleSongCount,
+                    ).forEach { (label, selected) ->
+                        AccentTextChoice(label, selected, onClick = {
+                            update {
+                                when (label) {
+                                    "艺术家" -> it.copy(showAlbumSubtitleArtist = !selected)
+                                    "发行日期" -> it.copy(showAlbumSubtitleReleaseDate = !selected)
+                                    else -> it.copy(showAlbumSubtitleSongCount = !selected)
+                                }
+                            }
+                        })
+                    }
+                }
+            }
         }
     }
 }

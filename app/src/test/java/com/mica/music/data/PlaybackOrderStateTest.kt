@@ -1,5 +1,7 @@
 package com.mica.music.data
 
+import androidx.media3.common.C
+import androidx.media3.exoplayer.source.ShuffleOrder
 import com.mica.music.playback.PlaybackOrderState
 import com.mica.music.playback.PlaybackShuffleOrder
 import kotlin.random.Random
@@ -78,6 +80,33 @@ class PlaybackOrderStateTest {
         assertEquals("d", order.nextId(manualSkip = false, repeatAll = false, repeatOne = false))
         assertEquals("a", order.nextId(manualSkip = false, repeatAll = false, repeatOne = true))
         assertEquals("c", order.previousId(repeatAll = false))
+    }
+
+    @Test
+    fun shuffledOrderStopsAfterOneNaturalPassButManualNextWraps() {
+        val order = PlaybackOrderState(
+            sourceIds = listOf("a", "b", "c", "d"),
+            playbackIds = listOf("c", "a", "d", "b"),
+            currentId = "b",
+            shuffleEnabled = true,
+            shuffleSeed = 42L,
+        )
+
+        assertNull(order.nextId(manualSkip = false, repeatAll = false, repeatOne = false))
+        assertEquals("c", order.nextId(manualSkip = true, repeatAll = false, repeatOne = false))
+    }
+
+    @Test
+    fun media3ShuffleOrderHasNoSuccessorAfterItsLastItem() {
+        val seed = 42L
+        val indices = PlaybackShuffleOrder.physicalIndices(
+            physicalIds = listOf("a", "b", "c", "d"),
+            currentId = "b",
+            seed = seed,
+        )
+        val shuffleOrder = ShuffleOrder.DefaultShuffleOrder(indices, seed)
+
+        assertEquals(C.INDEX_UNSET, shuffleOrder.getNextIndex(indices.last()))
     }
 
     @Test

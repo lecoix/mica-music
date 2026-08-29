@@ -23,6 +23,8 @@ class SongEntityTest {
             discNumber = 2,
             releaseDate = "2024-02-29",
             embeddedLyricsProbeRevision = "1\u0001round-trip\u00011000000\u00012000",
+            musicVideoUri = "content://library/round-trip.mp4",
+            musicVideoRevision = "content://library/round-trip.mp4|123|456",
         )
         val entity = song.toEntity(queueOrder = 7)
         val restored = entity.toSong()

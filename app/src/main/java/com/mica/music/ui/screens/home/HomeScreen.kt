@@ -146,6 +146,8 @@ fun HomeScreen(
     val appName = stringResource(R.string.app_name)
     val songListState = rememberLazyListState()
     val remoteListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    var pendingLocateSongId by remember { mutableStateOf<String?>(null) }
+    var pendingLocateRequestKey by remember { mutableStateOf(0) }
     val artistListState = rememberLazyListState()
     val artistGridState = rememberLazyGridState()
     val albumListState = rememberLazyListState()
@@ -299,12 +301,11 @@ fun HomeScreen(
         when (action) {
             PlaylistOverviewAction.OPEN -> {
                 drawerOpen = false
-                uiState = uiState.copy(
-                    section = HomeSection.Playlist,
-                    activePlaylistId = playlist.id,
-                    browseDestination = BrowseDestination.Root,
-                    browseStack = emptyList(),
-                    searchOpen = false,
+                applyNavigationSnapshot(
+                    navigateToPlaylistFromOverview(
+                        snapshot = currentNavigationSnapshot(),
+                        playlistId = playlist.id,
+                    ),
                 )
             }
             PlaylistOverviewAction.RENAME -> {
@@ -474,10 +475,8 @@ fun HomeScreen(
             browseStack = emptyList(),
             section = HomeSection.Songs,
         )
-        scope.launch {
-            delay(MicaMotion.DurationShortMs.toLong())
-            songListState.animateScrollToItem(index)
-        }
+        pendingLocateSongId = song.id
+        pendingLocateRequestKey = locateCurrentSongRequest
     }
 
     LaunchedEffect(playlistStore.playlists, uiState.activePlaylistId) {
@@ -1010,6 +1009,14 @@ fun HomeScreen(
                         onMoveSong = { from, to ->
                             library.moveSongInLibrary(from, to)
                         },
+                        locateSongId = pendingLocateSongId,
+                        locateRequestKey = pendingLocateRequestKey,
+                        onLocateConsumed = { requestKey ->
+                            if (pendingLocateRequestKey == requestKey) {
+                                pendingLocateSongId = null
+                                pendingLocateRequestKey = 0
+                            }
+                        },
                     )
                     HomePaneKey.Remote -> RemoteLibraryPane(
                         repository = remoteCatalogRepository,
@@ -1083,6 +1090,7 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        browseListInfoVisibility = uiSettings.browseListInfoVisibility,
                         onAlbumGridColumnsChange = { columns ->
                             val normalized = columns.coerceIn(1, 4)
                             uiState = uiState.copy(
@@ -1134,6 +1142,7 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        browseListInfoVisibility = uiSettings.browseListInfoVisibility,
                         onAlbumGridColumnsChange = { columns ->
                             val normalized = columns.coerceIn(1, 4)
                             uiState = uiState.copy(

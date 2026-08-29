@@ -11,6 +11,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.mica.music.audio.AudioQualityMode
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PendingPlaybackNavigation
+import com.mica.music.media.PlaybackOutputAvailability
+import com.mica.music.media.PlaybackOutputStatus
 import com.mica.music.data.playback.ServiceExternalSongSnapshot
 import com.mica.music.data.playback.ServicePlaybackSnapshot
 import com.mica.music.data.playback.ServicePlaybackStateStore
@@ -19,6 +21,7 @@ import com.mica.music.playback.MediaControllerConnection
 import com.mica.music.playback.PlayerController
 import com.mica.music.playback.MediaControllerConnector
 import com.mica.music.playback.PlaybackSessionStorage
+import com.mica.music.playback.PlaybackExecutionState
 import com.mica.music.testutil.SongFixtures
 import io.mockk.clearMocks
 import io.mockk.every
@@ -32,6 +35,8 @@ import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -775,6 +780,7 @@ class PlayerControllerBoundaryTest {
         connector: FakeConnector = FakeConnector(),
         storage: FakeSessionStorage = FakeSessionStorage(),
         songResolver: PlaybackSongResolver = PlaybackSongResolver { null },
+        outputStatusFlow: StateFlow<PlaybackOutputStatus> = MutableStateFlow(PlaybackOutputStatus()),
         dispatcher: CoroutineDispatcher = StandardTestDispatcher(),
         queueMirrorDispatcher: CoroutineDispatcher = dispatcher,
         monotonicNowMs: () -> Long = { 0L },
@@ -783,6 +789,7 @@ class PlayerControllerBoundaryTest {
         mediaControllerConnector = connector,
         sessionStorage = storage,
         songResolver = songResolver,
+        outputStatusFlow = outputStatusFlow,
         dispatcher = dispatcher,
         queueMirrorDispatcher = queueMirrorDispatcher,
         monotonicNowMs = monotonicNowMs,
@@ -799,6 +806,84 @@ class PlayerControllerBoundaryTest {
         controller.connectIfNeeded()
 
         assertEquals(2, connector.requests.size)
+        controller.release()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun outputStatusUpdatesSurfaceWithoutPretendingMediaExecutionChanged() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val output = MutableStateFlow(
+            PlaybackOutputStatus(
+                revision = 1L,
+                availability = PlaybackOutputAvailability.STABLE,
+            ),
+        )
+        val connector = FakeConnector()
+        val controller = controller(
+            connector = connector,
+            outputStatusFlow = output,
+            dispatcher = dispatcher,
+        )
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val song = SongFixtures.song("usb-transition")
+        every { mediaController.currentMediaItem } returns MediaItem.Builder().setMediaId(song.id).build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.playbackState } returns Player.STATE_READY
+        every { mediaController.playWhenReady } returns false
+        every { mediaController.isPlaying } returns false
+
+        controller.setQueue(listOf(song))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        runCurrent()
+        assertEquals(PlaybackExecutionState.PAUSED, controller.playbackSurfaceState.playbackStatus.execution)
+
+        output.value = PlaybackOutputStatus(
+            revision = 2L,
+            availability = PlaybackOutputAvailability.WAITING_FOR_PERMISSION,
+            pendingPlayIntent = true,
+        )
+        runCurrent()
+
+        assertEquals(PlaybackExecutionState.PAUSED, controller.playbackSurfaceState.playbackStatus.execution)
+        assertEquals(
+            com.mica.music.playback.PlaybackIntent.PLAY,
+            controller.playbackSurfaceState.playbackStatus.intent,
+        )
+        assertEquals(
+            PlaybackOutputAvailability.WAITING_FOR_PERMISSION,
+            controller.playbackSurfaceState.playbackStatus.outputAvailability,
+        )
+        controller.release()
+    }
+
+    @Test
+    fun disconnectedControllerCannotLeaveActualPlaybackMarkedPlaying() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val song = SongFixtures.song("disconnect-playing")
+        every { mediaController.currentMediaItem } returns MediaItem.Builder().setMediaId(song.id).build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.playbackState } returns Player.STATE_READY
+        every { mediaController.playWhenReady } returns true
+        every { mediaController.isPlaying } returns true
+
+        controller.setQueue(listOf(song))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        assertTrue(controller.playbackSurfaceState.isPlaying)
+
+        connector.requests.single().onDisconnected()
+
+        assertFalse(controller.playbackSurfaceState.isPlaying)
+        assertEquals(
+            PlaybackExecutionState.UNAVAILABLE,
+            controller.playbackSurfaceState.playbackStatus.execution,
+        )
         controller.release()
     }
 
@@ -1432,6 +1517,7 @@ class PlayerControllerBoundaryTest {
         val listener = slot<Player.Listener>()
         val queue = SongFixtures.queue(6)
         var repeatMode = Player.REPEAT_MODE_OFF
+        var playbackState = Player.STATE_READY
         every { mediaController.addListener(capture(listener)) } returns Unit
         every { mediaController.repeatMode } answers { repeatMode }
         every { mediaController.currentMediaItem } returns MediaItem.Builder()
@@ -1441,6 +1527,7 @@ class PlayerControllerBoundaryTest {
         every { mediaController.mediaItemCount } returns queue.size
         every { mediaController.currentPosition } returns 10_000L
         every { mediaController.playWhenReady } returns true
+        every { mediaController.playbackState } answers { playbackState }
         every { mediaController.duration } returns 60_000L
         every { mediaController.getMediaItemAt(any()) } answers {
             MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
@@ -1468,6 +1555,26 @@ class PlayerControllerBoundaryTest {
         assertEquals(queue[2].id, controller.playbackSurfaceState.currentSong?.id)
         assertEquals(queue.map { it.id }.toSet(), controller.playbackQueueState.queue.map { it.id }.toSet())
         assertEquals(queue.size, controller.playbackQueueState.queue.distinctBy { it.id }.size)
+
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+        playbackState = Player.STATE_ENDED
+        listener.captured.onPlaybackStateChanged(Player.STATE_ENDED)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
+        assertEquals(PlaybackExecutionState.ENDED, controller.playbackSurfaceState.playbackStatus.execution)
+        assertFalse(controller.playbackSurfaceState.playbackStatus.showsPauseAction)
+        verify(exactly = 0) { mediaController.play() }
+        verify(exactly = 0) { mediaController.prepare() }
+        verify(exactly = 0) { mediaController.seekTo(any<Long>()) }
+        verify(exactly = 0) { mediaController.seekTo(any<Int>(), any<Long>()) }
+        verify(exactly = 0) { mediaController.seekToNext() }
+
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+        controller.togglePlay()
+
+        verify(exactly = 1) { mediaController.seekTo(2, 0L) }
+        verify(exactly = 1) { mediaController.play() }
         controller.release()
     }
 
@@ -2222,12 +2329,14 @@ class PlayerControllerBoundaryTest {
             onDisconnected: () -> Unit,
             onFailure: (Throwable) -> Unit,
             onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+            onPlaybackStackRebuilt: () -> Unit,
         ): MediaControllerConnection {
             val request = Request(
                 onConnected,
                 onDisconnected,
                 onFailure,
                 onPlaybackBoundary,
+                onPlaybackStackRebuilt,
                 FakeConnection(),
             )
             requests += request
@@ -2239,6 +2348,7 @@ class PlayerControllerBoundaryTest {
             val onDisconnected: () -> Unit,
             val onFailure: (Throwable) -> Unit,
             val onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+            val onPlaybackStackRebuilt: () -> Unit,
             val connection: FakeConnection,
         )
     }

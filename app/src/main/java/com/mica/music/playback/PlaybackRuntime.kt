@@ -4,21 +4,25 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.TextureView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import com.mica.music.data.*
 import com.mica.music.media.ConfirmedPlaybackBoundary
 import com.mica.music.media.PendingPlaybackNavigation
 import com.mica.music.media.PlaybackRouter
+import com.mica.music.media.PlaybackOutputStatus
 import com.mica.music.media.PlaybackShuffleSessionCommand
 import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.media.SongMediaItemCodec
+import com.mica.music.media.MusicVideoPlaybackPolicyCodec
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.ScreenLockDiagnostics
 import com.mica.music.util.TrackSwitchPerformance
@@ -26,6 +30,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 internal class PendingMediaSelection {
     private var targetSongId: String? = null
@@ -59,12 +66,13 @@ internal class PendingMediaSelection {
 internal data class PlaybackRuntimeSnapshot(
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
-    val playWhenReady: Boolean = false,
     val isBuffering: Boolean = false,
     val playbackError: String? = null,
+    val playbackStatus: PlaybackStatus = PlaybackStatus(),
     val playbackQueueMode: PlaybackQueueMode = PlaybackQueueMode.OFF,
     val playbackTuning: PlaybackTuning = PlaybackTuning(),
     val currentIndex: Int = 0,
+    val videoState: PlaybackVideoState = PlaybackVideoState(),
     val positionMs: Int = 0,
     val durationMs: Int = 0,
     val pendingSeekMs: Int = -1,
@@ -85,6 +93,7 @@ internal class PlaybackRuntime(
     private val mediaControllerConnector: MediaControllerConnector,
     private val sessionStorage: PlaybackSessionStorage,
     private val songResolver: PlaybackSongResolver,
+    outputStatusFlow: StateFlow<PlaybackOutputStatus>,
     dispatcher: CoroutineDispatcher,
     private val queueMirrorDispatcher: CoroutineDispatcher,
     monotonicNowMs: () -> Long,
@@ -100,11 +109,22 @@ internal class PlaybackRuntime(
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var deferredPlaybackPublish: Runnable? = null
+    private var outputStatus: PlaybackOutputStatus = outputStatusFlow.value
     internal val queueCoordinator = PlaybackQueueCoordinator(
         scope = scope,
         workerDispatcher = queueMirrorDispatcher,
         mirrorDebounceMs = QUEUE_MIRROR_DEBOUNCE_MS,
     )
+
+    init {
+        scope.launch {
+            outputStatusFlow.collect { next ->
+                if (next.revision <= outputStatus.revision) return@collect
+                outputStatus = next
+                publishSurfaceState()
+            }
+        }
+    }
     private val timelineCoordinator = PlaybackTimelineCoordinator(monotonicNowMs)
     private val tuningCoordinator = PlaybackTuningCoordinator()
     private val playbackOrderState: PlaybackOrderState
@@ -371,6 +391,12 @@ internal class PlaybackRuntime(
     private var playbackError: String? = null
     private var userMessage: UserMessage? = null
     private var playbackErrorUserMessageId: Long? = null
+    private var notifiedMusicVideoFallbackKey: String? = null
+    private var playbackVideoState = PlaybackVideoState()
+    private val musicVideoOutputCoordinator = MusicVideoOutputCoordinator { state ->
+        playbackVideoState = state
+        publishSurfaceState()
+    }
 
     private val songQueue: List<Song>
         get() = queueCoordinator.queue
@@ -389,16 +415,44 @@ internal class PlaybackRuntime(
     private fun publishQueueState() = publishSnapshot()
 
     private fun publishSnapshot() {
+        val activeController = controller
+        val currentMediaItem = activeController?.currentMediaItem
+        val currentMediaId = currentMediaItem?.mediaId ?: currentSong?.id
+        val musicVideoPolicyEnabled = currentMediaItem
+            ?.takeIf { currentSong?.musicVideoUri != null && it.mediaId == currentSong?.id }
+            ?.let(MusicVideoPlaybackPolicyCodec::isEnabled)
+        val musicVideoEffective = musicVideoPolicyEnabled == true
+        val projectedVideoState = projectMusicVideoState(
+            currentMediaId = currentMediaId,
+            effective = musicVideoEffective,
+            rawState = playbackVideoState,
+        )
+        val actualIsPlaying = activeController?.isPlaying == true
+        val actualPlayWhenReady = activeController?.playWhenReady == true
+        val actualPlaybackState = activeController?.playbackState
+        val status = resolvePlaybackStatus(
+            hasCurrentSong = currentSong != null,
+            controllerConnected = activeController != null && connectionSession.isConnected,
+            playbackState = actualPlaybackState,
+            isPlaying = actualIsPlaying,
+            playWhenReady = actualPlayWhenReady,
+            pendingOutputPlayIntent = outputStatus.pendingPlayIntent,
+            playbackSuppressionReason = activeController?.playbackSuppressionReason
+                ?: Player.PLAYBACK_SUPPRESSION_REASON_NONE,
+            playbackError = playbackError,
+            outputAvailability = outputStatus.availability,
+        )
         stateSink(
             PlaybackRuntimeSnapshot(
                 currentSong = currentSong,
-                isPlaying = isPlaying,
-                playWhenReady = controller?.playWhenReady == true,
-                isBuffering = isBuffering,
+                isPlaying = actualIsPlaying,
+                isBuffering = actualPlaybackState == Player.STATE_BUFFERING,
                 playbackError = playbackError,
+                playbackStatus = status,
                 playbackQueueMode = playbackQueueMode,
                 playbackTuning = playbackTuning,
                 currentIndex = currentIndex,
+                videoState = projectedVideoState,
                 positionMs = uiPositionMs(),
                 durationMs = uiDurationMs(),
                 pendingSeekMs = pendingSeekMs,
@@ -425,6 +479,7 @@ internal class PlaybackRuntime(
         onDisconnected = ::onControllerDisconnected,
         onFailure = { postUserMessage("无法连接播放服务，请稍后重试") },
         onPlaybackBoundary = ::onConfirmedPlaybackBoundary,
+        onPlaybackStackRebuilt = ::onPlaybackStackRebuilt,
     )
     private val controller: MediaController?
         get() = connectionSession.controller
@@ -467,11 +522,30 @@ internal class PlaybackRuntime(
         controller?.let { publishPlayCountIfStarted(it, it.isPlaying) }
     }
 
+    private fun onPlaybackStackRebuilt() {
+        val c = controller ?: return
+        musicVideoOutputCoordinator.reattachForPlaybackStack(c, c.currentMediaItem?.mediaId)
+    }
+
     private fun createPlayerListener(c: MediaController, isCurrentConnection: () -> Boolean): Player.Listener =
         object : Player.Listener {
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 if (!isCurrentConnection()) return
                 if (c.mediaItemCount <= 0) return
+                val fallbackSong = c.currentMediaItem?.let(SongMediaItemCodec::decode)
+                val fallbackRevision = c.currentMediaItem
+                    ?.let(MusicVideoPlaybackPolicyCodec::fallbackRevision)
+                    ?.takeIf(String::isNotBlank)
+                val fallbackKey = fallbackSong?.id?.let { songId ->
+                    fallbackRevision?.let { revision -> "$songId\u0001$revision" }
+                }
+                fallbackKey
+                    ?.takeIf { it != notifiedMusicVideoFallbackKey }
+                    ?.let {
+                        notifiedMusicVideoFallbackKey = it
+                        playbackError = null
+                        postUserMessage("MV 无法播放，已继续播放音乐")
+                    }
                 val mirrorAligned = isQueueMirrorAligned(c)
                 logPlayCountProbe(
                     "timeline reason=${timelineChangeReasonForLog(reason)} " +
@@ -491,6 +565,7 @@ internal class PlaybackRuntime(
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (!isCurrentConnection()) return
+                musicVideoOutputCoordinator.detachForMediaChange(mediaItem?.mediaId)
                 val previousSongId = currentSong?.id
                 val previousStatsSongId = playbackStatistics.statisticsSongId
                 val transitionSongId = mediaItem?.mediaId
@@ -540,9 +615,19 @@ internal class PlaybackRuntime(
             override fun onPlayerError(error: PlaybackException) {
                 if (!isCurrentConnection()) return
                 if (!pendingMediaSelection.accepts(c.currentMediaItem?.mediaId)) return
+                val failedItem = c.currentMediaItem
+                val failedSong = failedItem?.let(SongMediaItemCodec::decode)
+                if (failedItem != null &&
+                    failedSong?.musicVideoUri?.isNullOrBlank() == false &&
+                    MusicVideoPlaybackPolicyCodec.isEnabled(failedItem)
+                ) {
+                    musicVideoOutputCoordinator.onFailure(c, failedItem.mediaId)
+                    return
+                }
+                musicVideoOutputCoordinator.onFailure(c, c.currentMediaItem?.mediaId)
                 playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, false)
                 playbackStatistics.clearRequestAndPending()
-                val song = c.currentMediaItem?.let { SongMediaItemCodec.decode(it) }
+                val song = failedSong
                 val presentation = song?.let(PlaybackRouter::unsupportedMessage)?.let { PlaybackErrorPresentation(it, it) }
                     ?: PlaybackErrorMapper.toPresentation(error, song?.title)
                 DiagnosticLog.event(
@@ -660,6 +745,22 @@ internal class PlaybackRuntime(
                 )
                 publishSurfaceState()
             }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (!isCurrentConnection()) return
+                musicVideoOutputCoordinator.onVideoSize(
+                    controllerIdentity = c,
+                    mediaId = c.currentMediaItem?.mediaId,
+                    width = videoSize.width,
+                    height = videoSize.height,
+                    pixelWidthHeightRatio = videoSize.pixelWidthHeightRatio,
+                )
+            }
+
+            override fun onRenderedFirstFrame() {
+                if (!isCurrentConnection()) return
+                musicVideoOutputCoordinator.onFirstFrame(c, c.currentMediaItem?.mediaId)
+            }
         }
 
     private fun onConnected(c: MediaController) {
@@ -702,12 +803,67 @@ internal class PlaybackRuntime(
     }
 
     private fun onControllerDisconnected(disconnectedController: MediaController?) {
+        disconnectedController?.let(musicVideoOutputCoordinator::detachForController)
         playbackStatistics.observePlayback(disconnectedController?.currentMediaItem?.mediaId, false)
+        isPlaying = false
+        isBuffering = false
         queueCoordinator.clearMirror()
         pendingMediaSelection.clear()
         playbackStatistics.reset(null)
         PendingPlaybackNavigation.clear()
         publishPlaybackStates()
+    }
+
+    fun attachMusicVideoOutput(textureView: TextureView): Long? {
+        val c = controller ?: return null
+        val song = currentSong ?: return null
+        val item = c.currentMediaItem ?: return null
+        if (item.mediaId != song.id || song.musicVideoUri.isNullOrBlank()) {
+            return null
+        }
+        if (!MusicVideoPlaybackPolicyCodec.isEnabled(item)) {
+            return null
+        }
+        if (!c.availableCommands.contains(Player.COMMAND_SET_VIDEO_SURFACE) ||
+            !c.availableCommands.contains(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
+        ) {
+            return null
+        }
+        return musicVideoOutputCoordinator.attach(
+            object : MusicVideoOutputLeasePort {
+                override val outputIdentity: Any = textureView
+                private var boundController: MediaController = c
+                override val controllerIdentity: Any
+                    get() = boundController
+                override val mediaId: String = song.id
+
+                override fun attach() {
+                    boundController.setVideoTextureView(textureView)
+                    boundController.trackSelectionParameters = boundController.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+                        .build()
+                }
+
+                override fun detach() {
+                    runCatching { boundController.clearVideoTextureView(textureView) }
+                    runCatching {
+                        boundController.trackSelectionParameters = boundController.trackSelectionParameters.buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+                            .build()
+                    }
+                }
+
+                override fun rebind(controllerIdentity: Any): Boolean {
+                    val next = controllerIdentity as? MediaController ?: return false
+                    boundController = next
+                    return true
+                }
+            },
+        )
+    }
+
+    fun detachMusicVideoOutput(textureView: TextureView, leaseId: Long) {
+        musicVideoOutputCoordinator.detach(leaseId, textureView)
     }
 
     private fun publishPlayCountIfStarted(player: Player, playing: Boolean) {
@@ -1142,6 +1298,13 @@ internal class PlaybackRuntime(
             return
         }
         playbackError = null
+        if (c.playbackState == Player.STATE_ENDED) {
+            releasePendingRestorePosition(currentSong?.id)
+            val restartIndex = c.currentMediaItemIndex.coerceAtLeast(0)
+            c.seekTo(restartIndex, 0L)
+            c.play()
+            return
+        }
         if (c.playWhenReady) {
             c.pause()
             return
@@ -1641,6 +1804,7 @@ internal class PlaybackRuntime(
     }
 
     fun release() {
+        musicVideoOutputCoordinator.release()
         playbackStatistics.observePlayback(controller?.currentMediaItem?.mediaId, false)
         queueCoordinator.clearMirror()
         clearPendingMediaSelection()
@@ -1727,4 +1891,3 @@ internal fun Song.toMediaItem(): MediaItem =
 internal fun Song.toMediaItem(context: Context): MediaItem =
     if (isRemote) com.mica.music.media.RemoteMediaItemCodec.encode(this)
     else com.mica.music.media.SongMediaItemCodec.encodeForSession(context, this)
-

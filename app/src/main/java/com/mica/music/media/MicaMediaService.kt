@@ -83,6 +83,9 @@ class MicaMediaService : MediaSessionService() {
     private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
     private var unregisterAudioOffloadPreferenceListener: (() -> Unit)? = null
     private var unregisterUsbOutputPreferenceListener: (() -> Unit)? = null
+    private var unregisterMusicVideoPreferenceListener: (() -> Unit)? = null
+    private lateinit var musicVideoPreferenceOwner: MusicVideoPreferenceOwner
+    private val musicVideoFailureRegistry = MusicVideoFailureRegistry()
     private var playbackRouteMonitor: PlaybackRouteMonitor? = null
     private var audioOffloadCircuitBreaker: AudioOffloadCircuitBreaker? = null
     private var audioPipelineCoordinator: AudioPipelineCoordinator? = null
@@ -97,6 +100,9 @@ class MicaMediaService : MediaSessionService() {
         super.onCreate()
         activeOutputPath = UsbHostPrototypeOutput.selectedPath(this)
         val micaApp = application as MicaApp
+        musicVideoPreferenceOwner = MusicVideoPreferenceOwner(
+            initialRequested = PlaybackUiPreferences.musicVideoEnabled(this),
+        )
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val libraryRepository = LibraryRepository(this)
         val remoteMediaItemProvider = TrustedRemoteMediaItemProvider(micaApp.remoteCatalogRepository)
@@ -104,7 +110,9 @@ class MicaMediaService : MediaSessionService() {
             transientSongById = micaApp.transientPlaybackCatalog::songById,
             librarySongsById = libraryRepository::songSummariesByIds,
             remoteMediaItemsById = remoteMediaItemProvider::resolve,
-            mediaItemFactory = { song -> ExternalMediaItemCodec.encode(this, song) },
+            mediaItemFactory = { song ->
+                decorateResolvedSong(song, ExternalMediaItemCodec.encode(this, song))
+            },
         )
         remoteHttpPlaybackResolver = CompositeRemoteHttpPlaybackRequestResolver(
             NavidromeStreamRequestResolver(
@@ -141,6 +149,7 @@ class MicaMediaService : MediaSessionService() {
             outputPath = activeOutputPath,
             remoteResolver = remoteHttpPlaybackResolver,
             smbResolver = remoteSmbPlaybackResolver,
+            isMusicVideoEnabledFor = ::isMusicVideoEnabledForSource,
         )
         installPlaybackStackOwners(stack, micaApp)
         installUsbOutputCoordinator()
@@ -178,6 +187,13 @@ class MicaMediaService : MediaSessionService() {
                     } else {
                         applyUsbOutputMode(mode, "preference")
                     }
+                }
+            }
+        unregisterMusicVideoPreferenceListener =
+            PlaybackUiPreferences.registerMusicVideoChangeListener(this) { enabled ->
+                mainHandler.post musicVideoPreference@{
+                    if (usbOutputDestroyed) return@musicVideoPreference
+                    musicVideoPreferenceOwner.updateRequested(enabled)
                 }
             }
         applyUsbOutputModeOnServiceCreate(
@@ -305,8 +321,11 @@ class MicaMediaService : MediaSessionService() {
                 if (selectedMode != UsbHybridOutputMode.SharedPcm && bootstrap != null) {
                     usbBootstrapHandoff = UsbPlaybackStackHandoff(
                         items = bootstrap.songs.map { song ->
-                            if (song.isRemote) RemoteMediaItemCodec.encode(song)
-                            else SongMediaItemCodec.encode(song)
+                            if (song.isRemote) {
+                                RemoteMediaItemCodec.encode(song)
+                            } else {
+                                decorateResolvedSong(song, SongMediaItemCodec.encode(song))
+                            }
                         },
                         currentIndex = bootstrap.currentIndex,
                         positionMs = bootstrap.positionMs,
@@ -409,6 +428,7 @@ class MicaMediaService : MediaSessionService() {
                 usbBinding = usbBinding,
                 remoteResolver = remoteHttpPlaybackResolver,
                 smbResolver = remoteSmbPlaybackResolver,
+                isMusicVideoEnabledFor = ::isMusicVideoEnabledForSource,
             )
         }
             .getOrElse { error ->
@@ -421,6 +441,7 @@ class MicaMediaService : MediaSessionService() {
         activeOutputPath = target
         activeUsbEpoch = requestedUsbEpoch
         installPlaybackStackOwners(newStack, micaApp, handoff)
+        mediaSession?.broadcastCustomCommand(PlaybackStackSessionEvent.command, Bundle.EMPTY)
         DiagnosticLog.event(
             "AudioOutputPath",
             "rebuild-complete reason=$reason mode=${target.outputMode} " +
@@ -436,6 +457,7 @@ class MicaMediaService : MediaSessionService() {
     ) {
         exoPlayer = stack.exoPlayer
         compositePlayer = stack.compositePlayer
+        musicVideoPreferenceOwner.attach(stack.compositePlayer)
 
         if (handoff != null) {
             stack.compositePlayer.selectWithoutPlayback(
@@ -463,12 +485,19 @@ class MicaMediaService : MediaSessionService() {
         playbackEngineCoordinator = ServicePlaybackEngineCoordinator(
             player = stack.compositePlayer,
             context = this,
+            musicVideoFailures = musicVideoFailureRegistry,
         ).also { coordinator ->
             coordinator.start()
             coordinator.onPlaybackBoundary = { boundary ->
                 mediaSession?.broadcastCustomCommand(
                     PlaybackBoundarySessionEvent.command,
                     PlaybackBoundarySessionEvent.encode(boundary),
+                )
+            }
+            coordinator.onMusicVideoFallback = { song ->
+                DiagnosticLog.event(
+                    "MusicVideo",
+                    "fallback-complete song=${song.id} revision=${song.musicVideoRevision}",
                 )
             }
         }
@@ -549,7 +578,25 @@ class MicaMediaService : MediaSessionService() {
         )
     }
 
+    private fun isMusicVideoEnabledForSource(item: MediaItem): Boolean {
+        if (!MusicVideoPlaybackPolicyCodec.isEnabled(item)) return false
+        val song = SongMediaItemCodec.decode(item) ?: return false
+        return !musicVideoFailureRegistry.isFailed(song.id, song.musicVideoRevision)
+    }
+
+    private fun decorateResolvedSong(song: com.mica.music.data.Song, item: MediaItem): MediaItem {
+        val decorated = musicVideoPreferenceOwner.decorateNew(item)
+        return if (musicVideoFailureRegistry.isFailed(song.id, song.musicVideoRevision)) {
+            MusicVideoPlaybackPolicyCodec.afterFailure(decorated, song.musicVideoRevision)
+        } else {
+            decorated
+        }
+    }
+
     private fun releasePlaybackStackOwners() {
+        if (::musicVideoPreferenceOwner.isInitialized) {
+            musicVideoPreferenceOwner.releasePlayer(compositePlayer)
+        }
         compositePlayer?.retireForReplacement()
         compositePlayer?.onUserPlayIntentChanged = null
         compositePlayer?.shouldDeferUserPlayIntent = null
@@ -588,6 +635,8 @@ class MicaMediaService : MediaSessionService() {
         unregisterAudioOffloadPreferenceListener = null
         unregisterUsbOutputPreferenceListener?.invoke()
         unregisterUsbOutputPreferenceListener = null
+        unregisterMusicVideoPreferenceListener?.invoke()
+        unregisterMusicVideoPreferenceListener = null
         sessionScope?.cancel()
         sessionScope = null
         trustedMediaItemResolver = null
@@ -727,7 +776,7 @@ class MicaMediaService : MediaSessionService() {
                 val identity = controllerIdentity(controller)
                 val capabilities = ControllerCapabilityPolicy.evaluate(identity, packageName)
                 if (!capabilities.resolveMediaItemsFromCatalog) {
-                    return Futures.immediateFuture(mediaItems)
+                    return Futures.immediateFuture(decorateOwnAppMediaItems(mediaItems))
                 }
                 return launchSessionFuture {
                     val resolved = trustedMediaItemResolver
@@ -748,10 +797,11 @@ class MicaMediaService : MediaSessionService() {
                 val identity = controllerIdentity(controller)
                 val capabilities = ControllerCapabilityPolicy.evaluate(identity, packageName)
                 if (!capabilities.resolveMediaItemsFromCatalog) {
+                    val decorated = decorateOwnAppMediaItems(mediaItems)
                     return Futures.immediateFuture(
                         MediaSession.MediaItemsWithStartPosition(
-                            mediaItems,
-                            startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0)),
+                            decorated,
+                            startIndex.coerceIn(0, (decorated.size - 1).coerceAtLeast(0)),
                             startPositionMs,
                         ),
                     )
@@ -787,6 +837,11 @@ class MicaMediaService : MediaSessionService() {
                 }
             }
         }
+
+    private fun decorateOwnAppMediaItems(mediaItems: MutableList<MediaItem>): MutableList<MediaItem> =
+        mediaItems.map { item ->
+            SongMediaItemCodec.decode(item)?.let { song -> decorateResolvedSong(song, item) } ?: item
+        }.toMutableList()
 
     private fun grantArtworkUriPermissions(targetPackage: String, mediaItems: List<MediaItem>) {
         val targetPackages = ArtworkUriGrantPolicy.targetPackages(targetPackage)

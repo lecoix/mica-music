@@ -49,7 +49,7 @@ internal fun homePaneDepth(key: HomePaneKey): Int = when (key) {
     HomePaneKey.Folders -> homeSectionOrder(HomeSection.Folders) * 10
     HomePaneKey.Analysis -> homeSectionOrder(HomeSection.LibraryAnalysis) * 10
     HomePaneKey.PlaylistOverview -> homeSectionOrder(HomeSection.Playlist) * 10
-    is HomePaneKey.Playlist -> homeSectionOrder(HomeSection.Playlist) * 10
+    is HomePaneKey.Playlist -> homeSectionOrder(HomeSection.Playlist) * 10 + 1
 }
 
 internal fun browseDestinationDepth(destination: BrowseDestination): Int = when (destination) {
@@ -163,6 +163,20 @@ fun pushBrowseDestination(
         activePlaylistId = null,
     )
 }
+
+/** 从歌单总览进入详情；只有此入口把总览保留为返回目标。 */
+fun navigateToPlaylistFromOverview(
+    snapshot: HomeNavigationSnapshot,
+    playlistId: String,
+): HomeNavigationSnapshot =
+    snapshot.copy(
+        browseStack = snapshot.browseStack + browseStackFrameFrom(snapshot),
+        section = HomeSection.Playlist,
+        browseDestination = BrowseDestination.Root,
+        searchOpen = false,
+        searchQuery = "",
+        activePlaylistId = playlistId,
+    )
 
 fun navigateBack(snapshot: HomeNavigationSnapshot): HomeNavigationBackResult = when {
     snapshot.songMultiSelectActive -> HomeNavigationBackResult(

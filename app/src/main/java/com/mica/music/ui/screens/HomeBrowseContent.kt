@@ -68,6 +68,7 @@ import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.BrowseGroup
 import com.mica.music.data.BrowseGroupPresentation
+import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.FolderBrowseGroup
 import com.mica.music.data.FolderBrowseMode
 import com.mica.music.data.LibraryBrowseDetails
@@ -90,6 +91,7 @@ import com.mica.music.ui.components.songListColumnsFor
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.zoom.PinchZoomItemRect
+import com.mica.music.ui.zoom.compensatedTextMeasureWidth
 import com.mica.music.ui.zoom.visiblePinchZoomItemRects
 import com.mica.music.ui.zoom.calculatePinchZoomItemMorph
 import com.mica.music.ui.zoom.pinchZoomItemBoundsMorph
@@ -132,6 +134,7 @@ internal fun HomeBrowseContent(
     albumSortDirection: SortDirection = SortDirection.ASC,
     albumGridColumns: Int = 1,
     onAlbumGridColumnsChange: (Int) -> Unit = {},
+    browseListInfoVisibility: BrowseListInfoVisibility = BrowseListInfoVisibility(),
     artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
@@ -231,6 +234,7 @@ internal fun HomeBrowseContent(
                             sortDirection = albumSortDirection,
                             gridColumns = albumGridColumns,
                             onGridColumnsChange = onAlbumGridColumnsChange,
+                            infoVisibility = browseListInfoVisibility,
                             motionEnabled = motionEnabled,
                             listBottomPadding = listBottomPadding,
                             modifier = Modifier.fillMaxSize(),
@@ -1313,6 +1317,7 @@ private fun AlbumGroupList(
     sortDirection: SortDirection,
     gridColumns: Int,
     onGridColumnsChange: (Int) -> Unit,
+    infoVisibility: BrowseListInfoVisibility,
     motionEnabled: Boolean,
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
@@ -1349,7 +1354,7 @@ private fun AlbumGroupList(
                     ?: AlbumBrowseKey(group.title, group.artist),
             )
         },
-        rowSubtitle = ::albumRowSubtitle,
+        rowSubtitle = { group -> albumRowSubtitle(group, infoVisibility) },
         gridTitleMaxLines = 1,
         fastScrollLabels = fastScrollLabels,
         fastScrollSectionTargets = fastScrollSectionTargets,
@@ -1828,10 +1833,8 @@ private fun BrowseGroupSceneItem(
         // Match SongListPanel: the available text width is a scene property and therefore changes
         // continuously during the pinch. Convert visual width back to unscaled measure width so
         // ellipsis/reflow follows the fingers instead of snapping only after settle.
-        val titleBaseWidth = (titleVisibleWidth / titleScale)
-            .toInt().coerceIn(1, width.coerceAtLeast(1))
-        val subtitleBaseWidth = (subtitleVisibleWidth / subtitleScale)
-            .toInt().coerceIn(1, width.coerceAtLeast(1))
+        val titleBaseWidth = compensatedTextMeasureWidth(titleVisibleWidth, titleScale)
+        val subtitleBaseWidth = compensatedTextMeasureWidth(subtitleVisibleWidth, subtitleScale)
 
         val cover = measurables[0].measure(androidx.compose.ui.unit.Constraints.fixed(coverBase, coverBase))
         val title = measurables[1].measure(
@@ -1963,11 +1966,12 @@ private fun interpolateBrowseRect(
 private fun browseLerp(start: Float, end: Float, fraction: Float): Float =
     start + (end - start) * fraction.coerceIn(0f, 1f)
 
-private fun albumRowSubtitle(group: BrowseGroup): String =
+internal fun albumRowSubtitle(group: BrowseGroup, visibility: BrowseListInfoVisibility): String =
     listOfNotNull(
-        group.artist.takeIf { it.isNotBlank() },
-        ReleaseDates.displayLabel(group.year, group.releaseDate).takeIf { it.isNotBlank() },
-        "${group.songCount} 首",
+        group.artist.takeIf { visibility.showAlbumSubtitleArtist && it.isNotBlank() },
+        ReleaseDates.displayLabel(group.year, group.releaseDate)
+            .takeIf { visibility.showAlbumSubtitleReleaseDate && it.isNotBlank() },
+        "${group.songCount} 首".takeIf { visibility.showAlbumSubtitleSongCount },
     ).joinToString(" · ")
 
 @Composable

@@ -282,6 +282,22 @@ val MIGRATION_19_20 = object : Migration(19, 20) {
 
 val MIGRATION_20_21 = object : Migration(20, 21) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN musicVideoUri TEXT")
+        db.execSQL("ALTER TABLE songs ADD COLUMN musicVideoRevision TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+val MIGRATION_21_22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Schema 21 existed briefly on two development lines: mainline added music-video columns,
+        // while feature/remote-music added the remote catalog tables. Make the merge migration
+        // tolerant of either predecessor so existing QA installs from both branches upgrade in-place.
+        if (!db.hasColumn("songs", "musicVideoUri")) {
+            db.execSQL("ALTER TABLE songs ADD COLUMN musicVideoUri TEXT")
+        }
+        if (!db.hasColumn("songs", "musicVideoRevision")) {
+            db.execSQL("ALTER TABLE songs ADD COLUMN musicVideoRevision TEXT NOT NULL DEFAULT ''")
+        }
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS remote_sources (
@@ -330,3 +346,12 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
         )
     }
 }
+
+private fun SupportSQLiteDatabase.hasColumn(tableName: String, columnName: String): Boolean =
+    query("PRAGMA table_info(`$tableName`)").use { cursor ->
+        val nameColumn = cursor.getColumnIndexOrThrow("name")
+        while (cursor.moveToNext()) {
+            if (cursor.getString(nameColumn) == columnName) return@use true
+        }
+        false
+    }

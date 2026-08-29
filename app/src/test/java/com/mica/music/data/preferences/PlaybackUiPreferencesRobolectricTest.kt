@@ -24,6 +24,16 @@ import org.robolectric.annotation.Config
 @Config(sdk = [26, 34])
 class PlaybackUiPreferencesRobolectricTest {
     @Test
+    fun musicVideoIsIndependentAndDefaultsOff() {
+        assertEquals(false, PlaybackUiPreferences.musicVideoEnabled(context))
+        assertEquals(false, PlaybackUiPreferences.videoAlbumCoverEnabled(context))
+
+        PlaybackUiPreferences.setMusicVideoEnabled(context, true)
+
+        assertTrue(PlaybackUiPreferences.musicVideoEnabled(context))
+        assertEquals(false, PlaybackUiPreferences.videoAlbumCoverEnabled(context))
+    }
+    @Test
     fun videoAlbumCoverDefaultsOffAndPersists() {
         assertEquals(false, PlaybackUiPreferences.videoAlbumCoverEnabled(context))
 
@@ -229,6 +239,9 @@ class PlaybackUiPreferencesRobolectricTest {
             showAlbumLastScanTime = false,
             showAlbumCustomText = true,
             albumCustomText = "珍藏版",
+            showAlbumSubtitleArtist = false,
+            showAlbumSubtitleReleaseDate = false,
+            showAlbumSubtitleSongCount = false,
         )
 
         PlaybackUiPreferences.setBrowseListInfoVisibility(context, visibility)

@@ -75,6 +75,9 @@ class AppUiSettings(context: Context) {
     var videoAlbumCoverEnabled by mutableStateOf(PlaybackUiPreferences.videoAlbumCoverEnabled(appContext))
         private set
 
+    var musicVideoEnabled by mutableStateOf(PlaybackUiPreferences.musicVideoEnabled(appContext))
+        private set
+
     var customPlayerLowerLayout by mutableStateOf(PlaybackUiPreferences.customPlayerLowerLayout(appContext))
         private set
 
@@ -436,6 +439,11 @@ class AppUiSettings(context: Context) {
         videoAlbumCoverEnabled = enabled
         PlaybackUiPreferences.setVideoAlbumCoverEnabled(appContext, enabled)
         if (!enabled) VideoCoverPosterPrefetcher.cancel()
+    }
+
+    fun updateMusicVideoEnabled(enabled: Boolean) {
+        musicVideoEnabled = enabled
+        PlaybackUiPreferences.setMusicVideoEnabled(appContext, enabled)
     }
 
     fun updateCustomPlayerLowerLayout(config: PlayerLowerLayoutConfig) {

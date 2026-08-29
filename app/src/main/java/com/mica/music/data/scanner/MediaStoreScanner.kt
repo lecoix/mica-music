@@ -2,8 +2,10 @@ package com.mica.music.data.scanner
 
 import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.system.Os
 import androidx.compose.ui.graphics.toArgb
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
@@ -19,7 +21,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
+import java.io.File
 import java.io.IOException
+import java.util.Locale
 
 data class ScanResult(
     val songs: List<Song>,
@@ -46,7 +50,16 @@ object MediaStoreScanner {
     ): ScanResult = withContext(Dispatchers.IO) {
         val profiler = ScanProfiler("MediaStore")
         AudioMetadataProbe.clearArtCache()
-        val drafts = profiler.measure("loadDrafts") { loadDrafts(context, options) }
+        val loadedDrafts = profiler.measure("loadDrafts") { loadDrafts(context, options) }
+        val drafts = if (shouldReconcileMediaStoreFolderCasing(options.forceRefreshSongIds)) {
+            profiler.measure("folderCasing") {
+                reconcileMediaStoreFolderCasing(loadedDrafts) { draft ->
+                    resolvePhysicalDirectoryIdentity(context, draft)
+                }
+            }
+        } else {
+            loadedDrafts
+        }
         if (drafts.isEmpty()) {
             return@withContext ScanResult(
                 songs = emptyList(),
@@ -155,7 +168,13 @@ object MediaStoreScanner {
             probed = probed.get(),
         )
         ScanResult(
-            songs = songs.map { it.copy(videoCoverUri = null) },
+            songs = songs.map {
+                it.copy(
+                    videoCoverUri = null,
+                    musicVideoUri = null,
+                    musicVideoRevision = "",
+                )
+            },
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
             probeStats = ScanProbeStats(
@@ -500,6 +519,110 @@ object MediaStoreScanner {
     private fun android.database.Cursor.getLongOrZero(columnIndex: Int): Long =
         if (columnIndex >= 0 && !isNull(columnIndex)) getLong(columnIndex) else 0L
 
+}
+
+internal fun shouldReconcileMediaStoreFolderCasing(forceRefreshSongIds: Set<String>): Boolean =
+    forceRefreshSongIds.isEmpty()
+
+internal data class MediaStoreDirectoryIdentity(
+    val device: Long,
+    val inode: Long,
+)
+
+internal fun reconcileMediaStoreFolderCasing(
+    drafts: List<TrackDraft>,
+    identityResolver: (TrackDraft) -> MediaStoreDirectoryIdentity?,
+): List<TrackDraft> {
+    if (drafts.size < 2) return drafts
+
+    val preferredPathByKey = HashMap<String, String>()
+    val groups = drafts.groupBy { normalizedFolderPath(it.folderPath).lowercase(Locale.ROOT) }
+    for ((caseFoldedPath, group) in groups) {
+        if (caseFoldedPath.isBlank()) continue
+        val pathCounts = group.groupingBy { normalizedFolderPath(it.folderPath) }.eachCount()
+        if (pathCounts.size < 2) continue
+
+        val identities = LinkedHashSet<MediaStoreDirectoryIdentity>()
+        var unresolvedIdentity = false
+        for (path in pathCounts.keys) {
+            val identity = group.asSequence()
+                .filter { normalizedFolderPath(it.folderPath) == path }
+                .mapNotNull(identityResolver)
+                .firstOrNull()
+            if (identity == null) {
+                unresolvedIdentity = true
+                break
+            }
+            identities += identity
+        }
+        if (unresolvedIdentity || identities.size != 1) continue
+
+        preferredPathByKey[caseFoldedPath] = pathCounts.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, Int>> { it.value }
+                    .thenBy { it.key },
+            )
+            .first()
+            .key
+    }
+    if (preferredPathByKey.isEmpty()) return drafts
+
+    return drafts.map { draft ->
+        val currentFolder = normalizedFolderPath(draft.folderPath)
+        val preferredFolder = preferredPathByKey[currentFolder.lowercase(Locale.ROOT)]
+            ?: return@map draft
+        if (preferredFolder == currentFolder) return@map draft
+        draft.copy(
+            folderPath = preferredFolder,
+            filePath = rewriteSyntheticFilePathFolder(draft, preferredFolder),
+        )
+    }
+}
+
+private fun resolvePhysicalDirectoryIdentity(
+    context: Context,
+    draft: TrackDraft,
+): MediaStoreDirectoryIdentity? {
+    val absoluteFilePath = draft.filePath.trim()
+        .takeIf { it.startsWith('/') && runCatching { File(it).isFile }.getOrDefault(false) }
+        ?: queryMediaStoreDataPath(context, draft.mediaUri)
+    val directory = absoluteFilePath?.let { File(it).parentFile }
+        ?: draft.folderPath.trim()
+            .takeIf { it.startsWith('/') }
+            ?.let(::File)
+        ?: return null
+    val stat = runCatching { Os.stat(directory.absolutePath) }.getOrNull() ?: return null
+    return MediaStoreDirectoryIdentity(device = stat.st_dev, inode = stat.st_ino)
+}
+
+@Suppress("DEPRECATION")
+private fun queryMediaStoreDataPath(context: Context, mediaUri: String): String? = runCatching {
+    context.contentResolver.query(
+        Uri.parse(mediaUri),
+        arrayOf(MediaStore.MediaColumns.DATA),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        val dataCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+        if (dataCol >= 0 && cursor.moveToFirst() && !cursor.isNull(dataCol)) {
+            cursor.getString(dataCol)
+        } else {
+            null
+        }
+    }
+}.getOrNull()
+    ?.takeIf { path ->
+        path.startsWith('/') && runCatching { File(path).isFile }.getOrDefault(false)
+    }
+
+private fun normalizedFolderPath(path: String): String =
+    path.trim().replace('\\', '/').trimEnd('/')
+
+private fun rewriteSyntheticFilePathFolder(draft: TrackDraft, folderPath: String): String {
+    if (draft.filePath.isBlank() || draft.filePath.trim().startsWith('/')) return draft.filePath
+    val fileName = draft.displayName?.takeIf { it.isNotBlank() } ?: return draft.filePath
+    return if (folderPath.isBlank()) fileName else "${folderPath.trimEnd('/')}/$fileName"
 }
 
 internal fun mediaStoreDurationClause(minDurationMs: Long): String {

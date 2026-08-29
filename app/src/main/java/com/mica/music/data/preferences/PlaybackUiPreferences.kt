@@ -29,6 +29,7 @@ object PlaybackUiPreferences {
     private const val KEY_COVER_DISPLAY_MODE = "cover_display_mode"
     internal const val KEY_PLAYER_COVER_FLOW_MODE = "player_cover_flow_mode"
     private const val KEY_VIDEO_ALBUM_COVER_ENABLED = "video_album_cover_enabled"
+    internal const val KEY_MUSIC_VIDEO_ENABLED = "music_video_enabled"
     private const val KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE = "custom_standard_cover_tap_play_pause"
     private const val KEY_CUSTOM_PLAYER_LOWER_ORDER = "custom_player_lower_order"
     private const val KEY_CUSTOM_PLAYER_LOWER_HIDDEN = "custom_player_lower_hidden"
@@ -74,6 +75,9 @@ object PlaybackUiPreferences {
     private const val KEY_ALBUM_INFO_SHOW_LAST_SCAN = "album_info_show_last_scan"
     private const val KEY_ALBUM_INFO_SHOW_CUSTOM = "album_info_show_custom"
     private const val KEY_ALBUM_INFO_CUSTOM_TEXT = "album_info_custom_text"
+    private const val KEY_ALBUM_SUBTITLE_SHOW_ARTIST = "album_subtitle_show_artist"
+    private const val KEY_ALBUM_SUBTITLE_SHOW_RELEASE_DATE = "album_subtitle_show_release_date"
+    private const val KEY_ALBUM_SUBTITLE_SHOW_SONG_COUNT = "album_subtitle_show_song_count"
     private const val KEY_PLAYER_INFO_SHOW_FORMAT = "player_info_show_format"
     private const val KEY_PLAYER_INFO_SHOW_SAMPLE_RATE = "player_info_show_sample_rate"
     private const val KEY_PLAYER_INFO_SHOW_BITRATE = "player_info_show_bitrate"
@@ -185,6 +189,27 @@ object PlaybackUiPreferences {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_VIDEO_ALBUM_COVER_ENABLED, enabled)
             .apply()
+    }
+
+    fun musicVideoEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_MUSIC_VIDEO_ENABLED, false)
+
+    fun setMusicVideoEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_MUSIC_VIDEO_ENABLED, enabled)
+            .apply()
+    }
+
+    internal fun registerMusicVideoChangeListener(
+        context: Context,
+        listener: (Boolean) -> Unit,
+    ): () -> Unit {
+        val preferences = MicaSettingsStore.prefs(context)
+        val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_MUSIC_VIDEO_ENABLED) listener(musicVideoEnabled(context))
+        }
+        preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
+        return { preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener) }
     }
 
     fun customStandardCoverTapPlayPause(context: Context): Boolean =
@@ -445,6 +470,9 @@ object PlaybackUiPreferences {
             showAlbumLastScanTime = p.getBoolean(KEY_ALBUM_INFO_SHOW_LAST_SCAN, true),
             showAlbumCustomText = p.getBoolean(KEY_ALBUM_INFO_SHOW_CUSTOM, false),
             albumCustomText = p.getString(KEY_ALBUM_INFO_CUSTOM_TEXT, "") ?: "",
+            showAlbumSubtitleArtist = p.getBoolean(KEY_ALBUM_SUBTITLE_SHOW_ARTIST, true),
+            showAlbumSubtitleReleaseDate = p.getBoolean(KEY_ALBUM_SUBTITLE_SHOW_RELEASE_DATE, true),
+            showAlbumSubtitleSongCount = p.getBoolean(KEY_ALBUM_SUBTITLE_SHOW_SONG_COUNT, true),
         )
     }
 
@@ -462,6 +490,9 @@ object PlaybackUiPreferences {
             .putBoolean(KEY_ALBUM_INFO_SHOW_LAST_SCAN, visibility.showAlbumLastScanTime)
             .putBoolean(KEY_ALBUM_INFO_SHOW_CUSTOM, visibility.showAlbumCustomText)
             .putString(KEY_ALBUM_INFO_CUSTOM_TEXT, visibility.albumCustomText)
+            .putBoolean(KEY_ALBUM_SUBTITLE_SHOW_ARTIST, visibility.showAlbumSubtitleArtist)
+            .putBoolean(KEY_ALBUM_SUBTITLE_SHOW_RELEASE_DATE, visibility.showAlbumSubtitleReleaseDate)
+            .putBoolean(KEY_ALBUM_SUBTITLE_SHOW_SONG_COUNT, visibility.showAlbumSubtitleSongCount)
             .apply()
     }
 

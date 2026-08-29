@@ -23,6 +23,8 @@ class SongMediaItemCodecTest {
             discNumber = 2,
             replayGain = ReplayGainTags(-6f, 0.9f, -4f, 0.8f),
             videoCoverUri = "content://library/Album.mp4",
+            musicVideoUri = "content://library/dsd.mp4",
+            musicVideoRevision = "content://library/dsd.mp4|123|456",
         )
 
         val decoded = SongMediaItemCodec.decode(SongMediaItemCodec.encode(song))
@@ -66,6 +68,15 @@ class SongMediaItemCodecTest {
         assertEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(metadataScanVersion = 0)))
         assertNotEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(title = "updated")))
         assertNotEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(releaseDate = "2024-02-29")))
+        assertNotEquals(
+            revision,
+            SongMediaItemCodec.metadataRevision(
+                song.copy(
+                    musicVideoUri = "content://library/revision.mp4",
+                    musicVideoRevision = "content://library/revision.mp4|1|2",
+                ),
+            ),
+        )
         assertNotEquals(
             revision,
             SongMediaItemCodec.metadataRevision(song.copy(lyricsDocument = com.mica.music.data.LyricsDocument())),
