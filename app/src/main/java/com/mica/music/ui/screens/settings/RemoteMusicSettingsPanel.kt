@@ -35,6 +35,7 @@ import com.mica.music.ui.components.SettingsTipRow
 import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.util.DiagnosticLog
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.launch
@@ -74,7 +75,13 @@ internal fun RemoteMusicSettingsPanel() {
                     transientMessage = successMessage
                     refreshRevision++
                 }
-                .onFailure { transientMessage = it.remoteSettingsMessage("操作失败") }
+                .onFailure { failure ->
+                    DiagnosticLog.event(
+                        "RemoteMusic",
+                        "source-action failed sourceId=$sourceId type=${failure.javaClass.name} message=${failure.message.orEmpty()}",
+                    )
+                    transientMessage = failure.remoteSettingsMessage("操作失败")
+                }
             busySourceId = null
         }
     }

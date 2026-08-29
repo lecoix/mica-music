@@ -15,6 +15,8 @@ import com.thegrizzlylabs.sardineandroid.impl.handler.ResourcesResponseHandler
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -103,7 +105,7 @@ internal class WebDavSourceSync(
 ) {
     suspend fun testConnection(sourceInstanceId: String) {
         val session = beginSession(sourceInstanceId)
-        session.adapter.list(session.root.toString(), depth = 0)
+        listResources(session, session.root.toString(), depth = 0)
         ensureCurrent(session)
     }
 
@@ -173,7 +175,7 @@ internal class WebDavSourceSync(
         )
     }
 
-    private fun scan(session: Session, limit: Int): List<RemoteTrackSummary> {
+    private suspend fun scan(session: Session, limit: Int): List<RemoteTrackSummary> {
         val source = session.operation.source.instance
         val pending = ArrayDeque<String>()
         pending.addLast(session.root.toString())
@@ -187,7 +189,7 @@ internal class WebDavSourceSync(
                 ?: throw WebDavException(WebDavFailureKind.PROTOCOL, "WebDAV directory escaped configured root")
             if (!visitedDirectories.add(directoryId)) continue
 
-            val resources = session.adapter.list(directoryUrl, depth = 1)
+            val resources = listResources(session, directoryUrl, depth = 1)
             ensureCurrent(session)
             resources.forEach { resource ->
                 if (tracks.size >= limit) return@forEach
@@ -210,6 +212,17 @@ internal class WebDavSourceSync(
             }
         }
         return tracks
+    }
+
+    private suspend fun listResources(
+        session: Session,
+        url: String,
+        depth: Int,
+    ): List<DavResource> {
+        ensureCurrent(session)
+        return withContext(Dispatchers.IO) {
+            session.adapter.list(url, depth)
+        }
     }
 
     private fun ensureCurrent(session: Session) {
