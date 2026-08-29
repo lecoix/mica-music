@@ -15,6 +15,10 @@ import com.mica.music.data.remote.RemoteHttpRangePolicy
 import com.mica.music.data.remote.RemotePlaybackUriCodec
 import com.mica.music.data.remote.webdav.WebDavHttpAuthenticator
 import com.mica.music.data.remote.webdav.WebDavStrictRangeInterceptor
+import com.mica.music.data.remote.smb.SmbDataSource
+import com.mica.music.data.remote.smb.SmbPlaybackRequestResolver
+import com.mica.music.data.remote.smb.SmbSessionFactory
+import com.mica.music.data.remote.smb.SmbjSessionFactory
 import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -30,7 +34,9 @@ import okhttp3.OkHttpClient
 @UnstableApi
 internal class MicaRoutingDataSourceFactory(
     context: Context,
-    private val remoteResolver: RemoteHttpPlaybackRequestResolver,
+    private val remoteResolver: RemoteHttpPlaybackRequestResolver? = null,
+    private val smbResolver: SmbPlaybackRequestResolver? = null,
+    private val smbSessionFactory: SmbSessionFactory = SmbjSessionFactory(),
     private val remoteHttpClient: OkHttpClient = secureRemoteHttpClient(),
 ) : DataSource.Factory {
     private val localFactory: DataSource.Factory = DefaultDataSource.Factory(context)
@@ -39,6 +45,8 @@ internal class MicaRoutingDataSourceFactory(
         localFactory = localFactory,
         remoteFactoryFor = ::remoteFactoryFor,
         remoteResolver = remoteResolver,
+        smbResolver = smbResolver,
+        smbSessionFactory = smbSessionFactory,
     )
 
     private fun remoteFactoryFor(request: RemoteHttpPlaybackRequest): DataSource.Factory {
@@ -71,7 +79,9 @@ internal class MicaRoutingDataSourceFactory(
 private class MicaRoutingDataSource(
     private val localFactory: DataSource.Factory,
     private val remoteFactoryFor: (RemoteHttpPlaybackRequest) -> DataSource.Factory,
-    private val remoteResolver: RemoteHttpPlaybackRequestResolver,
+    private val remoteResolver: RemoteHttpPlaybackRequestResolver?,
+    private val smbResolver: SmbPlaybackRequestResolver?,
+    private val smbSessionFactory: SmbSessionFactory,
 ) : DataSource {
     private val transferListeners = mutableListOf<TransferListener>()
     private var delegate: DataSource? = null
@@ -90,13 +100,19 @@ private class MicaRoutingDataSource(
             selectedFactory = localFactory
             selectedSpec = dataSpec
         } else {
-            val resolved = runBlocking { remoteResolver.resolve(remoteMediaId) }
-                ?: throw IOException("Remote playback request is unavailable")
-            selectedFactory = remoteFactoryFor(resolved)
-            selectedSpec = dataSpec.buildUpon()
-                .setUri(Uri.parse(resolved.url))
-                .setHttpRequestHeaders(dataSpec.httpRequestHeaders + resolved.requestHeaders)
-                .build()
+            val httpRequest = runBlocking { remoteResolver?.resolve(remoteMediaId) }
+            if (httpRequest != null) {
+                selectedFactory = remoteFactoryFor(httpRequest)
+                selectedSpec = dataSpec.buildUpon()
+                    .setUri(Uri.parse(httpRequest.url))
+                    .setHttpRequestHeaders(dataSpec.httpRequestHeaders + httpRequest.requestHeaders)
+                    .build()
+            } else {
+                val smbRequest = runBlocking { smbResolver?.resolve(remoteMediaId) }
+                    ?: throw IOException("Remote playback request is unavailable")
+                selectedFactory = SmbDataSource.Factory(smbRequest, smbSessionFactory)
+                selectedSpec = dataSpec
+            }
         }
 
         val next = selectedFactory.createDataSource()

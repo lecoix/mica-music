@@ -1,4 +1,4 @@
-﻿import java.util.Properties
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -204,6 +204,7 @@ dependencies {
     implementation(libs.androidx.media3.datasource.okhttp)
     implementation(libs.sardine.android)
     implementation(libs.okhttp.digest)
+    implementation(libs.smbj)
     implementation(libs.androidx.media)
 
     when {

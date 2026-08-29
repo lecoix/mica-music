@@ -32,6 +32,7 @@ robolectric = "4.13"
 roborazzi = "1.34.0"
 sardineAndroid = "0.9"
 okhttpDigest = "3.1.1"
+smbj = "0.15.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -55,6 +56,7 @@ androidx-media3-session = { group = "androidx.media3", name = "media3-session", 
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 sardine-android = { group = "com.github.thegrizzlylabs", name = "sardine-android", version.ref = "sardineAndroid" }
 okhttp-digest = { group = "io.github.rburgst", name = "okhttp-digest", version.ref = "okhttpDigest" }
+smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
 androidx-media = { group = "androidx.media", name = "media", version.ref = "androidxMedia" }
 androidx-media3-exoplayer-ffmpeg = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version.ref = "media3Ffmpeg" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }

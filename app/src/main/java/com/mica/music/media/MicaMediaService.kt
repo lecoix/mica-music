@@ -38,6 +38,8 @@ import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
 import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.data.remote.navidrome.NavidromeStreamRequestResolver
 import com.mica.music.data.remote.webdav.WebDavStreamRequestResolver
+import com.mica.music.data.remote.smb.SmbPlaybackRequestResolver
+import com.mica.music.data.remote.smb.SmbStreamRequestResolver
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.EqualizerPreferences
@@ -77,6 +79,7 @@ class MicaMediaService : MediaSessionService() {
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
     private var remoteHttpPlaybackResolver: RemoteHttpPlaybackRequestResolver? = null
+    private var remoteSmbPlaybackResolver: SmbPlaybackRequestResolver? = null
     private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
     private var unregisterAudioOffloadPreferenceListener: (() -> Unit)? = null
     private var unregisterUsbOutputPreferenceListener: (() -> Unit)? = null
@@ -113,6 +116,10 @@ class MicaMediaService : MediaSessionService() {
                 credentialStore = micaApp.remoteCredentialStore,
             ),
         )
+        remoteSmbPlaybackResolver = SmbStreamRequestResolver(
+            sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+            credentialStore = micaApp.remoteCredentialStore,
+        )
         setListener(object : MediaSessionService.Listener {
             override fun onForegroundServiceStartNotAllowedException() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -133,6 +140,7 @@ class MicaMediaService : MediaSessionService() {
             context = this,
             outputPath = activeOutputPath,
             remoteResolver = remoteHttpPlaybackResolver,
+            smbResolver = remoteSmbPlaybackResolver,
         )
         installPlaybackStackOwners(stack, micaApp)
         installUsbOutputCoordinator()
@@ -400,6 +408,7 @@ class MicaMediaService : MediaSessionService() {
                 outputPath = target,
                 usbBinding = usbBinding,
                 remoteResolver = remoteHttpPlaybackResolver,
+                smbResolver = remoteSmbPlaybackResolver,
             )
         }
             .getOrElse { error ->
@@ -583,6 +592,7 @@ class MicaMediaService : MediaSessionService() {
         sessionScope = null
         trustedMediaItemResolver = null
         remoteHttpPlaybackResolver = null
+        remoteSmbPlaybackResolver = null
         releasePlaybackStackOwners()
         spectrumAnalyzerStateOwner?.release()
         spectrumAnalyzerStateOwner = null

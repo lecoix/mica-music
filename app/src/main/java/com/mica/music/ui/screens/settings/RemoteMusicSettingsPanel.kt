@@ -101,6 +101,12 @@ internal fun RemoteMusicSettingsPanel() {
         onClick = { addSourceType = RemoteSourceType.WEBDAV },
         enabled = busySourceId == null,
     )
+    SettingsActionRow(
+        title = "添加 SMB",
+        subtitle = "SMB2/SMB3 共享；使用协议级随机读，不启用 SMB1",
+        onClick = { addSourceType = RemoteSourceType.SMB },
+        enabled = busySourceId == null,
+    )
 
     if (loading && statuses.isEmpty()) {
         SettingsTipRow("正在读取远程来源…")
@@ -138,7 +144,7 @@ internal fun RemoteMusicSettingsPanel() {
                         manager.testConnection(source.id)
                     }
                 },
-                enabled = source.enabled && !busy && source.type != RemoteSourceType.SMB,
+                enabled = source.enabled && !busy,
             )
             SettingsActionRow(
                 title = "同步曲库",
@@ -148,17 +154,17 @@ internal fun RemoteMusicSettingsPanel() {
                         when (source.type) {
                             RemoteSourceType.NAVIDROME -> manager.syncNavidrome(source.id)
                             RemoteSourceType.WEBDAV -> manager.syncWebDav(source.id)
-                            RemoteSourceType.SMB -> error("SMB source is not implemented yet")
+                            RemoteSourceType.SMB -> manager.syncSmb(source.id)
                         }
                     }
                 },
-                enabled = source.enabled && !busy && source.type != RemoteSourceType.SMB,
+                enabled = source.enabled && !busy,
             )
             SettingsActionRow(
                 title = "更新登录信息",
                 subtitle = "密码不会回显；保存时切换到新的加密 credentialRef",
                 onClick = { credentialSource = source },
-                enabled = !busy && source.type != RemoteSourceType.SMB,
+                enabled = !busy,
             )
         }
     }
@@ -168,7 +174,8 @@ internal fun RemoteMusicSettingsPanel() {
     }
 
     addSourceType?.let { sourceType ->
-        HttpRemoteSourceDialog(
+        RemoteSourceDialog(
+            sourceType = sourceType,
             title = when (sourceType) {
                 RemoteSourceType.NAVIDROME -> "添加 Navidrome"
                 RemoteSourceType.WEBDAV -> "添加 WebDAV"
@@ -184,14 +191,14 @@ internal fun RemoteMusicSettingsPanel() {
             confirmLabel = "添加",
             onDismiss = { addSourceType = null },
             onConfirm = { name, endpoint, username, password ->
-                if (busySourceId != null) return@HttpRemoteSourceDialog
+                if (busySourceId != null) return@RemoteSourceDialog
                 busySourceId = NEW_SOURCE_BUSY_ID
                 scope.launch {
                     runCatching {
                         when (sourceType) {
                             RemoteSourceType.NAVIDROME -> manager.createNavidrome(name, endpoint, username, password)
                             RemoteSourceType.WEBDAV -> manager.createWebDav(name, endpoint, username, password)
-                            RemoteSourceType.SMB -> error("SMB source is not implemented yet")
+                            RemoteSourceType.SMB -> manager.createSmb(name, endpoint, username, password)
                         }
                     }.onSuccess {
                         addSourceType = null
@@ -207,7 +214,8 @@ internal fun RemoteMusicSettingsPanel() {
     }
 
     editSource?.let { source ->
-        HttpRemoteSourceDialog(
+        RemoteSourceDialog(
+            sourceType = source.type,
             title = "编辑来源",
             initialName = source.displayName,
             initialEndpoint = source.endpoint,
@@ -237,7 +245,7 @@ internal fun RemoteMusicSettingsPanel() {
                     when (source.type) {
                         RemoteSourceType.NAVIDROME -> manager.rotateNavidromeCredentials(source.id, username, password)
                         RemoteSourceType.WEBDAV -> manager.rotateWebDavCredentials(source.id, username, password)
-                        RemoteSourceType.SMB -> error("SMB source is not implemented yet")
+                        RemoteSourceType.SMB -> manager.rotateSmbCredentials(source.id, username, password)
                     }
                     credentialSource = null
                 }
@@ -247,7 +255,8 @@ internal fun RemoteMusicSettingsPanel() {
 }
 
 @Composable
-private fun HttpRemoteSourceDialog(
+private fun RemoteSourceDialog(
+    sourceType: RemoteSourceType,
     title: String,
     initialName: String,
     initialEndpoint: String,
@@ -284,7 +293,15 @@ private fun HttpRemoteSourceDialog(
                     value = endpoint,
                     onValueChange = { endpoint = it },
                     label = { Text("服务器地址") },
-                    placeholder = { Text("https://music.example 或 http://192.168.1.2:4533") },
+                    placeholder = {
+                        Text(
+                            if (sourceType == RemoteSourceType.SMB) {
+                                "smb://nas.local/Music 或 smb://192.168.1.2/share/folder"
+                            } else {
+                                "https://music.example 或 http://192.168.1.2:4533"
+                            },
+                        )
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -306,11 +323,15 @@ private fun HttpRemoteSourceDialog(
                     )
                 }
                 Text(
-                    text = "地址必须包含 http:// 或 https://，且不能在 URL 中嵌入用户名、密码或 token。",
+                    text = if (sourceType == RemoteSourceType.SMB) {
+                        "SMB 地址必须为 smb://主机/共享[/目录]；仅支持 SMB2/SMB3。用户名可写为 DOMAIN\\user。"
+                    } else {
+                        "地址必须包含 http:// 或 https://，且不能在 URL 中嵌入用户名、密码或 token。"
+                    },
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textTertiary,
                 )
-                if (endpoint.trim().startsWith("http://", ignoreCase = true)) {
+                if (sourceType != RemoteSourceType.SMB && endpoint.trim().startsWith("http://", ignoreCase = true)) {
                     Text(
                         text = "HTTP 不加密：登录参数和音频可能被同一网络中的设备看到或篡改。仅在可信局域网中使用；公网连接建议使用 HTTPS。",
                         style = MicaTheme.typography.caption,
@@ -378,7 +399,7 @@ private fun RemoteCredentialDialog(
 private fun connectionTestSubtitle(type: RemoteSourceType): String = when (type) {
     RemoteSourceType.NAVIDROME -> "发送一次 Subsonic ping，不修改曲库"
     RemoteSourceType.WEBDAV -> "发送一次 PROPFIND Depth 0，不修改曲库"
-    RemoteSourceType.SMB -> "SMB 尚未实现"
+    RemoteSourceType.SMB -> "连接 SMB2/SMB3 共享并枚举配置目录，不修改曲库"
 }
 
 private fun buildSourceSubtitle(status: RemoteSourceStatus): String {

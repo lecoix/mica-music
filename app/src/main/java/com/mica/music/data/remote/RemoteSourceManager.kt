@@ -9,6 +9,9 @@ import com.mica.music.data.remote.navidrome.NavidromeSourceSync
 import com.mica.music.data.remote.navidrome.NavidromeSyncResult
 import com.mica.music.data.remote.webdav.WebDavSourceSync
 import com.mica.music.data.remote.webdav.WebDavSyncResult
+import com.mica.music.data.remote.smb.SmbPathCodec
+import com.mica.music.data.remote.smb.SmbSourceSync
+import com.mica.music.data.remote.smb.SmbSyncResult
 import java.net.URI
 import java.util.UUID
 
@@ -99,6 +102,35 @@ internal class RemoteSourceManager internal constructor(
         catalogRepository.upsertSource(instance)
         return instance
     }
+    suspend fun createSmb(
+        displayName: String,
+        endpoint: String,
+        username: String,
+        password: String,
+        enabled: Boolean = true,
+    ): RemoteSourceInstance {
+        val sourceId = sourceIdProvider(RemoteSourceType.SMB).trim()
+        require(sourceId.isNotBlank()) { "Generated remote source id must not be blank" }
+        val credentialRef = credentialRefProvider(sourceId).trim()
+        require(credentialRef.isNotBlank()) { "Generated credentialRef must not be blank" }
+        val instance = RemoteSourceInstance(
+            id = sourceId,
+            type = RemoteSourceType.SMB,
+            displayName = normalizeDisplayName(displayName),
+            endpoint = SmbPathCodec.normalizeSourceEndpoint(endpoint),
+            credentialRef = credentialRef,
+            enabled = enabled,
+        )
+        credentialStore.put(
+            credentialRef,
+            RemoteCredentialMaterial.UsernamePassword(
+                username = normalizeUsername(username),
+                password = normalizePassword(password),
+            ),
+        )
+        catalogRepository.upsertSource(instance)
+        return instance
+    }
     suspend fun updateSourceConfig(
         sourceInstanceId: String,
         displayName: String,
@@ -108,7 +140,7 @@ internal class RemoteSourceManager internal constructor(
         val current = requireSource(sourceInstanceId)
         val updated = current.copy(
             displayName = normalizeDisplayName(displayName),
-            endpoint = normalizeHttpEndpoint(endpoint),
+            endpoint = normalizeEndpoint(current.type, endpoint),
             enabled = enabled,
         )
         catalogRepository.upsertSource(updated)
@@ -142,6 +174,14 @@ internal class RemoteSourceManager internal constructor(
         val current = requireWebDavSource(sourceInstanceId)
         return rotateUsernamePasswordCredentials(current, username, password)
     }
+    suspend fun rotateSmbCredentials(
+        sourceInstanceId: String,
+        username: String,
+        password: String,
+    ): RemoteSourceInstance {
+        val current = requireSmbSource(sourceInstanceId)
+        return rotateUsernamePasswordCredentials(current, username, password)
+    }
     suspend fun testConnection(sourceInstanceId: String) {
         val source = requireSource(sourceInstanceId)
         require(source.enabled) { "Remote source is disabled" }
@@ -158,7 +198,7 @@ internal class RemoteSourceManager internal constructor(
             }
             RemoteSourceType.WEBDAV -> WebDavSourceSync(catalogRepository, credentialStore)
                 .testConnection(sourceInstanceId)
-            RemoteSourceType.SMB -> throw IllegalArgumentException("SMB source is not implemented yet")
+            RemoteSourceType.SMB -> SmbSourceSync(catalogRepository, credentialStore).testConnection(sourceInstanceId)
         }
     }
 
@@ -196,6 +236,21 @@ internal class RemoteSourceManager internal constructor(
         return result
     }
 
+    suspend fun syncSmb(
+        sourceInstanceId: String,
+        limit: Int = Int.MAX_VALUE,
+    ): SmbSyncResult {
+        val source = requireSmbSource(sourceInstanceId)
+        require(source.enabled) { "Remote source is disabled" }
+        val previousMediaIds = catalogRepository.tracksForSource(sourceInstanceId)
+            .mapTo(linkedSetOf(), RemoteTrackSummary::mediaId)
+        val result = SmbSourceSync(
+            catalogRepository = catalogRepository,
+            credentialStore = credentialStore,
+        ).sync(sourceInstanceId, limit)
+        invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
+        return result
+    }
     private suspend fun rotateUsernamePasswordCredentials(
         current: RemoteSourceInstance,
         username: String,
@@ -245,7 +300,20 @@ internal class RemoteSourceManager internal constructor(
                 "Source $sourceInstanceId is not WebDAV"
             }
         }
+    private suspend fun requireSmbSource(sourceInstanceId: String): RemoteSourceInstance =
+        requireSource(sourceInstanceId).also { source ->
+            require(source.type == RemoteSourceType.SMB) {
+                "Source $sourceInstanceId is not SMB"
+            }
+        }
     companion object {
+        internal fun normalizeEndpoint(type: RemoteSourceType, raw: String): String = when (type) {
+            RemoteSourceType.NAVIDROME,
+            RemoteSourceType.WEBDAV,
+            -> normalizeHttpEndpoint(raw)
+            RemoteSourceType.SMB -> SmbPathCodec.normalizeSourceEndpoint(raw)
+        }
+
         internal fun normalizeHttpEndpoint(raw: String): String {
             val trimmed = raw.trim().trimEnd('/')
             require(trimmed.isNotBlank()) { "Server address must not be blank" }

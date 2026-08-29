@@ -177,6 +177,30 @@ class RemoteSourceManagerTest {
         assertEquals("old-secret", (credentials.resolve(oldRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
     }
     @Test
+    fun smbSourceNormalizesShareEndpointAndRotatesOpaqueCredentialRef() = runTest {
+        val manager = manager(executor = NavidromeHttpExecutor { okResponse() })
+        val source = manager.createSmb(
+            displayName = " NAS ",
+            endpoint = " SMB://NAS.local:445/Music/My Albums/ ",
+            username = " HOME\\alice ",
+            password = "old-secret",
+        )
+
+        assertEquals(RemoteSourceType.SMB, source.type)
+        assertEquals("NAS", source.displayName)
+        assertEquals("smb://nas.local/Music/My%20Albums", source.endpoint)
+        val oldRef = source.credentialRef
+        val rotated = manager.rotateSmbCredentials(source.id, "HOME\\alice", "new-secret")
+
+        assertNotEquals(oldRef, rotated.credentialRef)
+        assertEquals("new-secret", (credentials.resolve(rotated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
+        assertEquals("old-secret", (credentials.resolve(oldRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
+        assertEquals(
+            "smb://nas.local/Music/Other",
+            manager.updateSourceConfig(source.id, "NAS", "smb://NAS.local/Music/Other/", true).endpoint,
+        )
+    }
+    @Test
     fun endpointValidationRejectsEmbeddedCredentialAndQuery() {
         val embedded = runCatching {
             RemoteSourceManager.normalizeHttpEndpoint("https://alice:secret@music.example")

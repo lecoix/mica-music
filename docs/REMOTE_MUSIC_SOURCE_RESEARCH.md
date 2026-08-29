@@ -5,6 +5,12 @@
 > 当前范围：Navidrome / WebDAV / SMB  
 > 本文记录候选开源项目、可复用范围、风险和 Mica 的预期边界；不是已批准的实施方案。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
 
+## 2026-08-29 实施状态
+
+- Navidrome / OpenSubsonic MVP 已实现并接入统一远程曲库、JIT 播放解析和凭据边界。
+- WebDAV MVP 已实现；真机已覆盖配置、鉴权、PROPFIND、递归同步、播放与非零 Range seek。
+- SMB2/SMB3 MVP 已实现到协议 adapter、递归同步、稳定媒体身份、JIT 凭据解析与 Media3 offset-read DataSource；SMB1 明确不启用。
+- SMB 单元/路由回归与 QA 构建已通过；真实 Android + SMB 服务器的端到端 smoke 仍需一个设备可访问且可认证的 SMB2/SMB3 测试端点。
 ## 已确定的产品范围
 
 - 设置中合并为一个“远程曲库”入口。
