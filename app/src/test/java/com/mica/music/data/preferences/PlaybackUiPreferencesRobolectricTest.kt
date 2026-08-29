@@ -239,6 +239,9 @@ class PlaybackUiPreferencesRobolectricTest {
             showAlbumLastScanTime = false,
             showAlbumCustomText = true,
             albumCustomText = "珍藏版",
+            showAlbumSubtitleArtist = false,
+            showAlbumSubtitleReleaseDate = false,
+            showAlbumSubtitleSongCount = false,
         )
 
         PlaybackUiPreferences.setBrowseListInfoVisibility(context, visibility)

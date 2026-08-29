@@ -13,4 +13,7 @@ data class BrowseListInfoVisibility(
     val showAlbumLastScanTime: Boolean = true,
     val showAlbumCustomText: Boolean = false,
     val albumCustomText: String = "",
+    val showAlbumSubtitleArtist: Boolean = true,
+    val showAlbumSubtitleReleaseDate: Boolean = true,
+    val showAlbumSubtitleSongCount: Boolean = true,
 )

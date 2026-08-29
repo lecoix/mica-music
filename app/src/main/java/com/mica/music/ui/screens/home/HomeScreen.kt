@@ -1073,6 +1073,7 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        browseListInfoVisibility = uiSettings.browseListInfoVisibility,
                         onAlbumGridColumnsChange = { columns ->
                             val normalized = columns.coerceIn(1, 4)
                             uiState = uiState.copy(
@@ -1124,6 +1125,7 @@ fun HomeScreen(
                         albumSortField = uiState.browseSort.albumSortField,
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
+                        browseListInfoVisibility = uiSettings.browseListInfoVisibility,
                         onAlbumGridColumnsChange = { columns ->
                             val normalized = columns.coerceIn(1, 4)
                             uiState = uiState.copy(

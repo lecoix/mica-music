@@ -75,6 +75,9 @@ object PlaybackUiPreferences {
     private const val KEY_ALBUM_INFO_SHOW_LAST_SCAN = "album_info_show_last_scan"
     private const val KEY_ALBUM_INFO_SHOW_CUSTOM = "album_info_show_custom"
     private const val KEY_ALBUM_INFO_CUSTOM_TEXT = "album_info_custom_text"
+    private const val KEY_ALBUM_SUBTITLE_SHOW_ARTIST = "album_subtitle_show_artist"
+    private const val KEY_ALBUM_SUBTITLE_SHOW_RELEASE_DATE = "album_subtitle_show_release_date"
+    private const val KEY_ALBUM_SUBTITLE_SHOW_SONG_COUNT = "album_subtitle_show_song_count"
     private const val KEY_PLAYER_INFO_SHOW_FORMAT = "player_info_show_format"
     private const val KEY_PLAYER_INFO_SHOW_SAMPLE_RATE = "player_info_show_sample_rate"
     private const val KEY_PLAYER_INFO_SHOW_BITRATE = "player_info_show_bitrate"
@@ -467,6 +470,9 @@ object PlaybackUiPreferences {
             showAlbumLastScanTime = p.getBoolean(KEY_ALBUM_INFO_SHOW_LAST_SCAN, true),
             showAlbumCustomText = p.getBoolean(KEY_ALBUM_INFO_SHOW_CUSTOM, false),
             albumCustomText = p.getString(KEY_ALBUM_INFO_CUSTOM_TEXT, "") ?: "",
+            showAlbumSubtitleArtist = p.getBoolean(KEY_ALBUM_SUBTITLE_SHOW_ARTIST, true),
+            showAlbumSubtitleReleaseDate = p.getBoolean(KEY_ALBUM_SUBTITLE_SHOW_RELEASE_DATE, true),
+            showAlbumSubtitleSongCount = p.getBoolean(KEY_ALBUM_SUBTITLE_SHOW_SONG_COUNT, true),
         )
     }
 
@@ -484,6 +490,9 @@ object PlaybackUiPreferences {
             .putBoolean(KEY_ALBUM_INFO_SHOW_LAST_SCAN, visibility.showAlbumLastScanTime)
             .putBoolean(KEY_ALBUM_INFO_SHOW_CUSTOM, visibility.showAlbumCustomText)
             .putString(KEY_ALBUM_INFO_CUSTOM_TEXT, visibility.albumCustomText)
+            .putBoolean(KEY_ALBUM_SUBTITLE_SHOW_ARTIST, visibility.showAlbumSubtitleArtist)
+            .putBoolean(KEY_ALBUM_SUBTITLE_SHOW_RELEASE_DATE, visibility.showAlbumSubtitleReleaseDate)
+            .putBoolean(KEY_ALBUM_SUBTITLE_SHOW_SONG_COUNT, visibility.showAlbumSubtitleSongCount)
             .apply()
     }
 

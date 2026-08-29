@@ -60,6 +60,7 @@ import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.coverColor
 import com.mica.music.ui.zoom.PinchZoomItemRect
+import com.mica.music.ui.zoom.compensatedTextMeasureWidth
 import com.mica.music.ui.zoom.pinchZoomGesture
 import com.mica.music.ui.zoom.rememberPinchZoomGridAnchorCoordinator
 import com.mica.music.ui.zoom.rememberPinchZoomState
@@ -70,7 +71,7 @@ import kotlin.math.abs
 /**
  * Main song browser with Poweramp-style ordered pinch zoom.
  *
- * Four stable visual presets are kept deliberately fewer than Poweramp's ten. The preset identity
+ * Five stable visual presets are kept deliberately fewer than Poweramp's ten. The preset identity
  * is persisted independently from the ordered gesture axis. During a pinch the two adjacent
  * LazyGrid layout worlds coexist, share stable song keys, and are kept aligned around the visible
  * center song before the transition is shown.
@@ -297,7 +298,7 @@ internal fun rememberSongListFastScrollIndex(
     index
 }
 
-private enum class SongZoomPreset(
+internal enum class SongZoomPreset(
     val id: String,
     val compact: Boolean,
     val showCover: Boolean,
@@ -305,21 +306,24 @@ private enum class SongZoomPreset(
 ) {
     DENSE_LIST("dense_list", compact = true, showCover = false, gridTile = false),
     NORMAL_LIST("normal_list", compact = false, showCover = true, gridTile = false),
+    FOUR_COLUMN_GRID("four_column_grid", compact = false, showCover = true, gridTile = true),
     DENSE_GRID("dense_grid", compact = false, showCover = true, gridTile = true),
     LARGE_GRID("large_grid", compact = false, showCover = true, gridTile = true),
     ;
 
     fun columns(landscape: Boolean): Int = when (this) {
         DENSE_LIST, NORMAL_LIST -> if (landscape) 2 else 1
+        FOUR_COLUMN_GRID -> if (landscape) 5 else 4
         DENSE_GRID -> if (landscape) 4 else 3
         LARGE_GRID -> if (landscape) 3 else 2
     }
 }
 
 /** Ordered gesture axis. IDs above remain stable if this order changes later. */
-private val SongZoomOrder = listOf(
+internal val SongZoomOrder = listOf(
     SongZoomPreset.DENSE_LIST,
     SongZoomPreset.NORMAL_LIST,
+    SongZoomPreset.FOUR_COLUMN_GRID,
     SongZoomPreset.DENSE_GRID,
     SongZoomPreset.LARGE_GRID,
 )
@@ -648,10 +652,8 @@ private fun SongZoomSceneItem(
         // Poweramp changes each child scene's available text width continuously. Measuring at the
         // endpoint maximum made Mica keep the old ellipsis until settle, then crop/expand in one
         // frame. Convert the interpolated visual width back into the child's unscaled measure width.
-        val titleBaseWidth = (titleVisibleWidth / titleScale)
-            .toInt().coerceIn(1, width.coerceAtLeast(1))
-        val subtitleBaseWidth = (subtitleVisibleWidth / subtitleScale)
-            .toInt().coerceIn(1, width.coerceAtLeast(1))
+        val titleBaseWidth = compensatedTextMeasureWidth(titleVisibleWidth, titleScale)
+        val subtitleBaseWidth = compensatedTextMeasureWidth(subtitleVisibleWidth, subtitleScale)
         val cover = measurables[0].measure(androidx.compose.ui.unit.Constraints.fixed(coverBase, coverBase))
         val title = measurables[1].measure(
             androidx.compose.ui.unit.Constraints(maxWidth = titleBaseWidth, maxHeight = androidx.compose.ui.unit.Constraints.Infinity),
@@ -770,7 +772,7 @@ private fun songZoomChildScene(
                 rightAccessoryAlpha = 1f,
             )
         }
-        SongZoomPreset.DENSE_GRID, SongZoomPreset.LARGE_GRID -> {
+        SongZoomPreset.FOUR_COLUMN_GRID, SongZoomPreset.DENSE_GRID, SongZoomPreset.LARGE_GRID -> {
             val titleScale = 14f / 16f
             val titleY = itemWidth + xs
             SongZoomChildScene(
