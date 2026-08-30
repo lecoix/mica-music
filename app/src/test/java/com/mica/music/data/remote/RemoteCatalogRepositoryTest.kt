@@ -3,6 +3,10 @@ package com.mica.music.data.remote
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.local.MicaDatabase
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -137,6 +141,33 @@ class RemoteCatalogRepositoryTest {
             listOf("a-1", "z-1", "z-2"),
             repository.tracksForEnabledSources().map { it.ref.opaqueTrackId },
         )
+    }
+
+    @Test
+    fun enabledSourceFlowFollowsCatalogPublicationAndSourceDisable() = runTest {
+        val source = source("live")
+        repository.upsertSource(source)
+        val published = async(start = CoroutineStart.UNDISPATCHED) {
+            repository.observeTracksForEnabledSources()
+                .map { tracks -> tracks.map { it.ref.opaqueTrackId } }
+                .first { it == listOf("song-1") }
+        }
+
+        assertTrue(
+            repository.publishCatalogIfCurrent(
+                repository.beginOperation(source.id)!!.token,
+                listOf(track(source.id, "song-1")),
+            ),
+        )
+        assertEquals(listOf("song-1"), published.await())
+
+        val hidden = async(start = CoroutineStart.UNDISPATCHED) {
+            repository.observeTracksForEnabledSources()
+                .map { tracks -> tracks.map { it.ref.opaqueTrackId } }
+                .first { it.isEmpty() }
+        }
+        repository.upsertSource(source.copy(enabled = false))
+        assertEquals(emptyList<String>(), hidden.await())
     }
 
     @Test

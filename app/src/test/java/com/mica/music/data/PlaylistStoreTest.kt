@@ -3,6 +3,9 @@ package com.mica.music.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.local.MicaDatabase
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemotePlaybackUriCodec
+import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
@@ -67,6 +71,36 @@ class PlaylistStoreTest {
         assertEquals(1, imported.importedSongCount)
         assertEquals(0, imported.skippedSongCount)
         assertEquals("Portable (2)", imported.playlist.name)
+    }
+
+    @Test
+    fun remoteStableIdentitySurvivesPlaylistJsonRoundTrip() {
+        val remoteId = RemoteMediaIdCodec.encode(RemoteTrackRef("source-1", "track-9"))
+        val remoteSong = SongFixtures.song(remoteId, title = "Remote Nine").copy(
+            source = SongSource.REMOTE,
+            mediaUri = RemotePlaybackUriCodec.encode(remoteId),
+            filePath = "Album/Remote Nine.flac",
+            fileName = "Remote Nine.flac",
+        )
+        val store = PlaylistStore(context)
+        val source = store.createPlaylist("Remote portable")
+        store.addSongToPlaylist(source.id, remoteSong.id)
+        store.setCoverSong(source.id, remoteSong.id)
+
+        val json = requireNotNull(store.exportPlaylistJson(source.id) { id ->
+            remoteSong.takeIf { it.id == id }
+        })
+        val imported = store.importPlaylistJson(json, listOf(remoteSong))
+
+        assertEquals(listOf(remoteId), imported.playlist.songIds)
+        assertEquals(remoteId, imported.playlist.coverSongId)
+        assertEquals(1, imported.importedSongCount)
+        assertEquals(0, imported.skippedSongCount)
+        val exportedMediaUri = JSONObject(json)
+            .getJSONArray("songs")
+            .getJSONObject(0)
+            .getString("mediaUri")
+        assertEquals(RemotePlaybackUriCodec.encode(remoteId), exportedMediaUri)
     }
 
     @Test

@@ -89,6 +89,7 @@ fun SongActionMenuSheet(
     onPlaybackTuningClick: (() -> Unit)? = null,
     showLyricsOffset: Boolean = false,
     showLibraryActions: Boolean = true,
+    showFileActions: Boolean = true,
     landscape: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -118,6 +119,7 @@ fun SongActionMenuSheet(
                 onPlaybackTuningClick = onPlaybackTuningClick,
                 showLyricsOffset = showLyricsOffset,
                 showLibraryActions = showLibraryActions,
+                showFileActions = showFileActions,
             )
         }
         return
@@ -178,11 +180,13 @@ fun SongActionMenuSheet(
                 label = "分享",
                 onClick = { onAction(SongMenuAction.Share) },
             )
-            SongMenuItem(
-                icon = Icons.Outlined.Edit,
-                label = "使用Lyrico编辑音乐标签",
-                onClick = { onAction(SongMenuAction.EditTags) },
-            )
+            if (showFileActions) {
+                SongMenuItem(
+                    icon = Icons.Outlined.Edit,
+                    label = "使用Lyrico编辑音乐标签",
+                    onClick = { onAction(SongMenuAction.EditTags) },
+                )
+            }
             SongMenuItem(
                 icon = Icons.Outlined.Info,
                 label = "歌曲信息",
@@ -195,12 +199,14 @@ fun SongActionMenuSheet(
                     onClick = { onAction(SongMenuAction.RemoveFromPlaylist) },
                 )
             }
-            SongMenuItem(
-                icon = Icons.Outlined.Delete,
-                label = "删除音乐",
-                tint = MicaTheme.colors.like,
-                onClick = { onAction(SongMenuAction.Delete) },
-            )
+            if (showFileActions) {
+                SongMenuItem(
+                    icon = Icons.Outlined.Delete,
+                    label = "删除音乐",
+                    tint = MicaTheme.colors.like,
+                    onClick = { onAction(SongMenuAction.Delete) },
+                )
+            }
             }
         }
     }
@@ -316,6 +322,7 @@ private fun LandscapeSongActionMenu(
     onPlaybackTuningClick: (() -> Unit)?,
     showLyricsOffset: Boolean,
     showLibraryActions: Boolean,
+    showFileActions: Boolean,
 ) {
     val entries = buildList {
         if (!showLibraryActions) {
@@ -355,9 +362,11 @@ private fun LandscapeSongActionMenu(
         add(LandscapeSongMenuEntry(Icons.Outlined.Share, "分享") {
             onAction(SongMenuAction.Share)
         })
-        add(LandscapeSongMenuEntry(Icons.Outlined.Edit, "使用 Lyrico 编辑音乐标签") {
-            onAction(SongMenuAction.EditTags)
-        })
+        if (showFileActions) {
+            add(LandscapeSongMenuEntry(Icons.Outlined.Edit, "使用 Lyrico 编辑音乐标签") {
+                onAction(SongMenuAction.EditTags)
+            })
+        }
         add(LandscapeSongMenuEntry(Icons.Outlined.Info, "歌曲信息") {
             onAction(SongMenuAction.SongInfo)
         })
@@ -366,9 +375,11 @@ private fun LandscapeSongActionMenu(
                 onAction(SongMenuAction.RemoveFromPlaylist)
             })
         }
-        add(LandscapeSongMenuEntry(Icons.Outlined.Delete, "删除音乐", MicaTheme.colors.like) {
-            onAction(SongMenuAction.Delete)
-        })
+        if (showFileActions) {
+            add(LandscapeSongMenuEntry(Icons.Outlined.Delete, "删除音乐", MicaTheme.colors.like) {
+                onAction(SongMenuAction.Delete)
+            })
+        }
         }
     }
 

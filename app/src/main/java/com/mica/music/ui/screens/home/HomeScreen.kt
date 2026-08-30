@@ -69,7 +69,6 @@ import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
 import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.UserPlaylist
-import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.media.NotificationLyrics
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.components.HomeDrawerPanel
@@ -104,7 +103,7 @@ private const val HomeDrawerSwipePositionThreshold = 0.5f
 fun HomeScreen(
     library: MusicLibrary,
     playlistStore: PlaylistStore,
-    remoteCatalogRepository: RemoteCatalogRepository,
+    remoteSongs: List<Song>,
     playbackState: HomePlaybackState,
     playbackActions: HomePlaybackActions,
     uiSettings: AppUiSettings,
@@ -140,6 +139,16 @@ fun HomeScreen(
     var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val homeController = rememberHomeScreenController(library, playlistStore)
+    val remoteSongsById = remember(remoteSongs) { remoteSongs.associateBy { it.id } }
+    val availablePlaylistSongs = remember(library.songs, remoteSongs) {
+        buildList {
+            addAll(library.songs)
+            addAll(remoteSongs)
+        }.distinctBy { it.id }
+    }
+    val resolvePlaylistSong: (String) -> Song? = { songId ->
+        library.songById(songId) ?: remoteSongsById[songId]
+    }
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -180,7 +189,7 @@ fun HomeScreen(
                 val raw = withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                 } ?: error("无法读取歌单 JSON")
-                playlistStore.importPlaylistJson(raw, library.songs)
+                playlistStore.importPlaylistJson(raw, availablePlaylistSongs)
             }
             result.fold(
                 onSuccess = { imported ->
@@ -202,7 +211,7 @@ fun HomeScreen(
         pendingExportPlaylistId = null
         if (uri == null || playlistId == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val json = playlistStore.exportPlaylistJson(playlistId, library::songById)
+            val json = playlistStore.exportPlaylistJson(playlistId, resolvePlaylistSong)
             val saved = if (json == null) {
                 false
             } else {
@@ -1019,7 +1028,7 @@ fun HomeScreen(
                         },
                     )
                     HomePaneKey.Remote -> RemoteLibraryPane(
-                        repository = remoteCatalogRepository,
+                        songs = remoteSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongClick = onQueueSongClick,
@@ -1035,7 +1044,7 @@ fun HomeScreen(
                     )
                     HomePaneKey.PlaylistOverview -> HomePlaylistOverviewContent(
                         playlists = playlistStore.playlists,
-                        resolveSong = library::songById,
+                        resolveSong = resolvePlaylistSong,
                         onAction = ::handlePlaylistAction,
                         onCreatePlaylist = {
                             overlay = homeController.showCreatePlaylistDialog(overlay)
@@ -1050,6 +1059,7 @@ fun HomeScreen(
                         playlistId = key.id,
                         playlistStore = playlistStore,
                         library = library,
+                        remoteSongs = remoteSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,
@@ -1254,7 +1264,7 @@ fun HomeScreen(
         HomeOverlays(
             overlay = overlay,
             playlistStore = playlistStore,
-            resolveSong = library::songById,
+            resolveSong = resolvePlaylistSong,
             onDismissActionMenu = {
                 overlay = homeController.dismissActionMenu(overlay)
             },

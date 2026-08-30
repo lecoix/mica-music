@@ -74,7 +74,7 @@ class HomeScreenController(
             )
             SongMenuAction.PlayNext -> SongMenuActionOutcome(
                 overlay = dismissActionMenu(overlay),
-                insertPlayNext = library.songById(song.id),
+                insertPlayNext = if (song.isRemote) song else library.songById(song.id),
             )
             SongMenuAction.Share -> SongMenuActionOutcome(
                 overlay = dismissActionMenu(overlay),

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
+import com.mica.music.data.SongSource
 import com.mica.music.data.local.MicaDatabase
 import com.mica.music.testutil.SongFixtures
 import com.mica.music.ui.components.SongMenuAction
@@ -93,6 +94,22 @@ class HomeScreenControllerTest {
         )
 
         assertEquals("s1", outcome.openSongDetailId)
+        assertNull(outcome.overlay?.actionMenuSong)
+    }
+
+    @Test
+    fun playNextKeepsRemoteSongWithoutLocalLibraryLookup() {
+        val remoteSong = SongFixtures.song("remote-1").copy(source = SongSource.REMOTE)
+        val overlay = controller.openActionMenu(HomeOverlayState(), remoteSong)
+
+        val outcome = controller.handleSongMenuAction(
+            context = context,
+            overlay = overlay,
+            action = SongMenuAction.PlayNext,
+            song = remoteSong,
+        )
+
+        assertEquals(remoteSong, outcome.insertPlayNext)
         assertNull(outcome.overlay?.actionMenuSong)
     }
 

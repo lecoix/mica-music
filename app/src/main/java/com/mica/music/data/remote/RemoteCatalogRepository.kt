@@ -7,6 +7,8 @@ import com.mica.music.data.local.RemoteSourceEntity
 import com.mica.music.data.local.toEntity
 import com.mica.music.data.local.toRemoteSourceInstance
 import com.mica.music.data.local.toRemoteTrackSummary
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -189,6 +191,12 @@ class RemoteCatalogRepository internal constructor(
     /** Aggregate snapshot for browsing. Disabled source catalogs remain isolated and hidden. */
     suspend fun tracksForEnabledSources(): List<RemoteTrackSummary> =
         trackDao.getForEnabledSources().map { it.toRemoteTrackSummary() }
+
+    /** Live aggregate snapshot used by UI surfaces that must follow catalog publication automatically. */
+    fun observeTracksForEnabledSources(): Flow<List<RemoteTrackSummary>> =
+        trackDao.observeForEnabledSources().map { entities ->
+            entities.map { it.toRemoteTrackSummary() }
+        }
 
     override suspend fun find(refs: List<RemoteTrackRef>): Map<RemoteTrackRef, RemoteTrackSummary> {
         if (refs.isEmpty()) return emptyMap()

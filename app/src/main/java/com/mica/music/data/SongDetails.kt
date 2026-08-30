@@ -47,6 +47,7 @@ object SongDetails {
     }
 
     fun mediaSourceLabel(song: Song, library: MusicLibrary): String = when {
+        song.isRemote -> "远程曲库"
         song.id.startsWith("ms_") -> "MediaStore 媒体库"
         song.id.startsWith("doc_") -> {
             val folder = library.libraryFolderLabel

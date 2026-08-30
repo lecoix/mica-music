@@ -22,6 +22,7 @@ internal fun HomePlaylistContent(
     playlistId: String,
     playlistStore: PlaylistStore,
     library: MusicLibrary,
+    remoteSongs: List<Song>,
     currentSongId: String?,
     isPlaying: Boolean,
     onQueueSongs: (List<Song>) -> Unit,
@@ -43,7 +44,12 @@ internal fun HomePlaylistContent(
         return
     }
 
-    if (library.isLoadingCachedLibrary && library.songs.isEmpty()) {
+    val remoteSongsById = remember(remoteSongs) { remoteSongs.associateBy { it.id } }
+    if (
+        library.isLoadingCachedLibrary &&
+        library.songs.isEmpty() &&
+        playlist.songIds.none(remoteSongsById::containsKey)
+    ) {
         EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
         return
     }
@@ -51,11 +57,14 @@ internal fun HomePlaylistContent(
     val songs = remember(
         playlist,
         library.songs,
+        remoteSongsById,
         playlistStore.revision,
         playlist.sortField,
         playlist.sortDirection,
     ) {
-        playlistStore.songsForPlaylist(playlistId) { library.songById(it) }
+        playlistStore.songsForPlaylist(playlistId) { songId ->
+            library.songById(songId) ?: remoteSongsById[songId]
+        }
     }
 
     if (songs.isEmpty()) {

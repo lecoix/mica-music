@@ -60,7 +60,16 @@
 - WebDAV sidecar 真机：在 `/dav/Album/Last Call.lrc` 存在时，通过真实 `RemoteLyricsRepository → WebDavLyricsLoader` 得到 `format=LRC / origin=EXTERNAL / lines=2`，353 ms；server 先探测不存在的 TTML，随后只读取 LRC，没有打开 `Last Call.m4a`。把该 fixture 移出 Album（仅移动、未删除）并重新发布 catalog 后，同一 action 得到 `format=LRC / origin=EMBEDDED / lines=2`，1,493 ms；server 日志显示 TTML/LRC 候选均 404 后才对 `Last Call.m4a` 发多个严格 206 Range GET。fixture 验证后已移动回原位。
 - binary/SYLT 真机另使用 `.scratch/webdav-smoke` 生成的 4,161-byte `MicaRemoteSylt.mp3`（65-byte ID3v2.3/SYLT 标签 + dummy payload，不进入真实音乐目录）。WebDAV catalog 发布该 fixture 后，指定歌曲的歌词 hydration 得到 `format=SYLT / origin=EMBEDDED / lines=2 / tokens=4`，374 ms；server 记录 sidecar 候选全部 404 后仅对该 MP3 产生一个 206 Range GET，证明真实链路为 `WebDAV Range → ReadAheadSeekableByteSource → bounded ID3 fast probe → EmbeddedLyricsReader SYLT parser`，而不是整文件下载。验收后 fixture 已移动到 `.scratch/webdav-smoke/disabled/`，再次同步把 QA catalog 恢复为原来的 2 首。
 - SMB sidecar 真机直接使用现有 264 首共享曲库中的 `LudoWic - Hit The Floor (Live).flac/.lrc`，无需新增测试文件；`SMB_QA_LOAD_LYRICS` 得到 `format=LRC / origin=EXTERNAL / lines=37`，1,156 ms。定向测试另外覆盖 SMB 无 sidecar 后通过 random-access 音频句柄进入 embedded loader，以及 TTML 命中后 LRC/音频都不再打开。
-- 定向回归覆盖 WebDAV/SMB sidecar 优先级、WebDAV 404→embedded 严格 Range、SMB random-access fallback、WebDAV 错误 MIME 下歌词文件不进入 catalog，以及 `RemoteLyricsRepository` 的 revision/cache/error 语义。真机验收期间测试机 MIUI 曾把 QA UID 标为 power-restriction `REJECT_ALL`；仅为验收临时加入 `com.mica.music.qa` device-idle whitelist，全部网络验证结束后已明确撤销，未修改生产包或设备音乐文件。
+- 定向回归覆盖 WebDAV/SMB sidecar 优先级、WebDAV 404→embedded 严格 Range、SMB random-access fallback、WebDAV 错误 MIME 下歌词文件不进入 catalog，以及 `RemoteLyricsRepository` 的 revision/cache/error 语义。真机验收期间测试机 MIUI 曾把 QA UID 标为 power-restriction `REJECT_ALL`；仅为验收临时加入 `com.mica.music.qa` device-idle whitelist，网络验证结束后均明确撤销，未修改生产包或设备音乐文件。
+
+### 2026-08-30 远端上层行为闭环
+
+- `remote_tracks` 增加启用来源聚合 `Flow`，`RemoteCatalogRepository` 对外发布实时 catalog；`AppNavigation` 成为 UI 层统一的 `remoteSongs` 快照 owner。远程曲库页面不再进入时单次查询 Room，因此 catalog 原子发布或来源启停后，远程列表、歌单解析和歌曲详情会跟随同一快照更新。
+- 歌单仍只持久化稳定 `songId`，但显示、封面解析、JSON 导入/导出改为“本地 `MusicLibrary` + 当前远端 catalog”联合 resolver。回归证明远端稳定 media id、cover song 和稳定 `mica-remote` URI 可完整 JSON round-trip；认证播放 URL、密码和请求头仍不会进入歌单文件。
+- Now Playing 与 Home/歌单菜单的远端“下一首播放”都不再二次调用本地 `MusicLibrary.songById()`；远端直接把稳定 `Song` 交给现有 queue/runtime，本地歌曲仍按原逻辑回查本地曲库。后端随后仍由 `RemoteMediaItemCodec` / JIT resolver 处理远端播放，不改变认证边界。
+- 通用歌曲菜单把“库操作”和“本地文件写操作”拆开。远端歌曲继续提供添加到歌单、下一首播放、睡眠定时、歌词偏移、分享和歌曲信息；依赖可写本地文件的 Lyrico 标签编辑与删除音乐对远端隐藏，横竖屏使用同一 gate。
+- 歌曲详情路由现在按本地曲库 → 当前远端 catalog → 当前播放快照依次解析稳定 id。远端详情显示“媒体来源：远程曲库”，可分享，但不提供只适用于本地文件的响度分析。
+- JVM/Robolectric 回归覆盖 catalog Flow 在发布/来源禁用后的更新、远端歌单 JSON round-trip，以及远端菜单保留可用操作并隐藏本地写操作。2026-08-30 side-by-side QA 真机冷启动后，真实 SMB catalog 通过新 Flow 正常显示；实际远端曲 `機械の声` 的 Now Playing 菜单确认有“添加到歌单 / 下一首播放 / 睡眠定时 / 歌词偏移 / 分享 / 歌曲信息”且没有“编辑音乐标签 / 删除音乐”；进入歌曲详情后确认“媒体来源 → 远程曲库”，且无响度分析入口。
 
 ## 已确定的产品范围
 

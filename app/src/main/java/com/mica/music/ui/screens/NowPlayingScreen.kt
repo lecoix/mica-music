@@ -418,7 +418,7 @@ fun NowPlayingContent(
                 addToPlaylistSong = target
             }
             SongMenuAction.PlayNext -> {
-                library.songById(target.id)?.let { actions.insertPlayNext(it) }
+                (if (target.isRemote) target else library.songById(target.id))?.let { actions.insertPlayNext(it) }
                 actionMenuSong = null
             }
             SongMenuAction.Share -> {
@@ -2119,6 +2119,7 @@ fun NowPlayingContent(
                     playbackTuningSheetOpen = true
                 },
                 showLibraryActions = !menuSong.isTransient,
+                showFileActions = !menuSong.isRemote && !menuSong.isTransient,
                 landscape = isLandscapeWindow,
             )
         }

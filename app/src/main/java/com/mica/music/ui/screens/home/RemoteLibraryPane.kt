@@ -9,31 +9,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import com.mica.music.data.Song
-import com.mica.music.data.remote.RemoteCatalogRepository
-import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.ui.components.SongRow
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 internal fun RemoteLibraryPane(
-    repository: RemoteCatalogRepository,
+    songs: List<Song>,
     currentSongId: String?,
     isPlaying: Boolean,
     onQueueSongClick: (List<Song>, String) -> Unit,
@@ -41,53 +29,7 @@ internal fun RemoteLibraryPane(
     listBottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
-    var songs by remember(repository) { mutableStateOf<List<Song>>(emptyList()) }
-    var loading by remember(repository) { mutableStateOf(true) }
-    var loadError by remember(repository) { mutableStateOf<String?>(null) }
-    var refreshRevision by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(repository, refreshRevision) {
-        loading = true
-        loadError = null
-        runCatching {
-            val tracks = repository.tracksForEnabledSources()
-            withContext(Dispatchers.Default) {
-                tracks.map { track -> track.toPlaybackSong() }
-            }
-        }.onSuccess { loaded ->
-            songs = loaded
-        }.onFailure { failure ->
-            songs = emptyList()
-            loadError = failure.message ?: failure.javaClass.simpleName
-        }
-        loading = false
-    }
-
     when {
-        loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        loadError != null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
-                modifier = Modifier.padding(HifiSpacing.xl),
-            ) {
-                Text(
-                    text = "远程曲库读取失败",
-                    style = MicaTheme.typography.bodyLg,
-                    color = MicaTheme.colors.textPrimary,
-                )
-                Text(
-                    text = loadError.orEmpty(),
-                    style = MicaTheme.typography.bodySm,
-                    color = MicaTheme.colors.textTertiary,
-                )
-                TextButton(onClick = { refreshRevision++ }) {
-                    Text("重试")
-                }
-            }
-        }
         songs.isEmpty() -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
