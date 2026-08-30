@@ -142,10 +142,7 @@ fun HomeScreen(
     val homeController = rememberHomeScreenController(library, playlistStore)
     val remoteSongsById = remember(remoteSongs) { remoteSongs.associateBy { it.id } }
     val availablePlaylistSongs = remember(library.songs, remoteSongs) {
-        buildList {
-            addAll(library.songs)
-            addAll(remoteSongs)
-        }.distinctBy { it.id }
+        mergedBrowseSongs(library.songs, remoteSongs)
     }
     val recentSongs = remember(library.songs, remoteSongs) {
         recentSongsForPresentation(
@@ -1343,7 +1340,7 @@ fun HomeScreen(
             val playlist = playlistStore.playlistById(playlistId)
             if (playlist != null) {
                 PlaylistCoverSongSheet(
-                    songs = library.songs,
+                    songs = availablePlaylistSongs,
                     selectedSongId = playlist.coverSongId,
                     onSelect = { song ->
                         PlaylistCoverImporter.clearCover(context, playlistId)
