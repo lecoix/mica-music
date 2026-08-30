@@ -13,6 +13,7 @@ import com.mica.music.ui.theme.HifiSpacing
 internal fun SettingsCategoryList(
     query: String,
     onSelectCategory: (SettingsCategory) -> Unit,
+    onOpenUsageTutorial: () -> Unit,
 ) {
     if (query.isBlank()) {
         SettingsSectionTitle("浏览设置")
@@ -27,8 +28,13 @@ internal fun SettingsCategoryList(
         Spacer(Modifier.height(HifiSpacing.lg))
 
         SettingsSectionTitle("使用技巧")
+        SettingsNavigationRow(
+            title = "重新查看教程",
+            subtitle = "用动态示意了解 6 个常用操作",
+            onClick = onOpenUsageTutorial,
+        )
         SettingsTipRow("长按迷你播放栏可以定位当前歌曲")
-        SettingsTipRow("单指左滑同样可以打开侧栏，双指缩放可以修改歌曲显示样式")
+        SettingsTipRow("在主页单指右滑可以打开侧栏，双指缩放可以修改歌曲显示样式")
         SettingsTipRow("在播放页长按专辑封面可以打开菜单，里面有睡眠定时、变速/变调")
         SettingsTipRow("在文件夹页可以通过左右滑动在不同深度的文件夹统合页切换")
         SettingsTipRow("歌曲列表排序里，已选「自定义」时再次点击，可进入「自定义·锁定」状态")

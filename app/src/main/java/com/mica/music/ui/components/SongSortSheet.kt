@@ -36,11 +36,6 @@ fun SongSortSheet(
     uiSettings: AppUiSettings? = null,
     playlistActions: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
-    val sortFields = if (includeCustomSort) {
-        listOf(SongSortField.CUSTOM) + SongSortField.entries.filter { it != SongSortField.CUSTOM }
-    } else {
-        SongSortField.entries.filter { it != SongSortField.CUSTOM }
-    }
     val showDirection = currentField != SongSortField.CUSTOM
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
@@ -68,26 +63,7 @@ fun SongSortSheet(
                 style = MicaTheme.typography.caption,
                 color = MicaTheme.colors.textSecondary,
             )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
-                verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
-            ) {
-                sortFields.forEach { field ->
-                    val customLocked = field == SongSortField.CUSTOM &&
-                        currentField == SongSortField.CUSTOM &&
-                        customSortLocked
-                    AccentTextChoice(
-                        label = if (customLocked) "${field.label}·锁定" else field.label,
-                        selected = field == currentField,
-                        onClick = {
-                            onApply(
-                                field,
-                                if (field == SongSortField.CUSTOM) SortDirection.ASC else currentDirection,
-                            )
-                        },
-                    )
-                }
-            }
+            SongSortChoices(currentField, currentDirection, includeCustomSort, customSortLocked, onApply)
             if (showDirection) {
                 Text(
                     text = "顺序",
@@ -215,6 +191,36 @@ fun SongSortSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Shared rendering for the real sort sheet and its read-only tutorial demonstration. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun SongSortChoices(
+    currentField: SongSortField,
+    currentDirection: SortDirection,
+    includeCustomSort: Boolean,
+    customSortLocked: Boolean,
+    onApply: (SongSortField, SortDirection) -> Unit,
+) {
+    val fields = if (includeCustomSort) {
+        listOf(SongSortField.CUSTOM) + SongSortField.entries.filter { it != SongSortField.CUSTOM }
+    } else {
+        SongSortField.entries.filter { it != SongSortField.CUSTOM }
+    }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+    ) {
+        fields.forEach { field ->
+            val locked = field == SongSortField.CUSTOM && currentField == SongSortField.CUSTOM && customSortLocked
+            AccentTextChoice(
+                label = if (locked) "${field.label}·锁定" else field.label,
+                selected = field == currentField,
+                onClick = { onApply(field, if (field == SongSortField.CUSTOM) SortDirection.ASC else currentDirection) },
+            )
         }
     }
 }

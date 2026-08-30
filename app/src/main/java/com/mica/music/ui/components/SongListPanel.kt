@@ -558,7 +558,7 @@ private fun extrapolateSongRect(
 }
 
 @Composable
-private fun SongZoomSceneItem(
+internal fun SongZoomSceneItem(
     song: Song,
     lowerPreset: SongZoomPreset,
     upperPreset: SongZoomPreset,

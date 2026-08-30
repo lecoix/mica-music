@@ -32,6 +32,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.mica.music.ui.screens.tutorial.UsageTutorialDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -79,6 +81,10 @@ fun SettingsScreen(
     var artistSplitConfig by remember { mutableStateOf(LibraryBrowseSettings.artistSplitConfig(context)) }
     var overlays by remember { mutableStateOf(SettingsOverlayState()) }
     var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+    var showUsageTutorial by rememberSaveable { mutableStateOf(false) }
+    if (showUsageTutorial) {
+        UsageTutorialDialog(onDismiss = { showUsageTutorial = false })
+    }
     var usbHybridSubpageOpen by remember { mutableStateOf(false) }
     var settingsSearchOpen by remember { mutableStateOf(false) }
     var settingsSearchQuery by remember { mutableStateOf("") }
@@ -319,6 +325,7 @@ fun SettingsScreen(
             if (selectedCategory == null) {
                 SettingsCategoryList(
                     query = settingsSearchQuery,
+                    onOpenUsageTutorial = { showUsageTutorial = true },
                     onSelectCategory = { category ->
                         logBackFlow("page-action settings-open-category category=${category.name}")
                         closeSettingsSearch()

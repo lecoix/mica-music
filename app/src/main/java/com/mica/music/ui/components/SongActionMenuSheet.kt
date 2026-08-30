@@ -207,7 +207,7 @@ fun SongActionMenuSheet(
 }
 
 @Composable
-private fun SongMenuHeader(
+internal fun SongMenuHeader(
     song: Song,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (AlbumBrowseKey) -> Unit,
@@ -265,7 +265,7 @@ private fun SongMenuHeader(
 }
 
 @Composable
-private fun SongMenuItem(
+internal fun SongMenuItem(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,

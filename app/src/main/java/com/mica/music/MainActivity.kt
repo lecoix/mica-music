@@ -30,6 +30,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
@@ -57,6 +59,7 @@ import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
 import com.mica.music.util.LyricoTagEditorHost
 import com.mica.music.util.ScreenLockDiagnostics
+import com.mica.music.ui.screens.tutorial.UsageTutorialScanInvitation
 import eightbitlab.com.blurview.BlurTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -106,6 +109,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     private lateinit var navigationCoordinator: AppNavigationCoordinator
     private var externalAudioOpenJob: Job? = null
     private var pendingLyricoSongId: String? = null
+    private var externalAudioOpenActive by mutableStateOf(false)
 
     private val lyricoTagEditorLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -200,6 +204,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         pendingLyricoSongId = savedInstanceState?.getString(KEY_LYRICO_SONG_ID)
+        externalAudioOpenActive = parseExternalAudioOpenRequest(intent) != null
         applyWindowStatusBar()
 
         val library = viewModel.library
@@ -279,6 +284,10 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                     }
                     playerController.connectIfNeeded()
                 }
+                UsageTutorialScanInvitation(
+                    scanInProgress = { library.isScanning },
+                    enabled = !externalAudioOpenActive,
+                )
 
                 LaunchedEffect(library.songIds, library.queueMetadataRevision) {
                     viewModel.syncPlaybackQueueWithLibrarySongs("libraryQueueRevision")
@@ -359,6 +368,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        externalAudioOpenActive = parseExternalAudioOpenRequest(intent) != null
         handleExternalAudioIntent(intent)
     }
 

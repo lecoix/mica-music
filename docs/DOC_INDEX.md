@@ -36,6 +36,8 @@
 
 ## 仍有价值（专项）
 
+- [`USAGE_TUTORIAL.md`](USAGE_TUTORIAL.md) — 首次使用技巧教程：Compose 示意、完成记录、重看入口、动效与容量边界。
+
 | 文档 | 用途 |
 |------|------|
 | [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md) | 外部事件源、框架回调与状态机之间的契约测试原则；防止 mock 输入模型与生产事件流脱节 |
