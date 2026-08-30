@@ -109,7 +109,7 @@ class HomeLibraryStatsRobolectricTest {
     }
 
     @Test
-    fun remoteSectionShowsOnlyRemoteCountAndMultiSelectAction() {
+    fun remoteSectionShowsCountSortAndMultiSelectActions() {
         val library = MusicLibrary(ApplicationProvider.getApplicationContext())
 
         val remote = resolveLibraryStatsBarModel(
@@ -126,9 +126,9 @@ class HomeLibraryStatsRobolectricTest {
             playlistSortDirection = null,
         )
 
-        assertEquals(listOf("2 首"), remote?.segments)
+        assertEquals(listOf("2 首", "标题 · 升序"), remote?.segments)
         assertTrue(remote?.showMultiSelectAction == true)
-        assertFalse(remote?.showSortAction == true)
+        assertTrue(remote?.showSortAction == true)
         assertFalse(remote?.showFolderModeAction == true)
         assertFalse(remote?.showRescanAction == true)
         assertFalse(remote?.showDeletePlaylistAction == true)

@@ -33,6 +33,8 @@ internal fun rememberLibraryStatsBarModel(
     library: MusicLibrary,
     recentSongCount: Int? = null,
     remoteSongs: List<Song> = emptyList(),
+    remoteSortField: SongSortField = SongSortField.TITLE,
+    remoteSortDirection: SortDirection = SortDirection.ASC,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -53,6 +55,8 @@ internal fun rememberLibraryStatsBarModel(
         browseDestination,
         recentSongCount,
         remoteSongs,
+        remoteSortField,
+        remoteSortDirection,
         activePlaylistId,
         playlistSongCount,
         playlistSortField,
@@ -80,6 +84,8 @@ internal fun rememberLibraryStatsBarModel(
             library,
             recentSongCount,
             remoteSongs,
+            remoteSortField,
+            remoteSortDirection,
             activePlaylistId,
             playlistSongCount,
             playlistSortField,
@@ -106,6 +112,8 @@ internal fun resolveLibraryStatsBarModel(
     library: MusicLibrary,
     recentSongCount: Int? = null,
     remoteSongs: List<Song> = emptyList(),
+    remoteSortField: SongSortField = SongSortField.TITLE,
+    remoteSortDirection: SortDirection = SortDirection.ASC,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -137,7 +145,11 @@ internal fun resolveLibraryStatsBarModel(
             showRescanAction = true,
         )
         HomeSection.Remote -> LibraryStatsBarModel(
-            segments = listOf(if (remoteSongs.isEmpty()) "暂无远程歌曲" else "${remoteSongs.size} 首"),
+            segments = listOfNotNull(
+                if (remoteSongs.isEmpty()) "暂无远程歌曲" else "${remoteSongs.size} 首",
+                formatSortLabel(remoteSortField, remoteSortDirection).takeIf { remoteSongs.isNotEmpty() },
+            ),
+            showSortAction = remoteSongs.isNotEmpty(),
             showMultiSelectAction = remoteSongs.isNotEmpty(),
         )
         HomeSection.Recent -> {

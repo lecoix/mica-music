@@ -67,6 +67,7 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistCoverImporter
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
+import com.mica.music.data.SongSorter
 import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.UserPlaylist
 import com.mica.music.media.NotificationLyrics
@@ -131,6 +132,8 @@ fun HomeScreen(
     }
     var drawerOpen by remember { mutableStateOf(false) }
     var sortSheetOpen by remember { mutableStateOf(false) }
+    var remoteSortField by remember { mutableStateOf(LibraryBrowseSettings.remoteSongSortField(context)) }
+    var remoteSortDirection by remember { mutableStateOf(LibraryBrowseSettings.remoteSongSortDirection(context)) }
     var overlay by remember { mutableStateOf(HomeOverlayState()) }
     var coverSongPickerPlaylistId by remember { mutableStateOf<String?>(null) }
     var pendingCoverImportPlaylistId by remember { mutableStateOf<String?>(null) }
@@ -140,6 +143,9 @@ fun HomeScreen(
     var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val homeController = rememberHomeScreenController(library, playlistStore)
+    val sortedRemoteSongs = remember(remoteSongs, remoteSortField, remoteSortDirection) {
+        SongSorter.sort(remoteSongs, remoteSortField, remoteSortDirection)
+    }
     val remoteSongsById = remember(remoteSongs) { remoteSongs.associateBy { it.id } }
     val availablePlaylistSongs = remember(library.songs, remoteSongs) {
         mergedBrowseSongs(library.songs, remoteSongs)
@@ -159,6 +165,9 @@ fun HomeScreen(
     val appName = stringResource(R.string.app_name)
     val songListState = rememberLazyListState()
     val remoteListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    LaunchedEffect(remoteSortField, remoteSortDirection) {
+        remoteListState.scrollToItem(0)
+    }
     var pendingLocateSongId by remember { mutableStateOf<String?>(null) }
     var pendingLocateRequestKey by remember { mutableStateOf(0) }
     val artistListState = rememberLazyListState()
@@ -637,7 +646,9 @@ fun HomeScreen(
             browseDestination = visibleBrowseDestination,
             library = library,
             recentSongCount = recentSongs.size,
-            remoteSongs = remoteSongs,
+            remoteSongs = sortedRemoteSongs,
+            remoteSortField = remoteSortField,
+            remoteSortDirection = remoteSortDirection,
             activePlaylistId = uiState.activePlaylistId,
             playlistSongCount = activePlaylistSongCount,
             playlistSortField = activePlaylist?.sortField,
@@ -989,6 +1000,12 @@ fun HomeScreen(
                 activePlaylistId = uiState.activePlaylistId,
                 playlistSortField = activePlaylist?.sortField,
                 playlistSortDirection = activePlaylist?.sortDirection,
+                remoteSortField = remoteSortField,
+                remoteSortDirection = remoteSortDirection,
+                onRemoteSortChange = { field, direction ->
+                    remoteSortField = field
+                    remoteSortDirection = direction
+                },
                 onDismiss = { sortSheetOpen = false },
                 onMultiSelectClick = ::openSongMultiSelect,
                 uiSettings = uiSettings,
@@ -1053,7 +1070,7 @@ fun HomeScreen(
                         },
                     )
                     HomePaneKey.Remote -> RemoteLibraryPane(
-                        songs = remoteSongs,
+                        songs = sortedRemoteSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongClick = onQueueSongClick,

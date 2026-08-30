@@ -8,6 +8,7 @@ import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SongSortField
+import com.mica.music.data.REMOTE_SONG_SORT_FIELDS
 import com.mica.music.data.SortDirection
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.FolderBrowseMode
@@ -41,6 +42,9 @@ internal fun HomeSortSheets(
     activePlaylistId: String?,
     playlistSortField: SongSortField?,
     playlistSortDirection: SortDirection?,
+    remoteSortField: SongSortField,
+    remoteSortDirection: SortDirection,
+    onRemoteSortChange: (SongSortField, SortDirection) -> Unit,
     onDismiss: () -> Unit,
     onMultiSelectClick: (() -> Unit)?,
     uiSettings: AppUiSettings,
@@ -113,6 +117,20 @@ internal fun HomeSortSheets(
                 },
                 uiSettings = uiSettings,
                 isArtist = true,
+            )
+        }
+        section == HomeSection.Remote -> {
+            SongSortSheet(
+                currentField = remoteSortField,
+                currentDirection = remoteSortDirection,
+                availableFields = REMOTE_SONG_SORT_FIELDS,
+                onDismiss = onDismiss,
+                onApply = { field, direction ->
+                    onRemoteSortChange(field, direction)
+                    LibraryBrowseSettings.setRemoteSongSort(context, field, direction)
+                    onDismiss()
+                },
+                onMultiSelectClick = onMultiSelectClick,
             )
         }
         else -> {
