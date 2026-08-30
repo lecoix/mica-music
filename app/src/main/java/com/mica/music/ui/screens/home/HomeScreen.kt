@@ -996,10 +996,10 @@ fun HomeScreen(
                     HomePaneKey.Search -> LibrarySearchPanel(
                         query = uiState.searchQuery,
                         library = library,
+                        remoteSongs = remoteSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
-                        onQueueSongs = playbackActions.setQueue,
-                        onSongClick = onSongClick,
+                        onQueueSongClick = onQueueSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
