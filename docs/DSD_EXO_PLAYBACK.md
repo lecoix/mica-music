@@ -186,6 +186,10 @@ Mica 只吸收上述**生命周期与 ownership 结构**。DSD canonicalization�
 
 结论：**Exo 播 DSD 不会单独「禁用」或「启用」Mica EQ；行为与其他 Exo 格式一致——关 EQ 即直通降采样 PCM，开 EQ 即软件均衡 + 关 offload。**
 
+### 音效实验室（Sound FX）
+
+与 EQ 共用 `SoftwareEqualizer.processFrame()`，顺序为 EQ → ReplayGain → 声道平衡 → 音色/宽度/混响/360° 环绕 → limiter。开环绕时不再叠加立体声宽度。默认关闭。主开关打开但参数中性时仍旁路。激活时关 offload 并 latch PCM，**不**把 `AudioQualityMode` 写成 DSP。USB Exact / DoP / Native 独占链无此 processor。
+
 ### 厂商 / 系统级音效（OPLUS、NXP、杜比等）
 
 - Exo 最终仍通过 **`AudioTrack`** 出声，并带有 **`audioSessionId`**（见 `MicaMediaService` 里 `onAudioSessionIdChanged`）。

@@ -37,6 +37,7 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.AboutScreen
 import com.mica.music.ui.screens.EqualizerScreen
+import com.mica.music.ui.screens.SoundFxScreen
 import com.mica.music.ui.screens.home.BrowseDestination
 import com.mica.music.ui.screens.home.HomeNavigationIntent
 import com.mica.music.ui.screens.home.HomePlaybackActions
@@ -62,6 +63,7 @@ object Routes {
     const val Home = "home"
     const val Settings = "settings"
     const val Equalizer = "equalizer"
+    const val SoundFx = "sound_fx"
     const val About = "about"
     const val VersionUpdate = "version_update"
     const val MetadataDebug = "metadata_debug"
@@ -296,6 +298,10 @@ fun AppNavigationMain(
                     logBackFlow("nav-action open-spatial-audio from=settings")
                     coordinator.navigate(Routes.SpatialAudio)
                 },
+                onOpenSoundFx = {
+                    logBackFlow("nav-action open-sound-fx from=settings")
+                    coordinator.navigate(Routes.SoundFx)
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),
@@ -380,6 +386,22 @@ fun AppNavigationMain(
             EqualizerScreen(
                 onBack = {
                     logBackFlow("back-consume source=equalizer-topbar")
+                    navController.popBackStack()
+                },
+                contentPadding = PaddingValues(
+                    top = statusTop,
+                    bottom = navBarPadding.calculateBottomPadding(),
+                ),
+                bottomContentClearance = bottomOverlayClearance,
+            )
+        }
+        composable(Routes.SoundFx) {
+            val statusTop = homeStatusBarTopPadding(
+                hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
+            )
+            SoundFxScreen(
+                onBack = {
+                    logBackFlow("back-consume source=sound-fx-topbar")
                     navController.popBackStack()
                 },
                 contentPadding = PaddingValues(

@@ -1,6 +1,6 @@
 # Mica 功能清单
 
-> 最后整理：2026-08-29。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
+> 最后整理：2026-08-30。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
 
 ---
 
@@ -210,6 +210,7 @@
 
 - [x] **EQ** 均衡器（10 段软件 EQ、系统/自定义预设、保存配置；界面已重做为横向推子布局）
 - [x] **均衡器全局增益（Preamp / Master Gain）**：EQ 页提供可调全局输出增益并持久化；与现有 EQ 限幅协调，避免削波
+- [x] **音效实验室**：立体声宽度、低/高架音色、混响房间/阻尼/湿比（湿比 0 为关）、360° 环绕强度/转速（强度 0 为关）；默认关闭；仅 Shared PCM `SoftwareEqualizer`；USB 独占旁路；不改写 `AudioQualityMode`。未做压缩器/动态 EQ。听感与 USB 旁路仍需真机验收
 - [x] **音频管线协调与 offload 熔断**：EQ / 频谱 tap / offload 偏好 / 路由事件统一由 `AudioPipelineCoordinator` 串行处理；offload 失速经 `AudioOffloadCircuitBreaker` 确认后按 build fingerprint 记录失败并回 PCM，设置可手动重试
 - [x] **横屏**播放页基础实现：播放页、队列侧栏及全局窗口横屏布局已接入；视觉、生命周期、音频连续性仍需真机验收
 - [ ] 车机模式

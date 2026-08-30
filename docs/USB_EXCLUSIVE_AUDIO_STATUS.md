@@ -43,7 +43,7 @@ AudioControl / AudioStreaming interface，并直接向 isochronous endpoint 提�
 - **Exclusive** 说明谁持有 interface、是否绕过共享输出。
 - **Signal-exact / bit-perfect** 说明最终样本是否与规定的源样本一致。
 
-ReplayGain、软件音量、EQ、响度、声道平衡、fade/crossfade、变速、重采样、位深缩减、
+ReplayGain、软件音量、EQ、音效实验室、响度、声道平衡、fade/crossfade、变速、重采样、位深缩减、
 float 量化、dither、channel mixing 都会改变第二个事实。项目的音质 consent 硬规则仍然
 适用：不能为了兼容暗中降为 PCM16，也不能在未获明确允许前默认启用有损变化。
 

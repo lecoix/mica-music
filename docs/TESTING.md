@@ -199,10 +199,31 @@ Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极�
 最近一批状态所有权与持久化边界改动，除既有的 `micaCheck` 全量门禁外，重点回归套件：
 
 - `PlaybackTimelineCoordinatorTest` / `PlaybackTuningCoordinatorTest` / `PlayerControllerQueueModelTest`：时间轴、调音与队列 UI 状态的单一 owner 语义；`PlayerControllerQueueModelTest.playerControllerFacadeDoesNotOwnRuntimeInternals` 另冻结 `PlayerController → PlaybackRuntime` 的 facade/runtime ownership 边界；`PlaybackQueueMirrorTest` / `MediaControllerQueueSyncTest` / `PlayerControllerBoundaryTest` 覆盖陈旧队列镜像与旧连接回调被拒绝。
-- `AudioPipelineCoordinatorTest` / `AudioOffloadCircuitBreakerTest` / `AudioOffloadPreferencesRobolectricTest`：EQ / 频谱 / offload 偏好变化使旧熔断任务失效；确认失速后回 PCM、按 build fingerprint 记录失败、手动重试与系统更新后重试。
+- `AudioPipelineCoordinatorTest` / `AudioOffloadCircuitBreakerTest` / `AudioOffloadPreferencesRobolectricTest`：EQ / 频谱 / ReplayGain / 声道平衡 / 音效实验室 / offload 偏好变化使旧熔断任务失效；确认失速后回 PCM、按 build fingerprint 记录失败、手动重试与系统更新后重试。
 - `ExternalAudioOpenTest` / `TransientPlaybackCatalogTest` / `ServicePlaybackStateCoordinatorTest`：只有 MediaStore authority 或已持久化 grant 的外部 URI 才进入恢复快照，不可存续临时队列不落盘。
 - `PlaylistStoreTest` / `RoomMigrationContractTest` / `DatabaseMigrationTest`：歌单写库成功后才更新内存；`mica_playlists` JSON 一次性迁移与完整 `16→21` schema 演进契约。
 - `LyricDisplayRowsTest` / `LyricsCloudLayoutTest` / `LyricsTimelineEngineTest`：入库不把显示分隔符改写成 `TRANSLATION`，歌词云逐字进度按 token 角色与行结束时间计算。
+
+### 2026-08-30 均衡器页面重做
+
+EQ 页把只读频响曲线与 2×5 竖推子网格合并成单一的 `EqualizerCurveEditor`（曲线即推子）。音频链路、`EqualizerPreferences` 与 `EqCustomProfileStore` 的读写未改动，回归集中在手势与坐标映射：
+
+- `EqualizerCurveEditorInputTest`：频段列映射（绘图区从 `DbScaleWidth` 起十段等宽）、绘图区正中恒为 0 dB、上下边界钳到 `MIN/MAX_MILLIBELS`、**按下即锁定起始频段列**（斜向拖动不得漂到相邻频段）、嵌套在 `verticalScroll` 中竖向拖动不被外层抢走且外层不滚动、`enabled = false` 时不产生任何更新。
+- 手势不走 `detectDragGestures`：起始列必须在 `awaitFirstDown` 时确定。若改回按触摸 slop 之后的 `onDragStart` 取列，斜向起手会错列，`dragStaysOnStartBandDespiteHorizontalMovement` 会失败。
+- 单测跑在 Robolectric 注入的指针事件上，可以证明手势归属与坐标换算，**不能**证明真机的甩动速度、多指、触觉反馈手感与大字号下频率标签的排版。
+
+### 2026-08-30 音效实验室
+
+实用档（宽度 / 低高架 / 混响房间·阻尼·湿比 / 360° 环绕），默认湿比与环绕强度为 0，只进现有 Shared PCM `SoftwareEqualizer`。JVM 覆盖激活条件、引擎身份与处理、EQ 直通不被中性 FX 破坏、offload latch：
+
+- `SoundFxSettingsTest`：默认与「仅开开关」不请求 DSP；湿比为 0 时房间/阻尼不激活 DSP；环绕转速单独不激活；越界钳位。
+- `SoundFxEngineTest`：中性设置不改帧；宽度 0 变单声道；低架对低频能量高于高频；混响脉冲后有尾音，且首反射峰值受 `fixedgain` 约束；360° 环绕把左脉冲延迟送到右耳，且开环绕时宽度 0 不再塌成单声道。
+- `EqDspTest`：FX 关或仅中性时 PCM16 bit-exact；宽度 0 时立体声 float 塌成中点。
+- `AudioPipelineCoordinatorTest.soundFxLeavesOffloadOnceThenStaysInPcmWhenBypassed`：激活一次后关回中性，本会话仍 latch PCM（与声道平衡相同），不把 `AudioQualityMode` 写成 DSP。
+- `PreferencesFallbackRobolectricTest.soundFxPreferencesClampAndStayInactiveByDefault`：默认不激活；读写钳位；旧 `sound_fx_reverb_preset` 不打开混响。
+- `SettingsSearchIndexTest`：搜「音效实验室」「混响」「360」命中 `audio.sound-fx`。
+
+单测不能证明听感接近参考播放器，也不能证明 USB 独占真机旁路；见下方真机项。
 
 ### a257a0f 架构重构：P1 真机验收清单
 
@@ -325,7 +346,18 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 
 - 设置页开关 EQ、切换系统预设 → 出声有/无效果；杀进程再开选择与开关保持。
 - 拖动自定义频段、保存/加载命名预设 → 再次进入 EQ 页数值与选中项一致。
+- 在频响曲线上斜向、快速甩动拖某一段 → 只有起手那一列变化；读数行频率与增益、该列高亮和底部频率标签同步；松手后数值不回弹。
+- 大字号（系统字体放至最大）进入 EQ 页 → 底部十个频率标签不重叠、不被裁切；dB 刻度仍与网格线对齐。
 - EQ 开启时切换曲目、后台/前台 → 无崩溃、无无声（pipeline 仍走 `MicaMediaService`）。
+
+**音效实验室（`SoundFxPreferences`）**
+
+- 默认关闭、参数保持中性：Shared PCM 听感与关 EQ 时一致；诊断 `soundFx=false`；若 EQ/平衡/ReplayGain 也都未激活，可尝试 offload。
+- 打开开关但湿比为 0、环绕强度为 0、宽度/音色中性：仍旁路；`isDspActive()==false`，offload 不被这次操作关掉。
+- 打开后拉宽度、低音/高音、把湿比离开 0，或把 360° 环绕强度离开 0 → 出声变化；诊断 `soundFx=true offload=false`；`mode` 仍为 HIFI（除非 EQ 也开）。
+- 关开关或「重置默认」：处理旁路。若本会话曾经激活过 DSP，PCM latch 保持（与声道平衡相同），不自动回到 offload。
+- USB Exact / DoP / Native：同样打开宽度/湿比/环绕强度，听感应与旁路一致（独占链无此 processor）。
+- 杀进程再开：开关与参数保持；覆盖安装不清数据时旧用户保持默认关闭。
 
 **旧数据兼容（升级用户）**
 

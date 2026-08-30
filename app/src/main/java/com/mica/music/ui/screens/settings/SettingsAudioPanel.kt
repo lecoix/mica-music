@@ -31,6 +31,7 @@ internal fun AudioSettingsPanel(
     uiSettings: AppUiSettings,
     library: MusicLibrary,
     onOpenUsbExclusive: () -> Unit,
+    onOpenSoundFx: () -> Unit,
 ) {
     val context = LocalContext.current
     var replayGainMode by remember { mutableStateOf(ReplayGainPreferences.mode(context)) }
@@ -89,6 +90,11 @@ internal fun AudioSettingsPanel(
             channelBalancePercent = value
             MicaEqualizerManager.setChannelBalancePercent(context, value)
         },
+    )
+    SettingsNavigationRow(
+        title = "音效实验室",
+        subtitle = "立体声宽度、音色、混响与 360° 环绕；湿比和环绕强度为 0 即关",
+        onClick = onOpenSoundFx,
     )
 
     SettingsSectionTitle("播放行为")

@@ -123,7 +123,7 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 拍立得回忆切歌 / 拖动 | ✅ | `PhotoStackTransitionView` / `PhotoStackTransitionHost` | View 岛；切歌 **620ms**（`PhotoStackPullAwayDurationMs`）；跟手横拖 + 封面内 seek；`rememberMicaMotionEnabled()` 传入 Host |
 | 浮岛毛玻璃 | ✅ | `MicaMaterialBackdrop` | View 岛 + `BlurTarget`；见 `DESIGN_SPEC.md` §8.1、§七 |
 | 播放指示竖条 | ✅ | `PlayingIndicator` | **独立** 600ms 循环，不走 MicaMotion |
-| EQ 拖动 | — | `EqualizerScreen` | 跟手 + 松手回稳（设计稿 200ms，实现待统一） |
+| EQ 拖动 | — | `EqualizerCurveEditor` | 跟手直出，无补间：按下瞬间锁定手指所在频段列并取值，之后只跟随 y，横向偏移不牵动相邻频段；**不走** `MicaMotion`。设计稿的「松手回稳 200ms」仍未实现 |
 
 图例：✅ 已接 `MicaMotion`；⏳ TODO（见 `docs/TODO.md` §全局·界面动效）。
 

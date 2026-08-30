@@ -1,6 +1,7 @@
 ﻿package com.mica.music.media.eq
 
 import android.media.AudioFormat
+import com.mica.music.audio.fx.SoundFxSettings
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
@@ -9,6 +10,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -144,6 +146,56 @@ class EqDspTest {
         equalizer.processMedia3Buffer(input, AudioFormat.ENCODING_PCM_FLOAT, output)
 
         assertArrayEquals(inputBytes, output.array())
+    }
+
+    @Test
+    fun disabledSoundFxDoesNotBreakFlatEqPassthrough() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 2)
+        equalizer.setEnabled(true)
+        equalizer.setSoundFx(SoundFxSettings(enabled = true))
+        val bytes = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putShort(Short.MIN_VALUE)
+            putShort((-20_000).toShort())
+            putShort((-1).toShort())
+            putShort(0)
+            putShort(1)
+            putShort(20_000)
+            putShort(Short.MAX_VALUE)
+            putShort(1234)
+        }.array()
+        val original = bytes.copyOf()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_16BIT)
+
+        assertArrayEquals(original, bytes)
+        assertFalse(equalizer.isSoundFxDspActive())
+    }
+
+    @Test
+    fun stereoWidthCollapseIsAppliedWhenSoundFxIsActive() {
+        val equalizer = SoftwareEqualizer()
+        equalizer.configure(44_100, 2)
+        equalizer.setSoundFx(
+            SoundFxSettings(
+                enabled = true,
+                stereoWidthPercent = 0,
+            ),
+        )
+        val inputBytes = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putFloat(0.50f)
+            putFloat(-0.25f)
+        }.array()
+        val bytes = inputBytes.copyOf()
+
+        equalizer.processInterleaved(bytes, 0, bytes.size, AudioFormat.ENCODING_PCM_FLOAT)
+
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val left = buffer.float
+        val right = buffer.float
+        assertEquals(0.125f, left, 1e-6f)
+        assertEquals(right, left, 0.0f)
+        assertTrue(equalizer.isProcessingRequired())
     }
 
     @Test

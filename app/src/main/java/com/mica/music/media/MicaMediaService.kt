@@ -46,6 +46,7 @@ import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.preferences.ReplayGainPreferences
+import com.mica.music.data.preferences.SoundFxPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
@@ -620,6 +621,7 @@ class MicaMediaService : MediaSessionService() {
         MicaEqualizerManager.onEnabledChanged = null
         MicaEqualizerManager.onReplayGainDspActiveChanged = null
         MicaEqualizerManager.onChannelBalanceDspActiveChanged = null
+        MicaEqualizerManager.onSoundFxDspActiveChanged = null
         MicaSpectrumAnalyzer.onEnabledChanged = null
         MicaEqualizerManager.release()
     }
@@ -950,6 +952,12 @@ class MicaMediaService : MediaSessionService() {
             }
         }
 
+        MicaEqualizerManager.onSoundFxDspActiveChanged = { enabled ->
+            mainHandler.post {
+                audioPipelineCoordinator?.onSoundFxDspEnabledChanged(enabled)
+            }
+        }
+
         MicaSpectrumAnalyzer.onEnabledChanged = { enabled ->
             mainHandler.post {
                 audioPipelineCoordinator?.onSpectrumTapEnabledChanged(enabled)
@@ -1016,6 +1024,7 @@ class MicaMediaService : MediaSessionService() {
                 replayGainDspEnabled = ReplayGainPreferences.mode(this) != ReplayGainMode.OFF,
                 channelBalanceDspEnabled =
                     ChannelBalancePreferences.balancePercent(this) != ChannelBalancePreferences.CENTER,
+                soundFxDspEnabled = SoundFxPreferences.isDspActive(this),
             ),
             invalidateCircuitBreaker = {
                 audioOffloadCircuitBreaker?.invalidateExternalBoundary()
@@ -1057,6 +1066,7 @@ class MicaMediaService : MediaSessionService() {
             "mode=${if (state.equalizerEnabled) "DSP" else "HIFI"} " +
                 "dsp=${state.equalizerEnabled} spectrum=${state.spectrumTapEnabled} " +
                 "replayGain=${state.replayGainDspEnabled} balance=${state.channelBalanceDspEnabled} " +
+                "soundFx=${state.soundFxDspEnabled} " +
                 "pcmLatched=${state.pcmSessionLatched} " +
                 "offload=${state.offloadEnabled} preference=${state.offloadPreferenceEnabled} " +
                 "circuitOpen=${state.circuitOpen}",

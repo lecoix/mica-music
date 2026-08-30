@@ -35,6 +35,9 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("USB DoP").any { it.id == "audio.usb-exclusive" })
         assertTrue(SettingsSearchIndex.search("SMB").any { it.id == "library.remote" })
         assertTrue(SettingsSearchIndex.search("WebDAV").any { it.id == "library.remote" })
+        assertTrue(SettingsSearchIndex.search("音效实验室").any { it.id == "audio.sound-fx" })
+        assertTrue(SettingsSearchIndex.search("混响").any { it.id == "audio.sound-fx" })
+        assertTrue(SettingsSearchIndex.search("360").any { it.id == "audio.sound-fx" })
     }
 
     @Test

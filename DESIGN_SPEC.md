@@ -1027,13 +1027,14 @@ dependencies {
 | 设置 · 歌词 | ✅ | `LYRICS`：歌词主题、对齐/字号/双语/逐字、歌词优先级、通知/信息行等歌词输出 |
 | 列表 / 专辑 / 艺术家显示设置 | ✅ | 不再是 `SettingsCategory`；歌曲排序 Sheet、专辑/艺术家浏览 Sheet 等上下文入口各自持久化显示选项 |
 | 设置 · 曲库与扫描 | ✅ | `LIBRARY`：曲库文件夹、重扫、排除目录、最短时长、深度分析、艺术家分割 |
-| 设置 · 音频与设备 | ✅ | `AUDIO`：ReplayGain、音频焦点，以及独立的“USB 独占输出”子页。USB 子页沿用设置行、选项行、动作行与提示行，不使用 Card、圆形状态点或独立边框；活动状态只读取 owner facts |
+| 设置 · 音频与设备 | ✅ | `AUDIO`：ReplayGain、音频焦点、独立「音效实验室」页（宽度/音色/混响/360° 环绕，默认关闭），以及独立的“USB 独占输出”子页。USB 子页沿用设置行、选项行、动作行与提示行，不使用 Card、圆形状态点或独立边框；活动状态只读取 owner facts |
 | 设置 · 诊断与系统 | ✅ | `DIAGNOSTICS`：offload 状态与重试、元数据调试、系统空间音频、系统权限与应用信息 |
 | 歌单管理 | ⚠️ | 创建 / 详情 / 删除已有；**无**智能歌单条件 |
 | 专辑 / 歌手聚合 | ⚠️ | 列表 + 九宫格已有；视觉规范未单独成文 |
 | 首次启动 / 空状态 | ✅ | `EmptyState` + 文字链接 CTA |
 | 统一错误状态页 | ❌ | 播放错误 inline + Snackbar；无全局错误 UI 规范 |
-| EQ | ✅ | 10 段软件 EQ；见 `EqualizerScreen`，不在本 spec 组件示例中 |
+| EQ | ✅ | 10 段软件 EQ；核心控件是曲线与推子合一的 `EqualizerCurveEditor`（按下即锁定手指所在频段列，之后只跟随 y），预设与自定义配置走 §10.7 `AccentTextChoice` + `FlowRow`；见 `EqualizerScreen`，不在本 spec 组件示例中 |
+| 音效实验室 | ✅ | 默认关闭；`TextToggle` + `SettingsSliderRow`（宽度、音色、混响房间/阻尼/湿比、360° 环绕强度/转速）；见 `SoundFxScreen` |
 
 ---
 
@@ -1099,9 +1100,11 @@ dependencies {
 | Hi‑Res 标志三种样式 | `HiResBadgeStyle.kt`、播放页设置 |
 | 深色云母每预设双端点 | `Color.kt` `*DarkStart/*DarkEnd` |
 | `HifiColors.surfaceCard` / `like` / `isDark` | `Color.kt` |
+| EQ 频响曲线编辑器 | `EqualizerCurveEditor.kt`：曲线即推子，10 段等宽列 + 矩形游标 + hairline 网格 + 10% accent 包络填充；取代原「只读曲线图 + 2×5 竖推子网格」双份表达 |
+| 音效实验室 | 设置 → 音频；`SoundFxScreen`：立体声宽度、低/高架、混响房间/阻尼/湿比（湿比 0 为关）、360° 环绕强度/转速（强度 0 为关）；默认关闭，仅 Shared PCM |
 
 ---
 
 **版本**：v1.4
-**最后更新**：2026-08-21
+**最后更新**：2026-08-30
 **适用平台**：Android 8.0+（minSdk 26）/ Jetpack Compose BOM 2024.10+

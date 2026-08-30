@@ -94,6 +94,7 @@ class MicaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.mica.music.data.preferences.UsageTutorialPreferences.initialize(this)
         ScanCacheManager.runStartupCacheCleanup(this)
         SpatialAudioMonitor.install(this)
         DiagnosticLog.install(this)

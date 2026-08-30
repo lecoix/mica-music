@@ -73,6 +73,10 @@ _Avoid_: 在通知或播放页组件内直接读 lyric key
 `EqualizerPreferences`：EQ 开关、预设索引、频段与全局增益。`MicaEqualizerManager`、`EqualizerScreen`、`EqCustomProfileStore` 与 `MicaMediaService` 经此读写；自定义预设命名仍由 `EqCustomProfileStore`（`mica_eq_profiles`）管理。
 _Avoid_: 在音频链或 EQ UI 内直接读 equalizer_* key
 
+**Sound effects lab（音效实验室）**：
+`SoundFxPreferences`：主开关、立体声宽度、低/高架音色、混响房间/阻尼/湿比、360° 环绕强度/转速。默认湿比与环绕强度为 0。`MicaEqualizerManager`、`SoundFxScreen` 与 `MicaMediaService` 经此读写。DSP 只在「开关打开且宽度/音色/湿比/环绕强度至少一项非中性」时激活，走现有 Shared PCM `SoftwareEqualizer`（EQ → ReplayGain → 声道平衡 → 音色/宽度/混响/环绕 → limiter）。开环绕时不再叠加立体声宽度。不改写 `AudioQualityMode`（那仍是 EQ 开关）。USB Exact / DoP / Native 独占链没有此 processor，保持旁路。算法为独立 RBJ shelf、公开域 Schroeder/Freeverb（含 Jezar 混音映射）与 Woodworth 球形头 ITD/ILD；未复制参考项目代码。旧 `sound_fx_reverb_preset` 不再读取。
+_Avoid_: 系统 `AudioEffect`；默认开启；把音效写入 `AudioQualityMode.DSP`；在 USB 独占路径套用；把压缩器/动态 EQ 当作已实现
+
 **Album art repair coordinator（封面缓存修复协调器）**：
 根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。它只做修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryScanOrchestrator.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
 _Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择
@@ -207,7 +211,7 @@ _Avoid_: playback service（无专名时）、background service
 _Avoid_: 由 `AppUiSettings` 直接调用 `MicaSpectrumAnalyzer.setEnabled`
 
 **Audio pipeline coordinator（音频管线协调器）**：
-媒体生命周期内 EQ、频谱 tap、offload 偏好、offload 熔断与输出路由变化的状态转换 owner。所有外部 callback 先投递到 `MicaMediaService.mainHandler`，再由 `AudioPipelineCoordinator` 串行使旧熔断工作失效、推导有效 offload、写入 Exo 配置、持久化音质模式并按事件规则 flush；`AudioOffloadCircuitBreaker` 仍拥有其延迟任务 generation。确认 offload 失速后先回 PCM 并验证播放推进，再按 build fingerprint 记录失败并停用 offload；用户可在设置中手动重试，固件/策略更新会获得一次新尝试。`MicaMediaService` 只装配这些 adapter 与生命周期。
+媒体生命周期内 EQ、频谱 tap、ReplayGain DSP、声道平衡、音效实验室 DSP、offload 偏好、offload 熔断与输出路由变化的状态转换 owner。所有外部 callback 先投递到 `MicaMediaService.mainHandler`，再由 `AudioPipelineCoordinator` 串行使旧熔断工作失效、推导有效 offload、写入 Exo 配置、持久化音质模式并按事件规则 flush；`AudioOffloadCircuitBreaker` 仍拥有其延迟任务 generation。确认 offload 失速后先回 PCM 并验证播放推进，再按 build fingerprint 记录失败并停用 offload；用户可在设置中手动重试，固件/策略更新会获得一次新尝试。`MicaMediaService` 只装配这些 adapter 与生命周期。音效实验室激活会关 offload 并 latch PCM，但不把 `AudioQualityMode` 改成 DSP。
 _Avoid_: 在 `MicaMediaService` 的各 callback 中分别重写 offload 推导、熔断失效或 flush 顺序；把 route monitor、熔断器或 EQ 实现吞进协调器
 
 **Exo playback pipeline（Exo 播放管线）**：
@@ -226,6 +230,7 @@ _Avoid_: 仅从 ReplayGain 设置或标签推测实际增益
 
 **Audio quality consent（音质改动许可）**：
 任何可能降低播放保真度的实现（位深/采样率缩减、关闭 float 或 hi-res 直通、全格式共用劣化链路、有损转码、默认 EQ/限幅等）**必须先向用户明确说明影响范围与对象格式**，并**在得到明确允许之前不得实现或默认启用**。Agent 与贡献者均须遵守；细则见 `.cursor/rules/audio-quality-consent.mdc`。
+2026-08-30 已允许 **opt-in 音效实验室**（立体声宽度、低/高架、混响房间/阻尼/湿比、360° 环绕强度/转速）：默认关闭；仅 Shared PCM 软件 DSP；USB 独占旁路。未允许压缩器、动态 EQ 或系统 `AudioEffect`。
 _Avoid_: 为修单一格式（如 DSD）擅自改动全局 Sink 且不在文档与对话中事先披露对 FLAC 等的影响
 
 **PlaybackRouteDecision**：

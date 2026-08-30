@@ -200,6 +200,36 @@ class AudioPipelineCoordinatorTest {
     }
 
     @Test
+    fun soundFxLeavesOffloadOnceThenStaysInPcmWhenBypassed() {
+        val effects = mutableListOf<String>()
+        val coordinator = AudioPipelineCoordinator(
+            initialState = AudioPipelineState(
+                equalizerEnabled = false,
+                spectrumTapEnabled = false,
+                offloadPreferenceEnabled = true,
+            ),
+            invalidateCircuitBreaker = { effects += "invalidate" },
+            resetCircuitBreaker = { effects += "reset" },
+            applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
+            persistQualityMode = { effects += "quality=$it" },
+            flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { true },
+        )
+
+        coordinator.onSoundFxDspEnabledChanged(true)
+        coordinator.onSoundFxDspEnabledChanged(false)
+
+        assertEquals(
+            listOf(
+                "invalidate",
+                "apply:offload=false",
+                "flush:offload-to-pcm:sound-fx-enabled=true",
+            ),
+            effects,
+        )
+    }
+
+    @Test
     fun staleOffloadStallCannotCrossANewerSpectrumConfiguration() {
         val effects = mutableListOf<String>()
         val scheduler = ManualScheduler()

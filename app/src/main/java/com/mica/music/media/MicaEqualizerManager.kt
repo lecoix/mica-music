@@ -5,6 +5,8 @@ import android.media.audiofx.Equalizer
 import androidx.media3.common.util.UnstableApi
 import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.EqualizerPreferences
+import com.mica.music.data.preferences.SoundFxPreferences
+import com.mica.music.audio.fx.SoundFxSettings
 import com.mica.music.data.EqCustomProfile
 import com.mica.music.data.EqCustomProfileStore
 import com.mica.music.data.EqSelection
@@ -23,6 +25,7 @@ object MicaEqualizerManager {
     var onEnabledChanged: ((Boolean) -> Unit)? = null
     var onReplayGainDspActiveChanged: ((Boolean) -> Unit)? = null
     var onChannelBalanceDspActiveChanged: ((Boolean) -> Unit)? = null
+    var onSoundFxDspActiveChanged: ((Boolean) -> Unit)? = null
 
     private val softwareEqualizer = SoftwareEqualizer()
     val audioProcessor: SoftwareEqualizerAudioProcessor = SoftwareEqualizerAudioProcessor(softwareEqualizer)
@@ -77,6 +80,7 @@ object MicaEqualizerManager {
         softwareEqualizer.setEnabled(false)
         softwareEqualizer.setReplayGain(enabled = false, factor = 1f)
         softwareEqualizer.setChannelBalancePercent(ChannelBalancePreferences.CENTER)
+        softwareEqualizer.setSoundFx(SoundFxSettings())
     }
 
     fun setReplayGain(enabled: Boolean, factor: Float) {
@@ -96,6 +100,20 @@ object MicaEqualizerManager {
         softwareEqualizer.setChannelBalancePercent(safe)
         val active = safe != ChannelBalancePreferences.CENTER
         if (wasActive != active) onChannelBalanceDspActiveChanged?.invoke(active)
+    }
+
+    fun soundFxSettings(context: Context): SoundFxSettings {
+        ensurePreferencesLoaded(context)
+        return softwareEqualizer.soundFxSettings()
+    }
+
+    fun applySoundFx(context: Context, settings: SoundFxSettings) {
+        val sanitized = settings.sanitized()
+        val wasActive = softwareEqualizer.isSoundFxDspActive()
+        SoundFxPreferences.save(context, sanitized)
+        softwareEqualizer.setSoundFx(sanitized)
+        val active = softwareEqualizer.isSoundFxDspActive()
+        if (wasActive != active) onSoundFxDspActiveChanged?.invoke(active)
     }
 
     fun snapshot(context: Context): EqualizerSnapshot {
@@ -212,6 +230,7 @@ object MicaEqualizerManager {
         softwareEqualizer.setEnabled(enabled)
         softwareEqualizer.setGlobalGainMillibels(EqualizerPreferences.equalizerGlobalGainMillibels(context))
         softwareEqualizer.setChannelBalancePercent(ChannelBalancePreferences.balancePercent(context))
+        softwareEqualizer.setSoundFx(SoundFxPreferences.settings(context))
         when (val selection = EqCustomProfileStore.getSelection(context)) {
             is EqSelection.System -> applySystemPreset(context, selection.index)
             EqSelection.Draft -> restoreCustomBands(context)
