@@ -204,6 +204,14 @@ Room schema 由 `app/schemas` 打包进 androidTest assets；不得用手工极�
 - `PlaylistStoreTest` / `RoomMigrationContractTest` / `DatabaseMigrationTest`：歌单写库成功后才更新内存；`mica_playlists` JSON 一次性迁移与完整 `16→21` schema 演进契约。
 - `LyricDisplayRowsTest` / `LyricsCloudLayoutTest` / `LyricsTimelineEngineTest`：入库不把显示分隔符改写成 `TRANSLATION`，歌词云逐字进度按 token 角色与行结束时间计算。
 
+### 2026-08-30 均衡器页面重做
+
+EQ 页把只读频响曲线与 2×5 竖推子网格合并成单一的 `EqualizerCurveEditor`（曲线即推子）。音频链路、`EqualizerPreferences` 与 `EqCustomProfileStore` 的读写未改动，回归集中在手势与坐标映射：
+
+- `EqualizerCurveEditorInputTest`：频段列映射（绘图区从 `DbScaleWidth` 起十段等宽）、绘图区正中恒为 0 dB、上下边界钳到 `MIN/MAX_MILLIBELS`、**按下即锁定起始频段列**（斜向拖动不得漂到相邻频段）、嵌套在 `verticalScroll` 中竖向拖动不被外层抢走且外层不滚动、`enabled = false` 时不产生任何更新。
+- 手势不走 `detectDragGestures`：起始列必须在 `awaitFirstDown` 时确定。若改回按触摸 slop 之后的 `onDragStart` 取列，斜向起手会错列，`dragStaysOnStartBandDespiteHorizontalMovement` 会失败。
+- 单测跑在 Robolectric 注入的指针事件上，可以证明手势归属与坐标换算，**不能**证明真机的甩动速度、多指、触觉反馈手感与大字号下频率标签的排版。
+
 ### a257a0f 架构重构：P1 真机验收清单
 
 P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限与 Service 持久化。下列清单在 **至少一台真机** 上手测；失败时导出诊断日志（`LibraryQueue`、`LibraryStartup`、`LibraryScan`、`Player`、`PlaybackRestore`）。
@@ -325,6 +333,8 @@ P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限�
 
 - 设置页开关 EQ、切换系统预设 → 出声有/无效果；杀进程再开选择与开关保持。
 - 拖动自定义频段、保存/加载命名预设 → 再次进入 EQ 页数值与选中项一致。
+- 在频响曲线上斜向、快速甩动拖某一段 → 只有起手那一列变化；读数行频率与增益、该列高亮和底部频率标签同步；松手后数值不回弹。
+- 大字号（系统字体放至最大）进入 EQ 页 → 底部十个频率标签不重叠、不被裁切；dB 刻度仍与网格线对齐。
 - EQ 开启时切换曲目、后台/前台 → 无崩溃、无无声（pipeline 仍走 `MicaMediaService`）。
 
 **旧数据兼容（升级用户）**
