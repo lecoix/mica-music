@@ -906,7 +906,7 @@ fun HomeScreen(
                     uiState = uiState.copy(searchQuery = query)
                 },
                 motionEnabled = motionEnabled,
-                showSearchAction = uiState.section != HomeSection.Remote,
+                showSearchAction = true,
                 onLeadingClick = {
                     when {
                         showFolderMenuButton -> drawerOpen = !drawerOpen
