@@ -1,6 +1,6 @@
 # 当前功能状态
 
-> 最后更新：2026-08-29。本文以当前工作树的源代码、导出 schema 和现有自动化测试为准；JVM/构建通过不等于真机、OEM、视觉或音质验收通过。
+> 最后更新：2026-08-30。本文以当前工作树的源代码、导出 schema 和现有自动化测试为准；JVM/构建通过不等于真机、OEM、视觉或音质验收通过。
 
 ## 当前已接入
 
@@ -11,6 +11,7 @@
 - 当前 Room schema 为 **v21**：`17→18` 增加单曲歌词偏移，`18→19` 增加 comment，`19→20` 增加响度分析字段，`20→21` 增加 `musicVideoUri` / `musicVideoRevision`。
 - 播放页包含标准、自定义标准、粒子、平行封面带、复古立体和拍立得回忆六类封面行为；动效和 Compose/View 岛边界以 `docs/MOTION.md`、`docs/COVER_FLOW_IMPLEMENTATION.md` 为准。
 - EQ、ReplayGain、声道平衡、响度分析、频谱 tap、offload 偏好与 offload 熔断已接入现有音频协调链；涉及音质的行为仍按设备和输出路径分别验收。
+- 音效实验室（立体声宽度、低/高架、混响房间/阻尼/湿比、360° 环绕）默认关闭，opt-in 后走同一 Shared PCM 软件 DSP；USB 独占旁路；不把 `AudioQualityMode` 写成 DSP。听感与 USB 旁路仍需真机验收。未做压缩器/动态 EQ。
 - USB Exclusive Hybrid 已有应用层 owner、权限/设备状态、PCM/DoP/实验 Native DSD 路径和诊断 UI；代码级测试与既有 SK02 证据不能外推到所有 DAC、手机、ROM 或发布包。
 
 ## 本地音乐 MV

@@ -3,6 +3,8 @@ package com.mica.music.media.eq
 import android.media.AudioFormat
 import androidx.media3.common.util.UnstableApi
 import com.mica.music.audio.eq.EqBandConstants
+import com.mica.music.audio.fx.SoundFxSettings
+import com.mica.music.media.fx.SoundFxEngine
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
@@ -29,6 +31,7 @@ class SoftwareEqualizer {
         val replayGainHostEnabled: Boolean,
         val replayGainLinearFactor: Float,
         val channelBalancePercent: Int,
+        val soundFx: SoundFxSettings,
         val revision: Long,
     )
 
@@ -40,6 +43,7 @@ class SoftwareEqualizer {
             replayGainHostEnabled = false,
             replayGainLinearFactor = 1f,
             channelBalancePercent = 0,
+            soundFx = SoundFxSettings(),
             revision = 0L,
         ),
     )
@@ -50,6 +54,8 @@ class SoftwareEqualizer {
     private var filters = createFilters(channelCount)
     private var frameScratch = DoubleArray(channelCount)
     private val limiter = LinkedPeakLimiter()
+    private val soundFxEngine = SoundFxEngine()
+    private var appliedSoundFxActive = false
     private var appliedRevision = Long.MIN_VALUE
     private var appliedEnabled = false
     private var appliedFlat = true
@@ -86,6 +92,7 @@ class SoftwareEqualizer {
         frameScratch = DoubleArray(safeChannelCount)
         gainSmoothingCoefficient = smoothingCoefficient(safeSampleRate)
         limiter.configure(safeSampleRate)
+        soundFxEngine.configure(safeSampleRate, safeChannelCount)
         appliedRevision = Long.MIN_VALUE
         applyPendingSettings(snapGains = true)
         resetDspState()
@@ -150,6 +157,18 @@ class SoftwareEqualizer {
 
     fun channelBalancePercent(): Int = targetSettings.get().channelBalancePercent
 
+    fun setSoundFx(settings: SoundFxSettings) {
+        val sanitized = settings.sanitized()
+        updateTarget { old ->
+            if (old.soundFx == sanitized) old
+            else old.copy(soundFx = sanitized, revision = old.revision + 1L)
+        }
+    }
+
+    fun soundFxSettings(): SoundFxSettings = targetSettings.get().soundFx
+
+    fun isSoundFxDspActive(): Boolean = targetSettings.get().soundFx.isDspActive()
+
     fun isProcessingRequired(): Boolean {
         val settings = targetSettings.get()
         val eqActive = settings.enabled && (
@@ -157,7 +176,7 @@ class SoftwareEqualizer {
                 settings.globalGainMillibels != 0.toShort()
             )
         val balanceActive = channelCount >= 2 && settings.channelBalancePercent != 0
-        return eqActive || settings.replayGainHostEnabled || balanceActive
+        return eqActive || settings.replayGainHostEnabled || balanceActive || settings.soundFx.isDspActive()
     }
 
     /** Called by the renderer/audio thread when its stream is flushed or reconfigured. */
@@ -379,7 +398,10 @@ class SoftwareEqualizer {
             frameScratch[0] *= currentLeftBalanceGain
             frameScratch[1] *= currentRightBalanceGain
         }
-        if (eqActive || abs(currentReplayGain - 1.0) > 1e-9) {
+        if (appliedSoundFxActive) {
+            soundFxEngine.processFrame(frameScratch, channelCount)
+        }
+        if (eqActive || abs(currentReplayGain - 1.0) > 1e-9 || appliedSoundFxActive) {
             limiter.processFrame(frameScratch, channelCount)
         }
     }
@@ -411,6 +433,8 @@ class SoftwareEqualizer {
         val balance = settings.channelBalancePercent.coerceIn(-100, 100)
         targetLeftBalanceGain = if (balance > 0) 1.0 - balance / 100.0 else 1.0
         targetRightBalanceGain = if (balance < 0) 1.0 + balance / 100.0 else 1.0
+        appliedSoundFxActive = settings.soundFx.isDspActive()
+        soundFxEngine.setSettings(settings.soundFx)
 
         deviceLevels.indices.forEach { index ->
             updateFilter(index, deviceLevels[index])
@@ -435,7 +459,7 @@ class SoftwareEqualizer {
     private fun processingActive(): Boolean {
         val balanceActive = channelCount >= 2 &&
             (targetLeftBalanceGain != 1.0 || targetRightBalanceGain != 1.0)
-        return (appliedEnabled && !appliedFlat) || targetReplayGain != 1.0 || balanceActive
+        return (appliedEnabled && !appliedFlat) || targetReplayGain != 1.0 || balanceActive || appliedSoundFxActive
     }
 
     private fun updateFilter(index: Int, millibels: Short) {
@@ -455,6 +479,7 @@ class SoftwareEqualizer {
     private fun resetDspState() {
         filters.forEach { channelFilters -> channelFilters.forEach { it.resetState() } }
         limiter.reset()
+        soundFxEngine.reset()
         ditherState = 0x4D494341
     }
 

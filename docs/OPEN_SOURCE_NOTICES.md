@@ -28,6 +28,8 @@ Last reviewed: **2026-08-28**
 | jAudiotagger | LGPL 2.1 |
 | FFmpeg (linked inside `libffmpegJNI.so` for DSF / extended codec decode) | LGPL 2.1+ by default; current build script does not enable GPL or nonfree components |
 | libebur128（R128 算法参考；未链接其二进制） | MIT License；Mica 的 Kotlin 响度分析器适配其 K-weighting 系数构造和默认声道映射；Copyright (c) 2011 Jan Kokemüller |
+| Schroeder/Freeverb 混响结构（算法参考；未链接第三方二进制） | Public Domain；`SoundFxEngine` 独立实现 comb/allpass、公开 44.1 kHz 延迟表，以及 Jezar 的 `fixedgain` / room / damp 混音映射；未复制 Halcyon / RawS-Music 源码 |
+| Woodworth 球形头 ITD/ILD（算法参考；未链接第三方二进制） | 声学公开模型（头半径 8.75 cm、声速 343 m/s）；`SoundFxEngine` 独立实现分数延迟、对侧阴影与后方扩散；未复制 Halcyon / RawS-Music 源码 |
 
 ## Bundled Assets (non-Maven)
 

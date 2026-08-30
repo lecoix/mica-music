@@ -33,6 +33,9 @@ class SettingsSearchIndexTest {
             .any { it.id == "player-menu.sleep-timer" })
         assertTrue(SettingsSearchIndex.search("布局编辑").any { it.id == "playback.custom-layout" })
         assertTrue(SettingsSearchIndex.search("USB DoP").any { it.id == "audio.usb-exclusive" })
+        assertTrue(SettingsSearchIndex.search("音效实验室").any { it.id == "audio.sound-fx" })
+        assertTrue(SettingsSearchIndex.search("混响").any { it.id == "audio.sound-fx" })
+        assertTrue(SettingsSearchIndex.search("360").any { it.id == "audio.sound-fx" })
     }
 
     @Test

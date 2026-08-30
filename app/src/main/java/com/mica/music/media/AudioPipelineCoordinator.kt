@@ -9,19 +9,22 @@ internal data class AudioPipelineState(
     val circuitOpen: Boolean = false,
     val replayGainDspEnabled: Boolean = false,
     val channelBalanceDspEnabled: Boolean = false,
+    val soundFxDspEnabled: Boolean = false,
     val pcmSessionLatched: Boolean = false,
 ) {
     val softwareDspRequested: Boolean
         get() = equalizerEnabled ||
             spectrumTapEnabled ||
             replayGainDspEnabled ||
-            channelBalanceDspEnabled
+            channelBalanceDspEnabled ||
+            soundFxDspEnabled
 
     val offloadEnabled: Boolean
         get() = !equalizerEnabled &&
             !spectrumTapEnabled &&
             !replayGainDspEnabled &&
             !channelBalanceDspEnabled &&
+            !soundFxDspEnabled &&
             !pcmSessionLatched &&
             offloadPreferenceEnabled &&
             !circuitOpen
@@ -83,6 +86,13 @@ internal class AudioPipelineCoordinator(
         if (state.channelBalanceDspEnabled == enabled) return
         updateSoftwareDspState("channel-balance-enabled=$enabled") {
             it.copy(channelBalanceDspEnabled = enabled)
+        }
+    }
+
+    fun onSoundFxDspEnabledChanged(enabled: Boolean) {
+        if (state.soundFxDspEnabled == enabled) return
+        updateSoftwareDspState("sound-fx-enabled=$enabled") {
+            it.copy(soundFxDspEnabled = enabled)
         }
     }
 

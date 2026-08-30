@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-08-29
+> 最后整理：2026-08-30
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -147,3 +147,4 @@
 | 2026-08-26 | USB 开源 provenance 补全：`OPEN_SOURCE_NOTICES` 加入 SylvaKru/libusb；`USB_REFERENCE_FUNCTION_AUDIT` 增加 Apache-2.0 来源与逐字/适配边界；第三方 transport 保留 LICENSE/NOTICE/修改声明 |
 | 2026-08-29 | 同步当前工作树：Room v21、ARMv7/arm64 ABI 发布边界、本地音乐 MV、设置文案和真机未验收范围；重写损坏编码的 `CURRENT_FEATURE_STATUS.md` |
 | 2026-08-30 | EQ 页重做为 `EqualizerCurveEditor`（曲线即推子）：更新 `DESIGN_SPEC` §十四/§15.4、`MOTION` §六 EQ 拖动行，`TESTING` 增加 `EqualizerCurveEditorInputTest` 回归与曲线拖动/大字号真机验收项 |
+| 2026-08-30 | 音效实验室（宽度/音色/混响/360° 环绕，默认关，仅 Shared PCM）：`CONTEXT` 词汇与音质许可、`DESIGN_SPEC` §十四/§15.4、`SETTINGS_AUDIT_MATRIX`、`TESTING` JVM/真机项、`TODO` |

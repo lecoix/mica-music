@@ -40,6 +40,7 @@ internal fun SettingsSliderRow(
     suffix: String,
     onValueChange: (Int) -> Unit,
     subtitle: String? = null,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     require(!valueRange.isEmpty()) { "valueRange must not be empty" }
@@ -48,8 +49,8 @@ internal fun SettingsSliderRow(
     val max = valueRange.last
     val clampedValue = value.coerceIn(min, max)
     val latestOnValueChange by rememberUpdatedState(onValueChange)
-    val unselectedTrackColor = MicaTheme.colors.textTertiary.copy(alpha = 0.30f)
-    val accentColor = MicaTheme.colors.accent
+    val unselectedTrackColor = MicaTheme.colors.textTertiary.copy(alpha = if (enabled) 0.30f else 0.18f)
+    val accentColor = if (enabled) MicaTheme.colors.accent else MicaTheme.colors.textTertiary
     var widthPx by remember { mutableFloatStateOf(0f) }
 
     fun positionToValue(x: Float): Int {
@@ -68,7 +69,7 @@ internal fun SettingsSliderRow(
         Text(
             text = title,
             style = MicaTheme.typography.bodyLg,
-            color = MicaTheme.colors.textPrimary,
+            color = if (enabled) MicaTheme.colors.textPrimary else MicaTheme.colors.textTertiary,
         )
         if (subtitle != null) {
             Text(
@@ -98,17 +99,24 @@ internal fun SettingsSliderRow(
                 .fillMaxWidth()
                 .height(48.dp)
                 .onSizeChanged { widthPx = it.width.toFloat() }
-                .pointerInput(min, max) {
-                    detectTapGestures { offset ->
-                        latestOnValueChange(positionToValue(offset.x))
-                    }
-                }
-                .pointerInput(min, max) {
-                    detectDragGestures { change, _ ->
-                        change.consume()
-                        latestOnValueChange(positionToValue(change.position.x))
-                    }
-                },
+                .then(
+                    if (enabled) {
+                        Modifier
+                            .pointerInput(min, max) {
+                                detectTapGestures { offset ->
+                                    latestOnValueChange(positionToValue(offset.x))
+                                }
+                            }
+                            .pointerInput(min, max) {
+                                detectDragGestures { change, _ ->
+                                    change.consume()
+                                    latestOnValueChange(positionToValue(change.position.x))
+                                }
+                            }
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
             val fraction = if (max == min) {
                 0f

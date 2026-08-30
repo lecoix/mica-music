@@ -119,6 +119,7 @@
 | 专辑/艺术家统计信息显示 | `PlaybackUiPreferences` / `artist_info_*`、`album_info_*` | 浏览分组显示 Sheet | `ACTIVE` | 不要因为不在 SettingsScreen 就判定失效 |
 | 睡眠定时最近使用时长 | `SleepTimerPreferences` / `sleep_timer_last_duration_minutes` | 播放页长按菜单的睡眠定时 Sheet | `ACTIVE` | 属于快捷动作记忆，不应塞进普通设置页 |
 | 均衡器开关、预设、频段、自定义曲线 | `EqualizerPreferences` + `EqCustomProfileStore` | 独立 `EqualizerScreen` | `ACTIVE` | 保持独立音频工具入口 |
+| 音效实验室开关、宽度、音色、混响、360° 环绕 | `SoundFxPreferences` | 独立 `SoundFxScreen`（设置 → 音频） | `ACTIVE` | 默认湿比与环绕强度为 0；仅 Shared PCM；USB 独占旁路 |
 
 ## 内部、隐藏和兼容项
 
@@ -159,12 +160,12 @@
 
 1. 稳定分类已调整为“外观 / 播放页 / 歌词 / 曲库与扫描 / 音频与设备 / 诊断与系统”。
 2. Letter 朱印进入主题详情；`CUSTOM_STANDARD` 只保留“进入播放页布局编辑”入口，实际二维编辑在竖屏播放页完成。
-3. 歌曲排序、浏览显示、睡眠定时和 EQ 保持上下文/独立入口。
+3. 歌曲排序、浏览显示、睡眠定时、EQ 和音效实验室保持上下文/独立入口。
 4. UI 重组未迁移既有 preference key 和运行时 owner。
 
 ### P2：为搜索准备统一索引（已完成）
 
-索引实现位于 `SettingsSearchIndex.kt`，覆盖设置分类以及歌曲排序、浏览显示、文件夹模式、睡眠定时和 EQ 等上下文入口。后续搜索功能应直接消费该索引，结果跳转到对应详情页，不要重新创建一套独立的设置读写路径。
+索引实现位于 `SettingsSearchIndex.kt`，覆盖设置分类以及歌曲排序、浏览显示、文件夹模式、睡眠定时、EQ 和音效实验室等上下文入口。后续搜索功能应直接消费该索引，结果跳转到对应详情页，不要重新创建一套独立的设置读写路径。
 
 ### 后续：补齐搜索定位
 

@@ -68,6 +68,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
     onOpenSpatialAudio: () -> Unit,
+    onOpenSoundFx: () -> Unit,
     canOpenCustomPlayerLayoutEditor: Boolean = true,
     onOpenCustomPlayerLayoutEditor: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
@@ -394,6 +395,7 @@ fun SettingsScreen(
                                 uiSettings = uiSettings,
                                 library = library,
                                 onOpenUsbExclusive = { usbHybridSubpageOpen = true },
+                                onOpenSoundFx = onOpenSoundFx,
                             )
                         }
                     }

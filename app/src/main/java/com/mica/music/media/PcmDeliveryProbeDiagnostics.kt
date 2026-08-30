@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.common.PlaybackParameters
 import com.mica.music.data.Song
 import com.mica.music.data.preferences.EqualizerPreferences
+import com.mica.music.data.preferences.SoundFxPreferences
 import com.mica.music.util.DiagnosticLog
 
 /** Gate 3-0: logs delivery probe results (release + debug). */
@@ -24,6 +25,7 @@ internal object PcmDeliveryProbeDiagnostics {
 
     private fun dspPathActive(context: Context, playbackParameters: PlaybackParameters): Boolean =
         EqualizerPreferences.equalizerEnabled(context) ||
+            SoundFxPreferences.isDspActive(context) ||
             playbackParameters.speed != 1f ||
             playbackParameters.pitch != 1f
 

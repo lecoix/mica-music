@@ -27,7 +27,7 @@ internal fun DiagnosticsSettingsPanel(
             AudioOffloadDisabledReason.VERIFIED_RUNTIME_FAILURE ->
                 "检测到卸载播放失速，切回 PCM 后已恢复；重新开启会清除本机记录并再次尝试。"
             null -> if (audioOffloadState.enabled) {
-                "允许系统用音频 DSP 降低长时间播放功耗；均衡器或频谱工作时会临时关闭，失速时自动切回 PCM。"
+                "允许系统用音频 DSP 降低长时间播放功耗；均衡器、频谱或音效实验室工作时会临时关闭，失速时自动切回 PCM。"
             } else {
                 "已手动关闭，所有格式使用 PCM 播放路径。"
             }

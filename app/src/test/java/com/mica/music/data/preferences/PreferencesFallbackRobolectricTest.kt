@@ -8,6 +8,8 @@ import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,5 +52,48 @@ class PreferencesFallbackRobolectricTest {
         assertEquals(listOf<Short>(100, -200), EqualizerPreferences.equalizerBandLevels(context))
         assertEquals(1_200, EqualizerPreferences.equalizerGlobalGainMillibels(context).toInt())
         assertEquals(ParticleCoverTuning(), PlaybackUiPreferences.particleCoverTuning(context))
+    }
+
+    @Test
+    fun soundFxPreferencesClampAndStayInactiveByDefault() {
+        assertFalse(SoundFxPreferences.isDspActive(context))
+
+        SoundFxPreferences.save(
+            context,
+            com.mica.music.audio.fx.SoundFxSettings(
+                enabled = true,
+                stereoWidthPercent = 500,
+                bassDb = 40,
+                trebleDb = -40,
+                reverbRoomPercent = 400,
+                reverbDampingPercent = -10,
+                reverbWetPercent = 500,
+                surroundIntensityPercent = 400,
+                surroundRotationDegPerSec = 400,
+            ),
+        )
+        val saved = SoundFxPreferences.settings(context)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MAX_WIDTH_PERCENT, saved.stereoWidthPercent)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MAX_TONE_DB, saved.bassDb)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MIN_TONE_DB, saved.trebleDb)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MAX_REVERB_PERCENT, saved.reverbRoomPercent)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MIN_REVERB_PERCENT, saved.reverbDampingPercent)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MAX_REVERB_PERCENT, saved.reverbWetPercent)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MAX_SURROUND_PERCENT, saved.surroundIntensityPercent)
+        assertEquals(com.mica.music.audio.fx.SoundFxSettings.MAX_SURROUND_ROTATION, saved.surroundRotationDegPerSec)
+        assertTrue(saved.isDspActive())
+
+        context.getSharedPreferences("mica_settings", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putInt("sound_fx_stereo_width_percent", 100)
+            .putInt("sound_fx_bass_db", 0)
+            .putInt("sound_fx_treble_db", 0)
+            .remove("sound_fx_reverb_wet_percent")
+            .remove("sound_fx_surround_intensity_percent")
+            .putInt("sound_fx_reverb_preset", 99)
+            .commit()
+        assertEquals(0, SoundFxPreferences.settings(context).reverbWetPercent)
+        assertEquals(0, SoundFxPreferences.settings(context).surroundIntensityPercent)
+        assertFalse(SoundFxPreferences.settings(context).isDspActive())
     }
 }

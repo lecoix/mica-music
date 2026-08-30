@@ -8,6 +8,7 @@ internal enum class SettingsIndexSurface {
     BROWSE,
     PLAYER_MENU,
     EQUALIZER,
+    SOUND_FX,
 }
 
 internal data class SettingsIndexTarget(
@@ -165,6 +166,14 @@ internal object SettingsSearchIndex {
         setting("audio.replaygain", "ReplayGain", "音量", "标准化", "按曲目", "按专辑", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "优先使用文件 ReplayGain 标签；按曲目缺少标签时可使用 Mica 响度分析结果"),
         setting("audio.loudness-scan", "扫描曲库响度", "R128", "LUFS", "响度", "标准化", "ReplayGain", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "分析完整音频但不保存 PCM；文件未变且已有结果时自动复用"),
         setting("audio.channel-balance", "左右声道平衡", "声道", "平衡", "左声道", "右声道", "balance", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "仅 Shared PCM 软件处理路径生效；USB 独占输出保持原始声道"),
+        setting(
+            "audio.sound-fx",
+            "音效实验室",
+            "音效", "混响", "立体声宽度", "低音", "高音", "音色", "房间大小", "阻尼", "湿比", "360", "环绕", "DSP",
+            category = SettingsCategory.AUDIO,
+            section = SettingsIndexSections.AUDIO,
+            availability = "默认关闭；仅 Shared PCM。打开且参数非中性时进入软件 DSP 并关闭 offload；USB 独占旁路",
+        ),
         setting("audio.focus", "独占音频焦点", "音频焦点", "暂停其他应用", category = SettingsCategory.AUDIO, section = SettingsIndexSections.AUDIO, availability = "下次开始播放或切歌时生效"),
         setting(
             "audio.usb-exclusive",
@@ -188,6 +197,7 @@ internal object SettingsSearchIndex {
         context("browse.folder-mode", "文件夹浏览模式", SettingsIndexSurface.BROWSE, "文件夹", "深度", "统合"),
         context("player-menu.sleep-timer", "睡眠定时", SettingsIndexSurface.PLAYER_MENU, "定时", "睡眠", "倒计时"),
         context("equalizer", "均衡器", SettingsIndexSurface.EQUALIZER, "EQ", "预设", "频段", "自定义曲线"),
+        context("sound-fx", "音效实验室", SettingsIndexSurface.SOUND_FX, "音效", "混响", "立体声宽度", "音色", "房间大小", "湿比", "360", "环绕"),
     )
 
     fun search(query: String, surface: SettingsIndexSurface? = null): List<SettingsIndexEntry> {
