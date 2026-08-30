@@ -1094,7 +1094,7 @@ fun HomeScreen(
                         library = library,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
-                        onQueueSongs = playbackActions.setQueue,
+                        onQueueSongClick = onQueueSongClick,
                         onAppendSongsToQueue = playbackActions.appendToQueue,
                         onAddSongsToPlaylist = { songs ->
                             overlay = overlay.copy(
@@ -1102,7 +1102,6 @@ fun HomeScreen(
                                 addToPlaylistAsCustomOrder = true,
                             )
                         },
-                        onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         onAlbumClick = ::openAlbumBrowse,
                         albumSortField = uiState.browseSort.albumSortField,
@@ -1144,10 +1143,11 @@ fun HomeScreen(
                             )
                         },
                         library = library,
+                        remoteSongs = remoteSongs,
                         recentSongs = recentSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
-                        onQueueSongs = playbackActions.setQueue,
+                        onQueueSongClick = onQueueSongClick,
                         onAppendSongsToQueue = playbackActions.appendToQueue,
                         onAddSongsToPlaylist = { songs ->
                             overlay = overlay.copy(
@@ -1155,7 +1155,6 @@ fun HomeScreen(
                                 addToPlaylistAsCustomOrder = true,
                             )
                         },
-                        onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         onAlbumClick = ::openAlbumBrowse,
                         albumSortField = uiState.browseSort.albumSortField,
