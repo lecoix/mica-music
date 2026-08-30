@@ -28,7 +28,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsActionRow(
         title = "远程曲库",
-        subtitle = "当前支持 Navidrome / OpenSubsonic · 每个来源独立同步",
+        subtitle = "支持 Navidrome / OpenSubsonic、WebDAV、SMB · 每个来源独立同步",
         onClick = onOpenRemoteMusic,
         enabled = !library.isScanning,
     )
