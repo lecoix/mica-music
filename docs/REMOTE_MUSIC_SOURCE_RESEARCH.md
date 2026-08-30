@@ -49,6 +49,18 @@
 - 紧接着热同步得到 `probed=0 / reused=264 / artists=264 / albums=262 / durations=264 / artworks=264 / embeddedArtworks=264`，4,128 ms 完成；随后 `SMB_QA_READ_EMBEDDED_ARTWORK` 经真实 `ContentResolver → provider → SMBJ → proxy fd → TagLib` 再次读取 458,398 bytes，600 ms 完成。证明 rev2 metadata 与 embedded artwork id 均可稳定复用，read-ahead 修复没有破坏 JIT 封面链。
 - WebDAV 也已用同一 `Last Call.m4a` fixture 完成独立 Android provider 验收：`WEBDAV_QA_READ_EMBEDDED_ARTWORK` 在首次 catalog 上读取 1,971,475 bytes / 1,232 ms；补入稳定 ETag/mtime、重新发布 catalog 并完成 `0 probe / 2 reuse` 后再次读取同样 1,971,475 bytes / 1,046 ms。链路为真实 `ContentResolver → RemoteArtworkContentProvider → WebDAV authenticated Range → proxy fd → TagLib`，证明 current-catalog artwork 授权、revision 更新和 embedded JIT 在 WebDAV 上均成立。
 - 定向 JVM/Robolectric 回归覆盖 schema 23→24、embedded opaque id、SMB/WebDAV presence→catalog 映射、metadata profile revision、probe failure retry、跨 read-ahead 窗口完整读取、SMBJ short-read、同名 sidecar 优先及两协议 resolver 根目录/凭据边界；TagLib JNI/C++ 则由 arm64-v8a 与 armeabi-v7a debug CMake 实际构建覆盖。
+
+### 2026-08-30 文件型远端歌词 JIT
+
+- WebDAV / SMB 已接入现有 `RemoteLyricsRepository` 的按需 hydration，曲库同步本身不下载歌词 payload。文件型远端的当前优先级与本地一致为 **同名 TTML → 同名 LRC → 音频内嵌文本歌词**；一旦高优先级 sidecar 成功解析即短路，不继续打开低优先级 sidecar 或音频文件。
+- sidecar 继续复用本地 `ExternalLyricsReader` 的编码检测、LRC/TTML parser、sanitizer 和 10 MiB 上限。SMB 在歌词请求发生时才创建短生命周期 SMBJ session，列出音频所在目录并按规范化相对路径读取同名 sidecar；WebDAV 用当前 source 的即时 Basic/Digest 凭据请求同目录 sibling URL，禁用重定向，404 仅表示该候选不存在，认证/HTTP/读取错误仍按失败处理而不是伪装成“无歌词”。
+- 没有 sidecar 时，两协议复用 `SeekableByteSource → ReadAheadSeekableByteSource → Android proxy fd → TagLib` 的随机读链，只提取 TagLib 已暴露的文本歌词候选，再交给现有 embedded-lyrics 选择/解析规则。当前这一阶段**不宣称覆盖需要二进制 frame fallback 的 SYLT 等格式**；本地 `EmbeddedLyricsReader` 的 binary/FFmpeg fallback 仍是后续独立 seam，不能因为文本候选已支持就把所有内嵌歌词标成已覆盖。
+- 远端歌词共享缓存的数据版本从 v1 升至 v2，因此此前 WebDAV/SMB 被缓存成空文档的结果不会继续命中。网络、认证或 transport 异常仍不会被缓存成永久“无歌词”，catalog/config revision 变化也会切换缓存代际。
+- WebDAV catalog 额外硬排除 `.lrc/.ttml` 扩展，不信任服务端 MIME 来判断它们是否是歌曲。真机 smoke 故意把 `Last Call.lrc` 报成 `audio/wav`，同步仍从旧的 3 条错误 catalog 收敛回 2 首真实音频；对应 server 日志只有 PROPFIND 和音频 metadata 的 Range GET，**同步阶段没有任何 `.lrc` GET**。
+- WebDAV sidecar 真机：在 `/dav/Album/Last Call.lrc` 存在时，通过真实 `RemoteLyricsRepository → WebDavLyricsLoader` 得到 `format=LRC / origin=EXTERNAL / lines=2`，353 ms；server 先探测不存在的 TTML，随后只读取 LRC，没有打开 `Last Call.m4a`。把该 fixture 移出 Album（仅移动、未删除）并重新发布 catalog 后，同一 action 得到 `format=LRC / origin=EMBEDDED / lines=2`，1,493 ms；server 日志显示 TTML/LRC 候选均 404 后才对 `Last Call.m4a` 发多个严格 206 Range GET。fixture 验证后已移动回原位。
+- SMB sidecar 真机直接使用现有 264 首共享曲库中的 `LudoWic - Hit The Floor (Live).flac/.lrc`，无需新增测试文件；`SMB_QA_LOAD_LYRICS` 得到 `format=LRC / origin=EXTERNAL / lines=37`，1,156 ms。定向测试另外覆盖 SMB 无 sidecar 后通过 random-access 音频句柄进入 embedded loader，以及 TTML 命中后 LRC/音频都不再打开。
+- 定向回归覆盖 WebDAV/SMB sidecar 优先级、WebDAV 404→embedded 严格 Range、SMB random-access fallback、WebDAV 错误 MIME 下歌词文件不进入 catalog，以及 `RemoteLyricsRepository` 的 revision/cache/error 语义。真机验收期间测试机 MIUI 曾把 QA UID 标为 power-restriction `REJECT_ALL`；仅为验收临时加入 `com.mica.music.qa` device-idle whitelist，全部网络验证结束后已明确撤销，未修改生产包或设备音乐文件。
+
 ## 已确定的产品范围
 
 - 设置中合并为一个“远程曲库”入口。

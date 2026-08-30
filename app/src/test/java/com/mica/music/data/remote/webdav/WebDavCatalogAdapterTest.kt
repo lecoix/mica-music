@@ -109,6 +109,28 @@ class WebDavCatalogAdapterTest {
     }
 
     @Test
+    fun lyricSidecarsAreNeverCataloguedAsAudioEvenWhenServerMimeIsWrong() = runBlocking {
+        TinyWebDavServer { request ->
+            when (request.target) {
+                "/music/" -> multistatus(
+                    collection("/music/", "music"),
+                    file("/music/Song.flac", "Song.flac", 100, "audio/flac", etag = "audio-1"),
+                    file("/music/Song.lrc", "Song.lrc", 20, "audio/wav", etag = "lyrics-1"),
+                    file("/music/Song.ttml", "Song.ttml", 30, "audio/mpeg", etag = "lyrics-2"),
+                )
+                else -> TestResponse(status = 404)
+            }
+        }.use { server ->
+            val sourceId = createSource("${server.baseUrl}/music")
+            val result = WebDavSourceSync(catalog, credentialStore()).sync(sourceId)
+            val tracks = catalog.tracksForSource(sourceId)
+
+            assertEquals(1, result.trackCount)
+            assertEquals(listOf("Song.flac"), tracks.map { it.fileName })
+        }
+    }
+
+    @Test
     fun sidecarArtworkIsDiscoveredWithoutDownloadingImageBytes() = runBlocking {
         val requests = CopyOnWriteArrayList<TestRequest>()
         TinyWebDavServer { request ->

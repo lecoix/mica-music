@@ -1,5 +1,6 @@
 package com.mica.music.data.remote
 
+import android.content.Context
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
@@ -8,6 +9,10 @@ import com.mica.music.data.remote.navidrome.NavidromeHttpExecutor
 import com.mica.music.data.remote.navidrome.NavidromeLyricsLoader
 import com.mica.music.data.remote.navidrome.NavidromeRequestFactory
 import com.mica.music.data.remote.navidrome.UrlConnectionNavidromeHttpExecutor
+import com.mica.music.data.remote.smb.SmbLyricsLoader
+import com.mica.music.data.remote.smb.SmbStreamRequestResolver
+import com.mica.music.data.remote.webdav.WebDavLyricsLoader
+import com.mica.music.data.remote.webdav.WebDavStreamRequestResolver
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CancellationException
 
@@ -15,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 class RemoteLyricsRepository internal constructor(
     private val catalogRepository: RemoteCatalogRepository,
     credentialStore: SecureRemoteCredentialStore,
+    context: Context? = null,
     navidromeExecutor: NavidromeHttpExecutor = UrlConnectionNavidromeHttpExecutor(),
     navidromeRequestFactory: NavidromeRequestFactory = NavidromeRequestFactory(),
 ) {
@@ -24,6 +30,19 @@ class RemoteLyricsRepository internal constructor(
         executor = navidromeExecutor,
         requestFactory = navidromeRequestFactory,
     )
+    private val embeddedLyricsLoader = context?.applicationContext?.let(::AndroidTagLibEmbeddedLyricsLoader)
+    private val webDavLoader = embeddedLyricsLoader?.let { embedded ->
+        WebDavLyricsLoader(
+            requestResolver = WebDavStreamRequestResolver(catalogRepository::sourceOwner, credentialStore),
+            embeddedLoader = embedded,
+        )
+    }
+    private val smbLoader = embeddedLyricsLoader?.let { embedded ->
+        SmbLyricsLoader(
+            requestResolver = SmbStreamRequestResolver(catalogRepository::sourceOwner, credentialStore),
+            embeddedLoader = embedded,
+        )
+    }
 
     suspend fun songWithLyrics(song: Song, isPrefetch: Boolean = false): Song {
         if (song.source != SongSource.REMOTE || song.lyricsLoaded) return song
@@ -35,7 +54,7 @@ class RemoteLyricsRepository internal constructor(
             return song.copy(lyricsDocument = LyricsDocument(), lyricsLoaded = true)
         }
         val revision = buildString {
-            append("remote-lyrics-v1:")
+            append("remote-lyrics-v2:")
             append(status.instance.type.name)
             append(':')
             append(status.configRevision)
@@ -53,9 +72,8 @@ class RemoteLyricsRepository internal constructor(
             ) {
                 when (status.instance.type) {
                     RemoteSourceType.NAVIDROME -> navidromeLoader.load(song)
-                    RemoteSourceType.WEBDAV,
-                    RemoteSourceType.SMB,
-                    -> LyricsDocument()
+                    RemoteSourceType.WEBDAV -> webDavLoader?.load(song) ?: LyricsDocument()
+                    RemoteSourceType.SMB -> smbLoader?.load(song) ?: LyricsDocument()
                 }
             }
         } catch (error: CancellationException) {
@@ -72,6 +90,6 @@ class RemoteLyricsRepository internal constructor(
     }
 
     private companion object {
-        const val REMOTE_LYRICS_DATA_VERSION = 1
+        const val REMOTE_LYRICS_DATA_VERSION = 2
     }
 }

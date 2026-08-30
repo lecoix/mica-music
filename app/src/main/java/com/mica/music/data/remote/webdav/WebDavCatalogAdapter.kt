@@ -390,9 +390,11 @@ internal class WebDavSourceSync(
     }
 
     private fun isAudioResource(resource: DavResource, resourceId: String): Boolean {
+        val suffix = extension(resourceFileName(resource, resourceId))
+        if (suffix in LYRIC_SIDECAR_EXTENSIONS) return false
         val contentType = resource.contentType.orEmpty().lowercase(Locale.US)
         if (contentType.startsWith("audio/")) return true
-        return extension(resourceId) in AUDIO_EXTENSIONS
+        return suffix in AUDIO_EXTENSIONS
     }
 
     private fun DavResource.toTrackSummary(sourceInstanceId: String, resourceId: String): RemoteTrackSummary {
@@ -452,6 +454,7 @@ internal class WebDavSourceSync(
         private val AUDIO_EXTENSIONS = setOf(
             "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wma", "alac", "aiff", "aif",
         )
+        private val LYRIC_SIDECAR_EXTENSIONS = setOf("lrc", "ttml")
         private val MIME_BY_EXTENSION = mapOf(
             "mp3" to "audio/mpeg",
             "flac" to "audio/flac",

@@ -52,7 +52,7 @@ class MicaApp : Application() {
 
     /** Process-lifetime on-demand remote lyric loader; remote sync never fetches lyric payloads. */
     val remoteLyricsRepository: RemoteLyricsRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        RemoteLyricsRepository(remoteCatalogRepository, remoteCredentialStore)
+        RemoteLyricsRepository(remoteCatalogRepository, remoteCredentialStore, context = this)
     }
 
     /** Process-lifetime playback lookup; it must not capture a ViewModel or Activity callback. */

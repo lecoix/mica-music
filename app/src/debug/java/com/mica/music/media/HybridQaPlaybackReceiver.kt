@@ -21,6 +21,7 @@ import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
 import com.mica.music.data.remote.RemoteSourceType
+import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.data.remote.smb.SmbException
 import com.mica.music.data.remote.smb.SmbFailureKind
 import com.mica.music.data.remote.smb.SmbLogin
@@ -113,6 +114,47 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                                 "durations=${tracks.count { it.durationSec > 0 }} " +
                                 "artworks=${tracks.count { it.artworkOpaqueId.isNotBlank() }} " +
                                 "embeddedArtworks=${tracks.count { RemoteEmbeddedArtworkIdCodec.decode(it.artworkOpaqueId) != null }} " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
+                }
+            }.start()
+            return
+        }
+        if (
+            action == "${appContext.packageName}.debug.WEBDAV_QA_LOAD_LYRICS" ||
+            action == "${appContext.packageName}.debug.SMB_QA_LOAD_LYRICS"
+        ) {
+            val sourceType = if (action.contains("WEBDAV_QA_")) RemoteSourceType.WEBDAV else RemoteSourceType.SMB
+            val sourceLabel = if (sourceType == RemoteSourceType.WEBDAV) "WebDAV" else "SMB"
+            val targetFileName = if (sourceType == RemoteSourceType.WEBDAV) {
+                "Last Call.m4a"
+            } else {
+                "LudoWic - Hit The Floor (Live).flac"
+            }
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == sourceType }
+                            ?: error("No enabled $sourceLabel source is configured")
+                        val track = app.remoteCatalogRepository.tracksForSource(source.id)
+                            .firstOrNull { it.fileName.equals(targetFileName, ignoreCase = true) }
+                            ?: error("$sourceLabel QA catalog has no $targetFileName fixture")
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val hydrated = app.remoteLyricsRepository.songWithLyrics(track.toPlaybackSong())
+                        require(hydrated.lyricsLoaded) { "$sourceLabel remote lyrics load did not complete" }
+                        require(hydrated.lyricsDocument.lines.isNotEmpty()) { "$sourceLabel remote lyrics were empty" }
+                        Log.i(
+                            TAG,
+                            "complete action=$action format=${hydrated.lyricsDocument.format} " +
+                                "origin=${hydrated.lyricsDocument.origin} lines=${hydrated.lyricsDocument.lines.size} " +
+                                "tokens=${hydrated.lyricsDocument.lines.sumOf { it.tokens.size }} " +
+                                "first=${hydrated.lyricsDocument.lines.first().parts.joinToString(" / ") { it.text }.take(80)} " +
                                 "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
                         )
                     }

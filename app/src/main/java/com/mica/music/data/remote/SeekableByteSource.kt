@@ -8,6 +8,10 @@ import android.os.ProxyFileDescriptorCallback
 import android.os.storage.StorageManager
 import android.system.ErrnoException
 import android.system.OsConstants
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.scanner.EmbeddedLyricsReader
+import com.mica.music.data.scanner.EmbeddedLyricsResolver
 import com.mica.music.data.scanner.TagLibReader
 import java.io.Closeable
 import java.io.IOException
@@ -186,6 +190,32 @@ internal class AndroidTagLibEmbeddedArtworkLoader(
         proxy.readFailure.get()?.let { throw it }
         return result?.takeIf(ByteArray::isNotEmpty)
             ?: throw java.io.IOException("Remote track has no readable embedded artwork")
+    }
+}
+
+internal fun interface RemoteEmbeddedLyricsLoader {
+    fun load(source: SeekableByteSource): LyricsDocument
+}
+
+/** Reads only TagLib text lyric properties on demand; binary SYLT fallback remains a separate seam. */
+internal class AndroidTagLibEmbeddedLyricsLoader(
+    context: Context,
+) : RemoteEmbeddedLyricsLoader {
+    private val appContext = context.applicationContext
+
+    override fun load(source: SeekableByteSource): LyricsDocument {
+        val bufferedSource = ReadAheadSeekableByteSource(source)
+        val proxy = RemoteProxyFileDescriptor.open(appContext, bufferedSource)
+        val result = proxy.descriptor.use { descriptor ->
+            TagLibReader.read(descriptor, readPictures = false)
+        }
+        proxy.readFailure.get()?.let { throw it }
+        return result?.let { tags ->
+            EmbeddedLyricsResolver.selectTagLibCandidate(
+                candidates = tags.lyricsCandidates,
+                parse = EmbeddedLyricsReader::parseTagLibTextDocument,
+            )
+        } ?: LyricsDocument(origin = LyricsOrigin.EMBEDDED)
     }
 }
 
