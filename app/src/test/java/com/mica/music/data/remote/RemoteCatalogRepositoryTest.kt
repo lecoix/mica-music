@@ -152,6 +152,48 @@ class RemoteCatalogRepositoryTest {
         assertEquals("Edited", snapshot?.instance?.displayName)
     }
 
+    @Test
+    fun artworkAuthorizationRequiresCurrentPublishedCatalogReference() = runTest {
+        val source = source("nav-1")
+        repository.upsertSource(source)
+        val first = repository.beginOperation(source.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(first, listOf(track(source.id, "song-1"))))
+
+        assertEquals(
+            1L,
+            repository.artworkCatalogRevisionIfPublishedForConfig(
+                RemoteArtworkRef(source.id, "cover-1"),
+                sourceConfigRevision = 1L,
+            ),
+        )
+        assertEquals(
+            null,
+            repository.artworkCatalogRevisionIfPublishedForConfig(
+                RemoteArtworkRef(source.id, "not-published"),
+                sourceConfigRevision = 1L,
+            ),
+        )
+
+        repository.upsertSource(source.copy(endpoint = "https://edited.example"))
+
+        assertEquals(
+            null,
+            repository.artworkCatalogRevisionIfPublishedForConfig(
+                RemoteArtworkRef(source.id, "cover-1"),
+                sourceConfigRevision = 2L,
+            ),
+        )
+        val second = repository.beginOperation(source.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(second, listOf(track(source.id, "song-2"))))
+        assertEquals(
+            2L,
+            repository.artworkCatalogRevisionIfPublishedForConfig(
+                RemoteArtworkRef(source.id, "cover-1"),
+                sourceConfigRevision = 2L,
+            ),
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun catalogPublicationRejectsMixedSourceTracks() = runTest {
         val source = source("nav-1")

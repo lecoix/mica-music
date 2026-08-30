@@ -8,6 +8,10 @@ import android.os.ParcelFileDescriptor
 import com.mica.music.MicaApp
 import com.mica.music.data.remote.navidrome.NavidromeArtworkHttpStreamer
 import com.mica.music.data.remote.navidrome.NavidromeArtworkRequestResolver
+import com.mica.music.data.remote.smb.SmbArtworkByteLoader
+import com.mica.music.data.remote.smb.SmbArtworkRequestResolver
+import com.mica.music.data.remote.webdav.WebDavArtworkByteLoader
+import com.mica.music.data.remote.webdav.WebDavArtworkRequestResolver
 import com.mica.music.util.DiagnosticLog
 import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
@@ -20,7 +24,9 @@ import kotlinx.coroutines.runBlocking
 /** Read-only JIT bridge for authenticated remote artwork. The public URI never contains auth state. */
 class RemoteArtworkContentProvider : ContentProvider() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val streamer = NavidromeArtworkHttpStreamer()
+    private val navidromeStreamer = NavidromeArtworkHttpStreamer()
+    private val webDavLoader = WebDavArtworkByteLoader()
+    private val smbLoader = SmbArtworkByteLoader()
     private val artworkCache = RemoteArtworkByteCache()
 
     override fun onCreate(): Boolean = true
@@ -53,15 +59,18 @@ class RemoteArtworkContentProvider : ContentProvider() {
             ?: throw FileNotFoundException("Invalid remote artwork URI")
         val app = context?.applicationContext as? MicaApp
             ?: throw FileNotFoundException("Remote artwork provider is unavailable")
-        val resolver = NavidromeArtworkRequestResolver(
-            sourceOwnerById = { sourceId -> app.remoteCatalogRepository.sourceOwner(sourceId) },
-            credentialStore = app.remoteCredentialStore,
-        )
-        val request = runBlocking(Dispatchers.IO) { resolver.resolve(ref) }
+        val request = runBlocking(Dispatchers.IO) { resolveRequest(app, ref) }
             ?: throw FileNotFoundException("Remote artwork source is unavailable")
+        val catalogRevision = runBlocking(Dispatchers.IO) {
+            app.remoteCatalogRepository.artworkCatalogRevisionIfPublishedForConfig(
+                ref,
+                request.sourceConfigRevision,
+            )
+        } ?: throw FileNotFoundException("Remote artwork is not in the current catalog")
         val cacheKey = RemoteArtworkCacheKey(
             sourceInstanceId = request.sourceInstanceId,
             sourceConfigRevision = request.sourceConfigRevision,
+            catalogRevision = catalogRevision,
             credentialRevision = request.credentialRevision,
             opaqueArtworkId = ref.opaqueArtworkId,
         )
@@ -72,10 +81,7 @@ class RemoteArtworkContentProvider : ContentProvider() {
             ParcelFileDescriptor.AutoCloseOutputStream(writeSide).use { output ->
                 runCatching {
                     val bytes = artworkCache.getOrLoad(cacheKey) {
-                        ByteArrayOutputStream().use { buffer ->
-                            streamer.stream(request, buffer)
-                            buffer.toByteArray()
-                        }
+                        request.load()
                     }
                     output.write(bytes)
                     output.flush()
@@ -89,4 +95,51 @@ class RemoteArtworkContentProvider : ContentProvider() {
         }
         return readSide
     }
+
+    private suspend fun resolveRequest(
+        app: MicaApp,
+        ref: RemoteArtworkRef,
+    ): RemoteArtworkLoadPlan? {
+        val ownerById: suspend (String) -> RemoteSourceOwner? = { sourceId ->
+            app.remoteCatalogRepository.sourceOwner(sourceId)
+        }
+        val navidrome = NavidromeArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
+        if (navidrome != null) {
+            return RemoteArtworkLoadPlan(
+                sourceInstanceId = navidrome.sourceInstanceId,
+                sourceConfigRevision = navidrome.sourceConfigRevision,
+                credentialRevision = navidrome.credentialRevision,
+                load = {
+                    ByteArrayOutputStream().use { buffer ->
+                        navidromeStreamer.stream(navidrome, buffer)
+                        buffer.toByteArray()
+                    }
+                },
+            )
+        }
+        val webDav = WebDavArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
+        if (webDav != null) {
+            return RemoteArtworkLoadPlan(
+                sourceInstanceId = webDav.sourceInstanceId,
+                sourceConfigRevision = webDav.sourceConfigRevision,
+                credentialRevision = webDav.credentialRevision,
+                load = { webDavLoader.load(webDav) },
+            )
+        }
+        val smb = SmbArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
+            ?: return null
+        return RemoteArtworkLoadPlan(
+            sourceInstanceId = smb.sourceInstanceId,
+            sourceConfigRevision = smb.sourceConfigRevision,
+            credentialRevision = smb.credentialRevision,
+            load = { smbLoader.load(smb) },
+        )
+    }
 }
+
+private data class RemoteArtworkLoadPlan(
+    val sourceInstanceId: String,
+    val sourceConfigRevision: Long,
+    val credentialRevision: Long,
+    val load: () -> ByteArray,
+)

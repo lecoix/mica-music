@@ -147,6 +147,27 @@ class RemoteCatalogRepository internal constructor(
         trackDao.getForSource(sourceInstanceId).map { it.toRemoteTrackSummary() }
 
     /**
+     * Artwork provider authorization boundary. A public content URI is readable only while the
+     * exact artwork id is referenced by the catalog published for the source's current config.
+     */
+    internal suspend fun artworkCatalogRevisionIfPublishedForConfig(
+        ref: RemoteArtworkRef,
+        sourceConfigRevision: Long,
+    ): Long? = mutex.withLock {
+        val source = sourceDao.getById(ref.sourceInstanceId) ?: return@withLock null
+        if (
+            !source.enabled ||
+            source.configRevision != sourceConfigRevision ||
+            source.catalogConfigRevision != sourceConfigRevision
+        ) {
+            return@withLock null
+        }
+        source.catalogRevision.takeIf {
+            trackDao.hasArtworkRef(ref.sourceInstanceId, ref.opaqueArtworkId)
+        }
+    }
+
+    /**
      * Returns the previously published catalog only when it belongs to the exact config revision
      * represented by [token]. A source edit leaves the old catalog visible but makes it ineligible
      * for metadata reuse until a new catalog is atomically published.

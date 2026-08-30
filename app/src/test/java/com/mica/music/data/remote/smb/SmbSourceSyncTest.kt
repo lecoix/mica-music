@@ -6,6 +6,7 @@ import com.mica.music.data.local.MicaDatabase
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteCredentialSnapshot
+import com.mica.music.data.remote.RemoteFileArtworkIdCodec
 import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadata
@@ -92,6 +93,81 @@ class SmbSourceSyncTest {
         assertEquals(12345L, repository.sourceStatus(source.id)?.lastSyncAtMs)
         assertTrue(handle.listedPaths.contains("Library"))
         assertTrue(handle.listedPaths.contains("Library\\Album"))
+    }
+
+    @Test
+    fun sidecarArtworkIsDiscoveredWithoutReadingImageAndRefreshesAcrossMetadataReuse() = runTest {
+        val source = source()
+        repository.upsertSource(source)
+        val handles = ArrayDeque<FakeSessionHandle>()
+        fun handle(artRevision: String) = FakeSessionHandle(
+            entries = mapOf(
+                "Library" to listOf(
+                    SmbDirectoryEntry("Song.flac", false, 4, contentRevision = "audio:1"),
+                    SmbDirectoryEntry("cover.jpg", false, 100, contentRevision = artRevision),
+                ),
+            ),
+            files = mapOf("Library\\Song.flac" to byteArrayOf(1, 2, 3, 4)),
+        )
+        handles += handle("art:1")
+        handles += handle("art:2")
+        var probeCalls = 0
+        val sync = SmbSourceSync(
+            repository,
+            credentials(),
+            SmbSessionFactory { _, _ -> handles.removeFirst() },
+            metadataProbe = RemoteTrackMetadataProbe { _, _ ->
+                probeCalls++
+                RemoteTrackMetadata(title = "Tagged")
+            },
+        )
+
+        sync.sync(source.id)
+        val firstArtwork = RemoteFileArtworkIdCodec.decode(
+            repository.tracksForSource(source.id).single().artworkOpaqueId,
+        )
+        sync.sync(source.id)
+        val secondArtwork = RemoteFileArtworkIdCodec.decode(
+            repository.tracksForSource(source.id).single().artworkOpaqueId,
+        )
+
+        assertEquals(1, probeCalls)
+        assertEquals("cover.jpg", firstArtwork?.resourceId)
+        assertEquals("art:1", firstArtwork?.contentRevision)
+        assertEquals("cover.jpg", secondArtwork?.resourceId)
+        assertEquals("art:2", secondArtwork?.contentRevision)
+    }
+
+    @Test
+    fun mixedAlbumDirectoryDoesNotApplyGenericFolderArtwork() = runTest {
+        val source = source()
+        repository.upsertSource(source)
+        val handle = FakeSessionHandle(
+            entries = mapOf(
+                "Library" to listOf(
+                    SmbDirectoryEntry("A.flac", false, 4, contentRevision = "a:1"),
+                    SmbDirectoryEntry("B.flac", false, 4, contentRevision = "b:1"),
+                    SmbDirectoryEntry("Folder.jpg", false, 10, contentRevision = "art:1"),
+                ),
+            ),
+            files = mapOf(
+                "Library\\A.flac" to byteArrayOf(1, 2, 3, 4),
+                "Library\\B.flac" to byteArrayOf(1, 2, 3, 4),
+            ),
+        )
+        val sync = SmbSourceSync(
+            repository,
+            credentials(),
+            SmbSessionFactory { _, _ -> handle },
+            metadataProbe = RemoteTrackMetadataProbe { fileName, _ ->
+                RemoteTrackMetadata(album = if (fileName == "A.flac") "Album A" else "Album B")
+            },
+        )
+
+        sync.sync(source.id)
+
+        assertTrue(repository.tracksForSource(source.id).all { it.artworkOpaqueId.isBlank() })
+        assertTrue(handle.openedFiles.all { it.closed })
     }
 
     @Test

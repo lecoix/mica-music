@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.withLock
 internal data class RemoteArtworkCacheKey(
     val sourceInstanceId: String,
     val sourceConfigRevision: Long,
+    val catalogRevision: Long = 0L,
     val credentialRevision: Long,
     val opaqueArtworkId: String,
 )

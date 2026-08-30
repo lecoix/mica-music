@@ -59,18 +59,20 @@ class RemoteArtworkByteCacheTest {
     }
 
     @Test
-    fun `credential or config revision change cannot reuse stale bytes`() = runBlocking {
+    fun `credential config or catalog revision change cannot reuse stale bytes`() = runBlocking {
         val cache = RemoteArtworkByteCache(maxBytes = 1024)
         val loads = AtomicInteger(0)
         val original = key()
         val changedCredential = original.copy(credentialRevision = original.credentialRevision + 1)
         val changedConfig = original.copy(sourceConfigRevision = original.sourceConfigRevision + 1)
+        val changedCatalog = original.copy(catalogRevision = original.catalogRevision + 1)
 
         cache.getOrLoad(original) { byteArrayOf(loads.incrementAndGet().toByte()) }
         cache.getOrLoad(changedCredential) { byteArrayOf(loads.incrementAndGet().toByte()) }
         cache.getOrLoad(changedConfig) { byteArrayOf(loads.incrementAndGet().toByte()) }
+        cache.getOrLoad(changedCatalog) { byteArrayOf(loads.incrementAndGet().toByte()) }
 
-        assertEquals(3, loads.get())
+        assertEquals(4, loads.get())
     }
 
     @Test
@@ -125,6 +127,7 @@ class RemoteArtworkByteCacheTest {
     private fun key() = RemoteArtworkCacheKey(
         sourceInstanceId = "nav-1",
         sourceConfigRevision = 4,
+        catalogRevision = 9,
         credentialRevision = 7,
         opaqueArtworkId = "cover-42",
     )

@@ -34,6 +34,15 @@ interface RemoteTrackDao {
     @Query("SELECT COUNT(*) FROM remote_tracks WHERE sourceInstanceId = :sourceInstanceId")
     suspend fun countForSource(sourceInstanceId: String): Int
 
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM remote_tracks WHERE sourceInstanceId = :sourceInstanceId " +
+            "AND artworkOpaqueId = :artworkOpaqueId LIMIT 1)",
+    )
+    suspend fun hasArtworkRef(
+        sourceInstanceId: String,
+        artworkOpaqueId: String,
+    ): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tracks: List<RemoteTrackEntity>)
 

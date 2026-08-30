@@ -2,14 +2,21 @@ package com.mica.music.data.remote.smb
 
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteCredentialMaterial
+import com.mica.music.data.remote.RemoteFileArtworkIdCodec
 import com.mica.music.data.remote.REMOTE_METADATA_IO_CONCURRENCY
 import com.mica.music.data.remote.RemoteOperationSnapshot
+import com.mica.music.data.remote.RemoteSidecarArtworkCandidate
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.SecureRemoteCredentialStore
+import com.mica.music.data.remote.canUseRemoteFolderArtwork
+import com.mica.music.data.remote.isRemoteSidecarArtworkFile
+import com.mica.music.data.remote.remoteArtworkRevisionKey
+import com.mica.music.data.remote.selectRemoteFolderSidecarArtwork
+import com.mica.music.data.remote.selectRemoteTrackSidecarArtwork
 import com.mica.music.util.DiagnosticLog
 import java.util.ArrayDeque
 import java.util.Locale
@@ -139,20 +146,50 @@ internal class SmbSourceSync(
             if (!visitedDirectories.add(relativeDirectory)) continue
             val entries = listDirectory(session, relativeDirectory)
             ensureCurrent(session)
-            for (entry in entries) {
+            val resolvedEntries = entries
+                .asSequence()
+                .filterNot { it.name == "." || it.name == ".." }
+                .map { entry ->
+                    val relativePath = try {
+                        SmbPathCodec.appendChild(relativeDirectory, entry.name)
+                    } catch (failure: IllegalArgumentException) {
+                        throw SmbException(SmbFailureKind.PROTOCOL, "SMB server returned an invalid path", failure)
+                    }
+                    ResolvedEntry(entry, relativePath)
+                }
+                .toList()
+
+            resolvedEntries
+                .filter { it.entry.isDirectory }
+                .forEach { resolved ->
+                    if (resolved.relativePath !in visitedDirectories) pendingDirectories.addLast(resolved.relativePath)
+                }
+            val artworkCandidates = resolvedEntries.mapNotNull { resolved ->
+                if (resolved.entry.isDirectory || !isRemoteSidecarArtworkFile(resolved.entry.name)) {
+                    return@mapNotNull null
+                }
+                RemoteSidecarArtworkCandidate(
+                    fileName = resolved.entry.name,
+                    resourceId = resolved.relativePath,
+                    contentRevision = remoteArtworkRevisionKey(
+                        resolved.entry.contentRevision,
+                        resolved.entry.sizeBytes,
+                    ),
+                    sizeBytes = resolved.entry.sizeBytes.coerceAtLeast(0L),
+                )
+            }
+            val folderArtwork = selectRemoteFolderSidecarArtwork(artworkCandidates)
+            val audioEntries = resolvedEntries.filter { resolved ->
+                !resolved.entry.isDirectory && extension(resolved.entry.name) in AUDIO_EXTENSIONS
+            }
+            val directoryComplete = candidates.size + audioEntries.size <= limit
+
+            for (resolved in audioEntries) {
                 if (candidates.size >= limit) break
-                if (entry.name == "." || entry.name == "..") continue
-                val relativePath = try {
-                    SmbPathCodec.appendChild(relativeDirectory, entry.name)
-                } catch (failure: IllegalArgumentException) {
-                    throw SmbException(SmbFailureKind.PROTOCOL, "SMB server returned an invalid path", failure)
-                }
-                if (entry.isDirectory) {
-                    if (relativePath !in visitedDirectories) pendingDirectories.addLast(relativePath)
-                    continue
-                }
+                val entry = resolved.entry
+                val relativePath = resolved.relativePath
                 val suffix = extension(entry.name)
-                if (suffix !in AUDIO_EXTENSIONS) continue
+                val artwork = selectRemoteTrackSidecarArtwork(entry.name, artworkCandidates)
                 val base = RemoteTrackSummary(
                     ref = RemoteTrackRef(sourceId, relativePath),
                     title = entry.name.substringBeforeLast('.', entry.name).ifBlank { entry.name },
@@ -161,11 +198,17 @@ internal class SmbSourceSync(
                     suffix = suffix,
                     sizeBytes = entry.sizeBytes.coerceAtLeast(0L),
                     contentRevision = entry.contentRevision,
+                    artworkOpaqueId = artwork?.let { candidate ->
+                        RemoteFileArtworkIdCodec.encode(candidate.resourceId, candidate.contentRevision)
+                    }.orEmpty(),
                 )
                 candidates += TrackCandidate(
+                    relativeDirectory = relativeDirectory,
                     relativePath = relativePath,
                     base = base,
                     reusable = reusableCatalog[relativePath],
+                    folderArtwork = folderArtwork,
+                    directoryComplete = directoryComplete,
                 )
             }
         }
@@ -198,6 +241,7 @@ internal class SmbSourceSync(
             enriched.forEach { (index, track) -> tracks[index] = track }
             ensureCurrent(session)
         }
+        applySafeFolderArtwork(candidates, tracks)
 
         return ScanResult(
             tracks = tracks,
@@ -220,7 +264,30 @@ internal class SmbSourceSync(
             suffix = base.suffix,
             sizeBytes = base.sizeBytes,
             contentRevision = base.contentRevision,
+            artworkOpaqueId = base.artworkOpaqueId,
         )
+
+    private fun applySafeFolderArtwork(
+        candidates: List<TrackCandidate>,
+        tracks: MutableList<RemoteTrackSummary>,
+    ) {
+        candidates.indices
+            .groupBy { index -> candidates[index].relativeDirectory }
+            .values
+            .forEach { indices ->
+                val first = candidates[indices.first()]
+                val artwork = first.folderArtwork ?: return@forEach
+                if (!first.directoryComplete) return@forEach
+                val directoryTracks = indices.map(tracks::get)
+                if (!canUseRemoteFolderArtwork(directoryTracks)) return@forEach
+                val artworkId = RemoteFileArtworkIdCodec.encode(artwork.resourceId, artwork.contentRevision)
+                indices.forEach { index ->
+                    if (tracks[index].artworkOpaqueId.isBlank()) {
+                        tracks[index] = tracks[index].copy(artworkOpaqueId = artworkId)
+                    }
+                }
+            }
+    }
 
     private suspend fun enrichMetadata(
         session: Session,
@@ -291,9 +358,17 @@ internal class SmbSourceSync(
     )
 
     private data class TrackCandidate(
+        val relativeDirectory: String,
         val relativePath: String,
         val base: RemoteTrackSummary,
         val reusable: RemoteTrackSummary?,
+        val folderArtwork: RemoteSidecarArtworkCandidate?,
+        val directoryComplete: Boolean,
+    )
+
+    private data class ResolvedEntry(
+        val entry: SmbDirectoryEntry,
+        val relativePath: String,
     )
 
     private data class ScanResult(

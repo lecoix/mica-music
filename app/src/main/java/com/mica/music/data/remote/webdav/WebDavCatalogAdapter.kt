@@ -2,13 +2,20 @@ package com.mica.music.data.remote.webdav
 
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteCredentialMaterial
+import com.mica.music.data.remote.RemoteFileArtworkIdCodec
 import com.mica.music.data.remote.RemoteOperationSnapshot
+import com.mica.music.data.remote.RemoteSidecarArtworkCandidate
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.SecureRemoteCredentialStore
+import com.mica.music.data.remote.canUseRemoteFolderArtwork
+import com.mica.music.data.remote.isRemoteSidecarArtworkFile
+import com.mica.music.data.remote.remoteArtworkRevisionKey
+import com.mica.music.data.remote.selectRemoteFolderSidecarArtwork
+import com.mica.music.data.remote.selectRemoteTrackSidecarArtwork
 import com.mica.music.util.DiagnosticLog
 import com.thegrizzlylabs.sardineandroid.DavResource
 import com.thegrizzlylabs.sardineandroid.impl.OkHttpSardine
@@ -210,31 +217,76 @@ internal class WebDavSourceSync(
 
             val resources = listResources(session, directoryUrl, depth = 1)
             ensureCurrent(session)
-            for (resource in resources) {
-                if (tracks.size >= limit) break
-                val href = resource.href?.toString() ?: continue
+            val resolvedResources = resources.mapNotNull { resource ->
+                val href = resource.href?.toString() ?: return@mapNotNull null
                 val resolvedUrl = WebDavPathCodec.resolveResourceUrl(
                     endpoint = source.endpoint,
                     baseUrl = directoryUrl,
                     href = href,
-                ) ?: continue
-                val resourceId = WebDavPathCodec.opaqueResourceId(source.endpoint, resolvedUrl.toString()) ?: continue
-                if (resourceId == directoryId) continue
-                if (resource.isDirectory) {
-                    if (resourceId !in visitedDirectories) {
-                        pending.addLast(WebDavPathCodec.asCollectionUrl(resolvedUrl).toString())
+                ) ?: return@mapNotNull null
+                val resourceId = WebDavPathCodec.opaqueResourceId(source.endpoint, resolvedUrl.toString())
+                    ?: return@mapNotNull null
+                if (resourceId == directoryId) return@mapNotNull null
+                ResolvedResource(resource, resolvedUrl, resourceId)
+            }
+            resolvedResources
+                .filter { it.resource.isDirectory }
+                .forEach { resolved ->
+                    if (resolved.resourceId !in visitedDirectories) {
+                        pending.addLast(WebDavPathCodec.asCollectionUrl(resolved.url).toString())
                     }
-                    continue
                 }
-                if (!isAudioResource(resource, resourceId)) continue
-                val base = resource.toTrackSummary(source.id, resourceId)
+            val artworkCandidates = resolvedResources.mapNotNull { resolved ->
+                if (resolved.resource.isDirectory) return@mapNotNull null
+                val fileName = resourceFileName(resolved.resource, resolved.resourceId)
+                if (!isRemoteSidecarArtworkFile(fileName)) return@mapNotNull null
+                val sizeBytes = (resolved.resource.contentLength ?: 0L).coerceAtLeast(0L)
+                RemoteSidecarArtworkCandidate(
+                    fileName = fileName,
+                    resourceId = resolved.resourceId,
+                    contentRevision = remoteArtworkRevisionKey(resolved.resource.contentRevision(), sizeBytes),
+                    sizeBytes = sizeBytes,
+                )
+            }
+            val folderArtwork = selectRemoteFolderSidecarArtwork(artworkCandidates)
+            val audioResources = resolvedResources.filter { resolved ->
+                !resolved.resource.isDirectory && isAudioResource(resolved.resource, resolved.resourceId)
+            }
+            val directoryComplete = tracks.size + audioResources.size <= limit
+            val directoryStart = tracks.size
+
+            for (resolved in audioResources) {
+                if (tracks.size >= limit) break
+                val resource = resolved.resource
+                val resourceId = resolved.resourceId
+                val fileName = resourceFileName(resource, resourceId)
+                val artwork = selectRemoteTrackSidecarArtwork(fileName, artworkCandidates)
+                val base = resource.toTrackSummary(source.id, resourceId).copy(
+                    artworkOpaqueId = artwork?.let { candidate ->
+                        RemoteFileArtworkIdCodec.encode(candidate.resourceId, candidate.contentRevision)
+                    }.orEmpty(),
+                )
                 val reusable = reusableCatalog[resourceId]
                 if (canReuseMetadata(base, reusable)) {
                     tracks += reuseMetadata(base, checkNotNull(reusable))
                     metadataReusedCount++
                 } else {
-                    tracks += enrichMetadata(session, resolvedUrl, base)
+                    tracks += enrichMetadata(session, resolved.url, base)
                     if (metadataProbe != null) metadataProbedCount++
+                }
+            }
+            if (directoryComplete && folderArtwork != null && tracks.size > directoryStart) {
+                val directoryTracks = tracks.subList(directoryStart, tracks.size)
+                if (canUseRemoteFolderArtwork(directoryTracks)) {
+                    val artworkId = RemoteFileArtworkIdCodec.encode(
+                        folderArtwork.resourceId,
+                        folderArtwork.contentRevision,
+                    )
+                    for (index in directoryStart until tracks.size) {
+                        if (tracks[index].artworkOpaqueId.isBlank()) {
+                            tracks[index] = tracks[index].copy(artworkOpaqueId = artworkId)
+                        }
+                    }
                 }
             }
         }
@@ -259,6 +311,7 @@ internal class WebDavSourceSync(
             suffix = base.suffix,
             sizeBytes = base.sizeBytes,
             contentRevision = base.contentRevision,
+            artworkOpaqueId = base.artworkOpaqueId,
         )
 
     private suspend fun enrichMetadata(
@@ -324,8 +377,7 @@ internal class WebDavSourceSync(
     }
 
     private fun DavResource.toTrackSummary(sourceInstanceId: String, resourceId: String): RemoteTrackSummary {
-        val fileName = name?.takeIf(String::isNotBlank)
-            ?: resourceId.substringAfterLast('/').ifBlank { resourceId }
+        val fileName = resourceFileName(this, resourceId)
         val suffix = extension(fileName)
         val title = fileName.substringBeforeLast('.', fileName).ifBlank { fileName }
         val mime = contentType.orEmpty().takeIf { it.startsWith("audio/", ignoreCase = true) }
@@ -348,6 +400,10 @@ internal class WebDavSourceSync(
         return "etag=$etagPart;mtime=$modifiedPart"
     }
 
+    private fun resourceFileName(resource: DavResource, resourceId: String): String =
+        resource.name?.takeIf(String::isNotBlank)
+            ?: resourceId.substringAfterLast('/').ifBlank { resourceId }
+
     private fun extension(value: String): String = value
         .substringAfterLast('/')
         .substringAfterLast('.', "")
@@ -359,6 +415,12 @@ internal class WebDavSourceSync(
         val root: HttpUrl,
         val client: OkHttpClient,
         val adapter: WebDavCatalogAdapter,
+    )
+
+    private data class ResolvedResource(
+        val resource: DavResource,
+        val url: HttpUrl,
+        val resourceId: String,
     )
 
     private data class ScanResult(

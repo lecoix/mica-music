@@ -1,7 +1,7 @@
 # 远程音乐源调研记录
 
 > 状态：调研中  
-> 最近更新：2026-08-12  
+> 最近更新：2026-08-30
 > 当前范围：Navidrome / WebDAV / SMB  
 > 本文记录候选开源项目、可复用范围、风险和 Mica 的预期边界；不是已批准的实施方案。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
 
@@ -27,6 +27,15 @@
 - 2026-08-30 真机对当前 264 首 SMB 曲库强制关闭复用后完整重读：`probed=264 / reused=0`，得到 artist 262、album 260、duration 262，154774 ms 完成；紧接着普通同步为 `probed=0 / reused=264`，3951 ms 完成，标签覆盖保持一致。此前首次 schema-23 冷同步也已得到 264 首全量 probe，证明迁移后旧 catalog 会按设计 fail closed 而不是错误复用。
 - WebDAV 同样具备基于 ETag/mtime 的元数据复用和严格 HTTP Range 随机读；定向测试覆盖服务器忽略 Range、修订变化重新 probe、修订未变零 GET 复用。此项尚未把新的 TagLib 元数据 probe 作为独立真机 WebDAV 验收项，不能用 SMB 真机结果代替。
 - `RemoteDatabaseMigrationTest`、共享 seekable byte source、SMB/WebDAV 元数据定向测试以及完整 `:app:testDebugUnitTest` 均通过；`git diff --check` 通过。
+
+### 2026-08-30 文件型远端 sidecar 封面
+
+- SMB / WebDAV 同步阶段只利用目录枚举已经返回的图片文件名、大小和内容修订提示建立 sidecar 引用，不读取图片 payload；图片字节仍由现有 `RemoteArtworkContentProvider` 按需加载并进入 16 MiB 有界进程缓存。支持 jpg/jpeg/png/webp，同名图片（如 `Song.jpg` 对 `Song.flac`）具有最高优先级。
+- `Folder.jpg` / `cover.*` / `front.*` 不能无条件作为整目录封面。当前 264 首真实 SMB 曲库包含 28 个有歌曲目录和 422 张图片；根目录 103 首歌实际属于 85 个不同专辑，`gundam` 目录 36 首也属于 31 个专辑。若简单套 `Folder.jpg` 会产生大量错误封面。因此目录通用封面只在完整目录只有 1 首歌，或所有已识别歌曲具有同一个非空 album 时发布；当前真实 metadata 下安全覆盖为 45/264（12/28 个目录）。其余曲目保持无封面，后续应走内嵌封面 JIT，而不是猜测 Windows Media Player 的 `AlbumArt_{GUID}` 映射。
+- sidecar 的 opaque artwork id 同时携带相对资源路径与图片 content revision；SMB 使用 file-id + last-write-time，WebDAV 使用 ETag/mtime（缺失时退化到 size）。音频 metadata 命中 revision reuse 时，仍以本轮目录枚举重新计算 artwork id，因此只替换 `Folder.jpg` 不会被旧音频标签缓存遮蔽。
+- `RemoteArtworkContentProvider` 已扩展为 Navidrome / WebDAV / SMB 共用 JIT 路由。文件型 resolver 只接受规范化且仍位于配置根下的相对路径；provider 在真正读取前还要求 exact artwork id 被当前 config revision 已发布的 catalog 引用，来源编辑后旧 catalog 的 URI 不能被拿去新地址解析。缓存 key 新增 `catalogRevision`，成功发布新 catalog 后即切换缓存代际，避免同 artwork id 换图后继续命中旧字节。
+- SMB artwork loader 使用独立短生命周期 SMBJ session/file handle，32 MiB 上限且严格要求完整读取；WebDAV artwork loader 禁用重定向、复用同源 Basic/Digest challenge auth，并同样限制 32 MiB。定向测试覆盖 sidecar 不在扫描期下载、混合专辑目录拒绝通用封面、音频 metadata reuse 时图片 revision 更新、SMB/WebDAV JIT loader、catalog artwork 授权边界和缓存代际。
+- debug QA 增加 `artworks=` 同步覆盖计数及独立 `SMB_QA_READ_ARTWORK` JIT 读取动作。当前测试机无线调试端口不可达且 mDNS 未发现 adb 服务，因此这一 tranche 的 Android 真机 provider 读取尚待设备重新上线后补验；不能用主机文件盘点或 JVM fake transport 代替该项物理证据。
 ## 已确定的产品范围
 
 - 设置中合并为一个“远程曲库”入口。

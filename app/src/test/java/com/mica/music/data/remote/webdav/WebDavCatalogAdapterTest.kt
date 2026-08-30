@@ -3,9 +3,11 @@ package com.mica.music.data.remote.webdav
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.local.MicaDatabase
+import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteCredentialSnapshot
+import com.mica.music.data.remote.RemoteFileArtworkIdCodec
 import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadata
@@ -24,10 +26,12 @@ import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -99,6 +103,69 @@ class WebDavCatalogAdapterTest {
             assertTrue(requests.any { it.target == "/music/" && it.headers["depth"] == "1" })
             assertTrue(requests.any { it.target == "/music/sub/" && it.headers["depth"] == "1" })
             assertFalse(requests.any { it.target.contains("outside", ignoreCase = true) })
+        }
+    }
+
+    @Test
+    fun sidecarArtworkIsDiscoveredWithoutDownloadingImageBytes() = runBlocking {
+        val requests = CopyOnWriteArrayList<TestRequest>()
+        TinyWebDavServer { request ->
+            requests += request
+            when (request.target) {
+                "/music/" -> multistatus(
+                    collection("/music/", "music"),
+                    file("/music/Song.flac", "Song.flac", 100, "audio/flac", etag = "audio-1"),
+                    file("/music/cover.jpg", "cover.jpg", 50, "image/jpeg", etag = "art-1"),
+                )
+                else -> TestResponse(status = 404)
+            }
+        }.use { server ->
+            val sourceId = createSource("${server.baseUrl}/music")
+            val sync = WebDavSourceSync(catalog, credentialStore())
+
+            val result = sync.sync(sourceId)
+            val artwork = RemoteFileArtworkIdCodec.decode(
+                catalog.tracksForSource(sourceId).single().artworkOpaqueId,
+            )
+
+            assertEquals(1, result.trackCount)
+            assertEquals("cover.jpg", artwork?.resourceId)
+            assertEquals("etag=art-1;mtime=", artwork?.contentRevision)
+            assertTrue(requests.all { it.target == "/music/" })
+        }
+    }
+
+    @Test
+    fun artworkResolverAndLoaderFetchCanonicalSidecarJustInTime() = runBlocking {
+        val image = byteArrayOf(9, 8, 7, 6)
+        val requests = CopyOnWriteArrayList<TestRequest>()
+        TinyWebDavServer { request ->
+            requests += request
+            when (request.target) {
+                "/music/cover.jpg" -> TestResponse(
+                    status = 200,
+                    headers = mapOf("Content-Type" to "image/jpeg"),
+                    body = image,
+                )
+                else -> TestResponse(status = 404)
+            }
+        }.use { server ->
+            val sourceId = createSource("${server.baseUrl}/music")
+            val ref = RemoteArtworkRef(
+                sourceId,
+                RemoteFileArtworkIdCodec.encode("cover.jpg", "etag=art-1;mtime="),
+            )
+            val resolver = WebDavArtworkRequestResolver(
+                sourceOwnerById = { id -> catalog.sourceOwner(id) },
+                credentialStore = credentialStore(),
+            )
+
+            val request = requireNotNull(resolver.resolve(ref))
+            val loaded = withContext(Dispatchers.IO) { WebDavArtworkByteLoader().load(request) }
+
+            assertArrayEquals(image, loaded)
+            assertEquals("/music/cover.jpg", requests.single().target)
+            assertFalse(request.toString().contains("secret"))
         }
     }
 

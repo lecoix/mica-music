@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,6 +16,8 @@ import androidx.media3.session.SessionToken
 import com.mica.music.MicaApp
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
+import com.mica.music.data.remote.RemoteArtworkRef
+import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.smb.SmbException
@@ -76,11 +79,44 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                                 "artists=${tracks.count { it.artist.isNotBlank() }} " +
                                 "albums=${tracks.count { it.album.isNotBlank() }} " +
                                 "durations=${tracks.count { it.durationSec > 0 }} " +
+                                "artworks=${tracks.count { it.artworkOpaqueId.isNotBlank() }} " +
                                 "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
                         )
                     }
                 }.onFailure { error ->
                     Log.e(TAG, "control failed action=$action forceProbe=$forceProbe", error)
+                }
+            }.start()
+            return
+        }
+        if (action == "${appContext.packageName}.debug.SMB_QA_READ_ARTWORK") {
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == RemoteSourceType.SMB }
+                            ?: error("No enabled SMB source is configured")
+                        val track = app.remoteCatalogRepository.tracksForSource(source.id)
+                            .firstOrNull { it.artworkOpaqueId.isNotBlank() }
+                            ?: error("SMB catalog has no published artwork reference")
+                        val uri = Uri.parse(
+                            RemoteArtworkUriCodec.encode(RemoteArtworkRef(source.id, track.artworkOpaqueId)),
+                        )
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val bytes = checkNotNull(appContext.contentResolver.openInputStream(uri)).use { input ->
+                            input.readBytes()
+                        }
+                        require(bytes.isNotEmpty()) { "SMB artwork provider returned no bytes" }
+                        Log.i(
+                            TAG,
+                            "complete action=$action bytes=${bytes.size} " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
                 }
             }.start()
             return
