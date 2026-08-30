@@ -46,6 +46,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.mica.music.ui.components.UserMessageHost
 import com.mica.music.ui.components.miniPlayerOverlayHeight
 import com.mica.music.MicaApp
+import com.mica.music.data.remote.RemoteAutoSyncScheduler
 import com.mica.music.ui.navigation.AppNavigationMain
 import com.mica.music.ui.navigation.PlayerSheetOverlay
 import com.mica.music.ui.navigation.AppNavigationCoordinator
@@ -204,6 +205,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        RemoteAutoSyncScheduler.requestCatchUp(this)
         pendingLyricoSongId = savedInstanceState?.getString(KEY_LYRICO_SONG_ID)
         externalAudioOpenActive = parseExternalAudioOpenRequest(intent) != null
         applyWindowStatusBar()

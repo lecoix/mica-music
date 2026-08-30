@@ -32,16 +32,19 @@ internal class RemoteSourceManager internal constructor(
         "remote-credential/$sourceId/${UUID.randomUUID()}"
     },
     private val fileMetadataProbe: RemoteTrackMetadataProbe? = null,
+    private val automaticSyncRequest: () -> Unit = {},
 ) {
     constructor(
         catalogRepository: RemoteCatalogRepository,
         credentialStore: MutableSecureRemoteCredentialStore,
         fileMetadataProbe: RemoteTrackMetadataProbe? = null,
+        automaticSyncRequest: () -> Unit = {},
     ) : this(
         catalogRepository = catalogRepository,
         credentialStore = credentialStore,
         navidromeExecutor = com.mica.music.data.remote.navidrome.UrlConnectionNavidromeHttpExecutor(),
         fileMetadataProbe = fileMetadataProbe,
+        automaticSyncRequest = automaticSyncRequest,
     )
 
     suspend fun statuses(): List<RemoteSourceStatus> = catalogRepository.sourceStatuses()
@@ -73,6 +76,7 @@ internal class RemoteSourceManager internal constructor(
             ),
         )
         catalogRepository.upsertSource(instance)
+        if (instance.enabled) automaticSyncRequest()
         return instance
     }
 
@@ -103,6 +107,7 @@ internal class RemoteSourceManager internal constructor(
             ),
         )
         catalogRepository.upsertSource(instance)
+        if (instance.enabled) automaticSyncRequest()
         return instance
     }
     suspend fun createSmb(
@@ -132,6 +137,7 @@ internal class RemoteSourceManager internal constructor(
             ),
         )
         catalogRepository.upsertSource(instance)
+        if (instance.enabled) automaticSyncRequest()
         return instance
     }
     suspend fun updateSourceConfig(
@@ -148,6 +154,7 @@ internal class RemoteSourceManager internal constructor(
         )
         catalogRepository.upsertSource(updated)
         invalidateSourceLyrics(sourceInstanceId)
+        if (updated.enabled) automaticSyncRequest()
         return updated
     }
 
@@ -157,6 +164,7 @@ internal class RemoteSourceManager internal constructor(
         val updated = current.copy(enabled = enabled)
         catalogRepository.upsertSource(updated)
         invalidateSourceLyrics(sourceInstanceId)
+        if (updated.enabled) automaticSyncRequest()
         return updated
     }
 
@@ -194,6 +202,32 @@ internal class RemoteSourceManager internal constructor(
     ): RemoteSourceInstance {
         val current = requireSmbSource(sourceInstanceId)
         return rotateUsernamePasswordCredentials(current, username, password)
+    }
+    suspend fun syncSource(sourceInstanceId: String) {
+        when (requireSource(sourceInstanceId).type) {
+            RemoteSourceType.NAVIDROME -> syncNavidrome(sourceInstanceId)
+            RemoteSourceType.WEBDAV -> syncWebDav(sourceInstanceId)
+            RemoteSourceType.SMB -> syncSmb(sourceInstanceId)
+        }
+    }
+
+    suspend fun syncEnabledSourcesIfStale(
+        nowMs: Long = System.currentTimeMillis(),
+        staleAfterMs: Long,
+    ): RemoteAutoSyncResult {
+        val candidates = statuses().filter { it.needsAutomaticSync(nowMs, staleAfterMs) }
+        val failed = ArrayList<String>()
+        var succeeded = 0
+        candidates.forEach { status ->
+            runCatching { syncSource(status.instance.id) }
+                .onSuccess { succeeded += 1 }
+                .onFailure { failed += status.instance.id }
+        }
+        return RemoteAutoSyncResult(
+            attempted = candidates.size,
+            succeeded = succeeded,
+            failedSourceIds = failed,
+        )
     }
     suspend fun testConnection(sourceInstanceId: String) {
         val source = requireSource(sourceInstanceId)
@@ -287,6 +321,7 @@ internal class RemoteSourceManager internal constructor(
         catalogRepository.upsertSource(updated)
         credentialStore.delete(current.credentialRef)
         invalidateSourceLyrics(current.id)
+        if (updated.enabled) automaticSyncRequest()
         return updated
     }
     private suspend fun invalidateSourceLyrics(

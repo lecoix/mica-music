@@ -30,7 +30,11 @@ class RemoteSourceManagerTest {
         database = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(),
             MicaDatabase::class.java,
-        ).allowMainThreadQueries().build()
+        )
+            .allowMainThreadQueries()
+            .setQueryExecutor { command -> command.run() }
+            .setTransactionExecutor { command -> command.run() }
+            .build()
         repository = RemoteCatalogRepository(database) { 9000L }
         credentials = FakeCredentialStore()
     }
@@ -232,6 +236,76 @@ class RemoteSourceManagerTest {
         assertEquals("new", (credentials.resolve(rotated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
     }
     @Test
+    fun sourceChangesRequestAutomaticCatchUpOnlyWhenEnabled() = runTest {
+        var requests = 0
+        val manager = manager(
+            executor = NavidromeHttpExecutor { okResponse() },
+            automaticSyncRequest = { requests += 1 },
+        )
+
+        val source = manager.createNavidrome("Home", "https://music.example", "alice", "secret")
+        assertEquals(1, requests)
+
+        manager.setEnabled(source.id, false)
+        assertEquals(1, requests)
+
+        manager.setEnabled(source.id, true)
+        assertEquals(2, requests)
+
+        manager.updateSourceConfig(source.id, "Home", "https://new.example", true)
+        assertEquals(3, requests)
+
+        manager.rotateNavidromeCredentials(source.id, "alice", "new-secret")
+        assertEquals(4, requests)
+    }
+    @Test
+    fun automaticSyncSkipsFreshAndDisabledSourcesAndContinuesAfterOneFailure() = runTest {
+        val manager = manager(
+            NavidromeHttpExecutor { request ->
+                when {
+                    request.url.contains("fail.example") -> error("offline")
+                    request.url.contains("/rest/search3?") -> searchResponse()
+                    else -> okResponse()
+                }
+            },
+        )
+        suspend fun addSource(id: String, endpoint: String, enabled: Boolean = true) {
+            val credentialRef = "credential/$id"
+            credentials.put(
+                credentialRef,
+                RemoteCredentialMaterial.UsernamePassword("alice", "secret"),
+            )
+            repository.upsertSource(
+                RemoteSourceInstance(
+                    id = id,
+                    type = RemoteSourceType.NAVIDROME,
+                    displayName = id,
+                    endpoint = endpoint,
+                    credentialRef = credentialRef,
+                    enabled = enabled,
+                ),
+            )
+        }
+        addSource("good", "https://good.example")
+        addSource("fail", "https://fail.example")
+        addSource("fresh", "https://fresh.example")
+        addSource("disabled", "https://disabled.example", enabled = false)
+        manager.syncSource("fresh")
+
+        val result = manager.syncEnabledSourcesIfStale(
+            nowMs = 10_000L,
+            staleAfterMs = 2_000L,
+        )
+
+        assertEquals(2, result.attempted)
+        assertEquals(1, result.succeeded)
+        assertEquals(listOf("fail"), result.failedSourceIds)
+        assertEquals(9000L, repository.sourceStatus("good")?.lastSyncAtMs)
+        assertEquals(0L, repository.sourceStatus("fail")?.lastSyncAtMs)
+        assertEquals(9000L, repository.sourceStatus("fresh")?.lastSyncAtMs)
+        assertEquals(0L, repository.sourceStatus("disabled")?.lastSyncAtMs)
+    }
+    @Test
     fun endpointValidationRejectsEmbeddedCredentialAndQuery() {
         val embedded = runCatching {
             RemoteSourceManager.normalizeHttpEndpoint("https://alice:secret@music.example")
@@ -252,13 +326,17 @@ class RemoteSourceManagerTest {
         )
     }
 
-    private fun manager(executor: NavidromeHttpExecutor): RemoteSourceManager = RemoteSourceManager(
+    private fun manager(
+        executor: NavidromeHttpExecutor,
+        automaticSyncRequest: () -> Unit = {},
+    ): RemoteSourceManager = RemoteSourceManager(
         catalogRepository = repository,
         credentialStore = credentials,
         navidromeExecutor = executor,
         navidromeRequestFactory = NavidromeRequestFactory(saltProvider = { "fixedsalt" }),
         sourceIdProvider = { _ -> "nav-1" },
         credentialRefProvider = { sourceId -> "credential/$sourceId/${++credentialCounter}" },
+        automaticSyncRequest = automaticSyncRequest,
     )
 
     private fun okResponse(): String = """{"subsonic-response":{"status":"ok"}}"""

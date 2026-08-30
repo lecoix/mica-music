@@ -25,6 +25,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mica.music.MicaApp
+import com.mica.music.data.preferences.RemoteAutoSyncPreferences
+import com.mica.music.data.remote.RemoteAutoSyncScheduler
 import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceManager
 import com.mica.music.data.remote.RemoteSourceStatus
@@ -54,6 +56,7 @@ internal fun RemoteMusicSettingsPanel() {
     var editSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
     var credentialSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
     var deleteSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
+    var automaticSyncEnabled by remember { mutableStateOf(RemoteAutoSyncPreferences.enabled(context)) }
 
     LaunchedEffect(refreshRevision) {
         loading = true
@@ -89,6 +92,20 @@ internal fun RemoteMusicSettingsPanel() {
 
     SettingsSectionTitle("远程曲库")
     SettingsTipRow("远程来源与本地曲库分开同步；播放时只保存稳定曲目 ID，认证地址不会写入队列或曲库数据库。")
+    SettingsTipRow("已启用来源会在网络可用时由系统后台任务约每 6 小时检查一次；只重同步尚未同步或已过期的来源。")
+    SettingsToggleRow(
+        title = "自动同步",
+        subtitle = if (automaticSyncEnabled) {
+            "网络可用时约每 6 小时检查一次；手动同步仍可随时执行"
+        } else {
+            "已关闭后台同步；不影响远端播放和手动同步"
+        },
+        checked = automaticSyncEnabled,
+        onCheckedChange = { enabled ->
+            automaticSyncEnabled = enabled
+            RemoteAutoSyncScheduler.setEnabled(context, enabled)
+        },
+    )
 
     SettingsActionRow(
         title = "添加 Navidrome / OpenSubsonic",
@@ -152,11 +169,7 @@ internal fun RemoteMusicSettingsPanel() {
                 subtitle = if (busy) "正在同步…" else "重新枚举该来源并原子替换它自己的曲库快照",
                 onClick = {
                     runSourceAction(source.id, "${source.displayName} 同步完成") {
-                        when (source.type) {
-                            RemoteSourceType.NAVIDROME -> manager.syncNavidrome(source.id)
-                            RemoteSourceType.WEBDAV -> manager.syncWebDav(source.id)
-                            RemoteSourceType.SMB -> manager.syncSmb(source.id)
-                        }
+                        manager.syncSource(source.id)
                     }
                 },
                 enabled = source.enabled && !busy,

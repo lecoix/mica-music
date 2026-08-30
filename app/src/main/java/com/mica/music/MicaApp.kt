@@ -11,6 +11,7 @@ import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.remote.AndroidKeystoreRemoteCredentialStore
 import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
+import com.mica.music.data.remote.RemoteAutoSyncScheduler
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteLyricsRepository
 import com.mica.music.data.remote.RemoteSourceManager
@@ -47,6 +48,7 @@ class MicaApp : Application() {
             remoteCatalogRepository,
             remoteCredentialStore,
             AndroidTagLibRemoteTrackMetadataProbe(this),
+            automaticSyncRequest = { RemoteAutoSyncScheduler.requestCatchUp(this) },
         )
     }
 
@@ -102,6 +104,7 @@ class MicaApp : Application() {
         BluetoothAudioDiagnostics.install(this)
         AudioEnvironmentDiagnostics.install(this)
         MicaImageLoaders.init(this)
+        RemoteAutoSyncScheduler.install(this)
         ServicePlaybackStateStore(this).load()?.externalSongs
             ?.mapNotNull { snapshot ->
                 val uri = runCatching { Uri.parse(snapshot.mediaUri) }.getOrNull() ?: return@mapNotNull null
