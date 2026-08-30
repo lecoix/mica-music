@@ -257,6 +257,32 @@ class PlaybackStatisticsTrackerTest {
     }
 
     @Test
+    fun confirmedRequestedPlaybackPublishesOnceWithoutTransitionEvidence() {
+        val tracker = tracker()
+        tracker.reset("song-a")
+        tracker.requestPlayback("song-b")
+
+        assertFalse(tracker.confirmRequestedPlayback("song-c"))
+        assertTrue(tracker.confirmRequestedPlayback("song-b"))
+        assertFalse(tracker.confirmRequestedPlayback("song-b"))
+        assertEquals("song-b", tracker.publishPlayStartedIfReady("song-b", playing = true))
+        assertNull(tracker.publishPlayStartedIfReady("song-b", playing = true))
+    }
+
+    @Test
+    fun explicitTransitionConsumesRequestBeforePhysicalSelectionConfirmation() {
+        val tracker = tracker()
+        tracker.reset("song-a")
+        tracker.requestPlayback("song-b")
+        tracker.onTransition("song-b", PlaybackMediaTransition.Explicit)
+
+        assertTrue(tracker.finishEventBatch())
+        assertFalse(tracker.confirmRequestedPlayback("song-b"))
+        assertEquals("song-b", tracker.publishPlayStartedIfReady("song-b", playing = true))
+        assertNull(tracker.publishPlayStartedIfReady("song-b", playing = true))
+    }
+
+    @Test
     fun newerExplicitRequestReplacesUnpublishedSession() {
         val tracker = tracker()
         tracker.reset("song-a")

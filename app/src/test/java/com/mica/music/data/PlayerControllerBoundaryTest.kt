@@ -1024,6 +1024,55 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun playQueueSongPublishesWhenQueueReplacementOnlyReportsPlaylistChanged() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val oldSong = SongFixtures.song("old-song")
+        val oldItem = MediaItem.Builder().setMediaId(oldSong.id).build()
+        val queue = listOf(SongFixtures.song("song-a"), SongFixtures.song("song-b"))
+        val targetItem = MediaItem.Builder().setMediaId("song-b").build()
+        var currentItem = oldItem
+        var currentIndex = 0
+        var mediaItemCount = 1
+        var playing = false
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } answers { currentItem }
+        every { mediaController.currentMediaItemIndex } answers { currentIndex }
+        every { mediaController.mediaItemCount } answers { mediaItemCount }
+        every { mediaController.getMediaItemAt(any()) } answers {
+            if (mediaItemCount == 1) oldItem else MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+        }
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.currentPosition } returns 0L
+        every { mediaController.isPlaying } answers { playing }
+        var count = 0
+        controller.onSongPlayStarted = { count++ }
+        controller.setQueue(listOf(oldSong))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+
+        controller.playQueueSong(queue, "song-b")
+        currentItem = targetItem
+        currentIndex = 1
+        mediaItemCount = queue.size
+        listener.captured.onMediaItemTransition(
+            targetItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED,
+        )
+        listener.captured.onEvents(mediaController, mockk(relaxed = true))
+        assertEquals(0, count)
+
+        playing = true
+        listener.captured.onIsPlayingChanged(true)
+        listener.captured.onIsPlayingChanged(true)
+
+        assertEquals(1, count)
+        controller.release()
+    }
+
+    @Test
     fun explicitlyReplayingCurrentSongPublishesOneNewPlaySession() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)

@@ -654,8 +654,16 @@ internal class PlaybackRuntime(
                     )
                 }
                 if (playing) {
-                    pendingMediaSelection.confirm(c.currentMediaItem?.mediaId)
-                    releasePendingRestorePosition(c.currentMediaItem?.mediaId)
+                    val activeSongId = c.currentMediaItem?.mediaId
+                    val selectionConfirmed = pendingMediaSelection.confirm(activeSongId)
+                    if (selectionConfirmed && activeSongId != null) {
+                        val armed = playbackStatistics.confirmRequestedPlayback(activeSongId)
+                        logPlayCountProbe(
+                            "selection-confirm arm=$armed playerSong=${activeSongId.shortSongId()} " +
+                                "pending=${playbackStatistics.pendingSongId.shortSongIdOrNone()}",
+                        )
+                    }
+                    releasePendingRestorePosition(activeSongId)
                     if (playbackError != null) {
                         playbackError = null
                         val errorMessageId = playbackErrorUserMessageId

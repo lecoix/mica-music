@@ -29,6 +29,7 @@ internal fun rememberLibraryStatsBarModel(
     section: HomeSection,
     browseDestination: BrowseDestination,
     library: MusicLibrary,
+    recentSongCount: Int? = null,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -47,6 +48,7 @@ internal fun rememberLibraryStatsBarModel(
     return remember(
         section,
         browseDestination,
+        recentSongCount,
         activePlaylistId,
         playlistSongCount,
         playlistSortField,
@@ -72,6 +74,7 @@ internal fun rememberLibraryStatsBarModel(
             section,
             browseDestination,
             library,
+            recentSongCount,
             activePlaylistId,
             playlistSongCount,
             playlistSortField,
@@ -96,6 +99,7 @@ internal fun resolveLibraryStatsBarModel(
     section: HomeSection,
     browseDestination: BrowseDestination,
     library: MusicLibrary,
+    recentSongCount: Int? = null,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -126,11 +130,11 @@ internal fun resolveLibraryStatsBarModel(
             showRescanAction = true,
         )
         HomeSection.Recent -> {
-            val recent = library.recentSongs()
+            val count = recentSongCount ?: library.recentSongs().size
             LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    if (recent.isEmpty()) "暂无播放记录" else "${recent.size} 首",
-                    if (recent.isNotEmpty()) "按最近播放" else null,
+                    if (count == 0) "暂无播放记录" else "$count 首",
+                    if (count > 0) "按最近播放" else null,
                 ),
             )
         }

@@ -69,7 +69,10 @@
 - Now Playing 与 Home/歌单菜单的远端“下一首播放”都不再二次调用本地 `MusicLibrary.songById()`；远端直接把稳定 `Song` 交给现有 queue/runtime，本地歌曲仍按原逻辑回查本地曲库。后端随后仍由 `RemoteMediaItemCodec` / JIT resolver 处理远端播放，不改变认证边界。
 - 通用歌曲菜单把“库操作”和“本地文件写操作”拆开。远端歌曲继续提供添加到歌单、下一首播放、睡眠定时、歌词偏移、分享和歌曲信息；依赖可写本地文件的 Lyrico 标签编辑与删除音乐对远端隐藏，横竖屏使用同一 gate。
 - 歌曲详情路由现在按本地曲库 → 当前远端 catalog → 当前播放快照依次解析稳定 id。远端详情显示“媒体来源：远程曲库”，可分享，但不提供只适用于本地文件的响度分析。
-- JVM/Robolectric 回归覆盖 catalog Flow 在发布/来源禁用后的更新、远端歌单 JSON round-trip，以及远端菜单保留可用操作并隐藏本地写操作。2026-08-30 side-by-side QA 真机冷启动后，真实 SMB catalog 通过新 Flow 正常显示；实际远端曲 `機械の声` 的 Now Playing 菜单确认有“添加到歌单 / 下一首播放 / 睡眠定时 / 歌词偏移 / 分享 / 歌曲信息”且没有“编辑音乐标签 / 删除音乐”；进入歌曲详情后确认“媒体来源 → 远程曲库”，且无响度分析入口。
+- 播放统计展示层也已纳入远端稳定 media id。进程级 `PlaybackStatisticsRepository` 仍是播放次数/累计收听秒数的唯一持久化写入口；`MainViewModel` 对当前远端 catalog 异步读取 `PlayHistoryStore` 快照，并通过独立 `RemotePlayStatsPresentation` 合并冷启动数据与本进程实时事件，使用 count / lastPlayedAt / totalListenSeconds 的单调 max 合并，避免迟到磁盘读取回滚刚发生的播放事件。`AppNavigation` 只把这层 presentation 投影到当前 `remoteSongs`，不修改 Room catalog，也不把统计写回远端来源。
+- Home“最近播放”现在显式合并本地曲库与当前远端 catalog，按 `lastPlayedAtMs` 降序并继续限制最多 500 首；远端 Recent 不再受“本地曲库尚未扫描”的旧空态 gate 阻断。真机从仅远端 catalog、无本地扫描的状态进入 Recent，统计条从 21 首正确显示并渲染远端历史；新增一次 `AIZO` 播放后实时变为 22 首，AIZO 排到第一条，force-stop 冷启动后仍保持 22 首与 AIZO 第一条。
+- 真机还暴露并关闭了原子“替换远端队列并播放指定曲目”的 play-count race：Media3 在该路径可能只回报 `MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED`，旧 tracker 因缺少 explicit transition/discontinuity 证据而一直 `pending=none`。现在仍先保留原有严格证据规则；只有 `PendingMediaSelection` 已确认用户请求的目标 media id 真正成为 active item 且进入 playing 时，才将仍未消费的 explicit request 转成一个 publishable generation。已有 explicit transition 会先消费 request，因此 fallback 不会双计；暂停→恢复、普通 seek、metadata/playlist refresh 也不会获得新 generation。2026-08-30 QA 真机 `AIZO` 基线 0 次，修复后日志出现 `selection-confirm arm=true` → `publish-consume`，UI 实时变为 1 次；持久化文件同时记录 `listen_sec=321`，此前基线为 318，证明累计收听秒数也继续写入。force-stop 冷启动后远程曲库仍恢复 `AIZO · 1 次播放`。验收使用的 `com.mica.music.qa` device-idle whitelist 已撤销并读回确认 `NONE`。
+- JVM/Robolectric 回归覆盖 catalog Flow 在发布/来源禁用后的更新、远端歌单 JSON round-trip、远端统计冷/热合并、联合 Recent、原子队列仅 `PLAYLIST_CHANGED` 后的物理 selection confirmation，以及远端菜单保留可用操作并隐藏本地写操作。完整 `:app:testDebugUnitTest` 与 side-by-side Perf QA 构建均通过。2026-08-30 side-by-side QA 真机冷启动后，真实 SMB catalog 通过新 Flow 正常显示；实际远端曲 `機械の声` 的 Now Playing 菜单确认有“添加到歌单 / 下一首播放 / 睡眠定时 / 歌词偏移 / 分享 / 歌曲信息”且没有“编辑音乐标签 / 删除音乐”；进入歌曲详情后确认“媒体来源 → 远程曲库”，且无响度分析入口。
 
 ## 已确定的产品范围
 

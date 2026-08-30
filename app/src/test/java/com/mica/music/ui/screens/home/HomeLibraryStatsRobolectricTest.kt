@@ -89,6 +89,24 @@ class HomeLibraryStatsRobolectricTest {
     }
 
     @Test
+    fun recentSectionUsesUnifiedPresentationCountWhenProvided() {
+        val library = MusicLibrary(ApplicationProvider.getApplicationContext())
+
+        val recent = resolveLibraryStatsBarModel(
+            section = HomeSection.Recent,
+            browseDestination = BrowseDestination.Root,
+            library = library,
+            recentSongCount = 7,
+            activePlaylistId = null,
+            playlistSongCount = 0,
+            playlistSortField = null,
+            playlistSortDirection = null,
+        )
+
+        assertEquals(listOf("7 首", "按最近播放"), recent?.segments)
+    }
+
+    @Test
     fun remoteSectionDoesNotReuseLocalLibraryStatsOrScanActions() {
         val library = MusicLibrary(ApplicationProvider.getApplicationContext())
 

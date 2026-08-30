@@ -146,16 +146,18 @@ internal fun HomeBrowseContent(
     albumGridState: LazyGridState,
     listBottomPadding: Dp = 0.dp,
     motionEnabled: Boolean = true,
+    recentSongs: List<Song>? = null,
     modifier: Modifier = Modifier,
 ) {
     val folderListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
-    if (library.isLoadingCachedLibrary && library.songs.isEmpty()) {
+    val requiresLocalLibrary = section != HomeSection.Recent
+    if (requiresLocalLibrary && library.isLoadingCachedLibrary && library.songs.isEmpty()) {
         EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
         return
     }
 
-    if (!library.hasScanned && library.songs.isEmpty()) {
+    if (requiresLocalLibrary && !library.hasScanned && library.songs.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = "请先扫描曲库",
@@ -266,7 +268,7 @@ internal fun HomeBrowseContent(
             }
         }
         HomeSection.Recent -> {
-            val songs = library.recentSongs()
+            val songs = recentSongs ?: library.recentSongs()
             SongListPanel(
                 songs = songs,
                 library = library,

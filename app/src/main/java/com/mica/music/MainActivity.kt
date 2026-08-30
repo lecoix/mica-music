@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.mica.music.ui.components.UserMessageHost
@@ -255,6 +257,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
         mainCompose.setContent {
             val coordinator = navigationCoordinator
             val snackbarHostState = remember { SnackbarHostState() }
+            val remotePlayStats by viewModel.remotePlayStats.collectAsStateWithLifecycle()
 
             MicaAppRoot(
                 uiSettings = uiSettings,
@@ -302,6 +305,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                             library = library,
                             playlistStore = viewModel.playlistStore,
                             remoteCatalogRepository = (application as MicaApp).remoteCatalogRepository,
+                            remotePlayStats = remotePlayStats,
                             playerController = playerController,
                             uiSettings = uiSettings,
                         )

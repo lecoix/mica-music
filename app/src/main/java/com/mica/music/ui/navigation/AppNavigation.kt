@@ -25,6 +25,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.PlayStats
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.toPlaybackSong
@@ -79,6 +80,7 @@ fun AppNavigation(
     library: MusicLibrary,
     playlistStore: PlaylistStore,
     remoteCatalogRepository: RemoteCatalogRepository,
+    remotePlayStats: Map<String, PlayStats> = emptyMap(),
     playerController: PlayerController,
     sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
@@ -89,6 +91,7 @@ fun AppNavigation(
         library = library,
         playlistStore = playlistStore,
         remoteCatalogRepository = remoteCatalogRepository,
+        remotePlayStats = remotePlayStats,
         playerController = playerController,
         uiSettings = uiSettings,
     )
@@ -100,6 +103,7 @@ fun AppNavigationMain(
     library: MusicLibrary,
     playlistStore: PlaylistStore,
     remoteCatalogRepository: RemoteCatalogRepository,
+    remotePlayStats: Map<String, PlayStats> = emptyMap(),
     playerController: PlayerController,
     uiSettings: AppUiSettings,
 ) {
@@ -156,8 +160,17 @@ fun AppNavigationMain(
     val remoteTracks by remember(remoteCatalogRepository) {
         remoteCatalogRepository.observeTracksForEnabledSources()
     }.collectAsState(initial = emptyList())
-    val remoteSongs = remember(remoteTracks) {
-        remoteTracks.map { it.toPlaybackSong() }
+    val remoteSongs = remember(remoteTracks, remotePlayStats) {
+        remoteTracks.map { track ->
+            val song = track.toPlaybackSong()
+            remotePlayStats[song.id]?.let { stats ->
+                song.copy(
+                    playCount = stats.count,
+                    totalListenSeconds = stats.totalListenSeconds,
+                    lastPlayedAtMs = stats.lastPlayedAtMs,
+                )
+            } ?: song
+        }
     }
     val remoteSongsById = remember(remoteSongs) {
         remoteSongs.associateBy { it.id }

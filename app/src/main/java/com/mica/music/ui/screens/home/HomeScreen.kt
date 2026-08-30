@@ -146,6 +146,12 @@ fun HomeScreen(
             addAll(remoteSongs)
         }.distinctBy { it.id }
     }
+    val recentSongs = remember(library.songs, remoteSongs) {
+        recentSongsForPresentation(
+            localSongs = library.songs,
+            remoteSongs = remoteSongs,
+        )
+    }
     val resolvePlaylistSong: (String) -> Song? = { songId ->
         library.songById(songId) ?: remoteSongsById[songId]
     }
@@ -615,6 +621,7 @@ fun HomeScreen(
             section = uiState.section,
             browseDestination = visibleBrowseDestination,
             library = library,
+            recentSongCount = recentSongs.size,
             activePlaylistId = uiState.activePlaylistId,
             playlistSongCount = activePlaylistSongCount,
             playlistSortField = activePlaylist?.sortField,
@@ -1136,6 +1143,7 @@ fun HomeScreen(
                             )
                         },
                         library = library,
+                        recentSongs = recentSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,
