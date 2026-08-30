@@ -10,8 +10,12 @@ import com.mica.music.data.remote.navidrome.NavidromeArtworkHttpStreamer
 import com.mica.music.data.remote.navidrome.NavidromeArtworkRequestResolver
 import com.mica.music.data.remote.smb.SmbArtworkByteLoader
 import com.mica.music.data.remote.smb.SmbArtworkRequestResolver
+import com.mica.music.data.remote.smb.SmbEmbeddedArtworkByteLoader
+import com.mica.music.data.remote.smb.SmbEmbeddedArtworkRequestResolver
 import com.mica.music.data.remote.webdav.WebDavArtworkByteLoader
 import com.mica.music.data.remote.webdav.WebDavArtworkRequestResolver
+import com.mica.music.data.remote.webdav.WebDavEmbeddedArtworkByteLoader
+import com.mica.music.data.remote.webdav.WebDavEmbeddedArtworkRequestResolver
 import com.mica.music.util.DiagnosticLog
 import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
@@ -27,6 +31,12 @@ class RemoteArtworkContentProvider : ContentProvider() {
     private val navidromeStreamer = NavidromeArtworkHttpStreamer()
     private val webDavLoader = WebDavArtworkByteLoader()
     private val smbLoader = SmbArtworkByteLoader()
+    private val webDavEmbeddedLoader by lazy {
+        WebDavEmbeddedArtworkByteLoader(requireNotNull(context).applicationContext)
+    }
+    private val smbEmbeddedLoader by lazy {
+        SmbEmbeddedArtworkByteLoader(requireNotNull(context).applicationContext)
+    }
     private val artworkCache = RemoteArtworkByteCache()
 
     override fun onCreate(): Boolean = true
@@ -126,13 +136,31 @@ class RemoteArtworkContentProvider : ContentProvider() {
                 load = { webDavLoader.load(webDav) },
             )
         }
+        val webDavEmbedded = WebDavEmbeddedArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
+        if (webDavEmbedded != null) {
+            return RemoteArtworkLoadPlan(
+                sourceInstanceId = webDavEmbedded.sourceInstanceId,
+                sourceConfigRevision = webDavEmbedded.sourceConfigRevision,
+                credentialRevision = webDavEmbedded.credentialRevision,
+                load = { webDavEmbeddedLoader.load(webDavEmbedded) },
+            )
+        }
         val smb = SmbArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
+        if (smb != null) {
+            return RemoteArtworkLoadPlan(
+                sourceInstanceId = smb.sourceInstanceId,
+                sourceConfigRevision = smb.sourceConfigRevision,
+                credentialRevision = smb.credentialRevision,
+                load = { smbLoader.load(smb) },
+            )
+        }
+        val smbEmbedded = SmbEmbeddedArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
             ?: return null
         return RemoteArtworkLoadPlan(
-            sourceInstanceId = smb.sourceInstanceId,
-            sourceConfigRevision = smb.sourceConfigRevision,
-            credentialRevision = smb.credentialRevision,
-            load = { smbLoader.load(smb) },
+            sourceInstanceId = smbEmbedded.sourceInstanceId,
+            sourceConfigRevision = smbEmbedded.sourceConfigRevision,
+            credentialRevision = smbEmbedded.credentialRevision,
+            load = { smbEmbeddedLoader.load(smbEmbedded) },
         )
     }
 }

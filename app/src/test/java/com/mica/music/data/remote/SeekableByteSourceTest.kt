@@ -25,6 +25,20 @@ class SeekableByteSourceTest {
     }
 
     @Test
+    fun readCrossingCachedWindowBoundaryIsFilledInsteadOfReturningArtificialShortRead() {
+        val delegate = FakeSource(ByteArray(32) { it.toByte() })
+        val source = ReadAheadSeekableByteSource(delegate, readAheadBytes = 8)
+        val warmup = ByteArray(2)
+        val crossing = ByteArray(6)
+
+        assertEquals(2, source.readAt(0, warmup, 0, warmup.size))
+        assertEquals(6, source.readAt(6, crossing, 0, crossing.size))
+
+        assertArrayEquals(byteArrayOf(6, 7, 8, 9, 10, 11), crossing)
+        assertEquals(listOf(ReadCall(0, 8), ReadCall(8, 8)), delegate.calls)
+    }
+
+    @Test
     fun seekOutsideWindowFetchesNewBoundedWindow() {
         val delegate = FakeSource(ByteArray(64) { it.toByte() })
         val source = ReadAheadSeekableByteSource(delegate, readAheadBytes = 8)

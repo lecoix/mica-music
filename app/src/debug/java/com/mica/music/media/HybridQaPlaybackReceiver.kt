@@ -19,6 +19,7 @@ import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteArtworkUriCodec
 import com.mica.music.data.remote.RemoteCredentialMaterial
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.smb.SmbException
 import com.mica.music.data.remote.smb.SmbFailureKind
@@ -80,6 +81,7 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                                 "albums=${tracks.count { it.album.isNotBlank() }} " +
                                 "durations=${tracks.count { it.durationSec > 0 }} " +
                                 "artworks=${tracks.count { it.artworkOpaqueId.isNotBlank() }} " +
+                                "embeddedArtworks=${tracks.count { RemoteEmbeddedArtworkIdCodec.decode(it.artworkOpaqueId) != null }} " +
                                 "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
                         )
                     }
@@ -89,7 +91,11 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
             }.start()
             return
         }
-        if (action == "${appContext.packageName}.debug.SMB_QA_READ_ARTWORK") {
+        if (
+            action == "${appContext.packageName}.debug.SMB_QA_READ_ARTWORK" ||
+            action == "${appContext.packageName}.debug.SMB_QA_READ_EMBEDDED_ARTWORK"
+        ) {
+            val embeddedOnly = action.endsWith("SMB_QA_READ_EMBEDDED_ARTWORK")
             pending.finish()
             Thread {
                 runCatching {
@@ -99,8 +105,17 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                             .firstOrNull { it.type == RemoteSourceType.SMB }
                             ?: error("No enabled SMB source is configured")
                         val track = app.remoteCatalogRepository.tracksForSource(source.id)
-                            .firstOrNull { it.artworkOpaqueId.isNotBlank() }
-                            ?: error("SMB catalog has no published artwork reference")
+                            .firstOrNull { candidate ->
+                                candidate.artworkOpaqueId.isNotBlank() &&
+                                    (!embeddedOnly || RemoteEmbeddedArtworkIdCodec.decode(candidate.artworkOpaqueId) != null)
+                            }
+                            ?: error(
+                                if (embeddedOnly) {
+                                    "SMB catalog has no published embedded artwork reference"
+                                } else {
+                                    "SMB catalog has no published artwork reference"
+                                },
+                            )
                         val uri = Uri.parse(
                             RemoteArtworkUriCodec.encode(RemoteArtworkRef(source.id, track.artworkOpaqueId)),
                         )
@@ -111,7 +126,7 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                         require(bytes.isNotEmpty()) { "SMB artwork provider returned no bytes" }
                         Log.i(
                             TAG,
-                            "complete action=$action bytes=${bytes.size} " +
+                            "complete action=$action bytes=${bytes.size} embedded=$embeddedOnly " +
                                 "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
                         )
                     }

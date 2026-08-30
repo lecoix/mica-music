@@ -358,6 +358,14 @@ val MIGRATION_22_23 = object : Migration(22, 23) {
     }
 }
 
+val MIGRATION_23_24 = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE remote_tracks ADD COLUMN metadataProbeRevision INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+}
+
 private fun SupportSQLiteDatabase.hasColumn(tableName: String, columnName: String): Boolean =
     query("PRAGMA table_info(`$tableName`)").use { cursor ->
         val nameColumn = cursor.getColumnIndexOrThrow("name")

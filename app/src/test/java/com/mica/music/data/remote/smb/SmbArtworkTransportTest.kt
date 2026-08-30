@@ -3,6 +3,7 @@ package com.mica.music.data.remote.smb
 import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteCredentialSnapshot
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
 import com.mica.music.data.remote.RemoteFileArtworkIdCodec
 import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceOwner
@@ -53,6 +54,22 @@ class SmbArtworkTransportTest {
         assertEquals("HOME", request?.login?.domain)
         assertFalse(request.toString().contains("secret"))
         assertNull(resolver.resolve(RemoteArtworkRef(source.id, "navidrome-cover-id")))
+
+        val embeddedResolver = SmbEmbeddedArtworkRequestResolver(
+            sourceOwnerById = { id -> owner.takeIf { id == source.id } },
+            credentialStore = SecureRemoteCredentialStore { ref ->
+                credential.takeIf { ref == credential.credentialRef }
+            },
+        )
+        val embedded = embeddedResolver.resolve(
+            RemoteArtworkRef(
+                source.id,
+                RemoteEmbeddedArtworkIdCodec.encode("Album/Song.flac", "audio:1", 1234),
+            ),
+        )
+        assertEquals("Album/Song.flac", embedded?.relativePath)
+        assertEquals("Library\\Album\\Song.flac", embedded?.let { it.endpoint.serverPath(it.relativePath) })
+        assertFalse(embedded.toString().contains("secret"))
     }
 
     @Test

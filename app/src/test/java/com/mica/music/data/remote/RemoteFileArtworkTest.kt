@@ -23,6 +23,17 @@ class RemoteFileArtworkTest {
     }
 
     @Test
+    fun embeddedArtworkIdRoundTripsTrackRevisionAndSize() {
+        val encoded = RemoteEmbeddedArtworkIdCodec.encode("专辑 A/Song:1.flac", "etag=\"a:b\";mtime=7", 1234)
+
+        assertEquals(
+            RemoteEmbeddedArtworkTarget("专辑 A/Song:1.flac", "etag=\"a:b\";mtime=7", 1234),
+            RemoteEmbeddedArtworkIdCodec.decode(encoded),
+        )
+        assertNull(RemoteEmbeddedArtworkIdCodec.decode("file-v1:anything"))
+    }
+
+    @Test
     fun sameStemArtworkIsSelectedWithoutFallingBackToFolderArtwork() {
         val candidates = listOf(
             candidate("folder.png", "Album/folder.png"),

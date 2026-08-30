@@ -10,6 +10,7 @@ import android.system.ErrnoException
 import android.system.OsConstants
 import com.mica.music.data.scanner.TagLibReader
 import java.io.Closeable
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -61,29 +62,53 @@ internal class ReadAheadSeekableByteSource(
         if (length == 0) return@synchronized 0
         if (fileOffset >= sizeBytes) return@synchronized -1
 
-        if (fileOffset >= cacheStart && fileOffset < cacheStart + cacheLength) {
-            val cachedOffset = (fileOffset - cacheStart).toInt()
-            val copied = minOf(length, cacheLength - cachedOffset)
-            cache.copyInto(buffer, bufferOffset, cachedOffset, cachedOffset + copied)
-            return@synchronized copied
-        }
+        val target = minOf(length.toLong(), sizeBytes - fileOffset).toInt()
+        var total = 0
+        while (total < target) {
+            val cursor = fileOffset + total
+            val remaining = target - total
 
-        if (length > cache.size) {
-            return@synchronized delegate.readAt(fileOffset, buffer, bufferOffset, length)
-        }
+            if (cursor >= cacheStart && cursor < cacheStart + cacheLength) {
+                val cachedOffset = (cursor - cacheStart).toInt()
+                val copied = minOf(remaining, cacheLength - cachedOffset)
+                cache.copyInto(
+                    destination = buffer,
+                    destinationOffset = bufferOffset + total,
+                    startIndex = cachedOffset,
+                    endIndex = cachedOffset + copied,
+                )
+                total += copied
+                continue
+            }
 
-        val requested = minOf(cache.size.toLong(), sizeBytes - fileOffset).toInt()
-        val fetched = delegate.readAt(fileOffset, cache, 0, requested)
-        if (fetched <= 0) {
-            cacheStart = -1L
-            cacheLength = 0
-            return@synchronized fetched
+            if (remaining > cache.size) {
+                val fetched = delegate.readAt(cursor, buffer, bufferOffset + total, remaining)
+                if (fetched < 0) {
+                    throw IOException("Remote metadata read ended before the known file boundary")
+                }
+                if (fetched == 0) {
+                    throw IOException("Remote metadata read made no progress")
+                }
+                total += fetched
+                continue
+            }
+
+            val requested = minOf(cache.size.toLong(), sizeBytes - cursor).toInt()
+            val fetched = delegate.readAt(cursor, cache, 0, requested)
+            if (fetched < 0) {
+                cacheStart = -1L
+                cacheLength = 0
+                throw IOException("Remote metadata read ended before the known file boundary")
+            }
+            if (fetched == 0) {
+                cacheStart = -1L
+                cacheLength = 0
+                throw IOException("Remote metadata read made no progress")
+            }
+            cacheStart = cursor
+            cacheLength = fetched
         }
-        cacheStart = fileOffset
-        cacheLength = fetched
-        val copied = minOf(length, fetched)
-        cache.copyInto(buffer, bufferOffset, 0, copied)
-        copied
+        total
     }
 
     override fun close() {
@@ -104,7 +129,11 @@ internal data class RemoteTrackMetadata(
     val year: Int = 0,
     val trackNumber: Int = 0,
     val discNumber: Int = 0,
+    val hasEmbeddedArtwork: Boolean = false,
 )
+
+// Revision 2 re-probes catalogs that may have cached metadata from the pre-fix read-ahead path.
+internal const val REMOTE_METADATA_PROBE_REVISION = 2
 
 internal fun interface RemoteTrackMetadataProbe {
     fun probe(fileName: String, source: SeekableByteSource): RemoteTrackMetadata?
@@ -136,8 +165,27 @@ internal class AndroidTagLibRemoteTrackMetadataProbe(
                 year = tags.year.coerceAtLeast(0),
                 trackNumber = tags.trackNumber.coerceAtLeast(0),
                 discNumber = tags.discNumber.coerceAtLeast(0),
+                hasEmbeddedArtwork = tags.hasPictures,
             )
         }
+    }
+}
+
+/** Reads the front embedded picture only when an artwork URI is actually opened. */
+internal class AndroidTagLibEmbeddedArtworkLoader(
+    context: Context,
+) {
+    private val appContext = context.applicationContext
+
+    fun load(source: SeekableByteSource): ByteArray {
+        val bufferedSource = ReadAheadSeekableByteSource(source)
+        val proxy = RemoteProxyFileDescriptor.open(appContext, bufferedSource)
+        val result = proxy.descriptor.use { descriptor ->
+            TagLibReader.read(descriptor, readPictures = true)?.frontCoverBytes
+        }
+        proxy.readFailure.get()?.let { throw it }
+        return result?.takeIf(ByteArray::isNotEmpty)
+            ?: throw java.io.IOException("Remote track has no readable embedded artwork")
     }
 }
 

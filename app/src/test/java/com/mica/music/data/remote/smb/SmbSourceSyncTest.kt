@@ -6,7 +6,9 @@ import com.mica.music.data.local.MicaDatabase
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteCredentialSnapshot
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
 import com.mica.music.data.remote.RemoteFileArtworkIdCodec
+import com.mica.music.data.remote.REMOTE_METADATA_PROBE_REVISION
 import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadata
@@ -104,7 +106,7 @@ class SmbSourceSyncTest {
             entries = mapOf(
                 "Library" to listOf(
                     SmbDirectoryEntry("Song.flac", false, 4, contentRevision = "audio:1"),
-                    SmbDirectoryEntry("cover.jpg", false, 100, contentRevision = artRevision),
+                    SmbDirectoryEntry("Song.jpg", false, 100, contentRevision = artRevision),
                 ),
             ),
             files = mapOf("Library\\Song.flac" to byteArrayOf(1, 2, 3, 4)),
@@ -118,7 +120,7 @@ class SmbSourceSyncTest {
             SmbSessionFactory { _, _ -> handles.removeFirst() },
             metadataProbe = RemoteTrackMetadataProbe { _, _ ->
                 probeCalls++
-                RemoteTrackMetadata(title = "Tagged")
+                RemoteTrackMetadata(title = "Tagged", hasEmbeddedArtwork = true)
             },
         )
 
@@ -132,10 +134,56 @@ class SmbSourceSyncTest {
         )
 
         assertEquals(1, probeCalls)
-        assertEquals("cover.jpg", firstArtwork?.resourceId)
+        assertEquals("Song.jpg", firstArtwork?.resourceId)
         assertEquals("art:1", firstArtwork?.contentRevision)
-        assertEquals("cover.jpg", secondArtwork?.resourceId)
+        assertEquals("Song.jpg", secondArtwork?.resourceId)
         assertEquals("art:2", secondArtwork?.contentRevision)
+    }
+
+    @Test
+    fun embeddedArtworkHintPublishesTrackScopedArtworkAndProbeRevisionIsReusable() = runTest {
+        val source = source()
+        repository.upsertSource(source)
+        val handles = ArrayDeque<FakeSessionHandle>()
+        fun handle(includeFile: Boolean) = FakeSessionHandle(
+            entries = mapOf(
+                "Library" to listOf(
+                    SmbDirectoryEntry("Song.flac", false, 4, contentRevision = "audio:1"),
+                ),
+            ),
+            files = if (includeFile) {
+                mapOf("Library\\Song.flac" to byteArrayOf(1, 2, 3, 4))
+            } else {
+                emptyMap()
+            },
+        )
+        handles += handle(includeFile = true)
+        handles += handle(includeFile = false)
+        var probeCalls = 0
+        val sync = SmbSourceSync(
+            repository,
+            credentials(),
+            SmbSessionFactory { _, _ -> handles.removeFirst() },
+            metadataProbe = RemoteTrackMetadataProbe { _, _ ->
+                probeCalls++
+                RemoteTrackMetadata(title = "Tagged", hasEmbeddedArtwork = true)
+            },
+        )
+
+        val first = sync.sync(source.id)
+        val firstTrack = repository.tracksForSource(source.id).single()
+        val embedded = RemoteEmbeddedArtworkIdCodec.decode(firstTrack.artworkOpaqueId)
+        val second = sync.sync(source.id)
+        val secondTrack = repository.tracksForSource(source.id).single()
+
+        assertEquals(1, first.metadataProbedCount)
+        assertEquals(1, second.metadataReusedCount)
+        assertEquals(1, probeCalls)
+        assertEquals("Song.flac", embedded?.resourceId)
+        assertEquals("audio:1", embedded?.contentRevision)
+        assertEquals(4L, embedded?.sizeBytes)
+        assertEquals(REMOTE_METADATA_PROBE_REVISION, firstTrack.metadataProbeRevision)
+        assertEquals(firstTrack.artworkOpaqueId, secondTrack.artworkOpaqueId)
     }
 
     @Test
@@ -215,28 +263,99 @@ class SmbSourceSyncTest {
     }
 
     @Test
-    fun metadataProbeFailureFallsBackToFilenameWithoutAbortingSync() = runTest {
+    fun metadataProbeFailureFallsBackWithoutMarkingProbeRevisionAndRetriesNextSync() = runTest {
         val source = source()
         repository.upsertSource(source)
-        val handle = FakeSessionHandle(
-            entries = mapOf("Library" to listOf(SmbDirectoryEntry("Broken.flac", false, 3))),
-            files = mapOf("Library\\Broken.flac" to byteArrayOf(1, 2, 3)),
+        val handles = ArrayDeque<FakeSessionHandle>()
+        repeat(2) {
+            handles += FakeSessionHandle(
+                entries = mapOf(
+                    "Library" to listOf(
+                        SmbDirectoryEntry("Broken.flac", false, 3, contentRevision = "audio:1"),
+                    ),
+                ),
+                files = mapOf("Library\\Broken.flac" to byteArrayOf(1, 2, 3)),
+            )
+        }
+        var probeCalls = 0
+        val sync = SmbSourceSync(
+            repository,
+            credentials(),
+            SmbSessionFactory { _, _ -> handles.removeFirst() },
+            metadataProbe = RemoteTrackMetadataProbe { _, _ ->
+                probeCalls++
+                if (probeCalls == 1) error("transient tag read")
+                RemoteTrackMetadata(title = "Recovered", artist = "Artist", album = "Album", durationSec = 9)
+            },
         )
+
+        val first = sync.sync(source.id)
+        val fallback = repository.tracksForSource(source.id).single()
+        val second = sync.sync(source.id)
+        val recovered = repository.tracksForSource(source.id).single()
+
+        assertEquals(1, first.metadataProbedCount)
+        assertEquals("Broken", fallback.title)
+        assertEquals(0, fallback.metadataProbeRevision)
+        assertEquals(1, second.metadataProbedCount)
+        assertEquals(0, second.metadataReusedCount)
+        assertEquals(2, probeCalls)
+        assertEquals("Recovered", recovered.title)
+        assertEquals("Artist", recovered.artist)
+        assertEquals("Album", recovered.album)
+        assertEquals(9, recovered.durationSec)
+        assertEquals(REMOTE_METADATA_PROBE_REVISION, recovered.metadataProbeRevision)
+    }
+
+    @Test
+    fun olderMetadataProbeRevisionForcesOneTimeReprobeEvenWhenContentIsUnchanged() = runTest {
+        val source = source()
+        repository.upsertSource(source)
+        val initial = repository.beginOperation(source.id)!!.token
+        assertTrue(
+            repository.publishCatalogIfCurrent(
+                initial,
+                listOf(
+                    RemoteTrackSummary(
+                        ref = RemoteTrackRef(source.id, "Track.flac"),
+                        title = "Stale",
+                        fileName = "Track.flac",
+                        suffix = "flac",
+                        sizeBytes = 4,
+                        contentRevision = "file-7:1000",
+                        metadataProbeRevision = REMOTE_METADATA_PROBE_REVISION - 1,
+                    ),
+                ),
+            ),
+        )
+        val handle = FakeSessionHandle(
+            entries = mapOf(
+                "Library" to listOf(
+                    SmbDirectoryEntry("Track.flac", false, 4, contentRevision = "file-7:1000"),
+                ),
+            ),
+            files = mapOf("Library\\Track.flac" to byteArrayOf(1, 2, 3, 4)),
+        )
+        var probeCalls = 0
         val sync = SmbSourceSync(
             repository,
             credentials(),
             SmbSessionFactory { _, _ -> handle },
-            metadataProbe = RemoteTrackMetadataProbe { _, _ -> error("bad tag") },
+            metadataProbe = RemoteTrackMetadataProbe { _, _ ->
+                probeCalls++
+                RemoteTrackMetadata(title = "Recovered", artist = "Artist", album = "Album", durationSec = 9)
+            },
         )
 
         val result = sync.sync(source.id)
-
-        assertEquals(1, result.trackCount)
         val track = repository.tracksForSource(source.id).single()
-        assertEquals("Broken", track.title)
-        assertEquals("", track.artist)
-        assertEquals(0, track.durationSec)
-        assertTrue(handle.openedFiles.single().closed)
+
+        assertEquals(1, result.metadataProbedCount)
+        assertEquals(0, result.metadataReusedCount)
+        assertEquals(1, probeCalls)
+        assertEquals("Recovered", track.title)
+        assertEquals("Album", track.album)
+        assertEquals(REMOTE_METADATA_PROBE_REVISION, track.metadataProbeRevision)
     }
 
     @Test

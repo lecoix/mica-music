@@ -2,8 +2,10 @@ package com.mica.music.data.remote.smb
 
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteCredentialMaterial
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
 import com.mica.music.data.remote.RemoteFileArtworkIdCodec
 import com.mica.music.data.remote.REMOTE_METADATA_IO_CONCURRENCY
+import com.mica.music.data.remote.REMOTE_METADATA_PROBE_REVISION
 import com.mica.music.data.remote.RemoteOperationSnapshot
 import com.mica.music.data.remote.RemoteSidecarArtworkCandidate
 import com.mica.music.data.remote.RemoteSourceOwner
@@ -254,18 +256,23 @@ internal class SmbSourceSync(
         previous != null &&
             base.contentRevision.isNotBlank() &&
             previous.contentRevision == base.contentRevision &&
-            previous.sizeBytes == base.sizeBytes
+            previous.sizeBytes == base.sizeBytes &&
+            (metadataProbe == null || previous.metadataProbeRevision == REMOTE_METADATA_PROBE_REVISION)
 
-    private fun reuseMetadata(base: RemoteTrackSummary, previous: RemoteTrackSummary): RemoteTrackSummary =
-        previous.copy(
+    private fun reuseMetadata(base: RemoteTrackSummary, previous: RemoteTrackSummary): RemoteTrackSummary {
+        val artworkId = base.artworkOpaqueId.ifBlank {
+            previous.artworkOpaqueId.takeIf { RemoteEmbeddedArtworkIdCodec.decode(it) != null }.orEmpty()
+        }
+        return previous.copy(
             ref = base.ref,
             mimeTypeHint = base.mimeTypeHint,
             fileName = base.fileName,
             suffix = base.suffix,
             sizeBytes = base.sizeBytes,
             contentRevision = base.contentRevision,
-            artworkOpaqueId = base.artworkOpaqueId,
+            artworkOpaqueId = artworkId,
         )
+    }
 
     private fun applySafeFolderArtwork(
         candidates: List<TrackCandidate>,
@@ -320,6 +327,14 @@ internal class SmbSourceSync(
                 year = tags.year,
                 trackNumber = tags.trackNumber,
                 discNumber = tags.discNumber,
+                metadataProbeRevision = REMOTE_METADATA_PROBE_REVISION,
+                artworkOpaqueId = base.artworkOpaqueId.ifBlank {
+                    if (tags.hasEmbeddedArtwork) {
+                        RemoteEmbeddedArtworkIdCodec.encode(relativePath, base.contentRevision, base.sizeBytes)
+                    } else {
+                        ""
+                    }
+                },
             )
         } ?: base
     }

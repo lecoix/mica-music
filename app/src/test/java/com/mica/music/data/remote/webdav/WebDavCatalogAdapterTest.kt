@@ -7,7 +7,9 @@ import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteCredentialSnapshot
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
 import com.mica.music.data.remote.RemoteFileArtworkIdCodec
+import com.mica.music.data.remote.REMOTE_METADATA_PROBE_REVISION
 import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadata
@@ -115,13 +117,19 @@ class WebDavCatalogAdapterTest {
                 "/music/" -> multistatus(
                     collection("/music/", "music"),
                     file("/music/Song.flac", "Song.flac", 100, "audio/flac", etag = "audio-1"),
-                    file("/music/cover.jpg", "cover.jpg", 50, "image/jpeg", etag = "art-1"),
+                    file("/music/Song.jpg", "Song.jpg", 50, "image/jpeg", etag = "art-1"),
                 )
                 else -> TestResponse(status = 404)
             }
         }.use { server ->
             val sourceId = createSource("${server.baseUrl}/music")
-            val sync = WebDavSourceSync(catalog, credentialStore())
+            val sync = WebDavSourceSync(
+                catalog,
+                credentialStore(),
+                metadataProbe = RemoteTrackMetadataProbe { _, _ ->
+                    RemoteTrackMetadata(hasEmbeddedArtwork = true)
+                },
+            )
 
             val result = sync.sync(sourceId)
             val artwork = RemoteFileArtworkIdCodec.decode(
@@ -129,8 +137,50 @@ class WebDavCatalogAdapterTest {
             )
 
             assertEquals(1, result.trackCount)
-            assertEquals("cover.jpg", artwork?.resourceId)
+            assertEquals("Song.jpg", artwork?.resourceId)
             assertEquals("etag=art-1;mtime=", artwork?.contentRevision)
+            assertTrue(requests.all { it.target == "/music/" })
+        }
+    }
+
+    @Test
+    fun embeddedArtworkHintPublishesTrackScopedArtworkAndProbeRevisionIsReusable() = runBlocking {
+        val requests = CopyOnWriteArrayList<TestRequest>()
+        TinyWebDavServer { request ->
+            requests += request
+            when (request.target) {
+                "/music/" -> multistatus(
+                    collection("/music/", "music"),
+                    file("/music/Song.flac", "Song.flac", 100, "audio/flac", etag = "audio-1"),
+                )
+                else -> TestResponse(status = 404)
+            }
+        }.use { server ->
+            val sourceId = createSource("${server.baseUrl}/music")
+            var probeCalls = 0
+            val sync = WebDavSourceSync(
+                catalog,
+                credentialStore(),
+                metadataProbe = RemoteTrackMetadataProbe { _, _ ->
+                    probeCalls++
+                    RemoteTrackMetadata(title = "Tagged", hasEmbeddedArtwork = true)
+                },
+            )
+
+            val first = sync.sync(sourceId)
+            val firstTrack = catalog.tracksForSource(sourceId).single()
+            val embedded = RemoteEmbeddedArtworkIdCodec.decode(firstTrack.artworkOpaqueId)
+            val second = sync.sync(sourceId)
+            val secondTrack = catalog.tracksForSource(sourceId).single()
+
+            assertEquals(1, first.metadataProbedCount)
+            assertEquals(1, second.metadataReusedCount)
+            assertEquals(1, probeCalls)
+            assertEquals("Song.flac", embedded?.resourceId)
+            assertEquals("etag=audio-1;mtime=", embedded?.contentRevision)
+            assertEquals(100L, embedded?.sizeBytes)
+            assertEquals(REMOTE_METADATA_PROBE_REVISION, firstTrack.metadataProbeRevision)
+            assertEquals(firstTrack.artworkOpaqueId, secondTrack.artworkOpaqueId)
             assertTrue(requests.all { it.target == "/music/" })
         }
     }
@@ -165,6 +215,28 @@ class WebDavCatalogAdapterTest {
 
             assertArrayEquals(image, loaded)
             assertEquals("/music/cover.jpg", requests.single().target)
+            assertFalse(request.toString().contains("secret"))
+        }
+    }
+
+    @Test
+    fun embeddedArtworkResolverKeepsTrackUrlEphemeralAndSourceScoped() = runBlocking {
+        TinyWebDavServer { TestResponse(status = 404) }.use { server ->
+            val sourceId = createSource("${server.baseUrl}/music")
+            val ref = RemoteArtworkRef(
+                sourceId,
+                RemoteEmbeddedArtworkIdCodec.encode("Album/Song.flac", "etag=audio-1;mtime=", 1234),
+            )
+            val resolver = WebDavEmbeddedArtworkRequestResolver(
+                sourceOwnerById = { id -> catalog.sourceOwner(id) },
+                credentialStore = credentialStore(),
+            )
+
+            val request = requireNotNull(resolver.resolve(ref))
+
+            assertEquals("/music/Album/Song.flac", request.url.encodedPath)
+            assertEquals(1234L, request.sizeBytes)
+            assertEquals(1L, request.sourceConfigRevision)
             assertFalse(request.toString().contains("secret"))
         }
     }
@@ -311,6 +383,48 @@ class WebDavCatalogAdapterTest {
             val track = catalog.tracksForSource(sourceId).single()
             assertEquals("Tagged 2", track.title)
             assertEquals("etag=v2;mtime=", track.contentRevision)
+        }
+    }
+
+    @Test
+    fun metadataProbeFailureDoesNotBecomeReusableAndRetriesNextSync() = runBlocking {
+        TinyWebDavServer { request ->
+            when (request.target) {
+                "/music/" -> multistatus(
+                    collection("/music/", "music"),
+                    file("/music/A.flac", "A.flac", 4, "audio/flac", etag = "v1"),
+                )
+                else -> TestResponse(status = 404)
+            }
+        }.use { server ->
+            val sourceId = createSource("${server.baseUrl}/music")
+            var probeCalls = 0
+            val sync = WebDavSourceSync(
+                catalogRepository = catalog,
+                credentialStore = credentialStore(),
+                metadataProbe = RemoteTrackMetadataProbe { _, _ ->
+                    probeCalls++
+                    if (probeCalls == 1) error("transient tag read")
+                    RemoteTrackMetadata(title = "Recovered", artist = "Artist", album = "Album", durationSec = 9)
+                },
+            )
+
+            val first = sync.sync(sourceId)
+            val fallback = catalog.tracksForSource(sourceId).single()
+            val second = sync.sync(sourceId)
+            val recovered = catalog.tracksForSource(sourceId).single()
+
+            assertEquals(1, first.metadataProbedCount)
+            assertEquals("A", fallback.title)
+            assertEquals(0, fallback.metadataProbeRevision)
+            assertEquals(1, second.metadataProbedCount)
+            assertEquals(0, second.metadataReusedCount)
+            assertEquals(2, probeCalls)
+            assertEquals("Recovered", recovered.title)
+            assertEquals("Artist", recovered.artist)
+            assertEquals("Album", recovered.album)
+            assertEquals(9, recovered.durationSec)
+            assertEquals(REMOTE_METADATA_PROBE_REVISION, recovered.metadataProbeRevision)
         }
     }
 

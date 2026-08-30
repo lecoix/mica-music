@@ -35,6 +35,8 @@ internal object TagLibReader {
         val discNumber: Int,
         val lyricsCandidates: List<EmbeddedLyricsTextCandidate>,
         val frontCoverBytes: ByteArray?,
+        /** Presence hint obtained from TagLib complex-property keys without copying picture bytes. */
+        val hasPictures: Boolean,
         val replayGain: ReplayGainTags,
     )
 
@@ -90,6 +92,7 @@ internal object TagLibReader {
             ),
             lyricsCandidates = lyricsCandidates(tags),
             frontCoverBytes = frontCover?.data?.takeIf { it.isNotEmpty() },
+            hasPictures = probe.hasPictures,
             replayGain = ReplayGainTags.fromProperties(tags),
         )
     }.getOrNull()

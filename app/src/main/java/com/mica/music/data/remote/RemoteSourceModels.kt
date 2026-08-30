@@ -59,6 +59,8 @@ data class RemoteTrackSummary(
     val sizeBytes: Long = 0L,
     /** Protocol-provided revision hint (SMB last-write/file-id, WebDAV ETag/mtime) for metadata reuse. */
     val contentRevision: String = "",
+    /** Version of Mica's file metadata profile that produced the cached browse fields. */
+    val metadataProbeRevision: Int = 0,
     val year: Int = 0,
     val trackNumber: Int = 0,
     val discNumber: Int = 0,

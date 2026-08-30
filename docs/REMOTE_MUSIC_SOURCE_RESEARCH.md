@@ -31,11 +31,23 @@
 ### 2026-08-30 文件型远端 sidecar 封面
 
 - SMB / WebDAV 同步阶段只利用目录枚举已经返回的图片文件名、大小和内容修订提示建立 sidecar 引用，不读取图片 payload；图片字节仍由现有 `RemoteArtworkContentProvider` 按需加载并进入 16 MiB 有界进程缓存。支持 jpg/jpeg/png/webp，同名图片（如 `Song.jpg` 对 `Song.flac`）具有最高优先级。
-- `Folder.jpg` / `cover.*` / `front.*` 不能无条件作为整目录封面。当前 264 首真实 SMB 曲库包含 28 个有歌曲目录和 422 张图片；根目录 103 首歌实际属于 85 个不同专辑，`gundam` 目录 36 首也属于 31 个专辑。若简单套 `Folder.jpg` 会产生大量错误封面。因此目录通用封面只在完整目录只有 1 首歌，或所有已识别歌曲具有同一个非空 album 时发布；当前真实 metadata 下安全覆盖为 45/264（12/28 个目录）。其余曲目保持无封面，后续应走内嵌封面 JIT，而不是猜测 Windows Media Player 的 `AlbumArt_{GUID}` 映射。
+- `Folder.jpg` / `cover.*` / `front.*` 不能无条件作为整目录封面。当前 264 首真实 SMB 曲库包含 28 个有歌曲目录和 422 张图片；根目录 103 首歌实际属于 85 个不同专辑，`gundam` 目录 36 首也属于 31 个专辑。若简单套 `Folder.jpg` 会产生大量错误封面。因此目录通用封面只在完整目录只有 1 首歌，或所有已识别歌曲具有同一个非空 album 时发布。主机按目录/标签静态盘点曾估算安全覆盖 45/264；sidecar-only QA 真机同步实际发布 41/264，以 Android 实际 catalog 为准。其余曲目不能猜测 Windows Media Player 的 `AlbumArt_{GUID}` 映射。
 - sidecar 的 opaque artwork id 同时携带相对资源路径与图片 content revision；SMB 使用 file-id + last-write-time，WebDAV 使用 ETag/mtime（缺失时退化到 size）。音频 metadata 命中 revision reuse 时，仍以本轮目录枚举重新计算 artwork id，因此只替换 `Folder.jpg` 不会被旧音频标签缓存遮蔽。
 - `RemoteArtworkContentProvider` 已扩展为 Navidrome / WebDAV / SMB 共用 JIT 路由。文件型 resolver 只接受规范化且仍位于配置根下的相对路径；provider 在真正读取前还要求 exact artwork id 被当前 config revision 已发布的 catalog 引用，来源编辑后旧 catalog 的 URI 不能被拿去新地址解析。缓存 key 新增 `catalogRevision`，成功发布新 catalog 后即切换缓存代际，避免同 artwork id 换图后继续命中旧字节。
 - SMB artwork loader 使用独立短生命周期 SMBJ session/file handle，32 MiB 上限且严格要求完整读取；WebDAV artwork loader 禁用重定向、复用同源 Basic/Digest challenge auth，并同样限制 32 MiB。定向测试覆盖 sidecar 不在扫描期下载、混合专辑目录拒绝通用封面、音频 metadata reuse 时图片 revision 更新、SMB/WebDAV JIT loader、catalog artwork 授权边界和缓存代际。
-- debug QA 增加 `artworks=` 同步覆盖计数及独立 `SMB_QA_READ_ARTWORK` JIT 读取动作。当前测试机无线调试端口不可达且 mDNS 未发现 adb 服务，因此这一 tranche 的 Android 真机 provider 读取尚待设备重新上线后补验；不能用主机文件盘点或 JVM fake transport 代替该项物理证据。
+- debug QA 增加 `artworks=` 同步覆盖计数及独立 `SMB_QA_READ_ARTWORK` JIT 读取动作。2026-08-30 测试机重新上线后，sidecar-only QA 普通同步得到 `tracks=264 / probed=0 / reused=264 / artworks=41`，6056 ms 完成；随后通过真实 `ContentResolver → RemoteArtworkContentProvider → SMBJ` 打开当前 catalog 中一张 sidecar，读取 57,115 bytes，289 ms 完成。sidecar 的 Android 物理链路已闭合。
+
+### 2026-08-30 文件型远端内嵌封面 JIT
+
+- Mica 的 TagLib fork 已把 `FileRef::complexPropertyKeys()` 暴露到合并 probe 结果：同步阶段只记录是否存在 `PICTURE` complex property，不调用 `complexProperties("PICTURE")`，也不把图片字节 materialize 到 Java/Room。需要强调，这一约束是“同步期不提取图片 value”；底层 TagLib 为解析音频标签仍可能读取所在 metadata block，不能把它表述成对所有格式都保证网络层完全跳过图片所在字节。
+- Room schema 升至 24，`remote_tracks.metadataProbeRevision` 默认 0；当前文件 metadata profile revision 为 2。schema-23 旧 catalog 或 revision-1 catalog 因 profile revision 不匹配只会进行一次重新 probe，之后即使确认“无内嵌封面”也可以按 audio content revision 复用，避免每次同步重复跑 TagLib。音频内容 revision 改变仍会强制重新 probe。revision 2 专门用于修复 revision 1 期间可能被旧 read-ahead short-read 污染的缓存结果。
+- 封面优先级明确为：**同名 sidecar（如 `Song.jpg`）→ 音频内嵌封面 → 经安全判定的 `Folder/cover/front` 通用封面**。这样混合专辑目录不会误套通用图片，而明确与歌曲同名的 sidecar 仍可覆盖内嵌图。
+- `embedded-v1` opaque artwork id 只携带音频相对 resource id、audio content revision 和文件大小，不含凭据或可直接播放 URL。provider 仍先验证 exact artwork id 被当前 config revision 的已发布 catalog 引用，再即时解析凭据。SMB 使用独立短生命周期 SMBJ session + random-access file；WebDAV 使用同源认证、禁重定向和严格 HTTP Range；两者通过 Android proxy fd 在真正打开 artwork URI 时才调用 TagLib picture value extraction。
+- revision-1 真机验证暴露了一个共用 `ReadAheadSeekableByteSource` bug：当 TagLib 的一次 proxy-fd read 从已缓存的 1 MiB 窗口尾部跨到下一窗口时，旧实现只返回当前窗口剩余字节，制造人为 short read。`Last Call.m4a` 的 A/B 诊断证明同一设备/同一 TagLib 在 remote proxy fd 下丢 `TITLE/ALBUM`，把同一 12,480,719-byte 文件完整拷到 QA 私有 cache 后普通本地 fd 能完整读出；修复 read-ahead 为跨窗口填满请求后，`Sincerely.flac`、`TIT FOR TAT.flac`、`Last Call.m4a` 三个定向 SMB 真机 probe 均恢复完整 title/artist/album/duration。SMB random-access 层也同步改为在已知 EOF 前处理合法 short read，并对 0-progress fail closed。
+- probe 抛异常时不再写 `metadataProbeRevision`；失败记录保持旧 revision，下一次同步会自动重试，避免一次瞬时 SMB/WebDAV 读取失败永久缓存 filename fallback。定向测试同时覆盖失败→重试恢复，以及旧 metadata profile revision 在 content revision 未变化时仍必须一次性重新 probe。
+- 2026-08-30 最终 SMB 真机 revision-1→revision-2 普通同步：`tracks=264 / probed=264 / reused=0 / artists=264 / albums=262 / durations=264 / artworks=264 / embeddedArtworks=264`，95,387 ms 完成。原文件独立核对确认仅两首曲目的 album 标签本来为空，因此 262/264 是完整结果；此前 revision-1 的 259 album 与 262 embedded-art 覆盖均由 read-ahead short-read 导致。
+- 紧接着热同步得到 `probed=0 / reused=264 / artists=264 / albums=262 / durations=264 / artworks=264 / embeddedArtworks=264`，4,128 ms 完成；随后 `SMB_QA_READ_EMBEDDED_ARTWORK` 经真实 `ContentResolver → provider → SMBJ → proxy fd → TagLib` 再次读取 458,398 bytes，600 ms 完成。证明 rev2 metadata 与 embedded artwork id 均可稳定复用，read-ahead 修复没有破坏 JIT 封面链。
+- 定向 JVM/Robolectric 回归覆盖 schema 23→24、embedded opaque id、SMB/WebDAV presence→catalog 映射、metadata profile revision、probe failure retry、跨 read-ahead 窗口完整读取、SMBJ short-read、同名 sidecar 优先及两协议 resolver 根目录/凭据边界；TagLib JNI/C++ 则由 arm64-v8a 与 armeabi-v7a debug CMake 实际构建覆盖。
 ## 已确定的产品范围
 
 - 设置中合并为一个“远程曲库”入口。

@@ -15,6 +15,12 @@ internal data class RemoteFileArtworkTarget(
     val contentRevision: String,
 )
 
+internal data class RemoteEmbeddedArtworkTarget(
+    val resourceId: String,
+    val contentRevision: String,
+    val sizeBytes: Long,
+)
+
 /**
  * Stable opaque artwork payload for file-backed remote sources.
  *
@@ -37,6 +43,29 @@ internal object RemoteFileArtworkIdCodec {
         return RemoteFileArtworkTarget(
             resourceId = resourceId,
             contentRevision = Uri.decode(parts[2]),
+        )
+    }
+}
+
+/** Stable opaque id for artwork embedded inside the remote audio file itself. */
+internal object RemoteEmbeddedArtworkIdCodec {
+    private const val PREFIX = "embedded-v1"
+
+    fun encode(resourceId: String, contentRevision: String, sizeBytes: Long): String {
+        require(resourceId.isNotBlank()) { "Remote embedded artwork resource id must not be blank" }
+        require(sizeBytes >= 0L) { "Remote embedded artwork size must not be negative" }
+        return "$PREFIX:${Uri.encode(resourceId)}:${Uri.encode(contentRevision)}:$sizeBytes"
+    }
+
+    fun decode(value: String): RemoteEmbeddedArtworkTarget? {
+        val parts = value.split(':', limit = 4)
+        if (parts.size != 4 || parts[0] != PREFIX) return null
+        val resourceId = Uri.decode(parts[1]).takeIf(String::isNotBlank) ?: return null
+        val sizeBytes = parts[3].toLongOrNull()?.takeIf { it >= 0L } ?: return null
+        return RemoteEmbeddedArtworkTarget(
+            resourceId = resourceId,
+            contentRevision = Uri.decode(parts[2]),
+            sizeBytes = sizeBytes,
         )
     }
 }
