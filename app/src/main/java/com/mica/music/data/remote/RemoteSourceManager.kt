@@ -160,6 +160,16 @@ internal class RemoteSourceManager internal constructor(
         return updated
     }
 
+    suspend fun deleteSource(sourceInstanceId: String) {
+        val current = requireSource(sourceInstanceId)
+        val mediaIds = catalogRepository.tracksForSource(sourceInstanceId)
+            .map(RemoteTrackSummary::mediaId)
+        check(catalogRepository.deleteSource(sourceInstanceId)) {
+            "Remote source disappeared during deletion"
+        }
+        SharedLyricsMemoryCache.invalidateSongs(mediaIds)
+        credentialStore.delete(current.credentialRef)
+    }
     suspend fun rotateNavidromeCredentials(
         sourceInstanceId: String,
         username: String,
@@ -275,6 +285,7 @@ internal class RemoteSourceManager internal constructor(
         )
         val updated = current.copy(credentialRef = nextCredentialRef)
         catalogRepository.upsertSource(updated)
+        credentialStore.delete(current.credentialRef)
         invalidateSourceLyrics(current.id)
         return updated
     }

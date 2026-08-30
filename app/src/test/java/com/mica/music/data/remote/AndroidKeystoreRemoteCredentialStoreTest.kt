@@ -70,6 +70,15 @@ class AndroidKeystoreRemoteCredentialStoreTest {
     }
 
     @Test
+    fun deleteRemovesEncryptedPayloadAndRevision() = runTest {
+        val ref = "credential/delete-me"
+        store.put(ref, RemoteCredentialMaterial.UsernamePassword("alice", "secret"))
+        assertTrue(store.delete(ref))
+        assertNull(store.resolve(ref))
+        assertFalse(store.delete(ref))
+        assertTrue(store.encryptedPreferenceSnapshotForTests().isEmpty())
+    }
+    @Test
     fun snapshotAndMaterialToStringNeverExposeSecrets() = runTest {
         val snapshot = store.put(
             "credential/nav-1",

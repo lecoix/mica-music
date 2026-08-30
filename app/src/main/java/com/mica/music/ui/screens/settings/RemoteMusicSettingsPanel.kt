@@ -53,6 +53,7 @@ internal fun RemoteMusicSettingsPanel() {
     var addSourceType by remember { mutableStateOf<RemoteSourceType?>(null) }
     var editSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
     var credentialSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
+    var deleteSource by remember { mutableStateOf<RemoteSourceInstance?>(null) }
 
     LaunchedEffect(refreshRevision) {
         loading = true
@@ -166,6 +167,12 @@ internal fun RemoteMusicSettingsPanel() {
                 onClick = { credentialSource = source },
                 enabled = !busy,
             )
+            SettingsActionRow(
+                title = "删除来源",
+                subtitle = "移除来源、已同步曲目与加密登录信息",
+                onClick = { deleteSource = source },
+                enabled = !busy,
+            )
         }
     }
 
@@ -236,6 +243,31 @@ internal fun RemoteMusicSettingsPanel() {
         )
     }
 
+    deleteSource?.let { source ->
+        AlertDialog(
+            onDismissRequest = { deleteSource = null },
+            shape = RectangleShape,
+            title = { Text("删除远程来源", style = MicaTheme.typography.titleMd, color = MicaTheme.colors.textPrimary) },
+            text = {
+                Text(
+                    "将删除“${source.displayName}”及其已同步远端曲目和加密登录信息。队列或歌单中已保存的该来源歌曲 ID 不会被改写，但之后将无法解析播放，除非重新添加对应来源。",
+                    style = MicaTheme.typography.bodyMd,
+                    color = MicaTheme.colors.textSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        runSourceAction(source.id, "已删除 ${source.displayName}") {
+                            manager.deleteSource(source.id)
+                            deleteSource = null
+                        }
+                    },
+                ) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { deleteSource = null }) { Text("取消") } },
+        )
+    }
     credentialSource?.let { source ->
         RemoteCredentialDialog(
             sourceName = source.displayName,

@@ -17,6 +17,8 @@ interface RemoteSourceDao {
     @Query("SELECT * FROM remote_sources WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): RemoteSourceEntity?
 
+    @Query("DELETE FROM remote_sources WHERE id = :id")
+    suspend fun deleteById(id: String): Int
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(source: RemoteSourceEntity)
 

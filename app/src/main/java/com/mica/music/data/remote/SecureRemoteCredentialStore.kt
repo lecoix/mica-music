@@ -13,6 +13,8 @@ interface MutableSecureRemoteCredentialStore : SecureRemoteCredentialStore {
         credentialRef: String,
         material: RemoteCredentialMaterial,
     ): RemoteCredentialSnapshot
+
+    suspend fun delete(credentialRef: String): Boolean
 }
 
 class RemoteCredentialSnapshot(

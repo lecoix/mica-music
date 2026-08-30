@@ -100,6 +100,19 @@ class RemoteCatalogRepository internal constructor(
         snapshot
     }
 
+    suspend fun deleteSource(sourceInstanceId: String): Boolean = mutex.withLock {
+        val persisted = sourceDao.getById(sourceInstanceId) ?: run {
+            owners.remove(sourceInstanceId)
+            return@withLock false
+        }
+        ownerForEntityLocked(persisted).invalidateOperations()
+        val deleted = database.withTransaction {
+            sourceDao.deleteById(sourceInstanceId)
+        }
+        check(deleted == 1) { "Remote source disappeared during deletion" }
+        owners.remove(sourceInstanceId)
+        true
+    }
     suspend fun beginOperation(sourceInstanceId: String): RemoteOperationSnapshot? = mutex.withLock {
         ownerForLocked(sourceInstanceId)?.beginOperationSnapshot()
     }

@@ -216,6 +216,8 @@ class NavidromeMvpAcceptanceTest {
             values[credentialRef] = snapshot
             return snapshot
         }
+
+        override suspend fun delete(credentialRef: String): Boolean = values.remove(credentialRef) != null
     }
 
     private data class TestRequest(

@@ -171,6 +171,19 @@ class RemoteCatalogRepositoryTest {
     }
 
     @Test
+    fun deleteSourceCascadesCatalogAndRejectsStaleOperation() = runTest {
+        val source = source("delete")
+        repository.upsertSource(source)
+        val token = repository.beginOperation(source.id)!!.token
+        assertTrue(repository.publishCatalogIfCurrent(token, listOf(track(source.id, "song"))))
+        val stale = repository.beginOperation(source.id)!!.token
+        assertTrue(repository.deleteSource(source.id))
+        assertEquals(null, repository.source(source.id))
+        assertTrue(repository.tracksForSource(source.id).isEmpty())
+        assertFalse(repository.publishCatalogIfCurrent(stale, emptyList()))
+        assertFalse(repository.deleteSource(source.id))
+    }
+    @Test
     fun configRevisionSurvivesRepositoryRecreation() = runTest {
         val source = source("nav-1")
         repository.upsertSource(source)

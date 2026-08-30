@@ -82,7 +82,7 @@ class RemoteSourceManagerTest {
         assertEquals(updated.credentialRef, repository.source(created.id)?.credentialRef)
         assertEquals(2L, repository.sourceSnapshot(created.id)?.configRevision)
         assertEquals("new", (credentials.resolve(updated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
-        assertEquals("old", (credentials.resolve(oldRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
+        assertEquals(null, credentials.resolve(oldRef))
     }
 
     @Test
@@ -174,7 +174,7 @@ class RemoteSourceManagerTest {
         assertNotEquals(oldRef, rotated.credentialRef)
         assertEquals(RemoteSourceType.WEBDAV, repository.source(source.id)?.type)
         assertEquals("new-secret", (credentials.resolve(rotated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
-        assertEquals("old-secret", (credentials.resolve(oldRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
+        assertEquals(null, credentials.resolve(oldRef))
     }
     @Test
     fun smbSourceNormalizesShareEndpointAndRotatesOpaqueCredentialRef() = runTest {
@@ -194,11 +194,42 @@ class RemoteSourceManagerTest {
 
         assertNotEquals(oldRef, rotated.credentialRef)
         assertEquals("new-secret", (credentials.resolve(rotated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
-        assertEquals("old-secret", (credentials.resolve(oldRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
+        assertEquals(null, credentials.resolve(oldRef))
         assertEquals(
             "smb://nas.local/Music/Other",
             manager.updateSourceConfig(source.id, "NAS", "smb://NAS.local/Music/Other/", true).endpoint,
         )
+    }
+    @Test
+    fun deletingSourceRemovesCatalogInvalidatesOperationAndDestroysCredential() = runTest {
+        val manager = manager(executor = NavidromeHttpExecutor { request ->
+            if (request.url.contains("/rest/search3?")) searchResponse() else okResponse()
+        })
+        val source = manager.createNavidrome("Home", "https://music.example", "alice", "secret")
+        manager.syncNavidrome(source.id)
+        val stale = repository.beginOperation(source.id)!!.token
+        val mediaId = repository.tracksForSource(source.id).single().mediaId
+        SharedLyricsMemoryCache.load(mediaId, "delete-test", 99) { LyricsDocument() }
+
+        manager.deleteSource(source.id)
+
+        assertEquals(null, repository.source(source.id))
+        assertTrue(repository.tracksForSource(source.id).isEmpty())
+        assertFalse(repository.publishCatalogIfCurrent(stale, emptyList()))
+        assertEquals(null, credentials.resolve(source.credentialRef))
+        assertEquals(null, SharedLyricsMemoryCache.get(mediaId, "delete-test", 99))
+    }
+
+    @Test
+    fun credentialRotationDeletesPreviousEncryptedCredential() = runTest {
+        val manager = manager(executor = NavidromeHttpExecutor { okResponse() })
+        val source = manager.createNavidrome("Home", "https://music.example", "alice", "old")
+        val oldRef = source.credentialRef
+
+        val rotated = manager.rotateNavidromeCredentials(source.id, "alice", "new")
+
+        assertEquals(null, credentials.resolve(oldRef))
+        assertEquals("new", (credentials.resolve(rotated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
     }
     @Test
     fun endpointValidationRejectsEmbeddedCredentialAndQuery() {
@@ -254,5 +285,7 @@ class RemoteSourceManagerTest {
             values[credentialRef] = next
             return next
         }
+
+        override suspend fun delete(credentialRef: String): Boolean = values.remove(credentialRef) != null
     }
 }

@@ -70,6 +70,21 @@ class AndroidKeystoreRemoteCredentialStore internal constructor(
         RemoteCredentialSnapshot(credentialRef, nextRevision, material)
     }
 
+    override suspend fun delete(credentialRef: String): Boolean = synchronized(lock) {
+        require(credentialRef.isNotBlank()) { "credentialRef must not be blank" }
+        val key = storageKey(credentialRef)
+        val payloadKey = "payload.$key"
+        val revisionKey = "revision.$key"
+        val existed = preferences.contains(payloadKey) || preferences.contains(revisionKey)
+        if (!existed) return@synchronized false
+        check(
+            preferences.edit()
+                .remove(payloadKey)
+                .remove(revisionKey)
+                .commit(),
+        ) { "Failed to delete encrypted remote credential ref=$credentialRef" }
+        true
+    }
     internal fun encryptedPreferenceSnapshotForTests(): Map<String, *> = preferences.all
 
     private fun storageKey(credentialRef: String): String {
