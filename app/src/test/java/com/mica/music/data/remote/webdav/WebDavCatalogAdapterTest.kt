@@ -8,6 +8,8 @@ import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteCredentialSnapshot
 import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceType
+import com.mica.music.data.remote.RemoteTrackMetadata
+import com.mica.music.data.remote.RemoteTrackMetadataProbe
 import com.mica.music.data.remote.SecureRemoteCredentialStore
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -23,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -123,6 +126,124 @@ class WebDavCatalogAdapterTest {
             assertTrue(requests[0].bodyLength > 0)
             assertEquals(0, requests[1].bodyLength)
             assertEquals("1", requests[1].headers["depth"])
+        }
+    }
+
+    @Test
+    fun metadataRangeSourceRequiresMatchingPartialContent() {
+        val bytes = ByteArray(16) { it.toByte() }
+        TinyWebDavServer { request ->
+            val range = request.headers["range"] ?: return@TinyWebDavServer TestResponse(status = 400)
+            val start = range.substringAfter('=').substringBefore('-').toLong()
+            val end = range.substringAfter('-').toLong()
+            TestResponse(
+                status = 206,
+                headers = mapOf(
+                    "Content-Range" to "bytes $start-$end/${bytes.size}",
+                    "Content-Type" to "audio/flac",
+                ),
+                body = bytes.copyOfRange(start.toInt(), end.toInt() + 1),
+            )
+        }.use { server ->
+            val source = WebDavSeekableByteSource(
+                client = OkHttpClient(),
+                url = "${server.baseUrl}/music/A.flac".toHttpUrl(),
+                sizeBytes = bytes.size.toLong(),
+            )
+            val output = ByteArray(4)
+
+            assertEquals(4, source.readAt(3, output, 0, output.size))
+            assertEquals(listOf<Byte>(3, 4, 5, 6), output.toList())
+        }
+    }
+
+    @Test
+    fun metadataRangeSourceRejectsServerThatIgnoresRange() {
+        TinyWebDavServer {
+            TestResponse(
+                status = 200,
+                body = ByteArray(32) { it.toByte() },
+            )
+        }.use { server ->
+            val source = WebDavSeekableByteSource(
+                client = OkHttpClient(),
+                url = "${server.baseUrl}/music/A.flac".toHttpUrl(),
+                sizeBytes = 32,
+            )
+
+            val failure = runCatching { source.readAt(4, ByteArray(4), 0, 4) }.exceptionOrNull()
+            assertTrue(failure is WebDavException)
+            assertEquals(WebDavFailureKind.PROTOCOL, (failure as WebDavException).kind)
+        }
+    }
+
+    @Test
+    fun unchangedEtagReusesMetadataWithoutGetAndChangedEtagReprobes() = runBlocking {
+        val requests = CopyOnWriteArrayList<TestRequest>()
+        val bytes = byteArrayOf(10, 20, 30, 40)
+        var etag = "v1"
+        TinyWebDavServer { request ->
+            requests += request
+            when {
+                request.target == "/music/" && request.headers["depth"] == "1" -> multistatus(
+                    collection("/music/", "music"),
+                    file("/music/A.flac", "A.flac", bytes.size.toLong(), "audio/flac", etag = etag),
+                )
+                request.target == "/music/A.flac" && request.headers["range"] != null -> {
+                    val range = checkNotNull(request.headers["range"])
+                    val start = range.substringAfter('=').substringBefore('-').toLong()
+                    val end = range.substringAfter('-').toLong()
+                    TestResponse(
+                        status = 206,
+                        headers = mapOf(
+                            "Content-Range" to "bytes $start-$end/${bytes.size}",
+                            "Content-Type" to "audio/flac",
+                        ),
+                        body = bytes.copyOfRange(start.toInt(), end.toInt() + 1),
+                    )
+                }
+                else -> TestResponse(status = 404)
+            }
+        }.use { server ->
+            val sourceId = createSource("${server.baseUrl}/music")
+            var probeCalls = 0
+            val sync = WebDavSourceSync(
+                catalogRepository = catalog,
+                credentialStore = credentialStore(),
+                metadataProbe = RemoteTrackMetadataProbe { _, source ->
+                    val header = ByteArray(4)
+                    assertEquals(4, source.readAt(0, header, 0, header.size))
+                    probeCalls++
+                    RemoteTrackMetadata(
+                        title = "Tagged $probeCalls",
+                        artist = "Artist",
+                        album = "Album",
+                        durationSec = 12,
+                    )
+                },
+            )
+
+            val first = sync.sync(sourceId)
+            val getCountAfterFirst = requests.count { it.headers.containsKey("range") }
+            val second = sync.sync(sourceId)
+            val getCountAfterSecond = requests.count { it.headers.containsKey("range") }
+            etag = "v2"
+            val third = sync.sync(sourceId)
+            val getCountAfterThird = requests.count { it.headers.containsKey("range") }
+
+            assertEquals(1, first.metadataProbedCount)
+            assertEquals(0, first.metadataReusedCount)
+            assertEquals(0, second.metadataProbedCount)
+            assertEquals(1, second.metadataReusedCount)
+            assertEquals(1, third.metadataProbedCount)
+            assertEquals(0, third.metadataReusedCount)
+            assertEquals(2, probeCalls)
+            assertEquals(1, getCountAfterFirst)
+            assertEquals(1, getCountAfterSecond)
+            assertEquals(2, getCountAfterThird)
+            val track = catalog.tracksForSource(sourceId).single()
+            assertEquals("Tagged 2", track.title)
+            assertEquals("etag=v2;mtime=", track.contentRevision)
         }
     }
 
@@ -286,12 +407,14 @@ class WebDavCatalogAdapterTest {
             displayName: String,
             contentLength: Long,
             contentType: String,
+            etag: String? = null,
         ): String = response(
             href = href,
             displayName = displayName,
             resourceType = "<D:resourcetype/>",
             contentLength = contentLength,
             contentType = contentType,
+            etag = etag,
         )
 
         private fun response(
@@ -300,6 +423,7 @@ class WebDavCatalogAdapterTest {
             resourceType: String,
             contentLength: Long,
             contentType: String,
+            etag: String? = null,
         ): String = """
             |<D:response>
             |  <D:href>$href</D:href>
@@ -309,6 +433,7 @@ class WebDavCatalogAdapterTest {
             |      $resourceType
             |      <D:getcontentlength>$contentLength</D:getcontentlength>
             |      <D:getcontenttype>$contentType</D:getcontenttype>
+            |      ${etag?.let { "<D:getetag>$it</D:getetag>" }.orEmpty()}
             |    </D:prop>
             |    <D:status>HTTP/1.1 200 OK</D:status>
             |  </D:propstat>

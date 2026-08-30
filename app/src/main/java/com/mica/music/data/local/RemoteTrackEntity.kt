@@ -1,5 +1,6 @@
 package com.mica.music.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -31,6 +32,7 @@ data class RemoteTrackEntity(
     val fileName: String,
     val suffix: String,
     val sizeBytes: Long,
+    @ColumnInfo(defaultValue = "''") val contentRevision: String = "",
     val year: Int,
     val trackNumber: Int,
     val discNumber: Int,
@@ -51,6 +53,7 @@ internal fun RemoteTrackEntity.toRemoteTrackSummary(): RemoteTrackSummary = Remo
     fileName = fileName,
     suffix = suffix,
     sizeBytes = sizeBytes,
+    contentRevision = contentRevision,
     year = year,
     trackNumber = trackNumber,
     discNumber = discNumber,
@@ -71,6 +74,7 @@ internal fun RemoteTrackSummary.toEntity(position: Int): RemoteTrackEntity = Rem
     fileName = fileName,
     suffix = suffix,
     sizeBytes = sizeBytes,
+    contentRevision = contentRevision,
     year = year,
     trackNumber = trackNumber,
     discNumber = discNumber,

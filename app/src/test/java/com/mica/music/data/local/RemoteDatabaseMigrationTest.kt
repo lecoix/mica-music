@@ -72,6 +72,59 @@ class RemoteDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration22To23AddsCatalogProvenanceAndTrackContentRevisionWithFailClosedDefaults() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(21) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            db.execSQL(
+                                "CREATE TABLE songs (" +
+                                    "id TEXT NOT NULL PRIMARY KEY, musicVideoUri TEXT, " +
+                                    "musicVideoRevision TEXT NOT NULL DEFAULT '')",
+                            )
+                        }
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                    },
+                )
+                .build(),
+        )
+        val db = helper.writableDatabase
+        try {
+            MIGRATION_21_22.migrate(db)
+            db.execSQL(
+                "INSERT INTO remote_sources " +
+                    "(id,type,displayName,endpoint,credentialRef,enabled,configRevision,catalogRevision,lastSyncAtMs) " +
+                    "VALUES ('smb','SMB','NAS','smb://nas/share','cred',1,7,3,1000)",
+            )
+            db.execSQL(
+                "INSERT INTO remote_tracks " +
+                    "(sourceInstanceId,opaqueTrackId,title,artist,album,albumArtist,durationSec,mimeTypeHint," +
+                    "fileName,suffix,sizeBytes,year,trackNumber,discNumber,albumOpaqueId,artistOpaqueId," +
+                    "artworkOpaqueId,catalogPosition) " +
+                    "VALUES ('smb','Track.flac','Track','','','',0,'audio/flac','Track.flac','flac',4,0,0,0,'','','',0)",
+            )
+
+            MIGRATION_22_23.migrate(db)
+
+            assertTrue("catalogConfigRevision" in tableColumns(db, "remote_sources"))
+            assertTrue("contentRevision" in tableColumns(db, "remote_tracks"))
+            db.query("SELECT catalogConfigRevision FROM remote_sources WHERE id='smb'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0L, cursor.getLong(0))
+            }
+            db.query("SELECT contentRevision FROM remote_tracks WHERE sourceInstanceId='smb'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("", cursor.getString(0))
+            }
+        } finally {
+            helper.close()
+        }
+    }
+
     private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> =
         db.query("PRAGMA table_info(`$table`)").use { cursor ->
             buildSet {

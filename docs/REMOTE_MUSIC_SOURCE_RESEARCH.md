@@ -19,6 +19,14 @@
 - FLAC 中段 seek/冷启动恢复曾因 extractor 的细碎读取被 1:1 放大为 SMB 网络往返而长时间 buffering。参考 `tsm-player` 的有界预取思路，Mica 保留 SMBJ 精确 `File.read(fileOffset, ...)`，并在每个 `SmbDataSource` 内增加单个 1 MiB 有界 read-ahead window；无后台预取线程，异常仍保持为 I/O 失败而非伪装 EOF。真机 AIZO FLAC 在 63.505 s 冷恢复后的首批非零 SMB 读取从 14,821,727 字节开始，单次请求 1,048,576 字节，2 s 内进入正常播放。
 - SMB1 仍明确禁用。2026-08-30 已补齐真机负例：debug-only QA 控制面使用当前 Android Keystore 凭据进行错误密码连接，287 ms 内得到 `AUTH`；连接当前源相邻的不可达端口，26 ms 内得到 `CONNECT`；随后原凭据立即恢复并成功列目录。完整播放链另通过撤销 `adb reverse tcp:1445` 模拟服务器不可达，Mica 进入 Media3 `Source error`，根因为 SMB `ECONNREFUSED`；恢复 1445→445 转发并冷启动后错误清除，原远程曲目从保存位置恢复并继续播放。
 
+### 2026-08-30 文件型远端元数据增量同步
+
+- WebDAV / SMB 不再只用文件名生成浏览元数据。两者现在共用协议无关的只读 `SeekableByteSource`，通过 Android proxy fd 复用现有 TagLib；同步阶段关闭图片读取，只提取标题、艺术家、专辑、专辑艺术家、时长、年份、轨号和碟号，避免把封面 payload 带进全库扫描。
+- Room schema 升至 23：`remote_tracks.contentRevision` 保存协议提供的内容修订提示；SMB 使用 file-id + last-write-time，WebDAV 使用 ETag + mtime。`remote_sources.catalogConfigRevision` 记录当前已发布快照属于哪个 source config revision；来源配置一旦变化，旧快照即使仍可显示，也禁止拿来复用元数据，直到新配置成功原子发布新快照。
+- SMB 元数据 probe 保持目录遍历单写者和稳定排序，只把文件随机读限制为最多 4 路并发；每个 probe 使用单个 1 MiB read-ahead window。单曲标签损坏或读失败只降级该曲为文件名元数据，不能把整次同步伪装成失败或 EOF；generation 在 probe 期间变化时仍 fail closed，旧 operation 不能覆盖已发布 catalog。
+- 2026-08-30 真机对当前 264 首 SMB 曲库强制关闭复用后完整重读：`probed=264 / reused=0`，得到 artist 262、album 260、duration 262，154774 ms 完成；紧接着普通同步为 `probed=0 / reused=264`，3951 ms 完成，标签覆盖保持一致。此前首次 schema-23 冷同步也已得到 264 首全量 probe，证明迁移后旧 catalog 会按设计 fail closed 而不是错误复用。
+- WebDAV 同样具备基于 ETag/mtime 的元数据复用和严格 HTTP Range 随机读；定向测试覆盖服务器忽略 Range、修订变化重新 probe、修订未变零 GET 复用。此项尚未把新的 TagLib 元数据 probe 作为独立真机 WebDAV 验收项，不能用 SMB 真机结果代替。
+- `RemoteDatabaseMigrationTest`、共享 seekable byte source、SMB/WebDAV 元数据定向测试以及完整 `:app:testDebugUnitTest` 均通过；`git diff --check` 通过。
 ## 已确定的产品范围
 
 - 设置中合并为一个“远程曲库”入口。

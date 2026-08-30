@@ -14,12 +14,14 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.mica.music.MicaApp
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.smb.SmbException
 import com.mica.music.data.remote.smb.SmbFailureKind
 import com.mica.music.data.remote.smb.SmbLogin
 import com.mica.music.data.remote.smb.SmbPathCodec
+import com.mica.music.data.remote.smb.SmbSourceSync
 import com.mica.music.data.remote.smb.SmbjSessionFactory
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
@@ -40,6 +42,47 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                 Log.e(TAG, "control failed action=$action", error)
             }
             pending.finish()
+            return
+        }
+        if (action == "${appContext.packageName}.debug.SMB_QA_SYNC_METADATA") {
+            val forceProbe = intent.getBooleanExtra("forceProbe", false)
+            Log.i(TAG, "start action=$action forceProbe=$forceProbe")
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == RemoteSourceType.SMB }
+                            ?: error("No enabled SMB source is configured")
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val result = if (forceProbe) {
+                            SmbSourceSync(
+                                catalogRepository = app.remoteCatalogRepository,
+                                credentialStore = app.remoteCredentialStore,
+                                metadataProbe = AndroidTagLibRemoteTrackMetadataProbe(appContext),
+                            ).sync(
+                                sourceInstanceId = source.id,
+                                allowMetadataReuse = false,
+                            )
+                        } else {
+                            app.remoteSourceManager.syncSmb(source.id)
+                        }
+                        val tracks = app.remoteCatalogRepository.tracksForSource(source.id)
+                        Log.i(
+                            TAG,
+                            "complete action=$action forceProbe=$forceProbe tracks=${result.trackCount} " +
+                                "probed=${result.metadataProbedCount} reused=${result.metadataReusedCount} " +
+                                "artists=${tracks.count { it.artist.isNotBlank() }} " +
+                                "albums=${tracks.count { it.album.isNotBlank() }} " +
+                                "durations=${tracks.count { it.durationSec > 0 }} " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action forceProbe=$forceProbe", error)
+                }
+            }.start()
             return
         }
         if (action == "${appContext.packageName}.debug.SMB_QA_NEGATIVE_CONTRACT") {

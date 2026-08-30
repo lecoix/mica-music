@@ -5,9 +5,11 @@ import com.mica.music.data.remote.RemoteCredentialMaterial
 import com.mica.music.data.remote.RemoteOperationSnapshot
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.RemoteSourceType
+import com.mica.music.data.remote.RemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.SecureRemoteCredentialStore
+import com.mica.music.util.DiagnosticLog
 import com.thegrizzlylabs.sardineandroid.DavResource
 import com.thegrizzlylabs.sardineandroid.impl.OkHttpSardine
 import com.thegrizzlylabs.sardineandroid.impl.SardineException
@@ -27,6 +29,8 @@ internal data class WebDavSyncResult(
     val sourceInstanceId: String,
     val configRevision: Long,
     val trackCount: Int,
+    val metadataProbedCount: Int = 0,
+    val metadataReusedCount: Int = 0,
 )
 
 internal enum class WebDavFailureKind {
@@ -102,6 +106,7 @@ internal class WebDavCatalogAdapter(
 internal class WebDavSourceSync(
     private val catalogRepository: RemoteCatalogRepository,
     private val credentialStore: SecureRemoteCredentialStore,
+    private val metadataProbe: RemoteTrackMetadataProbe? = null,
 ) {
     suspend fun testConnection(sourceInstanceId: String) {
         val session = beginSession(sourceInstanceId)
@@ -115,11 +120,13 @@ internal class WebDavSourceSync(
     ): WebDavSyncResult {
         require(limit >= 0) { "limit must not be negative" }
         val session = beginSession(sourceInstanceId)
-        val tracks = if (limit == 0) emptyList() else scan(session, limit)
+        val reusableCatalog = catalogRepository.reusableCatalogIfCurrent(session.operation.token).orEmpty()
+        ensureCurrent(session)
+        val scan = if (limit == 0) ScanResult(emptyList(), 0, 0) else scan(session, limit, reusableCatalog)
         ensureCurrent(session)
         val published = catalogRepository.publishCatalogIfCurrent(
             token = session.operation.token,
-            tracks = tracks,
+            tracks = scan.tracks,
         )
         if (!published) {
             throw WebDavException(
@@ -130,7 +137,9 @@ internal class WebDavSourceSync(
         return WebDavSyncResult(
             sourceInstanceId = sourceInstanceId,
             configRevision = session.operation.source.configRevision,
-            trackCount = tracks.size,
+            trackCount = scan.tracks.size,
+            metadataProbedCount = scan.metadataProbedCount,
+            metadataReusedCount = scan.metadataReusedCount,
         )
     }
 
@@ -167,20 +176,30 @@ internal class WebDavSourceSync(
                 "Bearer credentials are not supported for WebDAV",
             )
         }
+        val client = clientBuilder
+            .addNetworkInterceptor(WebDavStrictRangeInterceptor())
+            .build()
         return Session(
             owner = owner,
             operation = operation,
             root = WebDavPathCodec.sourceRoot(source.endpoint),
-            adapter = WebDavCatalogAdapter(clientBuilder.build()),
+            client = client,
+            adapter = WebDavCatalogAdapter(client),
         )
     }
 
-    private suspend fun scan(session: Session, limit: Int): List<RemoteTrackSummary> {
+    private suspend fun scan(
+        session: Session,
+        limit: Int,
+        reusableCatalog: Map<String, RemoteTrackSummary>,
+    ): ScanResult {
         val source = session.operation.source.instance
         val pending = ArrayDeque<String>()
         pending.addLast(session.root.toString())
         val visitedDirectories = linkedSetOf<String>()
         val tracks = ArrayList<RemoteTrackSummary>()
+        var metadataProbedCount = 0
+        var metadataReusedCount = 0
 
         while (pending.isNotEmpty() && tracks.size < limit) {
             ensureCurrent(session)
@@ -191,27 +210,94 @@ internal class WebDavSourceSync(
 
             val resources = listResources(session, directoryUrl, depth = 1)
             ensureCurrent(session)
-            resources.forEach { resource ->
-                if (tracks.size >= limit) return@forEach
-                val href = resource.href?.toString() ?: return@forEach
+            for (resource in resources) {
+                if (tracks.size >= limit) break
+                val href = resource.href?.toString() ?: continue
                 val resolvedUrl = WebDavPathCodec.resolveResourceUrl(
                     endpoint = source.endpoint,
                     baseUrl = directoryUrl,
                     href = href,
-                ) ?: return@forEach
-                val resourceId = WebDavPathCodec.opaqueResourceId(source.endpoint, resolvedUrl.toString()) ?: return@forEach
-                if (resourceId == directoryId) return@forEach
+                ) ?: continue
+                val resourceId = WebDavPathCodec.opaqueResourceId(source.endpoint, resolvedUrl.toString()) ?: continue
+                if (resourceId == directoryId) continue
                 if (resource.isDirectory) {
                     if (resourceId !in visitedDirectories) {
                         pending.addLast(WebDavPathCodec.asCollectionUrl(resolvedUrl).toString())
                     }
-                    return@forEach
+                    continue
                 }
-                if (!isAudioResource(resource, resourceId)) return@forEach
-                tracks += resource.toTrackSummary(source.id, resourceId)
+                if (!isAudioResource(resource, resourceId)) continue
+                val base = resource.toTrackSummary(source.id, resourceId)
+                val reusable = reusableCatalog[resourceId]
+                if (canReuseMetadata(base, reusable)) {
+                    tracks += reuseMetadata(base, checkNotNull(reusable))
+                    metadataReusedCount++
+                } else {
+                    tracks += enrichMetadata(session, resolvedUrl, base)
+                    if (metadataProbe != null) metadataProbedCount++
+                }
             }
         }
-        return tracks
+        return ScanResult(
+            tracks = tracks,
+            metadataProbedCount = metadataProbedCount,
+            metadataReusedCount = metadataReusedCount,
+        )
+    }
+
+    private fun canReuseMetadata(base: RemoteTrackSummary, previous: RemoteTrackSummary?): Boolean =
+        previous != null &&
+            base.contentRevision.isNotBlank() &&
+            previous.contentRevision == base.contentRevision &&
+            previous.sizeBytes == base.sizeBytes
+
+    private fun reuseMetadata(base: RemoteTrackSummary, previous: RemoteTrackSummary): RemoteTrackSummary =
+        previous.copy(
+            ref = base.ref,
+            mimeTypeHint = base.mimeTypeHint,
+            fileName = base.fileName,
+            suffix = base.suffix,
+            sizeBytes = base.sizeBytes,
+            contentRevision = base.contentRevision,
+        )
+
+    private suspend fun enrichMetadata(
+        session: Session,
+        resolvedUrl: HttpUrl,
+        base: RemoteTrackSummary,
+    ): RemoteTrackSummary {
+        val probe = metadataProbe ?: return base
+        if (base.sizeBytes <= 0L) return base
+        ensureCurrent(session)
+        val metadata = withContext(Dispatchers.IO) {
+            runCatching {
+                WebDavSeekableByteSource(
+                    client = session.client,
+                    url = resolvedUrl,
+                    sizeBytes = base.sizeBytes,
+                ).use { source ->
+                    probe.probe(base.fileName, source)
+                }
+            }.onFailure { failure ->
+                DiagnosticLog.event(
+                    "RemoteMetadata",
+                    "webdav-probe fallback song=${base.mediaId.takeLast(12)} error=${failure.javaClass.simpleName}",
+                )
+            }.getOrNull()
+        }
+        ensureCurrent(session)
+        return metadata?.let { tags ->
+            base.copy(
+                title = tags.title.ifBlank { base.title },
+                artist = tags.artist,
+                album = tags.album,
+                albumArtist = tags.albumArtist,
+                durationSec = tags.durationSec,
+                year = tags.year,
+                trackNumber = tags.trackNumber,
+                discNumber = tags.discNumber,
+            )
+        } ?: base
     }
 
     private suspend fun listResources(
@@ -251,7 +337,15 @@ internal class WebDavSourceSync(
             fileName = fileName,
             suffix = suffix,
             sizeBytes = (contentLength ?: 0L).coerceAtLeast(0L),
+            contentRevision = contentRevision(),
         )
+    }
+
+    private fun DavResource.contentRevision(): String {
+        val etagPart = etag?.trim().orEmpty()
+        val modifiedPart = modified?.time?.takeIf { it >= 0L }?.toString().orEmpty()
+        if (etagPart.isBlank() && modifiedPart.isBlank()) return ""
+        return "etag=$etagPart;mtime=$modifiedPart"
     }
 
     private fun extension(value: String): String = value
@@ -263,7 +357,14 @@ internal class WebDavSourceSync(
         val owner: RemoteSourceOwner,
         val operation: RemoteOperationSnapshot,
         val root: HttpUrl,
+        val client: OkHttpClient,
         val adapter: WebDavCatalogAdapter,
+    )
+
+    private data class ScanResult(
+        val tracks: List<RemoteTrackSummary>,
+        val metadataProbedCount: Int,
+        val metadataReusedCount: Int,
     )
 
     companion object {

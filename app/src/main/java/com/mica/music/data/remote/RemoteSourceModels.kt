@@ -57,6 +57,8 @@ data class RemoteTrackSummary(
     val fileName: String = "",
     val suffix: String = "",
     val sizeBytes: Long = 0L,
+    /** Protocol-provided revision hint (SMB last-write/file-id, WebDAV ETag/mtime) for metadata reuse. */
+    val contentRevision: String = "",
     val year: Int = 0,
     val trackNumber: Int = 0,
     val discNumber: Int = 0,

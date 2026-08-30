@@ -60,6 +60,7 @@ internal data class SmbDirectoryEntry(
     val name: String,
     val isDirectory: Boolean,
     val sizeBytes: Long,
+    val contentRevision: String = "",
 )
 
 internal interface SmbRandomAccessFile : Closeable {
@@ -154,6 +155,7 @@ private class SmbjSessionHandle(
                 name = entry.fileName,
                 isDirectory = (entry.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value) != 0L,
                 sizeBytes = entry.endOfFile.coerceAtLeast(0L),
+                contentRevision = "${entry.fileId}:${entry.lastWriteTime.toEpochMillis()}",
             )
         }
     } catch (failure: Throwable) {

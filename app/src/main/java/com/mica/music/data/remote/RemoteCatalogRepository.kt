@@ -41,6 +41,7 @@ class RemoteCatalogRepository internal constructor(
             instance = entity.toRemoteSourceInstance(),
             configRevision = entity.configRevision,
             catalogRevision = entity.catalogRevision,
+            catalogConfigRevision = entity.catalogConfigRevision,
             lastSyncAtMs = entity.lastSyncAtMs,
             trackCount = trackDao.countForSource(entity.id),
         )
@@ -52,6 +53,7 @@ class RemoteCatalogRepository internal constructor(
                 instance = entity.toRemoteSourceInstance(),
                 configRevision = entity.configRevision,
                 catalogRevision = entity.catalogRevision,
+                catalogConfigRevision = entity.catalogConfigRevision,
                 lastSyncAtMs = entity.lastSyncAtMs,
                 trackCount = trackDao.countForSource(entity.id),
             )
@@ -82,6 +84,7 @@ class RemoteCatalogRepository internal constructor(
                 instance.toEntity(
                     configRevision = snapshot.configRevision,
                     catalogRevision = current.catalogRevision,
+                    catalogConfigRevision = current.catalogConfigRevision,
                     lastSyncAtMs = current.lastSyncAtMs,
                 ),
             )
@@ -142,6 +145,25 @@ class RemoteCatalogRepository internal constructor(
 
     suspend fun tracksForSource(sourceInstanceId: String): List<RemoteTrackSummary> =
         trackDao.getForSource(sourceInstanceId).map { it.toRemoteTrackSummary() }
+
+    /**
+     * Returns the previously published catalog only when it belongs to the exact config revision
+     * represented by [token]. A source edit leaves the old catalog visible but makes it ineligible
+     * for metadata reuse until a new catalog is atomically published.
+     */
+    internal suspend fun reusableCatalogIfCurrent(
+        token: RemoteOperationToken,
+    ): Map<String, RemoteTrackSummary>? = mutex.withLock {
+        val owner = ownerForLocked(token.sourceInstanceId) ?: return@withLock null
+        if (!owner.isCurrent(token)) return@withLock null
+        val source = sourceDao.getById(token.sourceInstanceId) ?: return@withLock null
+        if (source.configRevision != token.configRevision || source.catalogConfigRevision != token.configRevision) {
+            return@withLock null
+        }
+        trackDao.getForSource(token.sourceInstanceId)
+            .map { it.toRemoteTrackSummary() }
+            .associateBy { it.ref.opaqueTrackId }
+    }
 
     /** Aggregate snapshot for browsing. Disabled source catalogs remain isolated and hidden. */
     suspend fun tracksForEnabledSources(): List<RemoteTrackSummary> =

@@ -1,5 +1,6 @@
 package com.mica.music.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.mica.music.data.remote.RemoteSourceInstance
@@ -15,6 +16,7 @@ data class RemoteSourceEntity(
     val enabled: Boolean,
     val configRevision: Long,
     val catalogRevision: Long,
+    @ColumnInfo(defaultValue = "0") val catalogConfigRevision: Long = 0L,
     val lastSyncAtMs: Long,
 )
 
@@ -30,6 +32,7 @@ internal fun RemoteSourceEntity.toRemoteSourceInstance(): RemoteSourceInstance =
 internal fun RemoteSourceInstance.toEntity(
     configRevision: Long,
     catalogRevision: Long = 0L,
+    catalogConfigRevision: Long = 0L,
     lastSyncAtMs: Long = 0L,
 ): RemoteSourceEntity = RemoteSourceEntity(
     id = id,
@@ -40,5 +43,6 @@ internal fun RemoteSourceInstance.toEntity(
     enabled = enabled,
     configRevision = configRevision,
     catalogRevision = catalogRevision,
+    catalogConfigRevision = catalogConfigRevision,
     lastSyncAtMs = lastSyncAtMs,
 )

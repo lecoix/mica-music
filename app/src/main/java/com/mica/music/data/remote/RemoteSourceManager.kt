@@ -31,14 +31,17 @@ internal class RemoteSourceManager internal constructor(
     private val credentialRefProvider: (String) -> String = { sourceId ->
         "remote-credential/$sourceId/${UUID.randomUUID()}"
     },
+    private val fileMetadataProbe: RemoteTrackMetadataProbe? = null,
 ) {
     constructor(
         catalogRepository: RemoteCatalogRepository,
         credentialStore: MutableSecureRemoteCredentialStore,
+        fileMetadataProbe: RemoteTrackMetadataProbe? = null,
     ) : this(
         catalogRepository = catalogRepository,
         credentialStore = credentialStore,
         navidromeExecutor = com.mica.music.data.remote.navidrome.UrlConnectionNavidromeHttpExecutor(),
+        fileMetadataProbe = fileMetadataProbe,
     )
 
     suspend fun statuses(): List<RemoteSourceStatus> = catalogRepository.sourceStatuses()
@@ -231,6 +234,7 @@ internal class RemoteSourceManager internal constructor(
         val result = WebDavSourceSync(
             catalogRepository = catalogRepository,
             credentialStore = credentialStore,
+            metadataProbe = fileMetadataProbe,
         ).sync(sourceInstanceId, limit)
         invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
         return result
@@ -247,6 +251,7 @@ internal class RemoteSourceManager internal constructor(
         val result = SmbSourceSync(
             catalogRepository = catalogRepository,
             credentialStore = credentialStore,
+            metadataProbe = fileMetadataProbe,
         ).sync(sourceInstanceId, limit)
         invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
         return result

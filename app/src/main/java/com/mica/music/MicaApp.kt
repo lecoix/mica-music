@@ -10,6 +10,7 @@ import com.mica.music.playback.PlayerController
 import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.remote.AndroidKeystoreRemoteCredentialStore
+import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteLyricsRepository
 import com.mica.music.data.remote.RemoteSourceManager
@@ -42,7 +43,11 @@ class MicaApp : Application() {
         AndroidKeystoreRemoteCredentialStore(this)
     }
     internal val remoteSourceManager: RemoteSourceManager by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        RemoteSourceManager(remoteCatalogRepository, remoteCredentialStore)
+        RemoteSourceManager(
+            remoteCatalogRepository,
+            remoteCredentialStore,
+            AndroidTagLibRemoteTrackMetadataProbe(this),
+        )
     }
 
     /** Process-lifetime on-demand remote lyric loader; remote sync never fetches lyric payloads. */

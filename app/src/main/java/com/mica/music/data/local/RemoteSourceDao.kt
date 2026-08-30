@@ -24,7 +24,8 @@ interface RemoteSourceDao {
     suspend fun update(source: RemoteSourceEntity): Int
 
     @Query(
-        "UPDATE remote_sources SET catalogRevision = :catalogRevision, lastSyncAtMs = :lastSyncAtMs " +
+        "UPDATE remote_sources SET catalogRevision = :catalogRevision, " +
+            "catalogConfigRevision = :configRevision, lastSyncAtMs = :lastSyncAtMs " +
             "WHERE id = :sourceInstanceId AND configRevision = :configRevision",
     )
     suspend fun updateCatalogRevisionIfConfigCurrent(

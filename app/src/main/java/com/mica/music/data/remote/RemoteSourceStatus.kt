@@ -5,6 +5,7 @@ data class RemoteSourceStatus(
     val instance: RemoteSourceInstance,
     val configRevision: Long,
     val catalogRevision: Long,
+    val catalogConfigRevision: Long,
     val lastSyncAtMs: Long,
     val trackCount: Int,
 )
