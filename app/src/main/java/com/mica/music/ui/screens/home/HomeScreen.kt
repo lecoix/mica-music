@@ -485,10 +485,10 @@ fun HomeScreen(
         )
     }
 
-    fun locateCurrentSongInLibrary() {
+    fun locateCurrentSong() {
         val song = playbackState.currentSong ?: return
-        val index = library.songs.indexOfFirst { it.id == song.id }
-        if (index < 0) {
+        val targetSection = locateSectionForSong(song.id, library.songs, remoteSongs)
+        if (targetSection == null) {
             scope.launch { snackbarHostState.showSnackbar("当前播放歌曲不在歌曲列表中") }
             return
         }
@@ -500,10 +500,10 @@ fun HomeScreen(
             activePlaylistId = null,
             browseDestination = BrowseDestination.Root,
             browseStack = emptyList(),
-            section = HomeSection.Songs,
+            section = targetSection,
         )
         pendingLocateSongId = song.id
-        pendingLocateRequestKey = locateCurrentSongRequest
+        pendingLocateRequestKey = (pendingLocateRequestKey + 1).coerceAtLeast(1)
     }
 
     LaunchedEffect(playlistStore.playlists, uiState.activePlaylistId) {
@@ -537,7 +537,7 @@ fun HomeScreen(
 
     LaunchedEffect(locateCurrentSongRequest) {
         if (locateCurrentSongRequest > 0) {
-            locateCurrentSongInLibrary()
+            locateCurrentSong()
         }
     }
 
@@ -1066,6 +1066,14 @@ fun HomeScreen(
                         selectedSongIds = selectedSongIds,
                         onSelectionToggle = ::toggleSongSelection,
                         listBottomPadding = listBottomPadding,
+                        locateSongId = pendingLocateSongId,
+                        locateRequestKey = pendingLocateRequestKey,
+                        onLocateConsumed = { requestKey ->
+                            if (pendingLocateRequestKey == requestKey) {
+                                pendingLocateSongId = null
+                                pendingLocateRequestKey = 0
+                            }
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
@@ -1253,7 +1261,7 @@ fun HomeScreen(
                         onPrevious = playbackActions.previous,
                         onNext = playbackActions.next,
                         onExpand = onMiniPlayerExpand,
-                        onLongPress = ::locateCurrentSongInLibrary,
+                        onLongPress = ::locateCurrentSong,
                         miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
                         miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
                         lyricSplitEnabled = uiSettings.lyricSplitEnabled,

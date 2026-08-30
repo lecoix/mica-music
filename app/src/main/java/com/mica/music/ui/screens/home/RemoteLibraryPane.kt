@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -31,8 +32,21 @@ internal fun RemoteLibraryPane(
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
     listBottomPadding: Dp,
+    locateSongId: String? = null,
+    locateRequestKey: Int = 0,
+    onLocateConsumed: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    LaunchedEffect(locateRequestKey, locateSongId) {
+        if (locateRequestKey > 0 && locateSongId != null) {
+            val targetIndex = songs.indexOfFirst { it.id == locateSongId }
+            if (targetIndex >= 0) {
+                listState.animateScrollToItem(targetIndex)
+            }
+            onLocateConsumed(locateRequestKey)
+        }
+    }
+
     when {
         songs.isEmpty() -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(

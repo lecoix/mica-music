@@ -258,6 +258,16 @@ fun songsForMultiSelect(
     else -> emptyList()
 }
 
+fun locateSectionForSong(
+    songId: String,
+    localSongs: List<Song>,
+    remoteSongs: List<Song>,
+): HomeSection? = when {
+    localSongs.any { it.id == songId } -> HomeSection.Songs
+    remoteSongs.any { it.id == songId } -> HomeSection.Remote
+    else -> null
+}
+
 fun shouldClearSongMultiSelect(
     selectionSection: HomeSection?,
     currentSection: HomeSection,

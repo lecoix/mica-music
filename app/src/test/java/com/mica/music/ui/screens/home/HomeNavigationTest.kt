@@ -317,6 +317,25 @@ class HomeNavigationTest {
         assertEquals(remote, songsForMultiSelect(HomeSection.Remote, local, remote))
         assertEquals(emptyList<Song>(), songsForMultiSelect(HomeSection.Artists, local, remote))
     }
+
+    @Test
+    fun locateCurrentSongTargetsItsOwningLibrarySection() {
+        val local = listOf(SongFixtures.song(id = "local", title = "Local"))
+        val remote = listOf(SongFixtures.song(id = "remote", title = "Remote"))
+
+        assertEquals(HomeSection.Songs, locateSectionForSong("local", local, remote))
+        assertEquals(HomeSection.Remote, locateSectionForSong("remote", local, remote))
+        assertEquals(null, locateSectionForSong("missing", local, remote))
+        assertEquals(
+            HomeSection.Songs,
+            locateSectionForSong(
+                "same",
+                listOf(SongFixtures.song(id = "same")),
+                listOf(SongFixtures.song(id = "same")),
+            ),
+        )
+    }
+
     @Test
     fun multiSelectIsScopedToItsOwningSectionAndSearchClosesIt() {
         assertFalse(shouldClearSongMultiSelect(HomeSection.Songs, HomeSection.Songs, searchOpen = false))
