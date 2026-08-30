@@ -25,6 +25,7 @@ internal fun RemoteLibraryPane(
     currentSongId: String?,
     isPlaying: Boolean,
     onQueueSongClick: (List<Song>, String) -> Unit,
+    onSongOpenMenu: (Song) -> Unit,
     listState: LazyListState,
     listBottomPadding: Dp,
     modifier: Modifier = Modifier,
@@ -66,7 +67,7 @@ internal fun RemoteLibraryPane(
                     onClick = {
                         onQueueSongClick(songs, song.id)
                     },
-                    onLongClick = null,
+                    onLongClick = { onSongOpenMenu(song) },
                 )
             }
         }

@@ -68,6 +68,7 @@
 - 歌单仍只持久化稳定 `songId`，但显示、封面解析、JSON 导入/导出改为“本地 `MusicLibrary` + 当前远端 catalog”联合 resolver。回归证明远端稳定 media id、cover song 和稳定 `mica-remote` URI 可完整 JSON round-trip；认证播放 URL、密码和请求头仍不会进入歌单文件。
 - Now Playing 与 Home/歌单菜单的远端“下一首播放”都不再二次调用本地 `MusicLibrary.songById()`；远端直接把稳定 `Song` 交给现有 queue/runtime，本地歌曲仍按原逻辑回查本地曲库。后端随后仍由 `RemoteMediaItemCodec` / JIT resolver 处理远端播放，不改变认证边界。
 - 通用歌曲菜单把“库操作”和“本地文件写操作”拆开。远端歌曲继续提供添加到歌单、下一首播放、睡眠定时、歌词偏移、分享和歌曲信息；依赖可写本地文件的 Lyrico 标签编辑与删除音乐对远端隐藏，横竖屏使用同一 gate。
+- 远程曲库列表自身也接入同一套歌曲长按菜单：`RemoteLibraryPane` 不再把 `SongRow.onLongClick` 写死为 `null`，而是把当前稳定远端 `Song` 直接交给 Home 已有 `openSongActionMenu`；普通点击仍保持原子 `onQueueSongClick(songs, song.id)`，没有恢复旧的分步队列路径。2026-08-30 Perf QA 在缓存 SMB catalog 上对第一条真实远端曲 `機械の声` 注入 `DOWN → 1.2s → UP` 长按，菜单实际出现“添加到歌单 / 下一首播放 / 睡眠定时 / 歌词偏移 / 分享 / 歌曲信息”，且“使用Lyrico编辑音乐标签 / 删除音乐”均不存在；验收期间未修改 device-idle whitelist，结束时 `com.mica.music.qa` 仍不在 whitelist 中。
 - 歌曲详情路由现在按本地曲库 → 当前远端 catalog → 当前播放快照依次解析稳定 id。远端详情显示“媒体来源：远程曲库”，可分享，但不提供只适用于本地文件的响度分析。
 - 播放统计展示层也已纳入远端稳定 media id。进程级 `PlaybackStatisticsRepository` 仍是播放次数/累计收听秒数的唯一持久化写入口；`MainViewModel` 对当前远端 catalog 异步读取 `PlayHistoryStore` 快照，并通过独立 `RemotePlayStatsPresentation` 合并冷启动数据与本进程实时事件，使用 count / lastPlayedAt / totalListenSeconds 的单调 max 合并，避免迟到磁盘读取回滚刚发生的播放事件。`AppNavigation` 只把这层 presentation 投影到当前 `remoteSongs`，不修改 Room catalog，也不把统计写回远端来源。
 - Home“最近播放”现在显式合并本地曲库与当前远端 catalog，按 `lastPlayedAtMs` 降序并继续限制最多 500 首；远端 Recent 不再受“本地曲库尚未扫描”的旧空态 gate 阻断。真机从仅远端 catalog、无本地扫描的状态进入 Recent，统计条从 21 首正确显示并渲染远端历史；新增一次 `AIZO` 播放后实时变为 22 首，AIZO 排到第一条，force-stop 冷启动后仍保持 22 首与 AIZO 第一条。

@@ -1039,6 +1039,7 @@ fun HomeScreen(
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongClick = onQueueSongClick,
+                        onSongOpenMenu = ::openSongActionMenu,
                         listState = remoteListState,
                         listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
