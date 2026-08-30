@@ -229,6 +229,18 @@ internal object EncoderSettingsReader {
         Mp4AtomTextReader.read(bytes, mp4ToolMarkers)
 }
 
+/** Minimal random-access seam for bounded binary metadata probes. */
+internal interface AudioProbeRandomAccessSource {
+    val sizeBytes: Long
+
+    fun readAt(
+        fileOffset: Long,
+        buffer: ByteArray,
+        bufferOffset: Int,
+        length: Int,
+    ): Int
+}
+
 /** ID3/文件探测共用二进制工具 */
 internal object AudioProbeBytes {
     private const val MAX_FAST_LYRICS_BYTES = 4 * 1024 * 1024
@@ -276,6 +288,28 @@ internal object AudioProbeBytes {
             ext == "aac" || mime.contains("aac") -> readId3Tag(context, uri)
             else -> readId3Tag(context, uri)
                 ?: readHeadAndTail(context, uri, headBytes = 512 * 1024, tailBytes = 512 * 1024)
+        }
+    }
+
+    /** Remote/JIT counterpart of [readFastForLyricsOrThrow] using bounded protocol random reads. */
+    fun readFastForLyricsOrThrow(
+        source: AudioProbeRandomAccessSource,
+        mimeType: String,
+        displayName: String?,
+    ): ByteArray? {
+        val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        val mime = mimeType.lowercase()
+        return when {
+            ext == "mp3" || mime.contains("mpeg") -> readId3Tag(source)
+            ext == "flac" || mime.contains("flac") -> readFlacMetadata(source)
+            ext == "ape" -> readTail(source, 2 * 1024 * 1024)
+            ext in setOf("m4a", "m4b", "m4p", "mp4", "alac") || mime.contains("mp4") -> {
+                readMp4Moov(source)
+                    ?: readHeadAndTail(source, headBytes = 2 * 1024 * 1024, tailBytes = 4 * 1024 * 1024)
+            }
+            ext == "aac" || mime.contains("aac") -> readId3Tag(source)
+            else -> readId3Tag(source)
+                ?: readHeadAndTail(source, headBytes = 512 * 1024, tailBytes = 512 * 1024)
         }
     }
 
@@ -431,6 +465,114 @@ internal object AudioProbeBytes {
             }
             head + tail
         }
+
+    private fun readId3Tag(source: AudioProbeRandomAccessSource): ByteArray? {
+        val header = source.readUpTo(0L, 10)
+        if (header.size < 10 || !Id3Binary.isId3Header(header, 0)) return null
+        val tagSize = Id3Binary.synchsafeSize(header, 6)
+        val totalSize = (tagSize + 10).coerceAtMost(MAX_FAST_LYRICS_BYTES)
+        return source.readUpTo(0L, totalSize)
+    }
+
+    private fun readFlacMetadata(source: AudioProbeRandomAccessSource): ByteArray =
+        RandomAccessProbeInputStream(source).use { input ->
+            readFlacMetadata(input, MAX_FAST_LYRICS_BYTES)
+        }
+
+    private fun readTail(source: AudioProbeRandomAccessSource, maxBytes: Int): ByteArray? {
+        val size = source.sizeBytes
+        if (size <= 0L) throw IOException("Unknown remote source size")
+        val tailLen = maxBytes.toLong().coerceAtMost(size).toInt()
+        return source.readUpTo(size - tailLen, tailLen)
+    }
+
+    private fun readMp4Moov(source: AudioProbeRandomAccessSource): ByteArray? {
+        val fileSize = source.sizeBytes
+        if (fileSize <= 0L) return null
+        var offset = 0L
+        while (offset + 8 <= fileSize) {
+            val header = source.readUpTo(offset, 16)
+            if (header.size < 8) return null
+            val boxSize32 = header.readUInt32Be(0)
+            val type = String(header, 4, 4, Charsets.US_ASCII)
+            val headerSize: Long
+            val boxSize: Long
+            when (boxSize32) {
+                0L -> {
+                    headerSize = 8L
+                    boxSize = fileSize - offset
+                }
+                1L -> {
+                    if (header.size < 16) return null
+                    headerSize = 16L
+                    boxSize = header.readUInt64Be(8)
+                }
+                else -> {
+                    headerSize = 8L
+                    boxSize = boxSize32
+                }
+            }
+            if (boxSize < headerSize) return null
+            if (type == "moov") {
+                val safeSize = boxSize.coerceAtMost(16L * 1024L * 1024L).toInt()
+                return source.readUpTo(offset, safeSize)
+            }
+            if (boxSize <= 0L || offset > Long.MAX_VALUE - boxSize) return null
+            offset += boxSize
+        }
+        return null
+    }
+
+    private fun readHeadAndTail(
+        source: AudioProbeRandomAccessSource,
+        headBytes: Int,
+        tailBytes: Int,
+    ): ByteArray? {
+        val size = source.sizeBytes
+        if (size <= 0L) throw IOException("Unknown remote source size")
+        val head = source.readUpTo(0L, minOf(headBytes.toLong(), size).toInt())
+        val tailLen = minOf(tailBytes.toLong(), size).toInt()
+        val tail = source.readUpTo(size - tailLen, tailLen)
+        return head + tail
+    }
+
+    private fun AudioProbeRandomAccessSource.readUpTo(fileOffset: Long, maxBytes: Int): ByteArray {
+        require(fileOffset >= 0L) { "fileOffset must not be negative" }
+        require(maxBytes >= 0) { "maxBytes must not be negative" }
+        if (maxBytes == 0 || fileOffset >= sizeBytes) return ByteArray(0)
+        val target = minOf(maxBytes.toLong(), sizeBytes - fileOffset).toInt()
+        val bytes = ByteArray(target)
+        var total = 0
+        while (total < target) {
+            val read = readAt(fileOffset + total, bytes, total, target - total)
+            if (read < 0) break
+            if (read == 0) throw IOException("Random-access probe read made no progress")
+            total += read
+        }
+        return if (total == bytes.size) bytes else bytes.copyOf(total)
+    }
+
+    private class RandomAccessProbeInputStream(
+        private val source: AudioProbeRandomAccessSource,
+    ) : InputStream() {
+        private var position = 0L
+
+        override fun read(): Int {
+            val one = ByteArray(1)
+            val read = read(one, 0, 1)
+            return if (read < 0) -1 else one[0].toInt() and 0xFF
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            if (length == 0) return 0
+            if (position >= source.sizeBytes) return -1
+            val requested = minOf(length.toLong(), source.sizeBytes - position).toInt()
+            val read = source.readAt(position, buffer, offset, requested)
+            if (read == 0) throw IOException("Random-access probe stream made no progress")
+            if (read > 0) position += read
+            return read
+        }
+    }
 
     private fun java.io.InputStream.skipFully(bytes: Long) {
         var remaining = bytes

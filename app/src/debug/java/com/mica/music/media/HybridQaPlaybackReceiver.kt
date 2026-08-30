@@ -129,11 +129,12 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
         ) {
             val sourceType = if (action.contains("WEBDAV_QA_")) RemoteSourceType.WEBDAV else RemoteSourceType.SMB
             val sourceLabel = if (sourceType == RemoteSourceType.WEBDAV) "WebDAV" else "SMB"
-            val targetFileName = if (sourceType == RemoteSourceType.WEBDAV) {
+            val defaultTargetFileName = if (sourceType == RemoteSourceType.WEBDAV) {
                 "Last Call.m4a"
             } else {
                 "LudoWic - Hit The Floor (Live).flac"
             }
+            val targetFileName = intent.getStringExtra("fileName").orEmpty().ifBlank { defaultTargetFileName }
             pending.finish()
             Thread {
                 runCatching {

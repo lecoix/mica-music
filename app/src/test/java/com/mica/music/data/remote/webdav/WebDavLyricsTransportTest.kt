@@ -45,7 +45,7 @@ class WebDavLyricsTransportTest {
             .build()
         val loader = WebDavLyricsLoader(
             requestResolver = RemoteHttpPlaybackRequestResolver { request() },
-            embeddedLoader = RemoteEmbeddedLyricsLoader {
+            embeddedLoader = RemoteEmbeddedLyricsLoader { _, _, _ ->
                 embeddedCalls++
                 embeddedDocument()
             },
@@ -90,8 +90,10 @@ class WebDavLyricsTransportTest {
             .build()
         val loader = WebDavLyricsLoader(
             requestResolver = RemoteHttpPlaybackRequestResolver { request() },
-            embeddedLoader = RemoteEmbeddedLyricsLoader { source ->
+            embeddedLoader = RemoteEmbeddedLyricsLoader { source, fileName, mimeType ->
                 embeddedCalls++
+                assertEquals("Song.flac", fileName)
+                assertEquals("audio/flac", mimeType)
                 val bytes = ByteArray(3)
                 assertEquals(3, source.readAt(1, bytes, 0, bytes.size))
                 assertEquals(listOf<Byte>(11, 12, 13), bytes.toList())

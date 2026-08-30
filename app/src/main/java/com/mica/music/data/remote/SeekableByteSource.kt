@@ -10,6 +10,8 @@ import android.system.ErrnoException
 import android.system.OsConstants
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsOrigin
+import com.mica.music.data.scanner.AudioProbeBytes
+import com.mica.music.data.scanner.AudioProbeRandomAccessSource
 import com.mica.music.data.scanner.EmbeddedLyricsReader
 import com.mica.music.data.scanner.EmbeddedLyricsResolver
 import com.mica.music.data.scanner.TagLibReader
@@ -194,28 +196,61 @@ internal class AndroidTagLibEmbeddedArtworkLoader(
 }
 
 internal fun interface RemoteEmbeddedLyricsLoader {
-    fun load(source: SeekableByteSource): LyricsDocument
+    fun load(source: SeekableByteSource, fileName: String, mimeType: String): LyricsDocument
 }
 
-/** Reads only TagLib text lyric properties on demand; binary SYLT fallback remains a separate seam. */
+/** Reads TagLib text candidates first, then the same bounded binary fallback used by local scan. */
 internal class AndroidTagLibEmbeddedLyricsLoader(
     context: Context,
 ) : RemoteEmbeddedLyricsLoader {
     private val appContext = context.applicationContext
 
-    override fun load(source: SeekableByteSource): LyricsDocument {
+    override fun load(source: SeekableByteSource, fileName: String, mimeType: String): LyricsDocument {
         val bufferedSource = ReadAheadSeekableByteSource(source)
-        val proxy = RemoteProxyFileDescriptor.open(appContext, bufferedSource)
+        val nonClosingProxySource = object : SeekableByteSource {
+            override val sizeBytes: Long
+                get() = bufferedSource.sizeBytes
+
+            override fun readAt(
+                fileOffset: Long,
+                buffer: ByteArray,
+                bufferOffset: Int,
+                length: Int,
+            ): Int = bufferedSource.readAt(fileOffset, buffer, bufferOffset, length)
+
+            override fun close() = Unit
+        }
+        val proxy = RemoteProxyFileDescriptor.open(appContext, nonClosingProxySource)
         val result = proxy.descriptor.use { descriptor ->
             TagLibReader.read(descriptor, readPictures = false)
         }
         proxy.readFailure.get()?.let { throw it }
-        return result?.let { tags ->
+        result?.let { tags ->
             EmbeddedLyricsResolver.selectTagLibCandidate(
                 candidates = tags.lyricsCandidates,
                 parse = EmbeddedLyricsReader::parseTagLibTextDocument,
-            )
-        } ?: LyricsDocument(origin = LyricsOrigin.EMBEDDED)
+            )?.let { return it }
+        }
+
+        val randomAccess = object : AudioProbeRandomAccessSource {
+            override val sizeBytes: Long
+                get() = bufferedSource.sizeBytes
+
+            override fun readAt(
+                fileOffset: Long,
+                buffer: ByteArray,
+                bufferOffset: Int,
+                length: Int,
+            ): Int = bufferedSource.readAt(fileOffset, buffer, bufferOffset, length)
+        }
+        val bytes = AudioProbeBytes.readFastForLyricsOrThrow(
+            source = randomAccess,
+            mimeType = mimeType,
+            displayName = fileName,
+        ) ?: return LyricsDocument(origin = LyricsOrigin.EMBEDDED)
+        val ext = fileName.substringAfterLast('.', "")
+        return EmbeddedLyricsReader.parseBinaryDocument(bytes, mimeType, ext)
+            ?: LyricsDocument(origin = LyricsOrigin.EMBEDDED)
     }
 }
 

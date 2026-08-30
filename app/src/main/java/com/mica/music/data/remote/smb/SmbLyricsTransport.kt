@@ -57,7 +57,9 @@ internal class SmbLyricsLoader(
 
                 val embedded = SmbSeekableByteSource(
                     session.openFile(request.endpoint.serverPath(request.relativePath)),
-                ).use(embeddedLoader::load)
+                ).use { source ->
+                    embeddedLoader.load(source, song.fileName, song.metadata.playbackMimeType)
+                }
                 LyricsSlots(embedded = embedded).selected()
             } catch (failure: Throwable) {
                 throw if (failure is IOException) failure else IOException("SMB lyrics read failed", failure)

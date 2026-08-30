@@ -44,7 +44,9 @@ internal class WebDavLyricsLoader(
                 client = client,
                 url = audioUrl,
                 sizeBytes = song.sizeBytes,
-            ).use(embeddedLoader::load)
+            ).use { source ->
+                embeddedLoader.load(source, song.fileName, song.metadata.playbackMimeType)
+            }
             LyricsSlots(embedded = embedded).selected()
         }
     }
