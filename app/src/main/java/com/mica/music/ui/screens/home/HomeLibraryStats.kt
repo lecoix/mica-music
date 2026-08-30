@@ -6,6 +6,7 @@ import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.FolderBrowseMode
+import com.mica.music.data.LibraryBrowse
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
@@ -31,7 +32,7 @@ internal fun rememberLibraryStatsBarModel(
     browseDestination: BrowseDestination,
     library: MusicLibrary,
     recentSongCount: Int? = null,
-    remoteSongCount: Int = 0,
+    remoteSongs: List<Song> = emptyList(),
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -51,7 +52,7 @@ internal fun rememberLibraryStatsBarModel(
         section,
         browseDestination,
         recentSongCount,
-        remoteSongCount,
+        remoteSongs,
         activePlaylistId,
         playlistSongCount,
         playlistSortField,
@@ -78,7 +79,7 @@ internal fun rememberLibraryStatsBarModel(
             browseDestination,
             library,
             recentSongCount,
-            remoteSongCount,
+            remoteSongs,
             activePlaylistId,
             playlistSongCount,
             playlistSortField,
@@ -104,7 +105,7 @@ internal fun resolveLibraryStatsBarModel(
     browseDestination: BrowseDestination,
     library: MusicLibrary,
     recentSongCount: Int? = null,
-    remoteSongCount: Int = 0,
+    remoteSongs: List<Song> = emptyList(),
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -124,6 +125,7 @@ internal fun resolveLibraryStatsBarModel(
     }
 
     val scanSegments = libraryScanSegments(library)
+    val browseSongs = mergedBrowseSongs(library.songs, remoteSongs)
 
     return when (section) {
         HomeSection.Songs -> LibraryStatsBarModel(
@@ -135,8 +137,8 @@ internal fun resolveLibraryStatsBarModel(
             showRescanAction = true,
         )
         HomeSection.Remote -> LibraryStatsBarModel(
-            segments = listOf(if (remoteSongCount == 0) "暂无远程歌曲" else "$remoteSongCount 首"),
-            showMultiSelectAction = remoteSongCount > 0,
+            segments = listOf(if (remoteSongs.isEmpty()) "暂无远程歌曲" else "${remoteSongs.size} 首"),
+            showMultiSelectAction = remoteSongs.isNotEmpty(),
         )
         HomeSection.Recent -> {
             val count = recentSongCount ?: library.recentSongs().size
@@ -178,7 +180,7 @@ internal fun resolveLibraryStatsBarModel(
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
                     if (browseListInfoVisibility.showArtistCount) {
-                        "${library.artistGroupPresentation(artistSortField, artistSortDirection).groups.size} 位艺术家"
+                        "${artistGroupCount(library, browseSongs, remoteSongs.isEmpty(), artistSortField, artistSortDirection)} 位艺术家"
                     } else {
                         null
                     },
@@ -202,7 +204,7 @@ internal fun resolveLibraryStatsBarModel(
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
                     if (browseListInfoVisibility.showAlbumCount) {
-                        "${library.albumGroupPresentation(albumSortField, albumSortDirection).groups.size} 张专辑"
+                        "${albumGroupCount(library, browseSongs, remoteSongs.isEmpty(), albumSortField, albumSortDirection)} 张专辑"
                     } else {
                         null
                     },
@@ -275,6 +277,29 @@ internal fun resolveLibraryStatsBarModel(
     }
 }
 
+private fun artistGroupCount(
+    library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
+    field: ArtistBrowseSortField,
+    direction: SortDirection,
+): Int = if (useLibraryPresentationCache) {
+    library.artistGroupPresentation(field, direction).groups.size
+} else {
+    LibraryBrowse.artistGroupPresentation(songs, field, direction).groups.size
+}
+
+private fun albumGroupCount(
+    library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
+    field: AlbumBrowseSortField,
+    direction: SortDirection,
+): Int = if (useLibraryPresentationCache) {
+    library.albumGroupPresentation(field, direction).groups.size
+} else {
+    LibraryBrowse.albumGroupPresentation(songs, field, direction).groups.size
+}
 private fun folderRootCountLabel(library: MusicLibrary, mode: FolderBrowseMode): String =
     when (mode) {
         FolderBrowseMode.HIERARCHY -> "${library.folderGroupsAtDepth(0).size} 个文件夹"

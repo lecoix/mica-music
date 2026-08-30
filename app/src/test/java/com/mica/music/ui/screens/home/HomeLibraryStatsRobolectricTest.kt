@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.FolderBrowseMode
+import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -115,14 +116,17 @@ class HomeLibraryStatsRobolectricTest {
             section = HomeSection.Remote,
             browseDestination = BrowseDestination.Root,
             library = library,
-            remoteSongCount = 264,
+            remoteSongs = listOf(
+                SongFixtures.song(id = "remote-1"),
+                SongFixtures.song(id = "remote-2"),
+            ),
             activePlaylistId = null,
             playlistSongCount = 0,
             playlistSortField = null,
             playlistSortDirection = null,
         )
 
-        assertEquals(listOf("264 首"), remote?.segments)
+        assertEquals(listOf("2 首"), remote?.segments)
         assertTrue(remote?.showMultiSelectAction == true)
         assertFalse(remote?.showSortAction == true)
         assertFalse(remote?.showFolderModeAction == true)
@@ -130,6 +134,38 @@ class HomeLibraryStatsRobolectricTest {
         assertFalse(remote?.showDeletePlaylistAction == true)
     }
 
+    @Test
+    fun artistAndAlbumRootCountsIncludeRemoteCatalogWhenLocalLibraryIsEmpty() {
+        val library = MusicLibrary(ApplicationProvider.getApplicationContext())
+        val remoteSongs = listOf(
+            SongFixtures.song(id = "remote-a").copy(artist = "Remote Artist A", album = "Remote Album A"),
+            SongFixtures.song(id = "remote-b").copy(artist = "Remote Artist B", album = "Remote Album B"),
+        )
+
+        val artists = resolveLibraryStatsBarModel(
+            section = HomeSection.Artists,
+            browseDestination = BrowseDestination.Root,
+            library = library,
+            remoteSongs = remoteSongs,
+            activePlaylistId = null,
+            playlistSongCount = 0,
+            playlistSortField = null,
+            playlistSortDirection = null,
+        )
+        val albums = resolveLibraryStatsBarModel(
+            section = HomeSection.Albums,
+            browseDestination = BrowseDestination.Root,
+            library = library,
+            remoteSongs = remoteSongs,
+            activePlaylistId = null,
+            playlistSongCount = 0,
+            playlistSortField = null,
+            playlistSortDirection = null,
+        )
+
+        assertTrue(artists?.segments?.contains("2 位艺术家") == true)
+        assertTrue(albums?.segments?.contains("2 张专辑") == true)
+    }
     @Test
     fun musicFolderDetailUsesDirectSongStatsNotHierarchyGroups() {
         val library = MusicLibrary(ApplicationProvider.getApplicationContext())

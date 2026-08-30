@@ -106,6 +106,8 @@ import com.mica.music.ui.theme.coverColor
 import com.mica.music.ui.screens.home.BrowseDestination
 import com.mica.music.ui.screens.home.HomeSection
 import com.mica.music.ui.screens.home.browseDestinationDepth
+import com.mica.music.ui.screens.home.hasRemoteBrowseContent
+import com.mica.music.ui.screens.home.mergedBrowseSongs
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.flow.collectLatest
 
@@ -152,14 +154,11 @@ internal fun HomeBrowseContent(
 ) {
     val folderListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
-    val hasRemoteDetailMatch = when {
-        section == HomeSection.Artists && destination is BrowseDestination.Artist ->
-            LibraryBrowse.songsForArtist(remoteSongs, destination.name).isNotEmpty()
-        section == HomeSection.Albums && destination is BrowseDestination.Album ->
-            LibraryBrowse.songsForAlbum(remoteSongs, destination.key).isNotEmpty()
-        else -> false
+    val availableSongs = remember(library.songs, remoteSongs) {
+        mergedBrowseSongs(library.songs, remoteSongs)
     }
-    val requiresLocalLibrary = section != HomeSection.Recent && !hasRemoteDetailMatch
+    val remoteBrowseAvailable = hasRemoteBrowseContent(section, destination, remoteSongs)
+    val requiresLocalLibrary = section != HomeSection.Recent && !remoteBrowseAvailable
     if (requiresLocalLibrary && library.isLoadingCachedLibrary && library.songs.isEmpty()) {
         EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
         return
@@ -188,6 +187,8 @@ internal fun HomeBrowseContent(
                     is BrowseDestination.Root -> {
                         ArtistGroupList(
                             library = library,
+                            songs = availableSongs,
+                            useLibraryPresentationCache = remoteSongs.isEmpty(),
                             listState = artistListState,
                             gridState = artistGridState,
                             onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
@@ -202,9 +203,6 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Artist -> {
                         val songListState = rememberBrowseDetailSongListState("artist:${dest.name}")
-                        val availableSongs = remember(library.songs, remoteSongs) {
-                            (library.songs + remoteSongs).distinctBy(Song::id)
-                        }
                         val songs = timedBrowseDetail("artist filter", "artist=${dest.name}", availableSongs.size) {
                             LibraryBrowse.songsForArtist(availableSongs, dest.name)
                         }
@@ -239,6 +237,8 @@ internal fun HomeBrowseContent(
                     is BrowseDestination.Root -> {
                         AlbumGroupList(
                             library = library,
+                            songs = availableSongs,
+                            useLibraryPresentationCache = remoteSongs.isEmpty(),
                             listState = albumListState,
                             gridState = albumGridState,
                             onSelect = { onDestinationChange(BrowseDestination.Album(it)) },
@@ -254,9 +254,6 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Album -> {
                         val songListState = rememberBrowseDetailSongListState("album:${dest.key.storageKey}")
-                        val availableSongs = remember(library.songs, remoteSongs) {
-                            (library.songs + remoteSongs).distinctBy(Song::id)
-                        }
                         val songs = timedBrowseDetail("album filter", "album=${dest.key.storageKey}", availableSongs.size) {
                             LibraryBrowse.songsForAlbum(availableSongs, dest.key)
                         }
@@ -1248,6 +1245,8 @@ private fun FolderDepthPage(
 @Composable
 private fun ArtistGroupList(
     library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
     listState: LazyListState,
     gridState: LazyGridState,
     onSelect: (String) -> Unit,
@@ -1259,12 +1258,18 @@ private fun ArtistGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = remember(library.songs, library.artistSplitRevision, sortField, sortDirection) {
-        timedBrowseDetail("artist groups", "sort=$sortField/$sortDirection", library.songs.size) {
-            library.artistGroupPresentation(sortField, sortDirection)
+    val presentation = remember(songs, library.artistSplitRevision, sortField, sortDirection, useLibraryPresentationCache) {
+        timedBrowseDetail("artist groups", "sort=$sortField/$sortDirection", songs.size) {
+            if (useLibraryPresentationCache) {
+                library.artistGroupPresentation(sortField, sortDirection)
+            } else {
+                LibraryBrowse.artistGroupPresentation(songs, sortField, sortDirection)
+            }
         }
     }
-    LaunchedEffect(presentation) { library.prewarmBrowseGroupCache() }
+    LaunchedEffect(presentation, useLibraryPresentationCache) {
+        if (useLibraryPresentationCache) library.prewarmBrowseGroupCache()
+    }
     val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无艺术家", modifier)
@@ -1298,6 +1303,8 @@ private fun ArtistGroupList(
 @Composable
 private fun AlbumGroupList(
     library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
     listState: LazyListState,
     gridState: LazyGridState,
     onSelect: (AlbumBrowseKey) -> Unit,
@@ -1310,12 +1317,18 @@ private fun AlbumGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = remember(library.songs, library.artistSplitRevision, sortField, sortDirection) {
-        timedBrowseDetail("album groups", "sort=$sortField/$sortDirection", library.songs.size) {
-            library.albumGroupPresentation(sortField, sortDirection)
+    val presentation = remember(songs, library.artistSplitRevision, sortField, sortDirection, useLibraryPresentationCache) {
+        timedBrowseDetail("album groups", "sort=$sortField/$sortDirection", songs.size) {
+            if (useLibraryPresentationCache) {
+                library.albumGroupPresentation(sortField, sortDirection)
+            } else {
+                LibraryBrowse.albumGroupPresentation(songs, sortField, sortDirection)
+            }
         }
     }
-    LaunchedEffect(presentation) { library.prewarmBrowseGroupCache() }
+    LaunchedEffect(presentation, useLibraryPresentationCache) {
+        if (useLibraryPresentationCache) library.prewarmBrowseGroupCache()
+    }
     val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无专辑", modifier)

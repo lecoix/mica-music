@@ -640,7 +640,7 @@ fun HomeScreen(
             browseDestination = visibleBrowseDestination,
             library = library,
             recentSongCount = recentSongs.size,
-            remoteSongCount = remoteSongs.size,
+            remoteSongs = remoteSongs,
             activePlaylistId = uiState.activePlaylistId,
             playlistSongCount = activePlaylistSongCount,
             playlistSortField = activePlaylist?.sortField,
