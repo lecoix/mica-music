@@ -25,7 +25,7 @@
 - Room schema 升至 23：`remote_tracks.contentRevision` 保存协议提供的内容修订提示；SMB 使用 file-id + last-write-time，WebDAV 使用 ETag + mtime。`remote_sources.catalogConfigRevision` 记录当前已发布快照属于哪个 source config revision；来源配置一旦变化，旧快照即使仍可显示，也禁止拿来复用元数据，直到新配置成功原子发布新快照。
 - SMB 元数据 probe 保持目录遍历单写者和稳定排序，只把文件随机读限制为最多 4 路并发；每个 probe 使用单个 1 MiB read-ahead window。单曲标签损坏或读失败只降级该曲为文件名元数据，不能把整次同步伪装成失败或 EOF；generation 在 probe 期间变化时仍 fail closed，旧 operation 不能覆盖已发布 catalog。
 - 2026-08-30 真机对当前 264 首 SMB 曲库强制关闭复用后完整重读：`probed=264 / reused=0`，得到 artist 262、album 260、duration 262，154774 ms 完成；紧接着普通同步为 `probed=0 / reused=264`，3951 ms 完成，标签覆盖保持一致。此前首次 schema-23 冷同步也已得到 264 首全量 probe，证明迁移后旧 catalog 会按设计 fail closed 而不是错误复用。
-- WebDAV 同样具备基于 ETag/mtime 的元数据复用和严格 HTTP Range 随机读；定向测试覆盖服务器忽略 Range、修订变化重新 probe、修订未变零 GET 复用。此项尚未把新的 TagLib 元数据 probe 作为独立真机 WebDAV 验收项，不能用 SMB 真机结果代替。
+- WebDAV 同样具备基于 ETag/mtime 的元数据复用和严格 HTTP Range 随机读；定向测试覆盖服务器忽略 Range、修订变化重新 probe、修订未变零 GET 复用。2026-08-30 已补独立 Android 真机验收：旧 smoke WebDAV 在 `/dav/Album/` 同时发布无标签 WAV 与真实 `Last Call.m4a`，PROPFIND 返回稳定 ETag/last-modified，严格 `bytes=start-end` Range 返回精确 206。首次带 revision 的同步为 `tracks=2 / probed=2 / reused=0 / artists=1 / albums=1 / durations=2 / artworks=1 / embeddedArtworks=1`，1,358 ms；紧接着热同步为 `probed=0 / reused=2`，153 ms。WebDAV 的 TagLib metadata 与 revision reuse 已有独立真机证据，不再依赖 SMB 结果代替。
 - `RemoteDatabaseMigrationTest`、共享 seekable byte source、SMB/WebDAV 元数据定向测试以及完整 `:app:testDebugUnitTest` 均通过；`git diff --check` 通过。
 
 ### 2026-08-30 文件型远端 sidecar 封面
@@ -47,6 +47,7 @@
 - probe 抛异常时不再写 `metadataProbeRevision`；失败记录保持旧 revision，下一次同步会自动重试，避免一次瞬时 SMB/WebDAV 读取失败永久缓存 filename fallback。定向测试同时覆盖失败→重试恢复，以及旧 metadata profile revision 在 content revision 未变化时仍必须一次性重新 probe。
 - 2026-08-30 最终 SMB 真机 revision-1→revision-2 普通同步：`tracks=264 / probed=264 / reused=0 / artists=264 / albums=262 / durations=264 / artworks=264 / embeddedArtworks=264`，95,387 ms 完成。原文件独立核对确认仅两首曲目的 album 标签本来为空，因此 262/264 是完整结果；此前 revision-1 的 259 album 与 262 embedded-art 覆盖均由 read-ahead short-read 导致。
 - 紧接着热同步得到 `probed=0 / reused=264 / artists=264 / albums=262 / durations=264 / artworks=264 / embeddedArtworks=264`，4,128 ms 完成；随后 `SMB_QA_READ_EMBEDDED_ARTWORK` 经真实 `ContentResolver → provider → SMBJ → proxy fd → TagLib` 再次读取 458,398 bytes，600 ms 完成。证明 rev2 metadata 与 embedded artwork id 均可稳定复用，read-ahead 修复没有破坏 JIT 封面链。
+- WebDAV 也已用同一 `Last Call.m4a` fixture 完成独立 Android provider 验收：`WEBDAV_QA_READ_EMBEDDED_ARTWORK` 在首次 catalog 上读取 1,971,475 bytes / 1,232 ms；补入稳定 ETag/mtime、重新发布 catalog 并完成 `0 probe / 2 reuse` 后再次读取同样 1,971,475 bytes / 1,046 ms。链路为真实 `ContentResolver → RemoteArtworkContentProvider → WebDAV authenticated Range → proxy fd → TagLib`，证明 current-catalog artwork 授权、revision 更新和 embedded JIT 在 WebDAV 上均成立。
 - 定向 JVM/Robolectric 回归覆盖 schema 23→24、embedded opaque id、SMB/WebDAV presence→catalog 映射、metadata profile revision、probe failure retry、跨 read-ahead 窗口完整读取、SMBJ short-read、同名 sidecar 优先及两协议 resolver 根目录/凭据边界；TagLib JNI/C++ 则由 arm64-v8a 与 armeabi-v7a debug CMake 实际构建覆盖。
 ## 已确定的产品范围
 

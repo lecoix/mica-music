@@ -91,19 +91,53 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
             }.start()
             return
         }
-        if (
-            action == "${appContext.packageName}.debug.SMB_QA_READ_ARTWORK" ||
-            action == "${appContext.packageName}.debug.SMB_QA_READ_EMBEDDED_ARTWORK"
-        ) {
-            val embeddedOnly = action.endsWith("SMB_QA_READ_EMBEDDED_ARTWORK")
+        if (action == "${appContext.packageName}.debug.WEBDAV_QA_SYNC_METADATA") {
+            Log.i(TAG, "start action=$action")
             pending.finish()
             Thread {
                 runCatching {
                     val app = appContext as MicaApp
                     runBlocking {
                         val source = app.remoteCatalogRepository.sources(enabledOnly = true)
-                            .firstOrNull { it.type == RemoteSourceType.SMB }
-                            ?: error("No enabled SMB source is configured")
+                            .firstOrNull { it.type == RemoteSourceType.WEBDAV }
+                            ?: error("No enabled WebDAV source is configured")
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val result = app.remoteSourceManager.syncWebDav(source.id)
+                        val tracks = app.remoteCatalogRepository.tracksForSource(source.id)
+                        Log.i(
+                            TAG,
+                            "complete action=$action tracks=${result.trackCount} " +
+                                "probed=${result.metadataProbedCount} reused=${result.metadataReusedCount} " +
+                                "artists=${tracks.count { it.artist.isNotBlank() }} " +
+                                "albums=${tracks.count { it.album.isNotBlank() }} " +
+                                "durations=${tracks.count { it.durationSec > 0 }} " +
+                                "artworks=${tracks.count { it.artworkOpaqueId.isNotBlank() }} " +
+                                "embeddedArtworks=${tracks.count { RemoteEmbeddedArtworkIdCodec.decode(it.artworkOpaqueId) != null }} " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
+                }
+            }.start()
+            return
+        }
+        if (
+            action == "${appContext.packageName}.debug.SMB_QA_READ_ARTWORK" ||
+            action == "${appContext.packageName}.debug.SMB_QA_READ_EMBEDDED_ARTWORK" ||
+            action == "${appContext.packageName}.debug.WEBDAV_QA_READ_EMBEDDED_ARTWORK"
+        ) {
+            val sourceType = if (action.contains("WEBDAV_QA_")) RemoteSourceType.WEBDAV else RemoteSourceType.SMB
+            val sourceLabel = if (sourceType == RemoteSourceType.WEBDAV) "WebDAV" else "SMB"
+            val embeddedOnly = action.endsWith("READ_EMBEDDED_ARTWORK")
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == sourceType }
+                            ?: error("No enabled $sourceLabel source is configured")
                         val track = app.remoteCatalogRepository.tracksForSource(source.id)
                             .firstOrNull { candidate ->
                                 candidate.artworkOpaqueId.isNotBlank() &&
@@ -111,9 +145,9 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                             }
                             ?: error(
                                 if (embeddedOnly) {
-                                    "SMB catalog has no published embedded artwork reference"
+                                    "$sourceLabel catalog has no published embedded artwork reference"
                                 } else {
-                                    "SMB catalog has no published artwork reference"
+                                    "$sourceLabel catalog has no published artwork reference"
                                 },
                             )
                         val uri = Uri.parse(
@@ -123,7 +157,7 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                         val bytes = checkNotNull(appContext.contentResolver.openInputStream(uri)).use { input ->
                             input.readBytes()
                         }
-                        require(bytes.isNotEmpty()) { "SMB artwork provider returned no bytes" }
+                        require(bytes.isNotEmpty()) { "$sourceLabel artwork provider returned no bytes" }
                         Log.i(
                             TAG,
                             "complete action=$action bytes=${bytes.size} embedded=$embeddedOnly " +
