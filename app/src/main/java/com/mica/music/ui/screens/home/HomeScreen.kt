@@ -136,6 +136,7 @@ fun HomeScreen(
     var pendingCoverImportPlaylistId by remember { mutableStateOf<String?>(null) }
     var pendingExportPlaylistId by remember { mutableStateOf<String?>(null) }
     var songMultiSelectActive by remember { mutableStateOf(false) }
+    var songMultiSelectSection by remember { mutableStateOf<HomeSection?>(null) }
     var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val homeController = rememberHomeScreenController(library, playlistStore)
@@ -238,9 +239,12 @@ fun HomeScreen(
     )
 
     fun applyNavigationSnapshot(snapshot: HomeNavigationSnapshot) {
+        val keepSelection =
+            snapshot.songMultiSelectActive && songMultiSelectSection == snapshot.section
         uiState = uiState.withNavigationSnapshot(snapshot)
-        songMultiSelectActive = snapshot.songMultiSelectActive
-        selectedSongIds = snapshot.selectedSongIds
+        songMultiSelectActive = keepSelection
+        selectedSongIds = if (keepSelection) snapshot.selectedSongIds else emptySet()
+        if (!keepSelection) songMultiSelectSection = null
     }
 
     fun openSongActionMenu(song: Song, playlistId: String? = null) {
@@ -347,6 +351,7 @@ fun HomeScreen(
 
     fun exitSongMultiSelect() {
         songMultiSelectActive = false
+        songMultiSelectSection = null
         selectedSongIds = emptySet()
     }
 
@@ -358,20 +363,27 @@ fun HomeScreen(
         }
     }
 
+    fun multiSelectSongs(): List<Song> = songsForMultiSelect(
+        section = songMultiSelectSection ?: uiState.section,
+        localSongs = library.songs,
+        remoteSongs = remoteSongs,
+    )
+
     fun selectAllSongs() {
-        selectedSongIds = library.songs.mapTo(mutableSetOf()) { it.id }
+        selectedSongIds = multiSelectSongs().mapTo(mutableSetOf()) { it.id }
     }
 
     fun invertSongSelection() {
-        selectedSongIds = library.songs
+        selectedSongIds = multiSelectSongs()
             .map { it.id }
             .filterNot { it in selectedSongIds }
             .toSet()
     }
 
     fun openSongMultiSelect() {
-        if (uiState.section != HomeSection.Songs || uiState.searchOpen) return
+        if ((uiState.section != HomeSection.Songs && uiState.section != HomeSection.Remote) || uiState.searchOpen) return
         songMultiSelectActive = true
+        songMultiSelectSection = uiState.section
         selectedSongIds = emptySet()
     }
 
@@ -558,8 +570,14 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(uiState.section, uiState.searchOpen) {
-        if (shouldClearSongMultiSelect(uiState.section, uiState.searchOpen)) {
+    LaunchedEffect(uiState.section, uiState.searchOpen, songMultiSelectSection) {
+        if (
+            shouldClearSongMultiSelect(
+                selectionSection = songMultiSelectSection,
+                currentSection = uiState.section,
+                searchOpen = uiState.searchOpen,
+            )
+        ) {
             exitSongMultiSelect()
         }
     }
@@ -622,6 +640,7 @@ fun HomeScreen(
             browseDestination = visibleBrowseDestination,
             library = library,
             recentSongCount = recentSongs.size,
+            remoteSongCount = remoteSongs.size,
             activePlaylistId = uiState.activePlaylistId,
             playlistSongCount = activePlaylistSongCount,
             playlistSortField = activePlaylist?.sortField,
@@ -917,16 +936,17 @@ fun HomeScreen(
                     shrinkVertically(MicaMotion.tweenIntSize(motionEnabled, MicaMotion.DurationShortMs)),
             ) {
                 statsBarSnapshot?.let { model ->
+                    val selectableSongs = multiSelectSongs()
                     Column {
                         if (songMultiSelectActive) {
                             SongMultiSelectStatsRow(
                                 selectedCount = selectedSongIds.size,
-                                canSelectSongs = library.songs.isNotEmpty(),
+                                canSelectSongs = selectableSongs.isNotEmpty(),
                                 onSelectAll = ::selectAllSongs,
                                 onInvertSelection = ::invertSongSelection,
                                 onClearSelection = { selectedSongIds = emptySet() },
                                 onAddToPlaylist = {
-                                    val songs = library.songs.filter { it.id in selectedSongIds }
+                                    val songs = selectableSongs.filter { it.id in selectedSongIds }
                                     if (songs.isNotEmpty()) {
                                         overlay = overlay.copy(addToPlaylistSongs = songs)
                                     }
@@ -949,6 +969,7 @@ fun HomeScreen(
                                         overlay = homeController.requestDeletePlaylist(overlay, playlistId)
                                     }
                                 },
+                                onMultiSelectClick = ::openSongMultiSelect,
                             )
                         }
                         Spacer(Modifier.height(HifiSpacing.md))
@@ -1041,6 +1062,9 @@ fun HomeScreen(
                         onQueueSongClick = onQueueSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         listState = remoteListState,
+                        selectionMode = songMultiSelectActive,
+                        selectedSongIds = selectedSongIds,
+                        onSelectionToggle = ::toggleSongSelection,
                         listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
                     )

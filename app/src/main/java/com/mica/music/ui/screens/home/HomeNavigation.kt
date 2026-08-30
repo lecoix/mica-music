@@ -1,6 +1,7 @@
 package com.mica.music.ui.screens.home
 
 import com.mica.music.data.AlbumBrowseKey
+import com.mica.music.data.Song
 internal sealed interface HomePaneKey {
     data object Search : HomePaneKey
     data object Songs : HomePaneKey
@@ -247,5 +248,19 @@ fun navigateToArtist(
         section = HomeSection.Artists,
     )
 
-fun shouldClearSongMultiSelect(section: HomeSection, searchOpen: Boolean): Boolean =
-    section != HomeSection.Songs || searchOpen
+fun songsForMultiSelect(
+    section: HomeSection,
+    localSongs: List<Song>,
+    remoteSongs: List<Song>,
+): List<Song> = when (section) {
+    HomeSection.Songs -> localSongs
+    HomeSection.Remote -> remoteSongs
+    else -> emptyList()
+}
+
+fun shouldClearSongMultiSelect(
+    selectionSection: HomeSection?,
+    currentSection: HomeSection,
+    searchOpen: Boolean,
+): Boolean =
+    searchOpen || (selectionSection != null && selectionSection != currentSection)

@@ -5,7 +5,8 @@ import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.FolderBrowseMode
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -107,20 +108,26 @@ class HomeLibraryStatsRobolectricTest {
     }
 
     @Test
-    fun remoteSectionDoesNotReuseLocalLibraryStatsOrScanActions() {
+    fun remoteSectionShowsOnlyRemoteCountAndMultiSelectAction() {
         val library = MusicLibrary(ApplicationProvider.getApplicationContext())
 
-        assertNull(
-            resolveLibraryStatsBarModel(
-                section = HomeSection.Remote,
-                browseDestination = BrowseDestination.Root,
-                library = library,
-                activePlaylistId = null,
-                playlistSongCount = 0,
-                playlistSortField = null,
-                playlistSortDirection = null,
-            ),
+        val remote = resolveLibraryStatsBarModel(
+            section = HomeSection.Remote,
+            browseDestination = BrowseDestination.Root,
+            library = library,
+            remoteSongCount = 264,
+            activePlaylistId = null,
+            playlistSongCount = 0,
+            playlistSortField = null,
+            playlistSortDirection = null,
         )
+
+        assertEquals(listOf("264 首"), remote?.segments)
+        assertTrue(remote?.showMultiSelectAction == true)
+        assertFalse(remote?.showSortAction == true)
+        assertFalse(remote?.showFolderModeAction == true)
+        assertFalse(remote?.showRescanAction == true)
+        assertFalse(remote?.showDeletePlaylistAction == true)
     }
 
     @Test

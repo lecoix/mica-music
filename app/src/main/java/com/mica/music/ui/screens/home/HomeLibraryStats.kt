@@ -22,6 +22,7 @@ internal data class LibraryStatsBarModel(
     val showFolderModeAction: Boolean = false,
     val showRescanAction: Boolean = false,
     val showDeletePlaylistAction: Boolean = false,
+    val showMultiSelectAction: Boolean = false,
 )
 
 @Composable
@@ -30,6 +31,7 @@ internal fun rememberLibraryStatsBarModel(
     browseDestination: BrowseDestination,
     library: MusicLibrary,
     recentSongCount: Int? = null,
+    remoteSongCount: Int = 0,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -49,6 +51,7 @@ internal fun rememberLibraryStatsBarModel(
         section,
         browseDestination,
         recentSongCount,
+        remoteSongCount,
         activePlaylistId,
         playlistSongCount,
         playlistSortField,
@@ -75,6 +78,7 @@ internal fun rememberLibraryStatsBarModel(
             browseDestination,
             library,
             recentSongCount,
+            remoteSongCount,
             activePlaylistId,
             playlistSongCount,
             playlistSortField,
@@ -100,6 +104,7 @@ internal fun resolveLibraryStatsBarModel(
     browseDestination: BrowseDestination,
     library: MusicLibrary,
     recentSongCount: Int? = null,
+    remoteSongCount: Int = 0,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -128,6 +133,10 @@ internal fun resolveLibraryStatsBarModel(
             scanError = library.lastScanError,
             showSortAction = true,
             showRescanAction = true,
+        )
+        HomeSection.Remote -> LibraryStatsBarModel(
+            segments = listOf(if (remoteSongCount == 0) "暂无远程歌曲" else "$remoteSongCount 首"),
+            showMultiSelectAction = remoteSongCount > 0,
         )
         HomeSection.Recent -> {
             val count = recentSongCount ?: library.recentSongs().size

@@ -129,6 +129,7 @@ internal fun LibraryStatsRow(
     onFolderModeClick: () -> Unit,
     onRescan: () -> Unit,
     onDeletePlaylist: () -> Unit,
+    onMultiSelectClick: () -> Unit = {},
 ) {
     val lineText = model.segments.joinToString(" · ")
     val showKaraoke = karaokeLine != null && karaokeLine.cues.isNotEmpty()
@@ -163,6 +164,16 @@ internal fun LibraryStatsRow(
                     modifier = Modifier
                         .weight(1f)
                         .basicMarquee(),
+                )
+            }
+            if (model.showMultiSelectAction) {
+                Text(
+                    text = "多选",
+                    style = MicaTheme.typography.bodyMd,
+                    color = MicaTheme.colors.accent,
+                    modifier = Modifier
+                        .clickable(onClick = onMultiSelectClick)
+                        .padding(HifiSpacing.xs),
                 )
             }
             if (model.showSortAction) {

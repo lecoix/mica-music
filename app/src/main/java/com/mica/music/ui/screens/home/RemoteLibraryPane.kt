@@ -27,6 +27,9 @@ internal fun RemoteLibraryPane(
     onQueueSongClick: (List<Song>, String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listState: LazyListState,
+    selectionMode: Boolean = false,
+    selectedSongIds: Set<String> = emptySet(),
+    onSelectionToggle: (String) -> Unit = {},
     listBottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -64,10 +67,16 @@ internal fun RemoteLibraryPane(
                     trackNumber = (index + 1).toString().padStart(2, '0'),
                     isCurrent = isCurrent,
                     isPlaying = isCurrent && isPlaying,
+                    selectionMode = selectionMode,
+                    isSelected = song.id in selectedSongIds,
                     onClick = {
-                        onQueueSongClick(songs, song.id)
+                        if (selectionMode) {
+                            onSelectionToggle(song.id)
+                        } else {
+                            onQueueSongClick(songs, song.id)
+                        }
                     },
-                    onLongClick = { onSongOpenMenu(song) },
+                    onLongClick = if (selectionMode) null else ({ onSongOpenMenu(song) }),
                 )
             }
         }

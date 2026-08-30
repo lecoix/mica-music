@@ -1,5 +1,7 @@
 package com.mica.music.ui.screens.home
 
+import com.mica.music.data.Song
+import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -306,6 +308,24 @@ class HomeNavigationTest {
         assertFalse(back.hideKeyboard)
     }
 
+    @Test
+    fun multiSelectDataSourceMatchesCurrentLibrarySection() {
+        val local = listOf(SongFixtures.song(id = "local", title = "Local"))
+        val remote = listOf(SongFixtures.song(id = "remote", title = "Remote"))
+
+        assertEquals(local, songsForMultiSelect(HomeSection.Songs, local, remote))
+        assertEquals(remote, songsForMultiSelect(HomeSection.Remote, local, remote))
+        assertEquals(emptyList<Song>(), songsForMultiSelect(HomeSection.Artists, local, remote))
+    }
+    @Test
+    fun multiSelectIsScopedToItsOwningSectionAndSearchClosesIt() {
+        assertFalse(shouldClearSongMultiSelect(HomeSection.Songs, HomeSection.Songs, searchOpen = false))
+        assertFalse(shouldClearSongMultiSelect(HomeSection.Remote, HomeSection.Remote, searchOpen = false))
+        assertTrue(shouldClearSongMultiSelect(HomeSection.Remote, HomeSection.Songs, searchOpen = false))
+        assertTrue(shouldClearSongMultiSelect(HomeSection.Songs, HomeSection.Remote, searchOpen = false))
+        assertTrue(shouldClearSongMultiSelect(HomeSection.Remote, HomeSection.Remote, searchOpen = true))
+        assertFalse(shouldClearSongMultiSelect(null, HomeSection.Artists, searchOpen = false))
+    }
     @Test
     fun rootToArtistPushesRootThenBackReturnsRoot() {
         val root = snapshot(section = HomeSection.Artists)
