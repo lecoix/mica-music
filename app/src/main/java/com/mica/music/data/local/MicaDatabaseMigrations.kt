@@ -374,3 +374,21 @@ private fun SupportSQLiteDatabase.hasColumn(tableName: String, columnName: Strin
         }
         false
     }
+
+
+val MIGRATION_24_25 = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN sampleRateHz INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN bitsPerSample INTEGER")
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN bitrateKbps INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN channelCount INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+val MIGRATION_25_26 = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Technical audio fields were added in v25. Existing catalogs need one safe refresh so
+        // protocol/tag metadata can populate them; keep rows/credentials intact until that sync publishes.
+        db.execSQL("UPDATE remote_sources SET lastSyncAtMs = 0 WHERE enabled = 1")
+    }
+}

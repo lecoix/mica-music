@@ -57,6 +57,10 @@ data class RemoteTrackSummary(
     val fileName: String = "",
     val suffix: String = "",
     val sizeBytes: Long = 0L,
+    val sampleRateHz: Int = 0,
+    val bitsPerSample: Int? = null,
+    val bitrateKbps: Int = 0,
+    val channelCount: Int = 0,
     /** Protocol-provided revision hint (SMB last-write/file-id, WebDAV ETag/mtime) for metadata reuse. */
     val contentRevision: String = "",
     /** Version of Mica's file metadata profile that produced the cached browse fields. */

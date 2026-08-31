@@ -132,14 +132,18 @@ internal data class RemoteTrackMetadata(
     val album: String = "",
     val albumArtist: String = "",
     val durationSec: Int = 0,
+    val sampleRateHz: Int = 0,
+    val bitsPerSample: Int? = null,
+    val bitrateKbps: Int = 0,
+    val channelCount: Int = 0,
     val year: Int = 0,
     val trackNumber: Int = 0,
     val discNumber: Int = 0,
     val hasEmbeddedArtwork: Boolean = false,
 )
 
-// Revision 2 re-probes catalogs that may have cached metadata from the pre-fix read-ahead path.
-internal const val REMOTE_METADATA_PROBE_REVISION = 2
+// Revision 3 re-probes catalogs to persist technical audio properties.
+internal const val REMOTE_METADATA_PROBE_REVISION = 3
 
 internal fun interface RemoteTrackMetadataProbe {
     fun probe(fileName: String, source: SeekableByteSource): RemoteTrackMetadata?
@@ -168,6 +172,10 @@ internal class AndroidTagLibRemoteTrackMetadataProbe(
                 album = tags.album,
                 albumArtist = tags.albumArtist,
                 durationSec = tags.durationSec.coerceAtLeast(0),
+                sampleRateHz = tags.sampleRateHz.coerceAtLeast(0),
+                bitsPerSample = tags.bitsPerSample.takeIf { it > 0 },
+                bitrateKbps = tags.bitrateKbps.coerceAtLeast(0),
+                channelCount = tags.channelCount.coerceAtLeast(0),
                 year = tags.year.coerceAtLeast(0),
                 trackNumber = tags.trackNumber.coerceAtLeast(0),
                 discNumber = tags.discNumber.coerceAtLeast(0),

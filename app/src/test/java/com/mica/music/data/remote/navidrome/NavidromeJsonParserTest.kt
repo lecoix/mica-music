@@ -16,7 +16,7 @@ class NavidromeJsonParserTest {
                 "status": "ok",
                 "searchResult3": {
                   "song": [
-                    {"id":"1","title":"One","artist":"A","duration":123,"contentType":"audio/flac","suffix":"flac","track":2,"discNumber":1},
+                    {"id":"1","title":"One","artist":"A","duration":123,"contentType":"audio/flac","suffix":"flac","bitRate":1536,"samplingRate":96000,"bitDepth":24,"channelCount":2,"track":2,"discNumber":1},
                     {"title":"missing id"},
                     {"id":"2","title":"Two","albumArtist":"Album Artist","size":999}
                   ]
@@ -31,6 +31,10 @@ class NavidromeJsonParserTest {
         assertEquals(listOf("1", "2"), page.songs.map { it.remoteId })
         assertEquals("audio/flac", page.songs.first().contentType)
         assertEquals(123, page.songs.first().durationSec)
+        assertEquals(1536, page.songs.first().bitRateKbps)
+        assertEquals(96000, page.songs.first().samplingRateHz)
+        assertEquals(24, page.songs.first().bitDepth)
+        assertEquals(2, page.songs.first().channelCount)
         assertEquals("Album Artist", page.songs.last().albumArtist)
     }
 

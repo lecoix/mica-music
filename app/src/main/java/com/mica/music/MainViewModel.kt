@@ -11,6 +11,7 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.remote.RemotePlayStatsPresentation
+import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.playback.asLibraryPlaybackQueueTarget
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.playback.toLibraryQueueSyncInput
@@ -48,6 +49,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     PlayHistoryStore.snapshotStats(application, mediaIds)
                 }
                 remotePlayStatsPresentation.publishCatalog(mediaIds, persisted)
+                // Remote sync can enrich metadata without changing stable IDs. Refresh matching
+                // queue entries in place so current/future remote items do not retain stale fields.
+                playerController.refreshQueueMetadata(tracks.map { it.toPlaybackSong() })
             }
         }
         viewModelScope.launch {

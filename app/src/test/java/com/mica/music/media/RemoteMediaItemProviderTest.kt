@@ -36,6 +36,10 @@ class RemoteMediaItemProviderTest {
             fileName = "track-9.flac",
             suffix = "flac",
             sizeBytes = 987654L,
+            sampleRateHz = 96000,
+            bitsPerSample = 24,
+            bitrateKbps = 1536,
+            channelCount = 2,
             year = 2026,
             trackNumber = 9,
             discNumber = 2,
@@ -70,6 +74,10 @@ class RemoteMediaItemProviderTest {
         assertEquals("track-9.flac", RemoteMediaMetadataExtras.fileName(extras))
         assertEquals("flac", RemoteMediaMetadataExtras.suffix(extras))
         assertEquals(987654L, RemoteMediaMetadataExtras.sizeBytes(extras))
+        assertEquals(96000, RemoteMediaMetadataExtras.sampleRateHz(extras))
+        assertEquals(24, RemoteMediaMetadataExtras.bitsPerSample(extras))
+        assertEquals(1536, RemoteMediaMetadataExtras.bitrateKbps(extras))
+        assertEquals(2, RemoteMediaMetadataExtras.channelCount(extras))
         assertEquals(2026, RemoteMediaMetadataExtras.year(extras))
         assertEquals(9, RemoteMediaMetadataExtras.trackNumber(extras))
         assertEquals(2, RemoteMediaMetadataExtras.discNumber(extras))
@@ -84,6 +92,10 @@ class RemoteMediaItemProviderTest {
                 "mica.remote.metadata.fileName",
                 "mica.remote.metadata.suffix",
                 "mica.remote.metadata.sizeBytes",
+                "mica.remote.metadata.sampleRateHz",
+                "mica.remote.metadata.bitsPerSample",
+                "mica.remote.metadata.bitrateKbps",
+                "mica.remote.metadata.channelCount",
                 "mica.remote.metadata.year",
                 "mica.remote.metadata.trackNumber",
                 "mica.remote.metadata.discNumber",
@@ -105,6 +117,10 @@ class RemoteMediaItemProviderTest {
             fileName = "track-9.flac",
             suffix = "flac",
             sizeBytes = 987654L,
+            sampleRateHz = 96000,
+            bitsPerSample = 24,
+            bitrateKbps = 1536,
+            channelCount = 2,
             year = 2026,
             trackNumber = 9,
             discNumber = 2,
@@ -120,6 +136,10 @@ class RemoteMediaItemProviderTest {
         assertNull(decoded.playbackUri)
         assertEquals("audio/flac", decoded.metadata.playbackMimeType)
         assertEquals("FLAC", decoded.metadata.containerName)
+        assertEquals(96000, decoded.metadata.sampleRateHz)
+        assertEquals(24, decoded.metadata.bitsPerSample)
+        assertEquals(1536, decoded.metadata.bitrateKbps)
+        assertEquals(2, decoded.metadata.channelCount)
         assertEquals("track-9.flac", decoded.fileName)
         assertEquals(987654L, decoded.sizeBytes)
         assertEquals(2026, decoded.year)

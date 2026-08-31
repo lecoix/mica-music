@@ -22,10 +22,10 @@ fun RemoteTrackSummary.toPlaybackSong(): Song {
         durationSec = durationSec.coerceAtLeast(0),
         metadata = TrackMetadata(
             containerName = suffix.ifBlank { mimeTypeHint.substringAfter('/', "") }.uppercase(),
-            sampleRateHz = 0,
-            bitsPerSample = null,
-            bitrateKbps = 0,
-            channelCount = 0,
+            sampleRateHz = sampleRateHz.coerceAtLeast(0),
+            bitsPerSample = bitsPerSample?.takeIf { it > 0 },
+            bitrateKbps = bitrateKbps.coerceAtLeast(0),
+            channelCount = channelCount.coerceAtLeast(0),
             playbackMimeType = mimeTypeHint,
         ),
         albumArtUri = artworkOpaqueId.takeIf(String::isNotBlank)?.let { artworkId ->

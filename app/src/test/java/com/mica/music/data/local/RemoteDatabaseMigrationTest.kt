@@ -165,11 +165,25 @@ class RemoteDatabaseMigrationTest {
             )
 
             MIGRATION_23_24.migrate(db)
+            MIGRATION_24_25.migrate(db)
 
             assertTrue("metadataProbeRevision" in tableColumns(db, "remote_tracks"))
+            assertTrue(tableColumns(db, "remote_tracks").containsAll(
+                listOf("sampleRateHz", "bitsPerSample", "bitrateKbps", "channelCount"),
+            ))
             db.query("SELECT metadataProbeRevision FROM remote_tracks WHERE sourceInstanceId='smb'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals(0, cursor.getInt(0))
+            }
+            db.query(
+                "SELECT sampleRateHz,bitsPerSample,bitrateKbps,channelCount " +
+                    "FROM remote_tracks WHERE sourceInstanceId='smb'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+                assertTrue(cursor.isNull(1))
+                assertEquals(0, cursor.getInt(2))
+                assertEquals(0, cursor.getInt(3))
             }
         } finally {
             helper.close()
