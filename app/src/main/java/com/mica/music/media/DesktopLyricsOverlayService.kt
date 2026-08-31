@@ -202,6 +202,7 @@ class DesktopLyricsOverlayService : Service() {
                 PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                x = statusBarLyricsX(density)
                 y = statusBarLyricsY(density)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode =
@@ -256,7 +257,9 @@ class DesktopLyricsOverlayService : Service() {
             updateDesktopWindowWidth()
             applyDesktopTouchMode(LyricsPreferences.desktopLyricsLocked(this))
             if (::statusBarLayoutParams.isInitialized && ::statusBarView.isInitialized) {
-                statusBarLayoutParams.y = statusBarLyricsY(resources.displayMetrics.density)
+                val density = resources.displayMetrics.density
+                statusBarLayoutParams.x = statusBarLyricsX(density)
+                statusBarLayoutParams.y = statusBarLyricsY(density)
                 runCatching { windowManager.updateViewLayout(statusBarView, statusBarLayoutParams) }
             }
             return START_STICKY
@@ -295,6 +298,10 @@ class DesktopLyricsOverlayService : Service() {
                 screenWidthDp = screenWidthDp,
             )
         }
+    }
+
+    private fun statusBarLyricsX(density: Float): Int {
+        return (LyricsPreferences.statusBarLyricsHorizontalOffsetDp(this) * density).toInt()
     }
 
     private fun statusBarLyricsY(density: Float): Int {

@@ -27,8 +27,10 @@ internal fun settingsScreenTitle(
     selectedCategory: SettingsCategory?,
     usbHybridSubpageOpen: Boolean = false,
     remoteMusicSubpageOpen: Boolean = false,
+    externalLyricsSubpageOpen: Boolean = false,
 ): String = when {
     usbHybridSubpageOpen -> "USB 独占输出"
     remoteMusicSubpageOpen -> "远程曲库"
+    externalLyricsSubpageOpen -> "外部歌词"
     else -> selectedCategory?.title ?: "设置"
 }

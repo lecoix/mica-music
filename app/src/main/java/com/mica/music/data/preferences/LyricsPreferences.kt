@@ -9,6 +9,7 @@ import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_OPACITY_PERCENT
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT
+import com.mica.music.data.DEFAULT_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP
 import com.mica.music.data.DEFAULT_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.ExternalLyricsColorMode
 import com.mica.music.data.ExternalLyricsMode
@@ -36,8 +37,10 @@ import com.mica.music.data.MIN_LETTER_SEAL_ROTATION_DEGREES
 import com.mica.music.data.MIN_LETTER_SEAL_SIZE_DP
 import com.mica.music.data.MAX_EXTERNAL_LYRICS_COLORS
 import com.mica.music.data.MAX_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MAX_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP
 import com.mica.music.data.MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
+import com.mica.music.data.MIN_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP
 import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
 import com.mica.music.data.normalizeExternalLyricsColors
 import com.mica.music.data.normalizeExternalLyricsEffectPercent
@@ -81,6 +84,8 @@ object LyricsPreferences {
     private const val KEY_DESKTOP_LYRICS_WIDTH_PERCENT = "desktop_lyrics_width_percent"
     private const val KEY_STATUS_BAR_LYRICS_ENABLED = "status_bar_lyrics_enabled"
     private const val KEY_STATUS_BAR_LYRICS_TOP_OFFSET_DP = "status_bar_lyrics_top_offset_dp"
+    private const val KEY_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP =
+        "status_bar_lyrics_horizontal_offset_dp"
     private const val KEY_STATUS_BAR_LYRICS_ORIGINAL_FONT_SIZE = "status_bar_lyrics_original_font_size"
     private const val KEY_STATUS_BAR_LYRICS_TRANSLATION_FONT_SIZE = "status_bar_lyrics_translation_font_size"
     private const val KEY_STATUS_BAR_LYRICS_SPLIT_ENABLED = "status_bar_lyrics_split_enabled"
@@ -496,6 +501,30 @@ object LyricsPreferences {
             .putInt(
                 KEY_STATUS_BAR_LYRICS_TOP_OFFSET_DP,
                 offsetDp.coerceIn(MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP, MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP),
+            )
+            .apply()
+    }
+
+    /** Horizontal fine adjustment from the centered status-bar lyric position, in dp. */
+    fun statusBarLyricsHorizontalOffsetDp(context: Context): Int =
+        MicaSettingsStore.prefs(context)
+            .getInt(
+                KEY_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+                DEFAULT_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+            )
+            .coerceIn(
+                MIN_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+                MAX_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+            )
+
+    fun setStatusBarLyricsHorizontalOffsetDp(context: Context, offsetDp: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+                offsetDp.coerceIn(
+                    MIN_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+                    MAX_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+                ),
             )
             .apply()
     }

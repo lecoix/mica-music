@@ -65,5 +65,9 @@ class SettingsNavigationTest {
             "远程曲库",
             settingsScreenTitle(SettingsCategory.LIBRARY, remoteMusicSubpageOpen = true),
         )
+        assertEquals(
+            "外部歌词",
+            settingsScreenTitle(SettingsCategory.LYRICS, externalLyricsSubpageOpen = true),
+        )
     }
 }

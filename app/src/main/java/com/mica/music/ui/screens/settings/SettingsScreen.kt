@@ -88,12 +88,14 @@ fun SettingsScreen(
     }
     var usbHybridSubpageOpen by remember { mutableStateOf(false) }
     var remoteMusicSubpageOpen by remember { mutableStateOf(false) }
+    var externalLyricsSubpageOpen by remember { mutableStateOf(false) }
     var settingsSearchOpen by remember { mutableStateOf(false) }
     var settingsSearchQuery by remember { mutableStateOf("") }
     var audioOffloadState by remember { mutableStateOf(AudioOffloadPreferences.state(context)) }
     val settingsSubpageBackEnabled =
         (usbHybridSubpageOpen && !playerOverlayOpen) ||
             (remoteMusicSubpageOpen && !playerOverlayOpen) ||
+            (externalLyricsSubpageOpen && !playerOverlayOpen) ||
             canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
     val settingsSearchBackEnabled = selectedCategory == null && settingsSearchOpen
     val settingsBackEnabled = settingsSubpageBackEnabled || settingsSearchBackEnabled
@@ -124,6 +126,7 @@ fun SettingsScreen(
         selectedCategory,
         usbHybridSubpageOpen,
         remoteMusicSubpageOpen,
+        externalLyricsSubpageOpen,
         playerOverlayOpen,
         settingsBackEnabled,
         settingsSearchOpen,
@@ -156,6 +159,11 @@ fun SettingsScreen(
         if (remoteMusicSubpageOpen) {
             logBackFlow("back-consume source=settings-remote-music")
             remoteMusicSubpageOpen = false
+            return@BackHandler
+        }
+        if (externalLyricsSubpageOpen) {
+            logBackFlow("back-consume source=settings-external-lyrics")
+            externalLyricsSubpageOpen = false
             return@BackHandler
         }
         logBackFlow(
@@ -241,6 +249,9 @@ fun SettingsScreen(
                     } else if (remoteMusicSubpageOpen) {
                         logBackFlow("back-consume source=settings-topbar-remote-music")
                         remoteMusicSubpageOpen = false
+                    } else if (externalLyricsSubpageOpen) {
+                        logBackFlow("back-consume source=settings-topbar-external-lyrics")
+                        externalLyricsSubpageOpen = false
                     } else {
                         when (resolveSettingsTopBarBackAction(selectedCategory)) {
                             SettingsTopBarBackAction.ExitSettings -> {
@@ -313,6 +324,7 @@ fun SettingsScreen(
                         selectedCategory = selectedCategory,
                         usbHybridSubpageOpen = usbHybridSubpageOpen,
                         remoteMusicSubpageOpen = remoteMusicSubpageOpen,
+                        externalLyricsSubpageOpen = externalLyricsSubpageOpen,
                     ),
                     style = MicaTheme.typography.bodyLg,
                     color = MicaTheme.colors.textPrimary,
@@ -374,7 +386,14 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.LYRICS -> {
-                        LyricsSettingsPanel(uiSettings = uiSettings)
+                        if (externalLyricsSubpageOpen) {
+                            ExternalLyricsSettingsPanel(uiSettings = uiSettings)
+                        } else {
+                            LyricsSettingsPanel(
+                                uiSettings = uiSettings,
+                                onOpenExternalLyrics = { externalLyricsSubpageOpen = true },
+                            )
+                        }
                     }
 
                     SettingsCategory.LIBRARY -> {

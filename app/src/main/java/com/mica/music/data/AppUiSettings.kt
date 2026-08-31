@@ -247,6 +247,11 @@ class AppUiSettings(context: Context) {
     )
         private set
 
+    var statusBarLyricsHorizontalOffsetDp by mutableIntStateOf(
+        LyricsPreferences.statusBarLyricsHorizontalOffsetDp(appContext),
+    )
+        private set
+
     var statusBarLyricsOriginalFontSizeSp by mutableIntStateOf(
         LyricsPreferences.statusBarLyricsOriginalFontSizeSp(appContext),
     )
@@ -763,6 +768,17 @@ class AppUiSettings(context: Context) {
             MAX_STATUS_BAR_LYRICS_TOP_OFFSET_DP,
         )
         LyricsPreferences.setStatusBarLyricsTopOffsetDp(appContext, statusBarLyricsTopOffsetDp)
+    }
+
+    fun updateStatusBarLyricsHorizontalOffsetDp(offsetDp: Int) {
+        statusBarLyricsHorizontalOffsetDp = offsetDp.coerceIn(
+            MIN_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+            MAX_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP,
+        )
+        LyricsPreferences.setStatusBarLyricsHorizontalOffsetDp(
+            appContext,
+            statusBarLyricsHorizontalOffsetDp,
+        )
     }
 
     fun updateStatusBarLyricsOriginalFontSizeSp(fontSizeSp: Int) {
