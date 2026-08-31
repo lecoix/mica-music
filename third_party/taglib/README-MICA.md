@@ -8,6 +8,7 @@
 
 1. **`AudioProperties.bitsPerSample`**：JNI 通过格式专用 `Properties::bitsPerSample()` 暴露位深（FLAC、WAV、AIFF、MP4/ALAC、APE、WavPack、DSF、DSDIFF、Matroska 等）；未知时为 `0`。
 2. **`TagLib.probeTrack(fd)`**：单次 `FileRef` 会话同时返回 `Metadata` + `AudioProperties`，避免 `getMetadata` / `getAudioProperties` 各开一次 fd。
+3. **`TrackProbe.hasPictures`**：通过 `FileRef::complexPropertyKeys()` 仅暴露 `PICTURE` complex property 的存在性；`readPictures=false` 时不会调用 `complexProperties("PICTURE")` 或向 JVM 复制图片字节，供远端曲库先建立轻量 artwork presence，再在真正打开封面时读取 picture value。
 
 ## 依赖
 
@@ -30,7 +31,7 @@ git clone --recurse-submodules <mica-repo-url>
 
 ## 构建
 
-作为 `:taglib` 子工程编入 Mica（`settings.gradle.kts` → `implementation(project(":taglib"))`）。需 Android NDK 与 CMake；ABI 与 app 一致（当前 **arm64-v8a**）。
+作为 `:taglib` 子工程编入 Mica（`settings.gradle.kts` → `implementation(project(":taglib"))`）。需 Android NDK 与 CMake；ABI 与 app 一致（当前 **arm64-v8a + armeabi-v7a**）。
 
 `build.gradle.kts` 含 **perf** buildType（与 `:app` perf 变体对齐）。
 

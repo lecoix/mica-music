@@ -26,7 +26,9 @@ internal fun resolveSettingsTopBarBackAction(
 internal fun settingsScreenTitle(
     selectedCategory: SettingsCategory?,
     usbHybridSubpageOpen: Boolean = false,
+    remoteMusicSubpageOpen: Boolean = false,
 ): String = when {
     usbHybridSubpageOpen -> "USB 独占输出"
+    remoteMusicSubpageOpen -> "远程曲库"
     else -> selectedCategory?.title ?: "设置"
 }

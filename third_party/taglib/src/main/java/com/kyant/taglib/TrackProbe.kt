@@ -6,4 +6,6 @@ package com.kyant.taglib
 public data class TrackProbe(
     val metadata: Metadata,
     val audioProperties: AudioProperties,
+    /** True when the tag advertises at least one PICTURE complex property; picture bytes are not read. */
+    val hasPictures: Boolean,
 )

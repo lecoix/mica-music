@@ -48,6 +48,7 @@ internal fun HomeOverlays(
                 onAlbumClick(albumKey)
                 onDismissActionMenu()
             },
+            showFileActions = !song.isRemote && !song.isTransient,
             landscape = landscape,
         )
     }

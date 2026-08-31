@@ -71,6 +71,7 @@ import com.mica.music.data.BrowseGroupPresentation
 import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.FolderBrowseGroup
 import com.mica.music.data.FolderBrowseMode
+import com.mica.music.data.LibraryBrowse
 import com.mica.music.data.LibraryBrowseDetails
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.ReleaseDates
@@ -105,6 +106,8 @@ import com.mica.music.ui.theme.coverColor
 import com.mica.music.ui.screens.home.BrowseDestination
 import com.mica.music.ui.screens.home.HomeSection
 import com.mica.music.ui.screens.home.browseDestinationDepth
+import com.mica.music.ui.screens.home.hasRemoteBrowseContent
+import com.mica.music.ui.screens.home.mergedBrowseSongs
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.flow.collectLatest
 
@@ -122,12 +125,12 @@ internal fun HomeBrowseContent(
     onDestinationChange: (BrowseDestination) -> Unit,
     onFolderPageChange: (depth: Int, scopePathSegments: List<String>) -> Unit = { _, _ -> },
     library: MusicLibrary,
+    remoteSongs: List<Song> = emptyList(),
     currentSongId: String?,
     isPlaying: Boolean,
-    onQueueSongs: (List<Song>) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     onAppendSongsToQueue: (List<Song>) -> Unit = {},
     onAddSongsToPlaylist: (List<Song>) -> Unit = {},
-    onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onAlbumClick: (AlbumBrowseKey) -> Unit = {},
     albumSortField: AlbumBrowseSortField = AlbumBrowseSortField.TITLE,
@@ -146,16 +149,22 @@ internal fun HomeBrowseContent(
     albumGridState: LazyGridState,
     listBottomPadding: Dp = 0.dp,
     motionEnabled: Boolean = true,
+    recentSongs: List<Song>? = null,
     modifier: Modifier = Modifier,
 ) {
     val folderListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
-    if (library.isLoadingCachedLibrary && library.songs.isEmpty()) {
+    val availableSongs = remember(library.songs, remoteSongs) {
+        mergedBrowseSongs(library.songs, remoteSongs)
+    }
+    val remoteBrowseAvailable = hasRemoteBrowseContent(section, destination, remoteSongs)
+    val requiresLocalLibrary = section != HomeSection.Recent && !remoteBrowseAvailable
+    if (requiresLocalLibrary && library.isLoadingCachedLibrary && library.songs.isEmpty()) {
         EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
         return
     }
 
-    if (!library.hasScanned && library.songs.isEmpty()) {
+    if (requiresLocalLibrary && !library.hasScanned && library.songs.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = "请先扫描曲库",
@@ -178,6 +187,8 @@ internal fun HomeBrowseContent(
                     is BrowseDestination.Root -> {
                         ArtistGroupList(
                             library = library,
+                            songs = availableSongs,
+                            useLibraryPresentationCache = remoteSongs.isEmpty(),
                             listState = artistListState,
                             gridState = artistGridState,
                             onSelect = { onDestinationChange(BrowseDestination.Artist(it)) },
@@ -192,18 +203,17 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Artist -> {
                         val songListState = rememberBrowseDetailSongListState("artist:${dest.name}")
-                        val songs = timedBrowseDetail("artist filter", "artist=${dest.name}", library.songs.size) {
-                            library.songsForArtist(dest.name)
+                        val songs = timedBrowseDetail("artist filter", "artist=${dest.name}", availableSongs.size) {
+                            LibraryBrowse.songsForArtist(availableSongs, dest.name)
                         }
                         ArtistDetailPanel(
                             artistName = dest.name,
                             songs = songs,
                             currentSongId = currentSongId,
                             isPlaying = isPlaying,
-                            onQueueSongs = onQueueSongs,
+                            onQueueSongClick = onQueueSongClick,
                             onAppendSongsToQueue = onAppendSongsToQueue,
                             onAddSongsToPlaylist = onAddSongsToPlaylist,
-                            onSongClick = onSongClick,
                             onSongOpenMenu = onSongOpenMenu,
                             onAlbumClick = onAlbumClick,
                             emptyMessage = "该歌手下暂无歌曲",
@@ -227,6 +237,8 @@ internal fun HomeBrowseContent(
                     is BrowseDestination.Root -> {
                         AlbumGroupList(
                             library = library,
+                            songs = availableSongs,
+                            useLibraryPresentationCache = remoteSongs.isEmpty(),
                             listState = albumListState,
                             gridState = albumGridState,
                             onSelect = { onDestinationChange(BrowseDestination.Album(it)) },
@@ -242,18 +254,17 @@ internal fun HomeBrowseContent(
                     }
                     is BrowseDestination.Album -> {
                         val songListState = rememberBrowseDetailSongListState("album:${dest.key.storageKey}")
-                        val songs = timedBrowseDetail("album filter", "album=${dest.key.storageKey}", library.songs.size) {
-                            library.songsForAlbum(dest.key)
+                        val songs = timedBrowseDetail("album filter", "album=${dest.key.storageKey}", availableSongs.size) {
+                            LibraryBrowse.songsForAlbum(availableSongs, dest.key)
                         }
                         AlbumDetailPanel(
                             albumTitle = dest.key.title,
                             songs = songs,
                             currentSongId = currentSongId,
                             isPlaying = isPlaying,
-                            onQueueSongs = onQueueSongs,
+                            onQueueSongClick = onQueueSongClick,
                             onAppendSongsToQueue = onAppendSongsToQueue,
                             onAddSongsToPlaylist = onAddSongsToPlaylist,
-                            onSongClick = onSongClick,
                             onSongOpenMenu = onSongOpenMenu,
                             emptyMessage = "该专辑下暂无歌曲",
                             listState = songListState,
@@ -266,16 +277,13 @@ internal fun HomeBrowseContent(
             }
         }
         HomeSection.Recent -> {
-            val songs = library.recentSongs()
+            val songs = recentSongs ?: library.recentSongs()
             SongListPanel(
                 songs = songs,
                 library = library,
                 currentSongId = currentSongId,
                 isPlaying = isPlaying,
-                onSongClick = { songId ->
-                    onQueueSongs(songs)
-                    onSongClick(songId)
-                },
+                onSongClick = { songId -> onQueueSongClick(songs, songId) },
                 onSongOpenMenu = onSongOpenMenu,
                 fastScrollSortField = null,
                 emptyMessage = "暂无播放记录",
@@ -295,8 +303,7 @@ internal fun HomeBrowseContent(
                     folderListState = folderListState,
                     onFolderPageChange = onFolderPageChange,
                     onDestinationChange = onDestinationChange,
-                    onQueueSongs = onQueueSongs,
-                    onSongClick = onSongClick,
+                    onQueueSongClick = onQueueSongClick,
                     onSongOpenMenu = onSongOpenMenu,
                     listBottomPadding = listBottomPadding,
                     modifier = modifier,
@@ -309,8 +316,7 @@ internal fun HomeBrowseContent(
                     folderListState = folderListState,
                     onFolderPageChange = onFolderPageChange,
                     onDestinationChange = onDestinationChange,
-                    onQueueSongs = onQueueSongs,
-                    onSongClick = onSongClick,
+                    onQueueSongClick = onQueueSongClick,
                     onSongOpenMenu = onSongOpenMenu,
                     listBottomPadding = listBottomPadding,
                     modifier = modifier,
@@ -330,8 +336,7 @@ private fun MusicFoldersBrowse(
     folderListState: LazyListState,
     onFolderPageChange: (depth: Int, scopePathSegments: List<String>) -> Unit,
     onDestinationChange: (BrowseDestination) -> Unit,
-    onQueueSongs: (List<Song>) -> Unit,
-    onSongClick: (String) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp,
     modifier: Modifier,
@@ -359,7 +364,7 @@ private fun MusicFoldersBrowse(
                     ),
                 )
             },
-            onSongClick = onSongClick,
+            onSongClick = {},
             onSongOpenMenu = onSongOpenMenu,
             listBottomPadding = listBottomPadding,
             fastScrollLabels = groups.map { it.title },
@@ -375,10 +380,7 @@ private fun MusicFoldersBrowse(
         library = library,
         currentSongId = currentSongId,
         isPlaying = isPlaying,
-        onSongClick = { songId ->
-            onQueueSongs(songs)
-            onSongClick(songId)
-        },
+        onSongClick = { songId -> onQueueSongClick(songs, songId) },
         onSongOpenMenu = onSongOpenMenu,
         emptyMessage = "该文件夹下暂无歌曲",
         infoVisibility = FolderSongInfoVisibility,
@@ -397,8 +399,7 @@ private fun HierarchyFoldersBrowse(
     folderListState: LazyListState,
     onFolderPageChange: (depth: Int, scopePathSegments: List<String>) -> Unit,
     onDestinationChange: (BrowseDestination) -> Unit,
-    onQueueSongs: (List<Song>) -> Unit,
-    onSongClick: (String) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp,
     modifier: Modifier,
@@ -466,7 +467,7 @@ private fun HierarchyFoldersBrowse(
             library = library,
             currentSongId = currentSongId,
             isPlaying = isPlaying,
-            onQueueSongs = onQueueSongs,
+            onQueueSongClick = onQueueSongClick,
             rootListState = folderListState,
             onFolderSelect = { group ->
                 onFolderPageChange(group.pathSegments.size, group.pathSegments)
@@ -477,7 +478,6 @@ private fun HierarchyFoldersBrowse(
                     ),
                 )
             },
-            onSongClick = onSongClick,
             onSongOpenMenu = onSongOpenMenu,
             listBottomPadding = listBottomPadding,
             modifier = Modifier.fillMaxSize(),
@@ -536,10 +536,9 @@ private fun AlbumDetailPanel(
     songs: List<Song>,
     currentSongId: String?,
     isPlaying: Boolean,
-    onQueueSongs: (List<Song>) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     onAppendSongsToQueue: (List<Song>) -> Unit,
     onAddSongsToPlaylist: (List<Song>) -> Unit,
-    onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     emptyMessage: String,
     listState: LazyListState,
@@ -562,8 +561,7 @@ private fun AlbumDetailPanel(
             albumTitle = albumTitle,
             songs = orderedSongs,
             onPlayAll = {
-                onQueueSongs(orderedSongs)
-                orderedSongs.firstOrNull()?.let { onSongClick(it.id) }
+                orderedSongs.firstOrNull()?.let { onQueueSongClick(orderedSongs, it.id) }
             },
             onAddToPlaylist = { onAddSongsToPlaylist(orderedSongs) },
             onAddToQueue = { onAppendSongsToQueue(orderedSongs) },
@@ -593,10 +591,7 @@ private fun AlbumDetailPanel(
             isPlaying = isCurrent && isPlaying,
             showCover = false,
             subtitleOverride = ArtistNames.normalizeDisplay(song.artist),
-            onClick = {
-                onQueueSongs(orderedSongs)
-                onSongClick(song.id)
-            },
+            onClick = { onQueueSongClick(orderedSongs, song.id) },
             onLongClick = { onSongOpenMenu(song) },
         )
     }
@@ -750,10 +745,9 @@ private fun ArtistDetailPanel(
     songs: List<Song>,
     currentSongId: String?,
     isPlaying: Boolean,
-    onQueueSongs: (List<Song>) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     onAppendSongsToQueue: (List<Song>) -> Unit,
     onAddSongsToPlaylist: (List<Song>) -> Unit,
-    onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onAlbumClick: (AlbumBrowseKey) -> Unit,
     emptyMessage: String,
@@ -778,8 +772,7 @@ private fun ArtistDetailPanel(
             songs = songs,
             albumSections = albumSections,
             onPlayAll = {
-                onQueueSongs(displayedSongs)
-                displayedSongs.firstOrNull()?.let { onSongClick(it.id) }
+                displayedSongs.firstOrNull()?.let { onQueueSongClick(displayedSongs, it.id) }
             },
             onAddToPlaylist = { onAddSongsToPlaylist(displayedSongs) },
             onAddToQueue = { onAppendSongsToQueue(displayedSongs) },
@@ -809,10 +802,7 @@ private fun ArtistDetailPanel(
             isPlaying = isCurrent && isPlaying,
             showCover = false,
             compact = true,
-            onClick = {
-                onQueueSongs(displayedSongs)
-                onSongClick(song.id)
-            },
+            onClick = { onQueueSongClick(displayedSongs, song.id) },
             onLongClick = { onSongOpenMenu(song) },
         )
     }
@@ -1189,10 +1179,9 @@ private fun FolderDepthPage(
     library: MusicLibrary,
     currentSongId: String?,
     isPlaying: Boolean,
-    onQueueSongs: (List<Song>) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     rootListState: LazyListState,
     onFolderSelect: (FolderBrowseGroup) -> Unit,
-    onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
@@ -1225,8 +1214,7 @@ private fun FolderDepthPage(
                     } else {
                         songsInScope
                     }
-                    onQueueSongs(queue)
-                    onSongClick(songId)
+                    onQueueSongClick(queue, songId)
                 },
                 onSongOpenMenu = onSongOpenMenu,
                 listBottomPadding = listBottomPadding,
@@ -1241,10 +1229,7 @@ private fun FolderDepthPage(
                 library = library,
                 currentSongId = currentSongId,
                 isPlaying = isPlaying,
-                onSongClick = { songId ->
-                    onQueueSongs(songs)
-                    onSongClick(songId)
-                },
+                onSongClick = { songId -> onQueueSongClick(songs, songId) },
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "该文件夹下暂无歌曲",
                 infoVisibility = FolderSongInfoVisibility,
@@ -1260,6 +1245,8 @@ private fun FolderDepthPage(
 @Composable
 private fun ArtistGroupList(
     library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
     listState: LazyListState,
     gridState: LazyGridState,
     onSelect: (String) -> Unit,
@@ -1271,12 +1258,18 @@ private fun ArtistGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = remember(library.songs, library.artistSplitRevision, sortField, sortDirection) {
-        timedBrowseDetail("artist groups", "sort=$sortField/$sortDirection", library.songs.size) {
-            library.artistGroupPresentation(sortField, sortDirection)
+    val presentation = remember(songs, library.artistSplitRevision, sortField, sortDirection, useLibraryPresentationCache) {
+        timedBrowseDetail("artist groups", "sort=$sortField/$sortDirection", songs.size) {
+            if (useLibraryPresentationCache) {
+                library.artistGroupPresentation(sortField, sortDirection)
+            } else {
+                LibraryBrowse.artistGroupPresentation(songs, sortField, sortDirection)
+            }
         }
     }
-    LaunchedEffect(presentation) { library.prewarmBrowseGroupCache() }
+    LaunchedEffect(presentation, useLibraryPresentationCache) {
+        if (useLibraryPresentationCache) library.prewarmBrowseGroupCache()
+    }
     val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无艺术家", modifier)
@@ -1310,6 +1303,8 @@ private fun ArtistGroupList(
 @Composable
 private fun AlbumGroupList(
     library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
     listState: LazyListState,
     gridState: LazyGridState,
     onSelect: (AlbumBrowseKey) -> Unit,
@@ -1322,12 +1317,18 @@ private fun AlbumGroupList(
     listBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = remember(library.songs, library.artistSplitRevision, sortField, sortDirection) {
-        timedBrowseDetail("album groups", "sort=$sortField/$sortDirection", library.songs.size) {
-            library.albumGroupPresentation(sortField, sortDirection)
+    val presentation = remember(songs, library.artistSplitRevision, sortField, sortDirection, useLibraryPresentationCache) {
+        timedBrowseDetail("album groups", "sort=$sortField/$sortDirection", songs.size) {
+            if (useLibraryPresentationCache) {
+                library.albumGroupPresentation(sortField, sortDirection)
+            } else {
+                LibraryBrowse.albumGroupPresentation(songs, sortField, sortDirection)
+            }
         }
     }
-    LaunchedEffect(presentation) { library.prewarmBrowseGroupCache() }
+    LaunchedEffect(presentation, useLibraryPresentationCache) {
+        if (useLibraryPresentationCache) library.prewarmBrowseGroupCache()
+    }
     val groups = presentation.groups
     if (groups.isEmpty()) {
         EmptyBrowseHint("暂无专辑", modifier)

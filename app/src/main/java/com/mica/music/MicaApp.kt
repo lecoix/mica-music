@@ -9,6 +9,12 @@ import com.mica.music.data.PlaylistStore
 import com.mica.music.playback.PlayerController
 import com.mica.music.playback.SleepTimerController
 import com.mica.music.data.TransientPlaybackCatalog
+import com.mica.music.data.remote.AndroidKeystoreRemoteCredentialStore
+import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
+import com.mica.music.data.remote.RemoteAutoSyncScheduler
+import com.mica.music.data.remote.RemoteCatalogRepository
+import com.mica.music.data.remote.RemoteLyricsRepository
+import com.mica.music.data.remote.RemoteSourceManager
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.media.DesktopLyricsOverlayStateStore
 import com.mica.music.data.playback.ServicePlaybackStateStore
@@ -27,6 +33,29 @@ class MicaApp : Application() {
 
     /** Process-lifetime catalog for the current external queue. */
     val transientPlaybackCatalog = TransientPlaybackCatalog()
+
+    /** Persistent public remote-source/catalog state. No credential material is stored here. */
+    val remoteCatalogRepository: RemoteCatalogRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        RemoteCatalogRepository(this)
+    }
+
+    /** Android-Keystore-backed credential material, referenced from remote source rows by opaque ID. */
+    val remoteCredentialStore: AndroidKeystoreRemoteCredentialStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        AndroidKeystoreRemoteCredentialStore(this)
+    }
+    internal val remoteSourceManager: RemoteSourceManager by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        RemoteSourceManager(
+            remoteCatalogRepository,
+            remoteCredentialStore,
+            AndroidTagLibRemoteTrackMetadataProbe(this),
+            automaticSyncRequest = { RemoteAutoSyncScheduler.requestCatchUp(this) },
+        )
+    }
+
+    /** Process-lifetime on-demand remote lyric loader; remote sync never fetches lyric payloads. */
+    val remoteLyricsRepository: RemoteLyricsRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        RemoteLyricsRepository(remoteCatalogRepository, remoteCredentialStore, context = this)
+    }
 
     /** Process-lifetime playback lookup; it must not capture a ViewModel or Activity callback. */
     val playbackSongResolver = ProcessPlaybackSongResolver(transientPlaybackCatalog)
@@ -75,6 +104,7 @@ class MicaApp : Application() {
         BluetoothAudioDiagnostics.install(this)
         AudioEnvironmentDiagnostics.install(this)
         MicaImageLoaders.init(this)
+        RemoteAutoSyncScheduler.install(this)
         ServicePlaybackStateStore(this).load()?.externalSongs
             ?.mapNotNull { snapshot ->
                 val uri = runCatching { Uri.parse(snapshot.mediaUri) }.getOrNull() ?: return@mapNotNull null

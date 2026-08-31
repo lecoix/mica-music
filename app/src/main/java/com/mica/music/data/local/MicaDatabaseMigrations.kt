@@ -286,3 +286,109 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
         db.execSQL("ALTER TABLE songs ADD COLUMN musicVideoRevision TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_21_22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Schema 21 existed briefly on two development lines: mainline added music-video columns,
+        // while feature/remote-music added the remote catalog tables. Make the merge migration
+        // tolerant of either predecessor so existing QA installs from both branches upgrade in-place.
+        if (!db.hasColumn("songs", "musicVideoUri")) {
+            db.execSQL("ALTER TABLE songs ADD COLUMN musicVideoUri TEXT")
+        }
+        if (!db.hasColumn("songs", "musicVideoRevision")) {
+            db.execSQL("ALTER TABLE songs ADD COLUMN musicVideoRevision TEXT NOT NULL DEFAULT ''")
+        }
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS remote_sources (
+                id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                displayName TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                credentialRef TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                configRevision INTEGER NOT NULL,
+                catalogRevision INTEGER NOT NULL,
+                lastSyncAtMs INTEGER NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS remote_tracks (
+                sourceInstanceId TEXT NOT NULL,
+                opaqueTrackId TEXT NOT NULL,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                album TEXT NOT NULL,
+                albumArtist TEXT NOT NULL,
+                durationSec INTEGER NOT NULL,
+                mimeTypeHint TEXT NOT NULL,
+                fileName TEXT NOT NULL,
+                suffix TEXT NOT NULL,
+                sizeBytes INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                trackNumber INTEGER NOT NULL,
+                discNumber INTEGER NOT NULL,
+                albumOpaqueId TEXT NOT NULL,
+                artistOpaqueId TEXT NOT NULL,
+                artworkOpaqueId TEXT NOT NULL,
+                catalogPosition INTEGER NOT NULL,
+                PRIMARY KEY(sourceInstanceId, opaqueTrackId),
+                FOREIGN KEY(sourceInstanceId) REFERENCES remote_sources(id) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_remote_tracks_sourceInstanceId " +
+                "ON remote_tracks(sourceInstanceId)",
+        )
+    }
+}
+
+val MIGRATION_22_23 = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE remote_sources ADD COLUMN catalogConfigRevision INTEGER NOT NULL DEFAULT 0",
+        )
+        db.execSQL(
+            "ALTER TABLE remote_tracks ADD COLUMN contentRevision TEXT NOT NULL DEFAULT ''",
+        )
+    }
+}
+
+val MIGRATION_23_24 = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE remote_tracks ADD COLUMN metadataProbeRevision INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+}
+
+private fun SupportSQLiteDatabase.hasColumn(tableName: String, columnName: String): Boolean =
+    query("PRAGMA table_info(`$tableName`)").use { cursor ->
+        val nameColumn = cursor.getColumnIndexOrThrow("name")
+        while (cursor.moveToNext()) {
+            if (cursor.getString(nameColumn) == columnName) return@use true
+        }
+        false
+    }
+
+
+val MIGRATION_24_25 = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN sampleRateHz INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN bitsPerSample INTEGER")
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN bitrateKbps INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN channelCount INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+val MIGRATION_25_26 = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Technical audio fields were added in v25. Existing catalogs need one safe refresh so
+        // protocol/tag metadata can populate them; keep rows/credentials intact until that sync publishes.
+        db.execSQL("UPDATE remote_sources SET lastSyncAtMs = 0 WHERE enabled = 1")
+    }
+}

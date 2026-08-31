@@ -32,6 +32,7 @@ fun SongSortSheet(
     onApply: (SongSortField, SortDirection) -> Unit,
     includeCustomSort: Boolean = false,
     customSortLocked: Boolean = false,
+    availableFields: List<SongSortField>? = null,
     onMultiSelectClick: (() -> Unit)? = null,
     uiSettings: AppUiSettings? = null,
     playlistActions: List<Pair<String, () -> Unit>> = emptyList(),
@@ -63,7 +64,7 @@ fun SongSortSheet(
                 style = MicaTheme.typography.caption,
                 color = MicaTheme.colors.textSecondary,
             )
-            SongSortChoices(currentField, currentDirection, includeCustomSort, customSortLocked, onApply)
+            SongSortChoices(currentField, currentDirection, includeCustomSort, customSortLocked, availableFields, onApply)
             if (showDirection) {
                 Text(
                     text = "顺序",
@@ -203,12 +204,14 @@ internal fun SongSortChoices(
     currentDirection: SortDirection,
     includeCustomSort: Boolean,
     customSortLocked: Boolean,
+    availableFields: List<SongSortField>? = null,
     onApply: (SongSortField, SortDirection) -> Unit,
 ) {
+    val standardFields = availableFields ?: SongSortField.entries.filter { it != SongSortField.CUSTOM }
     val fields = if (includeCustomSort) {
-        listOf(SongSortField.CUSTOM) + SongSortField.entries.filter { it != SongSortField.CUSTOM }
+        listOf(SongSortField.CUSTOM) + standardFields.filter { it != SongSortField.CUSTOM }
     } else {
-        SongSortField.entries.filter { it != SongSortField.CUSTOM }
+        standardFields.filter { it != SongSortField.CUSTOM }
     }
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),

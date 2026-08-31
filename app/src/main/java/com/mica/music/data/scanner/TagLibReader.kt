@@ -2,6 +2,7 @@ package com.mica.music.data.scanner
 
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import com.kyant.taglib.AudioPropertiesReadStyle
 import com.kyant.taglib.TagLib
 import com.mica.music.data.ReleaseDates
@@ -34,6 +35,8 @@ internal object TagLibReader {
         val discNumber: Int,
         val lyricsCandidates: List<EmbeddedLyricsTextCandidate>,
         val frontCoverBytes: ByteArray?,
+        /** Presence hint obtained from TagLib complex-property keys without copying picture bytes. */
+        val hasPictures: Boolean,
         val replayGain: ReplayGainTags,
     )
 
@@ -42,48 +45,56 @@ internal object TagLibReader {
         uri: Uri,
     ): Result? = runCatching {
         context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-            val probe = TagLib.probeTrack(
-                fd = pfd.detachFd(),
-                readPictures = true,
-                readStyle = AudioPropertiesReadStyle.Average,
-            ) ?: return@use null
-            val metadata = probe.metadata
-            val props = probe.audioProperties
-            if (props.sampleRate <= 0) return@use null
-            val tags = metadata.propertyMap
-            val rawDates = tags.valuesFor("DATE", "YEAR", "ORIGINALDATE", "ICRD")
-            val releaseDate = rawDates.firstNotNullOfOrNull { raw ->
-                ReleaseDates.canonicalFullDate(raw).takeIf { it.isNotEmpty() }
-            }.orEmpty()
-            val frontCover = metadata.pictures.firstOrNull { it.pictureType == "Front Cover" }
-                ?: metadata.pictures.firstOrNull()
-            Result(
-                title = tags.firstValue("TITLE", "INAM"),
-                artist = tags.firstValue("ARTIST", "ARTISTS", "PERFORMER", "IART"),
-                album = tags.firstValue("ALBUM", "IPRD"),
-                albumArtist = tags.firstValue("ALBUMARTIST", "ALBUM ARTIST"),
-                copyright = tags.firstValue("COPYRIGHT", "ICOP"),
-                comment = tags.firstValue("COMMENT"),
-                year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
-                    ?: rawDates.firstNotNullOfOrNull { parseYear(it).takeIf { year -> year > 0 } }
-                    ?: 0,
-                releaseDate = releaseDate,
-                durationSec = props.length / 1000,
-                sampleRateHz = props.sampleRate,
-                bitrateKbps = props.bitrate,
-                channelCount = props.channels,
-                bitsPerSample = props.bitsPerSample.coerceAtLeast(0),
-                trackNumber = MetadataTextFix.parseTrackNumber(
-                    tags.firstValue("TRACKNUMBER", "TRCK", "TRACK", "IPRT"),
-                ),
-                discNumber = MetadataTextFix.parseDiscNumber(
-                    tags.firstValue("DISCNUMBER", "TPOS", "DISC"),
-                ),
-                lyricsCandidates = lyricsCandidates(tags),
-                frontCoverBytes = frontCover?.data?.takeIf { it.isNotEmpty() },
-                replayGain = ReplayGainTags.fromProperties(tags),
-            )
+            read(pfd, readPictures = true)
         }
+    }.getOrNull()
+
+    internal fun read(
+        pfd: ParcelFileDescriptor,
+        readPictures: Boolean,
+    ): Result? = runCatching {
+        val probe = TagLib.probeTrack(
+            fd = pfd.detachFd(),
+            readPictures = readPictures,
+            readStyle = AudioPropertiesReadStyle.Average,
+        ) ?: return@runCatching null
+        val metadata = probe.metadata
+        val props = probe.audioProperties
+        if (props.sampleRate <= 0) return@runCatching null
+        val tags = metadata.propertyMap
+        val rawDates = tags.valuesFor("DATE", "YEAR", "ORIGINALDATE", "ICRD")
+        val releaseDate = rawDates.firstNotNullOfOrNull { raw ->
+            ReleaseDates.canonicalFullDate(raw).takeIf { it.isNotEmpty() }
+        }.orEmpty()
+        val frontCover = metadata.pictures.firstOrNull { it.pictureType == "Front Cover" }
+            ?: metadata.pictures.firstOrNull()
+        Result(
+            title = tags.firstValue("TITLE", "INAM"),
+            artist = tags.firstValue("ARTIST", "ARTISTS", "PERFORMER", "IART"),
+            album = tags.firstValue("ALBUM", "IPRD"),
+            albumArtist = tags.firstValue("ALBUMARTIST", "ALBUM ARTIST"),
+            copyright = tags.firstValue("COPYRIGHT", "ICOP"),
+            comment = tags.firstValue("COMMENT"),
+            year = ReleaseDates.yearFromFullDate(releaseDate).takeIf { it > 0 }
+                ?: rawDates.firstNotNullOfOrNull { parseYear(it).takeIf { year -> year > 0 } }
+                ?: 0,
+            releaseDate = releaseDate,
+            durationSec = props.length / 1000,
+            sampleRateHz = props.sampleRate,
+            bitrateKbps = props.bitrate,
+            channelCount = props.channels,
+            bitsPerSample = props.bitsPerSample.coerceAtLeast(0),
+            trackNumber = MetadataTextFix.parseTrackNumber(
+                tags.firstValue("TRACKNUMBER", "TRCK", "TRACK", "IPRT"),
+            ),
+            discNumber = MetadataTextFix.parseDiscNumber(
+                tags.firstValue("DISCNUMBER", "TPOS", "DISC"),
+            ),
+            lyricsCandidates = lyricsCandidates(tags),
+            frontCoverBytes = frontCover?.data?.takeIf { it.isNotEmpty() },
+            hasPictures = probe.hasPictures,
+            replayGain = ReplayGainTags.fromProperties(tags),
+        )
     }.getOrNull()
 
     private fun Map<String, Array<String>>.firstValue(vararg keys: String): String {

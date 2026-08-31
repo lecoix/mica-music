@@ -13,6 +13,7 @@ import com.mica.music.data.playback.ServiceQueueSnapshot
 import com.mica.music.data.playback.ServicePlaybackSnapshot
 
 import com.mica.music.data.playback.ServiceExternalSongSnapshot
+import com.mica.music.data.playback.ServiceRemoteSongSnapshot
 
 import com.mica.music.audio.AudioQualityMode
 
@@ -21,6 +22,11 @@ import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.SongSource
+import com.mica.music.data.remote.RemoteArtworkRef
+import com.mica.music.data.remote.RemoteArtworkUriCodec
+import com.mica.music.data.remote.RemoteTrackRef
+import com.mica.music.data.remote.RemoteTrackSummary
+import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -82,6 +88,91 @@ class ServicePlaybackStateStoreTest {
         assertTrue(restored.lyricsDocument.lines.isEmpty())
         assertEquals(0, restored.playCount)
         assertEquals(0L, restored.totalListenSeconds)
+    }
+
+    @Test
+    fun remoteSnapshotRoundTripsStableUriWithoutAuthenticatedTransportState() {
+        val remoteSong = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-1", "track-9"),
+            title = "Remote Nine",
+            artist = "Artist",
+            album = "Album",
+            durationSec = 123,
+            mimeTypeHint = "audio/flac",
+            suffix = "flac",
+            artworkOpaqueId = "cover-9",
+        ).toPlaybackSong()
+        val remote = ServiceRemoteSongSnapshot.from(remoteSong)
+        val snapshot = ServicePlaybackSnapshot(
+            queueSongIds = listOf(remote.id),
+            currentIndex = 0,
+            positionMs = 4_000L,
+            repeatMode = Player.REPEAT_MODE_OFF,
+            shuffleEnabled = false,
+            playWhenReady = false,
+            qualityMode = AudioQualityMode.HIFI,
+            remoteSongs = listOf(remote),
+        )
+
+        store.save(snapshot, sync = true)
+        val restored = requireNotNull(store.load())
+        val restoredSong = restored.remoteSongs.single().toSong()
+
+        assertEquals(snapshot, restored)
+        assertEquals(SongSource.REMOTE, restoredSong.source)
+        assertTrue(restoredSong.mediaUri.startsWith("mica-remote://track/"))
+        assertEquals(
+            RemoteArtworkUriCodec.encode(RemoteArtworkRef("nav-1", "cover-9")),
+            restoredSong.albumArtUri,
+        )
+        assertNull(restoredSong.playbackUri)
+        val raw = context.getSharedPreferences("mica_service_playback_state", Context.MODE_PRIVATE)
+            .all.values.joinToString("|")
+        assertFalse(raw.contains("/rest/stream"))
+        assertFalse(raw.contains("/rest/getCoverArt"))
+        assertTrue(raw.contains(RemoteArtworkUriCodec.authority))
+        assertFalse(raw.contains("password"))
+        assertFalse(raw.contains("token"))
+    }
+
+    @Test
+    fun legacySessionDoesNotInventIncompleteRemoteServiceSnapshot() {
+        val remoteSong = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-legacy", "track-legacy"),
+            title = "Legacy Remote",
+        ).toPlaybackSong()
+        context.getSharedPreferences("mica_playback_session", Context.MODE_PRIVATE)
+            .edit()
+            .putString("song_id", remoteSong.id)
+            .putInt("position_ms", 9_000)
+            .commit()
+
+        assertNull(store.load())
+    }
+
+    @Test
+    fun remoteSnapshotRejectsAuthenticatedOrArbitraryUri() {
+        val remoteSong = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-1", "track-9"),
+            title = "Remote Nine",
+        ).toPlaybackSong()
+        val transportFailure = runCatching {
+            ServiceRemoteSongSnapshot.from(
+                remoteSong.copy(
+                    mediaUri = "https://music.example/rest/stream?id=track-9&t=secret&s=salt",
+                ),
+            )
+        }.exceptionOrNull()
+        val artworkFailure = runCatching {
+            ServiceRemoteSongSnapshot.from(
+                remoteSong.copy(
+                    albumArtUri = RemoteArtworkUriCodec.encode(RemoteArtworkRef("other-source", "cover-9")),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(transportFailure is IllegalArgumentException)
+        assertTrue(artworkFailure is IllegalArgumentException)
     }
 
     @Test

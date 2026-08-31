@@ -27,10 +27,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,11 +40,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.mica.music.ui.components.UserMessageHost
 import com.mica.music.ui.components.miniPlayerOverlayHeight
 import com.mica.music.MicaApp
+import com.mica.music.data.remote.RemoteAutoSyncScheduler
 import com.mica.music.ui.navigation.AppNavigationMain
 import com.mica.music.ui.navigation.PlayerSheetOverlay
 import com.mica.music.ui.navigation.AppNavigationCoordinator
@@ -203,6 +205,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        RemoteAutoSyncScheduler.requestCatchUp(this)
         pendingLyricoSongId = savedInstanceState?.getString(KEY_LYRICO_SONG_ID)
         externalAudioOpenActive = parseExternalAudioOpenRequest(intent) != null
         applyWindowStatusBar()
@@ -260,6 +263,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
         mainCompose.setContent {
             val coordinator = navigationCoordinator
             val snackbarHostState = remember { SnackbarHostState() }
+            val remotePlayStats by viewModel.remotePlayStats.collectAsStateWithLifecycle()
 
             MicaAppRoot(
                 uiSettings = uiSettings,
@@ -310,6 +314,8 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                             coordinator = coordinator,
                             library = library,
                             playlistStore = viewModel.playlistStore,
+                            remoteCatalogRepository = (application as MicaApp).remoteCatalogRepository,
+                            remotePlayStats = remotePlayStats,
                             playerController = playerController,
                             uiSettings = uiSettings,
                         )

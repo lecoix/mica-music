@@ -168,6 +168,8 @@ class PlayerController internal constructor(
 
     fun setQueue(newQueue: List<Song>) = runtime.setQueue(newQueue)
 
+    fun playQueueSong(newQueue: List<Song>, songId: String) = runtime.playQueueSong(newQueue, songId)
+
     fun refreshQueueMetadata(latestSongs: List<Song>) = runtime.refreshQueueMetadata(latestSongs)
 
     fun syncPosition() = runtime.syncPosition()

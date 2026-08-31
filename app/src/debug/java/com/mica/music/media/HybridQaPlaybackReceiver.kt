@@ -4,14 +4,30 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.mica.music.MicaApp
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
+import com.mica.music.data.remote.RemoteArtworkRef
+import com.mica.music.data.remote.RemoteArtworkUriCodec
+import com.mica.music.data.remote.RemoteCredentialMaterial
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
+import com.mica.music.data.remote.RemoteSourceType
+import com.mica.music.data.remote.toPlaybackSong
+import com.mica.music.data.remote.smb.SmbException
+import com.mica.music.data.remote.smb.SmbFailureKind
+import com.mica.music.data.remote.smb.SmbLogin
+import com.mica.music.data.remote.smb.SmbPathCodec
+import com.mica.music.data.remote.smb.SmbSourceSync
+import com.mica.music.data.remote.smb.SmbjSessionFactory
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import kotlinx.coroutines.runBlocking
@@ -31,6 +47,223 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                 Log.e(TAG, "control failed action=$action", error)
             }
             pending.finish()
+            return
+        }
+        if (action == "${appContext.packageName}.debug.SMB_QA_SYNC_METADATA") {
+            val forceProbe = intent.getBooleanExtra("forceProbe", false)
+            Log.i(TAG, "start action=$action forceProbe=$forceProbe")
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == RemoteSourceType.SMB }
+                            ?: error("No enabled SMB source is configured")
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val result = if (forceProbe) {
+                            SmbSourceSync(
+                                catalogRepository = app.remoteCatalogRepository,
+                                credentialStore = app.remoteCredentialStore,
+                                metadataProbe = AndroidTagLibRemoteTrackMetadataProbe(appContext),
+                            ).sync(
+                                sourceInstanceId = source.id,
+                                allowMetadataReuse = false,
+                            )
+                        } else {
+                            app.remoteSourceManager.syncSmb(source.id)
+                        }
+                        val tracks = app.remoteCatalogRepository.tracksForSource(source.id)
+                        Log.i(
+                            TAG,
+                            "complete action=$action forceProbe=$forceProbe tracks=${result.trackCount} " +
+                                "probed=${result.metadataProbedCount} reused=${result.metadataReusedCount} " +
+                                "artists=${tracks.count { it.artist.isNotBlank() }} " +
+                                "albums=${tracks.count { it.album.isNotBlank() }} " +
+                                "durations=${tracks.count { it.durationSec > 0 }} " +
+                                "artworks=${tracks.count { it.artworkOpaqueId.isNotBlank() }} " +
+                                "embeddedArtworks=${tracks.count { RemoteEmbeddedArtworkIdCodec.decode(it.artworkOpaqueId) != null }} " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action forceProbe=$forceProbe", error)
+                }
+            }.start()
+            return
+        }
+        if (action == "${appContext.packageName}.debug.WEBDAV_QA_SYNC_METADATA") {
+            Log.i(TAG, "start action=$action")
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == RemoteSourceType.WEBDAV }
+                            ?: error("No enabled WebDAV source is configured")
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val result = app.remoteSourceManager.syncWebDav(source.id)
+                        val tracks = app.remoteCatalogRepository.tracksForSource(source.id)
+                        Log.i(
+                            TAG,
+                            "complete action=$action tracks=${result.trackCount} " +
+                                "probed=${result.metadataProbedCount} reused=${result.metadataReusedCount} " +
+                                "artists=${tracks.count { it.artist.isNotBlank() }} " +
+                                "albums=${tracks.count { it.album.isNotBlank() }} " +
+                                "durations=${tracks.count { it.durationSec > 0 }} " +
+                                "artworks=${tracks.count { it.artworkOpaqueId.isNotBlank() }} " +
+                                "embeddedArtworks=${tracks.count { RemoteEmbeddedArtworkIdCodec.decode(it.artworkOpaqueId) != null }} " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
+                }
+            }.start()
+            return
+        }
+        if (
+            action == "${appContext.packageName}.debug.WEBDAV_QA_LOAD_LYRICS" ||
+            action == "${appContext.packageName}.debug.SMB_QA_LOAD_LYRICS"
+        ) {
+            val sourceType = if (action.contains("WEBDAV_QA_")) RemoteSourceType.WEBDAV else RemoteSourceType.SMB
+            val sourceLabel = if (sourceType == RemoteSourceType.WEBDAV) "WebDAV" else "SMB"
+            val defaultTargetFileName = if (sourceType == RemoteSourceType.WEBDAV) {
+                "Last Call.m4a"
+            } else {
+                "LudoWic - Hit The Floor (Live).flac"
+            }
+            val targetFileName = intent.getStringExtra("fileName").orEmpty().ifBlank { defaultTargetFileName }
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == sourceType }
+                            ?: error("No enabled $sourceLabel source is configured")
+                        val track = app.remoteCatalogRepository.tracksForSource(source.id)
+                            .firstOrNull { it.fileName.equals(targetFileName, ignoreCase = true) }
+                            ?: error("$sourceLabel QA catalog has no $targetFileName fixture")
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val hydrated = app.remoteLyricsRepository.songWithLyrics(track.toPlaybackSong())
+                        require(hydrated.lyricsLoaded) { "$sourceLabel remote lyrics load did not complete" }
+                        require(hydrated.lyricsDocument.lines.isNotEmpty()) { "$sourceLabel remote lyrics were empty" }
+                        Log.i(
+                            TAG,
+                            "complete action=$action format=${hydrated.lyricsDocument.format} " +
+                                "origin=${hydrated.lyricsDocument.origin} lines=${hydrated.lyricsDocument.lines.size} " +
+                                "tokens=${hydrated.lyricsDocument.lines.sumOf { it.tokens.size }} " +
+                                "first=${hydrated.lyricsDocument.lines.first().parts.joinToString(" / ") { it.text }.take(80)} " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
+                }
+            }.start()
+            return
+        }
+        if (
+            action == "${appContext.packageName}.debug.SMB_QA_READ_ARTWORK" ||
+            action == "${appContext.packageName}.debug.SMB_QA_READ_EMBEDDED_ARTWORK" ||
+            action == "${appContext.packageName}.debug.WEBDAV_QA_READ_EMBEDDED_ARTWORK"
+        ) {
+            val sourceType = if (action.contains("WEBDAV_QA_")) RemoteSourceType.WEBDAV else RemoteSourceType.SMB
+            val sourceLabel = if (sourceType == RemoteSourceType.WEBDAV) "WebDAV" else "SMB"
+            val embeddedOnly = action.endsWith("READ_EMBEDDED_ARTWORK")
+            pending.finish()
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == sourceType }
+                            ?: error("No enabled $sourceLabel source is configured")
+                        val track = app.remoteCatalogRepository.tracksForSource(source.id)
+                            .firstOrNull { candidate ->
+                                candidate.artworkOpaqueId.isNotBlank() &&
+                                    (!embeddedOnly || RemoteEmbeddedArtworkIdCodec.decode(candidate.artworkOpaqueId) != null)
+                            }
+                            ?: error(
+                                if (embeddedOnly) {
+                                    "$sourceLabel catalog has no published embedded artwork reference"
+                                } else {
+                                    "$sourceLabel catalog has no published artwork reference"
+                                },
+                            )
+                        val uri = Uri.parse(
+                            RemoteArtworkUriCodec.encode(RemoteArtworkRef(source.id, track.artworkOpaqueId)),
+                        )
+                        val startedMs = SystemClock.elapsedRealtime()
+                        val bytes = checkNotNull(appContext.contentResolver.openInputStream(uri)).use { input ->
+                            input.readBytes()
+                        }
+                        require(bytes.isNotEmpty()) { "$sourceLabel artwork provider returned no bytes" }
+                        Log.i(
+                            TAG,
+                            "complete action=$action bytes=${bytes.size} embedded=$embeddedOnly " +
+                                "elapsedMs=${SystemClock.elapsedRealtime() - startedMs}",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
+                }
+            }.start()
+            return
+        }
+        if (action == "${appContext.packageName}.debug.SMB_QA_NEGATIVE_CONTRACT") {
+            Thread {
+                runCatching {
+                    val app = appContext as MicaApp
+                    runBlocking {
+                        val source = app.remoteCatalogRepository.sources(enabledOnly = true)
+                            .firstOrNull { it.type == RemoteSourceType.SMB }
+                            ?: error("No enabled SMB source is configured")
+                        val material = app.remoteCredentialStore.resolve(source.credentialRef)?.material
+                            as? RemoteCredentialMaterial.UsernamePassword
+                            ?: error("Configured SMB source has no username/password credential")
+                        val endpoint = SmbPathCodec.parse(source.endpoint)
+                        val validLogin = SmbLogin.parse(material.username, material.password)
+                        val factory = SmbjSessionFactory()
+
+                        val authStartedMs = SystemClock.elapsedRealtime()
+                        val authFailure = runCatching {
+                            factory.open(
+                                endpoint,
+                                SmbLogin.parse(material.username, material.password + "#mica-invalid"),
+                            ).close()
+                        }.exceptionOrNull()
+                        val authElapsedMs = SystemClock.elapsedRealtime() - authStartedMs
+                        require(authFailure is SmbException && authFailure.kind == SmbFailureKind.AUTH) {
+                            "Wrong-password SMB attempt did not fail as AUTH"
+                        }
+
+                        val unreachablePort = if (endpoint.port == 65535) 65534 else endpoint.port + 1
+                        val unreachableStartedMs = SystemClock.elapsedRealtime()
+                        val unreachableFailure = runCatching {
+                            factory.open(endpoint.copy(port = unreachablePort), validLogin).close()
+                        }.exceptionOrNull()
+                        val unreachableElapsedMs = SystemClock.elapsedRealtime() - unreachableStartedMs
+                        require(unreachableFailure is SmbException && unreachableFailure.kind == SmbFailureKind.CONNECT) {
+                            "Unreachable SMB attempt did not fail as CONNECT"
+                        }
+
+                        val recoveredEntryCount = factory.open(endpoint, validLogin).use { session ->
+                            session.list(endpoint.serverPath()).size
+                        }
+                        Log.i(
+                            TAG,
+                            "complete action=$action authKind=AUTH authMs=$authElapsedMs " +
+                                "unreachableKind=CONNECT unreachableMs=$unreachableElapsedMs recoveredEntries=$recoveredEntryCount",
+                        )
+                    }
+                }.onFailure { error ->
+                    Log.e(TAG, "control failed action=$action", error)
+                }
+                pending.finish()
+            }.start()
             return
         }
         val future = MediaController.Builder(

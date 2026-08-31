@@ -41,6 +41,16 @@ enum class SortDirection(val storageValue: String, val label: String) {
 fun formatSortLabel(field: SongSortField, direction: SortDirection): String =
     if (field == SongSortField.CUSTOM) field.label else "${field.label} · ${direction.label}"
 
+val REMOTE_SONG_SORT_FIELDS: List<SongSortField> = listOf(
+    SongSortField.TITLE,
+    SongSortField.ALBUM,
+    SongSortField.ARTIST,
+    SongSortField.YEAR,
+    SongSortField.PLAY_COUNT,
+    SongSortField.LAST_PLAYED,
+    SongSortField.DURATION,
+)
+
 object SongSorter {
 
     private val collator: Collator = Collator.getInstance(Locale.CHINA).apply {

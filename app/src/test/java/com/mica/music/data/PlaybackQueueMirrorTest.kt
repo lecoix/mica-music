@@ -2,6 +2,11 @@ package com.mica.music.data
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemotePlaybackUriCodec
+import com.mica.music.data.remote.RemoteTrackRef
+import com.mica.music.data.remote.RemoteTrackSummary
+import com.mica.music.media.RemoteMediaItemCodec
 import com.mica.music.playback.PlaybackQueueMirror
 import com.mica.music.playback.PlaybackQueueMirrorCoordinator
 import com.mica.music.testutil.SongFixtures
@@ -13,7 +18,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class PlaybackQueueMirrorTest {
     @Test
     fun snapshotItemsReadsAvailablePlayerItemsInOrder() {
@@ -116,6 +124,41 @@ class PlaybackQueueMirrorTest {
 
         assertEquals(listOf(first, missing, last), applied)
         assertTrue(coordinator.hasSignature(PlaybackQueueMirror.orderSignature(items)))
+    }
+
+    @Test
+    fun remoteMediaItemMirrorsAsRemoteSongWithStableInternalUri() {
+        val track = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-1", "track-9"),
+            title = "Remote Nine",
+            artist = "Artist",
+            album = "Album",
+            durationSec = 123,
+            mimeTypeHint = "audio/flac",
+            fileName = "nine.flac",
+            suffix = "flac",
+            sizeBytes = 12_345L,
+            year = 2026,
+            trackNumber = 9,
+            discNumber = 1,
+        )
+        val mediaId = RemoteMediaIdCodec.encode(track.ref)
+        val item = RemoteMediaItemCodec.encode(track)
+
+        val mirrored = PlaybackQueueMirror.rebuildSongs(listOf(item), resolver = null).single()
+
+        assertEquals(SongSource.REMOTE, mirrored.source)
+        assertEquals(mediaId, mirrored.id)
+        assertEquals(RemotePlaybackUriCodec.encode(mediaId), mirrored.mediaUri)
+        assertNull(mirrored.playbackUri)
+        assertEquals("Remote Nine", mirrored.title)
+        assertEquals("audio/flac", mirrored.metadata.playbackMimeType)
+        assertEquals("FLAC", mirrored.metadata.containerName)
+        assertEquals("nine.flac", mirrored.fileName)
+        assertEquals(12_345L, mirrored.sizeBytes)
+        assertEquals(2026, mirrored.year)
+        assertEquals(9, mirrored.trackNumber)
+        assertEquals(1, mirrored.discNumber)
     }
 
     @Test

@@ -71,7 +71,7 @@ class RoomMigrationContractTest {
 
         helper.runMigrationsAndValidate(
             TWO_TO_CURRENT_DB,
-            21,
+            22,
             true,
             *MIGRATIONS_TWO_TO_CURRENT,
         ).close()
@@ -199,6 +199,7 @@ class RoomMigrationContractTest {
             MIGRATION_18_19,
             MIGRATION_19_20,
             MIGRATION_20_21,
+            MIGRATION_21_22,
         )
     }
 }

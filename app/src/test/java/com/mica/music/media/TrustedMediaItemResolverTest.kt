@@ -6,6 +6,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.Song
 import com.mica.music.data.SongSource
 import com.mica.music.data.TransientPlaybackCatalog
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -115,6 +117,55 @@ class TrustedMediaItemResolverTest {
         assertEquals(1, resolution.resolvedStartIndex)
     }
 
+    @Test
+    fun remoteIdUsesTrustedRemoteProviderAndIgnoresCallerUri() = runTest {
+        val remoteId = RemoteMediaIdCodec.encode(RemoteTrackRef("nav-1", "track-9"))
+        val requested = MediaItem.Builder()
+            .setMediaId(remoteId)
+            .setUri(Uri.parse("content://attacker/not-remote-track"))
+            .build()
+        val trusted = MediaItem.Builder()
+            .setMediaId(remoteId)
+            .setUri(Uri.parse("https://trusted.example/rest/stream?id=track-9"))
+            .build()
+        var libraryLookupIds: List<String>? = null
+        val resolver = TrustedMediaItemResolver(
+            transientSongById = { null },
+            librarySongsById = { ids ->
+                libraryLookupIds = ids
+                emptyMap()
+            },
+            remoteMediaItemsById = { ids ->
+                assertEquals(listOf(remoteId), ids)
+                mapOf(remoteId to trusted)
+            },
+        )
+
+        val resolved = resolver.resolve(listOf(requested)).mediaItems.single()
+
+        assertEquals(emptyList<String>(), libraryLookupIds)
+        assertEquals("https://trusted.example/rest/stream?id=track-9", resolved.localConfiguration?.uri?.toString())
+    }
+
+    @Test
+    fun unknownRemoteIdIsDroppedWithoutLibraryFallback() = runTest {
+        val remoteId = RemoteMediaIdCodec.encode(RemoteTrackRef("nav-1", "missing"))
+        var libraryLookupIds: List<String>? = null
+        val resolver = TrustedMediaItemResolver(
+            transientSongById = { null },
+            librarySongsById = { ids ->
+                libraryLookupIds = ids
+                emptyMap()
+            },
+            remoteMediaItemsById = { emptyMap() },
+        )
+
+        val resolution = resolver.resolve(listOf(MediaItem.Builder().setMediaId(remoteId).build()))
+
+        assertEquals(emptyList<String>(), libraryLookupIds)
+        assertTrueEmpty(resolution.mediaItems)
+        assertNull(resolution.resolvedStartIndex)
+    }
     private fun resolver(song: Song?): TrustedMediaItemResolver = TrustedMediaItemResolver(
         transientSongById = { null },
         librarySongsById = { ids ->

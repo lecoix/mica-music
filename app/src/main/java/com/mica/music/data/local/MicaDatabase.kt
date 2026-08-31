@@ -17,8 +17,10 @@ import com.mica.music.util.DiagnosticLog
         PlaylistEntity::class,
         PlaylistSongEntity::class,
         SongLyricsOffsetEntity::class,
+        RemoteSourceEntity::class,
+        RemoteTrackEntity::class,
     ],
-    version = 21,
+    version = 26,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -34,6 +36,10 @@ abstract class MicaDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
 
     abstract fun songLyricsOffsetDao(): SongLyricsOffsetDao
+
+    abstract fun remoteSourceDao(): RemoteSourceDao
+
+    abstract fun remoteTrackDao(): RemoteTrackDao
 
     companion object {
         internal const val DATABASE_NAME = "mica_library.db"
@@ -71,6 +77,11 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_18_19,
                             MIGRATION_19_20,
                             MIGRATION_20_21,
+                            MIGRATION_21_22,
+                            MIGRATION_22_23,
+                            MIGRATION_23_24,
+                            MIGRATION_24_25,
+                            MIGRATION_25_26,
                         )
                         .build()
                         .also {

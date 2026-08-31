@@ -112,7 +112,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     trackProbeConstructor = env->GetMethodID(
             trackProbeClass,
             "<init>",
-            "(Lcom/kyant/taglib/Metadata;Lcom/kyant/taglib/AudioProperties;)V");
+            "(Lcom/kyant/taglib/Metadata;Lcom/kyant/taglib/AudioProperties;Z)V");
 
     jclass _pictureClass = env->FindClass("com/kyant/taglib/Picture");
     pictureClass = reinterpret_cast<jclass>(env->NewGlobalRef(_pictureClass));
@@ -430,13 +430,20 @@ jobject buildTrackProbe(
 ) {
     jobject propertiesMap = getPropertyMap(env, f);
     jobjectArray pictures = readPictures ? getPictures(env, f) : emptyPictureArray(env);
+    jboolean hasPictures = JNI_FALSE;
+    for (const auto &key: f.complexPropertyKeys()) {
+        if (key == "PICTURE") {
+            hasPictures = JNI_TRUE;
+            break;
+        }
+    }
     jobject metadata = env->NewObject(
             metadataClass, metadataConstructor,
             propertiesMap, pictures);
     jobject audioProperties = getAudioProperties(env, f);
     return env->NewObject(
             trackProbeClass, trackProbeConstructor,
-            metadata, audioProperties);
+            metadata, audioProperties, hasPictures);
 }
 
 char *getRealPathFromFd(const int fd) {

@@ -22,8 +22,18 @@ internal fun LibraryScanSettingsPanel(
     onEditExcludedDirectories: () -> Unit,
     onMinDurationSelected: (Int) -> Unit,
     onEditArtistSplit: () -> Unit,
+    onOpenRemoteMusic: () -> Unit,
 ) {
-    SettingsSectionTitle("曲库与扫描")
+    SettingsSectionTitle("曲库来源")
+
+    SettingsActionRow(
+        title = "远程曲库",
+        subtitle = "支持 Navidrome / OpenSubsonic、WebDAV、SMB · 每个来源独立同步",
+        onClick = onOpenRemoteMusic,
+        enabled = !library.isScanning,
+    )
+
+    SettingsSectionTitle("本地曲库与扫描")
 
     SettingsActionRow(
         title = "曲库文件夹",

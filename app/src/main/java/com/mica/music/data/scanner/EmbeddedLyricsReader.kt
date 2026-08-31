@@ -138,6 +138,13 @@ internal object EmbeddedLyricsReader {
         return LyricsSanitizer.finalizeRelaxedDocument(normalized, LyricsOrigin.EMBEDDED)
     }
 
+    /** Parses one trusted TagLib text property using the same embedded-lyrics rules as local scan. */
+    internal fun parseTagLibTextDocument(raw: String): LyricsDocument? = parseLyricsText(raw)
+
+    /** Parses one bounded binary metadata window using the same fallback rules as local scan. */
+    internal fun parseBinaryDocument(bytes: ByteArray, mime: String, ext: String): LyricsDocument? =
+        readFromBinary(bytes, mime.lowercase(), ext.lowercase())
+
     private fun readFromBinary(
         bytes: ByteArray,
         mime: String,

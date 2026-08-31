@@ -67,6 +67,7 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistCoverImporter
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
+import com.mica.music.data.SongSorter
 import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.UserPlaylist
 import com.mica.music.media.NotificationLyrics
@@ -103,10 +104,12 @@ private const val HomeDrawerSwipePositionThreshold = 0.5f
 fun HomeScreen(
     library: MusicLibrary,
     playlistStore: PlaylistStore,
+    remoteSongs: List<Song>,
     playbackState: HomePlaybackState,
     playbackActions: HomePlaybackActions,
     uiSettings: AppUiSettings,
     onSongClick: (String) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     onMiniPlayerExpand: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenEqualizer: () -> Unit,
@@ -129,19 +132,42 @@ fun HomeScreen(
     }
     var drawerOpen by remember { mutableStateOf(false) }
     var sortSheetOpen by remember { mutableStateOf(false) }
+    var remoteSortField by remember { mutableStateOf(LibraryBrowseSettings.remoteSongSortField(context)) }
+    var remoteSortDirection by remember { mutableStateOf(LibraryBrowseSettings.remoteSongSortDirection(context)) }
     var overlay by remember { mutableStateOf(HomeOverlayState()) }
     var coverSongPickerPlaylistId by remember { mutableStateOf<String?>(null) }
     var pendingCoverImportPlaylistId by remember { mutableStateOf<String?>(null) }
     var pendingExportPlaylistId by remember { mutableStateOf<String?>(null) }
     var songMultiSelectActive by remember { mutableStateOf(false) }
+    var songMultiSelectSection by remember { mutableStateOf<HomeSection?>(null) }
     var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val homeController = rememberHomeScreenController(library, playlistStore)
+    val sortedRemoteSongs = remember(remoteSongs, remoteSortField, remoteSortDirection) {
+        SongSorter.sort(remoteSongs, remoteSortField, remoteSortDirection)
+    }
+    val remoteSongsById = remember(remoteSongs) { remoteSongs.associateBy { it.id } }
+    val availablePlaylistSongs = remember(library.songs, remoteSongs) {
+        mergedBrowseSongs(library.songs, remoteSongs)
+    }
+    val recentSongs = remember(library.songs, remoteSongs) {
+        recentSongsForPresentation(
+            localSongs = library.songs,
+            remoteSongs = remoteSongs,
+        )
+    }
+    val resolvePlaylistSong: (String) -> Song? = { songId ->
+        library.songById(songId) ?: remoteSongsById[songId]
+    }
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val appName = stringResource(R.string.app_name)
     val songListState = rememberLazyListState()
+    val remoteListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    LaunchedEffect(remoteSortField, remoteSortDirection) {
+        remoteListState.scrollToItem(0)
+    }
     var pendingLocateSongId by remember { mutableStateOf<String?>(null) }
     var pendingLocateRequestKey by remember { mutableStateOf(0) }
     val artistListState = rememberLazyListState()
@@ -176,7 +202,7 @@ fun HomeScreen(
                 val raw = withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                 } ?: error("无法读取歌单 JSON")
-                playlistStore.importPlaylistJson(raw, library.songs)
+                playlistStore.importPlaylistJson(raw, availablePlaylistSongs)
             }
             result.fold(
                 onSuccess = { imported ->
@@ -198,7 +224,7 @@ fun HomeScreen(
         pendingExportPlaylistId = null
         if (uri == null || playlistId == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val json = playlistStore.exportPlaylistJson(playlistId, library::songById)
+            val json = playlistStore.exportPlaylistJson(playlistId, resolvePlaylistSong)
             val saved = if (json == null) {
                 false
             } else {
@@ -219,9 +245,12 @@ fun HomeScreen(
     )
 
     fun applyNavigationSnapshot(snapshot: HomeNavigationSnapshot) {
+        val keepSelection =
+            snapshot.songMultiSelectActive && songMultiSelectSection == snapshot.section
         uiState = uiState.withNavigationSnapshot(snapshot)
-        songMultiSelectActive = snapshot.songMultiSelectActive
-        selectedSongIds = snapshot.selectedSongIds
+        songMultiSelectActive = keepSelection
+        selectedSongIds = if (keepSelection) snapshot.selectedSongIds else emptySet()
+        if (!keepSelection) songMultiSelectSection = null
     }
 
     fun openSongActionMenu(song: Song, playlistId: String? = null) {
@@ -328,6 +357,7 @@ fun HomeScreen(
 
     fun exitSongMultiSelect() {
         songMultiSelectActive = false
+        songMultiSelectSection = null
         selectedSongIds = emptySet()
     }
 
@@ -339,20 +369,27 @@ fun HomeScreen(
         }
     }
 
+    fun multiSelectSongs(): List<Song> = songsForMultiSelect(
+        section = songMultiSelectSection ?: uiState.section,
+        localSongs = library.songs,
+        remoteSongs = remoteSongs,
+    )
+
     fun selectAllSongs() {
-        selectedSongIds = library.songs.mapTo(mutableSetOf()) { it.id }
+        selectedSongIds = multiSelectSongs().mapTo(mutableSetOf()) { it.id }
     }
 
     fun invertSongSelection() {
-        selectedSongIds = library.songs
+        selectedSongIds = multiSelectSongs()
             .map { it.id }
             .filterNot { it in selectedSongIds }
             .toSet()
     }
 
     fun openSongMultiSelect() {
-        if (uiState.section != HomeSection.Songs || uiState.searchOpen) return
+        if ((uiState.section != HomeSection.Songs && uiState.section != HomeSection.Remote) || uiState.searchOpen) return
         songMultiSelectActive = true
+        songMultiSelectSection = uiState.section
         selectedSongIds = emptySet()
     }
 
@@ -454,10 +491,10 @@ fun HomeScreen(
         )
     }
 
-    fun locateCurrentSongInLibrary() {
+    fun locateCurrentSong() {
         val song = playbackState.currentSong ?: return
-        val index = library.songs.indexOfFirst { it.id == song.id }
-        if (index < 0) {
+        val targetSection = locateSectionForSong(song.id, library.songs, remoteSongs)
+        if (targetSection == null) {
             scope.launch { snackbarHostState.showSnackbar("当前播放歌曲不在歌曲列表中") }
             return
         }
@@ -469,10 +506,10 @@ fun HomeScreen(
             activePlaylistId = null,
             browseDestination = BrowseDestination.Root,
             browseStack = emptyList(),
-            section = HomeSection.Songs,
+            section = targetSection,
         )
         pendingLocateSongId = song.id
-        pendingLocateRequestKey = locateCurrentSongRequest
+        pendingLocateRequestKey = (pendingLocateRequestKey + 1).coerceAtLeast(1)
     }
 
     LaunchedEffect(playlistStore.playlists, uiState.activePlaylistId) {
@@ -489,7 +526,11 @@ fun HomeScreen(
 
     LaunchedEffect(uiState.section, uiState.activePlaylistId) {
         when (uiState.section) {
-            HomeSection.Songs, HomeSection.Artists, HomeSection.Albums, HomeSection.Folders ->
+            HomeSection.Songs,
+            HomeSection.Artists,
+            HomeSection.Albums,
+            HomeSection.Folders,
+            HomeSection.Remote ->
                 LibraryBrowseSettings.setLastHomeLocation(context, uiState.section.name, null)
             HomeSection.Playlist -> LibraryBrowseSettings.setLastHomeLocation(
                 context,
@@ -502,7 +543,7 @@ fun HomeScreen(
 
     LaunchedEffect(locateCurrentSongRequest) {
         if (locateCurrentSongRequest > 0) {
-            locateCurrentSongInLibrary()
+            locateCurrentSong()
         }
     }
 
@@ -535,8 +576,14 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(uiState.section, uiState.searchOpen) {
-        if (shouldClearSongMultiSelect(uiState.section, uiState.searchOpen)) {
+    LaunchedEffect(uiState.section, uiState.searchOpen, songMultiSelectSection) {
+        if (
+            shouldClearSongMultiSelect(
+                selectionSection = songMultiSelectSection,
+                currentSection = uiState.section,
+                searchOpen = uiState.searchOpen,
+            )
+        ) {
             exitSongMultiSelect()
         }
     }
@@ -598,6 +645,10 @@ fun HomeScreen(
             section = uiState.section,
             browseDestination = visibleBrowseDestination,
             library = library,
+            recentSongCount = recentSongs.size,
+            remoteSongs = sortedRemoteSongs,
+            remoteSortField = remoteSortField,
+            remoteSortDirection = remoteSortDirection,
             activePlaylistId = uiState.activePlaylistId,
             playlistSongCount = activePlaylistSongCount,
             playlistSortField = activePlaylist?.sortField,
@@ -866,6 +917,7 @@ fun HomeScreen(
                     uiState = uiState.copy(searchQuery = query)
                 },
                 motionEnabled = motionEnabled,
+                showSearchAction = true,
                 onLeadingClick = {
                     when {
                         showFolderMenuButton -> drawerOpen = !drawerOpen
@@ -892,16 +944,17 @@ fun HomeScreen(
                     shrinkVertically(MicaMotion.tweenIntSize(motionEnabled, MicaMotion.DurationShortMs)),
             ) {
                 statsBarSnapshot?.let { model ->
+                    val selectableSongs = multiSelectSongs()
                     Column {
                         if (songMultiSelectActive) {
                             SongMultiSelectStatsRow(
                                 selectedCount = selectedSongIds.size,
-                                canSelectSongs = library.songs.isNotEmpty(),
+                                canSelectSongs = selectableSongs.isNotEmpty(),
                                 onSelectAll = ::selectAllSongs,
                                 onInvertSelection = ::invertSongSelection,
                                 onClearSelection = { selectedSongIds = emptySet() },
                                 onAddToPlaylist = {
-                                    val songs = library.songs.filter { it.id in selectedSongIds }
+                                    val songs = selectableSongs.filter { it.id in selectedSongIds }
                                     if (songs.isNotEmpty()) {
                                         overlay = overlay.copy(addToPlaylistSongs = songs)
                                     }
@@ -924,6 +977,7 @@ fun HomeScreen(
                                         overlay = homeController.requestDeletePlaylist(overlay, playlistId)
                                     }
                                 },
+                                onMultiSelectClick = ::openSongMultiSelect,
                             )
                         }
                         Spacer(Modifier.height(HifiSpacing.md))
@@ -946,6 +1000,12 @@ fun HomeScreen(
                 activePlaylistId = uiState.activePlaylistId,
                 playlistSortField = activePlaylist?.sortField,
                 playlistSortDirection = activePlaylist?.sortDirection,
+                remoteSortField = remoteSortField,
+                remoteSortDirection = remoteSortDirection,
+                onRemoteSortChange = { field, direction ->
+                    remoteSortField = field
+                    remoteSortDirection = direction
+                },
                 onDismiss = { sortSheetOpen = false },
                 onMultiSelectClick = ::openSongMultiSelect,
                 uiSettings = uiSettings,
@@ -971,10 +1031,10 @@ fun HomeScreen(
                     HomePaneKey.Search -> LibrarySearchPanel(
                         query = uiState.searchQuery,
                         library = library,
+                        remoteSongs = remoteSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
-                        onQueueSongs = playbackActions.setQueue,
-                        onSongClick = onSongClick,
+                        onQueueSongClick = onQueueSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
@@ -984,9 +1044,8 @@ fun HomeScreen(
                         songListInfoVisibility = uiSettings.songListInfoVisibility,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
-                        onQueueSongs = playbackActions.setQueue,
+                        onQueueSongClick = onQueueSongClick,
                         shouldOpenSettings = libraryAccess.shouldOpenSettings,
-                        onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         onPickLibraryFolder = libraryAccess.onPickLibraryFolder,
                         onRequestFullScan = libraryAccess.onRequestFullScan,
@@ -1010,6 +1069,27 @@ fun HomeScreen(
                             }
                         },
                     )
+                    HomePaneKey.Remote -> RemoteLibraryPane(
+                        songs = sortedRemoteSongs,
+                        currentSongId = currentSong?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onQueueSongClick = onQueueSongClick,
+                        onSongOpenMenu = ::openSongActionMenu,
+                        listState = remoteListState,
+                        selectionMode = songMultiSelectActive,
+                        selectedSongIds = selectedSongIds,
+                        onSelectionToggle = ::toggleSongSelection,
+                        listBottomPadding = listBottomPadding,
+                        locateSongId = pendingLocateSongId,
+                        locateRequestKey = pendingLocateRequestKey,
+                        onLocateConsumed = { requestKey ->
+                            if (pendingLocateRequestKey == requestKey) {
+                                pendingLocateSongId = null
+                                pendingLocateRequestKey = 0
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
                         library = library,
                         hiResBadgeAppearance = uiSettings.hiResBadgeAppearance,
@@ -1018,7 +1098,7 @@ fun HomeScreen(
                     )
                     HomePaneKey.PlaylistOverview -> HomePlaylistOverviewContent(
                         playlists = playlistStore.playlists,
-                        resolveSong = library::songById,
+                        resolveSong = resolvePlaylistSong,
                         onAction = ::handlePlaylistAction,
                         onCreatePlaylist = {
                             overlay = homeController.showCreatePlaylistDialog(overlay)
@@ -1033,6 +1113,7 @@ fun HomeScreen(
                         playlistId = key.id,
                         playlistStore = playlistStore,
                         library = library,
+                        remoteSongs = remoteSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,
@@ -1059,7 +1140,7 @@ fun HomeScreen(
                         library = library,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
-                        onQueueSongs = playbackActions.setQueue,
+                        onQueueSongClick = onQueueSongClick,
                         onAppendSongsToQueue = playbackActions.appendToQueue,
                         onAddSongsToPlaylist = { songs ->
                             overlay = overlay.copy(
@@ -1067,7 +1148,6 @@ fun HomeScreen(
                                 addToPlaylistAsCustomOrder = true,
                             )
                         },
-                        onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         onAlbumClick = ::openAlbumBrowse,
                         albumSortField = uiState.browseSort.albumSortField,
@@ -1109,9 +1189,11 @@ fun HomeScreen(
                             )
                         },
                         library = library,
+                        remoteSongs = remoteSongs,
+                        recentSongs = recentSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
-                        onQueueSongs = playbackActions.setQueue,
+                        onQueueSongClick = onQueueSongClick,
                         onAppendSongsToQueue = playbackActions.appendToQueue,
                         onAddSongsToPlaylist = { songs ->
                             overlay = overlay.copy(
@@ -1119,7 +1201,6 @@ fun HomeScreen(
                                 addToPlaylistAsCustomOrder = true,
                             )
                         },
-                        onSongClick = onSongClick,
                         onSongOpenMenu = ::openSongActionMenu,
                         onAlbumClick = ::openAlbumBrowse,
                         albumSortField = uiState.browseSort.albumSortField,
@@ -1194,7 +1275,7 @@ fun HomeScreen(
                         onPrevious = playbackActions.previous,
                         onNext = playbackActions.next,
                         onExpand = onMiniPlayerExpand,
-                        onLongPress = ::locateCurrentSongInLibrary,
+                        onLongPress = ::locateCurrentSong,
                         miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
                         miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
                         lyricSplitEnabled = uiSettings.lyricSplitEnabled,
@@ -1237,7 +1318,7 @@ fun HomeScreen(
         HomeOverlays(
             overlay = overlay,
             playlistStore = playlistStore,
-            resolveSong = library::songById,
+            resolveSong = resolvePlaylistSong,
             onDismissActionMenu = {
                 overlay = homeController.dismissActionMenu(overlay)
             },
@@ -1276,7 +1357,7 @@ fun HomeScreen(
             val playlist = playlistStore.playlistById(playlistId)
             if (playlist != null) {
                 PlaylistCoverSongSheet(
-                    songs = library.songs,
+                    songs = availablePlaylistSongs,
                     selectedSongId = playlist.coverSongId,
                     onSelect = { song ->
                         PlaylistCoverImporter.clearCover(context, playlistId)

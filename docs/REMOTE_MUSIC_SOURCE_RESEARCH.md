@@ -1,9 +1,88 @@
 # 远程音乐源调研记录
 
 > 状态：调研中  
-> 最近更新：2026-08-12  
+> 最近更新：2026-08-30
 > 当前范围：Navidrome / WebDAV / SMB  
 > 本文记录候选开源项目、可复用范围、风险和 Mica 的预期边界；不是已批准的实施方案。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
+
+## 2026-08-29 实施状态
+
+- Navidrome / OpenSubsonic MVP 已实现并接入统一远程曲库、JIT 播放解析和凭据边界。
+- WebDAV MVP 已实现；真机已覆盖配置、鉴权、PROPFIND、递归同步、播放与非零 Range seek。
+- SMB2/SMB3 MVP 已实现到协议 adapter、递归同步、稳定媒体身份、JIT 凭据解析与 Media3 offset-read DataSource；SMB1 明确不启用。
+- SMB 单元/路由回归与 QA 构建已通过；真实 Android + SMB2/SMB3 端到端验收已于 2026-08-30 完成，详见下节。
+## 2026-08-30 SMB 真机验收
+
+- 真实 Android + Windows SMB2/SMB3 链路已打通：递归同步并原子发布 264 首远程曲目，远程曲库可浏览。
+- 真机 SMB 播放已通过；修复了“先 `setQueue` 再 `playSong`”导致旧队列 binder 回调抢回 current item 的竞态，现改为原子“替换队列并播放指定曲目”。
+- 真机非零 seek 已验证：M4A 从约 25.8 s 跳到 98.541 s 后，SMBJ 从字节偏移 7,381,641 开始实际读取，随后继续正常播放。
+- FLAC 中段 seek/冷启动恢复曾因 extractor 的细碎读取被 1:1 放大为 SMB 网络往返而长时间 buffering。参考 `tsm-player` 的有界预取思路，Mica 保留 SMBJ 精确 `File.read(fileOffset, ...)`，并在每个 `SmbDataSource` 内增加单个 1 MiB 有界 read-ahead window；无后台预取线程，异常仍保持为 I/O 失败而非伪装 EOF。真机 AIZO FLAC 在 63.505 s 冷恢复后的首批非零 SMB 读取从 14,821,727 字节开始，单次请求 1,048,576 字节，2 s 内进入正常播放。
+- SMB1 仍明确禁用。2026-08-30 已补齐真机负例：debug-only QA 控制面使用当前 Android Keystore 凭据进行错误密码连接，287 ms 内得到 `AUTH`；连接当前源相邻的不可达端口，26 ms 内得到 `CONNECT`；随后原凭据立即恢复并成功列目录。完整播放链另通过撤销 `adb reverse tcp:1445` 模拟服务器不可达，Mica 进入 Media3 `Source error`，根因为 SMB `ECONNREFUSED`；恢复 1445→445 转发并冷启动后错误清除，原远程曲目从保存位置恢复并继续播放。
+
+### 2026-08-30 文件型远端元数据增量同步
+
+- WebDAV / SMB 不再只用文件名生成浏览元数据。两者现在共用协议无关的只读 `SeekableByteSource`，通过 Android proxy fd 复用现有 TagLib；同步阶段关闭图片读取，只提取标题、艺术家、专辑、专辑艺术家、时长、年份、轨号和碟号，避免把封面 payload 带进全库扫描。
+- Room schema 升至 23：`remote_tracks.contentRevision` 保存协议提供的内容修订提示；SMB 使用 file-id + last-write-time，WebDAV 使用 ETag + mtime。`remote_sources.catalogConfigRevision` 记录当前已发布快照属于哪个 source config revision；来源配置一旦变化，旧快照即使仍可显示，也禁止拿来复用元数据，直到新配置成功原子发布新快照。
+- SMB 元数据 probe 保持目录遍历单写者和稳定排序，只把文件随机读限制为最多 4 路并发；每个 probe 使用单个 1 MiB read-ahead window。单曲标签损坏或读失败只降级该曲为文件名元数据，不能把整次同步伪装成失败或 EOF；generation 在 probe 期间变化时仍 fail closed，旧 operation 不能覆盖已发布 catalog。
+- 2026-08-30 真机对当前 264 首 SMB 曲库强制关闭复用后完整重读：`probed=264 / reused=0`，得到 artist 262、album 260、duration 262，154774 ms 完成；紧接着普通同步为 `probed=0 / reused=264`，3951 ms 完成，标签覆盖保持一致。此前首次 schema-23 冷同步也已得到 264 首全量 probe，证明迁移后旧 catalog 会按设计 fail closed 而不是错误复用。
+- WebDAV 同样具备基于 ETag/mtime 的元数据复用和严格 HTTP Range 随机读；定向测试覆盖服务器忽略 Range、修订变化重新 probe、修订未变零 GET 复用。2026-08-30 已补独立 Android 真机验收：旧 smoke WebDAV 在 `/dav/Album/` 同时发布无标签 WAV 与真实 `Last Call.m4a`，PROPFIND 返回稳定 ETag/last-modified，严格 `bytes=start-end` Range 返回精确 206。首次带 revision 的同步为 `tracks=2 / probed=2 / reused=0 / artists=1 / albums=1 / durations=2 / artworks=1 / embeddedArtworks=1`，1,358 ms；紧接着热同步为 `probed=0 / reused=2`，153 ms。WebDAV 的 TagLib metadata 与 revision reuse 已有独立真机证据，不再依赖 SMB 结果代替。
+- `RemoteDatabaseMigrationTest`、共享 seekable byte source、SMB/WebDAV 元数据定向测试以及完整 `:app:testDebugUnitTest` 均通过；`git diff --check` 通过。
+
+### 2026-08-30 文件型远端 sidecar 封面
+
+- SMB / WebDAV 同步阶段只利用目录枚举已经返回的图片文件名、大小和内容修订提示建立 sidecar 引用，不读取图片 payload；图片字节仍由现有 `RemoteArtworkContentProvider` 按需加载并进入 16 MiB 有界进程缓存。支持 jpg/jpeg/png/webp，同名图片（如 `Song.jpg` 对 `Song.flac`）具有最高优先级。
+- `Folder.jpg` / `cover.*` / `front.*` 不能无条件作为整目录封面。当前 264 首真实 SMB 曲库包含 28 个有歌曲目录和 422 张图片；根目录 103 首歌实际属于 85 个不同专辑，`gundam` 目录 36 首也属于 31 个专辑。若简单套 `Folder.jpg` 会产生大量错误封面。因此目录通用封面只在完整目录只有 1 首歌，或所有已识别歌曲具有同一个非空 album 时发布。主机按目录/标签静态盘点曾估算安全覆盖 45/264；sidecar-only QA 真机同步实际发布 41/264，以 Android 实际 catalog 为准。其余曲目不能猜测 Windows Media Player 的 `AlbumArt_{GUID}` 映射。
+- sidecar 的 opaque artwork id 同时携带相对资源路径与图片 content revision；SMB 使用 file-id + last-write-time，WebDAV 使用 ETag/mtime（缺失时退化到 size）。音频 metadata 命中 revision reuse 时，仍以本轮目录枚举重新计算 artwork id，因此只替换 `Folder.jpg` 不会被旧音频标签缓存遮蔽。
+- `RemoteArtworkContentProvider` 已扩展为 Navidrome / WebDAV / SMB 共用 JIT 路由。文件型 resolver 只接受规范化且仍位于配置根下的相对路径；provider 在真正读取前还要求 exact artwork id 被当前 config revision 已发布的 catalog 引用，来源编辑后旧 catalog 的 URI 不能被拿去新地址解析。缓存 key 新增 `catalogRevision`，成功发布新 catalog 后即切换缓存代际，避免同 artwork id 换图后继续命中旧字节。
+- SMB artwork loader 使用独立短生命周期 SMBJ session/file handle，32 MiB 上限且严格要求完整读取；WebDAV artwork loader 禁用重定向、复用同源 Basic/Digest challenge auth，并同样限制 32 MiB。定向测试覆盖 sidecar 不在扫描期下载、混合专辑目录拒绝通用封面、音频 metadata reuse 时图片 revision 更新、SMB/WebDAV JIT loader、catalog artwork 授权边界和缓存代际。
+- debug QA 增加 `artworks=` 同步覆盖计数及独立 `SMB_QA_READ_ARTWORK` JIT 读取动作。2026-08-30 测试机重新上线后，sidecar-only QA 普通同步得到 `tracks=264 / probed=0 / reused=264 / artworks=41`，6056 ms 完成；随后通过真实 `ContentResolver → RemoteArtworkContentProvider → SMBJ` 打开当前 catalog 中一张 sidecar，读取 57,115 bytes，289 ms 完成。sidecar 的 Android 物理链路已闭合。
+
+### 2026-08-30 文件型远端内嵌封面 JIT
+
+- Mica 的 TagLib fork 已把 `FileRef::complexPropertyKeys()` 暴露到合并 probe 结果：同步阶段只记录是否存在 `PICTURE` complex property，不调用 `complexProperties("PICTURE")`，也不把图片字节 materialize 到 Java/Room。需要强调，这一约束是“同步期不提取图片 value”；底层 TagLib 为解析音频标签仍可能读取所在 metadata block，不能把它表述成对所有格式都保证网络层完全跳过图片所在字节。
+- Room schema 升至 24，`remote_tracks.metadataProbeRevision` 默认 0；当前文件 metadata profile revision 为 2。schema-23 旧 catalog 或 revision-1 catalog 因 profile revision 不匹配只会进行一次重新 probe，之后即使确认“无内嵌封面”也可以按 audio content revision 复用，避免每次同步重复跑 TagLib。音频内容 revision 改变仍会强制重新 probe。revision 2 专门用于修复 revision 1 期间可能被旧 read-ahead short-read 污染的缓存结果。
+- 封面优先级明确为：**同名 sidecar（如 `Song.jpg`）→ 音频内嵌封面 → 经安全判定的 `Folder/cover/front` 通用封面**。这样混合专辑目录不会误套通用图片，而明确与歌曲同名的 sidecar 仍可覆盖内嵌图。
+- `embedded-v1` opaque artwork id 只携带音频相对 resource id、audio content revision 和文件大小，不含凭据或可直接播放 URL。provider 仍先验证 exact artwork id 被当前 config revision 的已发布 catalog 引用，再即时解析凭据。SMB 使用独立短生命周期 SMBJ session + random-access file；WebDAV 使用同源认证、禁重定向和严格 HTTP Range；两者通过 Android proxy fd 在真正打开 artwork URI 时才调用 TagLib picture value extraction。
+- revision-1 真机验证暴露了一个共用 `ReadAheadSeekableByteSource` bug：当 TagLib 的一次 proxy-fd read 从已缓存的 1 MiB 窗口尾部跨到下一窗口时，旧实现只返回当前窗口剩余字节，制造人为 short read。`Last Call.m4a` 的 A/B 诊断证明同一设备/同一 TagLib 在 remote proxy fd 下丢 `TITLE/ALBUM`，把同一 12,480,719-byte 文件完整拷到 QA 私有 cache 后普通本地 fd 能完整读出；修复 read-ahead 为跨窗口填满请求后，`Sincerely.flac`、`TIT FOR TAT.flac`、`Last Call.m4a` 三个定向 SMB 真机 probe 均恢复完整 title/artist/album/duration。SMB random-access 层也同步改为在已知 EOF 前处理合法 short read，并对 0-progress fail closed。
+- probe 抛异常时不再写 `metadataProbeRevision`；失败记录保持旧 revision，下一次同步会自动重试，避免一次瞬时 SMB/WebDAV 读取失败永久缓存 filename fallback。定向测试同时覆盖失败→重试恢复，以及旧 metadata profile revision 在 content revision 未变化时仍必须一次性重新 probe。
+- 2026-08-30 最终 SMB 真机 revision-1→revision-2 普通同步：`tracks=264 / probed=264 / reused=0 / artists=264 / albums=262 / durations=264 / artworks=264 / embeddedArtworks=264`，95,387 ms 完成。原文件独立核对确认仅两首曲目的 album 标签本来为空，因此 262/264 是完整结果；此前 revision-1 的 259 album 与 262 embedded-art 覆盖均由 read-ahead short-read 导致。
+- 紧接着热同步得到 `probed=0 / reused=264 / artists=264 / albums=262 / durations=264 / artworks=264 / embeddedArtworks=264`，4,128 ms 完成；随后 `SMB_QA_READ_EMBEDDED_ARTWORK` 经真实 `ContentResolver → provider → SMBJ → proxy fd → TagLib` 再次读取 458,398 bytes，600 ms 完成。证明 rev2 metadata 与 embedded artwork id 均可稳定复用，read-ahead 修复没有破坏 JIT 封面链。
+- WebDAV 也已用同一 `Last Call.m4a` fixture 完成独立 Android provider 验收：`WEBDAV_QA_READ_EMBEDDED_ARTWORK` 在首次 catalog 上读取 1,971,475 bytes / 1,232 ms；补入稳定 ETag/mtime、重新发布 catalog 并完成 `0 probe / 2 reuse` 后再次读取同样 1,971,475 bytes / 1,046 ms。链路为真实 `ContentResolver → RemoteArtworkContentProvider → WebDAV authenticated Range → proxy fd → TagLib`，证明 current-catalog artwork 授权、revision 更新和 embedded JIT 在 WebDAV 上均成立。
+- 定向 JVM/Robolectric 回归覆盖 schema 23→24、embedded opaque id、SMB/WebDAV presence→catalog 映射、metadata profile revision、probe failure retry、跨 read-ahead 窗口完整读取、SMBJ short-read、同名 sidecar 优先及两协议 resolver 根目录/凭据边界；TagLib JNI/C++ 则由 arm64-v8a 与 armeabi-v7a debug CMake 实际构建覆盖。
+
+### 2026-08-30 文件型远端歌词 JIT
+
+- WebDAV / SMB 已接入现有 `RemoteLyricsRepository` 的按需 hydration，曲库同步本身不下载歌词 payload。文件型远端的当前优先级与本地一致为 **同名 TTML → 同名 LRC → 音频内嵌文本歌词**；一旦高优先级 sidecar 成功解析即短路，不继续打开低优先级 sidecar 或音频文件。
+- sidecar 继续复用本地 `ExternalLyricsReader` 的编码检测、LRC/TTML parser、sanitizer 和 10 MiB 上限。SMB 在歌词请求发生时才创建短生命周期 SMBJ session，列出音频所在目录并按规范化相对路径读取同名 sidecar；WebDAV 用当前 source 的即时 Basic/Digest 凭据请求同目录 sibling URL，禁用重定向，404 仅表示该候选不存在，认证/HTTP/读取错误仍按失败处理而不是伪装成“无歌词”。
+- 没有 sidecar 时，两协议先复用 `SeekableByteSource → ReadAheadSeekableByteSource → Android proxy fd → TagLib` 的随机读链提取文本歌词候选；文本候选为空时，再进入与本地扫描共用的 **bounded binary fallback**。`AudioProbeBytes` 新增协议无关的 random-access seam：MP3/AAC 只取声明的 ID3 标签且最多 4 MiB，FLAC 最多取 4 MiB metadata，APE 只取尾部 2 MiB，MP4/M4A 只扫描 box header 并最多读取 16 MiB `moov`（失败时退化为 2 MiB head + 4 MiB tail），其他格式仅做小型 ID3/head+tail 探测；不会为了内嵌歌词下载整首远端音频。取得的有限二进制窗口仍交给现有 `EmbeddedLyricsReader`，因此 ID3 USLT/ULT/SYLT/TXXX/LYR、FLAC/APE/MP4 等本地 binary parser 路径可以直接复用。远端没有复制本地 `MediaMetadataRetriever` fallback；这一点仍是两条链的差异，但不影响已由 TagLib 文本或 binary parser 覆盖的格式。
+- 远端歌词共享缓存的数据版本从 v1 升至 v2，因此此前 WebDAV/SMB 被缓存成空文档的结果不会继续命中。网络、认证或 transport 异常仍不会被缓存成永久“无歌词”，catalog/config revision 变化也会切换缓存代际。
+- WebDAV catalog 额外硬排除 `.lrc/.ttml` 扩展，不信任服务端 MIME 来判断它们是否是歌曲。真机 smoke 故意把 `Last Call.lrc` 报成 `audio/wav`，同步仍从旧的 3 条错误 catalog 收敛回 2 首真实音频；对应 server 日志只有 PROPFIND 和音频 metadata 的 Range GET，**同步阶段没有任何 `.lrc` GET**。
+- WebDAV sidecar 真机：在 `/dav/Album/Last Call.lrc` 存在时，通过真实 `RemoteLyricsRepository → WebDavLyricsLoader` 得到 `format=LRC / origin=EXTERNAL / lines=2`，353 ms；server 先探测不存在的 TTML，随后只读取 LRC，没有打开 `Last Call.m4a`。把该 fixture 移出 Album（仅移动、未删除）并重新发布 catalog 后，同一 action 得到 `format=LRC / origin=EMBEDDED / lines=2`，1,493 ms；server 日志显示 TTML/LRC 候选均 404 后才对 `Last Call.m4a` 发多个严格 206 Range GET。fixture 验证后已移动回原位。
+- binary/SYLT 真机另使用 `.scratch/webdav-smoke` 生成的 4,161-byte `MicaRemoteSylt.mp3`（65-byte ID3v2.3/SYLT 标签 + dummy payload，不进入真实音乐目录）。WebDAV catalog 发布该 fixture 后，指定歌曲的歌词 hydration 得到 `format=SYLT / origin=EMBEDDED / lines=2 / tokens=4`，374 ms；server 记录 sidecar 候选全部 404 后仅对该 MP3 产生一个 206 Range GET，证明真实链路为 `WebDAV Range → ReadAheadSeekableByteSource → bounded ID3 fast probe → EmbeddedLyricsReader SYLT parser`，而不是整文件下载。验收后 fixture 已移动到 `.scratch/webdav-smoke/disabled/`，再次同步把 QA catalog 恢复为原来的 2 首。
+- SMB sidecar 真机直接使用现有 264 首共享曲库中的 `LudoWic - Hit The Floor (Live).flac/.lrc`，无需新增测试文件；`SMB_QA_LOAD_LYRICS` 得到 `format=LRC / origin=EXTERNAL / lines=37`，1,156 ms。定向测试另外覆盖 SMB 无 sidecar 后通过 random-access 音频句柄进入 embedded loader，以及 TTML 命中后 LRC/音频都不再打开。
+- 定向回归覆盖 WebDAV/SMB sidecar 优先级、WebDAV 404→embedded 严格 Range、SMB random-access fallback、WebDAV 错误 MIME 下歌词文件不进入 catalog，以及 `RemoteLyricsRepository` 的 revision/cache/error 语义。真机验收期间测试机 MIUI 曾把 QA UID 标为 power-restriction `REJECT_ALL`；仅为验收临时加入 `com.mica.music.qa` device-idle whitelist，网络验证结束后均明确撤销，未修改生产包或设备音乐文件。
+
+### 2026-08-30 远端上层行为闭环
+
+- `remote_tracks` 增加启用来源聚合 `Flow`，`RemoteCatalogRepository` 对外发布实时 catalog；`AppNavigation` 成为 UI 层统一的 `remoteSongs` 快照 owner。远程曲库页面不再进入时单次查询 Room，因此 catalog 原子发布或来源启停后，远程列表、歌单解析和歌曲详情会跟随同一快照更新。
+- 歌单仍只持久化稳定 `songId`，但显示、封面解析、JSON 导入/导出改为“本地 `MusicLibrary` + 当前远端 catalog”联合 resolver。回归证明远端稳定 media id、cover song 和稳定 `mica-remote` URI 可完整 JSON round-trip；认证播放 URL、密码和请求头仍不会进入歌单文件。 2026-08-31 补齐最后一个 UI 漏口：歌单“选择歌曲封面”弹窗也直接使用同一份 local-first、stable-id 去重的联合歌曲集合，因此远端歌曲现在可以被显式选作 cover song；原有 `PlaylistStoreTest` 已覆盖远端 cover song JSON round-trip，`HomeBrowseCatalogTest` 覆盖联合集合去重/顺序，focused compile 验证 Compose 接线。
+- Now Playing 与 Home/歌单菜单的远端“下一首播放”都不再二次调用本地 `MusicLibrary.songById()`；远端直接把稳定 `Song` 交给现有 queue/runtime，本地歌曲仍按原逻辑回查本地曲库。后端随后仍由 `RemoteMediaItemCodec` / JIT resolver 处理远端播放，不改变认证边界。
+- 通用歌曲菜单把“库操作”和“本地文件写操作”拆开。远端歌曲继续提供添加到歌单、下一首播放、睡眠定时、歌词偏移、分享和歌曲信息；依赖可写本地文件的 Lyrico 标签编辑与删除音乐对远端隐藏，横竖屏使用同一 gate。
+- 远程曲库列表自身也接入同一套歌曲长按菜单：`RemoteLibraryPane` 不再把 `SongRow.onLongClick` 写死为 `null`，而是把当前稳定远端 `Song` 直接交给 Home 已有 `openSongActionMenu`；普通点击仍保持原子 `onQueueSongClick(songs, song.id)`，没有恢复旧的分步队列路径。2026-08-30 Perf QA 在缓存 SMB catalog 上对第一条真实远端曲 `機械の声` 注入 `DOWN → 1.2s → UP` 长按，菜单实际出现“添加到歌单 / 下一首播放 / 睡眠定时 / 歌词偏移 / 分享 / 歌曲信息”，且“使用Lyrico编辑音乐标签 / 删除音乐”均不存在；验收期间未修改 device-idle whitelist，结束时 `com.mica.music.qa` 仍不在 whitelist 中。
+- 远程曲库已复用 Home 现有歌曲多选状态与安全批量动作，但不复用本地排序/扫描状态。Remote 根页新增轻量统计行，只显示当前远端 catalog 歌曲数与“多选”；进入选择态后提供全选、反选、清空、加入歌单，数据源严格绑定多选所属 section，因此 Remote/Songs 互切、搜索或跳转其他 section 都会清空选择，远端选中 id 不会泄漏到本地页。`RemoteLibraryPane` 在选择态把行点击改为 selection toggle，并禁用长按菜单；加入歌单继续复用只持久化稳定 `songId` 的现有 overlay，没有增加远端文件写操作。2026-08-31 side-by-side Perf QA 在真实缓存 SMB catalog 上读回 `266 首 / 多选`，且统计行无排序/扫描动作；进入选择态后 `機械の声` 与 `AIZO` 从“选择 …”语义切为“取消选择 …”，顶部精确显示 `已选 2 首`，未触发播放。真机继续验证 `全选 → 已选 266 首`、`反选 → 已选 0 首`、单选后 `清空 → 已选 0 首`；“加入歌单”仅打开现有 overlay，并正确显示“添加到歌单 / 已选 2 首 / 新建歌单 / 暂无歌单，请新建”，验收未创建或修改歌单。相关 Home stats/navigation focused 回归与完整 `:app:testDebugUnitTest` 通过，side-by-side `:app:assemblePerf` 通过；`com.mica.music.qa` device-idle whitelist 读回为空。
+- 远端歌曲菜单头部的艺术家/专辑跳转不再落入本地-only 详情。Artists/Albums 根页现在也使用“本地歌曲 + 当前远端 catalog”联合分组；纯本地时继续复用 `MusicLibrary` 的 presentation cache，远端存在时按当前艺术家拆分与排序规则即时构建。进入具体 `BrowseDestination.Artist/Album` 时会用“本地歌曲 + 当前远端 catalog”按稳定 id 去重后联合过滤；只要目标存在远端匹配，即使本地曲库从未扫描也绕过本地空态 gate。Browse 内 Recent、文件夹、艺术家详情和专辑详情的“替换队列并播放某曲/播放全部”同时统一到原子 `onQueueSongClick(queue, songId)`，不再使用 `setQueue → playSong` 两步式路径。2026-08-31 Perf QA 从真实 SMB `機械の声` 菜单分别点击 `V.W.P / V.I.P` 与专辑 `魔女ぷらす2`：诊断日志均显示联合输入 `266` 首、精确过滤 `result=1`，导航分别进入 `section=Artists / browse=Artist(name=V.W.P)` 与 `section=Albums / browse=Album(...魔女ぷらす2...)`，没有出现“请先扫描曲库”或空详情。相关 `LibraryBrowse`、`HomeNavigation` 与 `PlayerControllerBoundary` focused 回归通过；为尝试详情播放真机 smoke 临时加入的 QA device-idle whitelist 已撤销并读回确认不在 whitelist。
+- 2026-08-31 Artists/Albums 根页联合 catalog 真机复验：side-by-side Perf QA 保留同一缓存 SMB catalog，同时本地“歌曲”页明确显示 `未扫描 · 0 MB` 与“还没有导入音乐”；此状态下 Artists 根页显示 `193 位艺术家`，Albums 根页显示 `188 张专辑`，并实际渲染 `Akie秋绘`、`Albemuth`、`AIZO` 等远端分组。根页统计与列表使用同一 merged stable-id catalog，验证通过后未改动远端来源、歌单或本地曲库数据。完整 `:app:testDebugUnitTest`、side-by-side `:app:assemblePerf` 与 `git diff --check` 通过。
+- “定位当前歌曲”现在也按稳定 id 在本地曲库与当前远端 catalog 之间解析归属：本地歌曲仍回到 Songs，远端歌曲进入 Remote，并由 Remote 自己的 `LazyListState` 滚到目标。Home 迷你播放栏直接长按改用内部一次性 locate serial，不再依赖只有全屏播放器入口才递增的外部 request counter。2026-08-31 side-by-side Perf QA 在 Albums 页长按正在播放的真实 SMB 曲 `ハロウィンナイトパーティ (feat. Hanon & Kotoha)`，界面自动切到 `远程曲库`，并将目标第 `38` 首滚到第一条可见行；当前远端 catalog 为 `266 首`。focused `HomeNavigationTest + compileDebugKotlin` 与 side-by-side `assemblePerf` 通过。
+- 远程设置入口的能力说明同步到当前实现：不再只写 Navidrome/OpenSubsonic，而是明确列出 Navidrome/OpenSubsonic、WebDAV、SMB；设置全局搜索索引新增 `library.remote`，`SMB`、`WebDAV`、`远程曲库` 等关键词可直接命中“曲库来源”中的远程入口。`SettingsSearchIndexTest + compileDebugKotlin` 通过。
+- 2026-08-31 远程来源生命周期补齐删除语义：设置页每个来源新增“删除来源”与二次确认，删除会先在 `RemoteCatalogRepository` 的串行 owner 边界内 invalidate 旧 operation，再删除 `remote_sources`；Room 通过既有 `ON DELETE CASCADE` 同步清除该来源 catalog，随后失效对应歌词缓存并销毁当前加密 `credentialRef`。密码轮换也不再永久保留旧 credentialRef：新凭据先写入并完成 source pointer 切换，旧加密凭据随后删除。队列/歌单仍只保存稳定 media id，不被后台改写；删除来源后这些历史引用保留但无法解析。定向 `RemoteSourceManagerTest`、`RemoteCatalogRepositoryTest`、`AndroidKeystoreRemoteCredentialStoreTest` 与 Navidrome acceptance 回归通过。为避免破坏真实 SMB QA 来源，本轮未在测试机上执行实际删除。
+- 2026-08-31 Remote 根页补齐独立排序：排序偏好与本地歌曲列表分离持久化，默认标题升序，只开放标题、专辑、艺术家、日期/年份、播放次数、最近播放、时长七类协议无关字段；文件夹、大小、文件名、文件修改/添加时间和自定义拖拽顺序不进入 Remote，避免把本地文件系统语义错误映射到 Navidrome/WebDAV/SMB。Remote 统计条显示当前排序并提供排序入口；列表、点击后替换播放队列、多选和“定位当前歌曲”统一消费同一份已排序快照，切换排序时回到列表顶部。`RemoteSongSortTest`、`RemoteSongSortPreferencesRobolectricTest` 与 `HomeLibraryStatsRobolectricTest` 覆盖字段边界、偏好独立持久化和统计条动作。2026-08-31 side-by-side Perf QA 在真实 `266` 首 SMB catalog 上确认默认统计为 `266 首 · 标题 · 升序`，排序面板只出现标题/专辑/艺术家/日期/播放次数/最近播放/时长七项及升降序，没有文件名、大小、文件夹、修改时间、添加时间或自定义；切到 `播放次数 · 降序` 后统计条同步更新，首屏实际重排为 3 次播放歌曲，恢复 `标题 · 升序` 后首屏重新回到 A 开头标题顺序。验收未同步、删除来源或修改歌单，`com.mica.music.qa` 未加入 device-idle whitelist。
+- 2026-08-31 远端来源补齐自动/后台同步：引入 AndroidX WorkManager 2.10.5，默认开启全局“自动同步”，使用 `CONNECTED` 网络约束注册 6 小时 unique periodic work；Worker 仍复用 `RemoteSourceManager`，仅同步 enabled 且 `lastSyncAtMs == 0` 或已超过 6 小时的来源，单个来源失败只记录该 source id 并继续其余来源，旧 catalog 保持可用，不对永久认证错误做无限重试。`MicaApp` 只负责注册周期任务，前台 `MainActivity` 启动才请求一次 stale-only catch-up，避免 WorkManager 自身后台冷启动进程时再复制 one-shot；新建来源、重新启用、修改 endpoint 或轮换凭据也会请求 catch-up。关闭自动同步会取消周期和待执行 catch-up，但不影响远端播放或手动“同步曲库”。调度在 WorkManager 不可用时 fail-soft，只写诊断而不阻断播放器进程。`RemoteAutoSyncTest`、`RemoteAutoSyncPreferencesRobolectricTest`、`RemoteSourceManagerTest` 覆盖过期判定、偏好持久化、source-change catch-up、fresh/disabled 跳过与单源失败隔离。 2026-08-31 side-by-side Perf 真机确认设置页默认显示“自动同步：开”，`dumpsys jobscheduler` 注册两个带 CONNECTIVITY 约束的 WorkManager Job（周期 + 前台 catch-up）；catch-up 完成后两项即时任务均 `jobFinished`，只保留约 6 小时后的周期 Job。现有 SMB 仍 264 首、WebDAV 仍 2 首，未删除/编辑来源，`com.mica.music.qa` 未加入 device-idle whitelist。
+- 歌曲详情路由现在按本地曲库 → 当前远端 catalog → 当前播放快照依次解析稳定 id。远端详情显示“媒体来源：远程曲库”，可分享，但不提供只适用于本地文件的响度分析。
+- 播放统计展示层也已纳入远端稳定 media id。进程级 `PlaybackStatisticsRepository` 仍是播放次数/累计收听秒数的唯一持久化写入口；`MainViewModel` 对当前远端 catalog 异步读取 `PlayHistoryStore` 快照，并通过独立 `RemotePlayStatsPresentation` 合并冷启动数据与本进程实时事件，使用 count / lastPlayedAt / totalListenSeconds 的单调 max 合并，避免迟到磁盘读取回滚刚发生的播放事件。`AppNavigation` 只把这层 presentation 投影到当前 `remoteSongs`，不修改 Room catalog，也不把统计写回远端来源。
+- Home“最近播放”现在显式合并本地曲库与当前远端 catalog，按 `lastPlayedAtMs` 降序并继续限制最多 500 首；远端 Recent 不再受“本地曲库尚未扫描”的旧空态 gate 阻断。真机从仅远端 catalog、无本地扫描的状态进入 Recent，统计条从 21 首正确显示并渲染远端历史；新增一次 `AIZO` 播放后实时变为 22 首，AIZO 排到第一条，force-stop 冷启动后仍保持 22 首与 AIZO 第一条。
+- Home 全局搜索不再只查询 `MusicLibrary`。本地部分继续使用原有 catalog revision + artist split + locale 缓存索引；当前远端 `Song` 快照建立独立、按 remoteSongs/locale 复用的 `LibraryBrowse` search index，最后合并本地/远端结果并按稳定 id 去重，因此不会为了每个键入字符重建整份远端索引。搜索结果点击也从旧的“先 `setQueue` 再 `playSong`”改走现有原子 `playQueueSong(results, songId)`，避免重新引入远端 binder queue race。2026-08-30 QA 真机在本地曲库尚未扫描、仅有缓存 SMB catalog 的状态下从“歌曲”页全局搜索 `AIZO`，直接得到真实远端 `AIZO / King Gnu · AIZO · 1 次播放`；点击该结果后日志为 `source=queue-song-click items=1`，随后 `selection-confirm arm=true` → `publish-consume`，返回搜索列表实时更新为 2 次播放。验收临时 whitelist 已再次撤销并读回 `NONE`。 2026-08-31 同一全局搜索入口也从 Remote 页解除旧隐藏：Remote 顶栏可直接进入搜索，side-by-side Perf QA 在真实 `266` 首 SMB catalog 上从“远程曲库”输入 `AIZO`，得到 `AIZO / King Gnu · AIZO · 3 次播放`，返回后仍回到 Remote section；`LibrarySearchPanelTest` 与 side-by-side `assemblePerf` 通过。
+- 真机还暴露并关闭了原子“替换远端队列并播放指定曲目”的 play-count race：Media3 在该路径可能只回报 `MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED`，旧 tracker 因缺少 explicit transition/discontinuity 证据而一直 `pending=none`。现在仍先保留原有严格证据规则；只有 `PendingMediaSelection` 已确认用户请求的目标 media id 真正成为 active item 且进入 playing 时，才将仍未消费的 explicit request 转成一个 publishable generation。已有 explicit transition 会先消费 request，因此 fallback 不会双计；暂停→恢复、普通 seek、metadata/playlist refresh 也不会获得新 generation。2026-08-30 QA 真机 `AIZO` 基线 0 次，修复后日志出现 `selection-confirm arm=true` → `publish-consume`，UI 实时变为 1 次；持久化文件同时记录 `listen_sec=321`，此前基线为 318，证明累计收听秒数也继续写入。force-stop 冷启动后远程曲库仍恢复 `AIZO · 1 次播放`。验收使用的 `com.mica.music.qa` device-idle whitelist 已撤销并读回确认 `NONE`。
+- JVM/Robolectric 回归覆盖 catalog Flow 在发布/来源禁用后的更新、远端歌单 JSON round-trip、远端统计冷/热合并、联合 Recent、全局远端搜索、原子队列仅 `PLAYLIST_CHANGED` 后的物理 selection confirmation，以及远端菜单保留可用操作并隐藏本地写操作。完整 `:app:testDebugUnitTest` 与 side-by-side Perf QA 构建均通过。2026-08-30 side-by-side QA 真机冷启动后，真实 SMB catalog 通过新 Flow 正常显示；实际远端曲 `機械の声` 的 Now Playing 菜单确认有“添加到歌单 / 下一首播放 / 睡眠定时 / 歌词偏移 / 分享 / 歌曲信息”且没有“编辑音乐标签 / 删除音乐”；进入歌曲详情后确认“媒体来源 → 远程曲库”，且无响度分析入口。
 
 ## 已确定的产品范围
 
@@ -520,3 +599,31 @@ Remote + UsbDirectPcm
 Chora、XyMusic、NOVA FileCore、`sardine-android` 和 `smbj` 根许可证均为 Apache-2.0，Simple-Music-Player 为 MIT。若实际复制代码或引入依赖，需要逐文件确认版权和第三方来源，保留许可证及版权声明、标记修改，并同步更新 Mica 的开源声明。
 
 Android-WebDav-Music-Player 和 tsm-player 当前没有明确源码许可证，因此不能把其公开仓库视为可自由复制的开源代码。MzDKPlayer 和 Material Files 为 GPL-3.0，Namida 使用自定义 EULA，均只作为行为参考。`jcifs-ng` 为 LGPL-2.1，也需要单独处理依赖合规。这里只记录初步兼容性判断，不构成法律意见。
+
+## 2026-08-31 Navidrome / OpenSubsonic 真机 E2E
+
+真实服务端使用 Windows 官方 Navidrome 0.63.2，测试机通过局域网访问 `http://172.17.57.22:4533`。服务端只放置 8 首隔离测试曲目；Mica QA 包同步结果为 8 首，与服务端完全一致。
+
+验收结果：
+
+- OpenSubsonic 握手：服务端返回 `type=navidrome`、`serverVersion=0.63.2`、`openSubsonic=true`。
+- catalog：8/8 同步成功；聚合远端列表为 274 首 = SMB 264 + WebDAV 2 + Navidrome 8。
+- 稳定身份：实际播放的 Navidrome `AIZO` 使用 source instance `navidrome-b045c434-3bd3-4e71-9409-cb574af51740`，opaque track id `1OWjjIJWI5yYEswAJrJEbc`；与同名 SMB 曲目的稳定 ID 可明确区分。
+- 真播放：Android 测试机到电脑 Navidrome `4533` 存在 Established TCP 连接；当前曲目稳定 ID 解码后与上述 Navidrome source/opaque id 完全一致。
+- seek：暂停态从约 `0:58` 跳到 `2:43 / 3:35`，持久化位置变为约 `162972 ms`；恢复播放后推进到约 `165037 ms`，并重新建立 Navidrome TCP 连接。
+- 歌词：Navidrome 曲目全屏播放器成功显示日文原文与中文字幕。
+- 冷恢复：强停 QA 包前位置约 `189097 ms`、`queueRev=7`；重启后稳定曲目 ID、位置与 queue revision 保持一致，播放器按暂停态恢复，并重新连接 Navidrome。
+- 自动同步：此前真实 WorkManager catch-up 已将 Navidrome 作为成功来源；旧 WebDAV 来源失败不会阻断 Navidrome。
+
+结论：Navidrome/OpenSubsonic MVP 的真实服务端认证、曲库同步、稳定 ID、播放、seek、歌词与进程重启恢复均已通过 Android 真机 E2E。封面侧已确认真实 Navidrome 曲目具有非空 `artworkOpaqueId`，且真机播放页能渲染对应封面；由于 Navidrome 默认 info 日志不记录成功的 `getCoverArt` 请求，本轮没有把“抓到具体 `/rest/getCoverArt` 请求”作为必需发布门槛。该项若后续需要协议级抓包可单独补证，但不构成 MVP 发布阻塞。
+
+### 2026-08-31 release audit
+
+- `feature/remote-music` 与 `origin/feature/remote-music` ahead/behind 为 `0/0`，审计起点工作树干净。
+- remote-specific 生产/测试代码未发现 `TODO`、`FIXME`、`NotImplementedError` 或 `UnsupportedOperationException` 残留。
+- `./gradlew testDebugUnitTest --no-configuration-cache`：BUILD SUCCESSFUL，102 actionable tasks。
+- `./gradlew assemblePerf -Pmica.qaSideBySide=true --no-configuration-cache`：BUILD SUCCESSFUL，148 actionable tasks。
+- 当前仅观察到项目既有的 KSP1 deprecation 与 Android SDK XML/CMake 版本告警；没有发现由 remote-music 引入的编译、测试或打包失败。
+- 真实 Android QA 已覆盖 SMB、WebDAV、Navidrome 三种来源；Navidrome 已覆盖认证、catalog、播放、seek、歌词、稳定 ID、队列/位置恢复和自动同步。
+
+发布判断：**remote-music MVP 无已知 release blocker，可以进入合并/发布候选阶段。** 后续剩余工作属于非阻塞 polish，例如若需要可补 Navidrome `getCoverArt` 的协议抓包证据、扩展更大真实 Navidrome 曲库 soak、以及 UI/文案细节收尾。

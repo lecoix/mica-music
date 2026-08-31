@@ -244,6 +244,12 @@ internal object ExternalLyricsReader {
         return bytes.takeIf { it.size <= maxBytes }
     }
 
+    /** Shared parser for bounded remote sidecar bytes; transport code owns the network read. */
+    internal fun parseRemoteDocument(bytes: ByteArray): LyricsDocument? {
+        if (bytes.size > MAX_EXTERNAL_LYRICS_BYTES) return null
+        return parseLyricsFile(decodeLyricsBytes(bytes))
+    }
+
     private fun parseLyricsFile(text: String): LyricsDocument? {
         if (text.isBlank()) return null
         val normalized = MetadataTextFix.normalize(text)

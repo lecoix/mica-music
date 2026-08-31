@@ -4,7 +4,7 @@ Mica Music uses the following major open source components. This file is a
 release checklist seed; before a public release, include the full license text
 and copyright notice required by each dependency.
 
-Last reviewed: **2026-08-28**
+Last reviewed: **2026-08-29**
 
 ## Runtime Dependencies
 
@@ -16,6 +16,9 @@ Last reviewed: **2026-08-28**
 | Jellyfin Media3 FFmpeg decoder (`org.jellyfin.media3:media3-ffmpeg-decoder` **1.9.0+1**, Maven fallback when local DSD build absent) | Apache License 2.0 |
 | Media3 FFmpeg extension — local DSD build (`third_party/media3-ffmpeg-decoder/`, Java + JNI; ships `libffmpegJNI.so`) | Apache License 2.0 (Java/JNI); see FFmpeg row below for native codec library |
 | Kotlin / Kotlinx Coroutines | Apache License 2.0 |
+| `sardine-android` **0.9** (WebDAV PROPFIND / DAV resource parsing) | Apache License 2.0 |
+| `okhttp-digest` **3.1.1** (WebDAV HTTP Digest challenge authentication) | Apache License 2.0 |
+| `smbj` **0.15.0** (SMB2/SMB3 protocol client; SMB1 is not enabled by Mica) | Apache License 2.0 |
 | Coil | Apache License 2.0 |
 | Guava | Apache License 2.0 |
 | Calvin Reorderable | Apache License 2.0 |

@@ -87,11 +87,13 @@ fun SettingsScreen(
         UsageTutorialDialog(onDismiss = { showUsageTutorial = false })
     }
     var usbHybridSubpageOpen by remember { mutableStateOf(false) }
+    var remoteMusicSubpageOpen by remember { mutableStateOf(false) }
     var settingsSearchOpen by remember { mutableStateOf(false) }
     var settingsSearchQuery by remember { mutableStateOf("") }
     var audioOffloadState by remember { mutableStateOf(AudioOffloadPreferences.state(context)) }
     val settingsSubpageBackEnabled =
         (usbHybridSubpageOpen && !playerOverlayOpen) ||
+            (remoteMusicSubpageOpen && !playerOverlayOpen) ||
             canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
     val settingsSearchBackEnabled = selectedCategory == null && settingsSearchOpen
     val settingsBackEnabled = settingsSubpageBackEnabled || settingsSearchBackEnabled
@@ -121,6 +123,7 @@ fun SettingsScreen(
     LaunchedEffect(
         selectedCategory,
         usbHybridSubpageOpen,
+        remoteMusicSubpageOpen,
         playerOverlayOpen,
         settingsBackEnabled,
         settingsSearchOpen,
@@ -148,6 +151,11 @@ fun SettingsScreen(
         if (usbHybridSubpageOpen) {
             logBackFlow("back-consume source=settings-usb-hybrid")
             usbHybridSubpageOpen = false
+            return@BackHandler
+        }
+        if (remoteMusicSubpageOpen) {
+            logBackFlow("back-consume source=settings-remote-music")
+            remoteMusicSubpageOpen = false
             return@BackHandler
         }
         logBackFlow(
@@ -230,6 +238,9 @@ fun SettingsScreen(
                     } else if (usbHybridSubpageOpen) {
                         logBackFlow("back-consume source=settings-topbar-usb-hybrid")
                         usbHybridSubpageOpen = false
+                    } else if (remoteMusicSubpageOpen) {
+                        logBackFlow("back-consume source=settings-topbar-remote-music")
+                        remoteMusicSubpageOpen = false
                     } else {
                         when (resolveSettingsTopBarBackAction(selectedCategory)) {
                             SettingsTopBarBackAction.ExitSettings -> {
@@ -298,7 +309,11 @@ fun SettingsScreen(
                 )
             } else {
                 Text(
-                    text = settingsScreenTitle(selectedCategory, usbHybridSubpageOpen),
+                    text = settingsScreenTitle(
+                        selectedCategory = selectedCategory,
+                        usbHybridSubpageOpen = usbHybridSubpageOpen,
+                        remoteMusicSubpageOpen = remoteMusicSubpageOpen,
+                    ),
                     style = MicaTheme.typography.bodyLg,
                     color = MicaTheme.colors.textPrimary,
                     modifier = Modifier.weight(1f),
@@ -363,28 +378,33 @@ fun SettingsScreen(
                     }
 
                     SettingsCategory.LIBRARY -> {
-                        LibraryScanSettingsPanel(
-                            library = library,
-                            excludedDirectories = scanState.excludedDirectories,
-                            minDurationSec = scanState.minDurationSec,
-                            deepProbe = scanState.deepProbe,
-                            artistSplitConfig = artistSplitConfig,
-                            onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
-                            onRescan = libraryAccess.onRescan,
-                            onScanAllMusic = libraryAccess.onScanAllMusic,
-                            onDeepProbeChange = {
-                                scanState = scanState.withDeepProbe(context, it)
-                            },
-                            onEditExcludedDirectories = {
-                                overlays = overlays.copy(showExcludedDirectories = true)
-                            },
-                            onMinDurationSelected = { sec ->
-                                scanState = scanState.withMinDurationSec(context, sec)
-                            },
-                            onEditArtistSplit = {
-                                overlays = overlays.copy(showArtistSplit = true)
-                            },
-                        )
+                        if (remoteMusicSubpageOpen) {
+                            RemoteMusicSettingsPanel()
+                        } else {
+                            LibraryScanSettingsPanel(
+                                library = library,
+                                excludedDirectories = scanState.excludedDirectories,
+                                minDurationSec = scanState.minDurationSec,
+                                deepProbe = scanState.deepProbe,
+                                artistSplitConfig = artistSplitConfig,
+                                onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
+                                onRescan = libraryAccess.onRescan,
+                                onScanAllMusic = libraryAccess.onScanAllMusic,
+                                onDeepProbeChange = {
+                                    scanState = scanState.withDeepProbe(context, it)
+                                },
+                                onEditExcludedDirectories = {
+                                    overlays = overlays.copy(showExcludedDirectories = true)
+                                },
+                                onMinDurationSelected = { sec ->
+                                    scanState = scanState.withMinDurationSec(context, sec)
+                                },
+                                onEditArtistSplit = {
+                                    overlays = overlays.copy(showArtistSplit = true)
+                                },
+                                onOpenRemoteMusic = { remoteMusicSubpageOpen = true },
+                            )
+                        }
                     }
 
                     SettingsCategory.AUDIO -> {

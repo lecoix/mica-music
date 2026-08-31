@@ -91,39 +91,41 @@ fun SongDetailScreen(
                 color = MicaTheme.colors.textPrimary,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(
-                onClick = {
-                    if (analyzing) return@IconButton
-                    analyzing = true
-                    scope.launch {
-                        val result = LoudnessScanManager.analyzeSingle(context, displaySong, library)
-                        analyzing = false
-                        result.fold(
-                            onSuccess = { analysis ->
-                                Toast.makeText(
-                                    context,
-                                    "响度分析完成 · %.1f LUFS".format(analysis.integratedLufs),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            },
-                            onFailure = { error ->
-                                Toast.makeText(
-                                    context,
-                                    "响度分析失败：${error.message ?: "未知错误"}",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            },
-                        )
-                    }
-                },
-                enabled = !analyzing,
-                modifier = Modifier.size(HifiSize.touchTarget),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Analytics,
-                    contentDescription = if (analyzing) "正在分析响度" else "分析响度",
-                    tint = MicaTheme.colors.textPrimary,
-                )
+            if (!displaySong.isRemote) {
+                IconButton(
+                    onClick = {
+                        if (analyzing) return@IconButton
+                        analyzing = true
+                        scope.launch {
+                            val result = LoudnessScanManager.analyzeSingle(context, displaySong, library)
+                            analyzing = false
+                            result.fold(
+                                onSuccess = { analysis ->
+                                    Toast.makeText(
+                                        context,
+                                        "响度分析完成 · %.1f LUFS".format(analysis.integratedLufs),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                                onFailure = { error ->
+                                    Toast.makeText(
+                                        context,
+                                        "响度分析失败：${error.message ?: "未知错误"}",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                            )
+                        }
+                    },
+                    enabled = !analyzing,
+                    modifier = Modifier.size(HifiSize.touchTarget),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Analytics,
+                        contentDescription = if (analyzing) "正在分析响度" else "分析响度",
+                        tint = MicaTheme.colors.textPrimary,
+                    )
+                }
             }
             IconButton(
                 onClick = { shareSong(context, displaySong) },

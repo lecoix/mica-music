@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,7 +25,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MusicLibrary
+import com.mica.music.data.PlayStats
 import com.mica.music.data.PlaylistStore
+import com.mica.music.data.remote.RemoteCatalogRepository
+import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.playback.PlayerController
 import com.mica.music.playback.SleepTimerController
 import com.mica.music.ui.components.PlayerSheetHost
@@ -76,6 +81,8 @@ fun AppNavigation(
     coordinator: AppNavigationCoordinator,
     library: MusicLibrary,
     playlistStore: PlaylistStore,
+    remoteCatalogRepository: RemoteCatalogRepository,
+    remotePlayStats: Map<String, PlayStats> = emptyMap(),
     playerController: PlayerController,
     sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
@@ -85,6 +92,8 @@ fun AppNavigation(
         coordinator = coordinator,
         library = library,
         playlistStore = playlistStore,
+        remoteCatalogRepository = remoteCatalogRepository,
+        remotePlayStats = remotePlayStats,
         playerController = playerController,
         uiSettings = uiSettings,
     )
@@ -95,6 +104,8 @@ fun AppNavigationMain(
     coordinator: AppNavigationCoordinator,
     library: MusicLibrary,
     playlistStore: PlaylistStore,
+    remoteCatalogRepository: RemoteCatalogRepository,
+    remotePlayStats: Map<String, PlayStats> = emptyMap(),
     playerController: PlayerController,
     uiSettings: AppUiSettings,
 ) {
@@ -148,6 +159,25 @@ fun AppNavigationMain(
         }
     }
 
+    val remoteTracks by remember(remoteCatalogRepository) {
+        remoteCatalogRepository.observeTracksForEnabledSources()
+    }.collectAsState(initial = emptyList())
+    val remoteSongs = remember(remoteTracks, remotePlayStats) {
+        remoteTracks.map { track ->
+            val song = track.toPlaybackSong()
+            remotePlayStats[song.id]?.let { stats ->
+                song.copy(
+                    playCount = stats.count,
+                    totalListenSeconds = stats.totalListenSeconds,
+                    lastPlayedAtMs = stats.lastPlayedAtMs,
+                )
+            } ?: song
+        }
+    }
+    val remoteSongsById = remember(remoteSongs) {
+        remoteSongs.associateBy { it.id }
+    }
+
     NavHost(
         navController = navController,
         startDestination = Routes.Home,
@@ -167,12 +197,18 @@ fun AppNavigationMain(
             HomeScreen(
                 library = library,
                 playlistStore = playlistStore,
+                remoteSongs = remoteSongs,
                 playbackState = homePlaybackState,
                 playbackActions = homePlaybackActions,
                 uiSettings = uiSettings,
                 onSongClick = { songId ->
                     logBackFlow("player-overlay open source=song-click song=$songId")
                     playerController.playSongById(songId)
+                    coordinator.playerExpanded = true
+                },
+                onQueueSongClick = { queue, songId ->
+                    logBackFlow("player-overlay open source=queue-song-click song=$songId items=${queue.size}")
+                    playerController.playQueueSong(queue, songId)
                     coordinator.playerExpanded = true
                 },
                 onMiniPlayerExpand = {
@@ -208,7 +244,11 @@ fun AppNavigationMain(
             arguments = listOf(navArgument("songId") { type = NavType.StringType }),
         ) { entry ->
             val songId = entry.arguments?.getString("songId")
-            val song = songId?.let { library.songById(it) }
+            val song = songId?.let { id ->
+                library.songById(id)
+                    ?: remoteSongsById[id]
+                    ?: playerController.playbackSurfaceState.currentSong?.takeIf { it.id == id }
+            }
             if (song == null) {
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     logBackFlow("nav-action pop-song-detail missing-song song=$songId")

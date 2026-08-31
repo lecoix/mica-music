@@ -61,5 +61,9 @@ class SettingsNavigationTest {
             "USB 独占输出",
             settingsScreenTitle(SettingsCategory.AUDIO, usbHybridSubpageOpen = true),
         )
+        assertEquals(
+            "远程曲库",
+            settingsScreenTitle(SettingsCategory.LIBRARY, remoteMusicSubpageOpen = true),
+        )
     }
 }

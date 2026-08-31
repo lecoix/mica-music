@@ -7,6 +7,7 @@ import com.mica.music.data.playback.ServiceQueueSnapshot
 import com.mica.music.data.playback.ServicePlaybackSnapshot
 
 import com.mica.music.data.playback.ServiceExternalSongSnapshot
+import com.mica.music.data.playback.ServiceRemoteSongSnapshot
 
 import com.mica.music.audio.AudioQualityMode
 
@@ -17,6 +18,9 @@ import androidx.media3.common.Timeline
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.SongSource
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemoteTrackRef
+import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk
@@ -109,6 +113,82 @@ class ServicePlaybackStateCoordinatorTest {
             listOf(ServiceExternalSongSnapshot.from(external)),
             queueSnapshot.captured.externalSongs,
         )
+    }
+
+    @Test
+    fun timelinePersistenceIncludesCurrentRemoteSongSnapshot() {
+        val store = mockk<ServicePlaybackStateStore>(relaxed = true)
+        val handler = mockk<Handler>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val track = RemoteTrackSummary(
+            ref = RemoteTrackRef("nav-1", "track-9"),
+            title = "Remote Nine",
+            artist = "Artist",
+            album = "Album",
+            durationSec = 123,
+            mimeTypeHint = "audio/flac",
+            fileName = "nine.flac",
+            suffix = "flac",
+            sizeBytes = 12_345L,
+            year = 2026,
+            trackNumber = 9,
+            discNumber = 1,
+        )
+        val item = RemoteMediaItemCodec.encode(track)
+        val queueSnapshot = slot<ServiceQueueSnapshot>()
+
+        every { store.load() } returns null
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.mediaItemCount } returns 1
+        every { player.getMediaItemAt(0) } returns item
+        every { player.currentMediaItem } returns item
+        every { store.saveQueue(capture(queueSnapshot), any()) } returns Unit
+
+        val coordinator = ServicePlaybackStateCoordinator(
+            player = player,
+            store = store,
+            handler = handler,
+            initialQualityMode = AudioQualityMode.HIFI,
+        )
+        coordinator.start()
+        listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
+        coordinator.release()
+
+        assertEquals(listOf(track.mediaId), queueSnapshot.captured.songIds)
+        assertEquals(
+            listOf(requireNotNull(ServiceRemoteSongSnapshot.fromMediaItem(item))),
+            queueSnapshot.captured.remoteSongs,
+        )
+    }
+
+    @Test
+    fun untrustedRemoteQueueClearsCrossProcessSnapshot() {
+        val store = mockk<ServicePlaybackStateStore>(relaxed = true)
+        val handler = mockk<Handler>(relaxed = true)
+        val player = mockk<Player>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val mediaId = RemoteMediaIdCodec.encode(RemoteTrackRef("nav-1", "track-9"))
+        val item = MediaItem.Builder().setMediaId(mediaId).build()
+
+        every { store.load() } returns null
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.mediaItemCount } returns 1
+        every { player.getMediaItemAt(0) } returns item
+        every { player.currentMediaItem } returns item
+
+        val coordinator = ServicePlaybackStateCoordinator(
+            player = player,
+            store = store,
+            handler = handler,
+            initialQualityMode = AudioQualityMode.HIFI,
+        )
+        coordinator.start()
+        listener.captured.onTimelineChanged(Timeline.EMPTY, 0)
+        coordinator.release()
+
+        verify(atLeast = 1) { store.clear(any()) }
+        verify(exactly = 0) { store.saveQueue(any(), any()) }
     }
 
     @Test

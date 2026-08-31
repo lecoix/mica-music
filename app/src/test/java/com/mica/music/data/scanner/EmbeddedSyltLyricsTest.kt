@@ -35,6 +35,40 @@ class EmbeddedSyltLyricsTest {
     }
 
     @Test
+    fun randomAccessFastProbeFeedsSyltBinaryParser() {
+        val sylt = syltPayload(
+            1_000 to "Remote",
+            1_300 to " SYLT",
+            2_200 to "\nworks",
+            2_500 to "!",
+        )
+        val id3 = id3v23(frame("SYLT", sylt))
+        val source = object : AudioProbeRandomAccessSource {
+            private val bytes = id3 + ByteArray(4096)
+            override val sizeBytes: Long = bytes.size.toLong()
+
+            override fun readAt(fileOffset: Long, buffer: ByteArray, bufferOffset: Int, length: Int): Int {
+                if (fileOffset >= bytes.size) return -1
+                val count = minOf(length, 7, bytes.size - fileOffset.toInt())
+                bytes.copyInto(buffer, bufferOffset, fileOffset.toInt(), fileOffset.toInt() + count)
+                return count
+            }
+        }
+
+        val window = requireNotNull(
+            AudioProbeBytes.readFastForLyricsOrThrow(source, "audio/mpeg", "MicaRemoteSylt.mp3"),
+        )
+        val document = requireNotNull(
+            EmbeddedLyricsReader.parseBinaryDocument(window, "audio/mpeg", "mp3"),
+        )
+
+        assertEquals(LyricsFormat.SYLT, document.format)
+        assertEquals(LyricsOrigin.EMBEDDED, document.origin)
+        assertEquals(listOf("Remote SYLT", "works!"), document.lines.map { line -> line.parts.joinToString("") { it.text } })
+        assertEquals(4, document.lines.sumOf { it.tokens.size })
+    }
+
+    @Test
     fun realWavFixtureRetainsItsSyltTimelineWhenAvailable() {
         val fixture = listOf(File(".test-music"), File("../.test-music"))
             .flatMap { it.listFiles().orEmpty().asList() }

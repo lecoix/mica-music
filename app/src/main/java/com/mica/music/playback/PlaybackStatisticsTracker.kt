@@ -115,6 +115,21 @@ internal class PlaybackStatisticsTracker(
         return true
     }
 
+    /**
+     * Converts an explicit playback request into a publishable session after the runtime has
+     * physically confirmed that the requested media selection became the active player item.
+     * This covers queue-replacement playback where Media3 may report only PLAYLIST_CHANGED rather
+     * than an explicit transition/discontinuity.
+     */
+    fun confirmRequestedPlayback(songId: String): Boolean {
+        if (requestedSongId != songId) return false
+        eventBatchGeneration += 1
+        pendingPlaySession = PendingPlaySession(songId, eventBatchGeneration)
+        requestedSongId = null
+        currentSongId = songId
+        return true
+    }
+
     fun publishPlayStartedIfReady(playerSongId: String?, playing: Boolean): String? {
         val pending = pendingPlaySession ?: return null
         if (!playing || pending.songId != playerSongId) return null

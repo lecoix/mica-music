@@ -6,6 +6,7 @@ import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.BrowseListInfoVisibility
 import com.mica.music.data.FolderBrowseMode
+import com.mica.music.data.LibraryBrowse
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
@@ -22,6 +23,7 @@ internal data class LibraryStatsBarModel(
     val showFolderModeAction: Boolean = false,
     val showRescanAction: Boolean = false,
     val showDeletePlaylistAction: Boolean = false,
+    val showMultiSelectAction: Boolean = false,
 )
 
 @Composable
@@ -29,6 +31,10 @@ internal fun rememberLibraryStatsBarModel(
     section: HomeSection,
     browseDestination: BrowseDestination,
     library: MusicLibrary,
+    recentSongCount: Int? = null,
+    remoteSongs: List<Song> = emptyList(),
+    remoteSortField: SongSortField = SongSortField.TITLE,
+    remoteSortDirection: SortDirection = SortDirection.ASC,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -47,6 +53,10 @@ internal fun rememberLibraryStatsBarModel(
     return remember(
         section,
         browseDestination,
+        recentSongCount,
+        remoteSongs,
+        remoteSortField,
+        remoteSortDirection,
         activePlaylistId,
         playlistSongCount,
         playlistSortField,
@@ -72,6 +82,10 @@ internal fun rememberLibraryStatsBarModel(
             section,
             browseDestination,
             library,
+            recentSongCount,
+            remoteSongs,
+            remoteSortField,
+            remoteSortDirection,
             activePlaylistId,
             playlistSongCount,
             playlistSortField,
@@ -96,6 +110,10 @@ internal fun resolveLibraryStatsBarModel(
     section: HomeSection,
     browseDestination: BrowseDestination,
     library: MusicLibrary,
+    recentSongCount: Int? = null,
+    remoteSongs: List<Song> = emptyList(),
+    remoteSortField: SongSortField = SongSortField.TITLE,
+    remoteSortDirection: SortDirection = SortDirection.ASC,
     activePlaylistId: String?,
     playlistSongCount: Int,
     playlistSortField: SongSortField?,
@@ -115,6 +133,7 @@ internal fun resolveLibraryStatsBarModel(
     }
 
     val scanSegments = libraryScanSegments(library)
+    val browseSongs = mergedBrowseSongs(library.songs, remoteSongs)
 
     return when (section) {
         HomeSection.Songs -> LibraryStatsBarModel(
@@ -125,12 +144,20 @@ internal fun resolveLibraryStatsBarModel(
             showSortAction = true,
             showRescanAction = true,
         )
+        HomeSection.Remote -> LibraryStatsBarModel(
+            segments = listOfNotNull(
+                if (remoteSongs.isEmpty()) "暂无远程歌曲" else "${remoteSongs.size} 首",
+                formatSortLabel(remoteSortField, remoteSortDirection).takeIf { remoteSongs.isNotEmpty() },
+            ),
+            showSortAction = remoteSongs.isNotEmpty(),
+            showMultiSelectAction = remoteSongs.isNotEmpty(),
+        )
         HomeSection.Recent -> {
-            val recent = library.recentSongs()
+            val count = recentSongCount ?: library.recentSongs().size
             LibraryStatsBarModel(
                 segments = listOfNotNull(
-                    if (recent.isEmpty()) "暂无播放记录" else "${recent.size} 首",
-                    if (recent.isNotEmpty()) "按最近播放" else null,
+                    if (count == 0) "暂无播放记录" else "$count 首",
+                    if (count > 0) "按最近播放" else null,
                 ),
             )
         }
@@ -165,7 +192,7 @@ internal fun resolveLibraryStatsBarModel(
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
                     if (browseListInfoVisibility.showArtistCount) {
-                        "${library.artistGroupPresentation(artistSortField, artistSortDirection).groups.size} 位艺术家"
+                        "${artistGroupCount(library, browseSongs, remoteSongs.isEmpty(), artistSortField, artistSortDirection)} 位艺术家"
                     } else {
                         null
                     },
@@ -189,7 +216,7 @@ internal fun resolveLibraryStatsBarModel(
             BrowseDestination.Root -> LibraryStatsBarModel(
                 segments = listOfNotNull(
                     if (browseListInfoVisibility.showAlbumCount) {
-                        "${library.albumGroupPresentation(albumSortField, albumSortDirection).groups.size} 张专辑"
+                        "${albumGroupCount(library, browseSongs, remoteSongs.isEmpty(), albumSortField, albumSortDirection)} 张专辑"
                     } else {
                         null
                     },
@@ -262,6 +289,29 @@ internal fun resolveLibraryStatsBarModel(
     }
 }
 
+private fun artistGroupCount(
+    library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
+    field: ArtistBrowseSortField,
+    direction: SortDirection,
+): Int = if (useLibraryPresentationCache) {
+    library.artistGroupPresentation(field, direction).groups.size
+} else {
+    LibraryBrowse.artistGroupPresentation(songs, field, direction).groups.size
+}
+
+private fun albumGroupCount(
+    library: MusicLibrary,
+    songs: List<Song>,
+    useLibraryPresentationCache: Boolean,
+    field: AlbumBrowseSortField,
+    direction: SortDirection,
+): Int = if (useLibraryPresentationCache) {
+    library.albumGroupPresentation(field, direction).groups.size
+} else {
+    LibraryBrowse.albumGroupPresentation(songs, field, direction).groups.size
+}
 private fun folderRootCountLabel(library: MusicLibrary, mode: FolderBrowseMode): String =
     when (mode) {
         FolderBrowseMode.HIERARCHY -> "${library.folderGroupsAtDepth(0).size} 个文件夹"

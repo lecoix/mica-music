@@ -155,6 +155,7 @@ internal object SettingsSearchIndex {
         setting("lyrics.font", "歌词字体", "字体", "TTF", "OTF", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_FONT),
         setting("lyrics.font-clear", "清除导入字体", "字体", "恢复", "系统默认", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_FONT, availability = "仅导入字体后显示为可用"),
 
+        setting("library.remote", "远程曲库", "Navidrome", "OpenSubsonic", "WebDAV", "SMB", "网络音乐", "远程来源", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
         setting("library.folder", "曲库文件夹", "文件夹", "目录", "SAF", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
         setting("library.rescan", "重新扫描曲库", "扫描", "刷新", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
         setting("library.scan-all", "扫描全部音乐", "扫描", "MediaStore", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),

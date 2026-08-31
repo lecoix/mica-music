@@ -33,6 +33,13 @@ import com.mica.music.isExternalAudioUriRestorableNow
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.ReplayGainMode
 import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.remote.CompositeRemoteHttpPlaybackRequestResolver
+import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.navidrome.NavidromeStreamRequestResolver
+import com.mica.music.data.remote.webdav.WebDavStreamRequestResolver
+import com.mica.music.data.remote.smb.SmbPlaybackRequestResolver
+import com.mica.music.data.remote.smb.SmbStreamRequestResolver
 import com.mica.music.data.preferences.AudioOffloadPreferences
 import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.EqualizerPreferences
@@ -72,6 +79,8 @@ class MicaMediaService : MediaSessionService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
+    private var remoteHttpPlaybackResolver: RemoteHttpPlaybackRequestResolver? = null
+    private var remoteSmbPlaybackResolver: SmbPlaybackRequestResolver? = null
     private var unregisterLyricsPreferenceListener: (() -> Unit)? = null
     private var unregisterAudioOffloadPreferenceListener: (() -> Unit)? = null
     private var unregisterUsbOutputPreferenceListener: (() -> Unit)? = null
@@ -97,12 +106,28 @@ class MicaMediaService : MediaSessionService() {
         )
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val libraryRepository = LibraryRepository(this)
+        val remoteMediaItemProvider = TrustedRemoteMediaItemProvider(micaApp.remoteCatalogRepository)
         trustedMediaItemResolver = TrustedMediaItemResolver(
             transientSongById = micaApp.transientPlaybackCatalog::songById,
             librarySongsById = libraryRepository::songSummariesByIds,
+            remoteMediaItemsById = remoteMediaItemProvider::resolve,
             mediaItemFactory = { song ->
                 decorateResolvedSong(song, ExternalMediaItemCodec.encode(this, song))
             },
+        )
+        remoteHttpPlaybackResolver = CompositeRemoteHttpPlaybackRequestResolver(
+            NavidromeStreamRequestResolver(
+                sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+                credentialStore = micaApp.remoteCredentialStore,
+            ),
+            WebDavStreamRequestResolver(
+                sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+                credentialStore = micaApp.remoteCredentialStore,
+            ),
+        )
+        remoteSmbPlaybackResolver = SmbStreamRequestResolver(
+            sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+            credentialStore = micaApp.remoteCredentialStore,
         )
         setListener(object : MediaSessionService.Listener {
             override fun onForegroundServiceStartNotAllowedException() {
@@ -121,8 +146,10 @@ class MicaMediaService : MediaSessionService() {
 
         activeOutputPath = AudioOutputPathConfig.PRODUCTION
         val stack = ExoPlaybackStackFactory.build(
-            this,
-            activeOutputPath,
+            context = this,
+            outputPath = activeOutputPath,
+            remoteResolver = remoteHttpPlaybackResolver,
+            smbResolver = remoteSmbPlaybackResolver,
             isMusicVideoEnabledFor = ::isMusicVideoEnabledForSource,
         )
         installPlaybackStackOwners(stack, micaApp)
@@ -259,6 +286,7 @@ class MicaMediaService : MediaSessionService() {
         sessionScope?.launch {
             val libraryIds = snapshot.queueSongIds
                 .filterNot(TransientPlaybackCatalog::isTransientId)
+                .filterNot(RemoteMediaIdCodec::isRemoteId)
                 .distinct()
             val librarySongs = runCatching {
                 libraryRepository.songSummariesByIds(libraryIds)
@@ -273,9 +301,13 @@ class MicaMediaService : MediaSessionService() {
                     }
                 }
                 .toMap()
+            val persistedRemoteSongs = snapshot.remoteSongs.associate { remote ->
+                remote.id to remote.toSong()
+            }
             val songsById = buildMap {
                 putAll(librarySongs)
                 putAll(persistedExternalSongs)
+                putAll(persistedRemoteSongs)
                 snapshot.queueSongIds.forEach { id ->
                     micaApp.transientPlaybackCatalog.songById(id)?.let { put(id, it) }
                 }
@@ -290,7 +322,11 @@ class MicaMediaService : MediaSessionService() {
                 if (selectedMode != UsbHybridOutputMode.SharedPcm && bootstrap != null) {
                     usbBootstrapHandoff = UsbPlaybackStackHandoff(
                         items = bootstrap.songs.map { song ->
-                            decorateResolvedSong(song, SongMediaItemCodec.encode(song))
+                            if (song.isRemote) {
+                                RemoteMediaItemCodec.encode(song)
+                            } else {
+                                decorateResolvedSong(song, SongMediaItemCodec.encode(song))
+                            }
                         },
                         currentIndex = bootstrap.currentIndex,
                         positionMs = bootstrap.positionMs,
@@ -388,9 +424,11 @@ class MicaMediaService : MediaSessionService() {
         compositePlayer = null
         val newStack = runCatching {
             ExoPlaybackStackFactory.build(
-                this,
-                target,
-                usbBinding,
+                context = this,
+                outputPath = target,
+                usbBinding = usbBinding,
+                remoteResolver = remoteHttpPlaybackResolver,
+                smbResolver = remoteSmbPlaybackResolver,
                 isMusicVideoEnabledFor = ::isMusicVideoEnabledForSource,
             )
         }
@@ -604,6 +642,8 @@ class MicaMediaService : MediaSessionService() {
         sessionScope?.cancel()
         sessionScope = null
         trustedMediaItemResolver = null
+        remoteHttpPlaybackResolver = null
+        remoteSmbPlaybackResolver = null
         releasePlaybackStackOwners()
         spectrumAnalyzerStateOwner?.release()
         spectrumAnalyzerStateOwner = null
@@ -806,23 +846,21 @@ class MicaMediaService : MediaSessionService() {
         }.toMutableList()
 
     private fun grantArtworkUriPermissions(targetPackage: String, mediaItems: List<MediaItem>) {
-        if (targetPackage.isBlank()) return
-        val artworkAuthority = "$packageName.artwork"
+        val targetPackages = ArtworkUriGrantPolicy.targetPackages(targetPackage)
+        if (targetPackages.isEmpty()) return
         mediaItems.forEach { mediaItem ->
             val artworkUri = mediaItem.mediaMetadata.artworkUri ?: return@forEach
-            if (artworkUri.scheme?.equals("content", ignoreCase = true) != true ||
-                artworkUri.authority != artworkAuthority
-            ) {
-                return@forEach
-            }
-            runCatching {
-                grantUriPermission(targetPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.onFailure { error ->
-                DiagnosticLog.event(
-                    "MediaSession",
-                    "artwork-grant-failed package=$targetPackage uri=$artworkUri " +
-                        "error=${error.javaClass.simpleName}",
-                )
+            if (!ArtworkUriGrantPolicy.isGrantable(packageName, artworkUri)) return@forEach
+            targetPackages.forEach { grantPackage ->
+                runCatching {
+                    grantUriPermission(grantPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }.onFailure { error ->
+                    DiagnosticLog.event(
+                        "MediaSession",
+                        "artwork-grant-failed package=$grantPackage uri=$artworkUri " +
+                            "error=${error.javaClass.simpleName}",
+                    )
+                }
             }
         }
     }

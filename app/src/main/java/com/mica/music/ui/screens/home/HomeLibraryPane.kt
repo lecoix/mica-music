@@ -18,9 +18,8 @@ internal fun HomeLibraryPane(
     library: MusicLibrary,
     currentSongId: String?,
     isPlaying: Boolean,
-    onQueueSongs: (List<Song>) -> Unit,
+    onQueueSongClick: (List<Song>, String) -> Unit,
     shouldOpenSettings: Boolean,
-    onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     onPickLibraryFolder: () -> Unit,
     onRequestFullScan: () -> Unit,
@@ -75,8 +74,7 @@ internal fun HomeLibraryPane(
                 currentSongId = currentSongId,
                 isPlaying = isPlaying,
                 onSongClick = { songId ->
-                    onQueueSongs(library.songs)
-                    onSongClick(songId)
+                    onQueueSongClick(library.songs, songId)
                 },
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "暂无歌曲",
