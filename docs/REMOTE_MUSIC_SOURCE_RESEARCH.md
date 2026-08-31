@@ -599,3 +599,20 @@ Remote + UsbDirectPcm
 Chora、XyMusic、NOVA FileCore、`sardine-android` 和 `smbj` 根许可证均为 Apache-2.0，Simple-Music-Player 为 MIT。若实际复制代码或引入依赖，需要逐文件确认版权和第三方来源，保留许可证及版权声明、标记修改，并同步更新 Mica 的开源声明。
 
 Android-WebDav-Music-Player 和 tsm-player 当前没有明确源码许可证，因此不能把其公开仓库视为可自由复制的开源代码。MzDKPlayer 和 Material Files 为 GPL-3.0，Namida 使用自定义 EULA，均只作为行为参考。`jcifs-ng` 为 LGPL-2.1，也需要单独处理依赖合规。这里只记录初步兼容性判断，不构成法律意见。
+
+## 2026-08-31 Navidrome / OpenSubsonic 真机 E2E
+
+真实服务端使用 Windows 官方 Navidrome 0.63.2，测试机通过局域网访问 `http://172.17.57.22:4533`。服务端只放置 8 首隔离测试曲目；Mica QA 包同步结果为 8 首，与服务端完全一致。
+
+验收结果：
+
+- OpenSubsonic 握手：服务端返回 `type=navidrome`、`serverVersion=0.63.2`、`openSubsonic=true`。
+- catalog：8/8 同步成功；聚合远端列表为 274 首 = SMB 264 + WebDAV 2 + Navidrome 8。
+- 稳定身份：实际播放的 Navidrome `AIZO` 使用 source instance `navidrome-b045c434-3bd3-4e71-9409-cb574af51740`，opaque track id `1OWjjIJWI5yYEswAJrJEbc`；与同名 SMB 曲目的稳定 ID 可明确区分。
+- 真播放：Android 测试机到电脑 Navidrome `4533` 存在 Established TCP 连接；当前曲目稳定 ID 解码后与上述 Navidrome source/opaque id 完全一致。
+- seek：暂停态从约 `0:58` 跳到 `2:43 / 3:35`，持久化位置变为约 `162972 ms`；恢复播放后推进到约 `165037 ms`，并重新建立 Navidrome TCP 连接。
+- 歌词：Navidrome 曲目全屏播放器成功显示日文原文与中文字幕。
+- 冷恢复：强停 QA 包前位置约 `189097 ms`、`queueRev=7`；重启后稳定曲目 ID、位置与 queue revision 保持一致，播放器按暂停态恢复，并重新连接 Navidrome。
+- 自动同步：此前真实 WorkManager catch-up 已将 Navidrome 作为成功来源；旧 WebDAV 来源失败不会阻断 Navidrome。
+
+结论：Navidrome/OpenSubsonic MVP 的真实服务端认证、曲库同步、稳定 ID、播放、seek、歌词与进程重启恢复均已通过 Android 真机 E2E。发布前仍可补充封面请求的独立协议级证据和最终文档/发布审计，但不再存在“尚未经过真实 Navidrome 服务验证”的主阻塞项。
