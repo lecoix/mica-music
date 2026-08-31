@@ -239,5 +239,3 @@ class RemoteCatalogRepository internal constructor(
             )
         }
 }
-
-
