@@ -615,4 +615,15 @@ Android-WebDav-Music-Player 和 tsm-player 当前没有明确源码许可证，�
 - 冷恢复：强停 QA 包前位置约 `189097 ms`、`queueRev=7`；重启后稳定曲目 ID、位置与 queue revision 保持一致，播放器按暂停态恢复，并重新连接 Navidrome。
 - 自动同步：此前真实 WorkManager catch-up 已将 Navidrome 作为成功来源；旧 WebDAV 来源失败不会阻断 Navidrome。
 
-结论：Navidrome/OpenSubsonic MVP 的真实服务端认证、曲库同步、稳定 ID、播放、seek、歌词与进程重启恢复均已通过 Android 真机 E2E。发布前仍可补充封面请求的独立协议级证据和最终文档/发布审计，但不再存在“尚未经过真实 Navidrome 服务验证”的主阻塞项。
+结论：Navidrome/OpenSubsonic MVP 的真实服务端认证、曲库同步、稳定 ID、播放、seek、歌词与进程重启恢复均已通过 Android 真机 E2E。封面侧已确认真实 Navidrome 曲目具有非空 `artworkOpaqueId`，且真机播放页能渲染对应封面；由于 Navidrome 默认 info 日志不记录成功的 `getCoverArt` 请求，本轮没有把“抓到具体 `/rest/getCoverArt` 请求”作为必需发布门槛。该项若后续需要协议级抓包可单独补证，但不构成 MVP 发布阻塞。
+
+### 2026-08-31 release audit
+
+- `feature/remote-music` 与 `origin/feature/remote-music` ahead/behind 为 `0/0`，审计起点工作树干净。
+- remote-specific 生产/测试代码未发现 `TODO`、`FIXME`、`NotImplementedError` 或 `UnsupportedOperationException` 残留。
+- `./gradlew testDebugUnitTest --no-configuration-cache`：BUILD SUCCESSFUL，102 actionable tasks。
+- `./gradlew assemblePerf -Pmica.qaSideBySide=true --no-configuration-cache`：BUILD SUCCESSFUL，148 actionable tasks。
+- 当前仅观察到项目既有的 KSP1 deprecation 与 Android SDK XML/CMake 版本告警；没有发现由 remote-music 引入的编译、测试或打包失败。
+- 真实 Android QA 已覆盖 SMB、WebDAV、Navidrome 三种来源；Navidrome 已覆盖认证、catalog、播放、seek、歌词、稳定 ID、队列/位置恢复和自动同步。
+
+发布判断：**remote-music MVP 无已知 release blocker，可以进入合并/发布候选阶段。** 后续剩余工作属于非阻塞 polish，例如若需要可补 Navidrome `getCoverArt` 的协议抓包证据、扩展更大真实 Navidrome 曲库 soak、以及 UI/文案细节收尾。
