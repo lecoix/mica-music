@@ -14,9 +14,9 @@ declare -A SOURCE_APKS=(
   [universal]="$SOURCE_DIR/app-universal-${BUILD_TYPE}.apk"
 )
 declare -A RELEASE_APKS=(
-  [arm64-v8a]="$RELEASE_DIR/Mica_${VERSION_NAME}_64位.apk"
-  [armeabi-v7a]="$RELEASE_DIR/Mica_${VERSION_NAME}_32位.apk"
-  [universal]="$RELEASE_DIR/Mica_${VERSION_NAME}_通用.apk"
+  [arm64-v8a]="$RELEASE_DIR/Mica_${VERSION_NAME}_64bit.apk"
+  [armeabi-v7a]="$RELEASE_DIR/Mica_${VERSION_NAME}_32bit.apk"
+  [universal]="$RELEASE_DIR/Mica_${VERSION_NAME}_universal.apk"
 )
 
 for key in arm64-v8a armeabi-v7a universal; do
