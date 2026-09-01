@@ -66,7 +66,7 @@
   - **自定义标准**（`CUSTOM_STANDARD`）：标准封面布局的可配置歌词页/横屏契约
   - **粒子封面**（`PARTICLE_COVER`）：边缘粒子化与切歌分解；现网 **GLES**（`ParticleCoverPlayerLayer` → `ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 回退仅 `UseNativeParticleCoverInPlayer = false`。详见 `[PARTICLE_COVER_OPENGL_MIGRATION.md](PARTICLE_COVER_OPENGL_MIGRATION.md)` §0
   - **平行封面带**（`PAUSE_FOLD`）、**复古立体封面**（`RETRO_3D`）：七轨 View 岛封面流
-  - **拍立得回忆**（`PHOTO_STACK`）：拍立得叠放转场；沉浸白边可选播放中显示当前歌词（默认关）
+  - **拍立得回忆**（`PHOTO_STACK`）：拍立得叠放转场；沉浸白边可选播放中显示当前歌词（默认关；过长走马灯，有逐字时间轴时填充）
 - [x] 根据背景自动/固定调整文字对比度
 - [x] **封面底边进度**（设置开关；仅「主题色」「封面模糊」：封面下缘屏宽细进度条，隐藏常规进度条与时间）
 - [x] **下半屏沉浸**（设置或长按歌名/歌手：下半屏仅居中歌名+歌手，点击播放/暂停，长按退出）

@@ -118,7 +118,7 @@ internal object SettingsSearchIndex {
         setting("playback.cover-edge-progress", "封面底边进度", "进度条", "频谱", "封面边缘", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "标准主题需主题色或模糊背景；特殊主题有独立能力条件"),
         setting("playback.keep-screen-on", "播放时屏幕常亮", "常亮", "熄屏", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER),
         setting("playback.immersive-lower", "沉浸模式", "下半屏沉浸", "沉浸", "下半屏", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "自定义标准、粒子封面不支持；拍立得回忆把歌名收进相纸白边"),
-        setting("playback.photo-stack-immersive-lyrics", "沉浸时标题显示歌词", "拍立得", "沉浸", "歌词", "标题", "翻译", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "仅拍立得回忆；播放中替换相纸白边歌名"),
+        setting("playback.photo-stack-immersive-lyrics", "沉浸时标题显示歌词", "拍立得", "沉浸", "歌词", "标题", "翻译", "走马灯", "逐字", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "仅拍立得回忆；播放中替换相纸白边歌名，过长走马灯，有逐字时间轴时填充"),
         setting("playback.compact-lyrics", "折叠歌词行数", "歌词行数", "一行", "三行", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER, availability = "标准、粒子、平行、复古主题；自定义标准和拍立得不消费"),
         setting("playback.strip-title-parentheses", "隐藏歌名括号内容", "歌名", "括号", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER),
         setting("playback.spectrum", "频谱条", "频谱", "功耗", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_COVER),

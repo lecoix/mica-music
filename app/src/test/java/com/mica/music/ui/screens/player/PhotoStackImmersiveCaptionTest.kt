@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens.player
 
+import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextPart
@@ -10,6 +11,7 @@ import com.mica.music.data.LyricsSession
 import com.mica.music.data.renderStateAt
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PhotoStackImmersiveCaptionTest {
@@ -146,6 +148,80 @@ class PhotoStackImmersiveCaptionTest {
                 renderState = state,
                 splitEnabled = true,
             ),
+        )
+    }
+
+    @Test
+    fun wordSyncedLineAttachesKaraokePayload() {
+        val line = LyricLine(
+            timeMs = 1_000,
+            text = "故事的小黄花",
+            cues = listOf(
+                LyricCue(1_000, "故事"),
+                LyricCue(1_400, "的小黄花"),
+            ),
+            endTimeMs = 2_000,
+        )
+        val state = listOf(line, LyricLine(2_000, "下一句")).renderStateAt(1_500)
+
+        assertEquals(
+            PhotoStackImmersiveCaption(
+                title = "故事的小黄花",
+                subtitle = "晴天 - 周杰伦",
+                karaokeLine = line,
+                nextLineTimeMs = 2_000,
+                positionMs = 1_500,
+            ),
+            photoStackImmersiveCaption(
+                song = song,
+                isPlaying = true,
+                lyricsInTitleEnabled = true,
+                renderState = state,
+                splitEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun pausedWordSyncedLineDoesNotAttachKaraoke() {
+        val line = LyricLine(
+            timeMs = 1_000,
+            text = "故事的小黄花",
+            cues = listOf(LyricCue(1_000, "故事")),
+        )
+        val caption = photoStackImmersiveCaption(
+            song = song,
+            isPlaying = false,
+            lyricsInTitleEnabled = true,
+            renderState = listOf(line).renderStateAt(1_500),
+            splitEnabled = true,
+        )
+
+        assertEquals(PhotoStackImmersiveCaption("晴天", "周杰伦"), caption)
+        assertNull(caption.karaokeLine)
+    }
+
+    @Test
+    fun marqueeStaysUntilInitialDelayAndAdvancesAfter() {
+        assertEquals(
+            0f,
+            photoStackCaptionMarqueeTravelPx(400f, 100f, 1_199L, 0.05f),
+            0.0001f,
+        )
+        val cycle = 400f + 100f / 3f
+        assertEquals(
+            (1_000f * 0.05f) % cycle,
+            photoStackCaptionMarqueeTravelPx(400f, 100f, 2_200L, 0.05f),
+            0.001f,
+        )
+    }
+
+    @Test
+    fun marqueeZeroWhenTextFits() {
+        assertEquals(
+            0f,
+            photoStackCaptionMarqueeTravelPx(80f, 100f, 5_000L, 0.05f),
+            0.0001f,
         )
     }
 }

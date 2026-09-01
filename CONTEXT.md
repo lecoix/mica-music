@@ -324,7 +324,7 @@ _Avoid_: debounce、loading
 `PAUSE_FOLD`（平行封面带）；
 `RETRO_3D`（复古立体封面流）；
 `PHOTO_STACK`（拍立得回忆，拍立得叠放转场）。
-`PARTICLE_COVER`、`PAUSE_FOLD`、`RETRO_3D`、`PHOTO_STACK` 强制裁切填充、忽略「原样比例」；`CUSTOM_STANDARD` 保留标准封面的显示策略。`CUSTOM_STANDARD` 与 `PARTICLE_COVER` 不支持下半屏沉浸。拍立得支持下半屏沉浸，并把歌名/歌手收进前卡白边；可选在播放中用当前歌词替换该白边标题。
+`PARTICLE_COVER`、`PAUSE_FOLD`、`RETRO_3D`、`PHOTO_STACK` 强制裁切填充、忽略「原样比例」；`CUSTOM_STANDARD` 保留标准封面的显示策略。`CUSTOM_STANDARD` 与 `PARTICLE_COVER` 不支持下半屏沉浸。拍立得支持下半屏沉浸，并把歌名/歌手收进前卡白边；可选在播放中用当前歌词替换该白边标题（过长走马灯，有逐字时间轴时填充）。
 _Avoid_: carousel（无专名时）、cover flow（小写泛指全部非标准模式时）
 
 **Cover flow（封面流）**：

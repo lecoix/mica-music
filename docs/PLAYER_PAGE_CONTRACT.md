@@ -38,7 +38,7 @@
 
 音乐 MV 是此规则的窄例外：不向 UI 暴露可提交 URI 的通用 Controller API，只在 `NowPlayingActions` 暴露 attach/detach 当前播放视频输出。`PlaybackRuntime` 的单一 Surface lease 校验 TextureView、mediaId 和 Controller identity；仅 `STANDARD`、Activity RESUMED、歌词页与竖屏队列均关闭时挂载。静态封面始终在下层，首帧后淡入；黑色 1:1 Fit，不裁剪。切歌转场用既有静态封面 wipe 承接，只允许一个真实视频 Surface。
 
-**互斥**：同一时刻仅一种封面行为层挂载（`NowPlayingCoverSection` 分支）。`CUSTOM_STANDARD` / `PARTICLE_COVER` **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。拍立得支持下半屏沉浸：前卡放大并把歌名/歌手画进白边；设置「沉浸时标题显示歌词」后，播放中该白边主位换成当前歌词。
+**互斥**：同一时刻仅一种封面行为层挂载（`NowPlayingCoverSection` 分支）。`CUSTOM_STANDARD` / `PARTICLE_COVER` **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。拍立得支持下半屏沉浸：前卡放大并把歌名/歌手画进白边；设置「沉浸时标题显示歌词」后，播放中该白边主位换成当前歌词（过长走马灯，有逐字时间轴时填充）。
 
 横屏平行 / 复古另有页面局部状态 `landscapeCoverFlowImmersive`：稳定播放态长按标题进入，仅保留背景与封面流区域并隐藏全部系统栏；以平行封面带中心封面本体高度铺满屏幕为基准计算外层缩放，复古立体复用相同缩放数字。中心封面本体上下居中，倒影不参与尺寸或居中计算。返回优先退出，旋转、切主题或进入歌词页也退出。该状态不写入 `AppUiSettings`，不新增 Controller API，也不复用竖屏 `immersiveLower`。封面底边进度/频谱属于封面流区域，继续由现有设置和 `PlayerPageFrame` 决定。
 
@@ -160,7 +160,7 @@
 - [ ] 原样比例横/竖封面无两步位移
 - [ ] 封面流：平行 / 复古 × 拖动与按钮切歌，无闪帧（`CoverFlowRailsTest`）
 - [ ] 横屏封面流沉浸：平行 / 复古长按标题进入；平行中心封面全屏高、复古复用同一缩放数字，封面本体上下居中；只留背景、封面流及已启用的封面底边进度/频谱；状态栏和导航栏隐藏；返回、旋转、切主题、进入歌词均退出
-- [ ] 拍立得：轻扫切歌、前卡 seek、转场中不可 seek；进入/退出歌词页的中间帧保持双页挂载且布局不跳；× 各播放页背景；沉浸时白边歌名，可选播放中替换为当前歌词
+- [ ] 拍立得：轻扫切歌、前卡 seek、转场中不可 seek；进入/退出歌词页的中间帧保持双页挂载且布局不跳；× 各播放页背景；沉浸时白边歌名，可选播放中替换为当前歌词（走马灯 / 逐字填充）
 - [ ] 粒子封面：切歌分解/重组、歌词聚焦几何时 `ParticleCoverPlayerLayer` 与布局一致；预览页调参后播放页一致
 - [ ] 粒子封面：确认沉浸模式入口不可用或无效
 - [ ] 手势导航条设备：背景铺满底边，控件避让 `navigationBars`
@@ -180,3 +180,4 @@
 | 2026-09 | 竖屏队列改为播放页 `Queue` 场景：封面与歌词聚焦共用 `headerFocus`；横屏仍侧栏 |
 | 2026-09 | 拍立得竖屏队列：Polaroid 原位淡出，不切 `SongCover`、不飞顶栏 |
 | 2026-09 | 拍立得沉浸白边可在播放中显示当前歌词（默认关） |
+| 2026-09 | 拍立得沉浸歌词接入走马灯，有逐字时间轴时复用窄条填充 |

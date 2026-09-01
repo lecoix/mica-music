@@ -66,7 +66,7 @@
 - 播放页其余未被子组件消费的空白区域：向左进入歌词页，向右退出；方向锁定后进度跟手，松手沿当前页方向移动不足四分之一屏宽回到原页。
 - 拍立得卡片、波形 seek、播放控制和歌词列表滚动继续由各自组件消费，不参与歌词页手势竞争。
 - 歌词页沿用粒子歌词的列表与底部播放控制，隐藏歌词聚焦顶栏；LIST 页保留 48dp 控制行，底部留白取 `min(有效屏高 × 5%, 剩余空间 ÷ 2)`；CLOUD / LETTER 以及无歌词空状态仍使用同一套页面级滑入/滑出与淡出转场。
-- 支持下半屏沉浸：卡片从普通态约 **80%** 屏宽放大到约 **90%** 屏宽；歌名/歌手与频谱/进度收进前卡白边，轻点前卡播放/暂停、长按前卡退出沉浸。设置「沉浸时标题显示歌词」（默认关）后，**播放中**白边主位换成当前歌词、副位为译文，单语言歌词副位为「歌名 - 艺术家」；暂停、无当前行或关闭开关时仍显示歌名/歌手。沉浸只改变绘制尺寸，封面 decode target 固定为沉浸态最大尺寸，避免尺寸动画触发重新解码闪烁。
+- 支持下半屏沉浸：卡片从普通态约 **80%** 屏宽放大到约 **90%** 屏宽；歌名/歌手与频谱/进度收进前卡白边，轻点前卡播放/暂停、长按前卡退出沉浸。设置「沉浸时标题显示歌词」（默认关）后，**播放中**白边主位换成当前歌词、副位为译文，单语言歌词副位为「歌名 - 艺术家」；过长走马灯（同信息行 `basicMarquee` 节奏），有逐字时间轴时主位改用窄条柔边填充与按行进度平移。暂停、无当前行或关闭开关时仍显示歌名/歌手。沉浸只改变绘制尺寸，封面 decode target 固定为沉浸态最大尺寸，避免尺寸动画触发重新解码闪烁。
 
 **共用**：
 
@@ -415,7 +415,7 @@ flowchart TB
 | 转场规划 | [`PhotoStackTransition.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PhotoStackTransition.kt) | `PhotoStackTransitionPlan`、slot → card 列表 |
 | 布局帧 | [`PlayerPageLayoutEngine.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PlayerPageLayoutEngine.kt) | `PhotoStackFrame`、卡片尺寸、垂直留白 |
 | 类型 | [`PlayerPageTypes.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PlayerPageTypes.kt) | `PhotoStackFrame` 字段 |
-| 沉浸白边文案 | [`PhotoStackImmersiveCaption.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PhotoStackImmersiveCaption.kt) | 播放中可选把歌名换成当前歌词 |
+| 沉浸白边文案 | [`PhotoStackImmersiveCaption.kt`](../app/src/main/java/com/mica/music/ui/screens/player/PhotoStackImmersiveCaption.kt) | 播放中可选把歌名换成当前歌词；走马灯 / 逐字填充由 View Canvas 绘制 |
 | 导航桥 | [`PhotoStackCarouselNavigationBridge.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackCarouselNavigationBridge.kt) | 外部 `updateCurrentIndex` → View |
 | 歌词页转场 | [`PhotoStackLyricsTransition.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackLyricsTransition.kt) + [`PhotoStackLyricsPage.kt`](../app/src/main/java/com/mica/music/ui/screens/PhotoStackLyricsPage.kt) | 空白区域左右滑、跟手 progress、无顶栏歌词列表与底部 chrome |
 | 阴影调参 | [`PhotoStackShadowTuning.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/PhotoStackShadowTuning.kt) | 预览页可调；现网默认构造 |
@@ -480,7 +480,7 @@ flowchart TB
 3. `drawShadowHalo`：预烘焙 Bitmap（三层 `BlurMaskFilter` + **`drawRoundRect` 阴影**）
 4. 纸框 **`drawRect`**（米白渐变 + 描边）——卡片本体直角，圆角仅阴影层
 5. 封面 `centerCrop` 位图（Coil → `bitmapByKey` 缓存）
-6. 若 `showProgress`：沉浸白边 `drawImmersiveMetadata`（歌名/歌手，或可选当前歌词）+ `drawProgressStrip`（波形 + 进度条）
+6. 若 `showProgress`：沉浸白边 `drawImmersiveMetadata`（歌名/歌手，或可选当前歌词：过长走马灯，有 cues 时窄条逐字填充）+ `drawProgressStrip`（波形 + 进度条）
 
 频谱：`MicaSpectrumAnalyzer` → 86 条 `spectrumDisplayLevels`；仅绑定前卡 `song.id`。
 

@@ -78,7 +78,7 @@ internal fun PhotoStackTransitionHost(
                 setMotionEnabled(motionEnabled)
                 setGesturesEnabled(gesturesEnabled)
                 setImmersiveProgress(frame.immersiveProgress)
-                setImmersiveCaption(immersiveCaption?.title, immersiveCaption?.subtitle)
+                setImmersiveCaption(immersiveCaption)
                 setShadowTuning(shadowTuning)
                 setDecodeTargetOverride(decodeTargetOverride)
                 setFrame(
@@ -118,7 +118,7 @@ internal fun PhotoStackTransitionHost(
             view.setMotionEnabled(motionEnabled)
             view.setGesturesEnabled(gesturesEnabled)
             view.setImmersiveProgress(frame.immersiveProgress)
-            view.setImmersiveCaption(immersiveCaption?.title, immersiveCaption?.subtitle)
+            view.setImmersiveCaption(immersiveCaption)
             view.setShadowTuning(shadowTuning)
             view.setDecodeTargetOverride(decodeTargetOverride)
             view.setFrame(

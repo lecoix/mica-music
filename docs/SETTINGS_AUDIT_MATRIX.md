@@ -53,7 +53,7 @@
 | 封面底边进度 | `PlaybackUiPreferences` / `cover_edge_progress` | `SettingsPlaybackPanel` 先按主题/背景 capability 判断；`CUSTOM_STANDARD`、拍立得及标准主题无效背景组合不显示该入口，支持的特殊主题继续使用各自覆盖规则 | `CONDITIONAL` | capability 隐藏已落地；后续只需保持主题契约与 UI 条件同步 |
 | 播放时屏幕常亮 | `PlaybackUiPreferences` / `keep_screen_on_when_playing` | 播放页打开且正在播放时生效 | `ACTIVE` | 保留 |
 | 下半屏沉浸 | `PlaybackUiPreferences` / `player_immersive_lower` | 设置入口直接按 `playerCoverFlowMode.supportsImmersiveLower` 条件显示，运行时 `PlayerPageState` 继续做 capability 防线 | `CONDITIONAL` | 无效主题入口已隐藏；继续保持 UI capability 与运行时判断双重一致 |
-| 拍立得沉浸标题歌词 | `PlaybackUiPreferences` / `photo_stack_immersive_lyrics` | 仅 `PHOTO_STACK`；播放中把前卡白边歌名换成当前歌词，译文作副标题，单语言副标题为「歌名 - 艺术家」 | `CONDITIONAL` | 跟随拍立得主题与沉浸入口显示；默认关闭 |
+| 拍立得沉浸标题歌词 | `PlaybackUiPreferences` / `photo_stack_immersive_lyrics` | 仅 `PHOTO_STACK`；播放中把前卡白边歌名换成当前歌词，译文作副标题，单语言副标题为「歌名 - 艺术家」；过长走马灯，有逐字时间轴时主位填充 | `CONDITIONAL` | 跟随拍立得主题与沉浸入口显示；默认关闭 |
 | 折叠歌词行数 | `PlaybackUiPreferences` / `compact_lyrics_line_mode` | 标准、粒子、折叠、复古主题有效；自定义标准和拍立得不消费该值 | `CONDITIONAL` | 跟随播放页主题详情显示 |
 | 隐藏歌名括号内容 | `PlaybackUiPreferences` / `strip_song_title_parentheses` | 播放页和歌词页共享标题显示 helper | `ACTIVE` | 保留在“标题显示”或播放页详情 |
 | 频谱条 | `PlaybackUiPreferences` / `spectrum_enabled` | 播放页进度/封面区域；部分样式仍会因频谱 tap 资格取样 | `CONDITIONAL` | 显示“可能影响渲染/功耗”；真机验收后再决定默认值 |

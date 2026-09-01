@@ -19,14 +19,23 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import com.mica.music.data.LyricDisplayRows
+import com.mica.music.data.LyricLine
+import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.Song
 import com.mica.music.data.TrackSkipDirection
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.media.MicaSpectrumAnalyzer
+import com.mica.music.ui.components.narrowBarCueRanges
+import com.mica.music.ui.components.narrowBarLyricPanOffsetPx
+import com.mica.music.ui.components.narrowBarSoftFillFraction
+import com.mica.music.ui.screens.player.PhotoStackCaptionMarqueeVelocityDpPerSec
+import com.mica.music.ui.screens.player.PhotoStackImmersiveCaption
 import com.mica.music.ui.screens.player.PhotoStackPullAwayDurationMs
 import com.mica.music.ui.screens.player.PhotoStackTransitionCard
 import com.mica.music.ui.screens.player.PhotoStackTransitionSlot
+import com.mica.music.ui.screens.player.photoStackCaptionMarqueeTravelPx
 import com.mica.music.ui.screens.player.photoStackSteadyCards
 import com.mica.music.ui.screens.player.photoStackSteadyStack
 import com.mica.music.ui.screens.player.photoStackTransitionCards
@@ -115,6 +124,11 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         textSize = 10.5f * scaledDensity
         typeface = Typeface.create("sans-serif", Typeface.NORMAL)
     }
+    private val karaokeUnfilledPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x6612202C.toInt()
+        textSize = 14f * scaledDensity
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+    }
     private val cardRect = RectF()
     private val shadowRect = RectF()
     private val artworkRect = RectF()
@@ -141,6 +155,14 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private var immersiveProgress = 0f
     private var immersiveCaptionTitle: String? = null
     private var immersiveCaptionSubtitle: String? = null
+    private var immersiveKaraokeLine: LyricLine? = null
+    private var immersiveKaraokeNextLineTimeMs: Int? = null
+    private var immersiveCaptionPositionMs: Int = 0
+    private var immersiveCaptionAnimating = false
+    private var titleMarqueeKey: String = ""
+    private var titleMarqueeStartMs: Long = 0L
+    private var subtitleMarqueeKey: String = ""
+    private var subtitleMarqueeStartMs: Long = 0L
 
     private var queue: List<Song> = emptyList()
     private var logicalCenter: Int = 0
@@ -232,10 +254,28 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setImmersiveCaption(title: String?, subtitle: String?) {
-        if (immersiveCaptionTitle == title && immersiveCaptionSubtitle == subtitle) return
+    fun setImmersiveCaption(caption: PhotoStackImmersiveCaption?) {
+        val title = caption?.title
+        val subtitle = caption?.subtitle
+        val karaoke = caption?.karaokeLine
+        val nextLineTimeMs = caption?.nextLineTimeMs
+        val positionMs = caption?.positionMs ?: 0
+        val textChanged = immersiveCaptionTitle != title || immersiveCaptionSubtitle != subtitle
+        val karaokeChanged =
+            immersiveKaraokeLine != karaoke ||
+                immersiveKaraokeNextLineTimeMs != nextLineTimeMs
+        val positionChanged = karaoke != null && immersiveCaptionPositionMs != positionMs
+        if (!textChanged && !karaokeChanged && !positionChanged) return
         immersiveCaptionTitle = title
         immersiveCaptionSubtitle = subtitle
+        immersiveKaraokeLine = karaoke
+        immersiveKaraokeNextLineTimeMs = nextLineTimeMs
+        immersiveCaptionPositionMs = positionMs
+        if (textChanged) {
+            titleMarqueeKey = ""
+            subtitleMarqueeKey = ""
+        }
+        updateSpectrumLoop()
         invalidate()
     }
 
@@ -761,37 +801,179 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         song: Song,
     ) {
         val progress = immersiveProgress.coerceIn(0f, 1f)
-        if (progress <= 0.01f) return
+        if (progress <= 0.01f) {
+            updateCaptionAnimationLoop(false)
+            return
+        }
         val maxWidth = artworkRect.width().coerceAtLeast(1f)
-        val title = TextUtils.ellipsize(
-            immersiveCaptionTitle ?: song.title,
-            titlePaint,
-            maxWidth,
-            TextUtils.TruncateAt.END,
-        ).toString()
-        val subtitleSource = immersiveCaptionSubtitle ?: song.artist.ifBlank { song.album }
-        val subtitle = TextUtils.ellipsize(
-            subtitleSource,
-            subtitlePaint,
-            maxWidth,
-            TextUtils.TruncateAt.END,
-        ).toString()
+        val titleX = artworkRect.left
+        val titleY = artworkRect.bottom + dp(24f)
+        val subtitleY = artworkRect.bottom + dp(42f)
         titlePaint.alpha = (0xE6 * progress).roundToInt().coerceIn(0, 255)
         subtitlePaint.alpha = (0x99 * progress).roundToInt().coerceIn(0, 255)
-        canvas.drawText(
-            title,
-            artworkRect.left,
-            artworkRect.bottom + dp(24f),
-            titlePaint,
-        )
-        if (subtitle.isNotBlank()) {
-            canvas.drawText(
-                subtitle,
-                artworkRect.left,
-                artworkRect.bottom + dp(42f),
-                subtitlePaint,
+        val karaoke = immersiveKaraokeLine
+        val titleOverflow = if (karaoke != null && isPlaying) {
+            drawKaraokeTitle(canvas, karaoke, titleX, titleY, maxWidth, progress)
+        } else {
+            drawCaptionLine(
+                canvas = canvas,
+                text = immersiveCaptionTitle ?: song.title,
+                paint = titlePaint,
+                x = titleX,
+                y = titleY,
+                maxWidth = maxWidth,
+                marquee = isPlaying,
+                marqueeSlot = 0,
             )
         }
+        val subtitleSource = immersiveCaptionSubtitle ?: song.artist.ifBlank { song.album }
+        val subtitleOverflow = if (subtitleSource.isNotBlank()) {
+            drawCaptionLine(
+                canvas = canvas,
+                text = subtitleSource,
+                paint = subtitlePaint,
+                x = titleX,
+                y = subtitleY,
+                maxWidth = maxWidth,
+                marquee = isPlaying,
+                marqueeSlot = 1,
+            )
+        } else {
+            false
+        }
+        updateCaptionAnimationLoop(isPlaying && (titleOverflow || subtitleOverflow))
+    }
+
+    private fun drawKaraokeTitle(
+        canvas: Canvas,
+        line: LyricLine,
+        x: Float,
+        y: Float,
+        maxWidth: Float,
+        progress: Float,
+    ): Boolean {
+        val originalRow = LyricDisplayRows.rowsForBilingualDisplayMode(
+            text = line.text,
+            enabled = true,
+            mode = LyricsBilingualDisplayMode.ORIGINAL,
+        ).firstOrNull()
+        val displayText = originalRow?.text?.takeIf { it.isNotBlank() }
+        if (originalRow == null || displayText == null) {
+            return drawCaptionLine(
+                canvas = canvas,
+                text = immersiveCaptionTitle.orEmpty(),
+                paint = titlePaint,
+                x = x,
+                y = y,
+                maxWidth = maxWidth,
+                marquee = isPlaying,
+                marqueeSlot = 0,
+            )
+        }
+        val contentWidth = titlePaint.measureText(displayText)
+        val panPx = narrowBarLyricPanOffsetPx(
+            lineStartMs = line.timeMs,
+            lineEndMs = line.endTimeMs ?: immersiveKaraokeNextLineTimeMs,
+            positionMs = immersiveCaptionPositionMs,
+            contentWidthPx = contentWidth,
+            viewportWidthPx = maxWidth,
+        )
+        val cueRanges = narrowBarCueRanges(line)
+        val fillFraction = if (cueRanges.isNotEmpty()) {
+            narrowBarSoftFillFraction(
+                line = line,
+                row = originalRow,
+                cueRanges = cueRanges,
+                positionMs = immersiveCaptionPositionMs,
+                nextLineTimeMs = immersiveKaraokeNextLineTimeMs,
+            )
+        } else {
+            0f
+        }
+        val top = y + titlePaint.ascent()
+        val bottom = y + titlePaint.descent()
+        val textX = x + panPx
+        karaokeUnfilledPaint.alpha = (0x66 * progress).roundToInt().coerceIn(0, 255)
+        val clip = canvas.save()
+        canvas.clipRect(x, top, x + maxWidth, bottom)
+        canvas.drawText(displayText, textX, y, karaokeUnfilledPaint)
+        if (fillFraction > 0f) {
+            val fillRight = textX + contentWidth * fillFraction.coerceIn(0f, 1f)
+            val fillClip = canvas.save()
+            // ponytail: hard clip; NarrowBar uses 1em DST_IN feather
+            canvas.clipRect(textX, top, fillRight, bottom)
+            canvas.drawText(displayText, textX, y, titlePaint)
+            canvas.restoreToCount(fillClip)
+        }
+        canvas.restoreToCount(clip)
+        return false
+    }
+
+    /** @return true if the line overflows and is currently marqueeing */
+    private fun drawCaptionLine(
+        canvas: Canvas,
+        text: String,
+        paint: TextPaint,
+        x: Float,
+        y: Float,
+        maxWidth: Float,
+        marquee: Boolean,
+        marqueeSlot: Int,
+    ): Boolean {
+        if (text.isEmpty()) return false
+        val contentWidth = paint.measureText(text)
+        if (contentWidth <= maxWidth) {
+            canvas.drawText(text, x, y, paint)
+            return false
+        }
+        if (!marquee) {
+            val ellipsized = TextUtils.ellipsize(
+                text,
+                paint,
+                maxWidth,
+                TextUtils.TruncateAt.END,
+            ).toString()
+            canvas.drawText(ellipsized, x, y, paint)
+            return false
+        }
+        val now = SystemClock.uptimeMillis()
+        val startMs = if (marqueeSlot == 0) {
+            if (titleMarqueeKey != text) {
+                titleMarqueeKey = text
+                titleMarqueeStartMs = now
+            }
+            titleMarqueeStartMs
+        } else {
+            if (subtitleMarqueeKey != text) {
+                subtitleMarqueeKey = text
+                subtitleMarqueeStartMs = now
+            }
+            subtitleMarqueeStartMs
+        }
+        val travel = photoStackCaptionMarqueeTravelPx(
+            contentWidthPx = contentWidth,
+            viewportWidthPx = maxWidth,
+            elapsedMs = now - startMs,
+            velocityPxPerMs = PhotoStackCaptionMarqueeVelocityDpPerSec * density / 1000f,
+        )
+        val cycle = contentWidth + maxWidth / 3f
+        val top = y + paint.ascent()
+        val bottom = y + paint.descent()
+        val clip = canvas.save()
+        canvas.clipRect(x, top, x + maxWidth, bottom)
+        canvas.drawText(text, x - travel, y, paint)
+        canvas.drawText(text, x - travel + cycle, y, paint)
+        canvas.restoreToCount(clip)
+        return true
+    }
+
+    private fun updateCaptionAnimationLoop(animating: Boolean) {
+        if (immersiveCaptionAnimating == animating) {
+            if (animating) scheduleSpectrumLoop()
+            return
+        }
+        immersiveCaptionAnimating = animating
+        updateSpectrumLoop()
     }
 
     private fun drawProgressStrip(canvas: Canvas) {
@@ -1299,8 +1481,8 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
             settleAnimator != null ||
             (steadyCards().any { it.showProgress } &&
                 activeTransitionCards.isEmpty() &&
-                spectrumEnabled &&
-                isPlaying)
+                isPlaying &&
+                (spectrumEnabled || immersiveCaptionAnimating))
 
     private fun updateSpectrumLoop() {
         if (shouldRunSpectrumLoop()) {

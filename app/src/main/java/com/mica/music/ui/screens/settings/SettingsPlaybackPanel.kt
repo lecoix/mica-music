@@ -169,7 +169,7 @@ internal fun PlaybackSettingsPanel(
         if (uiSettings.playerCoverFlowMode.usesPhotoStack) {
             SettingsToggleRow(
                 title = "沉浸时标题显示歌词",
-                subtitle = "播放中用当前歌词替换相纸白边歌名；译文作副标题，单语言则为歌名 - 艺术家",
+                subtitle = "播放中用当前歌词替换相纸白边歌名；过长走马灯，有逐字时间轴时柔边填充；译文作副标题，单语言则为歌名 - 艺术家",
                 checked = uiSettings.photoStackImmersiveLyricsEnabled,
                 onCheckedChange = uiSettings::updatePhotoStackImmersiveLyricsEnabled,
             )

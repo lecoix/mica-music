@@ -47,6 +47,7 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("DSD 增益").any { it.id == "audio.usb-exclusive" })
         assertTrue(SettingsSearchIndex.search("沉浸模式").any { it.id == "playback.immersive-lower" })
         assertTrue(SettingsSearchIndex.search("沉浸时标题显示歌词").any { it.id == "playback.photo-stack-immersive-lyrics" })
+        assertTrue(SettingsSearchIndex.search("走马灯").any { it.id == "playback.photo-stack-immersive-lyrics" })
         assertTrue(SettingsSearchIndex.search("教程").any { it.id == "help.tutorial" })
         assertTrue(SettingsSearchIndex.search("强制使用逐字歌词样式").any { it.id == "lyrics.classic-line-fill" })
         assertTrue(SettingsSearchIndex.search("状态栏歌词").any { it.id == "lyrics.external" })
