@@ -12,16 +12,15 @@ object PlaybackErrorMapper {
     fun toPresentation(
         error: PlaybackException,
         songTitle: String?,
+        isRemote: Boolean = false,
     ): PlaybackErrorPresentation {
         usbPresentation(error)?.let { return it }
+        remotePresentation(error, songTitle, isRemote)?.let { return it }
         return when (error.errorCode) {
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
-        -> PlaybackErrorPresentation(
-            inlineMessage = "网络不可用或连接超时",
-            snackbarMessage = "网络不可用，请检查连接",
-        )
+        -> networkUnavailable()
 
         PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> PlaybackErrorPresentation(
             inlineMessage = "文件不存在",
@@ -74,10 +73,68 @@ object PlaybackErrorMapper {
         }
     }
 
+    private fun remotePresentation(
+        error: PlaybackException,
+        songTitle: String?,
+        isRemote: Boolean,
+    ): PlaybackErrorPresentation? {
+        val messages = causeMessages(error)
+        val httpCode = httpResponseCode(messages)
+        val remoteTransport = isRemote || httpCode != null || messages.any(::looksRemoteTransport)
+        if (httpCode == 401 || httpCode == 403 ||
+            messages.any { it.contains("authentication failed", ignoreCase = true) } ||
+            (isRemote && error.errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION)
+        ) {
+            return PlaybackErrorPresentation(
+                inlineMessage = "远程登录失败",
+                snackbarMessage = "远程曲库登录失败，请到设置更新登录信息",
+            )
+        }
+        if (messages.any { message ->
+                message.contains("Remote playback request is unavailable") ||
+                    message.contains("credential is unavailable", ignoreCase = true) ||
+                    message.contains("share or configured path is unavailable", ignoreCase = true)
+            }
+        ) {
+            return PlaybackErrorPresentation(
+                inlineMessage = "远程来源不可用",
+                snackbarMessage = "无法解析该远程歌曲，请检查来源是否已启用",
+            )
+        }
+        if (httpCode == 404 || (isRemote && error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND)) {
+            return PlaybackErrorPresentation(
+                inlineMessage = "远程文件不存在",
+                snackbarMessage = withSong(songTitle, "在服务器上找不到，请重新同步曲库"),
+            )
+        }
+        if (httpCode != null || (isRemote && error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)) {
+            return PlaybackErrorPresentation(
+                inlineMessage = "远程服务器返回错误",
+                snackbarMessage = "远程服务器暂时无法提供音频，请稍后重试",
+            )
+        }
+        if (!remoteTransport) return null
+        if (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        ) {
+            return null
+        }
+        if (error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+        ) {
+            if (messages.any { it.contains("connection failed", ignoreCase = true) }) {
+                return networkUnavailable()
+            }
+            return PlaybackErrorPresentation(
+                inlineMessage = "无法读取远程音频",
+                snackbarMessage = "无法读取远程音频，请检查网络或来源连接",
+            )
+        }
+        return null
+    }
+
     private fun usbPresentation(error: Throwable): PlaybackErrorPresentation? {
-        val messages = generateSequence(error as Throwable?) { it.cause }
-            .mapNotNull(Throwable::message)
-            .toList()
+        val messages = causeMessages(error)
         if (messages.any { it.contains("USB Exact PCM accepts only integer PCM", ignoreCase = true) }) {
             return PlaybackErrorPresentation(
                 inlineMessage = "USB Exact PCM 不支持当前音频格式",
@@ -111,6 +168,29 @@ object PlaybackErrorMapper {
             )
         }
     }
+
+    private fun networkUnavailable(): PlaybackErrorPresentation = PlaybackErrorPresentation(
+        inlineMessage = "网络不可用或连接超时",
+        snackbarMessage = "网络不可用，请检查连接",
+    )
+
+    private fun looksRemoteTransport(message: String): Boolean =
+        message.contains("SMB ", ignoreCase = true) ||
+            message.contains("WebDAV", ignoreCase = true) ||
+            message.contains("Navidrome", ignoreCase = true) ||
+            message.contains("mica-remote", ignoreCase = true) ||
+            message.contains("Remote playback", ignoreCase = true)
+
+    private fun httpResponseCode(messages: List<String>): Int? {
+        val pattern = Regex("""Response code:\s*(\d+)""")
+        for (message in messages) {
+            pattern.find(message)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    private fun causeMessages(error: Throwable): List<String> =
+        generateSequence(error) { it.cause }.mapNotNull(Throwable::message).toList()
 
     private fun withSong(songTitle: String?, message: String): String =
         songTitle?.takeIf(String::isNotBlank)?.let { "「$it」$message" } ?: message

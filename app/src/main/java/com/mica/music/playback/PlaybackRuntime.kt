@@ -629,7 +629,7 @@ internal class PlaybackRuntime(
                 playbackStatistics.clearRequestAndPending()
                 val song = failedSong
                 val presentation = song?.let(PlaybackRouter::unsupportedMessage)?.let { PlaybackErrorPresentation(it, it) }
-                    ?: PlaybackErrorMapper.toPresentation(error, song?.title)
+                    ?: PlaybackErrorMapper.toPresentation(error, song?.title, song?.isRemote == true)
                 DiagnosticLog.event(
                     "Player",
                     "playback-error code=${error.errorCode} song=${song?.id ?: "unknown"} message=${error.message ?: "none"}",
