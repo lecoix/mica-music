@@ -506,6 +506,7 @@ flowchart TB
 | 转场中误触 seek | 未禁用手势 | `activeTransitionCards.isNotEmpty()` 时 `onTouchEvent` return false |
 | 阴影变更不刷新 | Bitmap 缓存 key 未变 | `setShadowTuning` → `clearShadowBitmapCache` |
 | 沉浸态底部阴影/后卡被切平 | `slotHeight == cardHeight`，前卡底边正好贴 View 底边；阴影和后卡 positive-Y 内容实际画到 AndroidView bounds 外 | slot/card 分离；沉浸 viewport 额外留 top/bottom bleed，并用 `cardTopInset` 保持卡片本体位置/触摸坐标一致 |
+| 进队列外圈先被裁 | 槽外后卡/阴影靠 `clip=false` 溢出绘制；`graphicsLayer { alpha }` 默认离屏，按 slot 裁掉溢出 | 淡出层用 `CompositingStrategy.ModulateAlpha`，不要 Auto 离屏 |
 | 进入沉浸封面闪一下 | decode target 直接跟动画中的 `cardWidth` 变化，跨 bucket 后 bitmap window 被 prune | Host 从普通态开始就固定到 90% 沉浸最大 artwork decode target；动画只改变绘制尺寸 |
 
 阴影预览：设置 → 高级 → **拍立得阴影预览**（`PhotoStackShadowPreviewScreen`）。

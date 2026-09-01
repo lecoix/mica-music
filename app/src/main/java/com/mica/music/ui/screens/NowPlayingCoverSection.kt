@@ -39,6 +39,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.input.pointer.pointerInput
@@ -468,6 +469,8 @@ internal fun NowPlayingCoverSection(
                             alpha = coverContentAlpha *
                                 (1f - frame.queueProgress.coerceIn(0f, 1f))
                             clip = false
+                            // Auto+alpha<1 会按 slot 离屏，把倾角后卡和阴影裁掉。
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
                         }
                         .onGloballyPositioned { coords ->
                             val bounds = coords.boundsInRoot()
