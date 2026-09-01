@@ -8,6 +8,20 @@ import org.junit.Test
 class PlayerSheetHostStateTest {
 
     @Test
+    fun onlyFullyCoveredSteadyPlayerCanPauseUnderlay() {
+        assertTrue(playerSheetUnderlayOccluded(true, 1f, null))
+        assertFalse(playerSheetUnderlayOccluded(true, 0.999f, null))
+        assertFalse(playerSheetUnderlayOccluded(false, 1f, null))
+        assertFalse(playerSheetUnderlayOccluded(false, 0f, null))
+        // The first predictive-back event must wake content before it becomes exposed.
+        assertFalse(playerSheetUnderlayOccluded(true, 1f, 0f))
+        assertFalse(playerSheetUnderlayOccluded(true, 0.7f, 0.3f))
+        // Cancelling the gesture can pause again only after returning to the endpoint.
+        assertFalse(playerSheetUnderlayOccluded(true, 0.7f, null))
+        assertTrue(playerSheetUnderlayOccluded(true, 1f, null))
+    }
+
+    @Test
     fun externalCloseKeepsOverlayOpenUntilClosingFinishes() {
         val phase = playerSheetPhaseForExternalExpanded(
             current = PlayerSheetPhase.Expanded,

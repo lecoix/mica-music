@@ -65,6 +65,9 @@ internal fun playerSheetProgressForPredictiveBack(
     return progress.coerceIn(0f, 1f)
 }
 
+internal fun playerSheetUnderlayOccluded(expanded: Boolean, progress: Float, predictiveBackProgress: Float?): Boolean =
+    expanded && progress >= 1f && predictiveBackProgress == null
+
 @Composable
 fun PlayerSheetHost(
     library: MusicLibrary,
@@ -114,7 +117,6 @@ fun PlayerSheetHost(
         mutableStateOf(if (expanded) PlayerSheetPhase.Expanded else PlayerSheetPhase.Collapsed)
     }
     var previousViewportKey by remember { mutableStateOf(viewportKey) }
-
     LaunchedEffect(expanded, motionEnabled, predictiveBackProgress, viewportKey) {
         if (previousViewportKey != viewportKey) {
             previousViewportKey = viewportKey
@@ -159,6 +161,7 @@ fun PlayerSheetHost(
 
     val progress = playerSheetProgressForPredictiveBack(expansion.value, predictiveBackProgress)
     val showFullPlayer = sheetPhase.keepsOverlayOpen(expanded) || predictiveBackProgress != null
+    val underlayOccluded = playerSheetUnderlayOccluded(expanded, progress, predictiveBackProgress)
 
     LaunchedEffect(showFullPlayer) {
         onOverlayFullScreenChange(showFullPlayer)
@@ -181,31 +184,33 @@ fun PlayerSheetHost(
     Box(
         if (showFullPlayer) modifier.fillMaxSize() else modifier.fillMaxWidth(),
     ) {
-        MiniPlayer(
-            style = uiSettings.miniPlayerStyle,
-            song = song,
-            isPlaying = surfaceState.playbackStatus.showsPauseAction,
-            positionMs = lyricsPositionMs,
-            positionRevision = progressState.positionRevision,
-            playbackSpeed = surfaceState.playbackTuning.speed,
-            onPlayPause = actions.togglePlay,
-            onPrevious = actions.previous,
-            onNext = actions.next,
-            onExpand = { onExpandedChange(true) },
-            onLongPress = onLocateCurrentSong,
-            miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
-            miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
-            lyricSplitEnabled = uiSettings.lyricSplitEnabled,
-            lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
-            swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
-            leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
-            rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .graphicsLayer {
-                    alpha = if (miniPlayerChromeVisible) 1f else 0f
-                },
-        )
+        if (!underlayOccluded) {
+            MiniPlayer(
+                style = uiSettings.miniPlayerStyle,
+                song = song,
+                isPlaying = surfaceState.playbackStatus.showsPauseAction,
+                positionMs = lyricsPositionMs,
+                positionRevision = progressState.positionRevision,
+                playbackSpeed = surfaceState.playbackTuning.speed,
+                onPlayPause = actions.togglePlay,
+                onPrevious = actions.previous,
+                onNext = actions.next,
+                onExpand = { onExpandedChange(true) },
+                onLongPress = onLocateCurrentSong,
+                miniPlayerLyricsEnabled = uiSettings.miniPlayerLyricsEnabled,
+                miniPlayerWordLyricsEnabled = uiSettings.miniPlayerWordLyricsEnabled,
+                lyricSplitEnabled = uiSettings.lyricSplitEnabled,
+                lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
+                swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
+                leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
+                rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .graphicsLayer {
+                        alpha = if (miniPlayerChromeVisible) 1f else 0f
+                    },
+            )
+        }
 
         if (showFullPlayer) {
             Box(

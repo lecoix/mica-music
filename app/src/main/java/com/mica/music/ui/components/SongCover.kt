@@ -25,7 +25,9 @@ import coil.size.Scale
 import com.mica.music.R
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.imaging.CoverDecodeTarget
+import com.mica.music.imaging.CoverRequestProbe
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.imaging.StandardCoverRequestSpec
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.LocalCoverDisplayMode
 
@@ -85,15 +87,19 @@ fun SongCover(
     stableMemoryCacheKey: String? = null,
     decodeTarget: CoverDecodeTarget? = null,
     allowPreviousImageUnderlay: Boolean = true,
+    diagnosticRole: String? = null,
+    standardRequestSpec: StandardCoverRequestSpec? = null,
     @DrawableRes noCoverPlaceholderResId: Int = R.drawable.no_cover_placeholder,
 ) {
     val context = LocalContext.current
+    val diagnosticLayer = CoverRequestProbe.layer(diagnosticRole, albumArtUri)
     val displayMode = LocalCoverDisplayMode.current
     val resolvedScale = contentScale ?: when (displayMode) {
         CoverDisplayMode.CROP_FILL -> ContentScale.Crop
         CoverDisplayMode.FIT_ORIGINAL -> ContentScale.Fit
     }
     val memoryCacheKey = stableMemoryCacheKey
+        ?: standardRequestSpec?.let { spec -> albumArtUri?.let(spec::memoryCacheKey) }
         ?: decodeTarget?.let { target -> albumArtUri?.let(target::memoryCacheKey) }
         ?: albumArtUri
 
@@ -126,15 +132,17 @@ fun SongCover(
     var lastPaintedUri by remember { mutableStateOf<String?>(null) }
     val isPainted = albumArtUri.isNullOrBlank() || lastPaintedUri == albumArtUri
 
-    LaunchedEffect(albumArtUri, decodeTarget) {
+    LaunchedEffect(albumArtUri, decodeTarget, standardRequestSpec) {
         if (albumArtUri.isNullOrBlank()) {
             lastPaintedUri = null
             onImageReady()
         } else {
-            if (decodeTarget != null) {
-                MicaImageLoaders.preloadCover(context, albumArtUri, decodeTarget)
-            } else {
-                MicaImageLoaders.preloadCover(context, albumArtUri)
+            when {
+                standardRequestSpec != null ->
+                    MicaImageLoaders.preloadCover(context, albumArtUri, standardRequestSpec)
+                decodeTarget != null ->
+                    MicaImageLoaders.preloadCover(context, albumArtUri, decodeTarget)
+                else -> MicaImageLoaders.preloadCover(context, albumArtUri)
             }
         }
     }
@@ -172,9 +180,13 @@ fun SongCover(
             )
         }
         if (!underlayUri.isNullOrBlank()) {
-            val underlayMemoryCacheKey = decodeTarget?.memoryCacheKey(underlayUri) ?: underlayUri
+            val underlayMemoryCacheKey = standardRequestSpec?.memoryCacheKey(underlayUri)
+                ?: decodeTarget?.memoryCacheKey(underlayUri)
+                ?: underlayUri
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model = standardRequestSpec?.let { spec ->
+                    MicaImageLoaders.standardCoverRequest(context, underlayUri, spec)
+                } ?: ImageRequest.Builder(context)
                     .data(underlayUri)
                     .crossfade(0)
                     .apply {
@@ -194,7 +206,14 @@ fun SongCover(
         }
         if (!albumArtUri.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model = standardRequestSpec?.let { spec ->
+                    MicaImageLoaders.standardCoverRequest(
+                        context = context,
+                        albumArtUri = albumArtUri,
+                        requestSpec = spec,
+                        crossfadeMillis = crossfadeMillis,
+                    )
+                } ?: ImageRequest.Builder(context)
                     .data(albumArtUri)
                     .crossfade(crossfadeMillis)
                     .apply {
@@ -213,6 +232,7 @@ fun SongCover(
                 contentScale = resolvedScale,
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
+                    CoverRequestProbe.ready(diagnosticLayer, albumArtUri, state.result)
                     lastPaintedUri = albumArtUri
                     markCoverDecoded(albumArtUri)
                     if (publishHoldoverOnSuccess) {

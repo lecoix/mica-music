@@ -97,6 +97,8 @@ data class PlayerLowerLayoutConfig(
     val freeformEnabled: Boolean = false,
     val textAligns: Map<PlayerLowerTextTarget, PlayerLowerTextAlign> = emptyMap(),
     val hiddenControls: Set<PlayerControlButton> = emptySet(),
+    val coverTapPlayPause: Boolean = false,
+    val coverShadow: Boolean = false,
 ) {
     fun normalized(): PlayerLowerLayoutConfig {
         val normalizedOrder = order.distinct() + PlayerLowerComponent.entries.filterNot(order::contains)
@@ -151,6 +153,12 @@ data class PlayerLowerLayoutConfig(
     ): PlayerLowerLayoutConfig = copy(
         hiddenControls = if (visible) hiddenControls - button else hiddenControls + button,
     )
+
+    fun withCoverTapPlayPause(enabled: Boolean): PlayerLowerLayoutConfig =
+        copy(coverTapPlayPause = enabled)
+
+    fun withCoverShadow(enabled: Boolean): PlayerLowerLayoutConfig =
+        copy(coverShadow = enabled)
 
     fun withScalePercent(
         component: PlayerLowerComponent,

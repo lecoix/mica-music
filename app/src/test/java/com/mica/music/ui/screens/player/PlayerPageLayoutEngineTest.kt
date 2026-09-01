@@ -5,6 +5,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.PlayerCoverFlowMode
+import com.mica.music.data.Song
+import com.mica.music.data.TrackMetadata
 import com.mica.music.data.usesCompactLyricsLinePreference
 import com.mica.music.ui.theme.HifiTypography
 import org.junit.Assert.assertEquals
@@ -16,6 +18,69 @@ class PlayerPageLayoutEngineTest {
 
     private val density = Density(1f)
     private val typography = HifiTypography()
+
+    @Test
+    fun playbackRequestFrameStaysAtNormalCoverGeometryWhileLyricsCoverShrinks() {
+        val song = Song(
+            id = "song",
+            title = "Song",
+            artist = "Artist",
+            album = "Album",
+            durationSec = 180,
+            metadata = TrackMetadata.fallback("audio/flac", 0),
+            albumArtUri = "content://cover/song",
+            coverColorArgb = 0,
+            mediaUri = "content://song",
+        )
+        val model = PlayerPageUiModel(
+            song = song,
+            queue = listOf(song),
+            currentIndex = 0,
+            isPlaying = false,
+            layoutInput = baseInput(lyricsProgress = 1f, lyricsExpanded = true),
+            density = density,
+            typography = typography,
+        )
+
+        val visibleLyricsFrame = model.frameFor(400.dp)
+        val requestFrame = model.playbackFrameFor(400.dp)
+
+        assertTrue(visibleLyricsFrame.cover.width < requestFrame.cover.width)
+        assertEquals(400.dp, requestFrame.cover.width)
+        assertEquals(400.dp, requestFrame.cover.height)
+    }
+
+    @Test
+    fun playbackRequestFrameStaysAtNormalCoverGeometryWhileQueueCoverShrinks() {
+        val song = Song(
+            id = "song",
+            title = "Song",
+            artist = "Artist",
+            album = "Album",
+            durationSec = 180,
+            metadata = TrackMetadata.fallback("audio/flac", 0),
+            albumArtUri = "content://cover/song",
+            coverColorArgb = 0,
+            mediaUri = "content://song",
+        )
+        val model = PlayerPageUiModel(
+            song = song,
+            queue = listOf(song),
+            currentIndex = 0,
+            isPlaying = false,
+            layoutInput = baseInput(queueProgress = 1f, queueExpanded = true),
+            density = density,
+            typography = typography,
+        )
+
+        val visibleQueueFrame = model.frameFor(400.dp)
+        val requestFrame = model.playbackFrameFor(400.dp)
+
+        assertTrue(visibleQueueFrame.cover.width < requestFrame.cover.width)
+        assertEquals(400.dp, requestFrame.cover.width)
+        assertEquals(400.dp, requestFrame.cover.height)
+        assertEquals(PlayerPageScene.Queue, visibleQueueFrame.scene)
+    }
 
     @Test
     fun customStandardNeverUsesCoverEdgeProgress() {
@@ -57,6 +122,8 @@ class PlayerPageLayoutEngineTest {
         lyricsProgress: Float = 0f,
         lyricsChromeFade: Float = lyricsProgress,
         lyricsExpanded: Boolean = lyricsProgress > 0.5f,
+        queueProgress: Float = 0f,
+        queueExpanded: Boolean = queueProgress > 0.5f,
         useCoverEdgeProgress: Boolean = false,
         particleCoverMode: Boolean = false,
         photoStackMode: Boolean = false,
@@ -74,6 +141,8 @@ class PlayerPageLayoutEngineTest {
         lyricsExpanded = lyricsExpanded,
         lyricsProgress = lyricsProgress,
         lyricsChromeFade = lyricsChromeFade,
+        queueExpanded = queueExpanded,
+        queueProgress = queueProgress,
         immersiveLower = immersiveLower,
         immersiveProgress = immersiveProgress,
         coverFlowProgress = 0f,
@@ -146,6 +215,50 @@ class PlayerPageLayoutEngineTest {
         )
         assertTrue(normal.lower.metaAlpha > lyrics.lower.metaAlpha)
         assertEquals(PlayerPageScene.Lyrics, lyrics.scene)
+    }
+
+    @Test
+    fun queueProgress_shrinksCoverFadesMetaAndSelectsQueueScene() {
+        val normal = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(queueProgress = 0f),
+            density = density,
+            typography = typography,
+        )
+        val queue = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(queueProgress = 1f, queueExpanded = true),
+            density = density,
+            typography = typography,
+        )
+        assertTrue(queue.cover.width < normal.cover.width)
+        assertEquals(LyricsFocusMiniCoverSize, queue.cover.width)
+        assertTrue(normal.lower.metaAlpha > queue.lower.metaAlpha)
+        assertEquals(0f, queue.lower.metaAlpha, 0.001f)
+        assertEquals(0.dp, queue.lower.chromeHeight)
+        assertEquals(PlayerPageScene.Queue, queue.scene)
+    }
+
+    @Test
+    fun headerFocus_keepsMiniCoverWhenLyricsAndQueueAreBothOpen() {
+        val lyrics = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(lyricsProgress = 1f, lyricsExpanded = true),
+            density = density,
+            typography = typography,
+        )
+        val both = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                lyricsProgress = 1f,
+                lyricsExpanded = true,
+                queueProgress = 1f,
+                queueExpanded = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        assertEquals(LyricsFocusMiniCoverSize, lyrics.cover.width)
+        assertEquals(lyrics.cover.width, both.cover.width)
+        assertEquals(lyrics.cover.startPadding, both.cover.startPadding)
+        assertEquals(PlayerPageScene.Queue, both.scene)
+        assertEquals(1f, playerHeaderFocus(1f, 1f), 0.001f)
     }
 
     @Test
@@ -496,6 +609,27 @@ class PlayerPageLayoutEngineTest {
         assertEquals(400.dp, frame.particleCover.hostBaseSize)
         assertEquals(24.dp, frame.cover.blockHeight)
         assertTrue(frame.cover.width > LyricsFocusMiniCoverSize)
+    }
+
+    @Test
+    fun particleCoverQueueLayout_usesMiniCoverInsteadOfLyricsBackground() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = 400.dp,
+                queueProgress = 1f,
+                queueExpanded = true,
+                particleCoverMode = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(frame.particleCover.enabled)
+        assertEquals(false, frame.particleCover.normalLayerVisible)
+        assertEquals(false, frame.particleCover.lyricsBackgroundVisible)
+        assertEquals(LyricsFocusMiniCoverSize, frame.cover.width)
+        assertEquals(PlayerPageScene.Queue, frame.scene)
+        assertTrue(frame.cover.blockHeight > 24.dp)
     }
 
     @Test

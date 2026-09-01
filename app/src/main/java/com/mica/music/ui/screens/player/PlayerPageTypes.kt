@@ -6,11 +6,12 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.ui.theme.HifiSize
 
-/** 播放页主场景（互斥优先级：Lyrics > Immersive > Normal）。 */
+/** 播放页主场景（互斥优先级：Queue > Lyrics > Immersive > Normal）。 */
 enum class PlayerPageScene {
     Normal,
     Lyrics,
     Immersive,
+    Queue,
 }
 
 @Immutable
@@ -73,6 +74,7 @@ data class LowerPanelFrame(
     val compactContentAlpha: Float,
     val lyricsChromeFade: Float,
     val lyricsLayoutFocus: Float,
+    val queueLayoutFocus: Float,
     val immersiveProgress: Float,
     val showStandardProgress: Boolean,
     val coverEdgeOnPlaySurface: Boolean,
@@ -103,6 +105,7 @@ internal fun LowerPanelFrame.forPhotoStackListLyricsPage(
 data class PlayerPageFrame(
     val scene: PlayerPageScene,
     val lyricsProgress: Float,
+    val queueProgress: Float,
     val immersiveProgress: Float,
     val coverFlowProgress: Float,
     val coverFlowStageActive: Boolean,
@@ -123,6 +126,8 @@ data class PlayerPageLayoutInput(
     val lyricsExpanded: Boolean,
     val lyricsProgress: Float,
     val lyricsChromeFade: Float,
+    val queueExpanded: Boolean = false,
+    val queueProgress: Float = 0f,
     val immersiveLower: Boolean,
     val immersiveProgress: Float,
     val coverFlowProgress: Float,
@@ -151,3 +156,6 @@ internal fun lyricsChromeBottomInsetScale(lyricsFocus: Float): Float =
 
 internal fun lyricsChromeDrop(lyricsFocus: Float): Dp =
     LyricsChromeDrop * lyricsFocus.coerceIn(0f, 1f)
+
+internal fun playerHeaderFocus(lyricsProgress: Float, queueProgress: Float): Float =
+    maxOf(lyricsProgress.coerceIn(0f, 1f), queueProgress.coerceIn(0f, 1f))

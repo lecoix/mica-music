@@ -32,6 +32,7 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("睡眠", SettingsIndexSurface.PLAYER_MENU)
             .any { it.id == "player-menu.sleep-timer" })
         assertTrue(SettingsSearchIndex.search("布局编辑").any { it.id == "playback.custom-layout" })
+        assertTrue(SettingsSearchIndex.search("专辑图阴影").any { it.id == "playback.custom-layout" })
         assertTrue(SettingsSearchIndex.search("USB DoP").any { it.id == "audio.usb-exclusive" })
         assertTrue(SettingsSearchIndex.search("SMB").any { it.id == "library.remote" })
         assertTrue(SettingsSearchIndex.search("WebDAV").any { it.id == "library.remote" })

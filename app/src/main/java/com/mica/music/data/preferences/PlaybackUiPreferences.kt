@@ -34,6 +34,10 @@ object PlaybackUiPreferences {
     private const val KEY_VIDEO_ALBUM_COVER_ENABLED = "video_album_cover_enabled"
     internal const val KEY_MUSIC_VIDEO_ENABLED = "music_video_enabled"
     private const val KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE = "custom_standard_cover_tap_play_pause"
+    private const val KEY_CUSTOM_STANDARD_COVER_SHADOW = "custom_standard_cover_shadow"
+    private const val KEY_CUSTOM_PLAYER_LOWER_COVER_TAP_PLAY_PAUSE =
+        "custom_player_lower_cover_tap_play_pause"
+    private const val KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW = "custom_player_lower_cover_shadow"
     private const val KEY_CUSTOM_PLAYER_LOWER_ORDER = "custom_player_lower_order"
     private const val KEY_CUSTOM_PLAYER_LOWER_HIDDEN = "custom_player_lower_hidden"
     private const val KEY_CUSTOM_PLAYER_LOWER_SIZES = "custom_player_lower_sizes"
@@ -217,15 +221,6 @@ object PlaybackUiPreferences {
         return { preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener) }
     }
 
-    fun customStandardCoverTapPlayPause(context: Context): Boolean =
-        MicaSettingsStore.prefs(context).getBoolean(KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE, false)
-
-    fun setCustomStandardCoverTapPlayPause(context: Context, enabled: Boolean) {
-        MicaSettingsStore.prefs(context).edit()
-            .putBoolean(KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE, enabled)
-            .apply()
-    }
-
     fun customPlayerLowerLayout(context: Context): PlayerLowerLayoutConfig {
         val prefs = MicaSettingsStore.prefs(context)
         val storedOrder = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_ORDER, null)
@@ -304,6 +299,16 @@ object PlaybackUiPreferences {
             freeformEnabled = prefs.getBoolean(KEY_CUSTOM_PLAYER_LOWER_FREEFORM, false),
             textAligns = textAligns,
             hiddenControls = hiddenControls,
+            coverTapPlayPause = prefsBooleanOrLegacy(
+                prefs,
+                KEY_CUSTOM_PLAYER_LOWER_COVER_TAP_PLAY_PAUSE,
+                KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE,
+            ),
+            coverShadow = prefsBooleanOrLegacy(
+                prefs,
+                KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW,
+                KEY_CUSTOM_STANDARD_COVER_SHADOW,
+            ),
         ).normalized()
     }
 
@@ -345,7 +350,19 @@ object PlaybackUiPreferences {
                 KEY_CUSTOM_PLAYER_LOWER_HIDDEN_CONTROLS,
                 normalized.hiddenControls.mapTo(mutableSetOf()) { it.storageValue },
             )
+            .putBoolean(KEY_CUSTOM_PLAYER_LOWER_COVER_TAP_PLAY_PAUSE, normalized.coverTapPlayPause)
+            .putBoolean(KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW, normalized.coverShadow)
             .apply()
+    }
+
+    private fun prefsBooleanOrLegacy(
+        prefs: android.content.SharedPreferences,
+        key: String,
+        legacyKey: String,
+    ): Boolean = if (prefs.contains(key)) {
+        prefs.getBoolean(key, false)
+    } else {
+        prefs.getBoolean(legacyKey, false)
     }
 
     private fun decodePlayerLowerScalePercent(value: String): Int? = when (value) {

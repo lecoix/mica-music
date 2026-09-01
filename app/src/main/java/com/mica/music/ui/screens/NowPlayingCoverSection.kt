@@ -60,6 +60,7 @@ import com.mica.music.data.SongTitleDisplay
 import com.mica.music.data.TrackSkipDirection
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.imaging.CoverDecodeTarget
+import com.mica.music.imaging.StandardCoverRequestSpec
 import com.mica.music.ui.components.CoverEdgeProgressBar
 import com.mica.music.ui.components.trackWipeLayer
 import com.mica.music.ui.components.LivePlayerSpectrumStrip
@@ -75,6 +76,7 @@ import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
 import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.PlayerPageLayoutEngine
 import com.mica.music.ui.screens.player.UseNativeParticleCoverInPlayer
+import com.mica.music.ui.screens.player.playerHeaderFocus
 import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
@@ -85,9 +87,11 @@ import com.mica.music.ui.screens.player.view.VideoAlbumCoverHost
 import com.mica.music.ui.screens.player.view.MusicVideoHost
 import com.mica.music.playback.PlaybackVideoState
 import android.view.TextureView
+import com.mica.music.ui.theme.FloatingIslandShadowHalo
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCoverDisplayMode
+import coil.size.Scale
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.artworkCoverScrimStops
@@ -118,9 +122,11 @@ internal fun NowPlayingCoverSection(
     particleCoverTuning: ParticleCoverTuning,
     lyricsExpanded: Boolean,
     coverContentAlpha: Float,
+    coverShadowEnabled: Boolean = false,
     onCoverBoundsChanged: (Rect?) -> Unit,
     onCoverAspectRatioChanged: (Float) -> Unit,
     onCloseLyrics: () -> Unit,
+    onCloseQueue: () -> Unit = {},
     onCoverClick: (() -> Unit)?,
     onPlayQueueIndex: (Int) -> Unit,
     onPrevious: () -> Unit,
@@ -130,6 +136,8 @@ internal fun NowPlayingCoverSection(
     coverFlowNavigation: CoverFlowCarouselNavigationBridge,
     photoStackNavigation: PhotoStackCarouselNavigationBridge,
     screenWidth: Dp,
+    standardCoverRequestWidth: Dp,
+    standardCoverRequestHeight: Dp,
     stripSongTitleParentheses: Boolean,
     coverDecodeTargetOverride: CoverDecodeTarget? = null,
     coverFlowGesturesEnabledOverride: Boolean? = null,
@@ -151,6 +159,8 @@ internal fun NowPlayingCoverSection(
     val screenWidthPx = with(density) { screenWidth.coerceAtLeast(1.dp).toPx() }
     val coverWidthPx = with(density) { cover.width.toPx() }
     val coverHeightPx = with(density) { cover.height.toPx() }
+    val standardCoverRequestWidthPx = with(density) { standardCoverRequestWidth.toPx() }
+    val standardCoverRequestHeightPx = with(density) { standardCoverRequestHeight.toPx() }
     val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
     val particleFrame = frame.particleCover
     val displayTitle = SongTitleDisplay.displayTitle(song.title, stripSongTitleParentheses)
@@ -159,7 +169,10 @@ internal fun NowPlayingCoverSection(
     val coverSlotVisible = !particleFrame.lyricsBackgroundVisible || nativeParticleCoverActive
     // Lyrics focus lerps the slot toward the mini cover. Pin decode size so portrait
     // cover-flow does not cross into the landscape slot-sized path mid-fold.
-    val pinCoverFlowDecodeToViewport = frame.lyricsProgress > ImmersiveProgressEpsilon
+    val pinCoverFlowDecodeToViewport = playerHeaderFocus(
+        frame.lyricsProgress,
+        frame.queueProgress,
+    ) > ImmersiveProgressEpsilon
     val calculatedCoverDecodeTarget = remember(
         screenWidthPx,
         coverWidthPx,
@@ -206,6 +219,31 @@ internal fun NowPlayingCoverSection(
         !ParticleCoverThemePolicy.coverFlowStageEnabled(coverFlowMode) &&
             !coverFlowMode.usesPhotoStack &&
             !frame.coverFlowStageActive
+    val effectiveCoverDisplayMode = if (ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)) {
+        CoverDisplayMode.CROP_FILL
+    } else {
+        LocalCoverDisplayMode.current
+    }
+    val standardRequestSpec = remember(
+        standardMode,
+        standardCoverRequestWidthPx,
+        standardCoverRequestHeightPx,
+        effectiveCoverDisplayMode,
+    ) {
+        if (standardMode) {
+            StandardCoverRequestSpec.fromPixels(
+                widthPx = standardCoverRequestWidthPx,
+                heightPx = standardCoverRequestHeightPx,
+                scale = if (effectiveCoverDisplayMode == CoverDisplayMode.CROP_FILL) {
+                    Scale.FILL
+                } else {
+                    Scale.FIT
+                },
+            )
+        } else {
+            null
+        }
+    }
     val useNativeParticleCover = nativeParticleCoverActive
     val gestureState = rememberCoverGestureState(
         gesturesEnabled = frame.gesturesEnabled,
@@ -230,14 +268,24 @@ internal fun NowPlayingCoverSection(
     val preloadAdjacentCovers = frame.coverFlowStageActive ||
         coverFlowMode == PlayerCoverFlowMode.STANDARD ||
         coverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
-    LaunchedEffect(preloadAdjacentCovers, currentIndex, queue, coverDecodeTarget) {
+    LaunchedEffect(
+        preloadAdjacentCovers,
+        currentIndex,
+        queue,
+        coverDecodeTarget,
+        standardRequestSpec,
+    ) {
         if (!preloadAdjacentCovers) return@LaunchedEffect
         for (offset in listOf(-1, 1)) {
             val uri = queue.getOrNull(currentIndex + offset)?.albumArtUri ?: continue
             withContext(Dispatchers.IO) {
                 resolveCoverAspectRatioFromUri(context, uri)
             }
-            MicaImageLoaders.preloadCover(context, uri, coverDecodeTarget)
+            if (standardRequestSpec != null) {
+                MicaImageLoaders.preloadCover(context, uri, standardRequestSpec)
+            } else {
+                MicaImageLoaders.preloadCover(context, uri, coverDecodeTarget)
+            }
             if (lowerBackground.usesBlurredArtwork) {
                 MicaImageLoaders.preloadBackground(context, uri)
             }
@@ -245,7 +293,7 @@ internal fun NowPlayingCoverSection(
     }
 
     val coverArtworkScrim = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
-        frame.lyricsProgress < 0.5f &&
+        playerHeaderFocus(frame.lyricsProgress, frame.queueProgress) < 0.5f &&
         !particleFrame.enabled &&
         !coverFlowMode.usesPhotoStack
     val isDark = MicaTheme.colors.isDark
@@ -258,20 +306,14 @@ internal fun NowPlayingCoverSection(
     } else {
         1f
     }
-    val effectiveCoverDisplayMode = if (ParticleCoverThemePolicy.forcesSquareCrop(coverFlowMode)) {
-        CoverDisplayMode.CROP_FILL
-    } else {
-        LocalCoverDisplayMode.current
-    }
-
     CompositionLocalProvider(LocalCoverDisplayMode provides effectiveCoverDisplayMode) {
         Box(
             modifier
                 .height(cover.blockHeight)
                 .fillMaxWidth()
                 .graphicsLayer {
-                    // Scrim / reflection may paint past the layout box.
-                    clip = !coverArtworkScrim && !coverFlowReflection
+                    // Scrim / reflection / optional cover halo may paint past the layout box.
+                    clip = !coverArtworkScrim && !coverFlowReflection && !coverShadowEnabled
                 }
                 .then(
                     if (coverFlowReflection) {
@@ -373,13 +415,23 @@ internal fun NowPlayingCoverSection(
                             .zIndex(2f),
                     )
                 }
-                if (lyricsExpanded) {
+                if (lyricsExpanded || frame.queueProgress > 0.01f) {
                     Box(
                         modifier = Modifier
                             .padding(start = cover.startPadding, top = cover.topPadding)
                             .size(cover.width, cover.height)
                             .zIndex(2f)
-                            .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverClick, onCoverLongPress)),
+                            .then(
+                                coverClickModifier(
+                                    headerClose = if (frame.queueProgress > 0.01f) {
+                                        onCloseQueue
+                                    } else {
+                                        onCloseLyrics
+                                    },
+                                    onCoverClick = onCoverClick,
+                                    onCoverLongPress = onCoverLongPress,
+                                ),
+                            ),
                     )
                 }
             }
@@ -442,11 +494,12 @@ internal fun NowPlayingCoverSection(
                     .padding(start = cover.startPadding, top = cover.topPadding)
                     .size(cover.width, coverBoxHeight)
                     .graphicsLayer {
-                        // Allow wipe layers (+ scrim extend) to paint past the layout slot.
+                        // Allow wipe layers (+ scrim extend / optional cover halo) to paint past the layout slot.
                         clip = !coverArtworkScrim &&
                             !coverFlowReflection &&
                             !particleNormalLayerVisible &&
-                            !useNativeParticleCover
+                            !useNativeParticleCover &&
+                            !coverShadowEnabled
                     }
                     .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
                     .pointerInput(frame.gesturesEnabled, frame.coverFlowStageActive) {
@@ -460,7 +513,17 @@ internal fun NowPlayingCoverSection(
                             )
                         }
                     }
-                    .then(coverClickModifier(lyricsExpanded, onCloseLyrics, onCoverClick, onCoverLongPress)),
+                    .then(
+                        coverClickModifier(
+                            headerClose = when {
+                                frame.queueProgress > 0.01f -> onCloseQueue
+                                lyricsExpanded -> onCloseLyrics
+                                else -> null
+                            },
+                            onCoverClick = onCoverClick,
+                            onCoverLongPress = onCoverLongPress,
+                        ),
+                    ),
             ) {
                 Box(
                     modifier = Modifier
@@ -470,7 +533,8 @@ internal fun NowPlayingCoverSection(
                             clip = !coverArtworkScrim &&
                                 !coverFlowReflection &&
                                 !particleNormalLayerVisible &&
-                                !useNativeParticleCover
+                                !useNativeParticleCover &&
+                                !coverShadowEnabled
                             if (standardMode && !frame.coverFlowStageActive) {
                                 translationX = gestureState.standardSwipeOffsetFraction *
                                     size.width * 0.35f
@@ -479,7 +543,13 @@ internal fun NowPlayingCoverSection(
                         .zIndex(1f),
                     contentAlignment = Alignment.TopStart,
                 ) {
-                    if (particleFrame.enabled) {
+                    if (coverShadowEnabled) {
+                        FloatingIslandShadowHalo(
+                            isDark = isDark,
+                            modifier = Modifier.size(cover.width, cover.height),
+                        )
+                    }
+                    if (particleFrame.enabled && frame.queueProgress <= ImmersiveProgressEpsilon) {
                         if (!useNativeParticleCover && particleNormalLayerVisible) {
                             val halo = cover.width * ThreeParticleCoverHaloFraction
                             ThreeParticleCoverHost(
@@ -597,6 +667,7 @@ internal fun NowPlayingCoverSection(
                                     letterboxAlpha = cover.letterboxAlpha,
                                     motionEnabled = motionEnabled,
                                     coverDecodeTarget = coverDecodeTarget,
+                                    standardRequestSpec = standardRequestSpec,
                                     forcesSquareCrop = ParticleCoverThemePolicy.forcesSquareCrop(
                                         coverFlowMode,
                                     ),
@@ -625,6 +696,7 @@ internal fun NowPlayingCoverSection(
                                         letterboxAlpha = cover.letterboxAlpha,
                                         motionEnabled = false,
                                         coverDecodeTarget = coverDecodeTarget,
+                                        standardRequestSpec = standardRequestSpec,
                                         forcesSquareCrop = ParticleCoverThemePolicy.forcesSquareCrop(
                                             coverFlowMode,
                                         ),
@@ -712,10 +784,19 @@ internal fun NowPlayingCoverSection(
                 }
             }
             }
-            if (frame.lyricsProgress > 0.01f &&
-                !particleFrame.enabled &&
-                !coverFlowMode.usesPhotoStack
-            ) {
+            val headerFocus = playerHeaderFocus(frame.lyricsProgress, frame.queueProgress)
+            val closeFocusedHeader = {
+                if (frame.queueProgress > 0.01f) {
+                    onCloseQueue()
+                } else {
+                    onCloseLyrics()
+                }
+            }
+            val showFocusHeader = headerFocus > 0.01f && (
+                frame.queueProgress > 0.01f ||
+                    (!particleFrame.enabled && !coverFlowMode.usesPhotoStack)
+                )
+            if (showFocusHeader) {
                 LyricsFocusHeaderOverlay(
                     title = displayTitle,
                     artist = song.artist,
@@ -724,8 +805,8 @@ internal fun NowPlayingCoverSection(
                     coverStartPadding = cover.startPadding,
                     coverTopPadding = cover.topPadding,
                     colors = contentColors,
-                    focusAlpha = frame.lyricsProgress,
-                    onCloseLyrics = onCloseLyrics,
+                    focusAlpha = headerFocus,
+                    onCloseLyrics = closeFocusedHeader,
                 )
             }
         }
@@ -785,6 +866,7 @@ private fun CoverArtworkWipeLayer(
     letterboxAlpha: Float,
     motionEnabled: Boolean,
     coverDecodeTarget: CoverDecodeTarget,
+    standardRequestSpec: StandardCoverRequestSpec?,
     forcesSquareCrop: Boolean,
     artworkScrim: Boolean,
     scrimHeightPx: Float,
@@ -835,6 +917,8 @@ private fun CoverArtworkWipeLayer(
             letterboxAlpha = letterboxAlpha,
             crossfadeMillis = if (motionEnabled) 200 else 0,
             publishHoldoverOnSuccess = publishHoldoverOnSuccess,
+            diagnosticRole = if (publishHoldoverOnSuccess) "cover-current" else "cover-outgoing",
+            standardRequestSpec = standardRequestSpec,
             allowPreviousImageUnderlay = false,
             onAspectRatioChanged = onAspectRatioChanged,
             decodeTarget = coverDecodeTarget.takeIf { forcesSquareCrop },
@@ -844,12 +928,11 @@ private fun CoverArtworkWipeLayer(
 
 @OptIn(ExperimentalFoundationApi::class)
 private fun coverClickModifier(
-    lyricsExpanded: Boolean,
-    onCloseLyrics: () -> Unit,
+    headerClose: (() -> Unit)?,
     onCoverClick: (() -> Unit)?,
     onCoverLongPress: (() -> Unit)?,
 ): Modifier {
-    val onClick = if (lyricsExpanded) onCloseLyrics else onCoverClick
+    val onClick = headerClose ?: onCoverClick
     return when {
         onClick != null && onCoverLongPress != null ->
             Modifier.combinedClickable(
@@ -918,7 +1001,7 @@ private fun LyricsFocusHeaderOverlay(
         ) {
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = "Collapse lyrics",
+                contentDescription = "关闭",
                 tint = colors.primary,
             )
         }

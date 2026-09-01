@@ -16,6 +16,7 @@ import com.mica.music.data.PlayerLowerTextTarget
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -90,12 +91,48 @@ class PlaybackUiPreferencesRobolectricTest {
     }
 
     @Test
-    fun customStandardCoverTapPlayPauseDefaultsOffAndRoundTrips() {
-        assertEquals(false, PlaybackUiPreferences.customStandardCoverTapPlayPause(context))
+    fun customPlayerCoverOptionsDefaultOffAndRoundTripWithLayout() {
+        val enabled = PlayerLowerLayoutConfig.Default
+            .withCoverTapPlayPause(true)
+            .withCoverShadow(true)
 
-        PlaybackUiPreferences.setCustomStandardCoverTapPlayPause(context, true)
+        PlaybackUiPreferences.setCustomPlayerLowerLayout(context, enabled)
 
-        assertTrue(PlaybackUiPreferences.customStandardCoverTapPlayPause(context))
+        val loaded = PlaybackUiPreferences.customPlayerLowerLayout(context)
+        assertTrue(loaded.coverTapPlayPause)
+        assertTrue(loaded.coverShadow)
+    }
+
+    @Test
+    fun legacyStandaloneCoverKeysSeedLayoutWhenNewKeysAreMissing() {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean("custom_standard_cover_tap_play_pause", true)
+            .putBoolean("custom_standard_cover_shadow", true)
+            .apply()
+
+        val config = PlaybackUiPreferences.customPlayerLowerLayout(context)
+
+        assertTrue(config.coverTapPlayPause)
+        assertTrue(config.coverShadow)
+    }
+
+    @Test
+    fun layoutCoverKeysWinOverLegacyStandaloneKeys() {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean("custom_standard_cover_tap_play_pause", true)
+            .putBoolean("custom_standard_cover_shadow", true)
+            .apply()
+        PlaybackUiPreferences.setCustomPlayerLowerLayout(
+            context,
+            PlayerLowerLayoutConfig.Default
+                .withCoverTapPlayPause(false)
+                .withCoverShadow(false),
+        )
+
+        val config = PlaybackUiPreferences.customPlayerLowerLayout(context)
+
+        assertFalse(config.coverTapPlayPause)
+        assertFalse(config.coverShadow)
     }
 
     @Test
@@ -189,6 +226,8 @@ class PlaybackUiPreferencesRobolectricTest {
             .withTextAlign(PlayerLowerTextTarget.LYRICS, PlayerLowerTextAlign.START)
             .withControlVisibility(PlayerControlButton.QUEUE_MODE, false)
             .withControlVisibility(PlayerControlButton.QUEUE, false)
+            .withCoverTapPlayPause(true)
+            .withCoverShadow(true)
 
         PlaybackUiPreferences.setCustomPlayerLowerLayout(context, config)
 
@@ -209,6 +248,8 @@ class PlaybackUiPreferencesRobolectricTest {
         PlayerControlButton.entries.forEach { button ->
             assertTrue(config.isControlVisible(button))
         }
+        assertFalse(config.coverTapPlayPause)
+        assertFalse(config.coverShadow)
     }
 
     @Test

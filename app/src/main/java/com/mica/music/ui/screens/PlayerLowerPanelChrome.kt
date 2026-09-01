@@ -68,6 +68,7 @@ internal fun PlayerLowerPanelChrome(
         HifiSpacing.md.toPx() * (1f - chromeProgress)
     }
     val shouldClipChrome = chromeProgress < 0.99f ||
+        lower.queueLayoutFocus > 0.01f ||
         lower.coverEdgeOnPlaySurface && !lower.showChromeProgressInTransition
 
     Box(

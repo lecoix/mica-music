@@ -5,19 +5,22 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -31,7 +34,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -40,9 +47,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.data.PlaybackContentColorMode
@@ -433,6 +444,24 @@ private fun CustomPlayerElementEditTarget(
     }
 }
 
+internal fun customPlayerEditChromeOffset(
+    current: Offset?,
+    dragDelta: Offset,
+    barWidthPx: Float,
+    barHeightPx: Float,
+    parentWidthPx: Float,
+    parentHeightPx: Float,
+    topInsetPx: Float,
+): Offset {
+    val maxX = (parentWidthPx - barWidthPx).coerceAtLeast(0f)
+    val maxY = (parentHeightPx - barHeightPx).coerceAtLeast(0f)
+    val start = current ?: Offset(x = maxX / 2f, y = topInsetPx.coerceIn(0f, maxY))
+    return Offset(
+        x = (start.x + dragDelta.x).coerceIn(0f, maxX),
+        y = (start.y + dragDelta.y).coerceIn(0f, maxY),
+    )
+}
+
 @Composable
 private fun CustomPlayerEditChrome(
     config: PlayerLowerLayoutConfig,
@@ -446,7 +475,17 @@ private fun CustomPlayerEditChrome(
     modifier: Modifier = Modifier,
 ) {
     val colors = MicaTheme.colors
-    Box(modifier) {
+    val density = LocalDensity.current
+    BoxWithConstraints(modifier) {
+        val parentWidthPx = constraints.maxWidth.toFloat()
+        val parentHeightPx = constraints.maxHeight.toFloat()
+        val topInsetPx = WindowInsets.statusBars.getTop(density) + with(density) { 8.dp.toPx() }
+        val parentWidthState = rememberUpdatedState(parentWidthPx)
+        val parentHeightState = rememberUpdatedState(parentHeightPx)
+        val topInsetState = rememberUpdatedState(topInsetPx)
+        var chromeOffset by remember { mutableStateOf<Offset?>(null) }
+        var barSize by remember { mutableStateOf(IntSize.Zero) }
+
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -471,9 +510,38 @@ private fun CustomPlayerEditChrome(
 
         Column(
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .zIndex(2f)
+                .onSizeChanged { size ->
+                    barSize = size
+                    chromeOffset = customPlayerEditChromeOffset(
+                        current = chromeOffset,
+                        dragDelta = Offset.Zero,
+                        barWidthPx = size.width.toFloat(),
+                        barHeightPx = size.height.toFloat(),
+                        parentWidthPx = parentWidthState.value,
+                        parentHeightPx = parentHeightState.value,
+                        topInsetPx = topInsetState.value,
+                    )
+                }
+                .offset {
+                    val offset = chromeOffset ?: Offset.Zero
+                    IntOffset(offset.x.roundToInt(), offset.y.roundToInt())
+                }
+                .graphicsLayer { alpha = if (chromeOffset == null) 0f else 1f }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        chromeOffset = customPlayerEditChromeOffset(
+                            current = chromeOffset,
+                            dragDelta = dragAmount,
+                            barWidthPx = barSize.width.toFloat(),
+                            barHeightPx = barSize.height.toFloat(),
+                            parentWidthPx = parentWidthState.value,
+                            parentHeightPx = parentHeightState.value,
+                            topInsetPx = topInsetState.value,
+                        )
+                    }
+                }
                 .background(colors.surfaceCard.copy(alpha = 0.96f))
                 .padding(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -522,6 +590,27 @@ private fun CustomPlayerEditChrome(
                 }
             }
             when (selectedComponent) {
+                PlayerLowerComponent.COVER -> {
+                    CoverBooleanEditRow(
+                        label = "点击封面",
+                        enabled = config.coverTapPlayPause,
+                        enabledLabel = "暂停/播放",
+                        disabledLabel = "关闭",
+                        onEnabledChange = { enabled ->
+                            onConfigChange { it.withCoverTapPlayPause(enabled) }
+                        },
+                    )
+                    CoverBooleanEditRow(
+                        label = "专辑图阴影",
+                        enabled = config.coverShadow,
+                        enabledLabel = "开启",
+                        disabledLabel = "关闭",
+                        onEnabledChange = { enabled ->
+                            onConfigChange { it.withCoverShadow(enabled) }
+                        },
+                    )
+                }
+
                 PlayerLowerComponent.TITLE -> {
                     TextAlignEditRow(PlayerLowerTextTarget.TITLE, config, onConfigChange)
                     TextAlignEditRow(PlayerLowerTextTarget.SUBTITLE, config, onConfigChange)
@@ -532,7 +621,6 @@ private fun CustomPlayerEditChrome(
 
                 PlayerLowerComponent.CONTROLS -> ControlButtonEditRow(config, onConfigChange)
 
-                PlayerLowerComponent.COVER,
                 PlayerLowerComponent.INFO,
                 PlayerLowerComponent.PROGRESS,
                 -> Unit
@@ -556,6 +644,36 @@ private fun CustomPlayerEditChrome(
                     .fillMaxWidth()
                     .height(1.dp)
                     .background(colors.accent.copy(alpha = 0.55f)),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CoverBooleanEditRow(
+    label: String,
+    enabled: Boolean,
+    enabledLabel: String,
+    disabledLabel: String,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    val colors = MicaTheme.colors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = label,
+            style = MicaTheme.typography.caption,
+            color = colors.textSecondary,
+        )
+        TextButton(onClick = { onEnabledChange(true) }) {
+            Text(
+                text = enabledLabel,
+                color = if (enabled) colors.accent else colors.textPrimary,
+            )
+        }
+        TextButton(onClick = { onEnabledChange(false) }) {
+            Text(
+                text = disabledLabel,
+                color = if (!enabled) colors.accent else colors.textPrimary,
             )
         }
     }

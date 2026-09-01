@@ -48,6 +48,21 @@ internal class PlayerPageUiModel(
             typography = typography,
         )
 
+    /** Stable playback geometry for image requests while the visible cover animates into lyrics. */
+    fun playbackFrameFor(panelHeight: Dp): PlayerPageFrame =
+        PlayerPageLayoutEngine.computeFrame(
+            input = layoutInput.copy(
+                panelHeight = panelHeight,
+                lyricsExpanded = false,
+                lyricsProgress = 0f,
+                lyricsChromeFade = 0f,
+                queueExpanded = false,
+                queueProgress = 0f,
+            ),
+            density = density,
+            typography = typography,
+        )
+
     fun lyricsFrameFor(panelHeight: Dp): PlayerPageFrame =
         PlayerPageLayoutEngine.computeFrame(
             input = layoutInput.copy(
@@ -69,6 +84,7 @@ internal fun rememberPlayerPageUiModel(
     queueState: PlaybackQueueState,
     uiSettings: AppUiSettings,
     lyricsExpanded: Boolean,
+    queueExpanded: Boolean,
     screenHeight: Dp,
     screenWidth: Dp,
     coverAspectRatio: Float,
@@ -112,6 +128,19 @@ internal fun rememberPlayerPageUiModel(
         },
         label = "lyricsProgress",
     )
+    val queueProgress by animateFloatAsState(
+        targetValue = if (queueExpanded) 1f else 0f,
+        animationSpec = if (motionEnabled) {
+            tween(
+                durationMillis = MicaMotion.DurationLongMs,
+                delayMillis = if (queueExpanded) 0 else LyricsLayoutShiftDelayOnCloseMs,
+                easing = MicaMotion.Easing,
+            )
+        } else {
+            tween(0)
+        },
+        label = "queueProgress",
+    )
     val immersiveProgress by animateFloatAsState(
         targetValue = if (immersiveLower) 1f else 0f,
         animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationLongMs),
@@ -122,6 +151,7 @@ internal fun rememberPlayerPageUiModel(
         coverFlowModeEnabled &&
             queueState.queue.isNotEmpty() &&
             !lyricsExpanded &&
+            !queueExpanded &&
             !immersiveLower
     val coverFlowProgress by animateFloatAsState(
         targetValue = if (coverFlowTargetAvailable) 1f else 0f,
@@ -168,6 +198,8 @@ internal fun rememberPlayerPageUiModel(
         lyricsExpanded = lyricsExpanded,
         lyricsProgress = lyricsProgress,
         lyricsChromeFade = lyricsChromeFade,
+        queueExpanded = queueExpanded,
+        queueProgress = queueProgress,
         immersiveLower = immersiveLower,
         immersiveProgress = immersiveProgress,
         coverFlowProgress = coverFlowProgress,

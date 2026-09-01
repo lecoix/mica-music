@@ -42,8 +42,10 @@ object MicaImageLoaders {
 
     fun init(context: Context) {
         if (::cover.isInitialized) return
+        CoverRequestProbe.installCompositionTracer()
         appContext = context.applicationContext
         cover = ImageLoader.Builder(appContext)
+            .eventListenerFactory(CoverRequestProbe.factory("cover"))
             .memoryCache {
                 MemoryCache.Builder(appContext)
                     .maxSizeBytes(48 * 1024 * 1024)
@@ -57,6 +59,7 @@ object MicaImageLoaders {
             }
             .build()
         background = ImageLoader.Builder(appContext)
+            .eventListenerFactory(CoverRequestProbe.factory("background"))
             .memoryCache {
                 MemoryCache.Builder(appContext)
                     .maxSizeBytes(16 * 1024 * 1024)
@@ -125,6 +128,17 @@ object MicaImageLoaders {
         }
     }
 
+    fun preloadCover(
+        context: Context,
+        albumArtUri: String?,
+        requestSpec: StandardCoverRequestSpec,
+    ) {
+        if (albumArtUri.isNullOrBlank() || !::cover.isInitialized) return
+        coverLoadScope.launch {
+            runCatching { ensureCoverCached(context, albumArtUri, requestSpec) }
+        }
+    }
+
     fun preloadBackground(context: Context, albumArtUri: String?) {
         if (albumArtUri.isNullOrBlank() || !::background.isInitialized) return
         background.enqueue(buildBackgroundRequest(context, albumArtUri))
@@ -161,6 +175,47 @@ object MicaImageLoaders {
                 result is SuccessResult
             }
         }
+    }
+
+    suspend fun ensureCoverCached(
+        context: Context,
+        albumArtUri: String,
+        requestSpec: StandardCoverRequestSpec,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!::cover.isInitialized) return@withContext false
+        val cacheKey = requestSpec.memoryCacheKey(albumArtUri)
+        coverLoadCoordinator.execute(cacheKey) {
+            if (cover.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
+                true
+            } else {
+                val result = cover.execute(
+                    standardCoverRequest(
+                        context = context,
+                        albumArtUri = albumArtUri,
+                        requestSpec = requestSpec,
+                    ),
+                )
+                result is SuccessResult
+            }
+        }
+    }
+
+    fun standardCoverRequest(
+        context: Context,
+        albumArtUri: String,
+        requestSpec: StandardCoverRequestSpec,
+        crossfadeMillis: Int = 0,
+    ): ImageRequest {
+        val cacheKey = requestSpec.memoryCacheKey(albumArtUri)
+        return ImageRequest.Builder(context)
+            .data(albumArtUri)
+            .size(requestSpec.widthPx, requestSpec.heightPx)
+            .scale(requestSpec.scale)
+            .allowHardware(true)
+            .crossfade(crossfadeMillis)
+            .memoryCacheKey(cacheKey)
+            .placeholderMemoryCacheKey(cacheKey)
+            .build()
     }
 
     /** 阻塞直到模糊背景源图进入内存缓存（或失败）。 */

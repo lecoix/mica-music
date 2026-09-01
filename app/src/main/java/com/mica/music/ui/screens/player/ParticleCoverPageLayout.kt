@@ -14,7 +14,7 @@ internal object ParticleCoverPageLayout {
 
     fun computeCoverFrame(
         input: PlayerPageLayoutInput,
-        lyricsFocus: Float,
+        headerFocus: Float,
         titleToCoverExtraGap: Dp = 0.dp,
     ): CoverFrame {
         val halfExtraGap = titleToCoverExtraGap / 2
@@ -25,32 +25,39 @@ internal object ParticleCoverPageLayout {
             CoverDrop +
             halfExtraGap
         val coverSize = input.screenWidth * CoverScreenFraction
-        val useLyricsLayout = lyricsFocus > ImmersiveProgressEpsilon
-        val coverWidth = if (useLyricsLayout) {
+        val useParticleLyricsLayout =
+            headerFocus > ImmersiveProgressEpsilon &&
+                input.queueProgress <= ImmersiveProgressEpsilon &&
+                !input.queueExpanded
+        val coverWidth = if (useParticleLyricsLayout) {
             coverSize
         } else {
-            lerpDp(coverSize, LyricsFocusMiniCoverSize, lyricsFocus)
+            lerpDp(coverSize, LyricsFocusMiniCoverSize, headerFocus)
         }
-        val coverHeight = if (useLyricsLayout) {
+        val coverHeight = if (useParticleLyricsLayout) {
             coverSize
         } else {
-            lerpDp(coverSize, LyricsFocusMiniCoverSize, lyricsFocus)
+            lerpDp(coverSize, LyricsFocusMiniCoverSize, headerFocus)
         }
-        val coverTopPadding = lerpDp(particleCoverTopPadding, input.statusBarTop, lyricsFocus)
+        val coverTopPadding = lerpDp(particleCoverTopPadding, input.statusBarTop, headerFocus)
         val expandedCoverStartPadding = Dp(((input.screenWidth - coverSize).value / 2f).coerceAtLeast(0f))
-        val coverStartPadding = if (useLyricsLayout) {
+        val coverStartPadding = if (useParticleLyricsLayout) {
             expandedCoverStartPadding
         } else {
             lerpDp(
                 expandedCoverStartPadding,
                 LyricsFocusCoverStartPadding,
-                lyricsFocus,
+                headerFocus,
             )
         }
         val coverBlockHeight = lerpDp(
             coverHeight + coverTopPadding + HifiSpacing.lg,
-            input.statusBarTop,
-            lyricsFocus,
+            if (useParticleLyricsLayout) {
+                input.statusBarTop
+            } else {
+                input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm
+            },
+            headerFocus,
         )
         val zoneStop = (coverBlockHeight.value / input.screenHeight.value)
             .coerceIn(0.12f, PlayerCoverMaxScreenFraction)
@@ -69,23 +76,27 @@ internal object ParticleCoverPageLayout {
 
     fun computeParticleFrame(
         input: PlayerPageLayoutInput,
-        lyricsFocus: Float,
+        headerFocus: Float,
     ): ParticleCoverFrame {
         val enabled = input.particleCoverMode
+        val queueOpen =
+            input.queueExpanded || input.queueProgress > ImmersiveProgressEpsilon
         return ParticleCoverFrame(
             enabled = enabled,
             normalLayerVisible = enabled &&
                 !input.lyricsExpanded &&
-                lyricsFocus <= ImmersiveProgressEpsilon,
+                !queueOpen &&
+                headerFocus <= ImmersiveProgressEpsilon,
             lyricsBackgroundVisible = enabled &&
-                (input.lyricsExpanded || lyricsFocus > ImmersiveProgressEpsilon),
+                !queueOpen &&
+                (input.lyricsExpanded || headerFocus > ImmersiveProgressEpsilon),
             hostBaseSize = input.screenWidth,
         )
     }
 
     fun compactContentAlpha(
-        lyricsFocus: Float,
+        headerFocus: Float,
         metaAlpha: Float,
     ): Float =
-        if (lyricsFocus > ImmersiveProgressEpsilon) 0f else metaAlpha
+        if (headerFocus > ImmersiveProgressEpsilon) 0f else metaAlpha
 }

@@ -122,7 +122,7 @@
 | 设置标签 | 枚举 | 要点 |
 | --- | --- | --- |
 | 标准 | `STANDARD` | 大封面 + 横向轻扫切歌 |
-| 自定义标准 | `CUSTOM_STANDARD` | 标准封面手势 + 六组件自定义布局；竖屏可在播放页进入自由布局编辑，二维拖动/双指缩放/显隐以草稿编辑后保存；不支持下半屏沉浸 |
+| 自定义标准 | `CUSTOM_STANDARD` | 标准封面手势 + 六组件自定义布局；竖屏可在播放页进入自由布局编辑，二维拖动/双指缩放/显隐以草稿编辑后保存；可选专辑图柔影（复用浮岛 `FloatingIslandShadowHalo`，默认关）；不支持下半屏沉浸 |
 | 粒子封面 | `PARTICLE_COVER` | 边缘粒子化 + 切歌分解；现网 **GLES**（`ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 回退见 `ThreeParticleCoverHost` |
 | 平行封面带 | `PAUSE_FOLD` | 七轨 View 岛封面流；横屏稳定态可长按标题进入封面流沉浸 |
 | 复古立体封面 | `RETRO_3D` | 透视封面流 + 倒影；横屏复用平行封面带的沉浸缩放契约 |
@@ -284,12 +284,12 @@
 | glass alpha | `#FFFFFF` @ 60% | `surfaceGlass.alpha × 0.1375` |
 | 卡片高度 | 56dp | **64dp** |
 | 封面 | 32dp | **48dp** |
-| 柔影 | 几乎不用 | `FloatingIslandShadowHalo`（Compose 自绘，非 elevation） |
+| 柔影 | 几乎不用 | `FloatingIslandShadowHalo`（Compose 自绘，非 elevation）；自定义标准主题可选复用到专辑图四周 |
 
 ### 8.2 阴影
 
 - **几乎不用阴影**。一切扁平化。
-- 唯一例外：迷你播放器悬浮于内容上方时，顶部加一条 hairline 分隔线（不是阴影）
+- 例外：迷你播放器悬浮于内容上方时，顶部加一条 hairline 分隔线（不是阴影）；浮岛迷你栏与自定义标准主题可选专辑图使用 `FloatingIslandShadowHalo` 自绘柔影。
 
 ---
 
@@ -1023,7 +1023,7 @@ dependencies {
 | 页面 / 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 设置 · 外观 | ✅ | `SettingsCategory.APPEARANCE`：主题、强调色、云母背景（含 CUSTOM）、自定义壁纸、状态栏四档隐藏范围、迷你播放栏 |
-| 设置 · 播放页 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、信息行、频谱、能力相关的沉浸/封面底边进度；`CUSTOM_STANDARD` 详情提供“进入播放页布局编辑”入口 |
+| 设置 · 播放页 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、信息行、频谱、能力相关的沉浸/封面底边进度；`CUSTOM_STANDARD` 详情只保留“进入播放页布局编辑”入口，点击封面暂停/播放与专辑图阴影在编辑页选中封面时设置 |
 | 设置 · 歌词 | ✅ | `LYRICS`：歌词主题、对齐/字号/双语/逐字、歌词优先级、通知/信息行等歌词输出 |
 | 列表 / 专辑 / 艺术家显示设置 | ✅ | 不再是 `SettingsCategory`；歌曲排序 Sheet、专辑/艺术家浏览 Sheet 等上下文入口各自持久化显示选项 |
 | 设置 · 曲库与扫描 | ✅ | `LIBRARY`：曲库文件夹、重扫、排除目录、最短时长、深度分析、艺术家分割 |

@@ -80,6 +80,7 @@ fun PlaybackQueueSheet(
     onRemove: (Int) -> Unit,
     landscape: Boolean = false,
     listState: LazyListState? = null,
+    embedded: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
@@ -154,10 +155,33 @@ fun PlaybackQueueSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (landscape) Modifier.fillMaxHeight() else Modifier.heightIn(max = maxSheetHeight),
+                    when {
+                        embedded -> Modifier.fillMaxSize()
+                        landscape -> Modifier.fillMaxHeight()
+                        else -> Modifier.heightIn(max = maxSheetHeight)
+                    },
                 )
-                .padding(bottom = HifiSpacing.xxl),
+                .padding(bottom = if (embedded) 0.dp else HifiSpacing.xxl),
         ) {
+            if (embedded) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "${queue.size} 首",
+                        style = MicaTheme.typography.bodySm,
+                        color = MicaTheme.colors.textSecondary,
+                    )
+                    Text(
+                        text = "  ·  拖动左侧把手调整顺序",
+                        style = MicaTheme.typography.caption,
+                        color = MicaTheme.colors.textTertiary,
+                    )
+                }
+            } else {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -197,8 +221,9 @@ fun PlaybackQueueSheet(
                     }
                 }
             }
+            }
 
-            if (landscape) {
+            if (landscape && !embedded) {
                 HorizontalDivider(
                     thickness = HifiSize.dividerHairline,
                     color = MicaTheme.colors.divider,
@@ -216,7 +241,7 @@ fun PlaybackQueueSheet(
                     textAlign = TextAlign.Center,
                 )
             } else {
-                val queueViewportModifier = if (landscape) {
+                val queueViewportModifier = if (landscape || embedded) {
                     Modifier.weight(1f)
                 } else {
                     Modifier.fillMaxWidth()
@@ -249,7 +274,7 @@ fun PlaybackQueueSheet(
                                         isDragging = isDragging,
                                         onClick = {
                                             onPlayAt(sourceIndex)
-                                            onDismiss()
+                                            if (!embedded) onDismiss()
                                         },
                                         onRemove = { onRemove(sourceIndex) },
                                         dragModifier = Modifier.draggableHandle(),
@@ -304,7 +329,7 @@ fun PlaybackQueueSheet(
                                         isDragging = isDragging,
                                         onClick = {
                                             onPlayAt(sourceIndex)
-                                            onDismiss()
+                                            if (!embedded) onDismiss()
                                         },
                                         onRemove = { onRemove(sourceIndex) },
                                         dragModifier = Modifier.draggableHandle(),
@@ -337,7 +362,9 @@ fun PlaybackQueueSheet(
         }
     }
 
-    if (landscape) {
+    if (embedded) {
+        sheetContent()
+    } else if (landscape) {
         PlayerSidePanel(
             onDismiss = onDismiss,
             containerColor = sheetBackground,
@@ -371,8 +398,7 @@ private fun QueueSongRow(
     dragModifier: Modifier,
     landscape: Boolean,
 ) {
-    Column {
-        Row(
+    Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
@@ -452,12 +478,6 @@ private fun QueueSongRow(
                 )
             }
         }
-        HorizontalDivider(
-            thickness = HifiSize.dividerHairline,
-            color = MicaTheme.colors.divider,
-            modifier = Modifier.padding(start = HifiSpacing.lg),
-        )
-    }
 }
 
 @Composable

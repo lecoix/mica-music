@@ -34,6 +34,8 @@ object PlayerPageLayoutEngine {
         typography: HifiTypography,
     ): PlayerPageFrame {
         val lyricsFocus = input.lyricsProgress.coerceIn(0f, 1f)
+        val queueFocus = input.queueProgress.coerceIn(0f, 1f)
+        val headerFocus = playerHeaderFocus(lyricsFocus, queueFocus)
         val immersiveProgress = input.immersiveProgress.coerceIn(0f, 1f)
         val lyricsChromeFade = input.lyricsChromeFade.coerceIn(0f, 1f)
         val useCoverEdgePlayback = input.useCoverEdgeProgress
@@ -45,15 +47,15 @@ object PlayerPageLayoutEngine {
 
         val chromeProgressAlpha = when {
             !useCoverEdgePlayback -> 1f
-            input.lyricsExpanded -> lyricsChromeFade
-            else -> lyricsFocus
+            input.lyricsExpanded || input.queueExpanded -> maxOf(lyricsChromeFade, queueFocus)
+            else -> headerFocus
         }
         val coverEdgeOnPlaySurface =
             useCoverEdgePlayback &&
                 !particleHidesProgressChrome &&
                 chromeProgressAlpha < 1f - ImmersiveProgressEpsilon
 
-        val coverFlowStage = resolveCoverFlowStage(input, lyricsFocus)
+        val coverFlowStage = resolveCoverFlowStage(input, headerFocus)
         val coverFlowProgress = coverFlowStage.progress
         val coverFlowStageActive = coverFlowStage.active
 
@@ -63,7 +65,7 @@ object PlayerPageLayoutEngine {
             input = input,
             density = density,
             typography = typography,
-            lyricsFocus = lyricsFocus,
+            headerFocus = headerFocus,
             lyricsChromeFade = lyricsChromeFade,
             photoStackTitleBlockHeight = photoStackTitleBlockHeight,
             photoStackControlsHeight = photoStackControlsHeight,
@@ -71,11 +73,11 @@ object PlayerPageLayoutEngine {
         )
         val particleCover = computeParticleCoverFrame(
             input = input,
-            lyricsFocus = lyricsFocus,
+            headerFocus = headerFocus,
         )
         val photoStack = computePhotoStackFrame(
             input = input,
-            lyricsFocus = lyricsFocus,
+            headerFocus = headerFocus,
             cover = cover,
         )
 
@@ -92,12 +94,12 @@ object PlayerPageLayoutEngine {
             panelHeight = (input.panelHeight - particleProgressQuarter * 2).coerceAtLeast(0.dp),
             useCoverEdgeProgressSetting = useCoverEdgePlayback,
             applyCoverEdgeGapCosmetics = useCoverEdgePlayback && !particleHidesProgressChrome,
-            lyricsFocus = lyricsFocus,
+            lyricsFocus = headerFocus,
             showMetadata = !input.particleCoverMode,
             compactLyricsLineMode = input.compactLyricsLineMode,
         )
         val lowerSpacing = if (particleProgressQuarter > 0.dp) {
-            val lyricGapBoost = particleProgressQuarter * (1f - lyricsFocus)
+            val lyricGapBoost = particleProgressQuarter * (1f - headerFocus)
             lowerPlan.spacing.copy(
                 afterCover = lowerPlan.spacing.afterCover + lyricGapBoost,
                 beforePlaybackChrome = lowerPlan.spacing.beforePlaybackChrome + lyricGapBoost,
@@ -132,7 +134,7 @@ object PlayerPageLayoutEngine {
         val controlsBottomPadding = if (input.photoStackMode) {
             photoStackLayout.edgeGap
         } else {
-            lowerSpacing.afterControls * lyricsChromeBottomInsetScale(lyricsFocus)
+            lowerSpacing.afterControls * lyricsChromeBottomInsetScale(headerFocus)
         }
 
         val immersiveInTransition =
@@ -153,9 +155,9 @@ object PlayerPageLayoutEngine {
         val showStandardProgress =
             !input.photoStackMode && (!useCoverEdgePlayback || showChromeProgressInTransition)
 
-        val metaAlpha = 1f - lyricsFocus
-        val compactContentAlpha = if (input.particleCoverMode && lyricsFocus > ImmersiveProgressEpsilon) {
-            ParticleCoverPageLayout.compactContentAlpha(lyricsFocus, metaAlpha)
+        val metaAlpha = 1f - headerFocus
+        val compactContentAlpha = if (input.particleCoverMode && headerFocus > ImmersiveProgressEpsilon) {
+            ParticleCoverPageLayout.compactContentAlpha(headerFocus, metaAlpha)
         } else {
             metaAlpha
         }
@@ -163,7 +165,8 @@ object PlayerPageLayoutEngine {
             metaAlpha.coerceIn(0f, 1f) * (1f - immersiveProgress)
         val stablePlaybackScene =
             !input.lyricsExpanded &&
-                lyricsFocus <= ImmersiveProgressEpsilon &&
+                !input.queueExpanded &&
+                headerFocus <= ImmersiveProgressEpsilon &&
                 (!input.immersiveLower || input.photoStackMode) &&
                 (immersiveProgress <= ImmersiveProgressEpsilon || input.photoStackMode)
         val liveSpectrumRequested =
@@ -178,10 +181,12 @@ object PlayerPageLayoutEngine {
 
         val gesturesEnabled =
             !input.lyricsExpanded &&
+                !input.queueExpanded &&
                 (!input.immersiveLower || input.photoStackMode) &&
-                lyricsFocus < 0.01f
+                headerFocus < 0.01f
 
         val scene = when {
+            input.queueExpanded || queueFocus > ImmersiveProgressEpsilon -> PlayerPageScene.Queue
             input.lyricsExpanded || lyricsFocus > ImmersiveProgressEpsilon -> PlayerPageScene.Lyrics
             input.immersiveLower || immersiveProgress > ImmersiveProgressEpsilon -> PlayerPageScene.Immersive
             else -> PlayerPageScene.Normal
@@ -190,6 +195,7 @@ object PlayerPageLayoutEngine {
         return PlayerPageFrame(
             scene = scene,
             lyricsProgress = lyricsFocus,
+            queueProgress = queueFocus,
             immersiveProgress = immersiveProgress,
             coverFlowProgress = coverFlowProgress,
             coverFlowStageActive = coverFlowStageActive,
@@ -200,7 +206,11 @@ object PlayerPageLayoutEngine {
             photoStack = photoStack,
             lower = LowerPanelFrame(
                 spacing = lowerSpacing,
-                chromeHeight = maxOf(0.dp, chromeHeight - lyricsChromeDrop(lyricsFocus)),
+                chromeHeight = lerpDp(
+                    maxOf(0.dp, chromeHeight - lyricsChromeDrop(lyricsFocus)),
+                    0.dp,
+                    queueFocus,
+                ),
                 controlsBottomPadding = controlsBottomPadding,
                 photoStackTitleBlockHeight = photoStackTitleBlockHeight,
                 photoStackTitleToControlsGap = photoStackLayout.middleGap,
@@ -210,6 +220,7 @@ object PlayerPageLayoutEngine {
                 compactContentAlpha = compactContentAlpha,
                 lyricsChromeFade = lyricsChromeFade,
                 lyricsLayoutFocus = lyricsFocus,
+                queueLayoutFocus = queueFocus,
                 immersiveProgress = immersiveProgress,
                 showStandardProgress = showStandardProgress,
                 coverEdgeOnPlaySurface = coverEdgeOnPlaySurface,
@@ -229,24 +240,29 @@ object PlayerPageLayoutEngine {
 
     private fun resolveCoverFlowStage(
         input: PlayerPageLayoutInput,
-        lyricsFocus: Float,
+        headerFocus: Float,
     ): CoverFlowStagePlan {
-        val inLyricsTransition =
+        val inHeaderTransition =
             input.coverFlowModeEnabled &&
                 !input.immersiveLower &&
-                (input.lyricsExpanded || lyricsFocus > ImmersiveProgressEpsilon)
+                (
+                    input.lyricsExpanded ||
+                        input.queueExpanded ||
+                        headerFocus > ImmersiveProgressEpsilon
+                    )
         val playbackAvailable =
             input.coverFlowModeEnabled &&
                 !input.lyricsExpanded &&
+                !input.queueExpanded &&
                 !input.immersiveLower &&
-                lyricsFocus < 0.01f
+                headerFocus < 0.01f
         val progress = when {
-            inLyricsTransition -> 1f - lyricsFocus
+            inHeaderTransition -> 1f - headerFocus
             playbackAvailable -> input.coverFlowProgress
             else -> 0f
         }.coerceIn(0f, 1f)
         val active = when {
-            inLyricsTransition -> lyricsFocus < 1f - ImmersiveProgressEpsilon
+            inHeaderTransition -> headerFocus < 1f - ImmersiveProgressEpsilon
             else -> progress > 0.001f
         }
         return CoverFlowStagePlan(progress = progress, active = active)
@@ -256,7 +272,7 @@ object PlayerPageLayoutEngine {
         input: PlayerPageLayoutInput,
         density: Density,
         typography: HifiTypography,
-        lyricsFocus: Float,
+        headerFocus: Float,
         lyricsChromeFade: Float,
         photoStackTitleBlockHeight: Dp,
         photoStackControlsHeight: Dp,
@@ -272,7 +288,7 @@ object PlayerPageLayoutEngine {
             }
             return ParticleCoverPageLayout.computeCoverFrame(
                 input = input,
-                lyricsFocus = lyricsFocus,
+                headerFocus = headerFocus,
                 titleToCoverExtraGap = titleToCoverExtraGap,
             )
         }
@@ -291,16 +307,20 @@ object PlayerPageLayoutEngine {
             )
             else -> input.screenWidth to input.screenWidth
         }
-        val useParticleLyricsLayout = input.particleCoverMode && lyricsFocus > ImmersiveProgressEpsilon
+        val useParticleLyricsLayout =
+            input.particleCoverMode &&
+                headerFocus > ImmersiveProgressEpsilon &&
+                input.queueProgress <= ImmersiveProgressEpsilon &&
+                !input.queueExpanded
         val coverWidth = if (useParticleLyricsLayout) {
             expandedCoverWidth
         } else {
-            lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, lyricsFocus)
+            lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, headerFocus)
         }
         val coverHeight = if (useParticleLyricsLayout) {
             expandedCoverHeight
         } else {
-            lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, lyricsFocus)
+            lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, headerFocus)
         }
         val photoStackViewport = if (input.photoStackMode) {
             computePhotoStackViewport(
@@ -324,8 +344,8 @@ object PlayerPageLayoutEngine {
             PhotoStackVerticalLayout(edgeGap = 0.dp, middleGap = 0.dp)
         }
         val coverTopPadding = when {
-            input.photoStackMode -> lerpDp(photoStackLayout.edgeGap, input.statusBarTop, lyricsFocus)
-            else -> lerpDp(0.dp, input.statusBarTop, lyricsFocus)
+            input.photoStackMode -> lerpDp(photoStackLayout.edgeGap, input.statusBarTop, headerFocus)
+            else -> lerpDp(0.dp, input.statusBarTop, headerFocus)
         }
         val expandedCoverStartPadding = if (input.fitOriginal || input.photoStackMode) {
             Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
@@ -338,7 +358,7 @@ object PlayerPageLayoutEngine {
             lerpDp(
                 expandedCoverStartPadding,
                 LyricsFocusCoverStartPadding,
-                lyricsFocus,
+                headerFocus,
             )
         }
         val particleCoverBottomPadding = when {
@@ -349,21 +369,22 @@ object PlayerPageLayoutEngine {
             input.photoStackMode -> lerpDp(
                 photoStackViewport!!.slotHeight + coverTopPadding + particleCoverBottomPadding,
                 input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm,
-                lyricsFocus,
+                headerFocus,
             )
             else -> lerpDp(
                 coverHeight + coverTopPadding + particleCoverBottomPadding,
                 input.statusBarTop + LyricsFocusMiniCoverSize + HifiSpacing.sm,
-                lyricsFocus,
+                headerFocus,
             )
         }
         val zoneStop = (coverBlockHeight.value / input.screenHeight.value)
             .coerceIn(0.12f, PlayerCoverMaxScreenFraction)
 
-        val settledOnLyrics =
-            input.lyricsExpanded && lyricsChromeFade >= 1f - ImmersiveProgressEpsilon
+        val settledOnHeader =
+            (input.lyricsExpanded || input.queueExpanded) &&
+                lyricsChromeFade >= 1f - ImmersiveProgressEpsilon
         val letterboxAlpha = if (input.fitOriginal) {
-            if (settledOnLyrics) 1f else 0f
+            if (settledOnHeader) 1f else 0f
         } else {
             0f
         }
@@ -382,23 +403,24 @@ object PlayerPageLayoutEngine {
 
     private fun computeParticleCoverFrame(
         input: PlayerPageLayoutInput,
-        lyricsFocus: Float,
+        headerFocus: Float,
     ): ParticleCoverFrame =
         ParticleCoverPageLayout.computeParticleFrame(
             input = input,
-            lyricsFocus = lyricsFocus,
+            headerFocus = headerFocus,
         )
 
     private fun computePhotoStackFrame(
         input: PlayerPageLayoutInput,
-        lyricsFocus: Float,
+        headerFocus: Float,
         cover: CoverFrame,
     ): PhotoStackFrame {
         val enabled = input.photoStackMode
         val normalLayerVisible =
             enabled &&
                 !input.lyricsExpanded &&
-                lyricsFocus <= ImmersiveProgressEpsilon
+                !input.queueExpanded &&
+                headerFocus <= ImmersiveProgressEpsilon
         val cardWidth = cover.width
         val cardHeight = cover.height
         val viewport = computePhotoStackViewport(

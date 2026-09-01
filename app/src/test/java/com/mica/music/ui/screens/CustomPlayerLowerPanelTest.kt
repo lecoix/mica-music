@@ -241,4 +241,68 @@ class CustomPlayerLowerPanelTest {
         assertEquals(160f, baseCenter, 0.0001f)
         assertEquals(baseCenter, scaledCenter, 0.0001f)
     }
+
+    @Test
+    fun editChromeOffsetStartsCenteredBelowTopInset() {
+        val offset = customPlayerEditChromeOffset(
+            current = null,
+            dragDelta = Offset.Zero,
+            barWidthPx = 200f,
+            barHeightPx = 80f,
+            parentWidthPx = 1_000f,
+            parentHeightPx = 2_000f,
+            topInsetPx = 100f,
+        )
+
+        assertEquals(400f, offset.x, 0.0001f)
+        assertEquals(100f, offset.y, 0.0001f)
+    }
+
+    @Test
+    fun editChromeOffsetKeepsPositionWhenBarGrowsAfterSelectionChange() {
+        val offset = customPlayerEditChromeOffset(
+            current = Offset(120f, 480f),
+            dragDelta = Offset.Zero,
+            barWidthPx = 200f,
+            barHeightPx = 220f,
+            parentWidthPx = 1_000f,
+            parentHeightPx = 2_000f,
+            topInsetPx = 100f,
+        )
+
+        assertEquals(120f, offset.x, 0.0001f)
+        assertEquals(480f, offset.y, 0.0001f)
+    }
+
+    @Test
+    fun editChromeOffsetClampsOverflowWithoutReturningToTopInset() {
+        val offset = customPlayerEditChromeOffset(
+            current = Offset(0f, 1_800f),
+            dragDelta = Offset.Zero,
+            barWidthPx = 200f,
+            barHeightPx = 400f,
+            parentWidthPx = 1_000f,
+            parentHeightPx = 2_000f,
+            topInsetPx = 100f,
+        )
+
+        assertEquals(0f, offset.x, 0.0001f)
+        assertEquals(1_600f, offset.y, 0.0001f)
+    }
+
+    @Test
+    fun editChromeOffsetAppliesDragThenClampsToParent() {
+        val offset = customPlayerEditChromeOffset(
+            current = Offset(10f, 20f),
+            dragDelta = Offset(-50f, 30f),
+            barWidthPx = 100f,
+            barHeightPx = 50f,
+            parentWidthPx = 400f,
+            parentHeightPx = 800f,
+            topInsetPx = 80f,
+        )
+
+        assertEquals(0f, offset.x, 0.0001f)
+        assertEquals(50f, offset.y, 0.0001f)
+    }
 }

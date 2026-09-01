@@ -111,7 +111,7 @@ val motionEnabled = rememberMicaMotionEnabled()
 | NavHost 子页（设置/播放/详情/EQ） | ✅ | `AppNavigation` | 进入：fade + **上滑**；返回：fade + **下滑**；Medium |
 | 深浅色 / 云母背景 | ✅ | `Theme.kt`、`AnimatedTheme.kt` | 颜色 crossfade Medium |
 | 播放页沉浸（下半屏） | ✅ | `NowPlayingScreen` | 先冻结间距与底栏起止，再 `lerp` + fade Long |
-| 播放页封面 lerp | ✅ | `NowPlayingScreen` | 单一 `lyricsFocus` 驱动多属性 Long |
+| 播放页封面 lerp | ✅ | `NowPlayingScreen` | 单一 `headerFocus`（`max(lyricsProgress, queueProgress)`）驱动多属性 Long |
 | 切歌擦除 | ✅ | `NowPlayingTrackWipe` | `tweenFloat` Medium |
 | 迷你播放器→播放共享封面 | ✅ | `AppNavigation` + `MiniPlayer` + `NowPlayingCoverSection` | 进入/返回用同一封面 overlay lerp；返回与页面下滑同步起跑；特殊封面行为（封面流 / 粒子 / 拍立得）回退普通转场 |
 | 列表→播放共享元素 | ⏳ | — | 待做；目标：列表项封面作为来源，来源不可见时回退迷你播放器或普通转场 |

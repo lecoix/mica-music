@@ -134,4 +134,16 @@ class PlayerLowerLayoutConfigTest {
         assertEquals(true, config.isControlVisible(PlayerControlButton.PLAY_PAUSE))
         assertEquals(emptySet<PlayerControlButton>(), config.hiddenControls)
     }
+
+    @Test
+    fun coverTapAndShadowDefaultOff() {
+        val config = PlayerLowerLayoutConfig.Default
+            .withCoverTapPlayPause(true)
+            .withCoverShadow(true)
+            .withCoverTapPlayPause(false)
+            .normalized()
+
+        assertEquals(false, config.coverTapPlayPause)
+        assertEquals(true, config.coverShadow)
+    }
 }

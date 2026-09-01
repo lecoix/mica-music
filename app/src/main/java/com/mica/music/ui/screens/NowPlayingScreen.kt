@@ -278,7 +278,12 @@ fun NowPlayingContent(
             firstVisibleItemScrollOffset = 0,
         )
     }
-    val playerOverlayOpen = queueSheetOpen ||
+    val openPlaybackQueue = {
+        customLayoutEditing = false
+        lyricsExpanded = false
+        queueSheetOpen = true
+    }
+    val playerOverlayOpen = (queueSheetOpen && isLandscapeWindow) ||
         actionMenuSong != null ||
         addToPlaylistSong != null ||
         sleepTimerSheetOpen ||
@@ -305,6 +310,16 @@ fun NowPlayingContent(
             lyricsOffsetSheetOpen = false
         }
         previousLandscapeWindow = isLandscapeWindow
+    }
+
+    LaunchedEffect(queueSheetOpen) {
+        if (queueSheetOpen) {
+            lyricsExpanded = false
+            customLayoutEditing = false
+        }
+    }
+    LaunchedEffect(lyricsExpanded) {
+        if (lyricsExpanded) queueSheetOpen = false
     }
 
     LaunchedEffect(uiSettings.customPlayerLowerLayout, customLayoutEditing) {
@@ -527,9 +542,14 @@ fun NowPlayingContent(
         logBackFlow("back-consume source=now-playing-lyrics song=${song.id}")
         lyricsExpanded = false
     }
+    BackHandler(enabled = queueSheetOpen) {
+        logBackFlow("back-consume source=now-playing-queue song=${song.id}")
+        queueSheetOpen = false
+    }
     BackHandler(
         enabled = handleBackToClose &&
             !lyricsExpanded &&
+            !queueSheetOpen &&
             !landscapeCoverFlowImmersive &&
             !customLayoutEditing,
     ) {
@@ -546,7 +566,7 @@ fun NowPlayingContent(
             modifier = Modifier
                 .fillMaxSize()
                 .photoStackLyricsSwipe(
-                    enabled = photoStackLyricsEnabled && !playerOverlayOpen,
+                    enabled = photoStackLyricsEnabled && !playerOverlayOpen && !queueSheetOpen,
                     transition = photoStackLyricsTransition,
                     onSettled = { lyricsExpanded = it },
                 )
@@ -631,16 +651,22 @@ fun NowPlayingContent(
                     !landscapeMode &&
                     hasTimedPageLyrics
             val letterLyricsRequested = lyricsExpanded && letterLyricsAvailable
+            val coverDrivenDarkStatusBarIcons = playerStatusBarUsesDarkIcons(
+                coverColor = Color(song.coverColorArgb),
+                lowerBackground = lowerBackground,
+                darkTheme = darkTheme,
+            )
+            val delayedCoverDrivenDarkStatusBarIcons =
+                rememberTrackTransitionStatusBarIcons(
+                    targetValue = coverDrivenDarkStatusBarIcons,
+                    delayForTrackTransition = motionEnabled && !letterLyricsRequested,
+                )
             StatusBarEffect(
                 hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOnPlayer ||
                     letterLyricsRequested ||
                     landscapeCoverFlowImmersiveActive,
                 darkStatusBarIcons = letterLyricsRequested ||
-                    playerStatusBarUsesDarkIcons(
-                        coverColor = Color(song.coverColorArgb),
-                        lowerBackground = lowerBackground,
-                        darkTheme = darkTheme,
-                    ),
+                    delayedCoverDrivenDarkStatusBarIcons,
                 restoreFromPreferencesOnDispose = true,
             )
 
@@ -754,6 +780,7 @@ fun NowPlayingContent(
                 queueState = queueState,
                 uiSettings = uiSettings,
                 lyricsExpanded = modelLyricsExpanded,
+                queueExpanded = queueSheetOpen && !isLandscapeWindow,
                 screenHeight = screenHeight,
                 screenWidth = playerLayoutWidth,
                 coverAspectRatio = coverAspectRatio,
@@ -762,6 +789,12 @@ fun NowPlayingContent(
                 immersiveAllowed = !landscapeMode,
             ) ?: return@BoxWithConstraints
             val previewFrame = pageModel.frameFor(screenHeight * 0.45f)
+            val stablePlaybackFrame = pageModel.playbackFrameFor(screenHeight * 0.45f)
+            val queueOverlayAlpha by animateFloatAsState(
+                targetValue = if (queueSheetOpen && !isLandscapeWindow) 1f else 0f,
+                animationSpec = MicaMotion.tweenFloat(motionEnabled, MicaMotion.DurationLongMs),
+                label = "queueOverlayAlpha",
+            )
             val landscapeCoverFlowDecodeTargetCandidate = if (
                 landscapeMode &&
                 (effectiveCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
@@ -824,7 +857,11 @@ fun NowPlayingContent(
             )
             val customCoverVisible = effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
                 customLayout.isVisible(PlayerLowerComponent.COVER)
-            val customCoverFrame = if (customCoverVisible && customMetrics.coverTopDp != null) {
+            val customCoverFrame = if (
+                customCoverVisible &&
+                    customMetrics.coverTopDp != null &&
+                    previewFrame.queueProgress <= ImmersiveProgressEpsilon
+            ) {
                 val scale = customMetrics.coverVisualScale
                 previewFrame.cover.copy(
                     width = previewFrame.cover.width * scale,
@@ -963,7 +1000,8 @@ fun NowPlayingContent(
                     coverFlowMode = effectiveCoverFlowMode,
                     videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled &&
                         (!landscapeMode || uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) &&
-                        !lyricsExpanded,
+                        !lyricsExpanded &&
+                        !(queueSheetOpen && !isLandscapeWindow),
                     musicVideoState = surfaceState.videoState,
                     attachMusicVideoOutput = actions.attachMusicVideoOutput,
                     detachMusicVideoOutput = actions.detachMusicVideoOutput,
@@ -971,14 +1009,17 @@ fun NowPlayingContent(
                     particleCoverTuning = uiSettings.particleCoverTuning,
                     lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
                     coverContentAlpha = coverContentAlpha,
+                    coverShadowEnabled = effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
+                        customLayout.coverShadow,
                     onCoverBoundsChanged = onCoverBoundsChanged,
                     onCoverAspectRatioChanged = { coverAspectRatio = it },
                     onCloseLyrics = { lyricsExpanded = false },
+                    onCloseQueue = { queueSheetOpen = false },
                     onCoverClick = when {
                         effectiveCoverFlowMode.usesPhotoStack && effectiveImmersiveLower ->
                             actions.togglePlay
                         effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
-                            uiSettings.customStandardCoverTapPlayPause ->
+                            customLayout.coverTapPlayPause ->
                             actions.togglePlay
                         else -> null
                     },
@@ -999,6 +1040,8 @@ fun NowPlayingContent(
                     coverFlowNavigation = coverFlowNavigation,
                     photoStackNavigation = photoStackNavigation,
                     screenWidth = screenWidth,
+                    standardCoverRequestWidth = stablePlaybackFrame.cover.width,
+                    standardCoverRequestHeight = stablePlaybackFrame.cover.height,
                     stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                     coverDecodeTargetOverride = landscapeCoverFlowDecodeTarget,
                     coverFlowGesturesEnabledOverride = if (
@@ -1124,7 +1167,7 @@ fun NowPlayingContent(
                     onToggleLyricsPageImmersive = {},
                     onOpenEqualizer = onOpenEqualizer,
                     onOpenLyrics = { lyricsExpanded = true },
-                    onOpenQueue = { queueSheetOpen = true },
+                    onOpenQueue = openPlaybackQueue,
                     modifier = lowerModifier,
                 )
                 }
@@ -1191,7 +1234,7 @@ fun NowPlayingContent(
                         actions = actions,
                         contentPadding = contentPadding,
                         onOpenEqualizer = onOpenEqualizer,
-                        onOpenQueue = { queueSheetOpen = true },
+                        onOpenQueue = openPlaybackQueue,
                     )
                 }
             }
@@ -1407,7 +1450,7 @@ fun NowPlayingContent(
                                                         onTogglePlay = actions.togglePlay,
                                                         onNext = onPlayerNext,
                                                         onOpenEqualizer = onOpenEqualizer,
-                                                        onOpenQueue = { queueSheetOpen = true },
+                                                        onOpenQueue = openPlaybackQueue,
                                                         modifier = chromeSharedModifier,
                                                     )
                                                 },
@@ -1506,7 +1549,7 @@ fun NowPlayingContent(
                                                 onPrevious = onPlayerPrevious,
                                                 onTogglePlay = actions.togglePlay,
                                                 onNext = onPlayerNext,
-                                                onOpenQueue = { queueSheetOpen = true },
+                                                onOpenQueue = openPlaybackQueue,
                                                 modifier = controlsModifier.then(chromeSharedModifier),
                                                 visualScale = 0.88f,
                                             )
@@ -1623,7 +1666,7 @@ fun NowPlayingContent(
                                     onPrevious = onPlayerPrevious,
                                     onTogglePlay = actions.togglePlay,
                                     onNext = onPlayerNext,
-                                    onOpenQueue = { queueSheetOpen = true },
+                                    onOpenQueue = openPlaybackQueue,
                                     modifier = controlsModifier.then(barScatter),
                                     visualScale = 0.88f,
                                 )
@@ -1764,7 +1807,7 @@ fun NowPlayingContent(
                                                 onTogglePlay = actions.togglePlay,
                                                 onNext = onPlayerNext,
                                                 onOpenEqualizer = onOpenEqualizer,
-                                                onOpenQueue = { queueSheetOpen = true },
+                                                onOpenQueue = openPlaybackQueue,
                                                 modifier = chromeSharedModifier,
                                             )
                                         },
@@ -1852,7 +1895,11 @@ fun NowPlayingContent(
                     }
                 }
                 }
-            } else if (effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
+            } else if (
+                // ponytail: queue reuses standard cover lerp; custom XY jumps on the first frame
+                effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
+                previewFrame.queueProgress <= ImmersiveProgressEpsilon
+            ) {
                 CustomPlayerPagePanel(
                     config = customLayout,
                     coverBaseHeightDp = previewFrame.cover.blockHeight.value,
@@ -1892,7 +1939,7 @@ fun NowPlayingContent(
                     onTogglePlay = actions.togglePlay,
                     onNext = onPlayerNext,
                     onOpenLyrics = { lyricsExpanded = true },
-                    onOpenQueue = { queueSheetOpen = true },
+                    onOpenQueue = openPlaybackQueue,
                     isEditing = customLayoutEditing,
                     selectedComponent = customLayoutSelectedComponent,
                     onEnterEditMode = {
@@ -1993,7 +2040,7 @@ fun NowPlayingContent(
                             onToggleLyricsPageImmersive = actions.toggleLyricsPageImmersive,
                             onOpenEqualizer = onOpenEqualizer,
                             onOpenLyrics = { lyricsExpanded = true },
-                            onOpenQueue = { queueSheetOpen = true },
+                            onOpenQueue = openPlaybackQueue,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -2070,10 +2117,36 @@ fun NowPlayingContent(
                             onNext = onPlayerNext,
                             onToggleLyricsPageImmersive = actions.toggleLyricsPageImmersive,
                             onOpenEqualizer = onOpenEqualizer,
-                            onOpenQueue = { queueSheetOpen = true },
+                            onOpenQueue = openPlaybackQueue,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
+                }
+            }
+
+            if (!isLandscapeWindow && queueOverlayAlpha > 0.01f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding)
+                        .padding(
+                            top = previewFrame.cover.blockHeight,
+                            bottom = previewFrame.lower.chromeHeight,
+                        )
+                        .graphicsLayer { alpha = queueOverlayAlpha },
+                ) {
+                    PlaybackQueueSheet(
+                        queue = queueState.queue,
+                        currentIndex = queueState.currentIndex,
+                        isPlaying = surfaceState.isPlaying,
+                        onDismiss = { queueSheetOpen = false },
+                        onPlayAt = actions.playQueueIndex,
+                        onMove = actions.moveQueueItem,
+                        onRemove = actions.removeQueueItem,
+                        landscape = false,
+                        listState = queueListState,
+                        embedded = true,
+                    )
                 }
             }
 
@@ -2091,7 +2164,7 @@ fun NowPlayingContent(
                 ),
         )
 
-        if (queueSheetOpen) {
+        if (queueSheetOpen && isLandscapeWindow) {
             key(isLandscapeWindow) {
                 PlaybackQueueSheet(
                     queue = queueState.queue,
@@ -2101,7 +2174,7 @@ fun NowPlayingContent(
                     onPlayAt = actions.playQueueIndex,
                     onMove = actions.moveQueueItem,
                     onRemove = actions.removeQueueItem,
-                    landscape = isLandscapeWindow,
+                    landscape = true,
                     listState = queueListState,
                 )
             }
@@ -2236,4 +2309,22 @@ private fun playerStatusBarUsesDarkIcons(
 ): Boolean {
     if (lowerBackground == PlayerLowerBackgroundMode.THEME) return !darkTheme
     return coverColor.relativeLuminance() > 0.35f
+}
+
+@Composable
+private fun rememberTrackTransitionStatusBarIcons(
+    targetValue: Boolean,
+    delayForTrackTransition: Boolean,
+): Boolean {
+    if (!delayForTrackTransition) return targetValue
+
+    var delayedValue by remember { mutableStateOf(targetValue) }
+    LaunchedEffect(targetValue) {
+        if (delayedValue != targetValue) {
+            // Keep WindowManager relayout outside the 320 ms track wipe's critical frames.
+            delay(MicaMotion.DurationMediumMs.toLong())
+            delayedValue = targetValue
+        }
+    }
+    return delayedValue
 }

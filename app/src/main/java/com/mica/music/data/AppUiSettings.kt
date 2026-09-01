@@ -81,11 +81,6 @@ class AppUiSettings(context: Context) {
     var customPlayerLowerLayout by mutableStateOf(PlaybackUiPreferences.customPlayerLowerLayout(appContext))
         private set
 
-    var customStandardCoverTapPlayPause by mutableStateOf(
-        PlaybackUiPreferences.customStandardCoverTapPlayPause(appContext),
-    )
-        private set
-
     var particleCoverTuning by mutableStateOf(PlaybackUiPreferences.particleCoverTuning(appContext))
         private set
 
@@ -454,11 +449,6 @@ class AppUiSettings(context: Context) {
     fun updateCustomPlayerLowerLayout(config: PlayerLowerLayoutConfig) {
         customPlayerLowerLayout = config.normalized()
         PlaybackUiPreferences.setCustomPlayerLowerLayout(appContext, customPlayerLowerLayout)
-    }
-
-    fun updateCustomStandardCoverTapPlayPause(enabled: Boolean) {
-        customStandardCoverTapPlayPause = enabled
-        PlaybackUiPreferences.setCustomStandardCoverTapPlayPause(appContext, enabled)
     }
 
     fun updateParticleCoverTuning(tuning: ParticleCoverTuning) {

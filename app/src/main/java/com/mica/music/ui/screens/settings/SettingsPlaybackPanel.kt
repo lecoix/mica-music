@@ -123,18 +123,12 @@ internal fun PlaybackSettingsPanel(
         SettingsActionRow(
             title = "进入播放页布局编辑",
             subtitle = if (canOpenCustomPlayerLayoutEditor) {
-                "拖动组件、双指缩放或设置组件显隐"
+                "拖动、缩放、显隐；选中封面可设阴影和点击播放"
             } else {
                 "请先播放一首歌曲"
             },
             enabled = canOpenCustomPlayerLayoutEditor,
             onClick = onOpenCustomPlayerLayoutEditor,
-        )
-        SettingsToggleRow(
-            title = "点击封面暂停/播放",
-            subtitle = "仅在自定义标准主题生效；不影响左右滑动切歌与长按菜单",
-            checked = uiSettings.customStandardCoverTapPlayPause,
-            onCheckedChange = uiSettings::updateCustomStandardCoverTapPlayPause,
         )
     }
 
