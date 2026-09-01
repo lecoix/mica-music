@@ -56,6 +56,7 @@
 | [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md) | Exo PCM **改造计划**（**§0 摘要、§18 Gate/验收**；P1 过渡态；P2–P6） |
 | [`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md) | Exo PCM 链路**讨论记录**（背景与机制分析；结论已并入 REFACTOR） |
 | [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) | 当前音频实施范围：实际 ReplayGain 系数的事实来源、兼容契约与测试计划 |
+| [`VOCAL_SEPARATION_RESEARCH.md`](VOCAL_SEPARATION_RESEARCH.md) | 本地人声分离调研（**暂不实施**）：基建盘点、端上模型体积与许可证边界、参考实现架构拆解、音质影响与成本估算 |
 | [`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md) | 远期 USB 独占采用 USB Host 独立 output adapter 的架构决策 |
 | [`adr/0002-library-snapshot-publication.md`](adr/0002-library-snapshot-publication.md) | 完整曲库 snapshot 的 generation / revision / Room 发布顺序契约 |
 | [`adr/0003-lyrics-timing-offset.md`](adr/0003-lyrics-timing-offset.md) | 全局 + 单曲歌词偏移的语义、持久化、并发与容量契约 |
@@ -148,3 +149,4 @@
 | 2026-08-29 | 同步当前工作树：Room v21、ARMv7/arm64 ABI 发布边界、本地音乐 MV、设置文案和真机未验收范围；重写损坏编码的 `CURRENT_FEATURE_STATUS.md` |
 | 2026-08-30 | EQ 页重做为 `EqualizerCurveEditor`（曲线即推子）：更新 `DESIGN_SPEC` §十四/§15.4、`MOTION` §六 EQ 拖动行，`TESTING` 增加 `EqualizerCurveEditorInputTest` 回归与曲线拖动/大字号真机验收项 |
 | 2026-08-30 | 音效实验室（宽度/音色/混响/360° 环绕，默认关，仅 Shared PCM）：`CONTEXT` 词汇与音质许可、`DESIGN_SPEC` §十四/§15.4、`SETTINGS_AUDIT_MATRIX`、`TESTING` JVM/真机项、`TODO` |
+| 2026-09-01 | 新增 `VOCAL_SEPARATION_RESEARCH.md`：端上人声分离调研结论为暂不实施；记录可复用基建、开源模型许可证边界（Demucs 权重非 MIT）、实时链路对 USB 独占/offload 的结构性冲突与未验证事项 |
