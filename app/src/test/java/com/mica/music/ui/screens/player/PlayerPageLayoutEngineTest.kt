@@ -96,6 +96,134 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun lerpCoverFrame_movesFromCustomSlotToLyricsHeader() {
+        val from = CoverFrame(
+            width = 220.dp,
+            height = 220.dp,
+            startPadding = 48.dp,
+            topPadding = 160.dp,
+            blockHeight = 160.dp + 220.dp,
+            particleInfoTopPadding = 0.dp,
+            letterboxAlpha = 0f,
+            zoneStop = 0.4f,
+        )
+        val to = CoverFrame(
+            width = LyricsFocusMiniCoverSize,
+            height = LyricsFocusMiniCoverSize,
+            startPadding = LyricsFocusCoverStartPadding,
+            topPadding = 24.dp,
+            blockHeight = 24.dp + LyricsFocusMiniCoverSize + 8.dp,
+            particleInfoTopPadding = 0.dp,
+            letterboxAlpha = 0f,
+            zoneStop = 0.12f,
+        )
+
+        assertEquals(from, lerpCoverFrame(from, to, 0f))
+        assertEquals(to, lerpCoverFrame(from, to, 1f))
+        val mid = lerpCoverFrame(from, to, 0.5f)
+        assertEquals((from.width + to.width) / 2f, mid.width)
+        assertEquals(mid.width, mid.height)
+        assertEquals((from.startPadding + to.startPadding) / 2f, mid.startPadding)
+        assertEquals((from.topPadding + to.topPadding) / 2f, mid.topPadding)
+    }
+
+    @Test
+    fun customQueueCoverFrameAtRest_blockHeightIncludesTopOffset() {
+        val rest = CoverFrame(
+            width = 400.dp,
+            height = 400.dp,
+            startPadding = 0.dp,
+            topPadding = 0.dp,
+            blockHeight = 400.dp,
+            particleInfoTopPadding = 0.dp,
+            letterboxAlpha = 0f,
+            zoneStop = 0.5f,
+        )
+        val frame = customQueueCoverFrameAtRest(
+            restCover = rest,
+            visualScale = 0.5f,
+            coverTop = 160.dp,
+            extraStartPadding = 80.dp,
+            panelHeight = 800.dp,
+        )
+
+        assertEquals(200.dp, frame.width)
+        assertEquals(200.dp, frame.height)
+        assertEquals(160.dp, frame.topPadding)
+        assertEquals(360.dp, frame.blockHeight)
+        assertTrue(frame.blockHeight >= frame.topPadding + frame.height)
+    }
+
+    @Test
+    fun customQueueCoverFrameInSlot_keepsArtworkSizeAndDropsPanelTop() {
+        val panel = customQueueCoverFrameAtRest(
+            restCover = CoverFrame(
+                width = 400.dp,
+                height = 400.dp,
+                startPadding = 0.dp,
+                topPadding = 0.dp,
+                blockHeight = 400.dp,
+                particleInfoTopPadding = 0.dp,
+                letterboxAlpha = 0f,
+                zoneStop = 0.5f,
+            ),
+            visualScale = 0.5f,
+            coverTop = 160.dp,
+            extraStartPadding = 80.dp,
+            panelHeight = 800.dp,
+        )
+        val slot = customQueueCoverFrameInSlot(panel)
+
+        assertEquals(panel.width, slot.width)
+        assertEquals(panel.height, slot.height)
+        assertEquals(0.dp, slot.topPadding)
+        assertEquals(panel.height, slot.blockHeight)
+        assertEquals(panel.startPadding, slot.startPadding)
+    }
+
+    @Test
+    fun coverOrigin_splitsNegativeInsetIntoOffset() {
+        assertEquals(24.dp, coverOriginPadding(24.dp))
+        assertEquals(0.dp, coverOriginOffset(24.dp))
+        assertEquals(0.dp, coverOriginPadding(0.dp))
+        assertEquals(0.dp, coverOriginOffset(0.dp))
+        assertEquals(0.dp, coverOriginPadding((-80).dp))
+        assertEquals((-80).dp, coverOriginOffset((-80).dp))
+    }
+
+    @Test
+    fun customQueueCoverFrameAtRest_keepsNegativeOriginForOversizedOrShiftedCover() {
+        val rest = CoverFrame(
+            width = 400.dp,
+            height = 400.dp,
+            startPadding = 0.dp,
+            topPadding = 0.dp,
+            blockHeight = 400.dp,
+            particleInfoTopPadding = 0.dp,
+            letterboxAlpha = 0f,
+            zoneStop = 0.5f,
+        )
+        val fullWidth = 400.dp
+        val scale = 2f
+        val extraStart = fullWidth * (1f - scale) / 2f + fullWidth * (-200) / 1_000f
+        val frame = customQueueCoverFrameAtRest(
+            restCover = rest,
+            visualScale = scale,
+            coverTop = (-40).dp,
+            extraStartPadding = extraStart,
+            panelHeight = 800.dp,
+        )
+
+        assertEquals((-280).dp, extraStart)
+        assertEquals((-280).dp, frame.startPadding)
+        assertEquals((-40).dp, frame.topPadding)
+        assertEquals(0.dp, coverOriginPadding(frame.startPadding))
+        assertEquals((-280).dp, coverOriginOffset(frame.startPadding))
+        assertEquals(0.dp, coverOriginPadding(frame.topPadding))
+        assertEquals((-40).dp, coverOriginOffset(frame.topPadding))
+    }
+
+    @Test
     fun particleCover_followsCoverEdgeSettingRegardlessOfBackground() {
         assertEquals(
             true,

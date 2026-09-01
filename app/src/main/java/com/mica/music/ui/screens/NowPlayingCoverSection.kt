@@ -70,6 +70,7 @@ import com.mica.music.ui.components.resolveCoverAspectRatioFromUri
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.CoverFlowMath
+import com.mica.music.ui.screens.player.coverOriginPlacement
 import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
 import com.mica.music.ui.screens.player.pinnedVideoCover
 import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
@@ -373,7 +374,7 @@ internal fun NowPlayingCoverSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(coverBoxHeight)
-                        .padding(top = cover.topPadding)
+                        .coverOriginPlacement(top = cover.topPadding)
                         .graphicsLayer {
                             alpha = coverContentAlpha
                             clip = false
@@ -407,7 +408,7 @@ internal fun NowPlayingCoverSection(
                             centerCoverHeight * CoverFlowMath.ReflectionHeightFraction,
                         reflectionGap = HifiSpacing.sm * centerScale,
                         modifier = Modifier
-                            .padding(
+                            .coverOriginPlacement(
                                 start = cover.startPadding + (cover.width - centerCoverWidth) / 2,
                                 top = cover.topPadding + (cover.height - centerCoverHeight) / 2,
                             )
@@ -418,7 +419,7 @@ internal fun NowPlayingCoverSection(
                 if (lyricsExpanded || frame.queueProgress > 0.01f) {
                     Box(
                         modifier = Modifier
-                            .padding(start = cover.startPadding, top = cover.topPadding)
+                            .coverOriginPlacement(start = cover.startPadding, top = cover.topPadding)
                             .size(cover.width, cover.height)
                             .zIndex(2f)
                             .then(
@@ -444,7 +445,7 @@ internal fun NowPlayingCoverSection(
                 val photoStackCardTopPx = with(density) { frame.photoStack.cardTopInset.toPx() }
                 Box(
                     modifier = Modifier
-                        .padding(start = photoStackSlotStart, top = cover.topPadding)
+                        .coverOriginPlacement(start = photoStackSlotStart, top = cover.topPadding)
                         .size(frame.photoStack.slotWidth, frame.photoStack.slotHeight)
                         .graphicsLayer {
                             alpha = coverContentAlpha
@@ -491,7 +492,7 @@ internal fun NowPlayingCoverSection(
             }
             Box(
                 modifier = Modifier
-                    .padding(start = cover.startPadding, top = cover.topPadding)
+                    .coverOriginPlacement(start = cover.startPadding, top = cover.topPadding)
                     .size(cover.width, coverBoxHeight)
                     .graphicsLayer {
                         // Allow wipe layers (+ scrim extend / optional cover halo) to paint past the layout slot.
@@ -964,11 +965,8 @@ private fun LyricsFocusHeaderOverlay(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                top = coverTopPadding,
-                start = coverStartPadding,
-                end = HifiSpacing.lg,
-            )
+            .coverOriginPlacement(start = coverStartPadding, top = coverTopPadding)
+            .padding(end = HifiSpacing.lg)
             .graphicsLayer { alpha = focusAlpha },
         verticalAlignment = Alignment.CenterVertically,
     ) {
