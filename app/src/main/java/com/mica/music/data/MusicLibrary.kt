@@ -7,10 +7,12 @@ import androidx.compose.runtime.mutableLongStateOf
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.library.MusicLibraryBacking
+import com.mica.music.data.scanner.canPersistCoverColor
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
 import java.util.Locale
@@ -182,6 +184,23 @@ class MusicLibrary internal constructor(
     ) {
         if (backing.released) return
         backing.catalog.applyLoudnessAnalysis(songId, analysis, notifyQueueMetadata)
+    }
+
+    fun applyCoverColorArgb(songId: String, albumArtUri: String?, argb: Int) {
+        if (backing.released) return
+        backing.catalog.applyCoverColorArgb(songId, albumArtUri, argb)
+        persistCoverColorAsync(songId, albumArtUri, argb)
+    }
+
+    private fun persistCoverColorAsync(songId: String, albumArtUri: String?, argb: Int) {
+        backing.ioScope.launch {
+            backing.storeSyncMutex.withLock {
+                if (backing.released) return@withLock
+                val current = backing.songById(songId)
+                if (!canPersistCoverColor(current, songId, albumArtUri, argb)) return@withLock
+                backing.libraryStore.updateCoverColorArgb(songId, argb)
+            }
+        }
     }
 
     fun notifyLoudnessScanCompleted() {

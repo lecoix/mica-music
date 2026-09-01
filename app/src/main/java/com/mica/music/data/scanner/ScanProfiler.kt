@@ -153,6 +153,7 @@ internal fun TrackDraft.reusableCachedSong(
     if (forceRefreshLyrics) return miss("force-lyrics")
     if (forceRefreshArtwork && cached.hasRefreshableArtwork(context)) return miss("force-artwork")
     if (!AlbumArtCache.hasReadableCachedArt(context, cached)) return miss("art-cache-unreadable")
+    if (cached.needsPersistedCoverColorRepair()) return miss("cover-color-missing")
     if (requireDeepMetadata && !cached.hasDeepMetadata()) return miss("deep-metadata-missing")
     if (
         requireDeepMetadata &&

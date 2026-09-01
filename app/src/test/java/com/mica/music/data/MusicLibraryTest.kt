@@ -6,6 +6,7 @@ import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibrarySyncResult
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.preferences.PreferencesTestFixtures
+import com.mica.music.data.scanner.CoverColorExtractor
 import com.mica.music.data.scanner.ScanResult
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.CompletableDeferred
@@ -688,6 +689,41 @@ class MusicLibraryTest {
         library.release()
     }
 
+    @Test
+    fun coverColorRepairWritesFallbackArtworkSongAndSkipsUsableColor() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        val fallback = SongFixtures.song("cached").copy(
+            albumArtUri = "file:///cover.jpg",
+            coverColorArgb = CoverColorExtractor.FALLBACK_ARGB,
+        )
+        val store = FakeLibraryStore(
+            cached = CachedLibrary(
+                songs = listOf(fallback),
+                lastScanAtMs = 100,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+            ),
+        )
+        val library = library(ControlledScanner(), store)
+        library.loadCachedLibrary(StartupBrowseTarget.NONE)
+        runCurrent()
+
+        val extracted = 0xFFB13B66.toInt()
+        library.applyCoverColorArgb(fallback.id, fallback.albumArtUri, extracted)
+        runCurrent()
+
+        assertEquals(extracted, library.songById(fallback.id)?.coverColorArgb)
+        assertEquals(listOf(fallback.id to extracted), store.coverColorWrites)
+
+        library.applyCoverColorArgb(fallback.id, fallback.albumArtUri, 0xFF111111.toInt())
+        runCurrent()
+
+        assertEquals(extracted, library.songById(fallback.id)?.coverColorArgb)
+        assertEquals(listOf(fallback.id to extracted), store.coverColorWrites)
+        library.release()
+    }
+
     private fun kotlinx.coroutines.test.TestScope.library(
         scanner: ControlledScanner,
         store: LibraryStore,
@@ -756,6 +792,7 @@ class MusicLibraryTest {
         var updatedAlbumSortDirection: SortDirection? = null
         var persistedAlbumTitles: List<String> = cached?.albumGroups?.map(BrowseGroup::title).orEmpty()
         var updatedAlbumTitles: List<String> = emptyList()
+        val coverColorWrites = mutableListOf<Pair<String, Int>>()
         val browseGroupUpdateStarted = CompletableDeferred<Unit>()
         var browseGroupUpdateGate: CompletableDeferred<Unit>? = null
 
@@ -819,6 +856,10 @@ class MusicLibraryTest {
             presentationSongIds = songIds
             presentationSortField = sortField
             presentationSortDirection = sortDirection
+        }
+
+        override suspend fun updateCoverColorArgb(songId: String, coverColorArgb: Int) {
+            coverColorWrites += songId to coverColorArgb
         }
 
         override suspend fun updateBrowseGroups(

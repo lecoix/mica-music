@@ -359,6 +359,10 @@ class LibraryRepository internal constructor(
         )
     }
 
+    suspend fun updateCoverColorArgb(songId: String, coverColorArgb: Int) {
+        songDao.updateCoverColorArgb(songId, coverColorArgb)
+    }
+
     suspend fun updatePresentation(
         songIds: List<String>,
         sortField: SongSortField,

@@ -218,6 +218,48 @@ class ScanProfilerTest {
     }
 
     @Test
+    fun reusableCachedSongRejectsFallbackWhenArtworkUriIsPresent() {
+        val draft = draft()
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(
+            albumArtUri = "file:///cover.jpg",
+            mediaUri = draft.mediaUri,
+            sizeBytes = draft.sizeBytes,
+            dateModifiedMs = draft.dateModifiedMs,
+            coverColorArgb = CoverColorExtractor.FALLBACK_ARGB,
+        )
+
+        var missReason: String? = null
+        assertNull(
+            draft.reusableCachedSong(
+                context = ApplicationProvider.getApplicationContext(),
+                cachedById = mapOf(cached.id to cached),
+                onReuseMiss = { missReason = it },
+            ),
+        )
+        assertEquals("cover-color-missing", missReason)
+    }
+
+    @Test
+    fun reusableCachedSongKeepsFallbackWhenSongHasNoArtwork() {
+        val draft = draft()
+        val cached = SongFixtures.song(id = draft.scanSongId()).copy(
+            albumArtUri = null,
+            mediaUri = draft.mediaUri,
+            sizeBytes = draft.sizeBytes,
+            dateModifiedMs = draft.dateModifiedMs,
+            coverColorArgb = CoverColorExtractor.FALLBACK_ARGB,
+        )
+
+        assertEquals(
+            cached,
+            draft.reusableCachedSong(
+                context = ApplicationProvider.getApplicationContext(),
+                cachedById = mapOf(cached.id to cached),
+            ),
+        )
+    }
+
+    @Test
     fun scanPerfSummaryIncludesCacheReuseMissReasons() {
         val profiler = ScanProfiler("test")
         profiler.recordReuseMiss("embedded-lyrics-unread")

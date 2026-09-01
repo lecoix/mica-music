@@ -121,6 +121,8 @@ internal interface LibraryStore {
         fastScrollSectionTargets: Map<String, Int>?,
     ) = Unit
 
+    suspend fun updateCoverColorArgb(songId: String, coverColorArgb: Int) = Unit
+
     suspend fun updateBrowseGroups(
         artistGroups: List<BrowseGroup>,
         albumGroups: List<BrowseGroup>,
@@ -319,6 +321,9 @@ internal class RoomLibraryStore(
         sortDirection,
         fastScrollSectionTargets,
     )
+
+    override suspend fun updateCoverColorArgb(songId: String, coverColorArgb: Int) =
+        repository.updateCoverColorArgb(songId, coverColorArgb)
 
     override suspend fun updateBrowseGroups(
         artistGroups: List<BrowseGroup>,

@@ -87,6 +87,9 @@ interface SongDao {
         analyzerRevision: Int,
     )
 
+    @Query("UPDATE songs SET coverColorArgb = :coverColorArgb WHERE id = :songId")
+    suspend fun updateCoverColorArgb(songId: String, coverColorArgb: Int)
+
     @Transaction
     suspend fun updateQueueOrders(songIds: List<String>) {
         songIds.forEachIndexed { index, songId -> updateQueueOrder(songId, index) }

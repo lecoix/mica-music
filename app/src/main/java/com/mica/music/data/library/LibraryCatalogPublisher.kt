@@ -10,6 +10,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongChangeDiagnostics
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
+import com.mica.music.data.scanner.canPersistCoverColor
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
@@ -197,6 +198,25 @@ internal class LibraryCatalogPublisher(
                     backing.replaceSongAt(visibleIndex, updatedScanned)
                 }
             }
+        }
+    }
+
+    fun applyCoverColorArgb(
+        songId: String,
+        albumArtUri: String?,
+        argb: Int,
+    ) {
+        val scannedIndex = scannedSongs.indexOfFirst { it.id == songId }
+        if (scannedIndex < 0) return
+        val current = scannedSongs[scannedIndex]
+        if (current.coverColorArgb == argb) return
+        if (!canPersistCoverColor(current, songId, albumArtUri, argb)) return
+        val updated = current.copy(coverColorArgb = argb)
+        scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updated }
+        val visibleIndex = backing.songs.indexOfFirst { it.id == songId }
+        if (visibleIndex >= 0) {
+            backing.catalogRevision++
+            backing.replaceSongAt(visibleIndex, updated)
         }
     }
 
