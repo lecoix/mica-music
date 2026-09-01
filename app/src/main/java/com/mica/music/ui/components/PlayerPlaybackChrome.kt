@@ -86,7 +86,8 @@ internal fun PlayerProgressBarSection(
 ) {
     val spectrumProgress = spectrumAlpha.coerceIn(0f, 1f)
     val showSpectrum = spectrumEnabled && spectrumProgress > 0.01f
-    Column(modifier = modifier.fillMaxWidth()) {
+    // Width can only shrink: scale>1 already fills the padded slot.
+    Column(modifier = modifier.fillMaxWidth(visualScale.coerceIn(0f, 1f))) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -109,6 +110,7 @@ internal fun PlayerProgressBarSection(
                 onValueChangeFinished = seekState.onValueChangeFinished,
                 valueRange = seekState.valueRange,
                 colors = colors,
+                visualScale = visualScale,
             )
         }
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -138,7 +140,7 @@ internal fun PlayerProgressBarSection(
 }
 
 /**
- * HiFiSeekBar 的实际轨道位于 32dp 触控区中心。
+ * HiFiSeekBar 的实际轨道位于 32dp×visualScale 触控区中心。
  * 频谱可越界覆盖上方歌词，但底边必须精确落在该轨道基线上。
  */
 private fun Modifier.alignSpectrumBottomToTrack(): Modifier = layout { measurable, constraints ->

@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.ui.theme.PlayerContentColors
 
@@ -27,7 +28,8 @@ fun HiFiSeekBar(
     valueRange: ClosedFloatingPointRange<Float>,
     colors: PlayerContentColors,
     modifier: Modifier = Modifier,
-    trackHeight: androidx.compose.ui.unit.Dp = 3.dp,
+    trackHeight: Dp = 3.dp,
+    visualScale: Float = 1f,
 ) {
     val min = valueRange.start
     val max = valueRange.endInclusive.coerceAtLeast(min + 1f)
@@ -44,7 +46,7 @@ fun HiFiSeekBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(32.dp)
+            .height(32.dp * visualScale)
             .onSizeChanged { barWidthPx = it.width.toFloat() }
             .pointerInput(min, max) {
                 detectTapGestures { offset ->
@@ -66,13 +68,13 @@ fun HiFiSeekBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(trackHeight)
+                .height(trackHeight * visualScale)
                 .background(colors.tertiary.copy(alpha = 0.3f)),
         )
         Box(
             modifier = Modifier
                 .fillMaxWidth(fraction)
-                .height(trackHeight)
+                .height(trackHeight * visualScale)
                 .background(colors.primary),
         )
     }
