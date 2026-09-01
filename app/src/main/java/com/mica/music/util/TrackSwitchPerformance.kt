@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.os.Trace
 import android.view.Choreographer
+import com.mica.music.BuildConfig
 import java.util.Locale
 import kotlin.math.max
 
@@ -13,7 +14,7 @@ object TrackSwitchPerformance {
     private const val CAPTURE_DURATION_MS = 1_500L
     private const val EXPECTED_FRAME_NS = 16_666_667L
     private const val SPIKE_LOG_THRESHOLD_NS = 24_000_000L
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy(LazyThreadSafetyMode.NONE) { Handler(Looper.getMainLooper()) }
 
     data class VisualContext(
         val coverFlowMode: String = "STANDARD",
@@ -36,14 +37,25 @@ object TrackSwitchPerformance {
     private var capture: Capture? = null
 
     fun updateVisualContext(ctx: VisualContext) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         visualContext = ctx
     }
 
     fun armTrigger(trigger: String) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE && !BuildConfig.COVER_REQUEST_PROBE) return
         pendingTrigger = trigger
     }
 
     fun begin(fromIndex: Int, toIndex: Int, songId: String, queueSize: Int = visualContext.queueSize) {
+        if (BuildConfig.COVER_REQUEST_PROBE) {
+            com.mica.music.imaging.CoverRequestProbe.mark(
+                "switch=$fromIndex->$toIndex trigger=$pendingTrigger",
+            )
+        }
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) {
+            pendingTrigger = "unknown"
+            return
+        }
         runOnMain {
             finish("superseded")
             startCapture(
@@ -56,6 +68,7 @@ object TrackSwitchPerformance {
 
     /** 封面流手势按下：若尚无采集窗口则开启，便于记录拖动期 draw/anim/host 指标。 */
     fun beginCoverFlowWindow(index: Int, queueSize: Int) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         runOnMain {
             if (capture != null) return@runOnMain
             startCapture(
@@ -67,6 +80,7 @@ object TrackSwitchPerformance {
     }
 
     fun mark(stage: String, details: String = "") {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         runOnMain {
             val item = capture ?: return@runOnMain
             if (shouldSkipDuplicateMark(stage, details)) return@runOnMain
@@ -87,6 +101,7 @@ object TrackSwitchPerformance {
         laneCount: Int,
         reflection: Boolean,
     ) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         val item = capture ?: return
         item.drawCount++
         item.drawTotalNs += durationNs
@@ -100,6 +115,7 @@ object TrackSwitchPerformance {
     }
 
     fun recordCoverAnimatorFrame(intervalNs: Long) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         val item = capture ?: return
         if (intervalNs <= 0L) return
         item.animatorIntervals++
@@ -120,6 +136,7 @@ object TrackSwitchPerformance {
     }
 
     fun recordCoverHostUpdate(durationNs: Long, queueSize: Int = 0) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         val item = capture ?: return
         item.hostUpdateCount++
         item.hostUpdateTotalNs += durationNs
@@ -128,6 +145,7 @@ object TrackSwitchPerformance {
     }
 
     fun recordCoverQueueCompare(durationNs: Long, queueSize: Int, skippedBySameRef: Boolean) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         val item = capture ?: return
         item.queueCompareCount++
         item.queueCompareTotalNs += durationNs
@@ -148,12 +166,14 @@ object TrackSwitchPerformance {
     }
 
     fun recordCoverInvalidate(reason: String) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         val item = capture ?: return
         item.invalidateCounts[reason] = (item.invalidateCounts[reason] ?: 0) + 1
         item.lastInvalidateReason = reason
     }
 
     fun coverAsyncStarted(kind: String) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         runOnMain {
             val item = capture ?: return@runOnMain
             item.activeAsyncWork++
@@ -162,6 +182,7 @@ object TrackSwitchPerformance {
     }
 
     fun coverAsyncFinished(kind: String, durationNs: Long, cacheHit: Boolean) {
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         runOnMain {
             val item = capture ?: return@runOnMain
             item.activeAsyncWork = (item.activeAsyncWork - 1).coerceAtLeast(0)

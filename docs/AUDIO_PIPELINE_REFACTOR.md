@@ -1671,7 +1671,9 @@ Gate 3 P2 → 与 Gate 2 独立；24-bit 仍单开
 
 > **范围**：只 probe + log；**不改** `enableFloatOutput`、Processor 链、AudioTrack 交付。
 
-**触发**：切歌 / seek-existing / AUTO 切歌 / kill restore 时，对 Supported 曲目打一条 `PcmDeliveryProbe`（**release + debug** 均有）。
+**现行默认（2026-09-01）**：关闭自动 PCM delivery probe。Android 12 真机确认它在切歌主线程同步构造/释放多个 AudioTrack，单次约 57–130ms；结果只用于日志，不参与实际输出决策。所有构建默认 `BuildConfig.PCM_DELIVERY_PROBE=false`，仅显式使用 `-Pmica.pcmDeliveryProbe=true` 构建诊断包时重新启用。实际音频能力判断、renderer、DSP 与 AudioTrack 交付均不改变。
+
+**启用后的触发**：切歌 / seek-existing / AUTO 切歌 / kill restore 时，对 Supported 曲目打一条 `PcmDeliveryProbe`（原先 release + debug 均默认执行；现已关闭）。
 
 **日志 tag**：`PcmDeliveryProbe`
 

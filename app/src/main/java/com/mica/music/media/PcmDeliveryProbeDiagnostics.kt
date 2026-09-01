@@ -2,12 +2,13 @@ package com.mica.music.media
 
 import android.content.Context
 import androidx.media3.common.PlaybackParameters
+import com.mica.music.BuildConfig
 import com.mica.music.data.Song
 import com.mica.music.data.preferences.EqualizerPreferences
 import com.mica.music.data.preferences.SoundFxPreferences
 import com.mica.music.util.DiagnosticLog
 
-/** Gate 3-0: logs delivery probe results (release + debug). */
+/** Gate 3-0: opt-in hardware diagnostics; never an input to playback output policy. */
 internal object PcmDeliveryProbeDiagnostics {
 
     fun logForSong(
@@ -15,6 +16,8 @@ internal object PcmDeliveryProbeDiagnostics {
         song: Song,
         playbackParameters: PlaybackParameters = PlaybackParameters.DEFAULT,
     ) {
+        // Covers manual/automatic switches and service restore before any device query or track creation.
+        if (!BuildConfig.PCM_DELIVERY_PROBE) return
         val result = PcmDeliveryProbe.probe(
             context = context.applicationContext,
             song = song,

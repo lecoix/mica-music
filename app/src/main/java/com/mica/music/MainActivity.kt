@@ -330,20 +330,33 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
             SideEffect {
                 val lp = overlayCompose.layoutParams as FrameLayout.LayoutParams
-                if (overlayFullScreen) {
-                    lp.width = ViewGroup.LayoutParams.MATCH_PARENT
-                    lp.height = ViewGroup.LayoutParams.MATCH_PARENT
-                    lp.gravity = Gravity.NO_GRAVITY
+                val desiredHeight = if (overlayFullScreen) {
+                    ViewGroup.LayoutParams.MATCH_PARENT
                 } else {
-                    lp.width = ViewGroup.LayoutParams.MATCH_PARENT
-                    lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                    lp.gravity = Gravity.BOTTOM
+                    ViewGroup.LayoutParams.WRAP_CONTENT
                 }
-                overlayCompose.layoutParams = lp
-                mainCompose.importantForAccessibility = if (overlayFullScreen) {
+                val desiredGravity = if (overlayFullScreen) {
+                    Gravity.NO_GRAVITY
+                } else {
+                    Gravity.BOTTOM
+                }
+                if (
+                    lp.width != ViewGroup.LayoutParams.MATCH_PARENT ||
+                    lp.height != desiredHeight ||
+                    lp.gravity != desiredGravity
+                ) {
+                    lp.width = ViewGroup.LayoutParams.MATCH_PARENT
+                    lp.height = desiredHeight
+                    lp.gravity = desiredGravity
+                    overlayCompose.layoutParams = lp
+                }
+                val desiredAccessibility = if (overlayFullScreen) {
                     View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                 } else {
                     View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                }
+                if (mainCompose.importantForAccessibility != desiredAccessibility) {
+                    mainCompose.importantForAccessibility = desiredAccessibility
                 }
                 WallpaperBarSliceDiagnostics.logOverlayLayout(
                     fullScreen = overlayFullScreen,
