@@ -753,11 +753,35 @@ class PlayerPageLayoutEngineTest {
         )
 
         assertTrue(frame.particleCover.enabled)
-        assertEquals(false, frame.particleCover.normalLayerVisible)
+        assertTrue(frame.particleCover.normalLayerVisible)
         assertEquals(false, frame.particleCover.lyricsBackgroundVisible)
         assertEquals(LyricsFocusMiniCoverSize, frame.cover.width)
+        assertEquals(LyricsFocusMiniCoverSize, frame.cover.height)
         assertEquals(PlayerPageScene.Queue, frame.scene)
         assertTrue(frame.cover.blockHeight > 24.dp)
+    }
+
+    @Test
+    fun particleCoverQueueLayout_keepsGlesSlotMidTransition() {
+        val rest = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(particleCoverMode = true),
+            density = density,
+            typography = typography,
+        )
+        val mid = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                particleCoverMode = true,
+                queueProgress = 0.5f,
+                queueExpanded = false,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(mid.particleCover.normalLayerVisible)
+        assertEquals(false, mid.particleCover.lyricsBackgroundVisible)
+        assertTrue(mid.cover.width < rest.cover.width)
+        assertTrue(mid.cover.width > LyricsFocusMiniCoverSize)
     }
 
     @Test
@@ -818,6 +842,61 @@ class PlayerPageLayoutEngineTest {
                 normal.cover.topPadding,
         )
         assertEquals(0.dp, immersive.lower.photoStackTitleToControlsGap)
+    }
+
+    @Test
+    fun photoStackQueue_keepsPolaroidSlotInsteadOfMiniCover() {
+        val rest = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(photoStackMode = true, useCoverEdgeProgress = true),
+            density = density,
+            typography = typography,
+        )
+        val queue = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+                queueProgress = 1f,
+                queueExpanded = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(queue.photoStack.normalLayerVisible)
+        assertEquals(rest.photoStack.cardWidth, queue.photoStack.cardWidth)
+        assertEquals(rest.photoStack.cardHeight, queue.photoStack.cardHeight)
+        assertEquals(rest.cover.width, queue.cover.width)
+        assertEquals(rest.cover.topPadding, queue.cover.topPadding)
+        assertTrue(queue.photoStack.cardWidth > LyricsFocusMiniCoverSize)
+        assertTrue(queue.cover.blockHeight < rest.cover.blockHeight)
+        assertEquals(0f, queue.lower.metaAlpha, 0.001f)
+        assertEquals(0.dp, queue.lower.chromeHeight)
+        assertEquals(PlayerPageScene.Queue, queue.scene)
+    }
+
+    @Test
+    fun photoStackQueue_keepsPolaroidSlotMidTransition() {
+        val rest = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(photoStackMode = true, useCoverEdgeProgress = true),
+            density = density,
+            typography = typography,
+        )
+        val mid = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+                queueProgress = 0.5f,
+                queueExpanded = false,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertTrue(mid.photoStack.normalLayerVisible)
+        assertEquals(rest.photoStack.cardWidth, mid.photoStack.cardWidth)
+        assertEquals(rest.cover.height, mid.cover.height)
+        assertTrue(mid.cover.blockHeight < rest.cover.blockHeight)
+        assertTrue(mid.cover.blockHeight > LyricsFocusMiniCoverSize)
     }
 
     @Test

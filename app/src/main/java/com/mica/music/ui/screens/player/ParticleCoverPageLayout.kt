@@ -81,15 +81,13 @@ internal object ParticleCoverPageLayout {
         val enabled = input.particleCoverMode
         val queueOpen =
             input.queueExpanded || input.queueProgress > ImmersiveProgressEpsilon
+        val lyricsBackgroundVisible = enabled &&
+            !queueOpen &&
+            (input.lyricsExpanded || headerFocus > ImmersiveProgressEpsilon)
         return ParticleCoverFrame(
             enabled = enabled,
-            normalLayerVisible = enabled &&
-                !input.lyricsExpanded &&
-                !queueOpen &&
-                headerFocus <= ImmersiveProgressEpsilon,
-            lyricsBackgroundVisible = enabled &&
-                !queueOpen &&
-                (input.lyricsExpanded || headerFocus > ImmersiveProgressEpsilon),
+            normalLayerVisible = enabled && !lyricsBackgroundVisible,
+            lyricsBackgroundVisible = lyricsBackgroundVisible,
             hostBaseSize = input.screenWidth,
         )
     }

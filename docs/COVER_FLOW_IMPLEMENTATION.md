@@ -466,7 +466,7 @@ flowchart TB
 
 `PhotoStackFrame` 明确区分 **slot viewport** 与 **card 本体**：`slotWidth/Height` 可以大于 `cardWidth/Height`，`cardTopInset` 决定卡片在 viewport 内的 y 偏移。AndroidView 必须按 slot 尺寸挂载，否则 `clip=false` 也无法让 View 自己 bounds 外的阴影/后卡真正显示。`artworkInset*`、`waveformHeight`（24dp）继续按 card 本体计算。
 
-`normalLayerVisible = photoStackMode && !lyricsExpanded && lyricsFocus≈0`；沉浸态仍保持同一 PhotoStack View 常驻。
+`normalLayerVisible = photoStackMode && !lyricsExpanded`；沉浸态与竖屏队列都保持同一 PhotoStack View 常驻。队列期间卡片几何不跟 `headerFocus` 缩到顶栏，Host 原位按 `queueProgress` 淡出；顶栏 overlay 用歌词迷你封面尺寸，小专辑图与歌名/关闭一并淡入，解码目标与队列行相同（`CoverDecodeTarget.forCompactCover()`），走同一 Coil 缓存。`cover.blockHeight` 仍 lerp 到顶栏高度，供队列列表 overlay 上收。
 
 拍立得歌词页保持播放页布局帧稳定；页面级 `PhotoStackLyricsTransitionState` 持有单一跟手 progress，纯函数 `photoStackLyricsTransitionFrame` 决定双页挂载、位移、透明度与输入资格。转场中播放页和歌词页作为 sibling layer 持续挂载，只有到达 `0 / 1` 稳定端点后才卸载完全不可见的一页。播放页整体向左并淡出，歌词页从右侧滑入并淡入；关闭时反向执行。这样不改变拍立得卡片本身的尺寸、旋转、阴影和波形绘制，也不把卡片手势交给歌词页。
 

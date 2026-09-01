@@ -29,7 +29,8 @@
 |----|----------|
 | 切歌 | 约 **900ms** 分阶段分解旧封面 → 过渡粒子 → 新封面聚拢（非简单 crossfade） |
 | 稳态 | 封面可读；边缘持续轻微粒子侵蚀；振幅克制 |
-| 歌词聚焦 | `ParticleCoverPlayerLayer` 随 `lyricsProgress` 调整 cover 几何；歌词背景层与正常层分支见 `ParticleCoverFrame` |
+| 歌词聚焦 | `ParticleCoverPlayerLayer` 随 `lyricsProgress` 把封面铺成歌词背景；`ParticleCoverFrame` 切到 `lyricsBackgroundVisible` |
+| 竖屏队列 | 保持 GLES 正常层，封面槽跟 `headerFocus` 缩到歌词顶栏；**不**切静态 `SongCover`，**不**走歌词铺满 |
 | 标准轻扫切歌 | **不使用** `CoverGestureCoordinator`（`ParticleCoverThemePolicy` 关闭 coverFlow stage） |
 | 播放 / 暂停 | 不改变粒子布局形态；seek 进度可驱动 `playbackDisintegrationProgress` |
 

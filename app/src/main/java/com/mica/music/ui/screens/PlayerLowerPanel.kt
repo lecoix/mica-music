@@ -100,7 +100,8 @@ internal fun PlayerLowerPanelSection(
     val showPlayerInfoRow = playerInfoVisibility.hasAnyEnabledSegment()
 
     if (hideInfoAndLyrics) {
-        val photoStackChromeAlpha = (1f - lower.immersiveProgress).coerceIn(0f, 1f)
+        val photoStackChromeAlpha =
+            ((1f - lower.immersiveProgress) * (1f - lower.queueLayoutFocus)).coerceIn(0f, 1f)
         if (photoStackChromeAlpha > 0.001f) {
             Column(
                 modifier

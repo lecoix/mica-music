@@ -94,6 +94,8 @@ private object ParticleCoverPlayerLayerModel {
     ): ParticleCoverTransform {
         val cover = frame.cover
         val lyricsT = lyricsProgress.coerceIn(0f, 1f)
+        // Queue keeps lyricsT=0 so the quad follows frame.cover to the header slot.
+        // Lyrics uses lyricsT→1 to expand the same host into a full-screen field.
         val coverLeftPx = with(density) {
             (
                 contentPadding.calculateStartPadding(layoutDirection) +

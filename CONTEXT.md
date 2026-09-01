@@ -256,7 +256,7 @@ _Avoid_: mini bar、bottom player、now playing bar
 _Avoid_: bottom sheet、footer
 
 **自定义下半屏布局（custom lower layout）**：
-`CUSTOM_STANDARD` 专属的六组件布局：专辑封面、信息行、歌曲标题、紧凑歌词、进度条、播放控制。`PlayerLowerLayoutConfig` 仍保存顺序、`50%..200%` 缩放、显隐、间距、顶部/底部留白、歌词行数，并新增 `freeformEnabled` 与每组件 `elementOffsets`；配置经 `PlaybackUiPreferences` 持久化，读取后统一规范化。竖屏播放页在组件外空白处长按可进入自由布局编辑，设置 → 播放页 → 自定义标准主题中的“进入播放页布局编辑”也可直接展开播放页并发出一次性编辑请求；编辑态以六个现有组件为最小单位，拖动改变二维位置、双指改变大小；元素栏负责选择与显隐，并可在本次编辑会话内拖动（位置不落盘；换选中项时保持当前位置，不回到顶部）。连续手势只修改页面局部草稿，点击“保存”后才写入 `AppUiSettings.updateCustomPlayerLowerLayout`；取消、系统返回、旋转为横屏或切离 `CUSTOM_STANDARD` 会丢弃草稿，“恢复”只重置草稿且仍需保存。保存/显示时，接近原始横轴或纵轴 5‰ 的偏移吸附为零并显示辅助线，组件中心始终限制在可编辑画布内。编辑态会消费组件手势，避免误触切歌、seek、歌词页、播放按钮或队列。封面继续保留标准封面的点击、长按与横向滑动切歌链路；选中封面时元素栏下方可开关“点击封面暂停/播放”和“专辑图阴影”，均默认关闭，与拖动/缩放共用布局草稿，保存后才持久化。阴影复用浮岛迷你栏的 `FloatingIslandShadowHalo`，只作用于竖屏自定义标准封面。旧独立 key `custom_standard_cover_tap_play_pause` / `custom_standard_cover_shadow` 仅在新布局 key 缺失时回退。横屏不提供自由布局编辑入口。
+`CUSTOM_STANDARD` 专属的六组件布局：专辑封面、信息行、歌曲标题、紧凑歌词、进度条、播放控制。`PlayerLowerLayoutConfig` 仍保存顺序、`50%..200%` 缩放（进度条的 32dp 触控区与轨道厚度一并缩放；小于 100% 时轨道变短，大于 100% 时长度顶满、只加粗）、显隐、间距、顶部/底部留白、歌词行数，并新增 `freeformEnabled` 与每组件 `elementOffsets`；配置经 `PlaybackUiPreferences` 持久化，读取后统一规范化。竖屏播放页在组件外空白处长按可进入自由布局编辑，设置 → 播放页 → 自定义标准主题中的“进入播放页布局编辑”也可直接展开播放页并发出一次性编辑请求；编辑态以六个现有组件为最小单位，拖动改变二维位置、双指改变大小；元素栏负责选择与显隐，并可在本次编辑会话内拖动（位置不落盘；换选中项时保持当前位置，不回到顶部）。连续手势只修改页面局部草稿，点击“保存”后才写入 `AppUiSettings.updateCustomPlayerLowerLayout`；取消、系统返回、旋转为横屏或切离 `CUSTOM_STANDARD` 会丢弃草稿，“恢复”只重置草稿且仍需保存。保存/显示时，接近原始横轴或纵轴 5‰ 的偏移吸附为零并显示辅助线，组件中心始终限制在可编辑画布内。编辑态会消费组件手势，避免误触切歌、seek、歌词页、播放按钮或队列。封面继续保留标准封面的点击、长按与横向滑动切歌链路；选中封面时元素栏下方可开关“点击封面暂停/播放”和“专辑图阴影”，均默认关闭，与拖动/缩放共用布局草稿，保存后才持久化。阴影复用浮岛迷你栏的 `FloatingIslandShadowHalo`，只作用于竖屏自定义标准封面。旧独立 key `custom_standard_cover_tap_play_pause` / `custom_standard_cover_shadow` 仅在新布局 key 缺失时回退。横屏不提供自由布局编辑入口。
 _Avoid_: custom theme（未指封面行为时）、把自由布局编辑理解成无边界/可越过安全画布的任意 XY 画布
 
 **Playback chrome（播放控制区）**：
@@ -275,7 +275,7 @@ _Avoid_: mode、state（与三态 `Playback*State` 混淆时）
 
 **Lyrics focus（歌词聚焦）**：
 从普通播放页过渡到全屏歌词页的连续布局动画进度（`lyricsProgress` / `lyricsFocus`）；驱动封面缩小与底栏几何插值。竖屏队列复用同一套封面顶栏几何，由 `headerFocus = max(lyricsProgress, queueProgress)` 驱动，避免歌词与队列切换时封面回弹。
-`CUSTOM_STANDARD` 不进入该布局变形，而是复用粒子封面进入歌词云的横向整页滑动；播放页保持正常态，歌词目标页预先挂载。自定义标准打开竖屏队列时改走标准封面 lerp。
+`CUSTOM_STANDARD` 不进入该布局变形，而是复用粒子封面进入歌词云的横向整页滑动；播放页保持正常态，歌词目标页预先挂载。自定义标准打开竖屏队列时，封面从当前布局槽插值到歌词顶栏，不切到标准播放页。粒子封面打开竖屏队列时保持 GLES 层，只把封面槽缩到顶栏，不换成静态 `SongCover`，也不走歌词那种铺满全屏。拍立得打开竖屏队列时 Polaroid View 原位淡出（保持倾角与休息态尺寸），不转正、不飞顶栏；顶栏（含独立淡入的小专辑图）与列表另行淡入，标题留在下半屏原位一起淡出。
 _Avoid_: lyrics mode（指布尔 `lyricsExpanded` 时）、歌词页（指动画结束后的稳定态时）
 
 **Lyrics page（歌词页）**：

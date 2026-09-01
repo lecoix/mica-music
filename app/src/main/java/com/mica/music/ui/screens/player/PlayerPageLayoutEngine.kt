@@ -77,7 +77,6 @@ object PlayerPageLayoutEngine {
         )
         val photoStack = computePhotoStackFrame(
             input = input,
-            headerFocus = headerFocus,
             cover = cover,
         )
 
@@ -312,12 +311,14 @@ object PlayerPageLayoutEngine {
                 headerFocus > ImmersiveProgressEpsilon &&
                 input.queueProgress <= ImmersiveProgressEpsilon &&
                 !input.queueExpanded
-        val coverWidth = if (useParticleLyricsLayout) {
+        // 拍立得进队列原位淡出，卡片几何保持休息态；blockHeight 仍 lerp 给列表 overlay。
+        val pinPhotoStackGeometry = input.photoStackMode
+        val coverWidth = if (useParticleLyricsLayout || pinPhotoStackGeometry) {
             expandedCoverWidth
         } else {
             lerpDp(expandedCoverWidth, LyricsFocusMiniCoverSize, headerFocus)
         }
-        val coverHeight = if (useParticleLyricsLayout) {
+        val coverHeight = if (useParticleLyricsLayout || pinPhotoStackGeometry) {
             expandedCoverHeight
         } else {
             lerpDp(expandedCoverHeight, LyricsFocusMiniCoverSize, headerFocus)
@@ -344,7 +345,7 @@ object PlayerPageLayoutEngine {
             PhotoStackVerticalLayout(edgeGap = 0.dp, middleGap = 0.dp)
         }
         val coverTopPadding = when {
-            input.photoStackMode -> lerpDp(photoStackLayout.edgeGap, input.statusBarTop, headerFocus)
+            pinPhotoStackGeometry -> photoStackLayout.edgeGap
             else -> lerpDp(0.dp, input.statusBarTop, headerFocus)
         }
         val expandedCoverStartPadding = if (input.fitOriginal || input.photoStackMode) {
@@ -352,7 +353,7 @@ object PlayerPageLayoutEngine {
         } else {
             0.dp
         }
-        val coverStartPadding = if (useParticleLyricsLayout) {
+        val coverStartPadding = if (useParticleLyricsLayout || pinPhotoStackGeometry) {
             expandedCoverStartPadding
         } else {
             lerpDp(
@@ -412,15 +413,10 @@ object PlayerPageLayoutEngine {
 
     private fun computePhotoStackFrame(
         input: PlayerPageLayoutInput,
-        headerFocus: Float,
         cover: CoverFrame,
     ): PhotoStackFrame {
         val enabled = input.photoStackMode
-        val normalLayerVisible =
-            enabled &&
-                !input.lyricsExpanded &&
-                !input.queueExpanded &&
-                headerFocus <= ImmersiveProgressEpsilon
+        val normalLayerVisible = enabled && !input.lyricsExpanded
         val cardWidth = cover.width
         val cardHeight = cover.height
         val viewport = computePhotoStackViewport(

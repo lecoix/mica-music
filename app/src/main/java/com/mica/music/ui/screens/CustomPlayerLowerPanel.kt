@@ -93,6 +93,7 @@ private data class CustomLyricsVisual(
 internal fun CustomPlayerPagePanel(
     config: PlayerLowerLayoutConfig,
     coverBaseHeightDp: Float,
+    queueProgress: Float = 0f,
     coverContent: @Composable (visualScale: Float) -> Unit,
     surfaceState: PlaybackSurfaceState,
     activeSong: Song,
@@ -181,6 +182,7 @@ internal fun CustomPlayerPagePanel(
             visible = visible,
         )
         val fitScale = metrics.fitScale
+        val pinCoverToPanel = !isEditing
         Layout(
             modifier = Modifier.fillMaxSize(),
             content = {
@@ -202,14 +204,34 @@ internal fun CustomPlayerPagePanel(
                         lyricsLineCount = normalized.lyricsLineCount,
                         coverBaseHeightDp = coverBaseHeightDp,
                     ) * scale
+                    val pinnedCover = component == PlayerLowerComponent.COVER && pinCoverToPanel
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(itemHeightDp.dp),
-                        contentAlignment = Alignment.Center,
+                            .then(
+                                if (pinnedCover) {
+                                    Modifier.fillMaxWidth()
+                                } else {
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(itemHeightDp.dp)
+                                },
+                            )
+                            .zIndex(if (pinnedCover) 1f else 0f)
+                            .graphicsLayer {
+                                if (component != PlayerLowerComponent.COVER) {
+                                    alpha = (1f - queueProgress).coerceIn(0f, 1f)
+                                }
+                            },
+                        contentAlignment = if (pinnedCover) {
+                            Alignment.TopStart
+                        } else {
+                            Alignment.Center
+                        },
                     ) {
                         when (component) {
-                            PlayerLowerComponent.COVER -> coverContent(scale)
+                            PlayerLowerComponent.COVER -> coverContent(
+                                if (pinCoverToPanel) 1f else scale,
+                            )
 
                             PlayerLowerComponent.INFO -> DirectionalTrackWipe(
                                 targetState = activeSong,
@@ -357,10 +379,25 @@ internal fun CustomPlayerPagePanel(
                 0
             }
 
+            val coverSlotHeightPx = with(density) {
+                (
+                    customPlayerBaseHeightDp(
+                        PlayerLowerComponent.COVER,
+                        normalized.lyricsLineCount,
+                        coverBaseHeightDp,
+                    ) * normalized.scalePercentOf(PlayerLowerComponent.COVER) / 100f * fitScale
+                ).dp.roundToPx()
+            }
+
             layout(widthPx, heightPx) {
                 var legacyY = legacyStartY
                 visible.zip(placeables).forEach { (component, placeable) ->
-                    if (normalized.freeformEnabled) {
+                    if (component == PlayerLowerComponent.COVER && pinCoverToPanel) {
+                        placeable.placeRelative(0, 0)
+                        if (!normalized.freeformEnabled) {
+                            legacyY += coverSlotHeightPx + spacingPx
+                        }
+                    } else if (normalized.freeformEnabled) {
                         val baselineCenterPx = with(density) {
                             customPlayerFreeformBaselineCenterDp(
                                 component = component,

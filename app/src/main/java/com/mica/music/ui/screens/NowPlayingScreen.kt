@@ -80,7 +80,6 @@ import com.mica.music.ui.components.MicaSnackbarHost
 import com.mica.music.ui.components.LyricsOffsetSheet
 import com.mica.music.ui.components.PlaybackQueueSheet
 import com.mica.music.ui.components.PlaybackTuningSheet
-import com.mica.music.ui.components.PlayerCoverMaxScreenFraction
 import com.mica.music.ui.components.PlayerPlaybackControlsSection
 import com.mica.music.ui.components.PlayerProgressBarSection
 import com.mica.music.ui.components.SleepTimerSheet
@@ -96,6 +95,9 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
 import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
+import com.mica.music.ui.screens.player.customQueueCoverFrameAtRest
+import com.mica.music.ui.screens.player.customQueueCoverFrameInSlot
+import com.mica.music.ui.screens.player.lerpCoverFrame
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.screens.player.landscapeCoverFlowCloudExitActive
 import com.mica.music.ui.screens.player.landscapeCoverFlowImmersiveEligible
@@ -852,35 +854,35 @@ fun NowPlayingContent(
             ).coerceAtLeast(0.dp)
             val customMetrics = customPlayerLayoutMetrics(
                 panelHeightDp = customPanelHeight.value,
-                coverBaseHeightDp = previewFrame.cover.blockHeight.value,
+                coverBaseHeightDp = stablePlaybackFrame.cover.blockHeight.value,
                 config = customLayout,
             )
             val customCoverVisible = effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
                 customLayout.isVisible(PlayerLowerComponent.COVER)
-            val customCoverFrame = if (
-                customCoverVisible &&
-                    customMetrics.coverTopDp != null &&
-                    previewFrame.queueProgress <= ImmersiveProgressEpsilon
-            ) {
+            val customCoverAtRest = if (customCoverVisible && customMetrics.coverTopDp != null) {
                 val scale = customMetrics.coverVisualScale
-                previewFrame.cover.copy(
-                    width = previewFrame.cover.width * scale,
-                    height = previewFrame.cover.height * scale,
-                    startPadding = fullWidth * (1f - scale) / 2f +
-                        previewFrame.cover.startPadding * scale +
+                customQueueCoverFrameAtRest(
+                    restCover = stablePlaybackFrame.cover,
+                    visualScale = scale,
+                    coverTop = customMetrics.coverTopDp.dp,
+                    extraStartPadding = fullWidth * (1f - scale) / 2f +
                         fullWidth * effectiveCustomPlayerOffset(
                             customLayout.offsetOf(PlayerLowerComponent.COVER),
                         ).xPermille / 1_000f,
-                    topPadding = customMetrics.coverTopDp.dp + previewFrame.cover.topPadding * scale,
-                    blockHeight = previewFrame.cover.blockHeight * scale,
-                    zoneStop = ((customMetrics.coverTopDp + previewFrame.cover.blockHeight.value * scale) /
-                        customPanelHeight.value.coerceAtLeast(1f)).coerceIn(
-                        0.12f,
-                        PlayerCoverMaxScreenFraction,
-                    ),
+                    panelHeight = customPanelHeight,
                 )
             } else {
+                null
+            }
+            val pinCustomCover = customCoverAtRest != null && !customLayoutEditing
+            val customCoverFrame = if (customCoverAtRest == null) {
                 previewFrame.cover
+            } else {
+                lerpCoverFrame(
+                    from = customCoverAtRest,
+                    to = pageModel.lyricsFrameFor(screenHeight * 0.45f).cover,
+                    t = previewFrame.queueProgress,
+                )
             }
 
             val backgroundZoneStop = if (fullHeight.value > 0f) {
@@ -977,6 +979,11 @@ fun NowPlayingContent(
                     currentIndex = pageModel.currentIndex,
                     frame = if (coverFlowProgressOverride == null) {
                         previewFrame.copy(
+                            cover = when {
+                                pinCustomCover -> customCoverFrame
+                                customCoverAtRest != null -> customQueueCoverFrameInSlot(customCoverAtRest)
+                                else -> previewFrame.cover
+                            },
                             gesturesEnabled = previewFrame.gesturesEnabled &&
                                 photoStackLyricsFrame.playbackInputEnabled,
                         )
@@ -1895,23 +1902,14 @@ fun NowPlayingContent(
                     }
                 }
                 }
-            } else if (
-                // ponytail: queue reuses standard cover lerp; custom XY jumps on the first frame
-                effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
-                previewFrame.queueProgress <= ImmersiveProgressEpsilon
-            ) {
+            } else if (effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
                 CustomPlayerPagePanel(
                     config = customLayout,
-                    coverBaseHeightDp = previewFrame.cover.blockHeight.value,
-                    coverContent = { visualScale ->
+                    coverBaseHeightDp = stablePlaybackFrame.cover.blockHeight.value,
+                    queueProgress = previewFrame.queueProgress,
+                    coverContent = { _ ->
                         coverSection(
-                            Modifier
-                                .requiredHeight(previewFrame.cover.blockHeight)
-                                .graphicsLayer {
-                                    scaleX = visualScale
-                                    scaleY = visualScale
-                                }
-                                .then(externalCoverIncomingWipe),
+                            Modifier.then(externalCoverIncomingWipe),
                             null,
                             null,
                         )
@@ -2130,7 +2128,11 @@ fun NowPlayingContent(
                         .fillMaxSize()
                         .padding(contentPadding)
                         .padding(
-                            top = previewFrame.cover.blockHeight,
+                            top = if (customCoverAtRest != null) {
+                                customCoverFrame.blockHeight
+                            } else {
+                                previewFrame.cover.blockHeight
+                            },
                             bottom = previewFrame.lower.chromeHeight,
                         )
                         .graphicsLayer { alpha = queueOverlayAlpha },

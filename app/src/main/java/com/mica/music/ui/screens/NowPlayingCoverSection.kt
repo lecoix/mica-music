@@ -59,6 +59,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
 import com.mica.music.data.TrackSkipDirection
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.R
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.StandardCoverRequestSpec
 import com.mica.music.ui.components.CoverEdgeProgressBar
@@ -75,6 +76,8 @@ import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
 import com.mica.music.ui.screens.player.pinnedVideoCover
 import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
 import com.mica.music.ui.screens.player.PlayerPageFrame
+import com.mica.music.ui.screens.player.LyricsFocusCoverStartPadding
+import com.mica.music.ui.screens.player.LyricsFocusMiniCoverSize
 import com.mica.music.ui.screens.player.PlayerPageLayoutEngine
 import com.mica.music.ui.screens.player.UseNativeParticleCoverInPlayer
 import com.mica.music.ui.screens.player.playerHeaderFocus
@@ -308,13 +311,22 @@ internal fun NowPlayingCoverSection(
         1f
     }
     CompositionLocalProvider(LocalCoverDisplayMode provides effectiveCoverDisplayMode) {
+        val photoStackRestBlockHeight = if (frame.photoStack.normalLayerVisible) {
+            frame.photoStack.slotHeight + cover.topPadding +
+                frame.lower.photoStackTitleToControlsGap
+        } else {
+            cover.blockHeight
+        }
         Box(
             modifier
-                .height(cover.blockHeight)
+                .height(photoStackRestBlockHeight)
                 .fillMaxWidth()
                 .graphicsLayer {
                     // Scrim / reflection / optional cover halo may paint past the layout box.
-                    clip = !coverArtworkScrim && !coverFlowReflection && !coverShadowEnabled
+                    clip = !coverArtworkScrim &&
+                        !coverFlowReflection &&
+                        !coverShadowEnabled &&
+                        !frame.photoStack.normalLayerVisible
                 }
                 .then(
                     if (coverFlowReflection) {
@@ -326,7 +338,7 @@ internal fun NowPlayingCoverSection(
                 ),
             contentAlignment = Alignment.TopStart,
         ) {
-            if (particleFrame.normalLayerVisible) {
+                    if (particleFrame.normalLayerVisible) {
                 SongTitleSection(
                     title = displayTitle,
                     artist = song.artist,
@@ -338,7 +350,10 @@ internal fun NowPlayingCoverSection(
                     modifier = Modifier
                         .padding(top = frame.cover.particleInfoTopPadding)
                         .fillMaxWidth()
-                        .graphicsLayer { alpha = coverContentAlpha },
+                        .graphicsLayer {
+                            alpha = coverContentAlpha *
+                                (1f - frame.queueProgress.coerceIn(0f, 1f))
+                        },
                     onLongPress = onCoverLongPress,
                 )
             }
@@ -448,7 +463,8 @@ internal fun NowPlayingCoverSection(
                         .coverOriginPlacement(start = photoStackSlotStart, top = cover.topPadding)
                         .size(frame.photoStack.slotWidth, frame.photoStack.slotHeight)
                         .graphicsLayer {
-                            alpha = coverContentAlpha
+                            alpha = coverContentAlpha *
+                                (1f - frame.queueProgress.coerceIn(0f, 1f))
                             clip = false
                         }
                         .onGloballyPositioned { coords ->
@@ -550,7 +566,7 @@ internal fun NowPlayingCoverSection(
                             modifier = Modifier.size(cover.width, cover.height),
                         )
                     }
-                    if (particleFrame.enabled && frame.queueProgress <= ImmersiveProgressEpsilon) {
+                    if (particleFrame.enabled) {
                         if (!useNativeParticleCover && particleNormalLayerVisible) {
                             val halo = cover.width * ThreeParticleCoverHaloFraction
                             ThreeParticleCoverHost(
@@ -798,16 +814,35 @@ internal fun NowPlayingCoverSection(
                     (!particleFrame.enabled && !coverFlowMode.usesPhotoStack)
                 )
             if (showFocusHeader) {
+                val photoStackQueueHeader =
+                    coverFlowMode.usesPhotoStack && frame.queueProgress > 0.01f
                 LyricsFocusHeaderOverlay(
                     title = displayTitle,
                     artist = song.artist,
-                    coverWidth = cover.width,
-                    coverHeight = cover.height,
-                    coverStartPadding = cover.startPadding,
-                    coverTopPadding = cover.topPadding,
+                    coverWidth = if (photoStackQueueHeader) {
+                        LyricsFocusMiniCoverSize
+                    } else {
+                        cover.width
+                    },
+                    coverHeight = if (photoStackQueueHeader) {
+                        LyricsFocusMiniCoverSize
+                    } else {
+                        cover.height
+                    },
+                    coverStartPadding = if (photoStackQueueHeader) {
+                        LyricsFocusCoverStartPadding
+                    } else {
+                        cover.startPadding
+                    },
+                    coverTopPadding = if (photoStackQueueHeader) {
+                        cover.particleInfoTopPadding - HifiSpacing.lg
+                    } else {
+                        cover.topPadding
+                    },
                     colors = contentColors,
                     focusAlpha = headerFocus,
                     onCloseLyrics = closeFocusedHeader,
+                    headerCoverSong = if (photoStackQueueHeader) song else null,
                 )
             }
         }
@@ -961,6 +996,7 @@ private fun LyricsFocusHeaderOverlay(
     colors: PlayerContentColors,
     focusAlpha: Float,
     onCloseLyrics: () -> Unit,
+    headerCoverSong: Song? = null,
 ) {
     Row(
         modifier = Modifier
@@ -970,7 +1006,25 @@ private fun LyricsFocusHeaderOverlay(
             .graphicsLayer { alpha = focusAlpha },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Spacer(Modifier.size(coverWidth, coverHeight))
+        if (headerCoverSong != null) {
+            CompositionLocalProvider(LocalCoverDisplayMode provides CoverDisplayMode.CROP_FILL) {
+                SongCover(
+                    albumArtUri = headerCoverSong.albumArtUri,
+                    fallbackColor = Color(headerCoverSong.coverColorArgb),
+                    modifier = Modifier
+                        .size(coverWidth, coverHeight)
+                        .clickable(onClick = onCloseLyrics),
+                    contentDescription = null,
+                    noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
+                    decodeTarget = CoverDecodeTarget.forCompactCover(),
+                    crossfadeMillis = 0,
+                    publishHoldoverOnSuccess = false,
+                    allowPreviousImageUnderlay = false,
+                )
+            }
+        } else {
+            Spacer(Modifier.size(coverWidth, coverHeight))
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
