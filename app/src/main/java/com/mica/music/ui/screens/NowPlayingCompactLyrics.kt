@@ -47,6 +47,7 @@ internal fun LyricsSection(
     modifier: Modifier = Modifier,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     contentScale: Float = 1f,
+    textAlign: TextAlign = TextAlign.Center,
 ) {
     val lyrics = renderState.lyrics
     val positionMs = renderState.positionMs
@@ -78,7 +79,7 @@ internal fun LyricsSection(
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    !lyrics.hasDisplayableLyrics() -> EmptyCompactLyrics(colors, textStyle)
+                    !lyrics.hasDisplayableLyrics() -> EmptyCompactLyrics(colors, textStyle, textAlign)
                     else -> CompactLyricsRows(
                         lyrics = lyrics,
                         partsForIndex = { lineIndex ->
@@ -94,6 +95,7 @@ internal fun LyricsSection(
                         positionRevision = renderState.positionRevision,
                         isPlaying = isPlaying,
                         bilingualDisplayMode = bilingualDisplayMode,
+                        textAlign = textAlign,
                     )
                 }
             }
@@ -105,12 +107,13 @@ internal fun LyricsSection(
 private fun EmptyCompactLyrics(
     colors: PlayerContentColors,
     textStyle: TextStyle,
+    textAlign: TextAlign,
 ) {
     Text(
         text = EmptyLyricsText,
         style = textStyle,
         color = colors.tertiary,
-        textAlign = TextAlign.Center,
+        textAlign = textAlign,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = HifiSpacing.lg),
@@ -131,6 +134,7 @@ private fun CompactLyricsRows(
     positionRevision: Long,
     isPlaying: Boolean,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
+    textAlign: TextAlign,
 ) {
     val safeTargetIndex = targetIndex.coerceIn(0, lyrics.lastIndex.coerceAtLeast(0))
     PlayerLyricsIndexRoll(
@@ -153,12 +157,13 @@ private fun CompactLyricsRows(
                 positionRevision = positionRevision,
                 isPlaying = isPlaying,
                 bilingualDisplayMode = bilingualDisplayMode,
+                textAlign = textAlign,
             )
             displayIndex < 0 -> Text(
                 text = lyrics.firstOrNull()?.text ?: EmptyLyricsText,
                 style = textStyle,
                 color = colors.tertiary,
-                textAlign = TextAlign.Center,
+                textAlign = textAlign,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
@@ -174,6 +179,7 @@ private fun CompactLyricsRows(
                 positionRevision = positionRevision,
                 isPlaying = isPlaying,
                 bilingualDisplayMode = bilingualDisplayMode,
+                textAlign = textAlign,
             )
         }
     }
@@ -191,6 +197,7 @@ private fun CompactSingleLyricLine(
     positionRevision: Long,
     isPlaying: Boolean,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
+    textAlign: TextAlign,
 ) {
     val lineText = when {
         displayIndex in lyrics.indices -> lyrics[displayIndex].text
@@ -208,6 +215,7 @@ private fun CompactSingleLyricLine(
         positionRevision = positionRevision,
         isPlaying = isPlaying,
         bilingualDisplayMode = bilingualDisplayMode,
+        textAlign = textAlign,
         parts = partsForIndex(displayIndex),
     )
 }
@@ -224,6 +232,7 @@ private fun CompactThreeLyricLines(
     positionRevision: Long,
     isPlaying: Boolean,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
+    textAlign: TextAlign,
 ) {
     val safeIndex = safeLyricDisplayIndex(lyrics.size, displayIndex) ?: return
     LyricLineBlock(
@@ -238,6 +247,7 @@ private fun CompactThreeLyricLines(
         positionRevision = positionRevision,
         isPlaying = false,
         bilingualDisplayMode = bilingualDisplayMode,
+        textAlign = textAlign,
         parts = partsForIndex(safeIndex - 1),
     )
     LyricLineBlock(
@@ -252,6 +262,7 @@ private fun CompactThreeLyricLines(
         positionRevision = positionRevision,
         isPlaying = isPlaying,
         bilingualDisplayMode = bilingualDisplayMode,
+        textAlign = textAlign,
         parts = partsForIndex(safeIndex),
     )
     LyricLineBlock(
@@ -266,6 +277,7 @@ private fun CompactThreeLyricLines(
         positionRevision = positionRevision,
         isPlaying = false,
         bilingualDisplayMode = bilingualDisplayMode,
+        textAlign = textAlign,
         parts = partsForIndex(safeIndex + 1),
     )
 }

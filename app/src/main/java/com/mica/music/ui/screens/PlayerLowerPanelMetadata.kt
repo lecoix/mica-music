@@ -113,6 +113,8 @@ internal fun SongTitleSection(
     showAlbum: Boolean = true,
     modifier: Modifier = Modifier,
     contentScale: Float = 1f,
+    titleTextAlign: TextAlign = TextAlign.Center,
+    subtitleTextAlign: TextAlign = TextAlign.Center,
     onLongPress: (() -> Unit)? = null,
     onLongPressLabel: String? = null,
     onClick: (() -> Unit)? = null,
@@ -163,6 +165,7 @@ internal fun SongTitleSection(
             style = titleStyle,
             color = colors.primary,
             lineHeight = titleLineHeight,
+            textAlign = titleTextAlign,
         )
         Box(Modifier.fillMaxWidth()) {
             Text(
@@ -174,7 +177,7 @@ internal fun SongTitleSection(
                     )
                 },
                 color = subtitleColor,
-                textAlign = TextAlign.Center,
+                textAlign = subtitleTextAlign,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
@@ -190,7 +193,7 @@ internal fun SongTitleSection(
                     )
                 },
                 color = subtitleColor,
-                textAlign = TextAlign.Center,
+                textAlign = subtitleTextAlign,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier

@@ -76,4 +76,62 @@ class PlayerLowerLayoutConfigTest {
         assertEquals(PlayerLowerElementOffset.Zero, config.offsetOf(PlayerLowerComponent.INFO))
         assertFalse(config.elementOffsets.containsKey(PlayerLowerComponent.INFO))
     }
+
+    @Test
+    fun textAlignDefaultsToCenterAndIsNotStored() {
+        val config = PlayerLowerLayoutConfig.Default
+            .withTextAlign(PlayerLowerTextTarget.TITLE, PlayerLowerTextAlign.START)
+            .withTextAlign(PlayerLowerTextTarget.SUBTITLE, PlayerLowerTextAlign.CENTER)
+            .normalized()
+
+        assertEquals(PlayerLowerTextAlign.START, config.textAlignOf(PlayerLowerTextTarget.TITLE))
+        assertEquals(PlayerLowerTextAlign.CENTER, config.textAlignOf(PlayerLowerTextTarget.SUBTITLE))
+        assertFalse(config.textAligns.containsKey(PlayerLowerTextTarget.SUBTITLE))
+        assertEquals(PlayerLowerTextAlign.CENTER, config.textAlignOf(PlayerLowerTextTarget.LYRICS))
+    }
+
+    @Test
+    fun titleAndSubtitleAlignAreIndependent() {
+        val config = PlayerLowerLayoutConfig.Default
+            .withTextAlign(PlayerLowerTextTarget.TITLE, PlayerLowerTextAlign.START)
+            .withTextAlign(PlayerLowerTextTarget.SUBTITLE, PlayerLowerTextAlign.END)
+
+        assertEquals(PlayerLowerTextAlign.START, config.textAlignOf(PlayerLowerTextTarget.TITLE))
+        assertEquals(PlayerLowerTextAlign.END, config.textAlignOf(PlayerLowerTextTarget.SUBTITLE))
+    }
+
+    @Test
+    fun defaultShowsEveryControlButtonAndHidingIsPerButton() {
+        val config = PlayerLowerLayoutConfig.Default
+
+        PlayerControlButton.entries.forEach { button ->
+            assertEquals(true, config.isControlVisible(button))
+        }
+
+        val hidden = config
+            .withControlVisibility(PlayerControlButton.QUEUE_MODE, false)
+            .withControlVisibility(PlayerControlButton.QUEUE, false)
+            .normalized()
+
+        assertFalse(hidden.isControlVisible(PlayerControlButton.QUEUE_MODE))
+        assertFalse(hidden.isControlVisible(PlayerControlButton.QUEUE))
+        assertEquals(true, hidden.isControlVisible(PlayerControlButton.PREVIOUS))
+        assertEquals(true, hidden.isControlVisible(PlayerControlButton.PLAY_PAUSE))
+        assertEquals(true, hidden.isControlVisible(PlayerControlButton.NEXT))
+        assertEquals(
+            setOf(PlayerControlButton.QUEUE_MODE, PlayerControlButton.QUEUE),
+            hidden.hiddenControls,
+        )
+    }
+
+    @Test
+    fun hidingThenShowingAControlButtonRestoresIt() {
+        val config = PlayerLowerLayoutConfig.Default
+            .withControlVisibility(PlayerControlButton.PLAY_PAUSE, false)
+            .withControlVisibility(PlayerControlButton.PLAY_PAUSE, true)
+            .normalized()
+
+        assertEquals(true, config.isControlVisible(PlayerControlButton.PLAY_PAUSE))
+        assertEquals(emptySet<PlayerControlButton>(), config.hiddenControls)
+    }
 }

@@ -8,12 +8,15 @@ import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.ParticleCoverTuning
+import com.mica.music.data.PlayerControlButton
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.PlayerLowerTextAlign
+import com.mica.music.data.PlayerLowerTextTarget
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 
@@ -40,6 +43,8 @@ object PlaybackUiPreferences {
     private const val KEY_CUSTOM_PLAYER_LOWER_LYRICS_LINES = "custom_player_lower_lyrics_lines"
     private const val KEY_CUSTOM_PLAYER_LOWER_OFFSETS = "custom_player_lower_offsets"
     private const val KEY_CUSTOM_PLAYER_LOWER_FREEFORM = "custom_player_lower_freeform"
+    private const val KEY_CUSTOM_PLAYER_LOWER_TEXT_ALIGNS = "custom_player_lower_text_aligns"
+    private const val KEY_CUSTOM_PLAYER_LOWER_HIDDEN_CONTROLS = "custom_player_lower_hidden_controls"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -261,6 +266,20 @@ object PlaybackUiPreferences {
             }
             ?.toMap()
             .orEmpty()
+        val textAligns = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_TEXT_ALIGNS, null)
+            ?.split(',')
+            ?.mapNotNull { encoded ->
+                val parts = encoded.split(':', limit = 2)
+                val target = parts.getOrNull(0)?.let(PlayerLowerTextTarget::fromStorage)
+                val align = parts.getOrNull(1)?.let(PlayerLowerTextAlign::fromStorage)
+                if (target != null && align != null) target to align else null
+            }
+            ?.toMap()
+            .orEmpty()
+        val hiddenControls = prefs.getStringSet(KEY_CUSTOM_PLAYER_LOWER_HIDDEN_CONTROLS, emptySet())
+            .orEmpty()
+            .mapNotNull(PlayerControlButton::fromStorage)
+            .toSet()
         return PlayerLowerLayoutConfig(
             order = order,
             hidden = hidden,
@@ -283,6 +302,8 @@ object PlaybackUiPreferences {
             ),
             elementOffsets = elementOffsets,
             freeformEnabled = prefs.getBoolean(KEY_CUSTOM_PLAYER_LOWER_FREEFORM, false),
+            textAligns = textAligns,
+            hiddenControls = hiddenControls,
         ).normalized()
     }
 
@@ -314,6 +335,16 @@ object PlaybackUiPreferences {
                 },
             )
             .putBoolean(KEY_CUSTOM_PLAYER_LOWER_FREEFORM, normalized.freeformEnabled)
+            .putString(
+                KEY_CUSTOM_PLAYER_LOWER_TEXT_ALIGNS,
+                normalized.textAligns.entries.joinToString(",") { (target, align) ->
+                    "${target.storageValue}:${align.storageValue}"
+                },
+            )
+            .putStringSet(
+                KEY_CUSTOM_PLAYER_LOWER_HIDDEN_CONTROLS,
+                normalized.hiddenControls.mapTo(mutableSetOf()) { it.storageValue },
+            )
             .apply()
     }
 

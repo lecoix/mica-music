@@ -50,7 +50,7 @@
 | 视频专辑封面 | `PlaybackUiPreferences` / `video_album_cover_enabled` | 扫描预取和播放页视频封面；播放页说明限定标准主题/特定页面条件 | `CONDITIONAL` | 仅在支持视频封面的主题下显示；需设备和文件样本验收 |
 | 音乐 MV | `PlaybackUiPreferences` / `music_video_enabled` | Service 队列项有效策略 + 标准播放页 Surface；默认关闭，当前曲不重建，下一首不同歌曲生效 | `CONDITIONAL` | 音乐唯一出声；MP4 永久 video-only；真机音画与各输出路径待验收 |
 | 点击封面暂停/播放 | `PlaybackUiPreferences` / `custom_standard_cover_tap_play_pause` | 仅 `CUSTOM_STANDARD` 生效 | `CONDITIONAL` | 留在“自定义标准主题”详情，不放公共播放页 |
-| 自定义播放页下半区布局 | `PlaybackUiPreferences` / `custom_player_lower_*` | 仅 `CUSTOM_STANDARD`；`PlayerLowerLayoutConfig` 保存顺序、显隐、缩放、间距、边界、歌词行数以及 `freeformEnabled` / 每组件二维 offset。设置页只保留“进入播放页布局编辑”入口；竖屏播放页空白处长按也可进入编辑，连续手势先写局部草稿，保存后才持久化 | `CONDITIONAL` | 保留播放页内自由布局编辑器；横屏不提供编辑入口，不再把旧的顺序/边界/大小控制散落为普通设置行 |
+| 自定义播放页下半区布局 | `PlaybackUiPreferences` / `custom_player_lower_*` | 仅 `CUSTOM_STANDARD`；`PlayerLowerLayoutConfig` 保存顺序、显隐、缩放、间距、边界、歌词行数、`freeformEnabled` / 每组件二维 offset，以及 `custom_player_lower_text_aligns`（歌名/副标题/紧凑歌词各自的靠左·居中·靠右）与 `custom_player_lower_hidden_controls`（播放控制五键逐个显隐）。设置页只保留“进入播放页布局编辑”入口；竖屏播放页空白处长按也可进入编辑，连续手势与上下文控件先写局部草稿，保存后才持久化 | `CONDITIONAL` | 保留播放页内自由布局编辑器；横屏不提供编辑入口，不再把旧的顺序/边界/大小控制散落为普通设置行。两个新 key 缺失即视为“全部居中 + 五键全显”，因此无迁移逻辑，其他主题不读这两项 |
 | 封面底边进度 | `PlaybackUiPreferences` / `cover_edge_progress` | `SettingsPlaybackPanel` 先按主题/背景 capability 判断；`CUSTOM_STANDARD`、拍立得及标准主题无效背景组合不显示该入口，支持的特殊主题继续使用各自覆盖规则 | `CONDITIONAL` | capability 隐藏已落地；后续只需保持主题契约与 UI 条件同步 |
 | 播放时屏幕常亮 | `PlaybackUiPreferences` / `keep_screen_on_when_playing` | 播放页打开且正在播放时生效 | `ACTIVE` | 保留 |
 | 下半屏沉浸 | `PlaybackUiPreferences` / `player_immersive_lower` | 设置入口直接按 `playerCoverFlowMode.supportsImmersiveLower` 条件显示，运行时 `PlayerPageState` 继续做 capability 防线 | `CONDITIONAL` | 无效主题入口已隐藏；继续保持 UI capability 与运行时判断双重一致 |

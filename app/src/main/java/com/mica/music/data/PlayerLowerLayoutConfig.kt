@@ -18,6 +18,57 @@ enum class PlayerLowerComponent(
     }
 }
 
+/** 自定义标准主题里可以独立设置横向对齐的文字位置。 */
+enum class PlayerLowerTextTarget(
+    val storageValue: String,
+    val settingsLabel: String,
+) {
+    TITLE("title", "歌名"),
+    SUBTITLE("subtitle", "副标题"),
+    LYRICS("lyrics", "紧凑歌词"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String): PlayerLowerTextTarget? =
+            entries.firstOrNull { it.storageValue == value }
+    }
+}
+
+enum class PlayerLowerTextAlign(
+    val storageValue: String,
+    val settingsLabel: String,
+) {
+    START("start", "靠左"),
+    CENTER("center", "居中"),
+    END("end", "靠右"),
+    ;
+
+    companion object {
+        val Default = CENTER
+
+        fun fromStorage(value: String): PlayerLowerTextAlign? =
+            entries.firstOrNull { it.storageValue == value }
+    }
+}
+
+/** 播放控制区的五个按钮，自定义标准主题下可逐个显隐。 */
+enum class PlayerControlButton(
+    val storageValue: String,
+    val settingsLabel: String,
+) {
+    QUEUE_MODE("queue_mode", "播放模式"),
+    PREVIOUS("previous", "上一首"),
+    PLAY_PAUSE("play_pause", "播放/暂停"),
+    NEXT("next", "下一首"),
+    QUEUE("queue", "播放列表"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String): PlayerControlButton? =
+            entries.firstOrNull { it.storageValue == value }
+    }
+}
+
 data class PlayerLowerElementOffset(
     val xPermille: Int = 0,
     val yPermille: Int = 0,
@@ -44,6 +95,8 @@ data class PlayerLowerLayoutConfig(
     val lyricsLineCount: Int = DEFAULT_LYRICS_LINE_COUNT,
     val elementOffsets: Map<PlayerLowerComponent, PlayerLowerElementOffset> = emptyMap(),
     val freeformEnabled: Boolean = false,
+    val textAligns: Map<PlayerLowerTextTarget, PlayerLowerTextAlign> = emptyMap(),
+    val hiddenControls: Set<PlayerControlButton> = emptySet(),
 ) {
     fun normalized(): PlayerLowerLayoutConfig {
         val normalizedOrder = order.distinct() + PlayerLowerComponent.entries.filterNot(order::contains)
@@ -61,6 +114,10 @@ data class PlayerLowerLayoutConfig(
                 .filterKeys(PlayerLowerComponent.entries::contains)
                 .mapValues { (_, offset) -> offset.normalized() }
                 .filterValues { it != PlayerLowerElementOffset.Zero },
+            textAligns = textAligns
+                .filterKeys(PlayerLowerTextTarget.entries::contains)
+                .filterValues { it != PlayerLowerTextAlign.Default },
+            hiddenControls = hiddenControls.intersect(PlayerControlButton.entries.toSet()),
         )
     }
 
@@ -71,6 +128,29 @@ data class PlayerLowerLayoutConfig(
 
     fun withVisibility(component: PlayerLowerComponent, visible: Boolean): PlayerLowerLayoutConfig =
         copy(hidden = if (visible) hidden - component else hidden + component)
+
+    fun textAlignOf(target: PlayerLowerTextTarget): PlayerLowerTextAlign =
+        textAligns[target] ?: PlayerLowerTextAlign.Default
+
+    fun withTextAlign(
+        target: PlayerLowerTextTarget,
+        align: PlayerLowerTextAlign,
+    ): PlayerLowerLayoutConfig = copy(
+        textAligns = if (align == PlayerLowerTextAlign.Default) {
+            textAligns - target
+        } else {
+            textAligns + (target to align)
+        },
+    )
+
+    fun isControlVisible(button: PlayerControlButton): Boolean = button !in hiddenControls
+
+    fun withControlVisibility(
+        button: PlayerControlButton,
+        visible: Boolean,
+    ): PlayerLowerLayoutConfig = copy(
+        hiddenControls = if (visible) hiddenControls - button else hiddenControls + button,
+    )
 
     fun withScalePercent(
         component: PlayerLowerComponent,

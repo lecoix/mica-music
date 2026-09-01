@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Constraints
 import com.mica.music.playback.PlaybackSurfaceState
 import com.mica.music.data.PlaybackQueueMode
+import com.mica.music.data.PlayerControlButton
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -169,65 +170,112 @@ internal fun PlayerPlaybackControlsSection(
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
     visualScale: Float = 1f,
+    hiddenButtons: Set<PlayerControlButton> = emptySet(),
 ) {
     val mode = surfaceState.playbackQueueMode
     val modeActive = mode != PlaybackQueueMode.OFF
+    // 隐藏的按钮让位给同尺寸占位，五个槽位的几何保持不变，播放键始终居中。
+    val playPauseSlot = maxOf(HifiSize.iconXxl * visualScale, HifiSize.touchTarget)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly,
         modifier = modifier.fillMaxWidth(),
     ) {
-        IconButton(
-            onClick = onCyclePlaybackQueueMode,
-            modifier = Modifier.size(HifiSize.touchTarget),
+        ControlButtonSlot(
+            button = PlayerControlButton.QUEUE_MODE,
+            hiddenButtons = hiddenButtons,
+            slotSize = HifiSize.touchTarget,
         ) {
-            Icon(
-                imageVector = playbackQueueModeIcon(mode),
-                contentDescription = playbackQueueModeDescription(mode),
-                tint = if (modeActive) colors.primary else colors.secondary,
-                modifier = Modifier.size(HifiSize.iconLg * visualScale),
+            IconButton(
+                onClick = onCyclePlaybackQueueMode,
+                modifier = Modifier.size(HifiSize.touchTarget),
+            ) {
+                Icon(
+                    imageVector = playbackQueueModeIcon(mode),
+                    contentDescription = playbackQueueModeDescription(mode),
+                    tint = if (modeActive) colors.primary else colors.secondary,
+                    modifier = Modifier.size(HifiSize.iconLg * visualScale),
+                )
+            }
+        }
+        ControlButtonSlot(
+            button = PlayerControlButton.PREVIOUS,
+            hiddenButtons = hiddenButtons,
+            slotSize = HifiSize.touchTarget,
+        ) {
+            IconButton(
+                onClick = onPrevious,
+                modifier = Modifier.size(HifiSize.touchTarget),
+            ) {
+                Icon(
+                    Icons.Default.SkipPrevious,
+                    contentDescription = "上一首",
+                    tint = colors.primary,
+                    modifier = Modifier.size(HifiSize.iconXl * visualScale),
+                )
+            }
+        }
+        ControlButtonSlot(
+            button = PlayerControlButton.PLAY_PAUSE,
+            hiddenButtons = hiddenButtons,
+            slotSize = playPauseSlot,
+        ) {
+            SharpPlayPauseButton(
+                isPlaying = surfaceState.playbackStatus.showsPauseAction,
+                onToggle = onTogglePlay,
+                onLongPress = onPlayLongPress,
+                size = HifiSize.iconXxl * visualScale,
+                color = colors.primary,
             )
         }
-        IconButton(
-            onClick = onPrevious,
-            modifier = Modifier.size(HifiSize.touchTarget),
+        ControlButtonSlot(
+            button = PlayerControlButton.NEXT,
+            hiddenButtons = hiddenButtons,
+            slotSize = HifiSize.touchTarget,
         ) {
-            Icon(
-                Icons.Default.SkipPrevious,
-                contentDescription = "上一首",
-                tint = colors.primary,
-                modifier = Modifier.size(HifiSize.iconXl * visualScale),
-            )
+            IconButton(
+                onClick = onNext,
+                modifier = Modifier.size(HifiSize.touchTarget),
+            ) {
+                Icon(
+                    Icons.Default.SkipNext,
+                    contentDescription = "下一首",
+                    tint = colors.primary,
+                    modifier = Modifier.size(HifiSize.iconXl * visualScale),
+                )
+            }
         }
-        SharpPlayPauseButton(
-            isPlaying = surfaceState.playbackStatus.showsPauseAction,
-            onToggle = onTogglePlay,
-            onLongPress = onPlayLongPress,
-            size = HifiSize.iconXxl * visualScale,
-            color = colors.primary,
-        )
-        IconButton(
-            onClick = onNext,
-            modifier = Modifier.size(HifiSize.touchTarget),
+        ControlButtonSlot(
+            button = PlayerControlButton.QUEUE,
+            hiddenButtons = hiddenButtons,
+            slotSize = HifiSize.touchTarget,
         ) {
-            Icon(
-                Icons.Default.SkipNext,
-                contentDescription = "下一首",
-                tint = colors.primary,
-                modifier = Modifier.size(HifiSize.iconXl * visualScale),
-            )
+            IconButton(
+                onClick = onOpenQueue,
+                modifier = Modifier.size(HifiSize.touchTarget),
+            ) {
+                Icon(
+                    imageVector = MicaPlaybackIcons.queueMusic19,
+                    contentDescription = "播放列表",
+                    tint = colors.secondary,
+                    modifier = Modifier.size(HifiSize.iconLg * visualScale),
+                )
+            }
         }
-        IconButton(
-            onClick = onOpenQueue,
-            modifier = Modifier.size(HifiSize.touchTarget),
-        ) {
-            Icon(
-                imageVector = MicaPlaybackIcons.queueMusic19,
-                contentDescription = "播放列表",
-                tint = colors.secondary,
-                modifier = Modifier.size(HifiSize.iconLg * visualScale),
-            )
-        }
+    }
+}
+
+@Composable
+private fun ControlButtonSlot(
+    button: PlayerControlButton,
+    hiddenButtons: Set<PlayerControlButton>,
+    slotSize: Dp,
+    content: @Composable () -> Unit,
+) {
+    if (button in hiddenButtons) {
+        Spacer(Modifier.size(slotSize))
+    } else {
+        content()
     }
 }
 

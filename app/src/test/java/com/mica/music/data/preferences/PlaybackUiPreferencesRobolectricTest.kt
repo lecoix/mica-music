@@ -7,9 +7,12 @@ import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.HiResBadgeStyle
 import com.mica.music.data.PlayerInfoVisibility
+import com.mica.music.data.PlayerControlButton
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
+import com.mica.music.data.PlayerLowerTextAlign
+import com.mica.music.data.PlayerLowerTextTarget
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 import org.junit.Assert.assertEquals
@@ -181,10 +184,46 @@ class PlaybackUiPreferencesRobolectricTest {
                     PlayerLowerComponent.COVER to PlayerLowerElementOffset(-50, 40),
                 ),
             )
+            .withTextAlign(PlayerLowerTextTarget.TITLE, PlayerLowerTextAlign.START)
+            .withTextAlign(PlayerLowerTextTarget.SUBTITLE, PlayerLowerTextAlign.END)
+            .withTextAlign(PlayerLowerTextTarget.LYRICS, PlayerLowerTextAlign.START)
+            .withControlVisibility(PlayerControlButton.QUEUE_MODE, false)
+            .withControlVisibility(PlayerControlButton.QUEUE, false)
 
         PlaybackUiPreferences.setCustomPlayerLowerLayout(context, config)
 
         assertEquals(config, PlaybackUiPreferences.customPlayerLowerLayout(context))
+    }
+
+    @Test
+    fun customPlayerLayoutWithoutNewKeysKeepsCenteredTextAndAllControlButtons() {
+        MicaSettingsStore.prefs(context).edit()
+            .putString("custom_player_lower_order", "cover,info,title,lyrics,progress,controls")
+            .apply()
+
+        val config = PlaybackUiPreferences.customPlayerLowerLayout(context)
+
+        PlayerLowerTextTarget.entries.forEach { target ->
+            assertEquals(PlayerLowerTextAlign.CENTER, config.textAlignOf(target))
+        }
+        PlayerControlButton.entries.forEach { button ->
+            assertTrue(config.isControlVisible(button))
+        }
+    }
+
+    @Test
+    fun unknownCustomPlayerTextAlignAndControlValuesAreDropped() {
+        MicaSettingsStore.prefs(context).edit()
+            .putString("custom_player_lower_text_aligns", "title:start,bogus:end,lyrics:sideways")
+            .putStringSet("custom_player_lower_hidden_controls", setOf("queue", "teleport"))
+            .apply()
+
+        val config = PlaybackUiPreferences.customPlayerLowerLayout(context)
+
+        assertEquals(PlayerLowerTextAlign.START, config.textAlignOf(PlayerLowerTextTarget.TITLE))
+        assertEquals(PlayerLowerTextAlign.CENTER, config.textAlignOf(PlayerLowerTextTarget.LYRICS))
+        assertEquals(mapOf(PlayerLowerTextTarget.TITLE to PlayerLowerTextAlign.START), config.textAligns)
+        assertEquals(setOf(PlayerControlButton.QUEUE), config.hiddenControls)
     }
 
     @Test

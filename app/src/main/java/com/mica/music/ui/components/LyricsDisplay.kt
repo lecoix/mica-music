@@ -89,31 +89,39 @@ private val LyricFadeMaskOpaque = Color.White
 private val LyricFadeMaskClear = Color.White.copy(alpha = 0f)
 
 /** 跑马灯标题左右缘渐隐：对内容做 alpha 遮罩，横向边缘柔和淡出。 */
-fun Modifier.marqueeHorizontalEdgeFade(fadeWidth: Dp = 28.dp): Modifier =
+fun Modifier.marqueeHorizontalEdgeFade(
+    fadeWidth: Dp = 28.dp,
+    fadeLeft: Boolean = true,
+    fadeRight: Boolean = true,
+): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent {
             drawContent()
             val fadePx = fadeWidth.toPx().coerceAtMost(size.width / 2f)
             if (fadePx > 0f) {
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(LyricFadeMaskClear, LyricFadeMaskOpaque),
-                        startX = 0f,
-                        endX = fadePx,
-                    ),
-                    size = Size(fadePx, size.height),
-                    blendMode = BlendMode.DstIn,
-                )
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(LyricFadeMaskOpaque, LyricFadeMaskClear),
-                        startX = size.width - fadePx,
-                        endX = size.width,
-                    ),
-                    topLeft = Offset(size.width - fadePx, 0f),
-                    size = Size(fadePx, size.height),
-                    blendMode = BlendMode.DstIn,
-                )
+                if (fadeLeft) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(LyricFadeMaskClear, LyricFadeMaskOpaque),
+                            startX = 0f,
+                            endX = fadePx,
+                        ),
+                        size = Size(fadePx, size.height),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+                if (fadeRight) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(LyricFadeMaskOpaque, LyricFadeMaskClear),
+                            startX = size.width - fadePx,
+                            endX = size.width,
+                        ),
+                        topLeft = Offset(size.width - fadePx, 0f),
+                        size = Size(fadePx, size.height),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
             }
         }
 

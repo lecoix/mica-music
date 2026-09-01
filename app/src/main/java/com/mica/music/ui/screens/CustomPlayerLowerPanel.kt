@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -40,6 +41,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
@@ -49,9 +51,12 @@ import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.PlayerInfoVisibility
 import com.mica.music.data.HiResBadgeAppearance
 import com.mica.music.data.PlayerLowerBackgroundMode
+import com.mica.music.data.PlayerControlButton
 import com.mica.music.data.PlayerLowerComponent
 import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
+import com.mica.music.data.PlayerLowerTextAlign
+import com.mica.music.data.PlayerLowerTextTarget
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
 import com.mica.music.data.TrackSkipDirection
@@ -239,6 +244,12 @@ internal fun CustomPlayerPagePanel(
                                     colors = colors,
                                     immersiveProgress = 0f,
                                     contentScale = scale,
+                                    titleTextAlign = normalized
+                                        .textAlignOf(PlayerLowerTextTarget.TITLE)
+                                        .toTextAlign(),
+                                    subtitleTextAlign = normalized
+                                        .textAlignOf(PlayerLowerTextTarget.SUBTITLE)
+                                        .toTextAlign(),
                                 )
                             }
 
@@ -262,6 +273,9 @@ internal fun CustomPlayerPagePanel(
                                     bilingualDisplayMode = bilingualDisplayMode,
                                     contentScale = scale,
                                     lineSlots = normalized.lyricsLineCount,
+                                    textAlign = normalized
+                                        .textAlignOf(PlayerLowerTextTarget.LYRICS)
+                                        .toTextAlign(),
                                     onOpenLyrics = onOpenLyrics,
                                 )
                             }
@@ -285,6 +299,7 @@ internal fun CustomPlayerPagePanel(
                                 onNext = onNext,
                                 onOpenQueue = onOpenQueue,
                                 visualScale = scale,
+                                hiddenButtons = normalized.hiddenControls,
                                 modifier = Modifier.padding(horizontal = HifiSpacing.lg),
                             )
                         }
@@ -364,6 +379,7 @@ internal fun CustomPlayerPagePanel(
                 onVisibilityChange = { component, visible ->
                     onEditConfigChange { current -> current.withVisibility(component, visible) }
                 },
+                onConfigChange = onEditConfigChange,
                 onSave = onSaveEdit,
                 onCancel = onCancelEdit,
                 onReset = onResetEdit,
@@ -423,6 +439,7 @@ private fun CustomPlayerEditChrome(
     selectedComponent: PlayerLowerComponent,
     onSelectComponent: (PlayerLowerComponent) -> Unit,
     onVisibilityChange: (PlayerLowerComponent, Boolean) -> Unit,
+    onConfigChange: ((PlayerLowerLayoutConfig) -> PlayerLowerLayoutConfig) -> Unit,
     onSave: () -> Unit,
     onCancel: () -> Unit,
     onReset: () -> Unit,
@@ -504,6 +521,22 @@ private fun CustomPlayerEditChrome(
                     )
                 }
             }
+            when (selectedComponent) {
+                PlayerLowerComponent.TITLE -> {
+                    TextAlignEditRow(PlayerLowerTextTarget.TITLE, config, onConfigChange)
+                    TextAlignEditRow(PlayerLowerTextTarget.SUBTITLE, config, onConfigChange)
+                }
+
+                PlayerLowerComponent.LYRICS ->
+                    TextAlignEditRow(PlayerLowerTextTarget.LYRICS, config, onConfigChange)
+
+                PlayerLowerComponent.CONTROLS -> ControlButtonEditRow(config, onConfigChange)
+
+                PlayerLowerComponent.COVER,
+                PlayerLowerComponent.INFO,
+                PlayerLowerComponent.PROGRESS,
+                -> Unit
+            }
         }
 
         val selectedOffset = effectiveCustomPlayerOffset(config.offsetOf(selectedComponent))
@@ -524,6 +557,65 @@ private fun CustomPlayerEditChrome(
                     .height(1.dp)
                     .background(colors.accent.copy(alpha = 0.55f)),
             )
+        }
+    }
+}
+
+@Composable
+private fun TextAlignEditRow(
+    target: PlayerLowerTextTarget,
+    config: PlayerLowerLayoutConfig,
+    onConfigChange: ((PlayerLowerLayoutConfig) -> PlayerLowerLayoutConfig) -> Unit,
+) {
+    val colors = MicaTheme.colors
+    val current = config.textAlignOf(target)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = target.settingsLabel,
+            style = MicaTheme.typography.caption,
+            color = colors.textSecondary,
+        )
+        PlayerLowerTextAlign.entries.forEach { align ->
+            TextButton(onClick = { onConfigChange { it.withTextAlign(target, align) } }) {
+                Text(
+                    text = align.settingsLabel,
+                    color = if (align == current) colors.accent else colors.textPrimary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ControlButtonEditRow(
+    config: PlayerLowerLayoutConfig,
+    onConfigChange: ((PlayerLowerLayoutConfig) -> PlayerLowerLayoutConfig) -> Unit,
+) {
+    val colors = MicaTheme.colors
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PlayerControlButton.entries.forEach { button ->
+            val visible = config.isControlVisible(button)
+            TextButton(
+                onClick = { onConfigChange { it.withControlVisibility(button, !visible) } },
+            ) {
+                Icon(
+                    imageVector = if (visible) {
+                        Icons.Outlined.Visibility
+                    } else {
+                        Icons.Outlined.VisibilityOff
+                    },
+                    contentDescription = null,
+                    tint = if (visible) colors.accent else colors.textTertiary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = button.settingsLabel,
+                    color = if (visible) colors.textPrimary else colors.textTertiary,
+                )
+            }
         }
     }
 }
@@ -719,6 +811,7 @@ private fun CustomLyricsBlock(
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     contentScale: Float,
     lineSlots: Int,
+    textAlign: TextAlign,
     onOpenLyrics: () -> Unit,
 ) {
     LyricsSection(
@@ -729,8 +822,15 @@ private fun CustomLyricsBlock(
         onClick = onOpenLyrics,
         bilingualDisplayMode = bilingualDisplayMode,
         contentScale = contentScale,
+        textAlign = textAlign,
         modifier = Modifier
             .fillMaxSize()
             .fillMaxWidth(),
     )
+}
+
+internal fun PlayerLowerTextAlign.toTextAlign(): TextAlign = when (this) {
+    PlayerLowerTextAlign.START -> TextAlign.Start
+    PlayerLowerTextAlign.CENTER -> TextAlign.Center
+    PlayerLowerTextAlign.END -> TextAlign.End
 }
