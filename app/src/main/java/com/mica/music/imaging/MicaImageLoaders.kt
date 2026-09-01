@@ -42,10 +42,8 @@ object MicaImageLoaders {
 
     fun init(context: Context) {
         if (::cover.isInitialized) return
-        CoverRequestProbe.installCompositionTracer()
         appContext = context.applicationContext
         cover = ImageLoader.Builder(appContext)
-            .eventListenerFactory(CoverRequestProbe.factory("cover"))
             .memoryCache {
                 MemoryCache.Builder(appContext)
                     .maxSizeBytes(48 * 1024 * 1024)
@@ -59,7 +57,6 @@ object MicaImageLoaders {
             }
             .build()
         background = ImageLoader.Builder(appContext)
-            .eventListenerFactory(CoverRequestProbe.factory("background"))
             .memoryCache {
                 MemoryCache.Builder(appContext)
                     .maxSizeBytes(16 * 1024 * 1024)

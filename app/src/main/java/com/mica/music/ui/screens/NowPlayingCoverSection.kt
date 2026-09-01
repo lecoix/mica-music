@@ -956,7 +956,6 @@ private fun CoverArtworkWipeLayer(
             letterboxAlpha = letterboxAlpha,
             crossfadeMillis = if (motionEnabled) 200 else 0,
             publishHoldoverOnSuccess = publishHoldoverOnSuccess,
-            diagnosticRole = if (publishHoldoverOnSuccess) "cover-current" else "cover-outgoing",
             standardRequestSpec = standardRequestSpec,
             allowPreviousImageUnderlay = false,
             onAspectRatioChanged = onAspectRatioChanged,

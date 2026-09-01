@@ -42,16 +42,11 @@ object TrackSwitchPerformance {
     }
 
     fun armTrigger(trigger: String) {
-        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE && !BuildConfig.COVER_REQUEST_PROBE) return
+        if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) return
         pendingTrigger = trigger
     }
 
     fun begin(fromIndex: Int, toIndex: Int, songId: String, queueSize: Int = visualContext.queueSize) {
-        if (BuildConfig.COVER_REQUEST_PROBE) {
-            com.mica.music.imaging.CoverRequestProbe.mark(
-                "switch=$fromIndex->$toIndex trigger=$pendingTrigger",
-            )
-        }
         if (!BuildConfig.TRACK_SWITCH_PERFORMANCE) {
             pendingTrigger = "unknown"
             return

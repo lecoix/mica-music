@@ -25,7 +25,6 @@ import coil.size.Scale
 import com.mica.music.R
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.imaging.CoverDecodeTarget
-import com.mica.music.imaging.CoverRequestProbe
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.imaging.StandardCoverRequestSpec
 import com.mica.music.ui.theme.HifiPalette
@@ -87,12 +86,10 @@ fun SongCover(
     stableMemoryCacheKey: String? = null,
     decodeTarget: CoverDecodeTarget? = null,
     allowPreviousImageUnderlay: Boolean = true,
-    diagnosticRole: String? = null,
     standardRequestSpec: StandardCoverRequestSpec? = null,
     @DrawableRes noCoverPlaceholderResId: Int = R.drawable.no_cover_placeholder,
 ) {
     val context = LocalContext.current
-    val diagnosticLayer = CoverRequestProbe.layer(diagnosticRole, albumArtUri)
     val displayMode = LocalCoverDisplayMode.current
     val resolvedScale = contentScale ?: when (displayMode) {
         CoverDisplayMode.CROP_FILL -> ContentScale.Crop
@@ -232,7 +229,6 @@ fun SongCover(
                 contentScale = resolvedScale,
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
-                    CoverRequestProbe.ready(diagnosticLayer, albumArtUri, state.result)
                     lastPaintedUri = albumArtUri
                     markCoverDecoded(albumArtUri)
                     if (publishHoldoverOnSuccess) {

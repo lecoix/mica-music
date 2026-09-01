@@ -56,9 +56,6 @@ android {
     defaultConfig {
         // Active hardware probing is diagnostic only and must not run on ordinary song switches.
         buildConfigField("boolean", "PCM_DELIVERY_PROBE", (providers.gradleProperty("mica.pcmDeliveryProbe").orNull == "true").toString())
-        // Temporary opt-in diagnostic; ordinary builds do not collect image request events.
-        buildConfigField("boolean", "COVER_REQUEST_PROBE", (providers.gradleProperty("mica.coverRequestProbe").orNull == "true").toString())
-        buildConfigField("boolean", "COMPOSITION_PROBE", (providers.gradleProperty("mica.compositionProbe").orNull == "true").toString())
         // The 1.5 s frame/log capture is opt-in and must not burden ordinary track switches.
         buildConfigField("boolean", "TRACK_SWITCH_PERFORMANCE", (providers.gradleProperty("mica.trackSwitchPerformance").orNull == "true").toString())
         applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"

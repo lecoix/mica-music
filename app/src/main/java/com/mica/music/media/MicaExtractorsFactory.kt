@@ -5,6 +5,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.ts.AdtsExtractor
 import com.mica.music.media.ape.ApeExtractor
 import com.mica.music.media.dsf.DsfExtractor
 
@@ -35,7 +36,9 @@ class MicaExtractorsFactory private constructor(
         private const val DEFAULT_EXTRACTOR_COUNT = 20
 
         fun create(): ExtractorsFactory = MicaExtractorsFactory(
-            DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+            DefaultExtractorsFactory().setAdtsExtractorFlags(
+                AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING,
+            ),
         )
     }
 }

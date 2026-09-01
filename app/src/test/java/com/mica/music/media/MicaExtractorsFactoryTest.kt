@@ -2,6 +2,8 @@ package com.mica.music.media
 
 import android.net.Uri
 import androidx.media3.extractor.Extractor
+import androidx.media3.extractor.amr.AmrExtractor
+import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.ts.AdtsExtractor
 import com.mica.music.media.ape.ApeExtractor
 import com.mica.music.media.dsf.DsfExtractor
@@ -36,10 +38,25 @@ class MicaExtractorsFactoryTest {
     fun enablesConstantBitrateSeekingForAdtsAac() {
         val adts = MicaExtractorsFactory.create().createExtractors()
             .first { it is AdtsExtractor } as AdtsExtractor
-        val flagsField = AdtsExtractor::class.java.getDeclaredField("flags").apply { isAccessible = true }
-        val flags = flagsField.getInt(adts)
 
-        assertTrue(flags and AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING != 0)
+        assertTrue(
+            extractorFlags(adts) and AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING != 0,
+        )
+    }
+
+    @Test
+    fun doesNotEnableConstantBitrateSeekingForMp3OrAmr() {
+        val extractors = MicaExtractorsFactory.create().createExtractors()
+        val mp3 = extractors.first { it is Mp3Extractor } as Mp3Extractor
+        val amr = extractors.first { it is AmrExtractor } as AmrExtractor
+
+        assertEquals(0, extractorFlags(mp3) and Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
+        assertEquals(0, extractorFlags(amr) and AmrExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
+    }
+
+    private fun extractorFlags(extractor: Extractor): Int {
+        val flagsField = extractor.javaClass.getDeclaredField("flags").apply { isAccessible = true }
+        return flagsField.getInt(extractor)
     }
 
     private fun assertDsfFirst(extractors: Array<Extractor>) {
