@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-08-30
+> 最后整理：2026-09-02
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -29,7 +29,7 @@
 | [`MOTION.md`](MOTION.md) | 动效权威 + View 岛分工 |
 | [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) | 播放页封面行为 **产品 §0 + 封面流 §1–12 + 拍立得 §13** |
 | [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md) | 播放页契约、模块地图、回归清单 |
-| [`OPEN_SOURCE_NOTICES.md`](OPEN_SOURCE_NOTICES.md) | 开源合规（含 BlurView） |
+| [`OPEN_SOURCE_NOTICES.md`](OPEN_SOURCE_NOTICES.md) | 开源合规（Mica Apache-2.0、远程曲库、USB、BlurView、FFmpeg/LGPL） |
 | [`DOC_INDEX.md`](DOC_INDEX.md) | 本索引 |
 
 ---
@@ -150,3 +150,4 @@
 | 2026-08-30 | EQ 页重做为 `EqualizerCurveEditor`（曲线即推子）：更新 `DESIGN_SPEC` §十四/§15.4、`MOTION` §六 EQ 拖动行，`TESTING` 增加 `EqualizerCurveEditorInputTest` 回归与曲线拖动/大字号真机验收项 |
 | 2026-08-30 | 音效实验室（宽度/音色/混响/360° 环绕，默认关，仅 Shared PCM）：`CONTEXT` 词汇与音质许可、`DESIGN_SPEC` §十四/§15.4、`SETTINGS_AUDIT_MATRIX`、`TESTING` JVM/真机项、`TODO` |
 | 2026-09-01 | 新增 `VOCAL_SEPARATION_RESEARCH.md`：端上人声分离调研结论为暂不实施；记录可复用基建、开源模型许可证边界（Demucs 权重非 MIT）、实时链路对 USB 独占/offload 的结构性冲突与未验证事项 |
+| 2026-09-02 | 按当前运行时依赖同步开源许可证：`OPEN_SOURCE_NOTICES`、关于页、`README`、`DESIGN_SPEC` §十三；补 Mica Apache-2.0、WorkManager/OkHttp、远程曲库三库及其 smbj 传递依赖 |

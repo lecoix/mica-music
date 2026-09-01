@@ -976,7 +976,8 @@ fun MinimalTabRow(
 
 ## 十三、依赖（版本真相源）
 
-> **以 `gradle/libs.versions.toml` + version catalog 为准**；下列为 2026-08 快照，升级后请同步本文。
+> **以 `gradle/libs.versions.toml` + version catalog 为准**；下列为 2026-09 快照，升级后请同步本文。
+> 许可证以 [`docs/OPEN_SOURCE_NOTICES.md`](docs/OPEN_SOURCE_NOTICES.md) 与关于页为准；Mica 本体为 Apache License 2.0。
 
 | 类别 | 坐标 / 插件 | 版本 |
 | --- | --- | --- |
@@ -987,15 +988,18 @@ fun MinimalTabRow(
 | Activity Compose | `androidx.activity:activity-compose` | 1.9.2 |
 | Lifecycle | `lifecycle-runtime-ktx` 等 | 2.8.6 |
 | Navigation Compose | `navigation-compose` | 2.8.2 |
-| Media3 ExoPlayer / Session / Decoder | `androidx.media3:*` | **1.9.0** |
+| Media3 ExoPlayer / Session / Decoder / OkHttp DataSource | `androidx.media3:*` | **1.9.0** |
 | Media3 FFmpeg 扩展 | `org.jellyfin.media3:media3-ffmpeg-decoder` | **1.9.0+1**（`third_party/media3-ffmpeg-decoder`） |
 | Room | `room-runtime` / KSP | 2.6.1 |
+| WorkManager | `work-runtime-ktx` | 2.10.5 |
 | Coil | `coil-compose` | 2.7.0 |
 | Coroutines | `kotlinx-coroutines-android` | 1.8.1 |
 | Palette | `palette-ktx` | 1.0.0 |
 | BlurView | `com.github.Dimezis:BlurView` (JitPack) | 3.2.0 |
 | Reorderable | `sh.calvin.reorderable` | 2.4.3 |
-| Mica TagLib fork / jAudiotagger | 元数据 | vendored（基于 Kyant0 1.0.6；TagLib C++ 2.2.1）/ 3.0.1 |
+| WebDAV / SMB | `sardine-android` / `okhttp-digest` / `smbj` | 0.9 / 3.1.1 / 0.15.0（Apache-2.0；`smbj` 另带 Bouncy Castle / SLF4J / mbassador） |
+| USB 独占 | `:sylvakru-usb-transport` + vendored libusb 1.0.30 | Apache-2.0 / LGPL-2.1+ |
+| Mica TagLib fork / jAudiotagger | 元数据 | vendored（基于 Kyant0 1.0.6；TagLib C++ 2.2.1，LGPL/MPL）/ 3.0.1（LGPL 2.1） |
 | 测试 | JUnit / Robolectric / MockK / Roborazzi | 4.13.2 / 4.13 / 1.13.13 / 1.34.0 |
 
 **平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 35`，**仅 arm64-v8a**。
@@ -1106,5 +1110,5 @@ dependencies {
 ---
 
 **版本**：v1.4
-**最后更新**：2026-08-30
+**最后更新**：2026-09-02
 **适用平台**：Android 8.0+（minSdk 26）/ Jetpack Compose BOM 2024.10+

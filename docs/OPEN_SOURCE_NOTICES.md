@@ -1,34 +1,50 @@
 # Open Source Notices
 
-Mica Music uses the following major open source components. This file is a
-release checklist seed; before a public release, include the full license text
-and copyright notice required by each dependency.
+Mica Music 本体采用 **Apache License 2.0**（仓库根 [`LICENSE`](../LICENSE)）。
 
-Last reviewed: **2026-08-29**
+下列为主要开源组件。This file is a release checklist seed; before a public
+release, include the full license text and copyright notice required by each
+dependency.
+
+Last reviewed: **2026-09-02**  
+对照：`gradle/libs.versions.toml`、`app/build.gradle.kts`、`:app:releaseRuntimeClasspath`，以及关于页 `AboutScreen`。
+
+## Project
+
+| Component | License |
+|---|---|
+| Mica Music（本仓库应用代码，不含下方第三方） | Apache License 2.0 |
 
 ## Runtime Dependencies
 
 | Component | License |
 |---|---|
 | AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette / Annotation | Apache License 2.0 |
+| AndroidX WorkManager (`work-runtime-ktx` **2.10.5**；远程曲库自动同步) | Apache License 2.0 |
+| AndroidX Media (`media` **1.7.1**；通知/会话兼容) | Apache License 2.0 |
 | Jetpack Compose UI / Material 3 / Material Icons | Apache License 2.0 |
-| AndroidX Media3 (`media3-exoplayer`, `media3-session`, …) **1.9.0** | Apache License 2.0 |
+| AndroidX Media3 (`media3-exoplayer`, `media3-session`, `media3-datasource-okhttp`, …) **1.9.0** | Apache License 2.0 |
 | Jellyfin Media3 FFmpeg decoder (`org.jellyfin.media3:media3-ffmpeg-decoder` **1.9.0+1**, Maven fallback when local DSD build absent) | Apache License 2.0 |
 | Media3 FFmpeg extension — local DSD build (`third_party/media3-ffmpeg-decoder/`, Java + JNI; ships `libffmpegJNI.so`) | Apache License 2.0 (Java/JNI); see FFmpeg row below for native codec library |
 | Kotlin / Kotlinx Coroutines | Apache License 2.0 |
+| OkHttp **4.12.0**（经 Media3 OkHttp DataSource、Coil、`sardine-android`、`okhttp-digest` 进入运行时） | Apache License 2.0 |
 | `sardine-android` **0.9** (WebDAV PROPFIND / DAV resource parsing) | Apache License 2.0 |
 | `okhttp-digest` **3.1.1** (WebDAV HTTP Digest challenge authentication) | Apache License 2.0 |
 | `smbj` **0.15.0** (SMB2/SMB3 protocol client; SMB1 is not enabled by Mica) | Apache License 2.0 |
-| Coil | Apache License 2.0 |
-| Guava | Apache License 2.0 |
-| Calvin Reorderable | Apache License 2.0 |
+| Bouncy Castle `bcprov-jdk18on` **1.85.2**（`smbj` 运行时依赖） | Bouncy Castle Licence（MIT 风格） |
+| SLF4J API **2.0.18**（`smbj` / `asn-one` 运行时依赖） | MIT License |
+| mbassador **1.3.2**（`smbj` 事件总线） | MIT License |
+| `asn-one` **0.6.0**（`smbj` ASN.1） | Apache License 2.0 |
+| Coil **2.7.0** | Apache License 2.0 |
+| Guava **33.3.1-android**（经本地 Media3 FFmpeg 模块进入运行时） | Apache License 2.0 |
+| Calvin Reorderable **2.4.3** | Apache License 2.0 |
 | BlurView 3.x (`com.github.Dimezis:BlurView`, JitPack **version-3.2.0**) | Apache License 2.0 |
 | Mica vendored TagLib Android wrapper（基于 Kyant0/taglib 1.0.6，`third_party/taglib/`） | Apache License 2.0（仓库根 `third_party/taglib/LICENSE`） |
 | SylvaKru USB-exclusive transport / protocol code（`third_party/sylvakru-usb-transport/`；参考 `huya688zdx/sylvakru` commit `3f2578692499e403d7eddc6fdbe52d1b6a1b2206`，其 README 说明基于原版 `AfalpHy/sylvakru`） | Apache License 2.0；模块内保留参考 `LICENSE`、Mica `NOTICE` 与派生/修改声明 |
 | libusb 1.0.30（vendored 于 `third_party/libusb-1.0.30/`，用于 USB 独占 native transport） | LGPL 2.1 或更高版本（见 `third_party/libusb-1.0.30/COPYING` / `README`） |
 | TagLib C++ 2.2.1（vendored 于 `third_party/taglib/src/main/cpp/taglib/`） | LGPL 2.1 或 MPL 1.1（上游同时附带 `COPYING.LGPL` / `COPYING.MPL`） |
 | utfcpp（TagLib submodule，`3rdparty/utfcpp`） | Boost Software License 1.0 |
-| jAudiotagger | LGPL 2.1 |
+| jAudiotagger **3.0.1** | LGPL 2.1 |
 | FFmpeg (linked inside `libffmpegJNI.so` for DSF / extended codec decode) | LGPL 2.1+ by default; current build script does not enable GPL or nonfree components |
 | libebur128（R128 算法参考；未链接其二进制） | MIT License；Mica 的 Kotlin 响度分析器适配其 K-weighting 系数构造和默认声道映射；Copyright (c) 2011 Jan Kokemüller |
 | Schroeder/Freeverb 混响结构（算法参考；未链接第三方二进制） | Public Domain；`SoundFxEngine` 独立实现 comb/allpass、公开 44.1 kHz 延迟表，以及 Jezar 的 `fixedgain` / room / damp 混音映射；未复制 Halcyon / RawS-Music 源码 |
@@ -38,17 +54,32 @@ Last reviewed: **2026-08-29**
 
 | Asset | License | Notes |
 |---|---|---|
-| Three.js (minified in `app/src/main/assets/particle_cover/mica-particle-cover.js`) | MIT License | **Legacy WebView fallback** for particle cover (`ThreeParticleCoverHost` when `UseNativeParticleCoverInPlayer = false`). Playback page **shipped path is native GLES** (`ParticleCoverHost`); remove this asset after WebView retirement (see `TODO.md`). |
+| Three.js (minified in `app/src/main/assets/particle_cover/mica-particle-cover.js`) | MIT License | **Legacy WebView fallback** for particle cover (`ThreeParticleCoverHost` when `UseNativeParticleCoverInPlayer = false`). Playback page **shipped path is native GLES** (`ParticleCoverHost`); remove this asset after WebView retirement (see `TODO.md`). Header: Copyright 2010-2026 Three.js Authors, SPDX-License-Identifier: MIT. |
 | `mica-particle-mask-transition.js` | (bundled with particle_cover) | Same WebView fallback bundle; retire with Three.js assets above |
 
 Particle cover **production rendering** uses Android **OpenGL ES 2.0** platform APIs (`ParticleCoverRenderer`); no additional third-party GL library.
 
+## Development / Test (not shipped in APK)
+
+| Component | License |
+|---|---|
+| JUnit 4.13.2 | Eclipse Public License 1.0 |
+| AndroidX Test (core / ext-junit / runner) | Apache License 2.0 |
+| Kotlinx Coroutines Test | Apache License 2.0 |
+| MockK 1.13.13 | Apache License 2.0 |
+| Robolectric 4.13 | Apache License 2.0 |
+| Roborazzi 1.34.0 | Apache License 2.0 |
+
 ## Release Notes
 
 - Apache 2.0 dependencies require preserving copyright notices and a copy of the
-  Apache License 2.0 text.
+  Apache License 2.0 text. Mica's own Apache 2.0 text is the repo-root `LICENSE`.
 - **BlurView** (Dimezis): preserve copyright and Apache 2.0 notice; distributed
   via JitPack — verify `version-3.2.0` tag notice at release time.
+- **Remote music libraries**: preserve Apache 2.0 notices for `sardine-android`,
+  `okhttp-digest`, `smbj`, OkHttp, WorkManager, and `asn-one`. `smbj` also ships
+  Bouncy Castle (`bcprov-jdk18on`), SLF4J API and mbassador; preserve their MIT /
+  Bouncy Castle Licence notices. Mica does not enable SMB1.
 - **SylvaKru USB-exclusive code**: preserve `third_party/sylvakru-usb-transport/LICENSE`
   and `NOTICE`, the source-level derivative/modification headers, and the provenance
   in that module's `README.md`. The audited reference is
@@ -77,3 +108,5 @@ Particle cover **production rendering** uses Android **OpenGL ES 2.0** platform 
   notice and the app distribution terms before release.
 - **Three.js** (legacy particle cover WebView path): preserve MIT copyright /
   license notice from the bundled script header until the asset is removed from the APK.
+- The in-app **关于** page lists the same major runtime components. Keep it in
+  lockstep with this file when adding or removing a shipped library.

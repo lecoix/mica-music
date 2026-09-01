@@ -102,18 +102,25 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 ---
 
+## 许可证
+
+Mica 本体采用 [Apache License 2.0](./LICENSE)。
+
+主要运行时第三方、vendored 代码与算法参考的许可证见
+[`docs/OPEN_SOURCE_NOTICES.md`](./docs/OPEN_SOURCE_NOTICES.md)；应用内 **关于** 页列出同一份主要组件清单。
+
 ## 开源与第三方代码
 
-Mica 的 USB 独占播放底层并非完全从零实现。`third_party/sylvakru-usb-transport/`
-包含从 SylvaKru USB-exclusive 实现直接复制、拆分重组或按行为适配的代码。
-当前审计参考为 `huya688zdx/sylvakru` commit
+远程曲库使用 Apache-2.0 的 `sardine-android`、`okhttp-digest` 与 `smbj`（SMB1 未启用）；
+`smbj` 还会带入 Bouncy Castle、SLF4J 与 mbassador。USB 独占播放底层并非完全从零实现。
+`third_party/sylvakru-usb-transport/` 包含从 SylvaKru USB-exclusive 实现直接复制、
+拆分重组或按行为适配的代码。当前审计参考为 `huya688zdx/sylvakru` commit
 `3f2578692499e403d7eddc6fdbe52d1b6a1b2206`；该参考 fork 的 README 说明其基于
 原版 `AfalpHy/sylvakru`。相关代码按 Apache License 2.0 使用和再分发。
 
 模块内保留参考许可证全文、归属/修改声明与详细 provenance：
 [`third_party/sylvakru-usb-transport/README.md`](./third_party/sylvakru-usb-transport/README.md)、
 [`third_party/sylvakru-usb-transport/NOTICE`](./third_party/sylvakru-usb-transport/NOTICE)。
-项目级第三方声明见 [`docs/OPEN_SOURCE_NOTICES.md`](./docs/OPEN_SOURCE_NOTICES.md)。
 USB 的逐函数来源/适配分类见
 [`docs/USB_REFERENCE_FUNCTION_AUDIT.md`](./docs/USB_REFERENCE_FUNCTION_AUDIT.md)。
 
@@ -122,6 +129,7 @@ USB 的逐函数来源/适配分类见
 
 ## 相关文件
 
+- 开源声明：[`docs/OPEN_SOURCE_NOTICES.md`](./docs/OPEN_SOURCE_NOTICES.md)
 - 文档索引：[`docs/DOC_INDEX.md`](./docs/DOC_INDEX.md)
 - 领域词汇：[`CONTEXT.md`](./CONTEXT.md)
 - 设计规范：[`DESIGN_SPEC.md`](./DESIGN_SPEC.md)

@@ -596,7 +596,7 @@ Remote + UsbDirectPcm
 
 ## 开源合规提醒
 
-Chora、XyMusic、NOVA FileCore、`sardine-android` 和 `smbj` 根许可证均为 Apache-2.0，Simple-Music-Player 为 MIT。若实际复制代码或引入依赖，需要逐文件确认版权和第三方来源，保留许可证及版权声明、标记修改，并同步更新 Mica 的开源声明。
+Mica 已采用 `sardine-android` **0.9**、`okhttp-digest` **3.1.1** 与 `smbj` **0.15.0**（根许可证均为 Apache-2.0）；WorkManager 与 OkHttp 同样为 Apache-2.0。`smbj` 的 `releaseRuntimeClasspath` 还会带入 Bouncy Castle `bcprov-jdk18on`（Bouncy Castle Licence）、SLF4J API 与 mbassador（MIT）、以及 `asn-one`（Apache-2.0）。这些组件已写入 [`OPEN_SOURCE_NOTICES.md`](OPEN_SOURCE_NOTICES.md) 与关于页；再分发前仍须保留各自版权与许可文本。Chora、XyMusic、NOVA FileCore 仅作协议/行为参考，未整段移植。
 
 Android-WebDav-Music-Player 和 tsm-player 当前没有明确源码许可证，因此不能把其公开仓库视为可自由复制的开源代码。MzDKPlayer 和 Material Files 为 GPL-3.0，Namida 使用自定义 EULA，均只作为行为参考。`jcifs-ng` 为 LGPL-2.1，也需要单独处理依赖合规。这里只记录初步兼容性判断，不构成法律意见。
 

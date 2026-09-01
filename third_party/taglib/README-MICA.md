@@ -12,10 +12,12 @@
 
 ## 依赖
 
-| 依赖 | 方式 |
-|------|------|
-| TagLib C++ 2.2.1 | vendored 于 `src/main/cpp/taglib/` |
-| [utfcpp](https://github.com/nemtrif/utfcpp) | **Git submodule**：`src/main/cpp/taglib/3rdparty/utfcpp` |
+JNI wrapper 为 Apache License 2.0（本模块 `LICENSE`）。完整项目声明见仓库 [`docs/OPEN_SOURCE_NOTICES.md`](../../docs/OPEN_SOURCE_NOTICES.md)。
+
+| 依赖 | 方式 | 许可证 |
+|------|------|--------|
+| TagLib C++ 2.2.1 | vendored 于 `src/main/cpp/taglib/` | LGPL 2.1 或 MPL 1.1 |
+| [utfcpp](https://github.com/nemtrif/utfcpp) | **Git submodule**：`src/main/cpp/taglib/3rdparty/utfcpp` | Boost Software License 1.0 |
 
 克隆 Mica 后若 submodule 为空：
 

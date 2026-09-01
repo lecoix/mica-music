@@ -114,24 +114,36 @@ fun AboutScreen(
 
             SettingsSectionTitle("开源许可证")
             AboutParagraph(
-                "本应用使用以下主要开源组件",
+                "本应用本体采用 Apache License 2.0，并使用以下主要开源组件",
             )
-            LicenseRow("AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette / Annotation", "Apache License 2.0")
+            LicenseRow("Mica Music", "Apache License 2.0")
+            LicenseRow("AndroidX Core / Activity / Lifecycle / Navigation / Room / WorkManager / Media / DocumentFile / Palette / Annotation", "Apache License 2.0")
             LicenseRow("Jetpack Compose / Material 3 / Material Icons", "Apache License 2.0")
-            LicenseRow("AndroidX Media3", "Apache License 2.0")
+            LicenseRow("AndroidX Media3（含 OkHttp DataSource）", "Apache License 2.0")
             LicenseRow("Media3 FFmpeg 扩展（Java / JNI 层）", "Apache License 2.0")
             LicenseRow("FFmpeg（libffmpegJNI.so 内静态链接）", "LGPL 2.1+；当前仓库构建脚本未启用 GPL 或 nonfree 组件")
             LicenseRow("Kotlin / Kotlinx Coroutines", "Apache License 2.0")
+            LicenseRow("OkHttp", "Apache License 2.0")
+            LicenseRow("sardine-android（WebDAV）", "Apache License 2.0")
+            LicenseRow("okhttp-digest（WebDAV Digest）", "Apache License 2.0")
+            LicenseRow("smbj（SMB2 / SMB3；未启用 SMB1）", "Apache License 2.0")
+            LicenseRow("Bouncy Castle（smbj 运行时依赖）", "Bouncy Castle Licence（MIT 风格）")
             LicenseRow("Coil", "Apache License 2.0")
             LicenseRow("Guava", "Apache License 2.0")
             LicenseRow("Calvin Reorderable", "Apache License 2.0")
             LicenseRow("BlurView（Dimezis）", "Apache License 2.0")
-            LicenseRow("Kyant Taglib（元数据 JNI）", "Apache License 2.0")
+            LicenseRow("Mica TagLib 封装（基于 Kyant0/taglib）", "Apache License 2.0")
+            LicenseRow("TagLib C++", "LGPL 2.1 或 MPL 1.1")
+            LicenseRow("utfcpp（TagLib submodule）", "Boost Software License 1.0")
+            LicenseRow("SylvaKru USB 独占传输", "Apache License 2.0")
+            LicenseRow("libusb（USB 独占 native transport）", "LGPL 2.1 或更高版本")
             LicenseRow("jAudiotagger", "LGPL 2.1")
             LicenseRow("libebur128（R128 算法参考）", "MIT License")
-            LicenseRow("Three.js（粒子封面 WebView 资产）", "MIT License")
+            LicenseRow("Schroeder/Freeverb 混响结构（算法参考）", "Public Domain")
+            LicenseRow("Woodworth 球形头 ITD/ILD（算法参考）", "声学公开模型")
+            LicenseRow("Three.js（粒子封面 WebView 回退资产）", "MIT License")
             AboutParagraph(
-                "完整开源声明维护在仓库 docs/OPEN_SOURCE_NOTICES.md" ,
+                "完整开源声明维护在仓库 docs/OPEN_SOURCE_NOTICES.md",
             )
 
             Spacer(Modifier.height(HifiSpacing.lg))
