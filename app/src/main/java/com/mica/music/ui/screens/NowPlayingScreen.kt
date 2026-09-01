@@ -659,6 +659,7 @@ fun NowPlayingContent(
             val horizontalClassicMounted = usesHorizontalClassicLyricsPage(
                 mode = effectiveCoverFlowMode,
                 lyricsCloudAvailable = lyricsCloudAvailable,
+                letterLyricsAvailable = letterLyricsAvailable,
             )
             val customHorizontalClassicRequested = lyricsExpanded && horizontalClassicMounted
             val classicLyricsExpanded =
@@ -1166,22 +1167,33 @@ fun NowPlayingContent(
             }
 
             if (horizontalClassicMounted && (customHorizontalClassicRequested || lyricsPageTransition > 0f)) {
-                HorizontalClassicLyricsPage(
-                    pageModel = pageModel,
-                    uiSettings = uiSettings,
-                    surfaceState = surfaceState,
-                    song = song,
-                    lyricsRenderState = lyricsRenderState,
-                    autoContentColors = appearance.contentColors,
-                    colors = playerUiColors,
-                    hifiBadgeColors = appearance.hifiBadgeColors,
-                    lowerBackground = lowerBackground,
-                    seekState = seekState,
-                    actions = actions,
-                    contentPadding = contentPadding,
-                    onOpenEqualizer = onOpenEqualizer,
-                    onOpenQueue = { queueSheetOpen = true },
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val widthPx = with(density) { fullWidth.toPx() }
+                            translationX = widthPx *
+                                horizontalLyricsPageIncomingFraction(lyricsPageTransition)
+                            clip = true
+                        },
+                ) {
+                    HorizontalClassicLyricsPage(
+                        pageModel = pageModel,
+                        uiSettings = uiSettings,
+                        surfaceState = surfaceState,
+                        song = song,
+                        lyricsRenderState = lyricsRenderState,
+                        autoContentColors = appearance.contentColors,
+                        colors = playerUiColors,
+                        hifiBadgeColors = appearance.hifiBadgeColors,
+                        lowerBackground = lowerBackground,
+                        seekState = seekState,
+                        actions = actions,
+                        contentPadding = contentPadding,
+                        onOpenEqualizer = onOpenEqualizer,
+                        onOpenQueue = { queueSheetOpen = true },
+                    )
+                }
             }
 
             if (!photoStackLyricsPageEnabled || photoStackLyricsFrame.playbackMounted) {
@@ -1193,15 +1205,18 @@ fun NowPlayingContent(
                             photoStackLyricsFrame.playbackInputEnabled,
                     )
                     .graphicsLayer {
+                        val widthPx = with(density) { fullWidth.toPx() }
                         translationX = when {
-                            photoStackLyricsPageEnabled -> with(density) { fullWidth.toPx() } *
+                            photoStackLyricsPageEnabled -> widthPx *
                                 photoStackLyricsFrame.playbackTranslationFraction
                             letterLyricsAvailable -> 0f
                             useVerticalCloudSplit ||
                                 landscapeCloudBurstActive ||
                                 coverFlowCloudExitActive -> 0f
-                            else -> -with(density) { fullWidth.toPx() } * lyricsPageTransition
+                            else -> widthPx *
+                                horizontalLyricsPageOutgoingFraction(lyricsPageTransition)
                         }
+                        clip = translationX != 0f
                         if (photoStackLyricsPageEnabled) {
                             alpha = photoStackLyricsFrame.playbackAlpha
                         }
@@ -2203,7 +2218,16 @@ internal fun lyricsCloudUsesVerticalSplit(mode: com.mica.music.data.PlayerCoverF
 internal fun usesHorizontalClassicLyricsPage(
     mode: com.mica.music.data.PlayerCoverFlowMode,
     lyricsCloudAvailable: Boolean,
-): Boolean = mode.usesHorizontalLyricsPage && !lyricsCloudAvailable
+    letterLyricsAvailable: Boolean = false,
+): Boolean = mode.usesHorizontalLyricsPage && !lyricsCloudAvailable && !letterLyricsAvailable
+
+/** 新页从右入：progress 0 在屏外右侧，1 停在终点。 */
+internal fun horizontalLyricsPageIncomingFraction(progress: Float): Float =
+    1f - progress.coerceIn(0f, 1f)
+
+/** 旧页向左出：progress 0 在原位，1 完全移出左侧。 */
+internal fun horizontalLyricsPageOutgoingFraction(progress: Float): Float =
+    -progress.coerceIn(0f, 1f)
 
 private fun playerStatusBarUsesDarkIcons(
     coverColor: Color,

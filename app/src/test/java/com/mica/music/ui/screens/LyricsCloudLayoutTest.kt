@@ -234,6 +234,28 @@ class LyricsCloudLayoutTest {
         assertTrue(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.CUSTOM_STANDARD, false))
         assertFalse(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.CUSTOM_STANDARD, true))
         assertFalse(usesHorizontalClassicLyricsPage(PlayerCoverFlowMode.STANDARD, false))
+        assertFalse(
+            usesHorizontalClassicLyricsPage(
+                mode = PlayerCoverFlowMode.CUSTOM_STANDARD,
+                lyricsCloudAvailable = false,
+                letterLyricsAvailable = true,
+            ),
+        )
+    }
+
+    @Test
+    fun horizontalClassicPagesStayAdjacentDuringSlide() {
+        assertEquals(1f, horizontalLyricsPageIncomingFraction(0f), 0f)
+        assertEquals(0f, horizontalLyricsPageOutgoingFraction(0f), 0f)
+        assertEquals(0.5f, horizontalLyricsPageIncomingFraction(0.5f), 0f)
+        assertEquals(-0.5f, horizontalLyricsPageOutgoingFraction(0.5f), 0f)
+        assertEquals(0f, horizontalLyricsPageIncomingFraction(1f), 0f)
+        assertEquals(-1f, horizontalLyricsPageOutgoingFraction(1f), 0f)
+        assertEquals(
+            1f,
+            horizontalLyricsPageIncomingFraction(0.35f) - horizontalLyricsPageOutgoingFraction(0.35f),
+            0f,
+        )
     }
 
     private fun bilingualCloudLine(tokens: List<LyricToken>) = LyricLineNode(
