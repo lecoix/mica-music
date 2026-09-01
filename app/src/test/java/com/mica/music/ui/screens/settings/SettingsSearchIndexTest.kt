@@ -39,7 +39,27 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("音效实验室").any { it.id == "audio.sound-fx" })
         assertTrue(SettingsSearchIndex.search("混响").any { it.id == "audio.sound-fx" })
         assertTrue(SettingsSearchIndex.search("360").any { it.id == "audio.sound-fx" })
+        assertTrue(SettingsSearchIndex.search("罗马音").any { it.id == "lyrics.reading" })
+        assertTrue(SettingsSearchIndex.search("桌面歌词").any { it.id == "lyrics.external" })
+        assertTrue(SettingsSearchIndex.search("悬浮窗").any { it.id == "lyrics.external" })
+        assertTrue(SettingsSearchIndex.search("自动同步").any { it.id == "library.remote" })
+        assertTrue(SettingsSearchIndex.search("在侧栏显示远程曲库").any { it.id == "library.remote-sidebar" })
+        assertTrue(SettingsSearchIndex.search("DSD 增益").any { it.id == "audio.usb-exclusive" })
+        assertTrue(SettingsSearchIndex.search("沉浸模式").any { it.id == "playback.immersive-lower" })
         assertTrue(SettingsSearchIndex.search("沉浸时标题显示歌词").any { it.id == "playback.photo-stack-immersive-lyrics" })
+        assertTrue(SettingsSearchIndex.search("教程").any { it.id == "help.tutorial" })
+        assertTrue(SettingsSearchIndex.search("强制使用逐字歌词样式").any { it.id == "lyrics.classic-line-fill" })
+        assertTrue(SettingsSearchIndex.search("状态栏歌词").any { it.id == "lyrics.external" })
+    }
+
+    @Test
+    fun settingsRootSearchIncludesEqualizerAndTutorial() {
+        val eq = SettingsSearchIndex.searchFromSettingsRoot("EQ")
+        val tutorial = SettingsSearchIndex.searchFromSettingsRoot("教程")
+
+        assertTrue(eq.any { it.id == "equalizer" })
+        assertTrue(tutorial.any { it.id == "help.tutorial" })
+        assertTrue(SettingsSearchIndex.searchFromSettingsRoot("睡眠").none { it.id == "player-menu.sleep-timer" })
     }
 
     @Test

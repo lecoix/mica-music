@@ -34,3 +34,15 @@ internal fun settingsScreenTitle(
     externalLyricsSubpageOpen -> "外部歌词"
     else -> selectedCategory?.title ?: "设置"
 }
+
+internal fun SettingsIndexEntry.navigateFromSettingsRoot(
+    onSelectCategory: (SettingsCategory) -> Unit,
+    onOpenUsageTutorial: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+) {
+    when {
+        id == "help.tutorial" -> onOpenUsageTutorial()
+        target.surface == SettingsIndexSurface.EQUALIZER -> onOpenEqualizer()
+        else -> target.category?.let(onSelectCategory)
+    }
+}

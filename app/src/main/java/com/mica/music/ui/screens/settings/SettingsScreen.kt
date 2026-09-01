@@ -69,6 +69,7 @@ fun SettingsScreen(
     onOpenMetadataDebug: () -> Unit,
     onOpenSpatialAudio: () -> Unit,
     onOpenSoundFx: () -> Unit,
+    onOpenEqualizer: () -> Unit = {},
     canOpenCustomPlayerLayoutEditor: Boolean = true,
     onOpenCustomPlayerLayoutEditor: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
@@ -353,7 +354,15 @@ fun SettingsScreen(
             if (selectedCategory == null) {
                 SettingsCategoryList(
                     query = settingsSearchQuery,
-                    onOpenUsageTutorial = { showUsageTutorial = true },
+                    onOpenUsageTutorial = {
+                        closeSettingsSearch()
+                        showUsageTutorial = true
+                    },
+                    onOpenEqualizer = {
+                        logBackFlow("nav-action open-equalizer from=settings-search")
+                        closeSettingsSearch()
+                        onOpenEqualizer()
+                    },
                     onSelectCategory = { category ->
                         logBackFlow("page-action settings-open-category category=${category.name}")
                         closeSettingsSearch()
@@ -406,6 +415,7 @@ fun SettingsScreen(
                                 minDurationSec = scanState.minDurationSec,
                                 deepProbe = scanState.deepProbe,
                                 artistSplitConfig = artistSplitConfig,
+                                remoteLibrarySidebarEnabled = uiSettings.remoteLibrarySidebarEnabled,
                                 onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
                                 onRescan = libraryAccess.onRescan,
                                 onScanAllMusic = libraryAccess.onScanAllMusic,
@@ -421,6 +431,8 @@ fun SettingsScreen(
                                 onEditArtistSplit = {
                                     overlays = overlays.copy(showArtistSplit = true)
                                 },
+                                onRemoteLibrarySidebarEnabledChange =
+                                    uiSettings::updateRemoteLibrarySidebarEnabled,
                                 onOpenRemoteMusic = { remoteMusicSubpageOpen = true },
                             )
                         }

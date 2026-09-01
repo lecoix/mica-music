@@ -181,7 +181,11 @@ class HomeUiStateTest {
         assertEquals(HomeSection.Playlist to "pl_1", restoreHomeLocation(HomeSection.Playlist.name, "pl_1"))
         assertEquals(HomeSection.Playlist to null, restoreHomeLocation(HomeSection.Playlist.name, ""))
         assertEquals(HomeSection.Folders to null, restoreHomeLocation(HomeSection.Folders.name, null))
-        assertEquals(HomeSection.Remote to null, restoreHomeLocation(HomeSection.Remote.name, null))
+        assertEquals(HomeSection.Songs to null, restoreHomeLocation(HomeSection.Remote.name, null))
+        assertEquals(
+            HomeSection.Remote to null,
+            restoreHomeLocation(HomeSection.Remote.name, null, remoteLibraryEnabled = true),
+        )
         assertEquals(HomeSection.Songs to null, restoreHomeLocation("unknown", null))
     }
 }

@@ -302,6 +302,10 @@ fun AppNavigationMain(
                     logBackFlow("nav-action open-sound-fx from=settings")
                     coordinator.navigate(Routes.SoundFx)
                 },
+                onOpenEqualizer = {
+                    logBackFlow("nav-action open-equalizer from=settings")
+                    coordinator.navigate(Routes.Equalizer)
+                },
                 contentPadding = PaddingValues(
                     top = statusTop,
                     bottom = navBarPadding.calculateBottomPadding(),

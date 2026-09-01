@@ -524,6 +524,12 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(uiSettings.remoteLibrarySidebarEnabled) {
+        if (!uiSettings.remoteLibrarySidebarEnabled && uiState.section == HomeSection.Remote) {
+            uiState = uiState.copy(section = HomeSection.Songs)
+        }
+    }
+
     LaunchedEffect(uiState.section, uiState.activePlaylistId) {
         when (uiState.section) {
             HomeSection.Songs,
@@ -860,6 +866,7 @@ fun HomeScreen(
             activePlaylistId = uiState.activePlaylistId,
             playlists = playlistStore.playlists,
             playlistSidebarStyle = uiSettings.playlistSidebarStyle,
+            remoteLibraryEnabled = uiSettings.remoteLibrarySidebarEnabled,
             statusBarTop = statusBarTop,
             bottomInset = drawerBottomInset,
             onSectionSelected = ::onDrawerPick,

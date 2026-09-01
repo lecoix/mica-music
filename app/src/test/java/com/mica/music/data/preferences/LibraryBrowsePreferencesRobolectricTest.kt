@@ -81,6 +81,15 @@ class LibraryBrowsePreferencesRobolectricTest {
     }
 
     @Test
+    fun remoteLibrarySidebarDefaultsOffAndRoundTrips() {
+        assertEquals(false, LibraryBrowseSettings.remoteLibrarySidebarEnabled(context))
+
+        LibraryBrowseSettings.setRemoteLibrarySidebarEnabled(context, true)
+
+        assertEquals(true, LibraryBrowseSettings.remoteLibrarySidebarEnabled(context))
+    }
+
+    @Test
     fun artistSplitConfigRoundTrip() {
         assertEquals(ArtistSeparator.defaults, LibraryBrowseSettings.artistSplitConfig(context).enabledSeparators)
 

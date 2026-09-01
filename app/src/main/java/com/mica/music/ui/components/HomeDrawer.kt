@@ -19,8 +19,8 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryMusic
@@ -68,6 +68,7 @@ fun HomeDrawerPanel(
     activePlaylistId: String?,
     playlists: List<UserPlaylist>,
     playlistSidebarStyle: PlaylistSidebarStyle = PlaylistSidebarStyle.DEFAULT,
+    remoteLibraryEnabled: Boolean = false,
     statusBarTop: Dp,
     bottomInset: Dp,
     onSectionSelected: (HomeSection) -> Unit,
@@ -82,23 +83,35 @@ fun HomeDrawerPanel(
         widthDp = configuration.screenWidthDp,
         heightDp = configuration.screenHeightDp,
     )
-    val libraryItems = listOf(
-            DrawerItem("歌曲", Icons.Outlined.LibraryMusic, selectedSection == HomeSection.Songs) {
-                onSectionSelected(HomeSection.Songs)
-            },
-            DrawerItem("艺术家", Icons.Outlined.Person, selectedSection == HomeSection.Artists) {
-                onSectionSelected(HomeSection.Artists)
-            },
-            DrawerItem("专辑", Icons.Outlined.Album, selectedSection == HomeSection.Albums) {
-                onSectionSelected(HomeSection.Albums)
-            },
-            DrawerItem("文件夹", Icons.Outlined.Folder, selectedSection == HomeSection.Folders) {
-                onSectionSelected(HomeSection.Folders)
-            },
-            DrawerItem("远程曲库", Icons.Outlined.Cloud, selectedSection == HomeSection.Remote) {
-                onSectionSelected(HomeSection.Remote)
-            },
-        ) + if (playlistSidebarStyle == PlaylistSidebarStyle.OVERVIEW) {
+    val libraryItems = buildList {
+            add(
+                DrawerItem("歌曲", Icons.Outlined.LibraryMusic, selectedSection == HomeSection.Songs) {
+                    onSectionSelected(HomeSection.Songs)
+                },
+            )
+            add(
+                DrawerItem("艺术家", Icons.Outlined.Person, selectedSection == HomeSection.Artists) {
+                    onSectionSelected(HomeSection.Artists)
+                },
+            )
+            add(
+                DrawerItem("专辑", Icons.Outlined.Album, selectedSection == HomeSection.Albums) {
+                    onSectionSelected(HomeSection.Albums)
+                },
+            )
+            add(
+                DrawerItem("文件夹", Icons.Outlined.Folder, selectedSection == HomeSection.Folders) {
+                    onSectionSelected(HomeSection.Folders)
+                },
+            )
+            if (remoteLibraryEnabled) {
+                add(
+                    DrawerItem("远程曲库", Icons.Outlined.Cloud, selectedSection == HomeSection.Remote) {
+                        onSectionSelected(HomeSection.Remote)
+                    },
+                )
+            }
+        } + if (playlistSidebarStyle == PlaylistSidebarStyle.OVERVIEW) {
         listOf(
             DrawerItem("歌单", Icons.Outlined.PlaylistPlay, selectedSection == HomeSection.Playlist) {
                 onSectionSelected(HomeSection.Playlist)

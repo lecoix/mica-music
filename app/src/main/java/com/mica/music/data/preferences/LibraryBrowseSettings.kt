@@ -30,12 +30,22 @@ object LibraryBrowseSettings {
     private const val KEY_ARTIST_SPLIT_WHITELIST = "artist_split_whitelist"
     private const val KEY_LAST_HOME_SECTION = "last_home_section"
     private const val KEY_LAST_HOME_PLAYLIST_ID = "last_home_playlist_id"
+    private const val KEY_REMOTE_LIBRARY_SIDEBAR_ENABLED = "remote_library_sidebar_enabled"
 
     fun lastHomeSection(context: Context): String? =
         MicaSettingsStore.prefs(context).getString(KEY_LAST_HOME_SECTION, null)
 
     fun lastHomePlaylistId(context: Context): String? =
         MicaSettingsStore.prefs(context).getString(KEY_LAST_HOME_PLAYLIST_ID, null)
+
+    fun remoteLibrarySidebarEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_REMOTE_LIBRARY_SIDEBAR_ENABLED, false)
+
+    fun setRemoteLibrarySidebarEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_REMOTE_LIBRARY_SIDEBAR_ENABLED, enabled)
+            .apply()
+    }
 
     fun setLastHomeLocation(context: Context, section: String, playlistId: String?) {
         MicaSettingsStore.prefs(context).edit()

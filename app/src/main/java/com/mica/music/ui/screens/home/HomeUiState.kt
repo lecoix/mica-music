@@ -59,6 +59,7 @@ data class HomeUiState(
             val (section, playlistId) = restoreHomeLocation(
                 LibraryBrowseSettings.lastHomeSection(context),
                 LibraryBrowseSettings.lastHomePlaylistId(context),
+                LibraryBrowseSettings.remoteLibrarySidebarEnabled(context),
             )
             return HomeUiState(
                 section = section,
@@ -77,7 +78,11 @@ data class HomeUiState(
     }
 }
 
-internal fun restoreHomeLocation(sectionValue: String?, playlistId: String?): Pair<HomeSection, String?> {
+internal fun restoreHomeLocation(
+    sectionValue: String?,
+    playlistId: String?,
+    remoteLibraryEnabled: Boolean = false,
+): Pair<HomeSection, String?> {
     val section = sectionValue
         ?.let { runCatching { HomeSection.valueOf(it) }.getOrNull() }
         ?: return HomeSection.Songs to null
@@ -85,8 +90,8 @@ internal fun restoreHomeLocation(sectionValue: String?, playlistId: String?): Pa
         HomeSection.Songs,
         HomeSection.Artists,
         HomeSection.Albums,
-        HomeSection.Folders,
-        HomeSection.Remote -> section to null
+        HomeSection.Folders -> section to null
+        HomeSection.Remote -> if (remoteLibraryEnabled) section to null else HomeSection.Songs to null
         HomeSection.Playlist -> HomeSection.Playlist to playlistId?.takeIf(String::isNotBlank)
         else -> HomeSection.Songs to null
     }

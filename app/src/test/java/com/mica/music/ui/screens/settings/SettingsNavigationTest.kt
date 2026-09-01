@@ -70,4 +70,31 @@ class SettingsNavigationTest {
             settingsScreenTitle(SettingsCategory.LYRICS, externalLyricsSubpageOpen = true),
         )
     }
+
+    @Test
+    fun settingsRootSearchOpensTutorialEqualizerOrCategory() {
+        var tutorial = false
+        var equalizer = false
+        var category: SettingsCategory? = null
+
+        SettingsSearchIndex.entries.first { it.id == "help.tutorial" }
+            .navigateFromSettingsRoot({ category = it }, { tutorial = true }, { equalizer = true })
+        assertTrue(tutorial)
+        assertFalse(equalizer)
+        assertNull(category)
+
+        tutorial = false
+        SettingsSearchIndex.entries.first { it.id == "equalizer" }
+            .navigateFromSettingsRoot({ category = it }, { tutorial = true }, { equalizer = true })
+        assertFalse(tutorial)
+        assertTrue(equalizer)
+        assertNull(category)
+
+        equalizer = false
+        SettingsSearchIndex.entries.first { it.id == "lyrics.external" }
+            .navigateFromSettingsRoot({ category = it }, { tutorial = true }, { equalizer = true })
+        assertFalse(tutorial)
+        assertFalse(equalizer)
+        assertEquals(SettingsCategory.LYRICS, category)
+    }
 }

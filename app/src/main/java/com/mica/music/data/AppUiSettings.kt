@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mica.music.data.preferences.AppearancePreferences
 import com.mica.music.data.preferences.FontPreferences
+import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.scanner.VideoCoverPosterPrefetcher
@@ -137,6 +138,11 @@ class AppUiSettings(context: Context) {
 
     var playlistSidebarStyle by mutableStateOf(
         AppearancePreferences.playlistSidebarStyle(appContext),
+    )
+        private set
+
+    var remoteLibrarySidebarEnabled by mutableStateOf(
+        LibraryBrowseSettings.remoteLibrarySidebarEnabled(appContext),
     )
         private set
 
@@ -589,6 +595,11 @@ class AppUiSettings(context: Context) {
     fun updatePlaylistSidebarStyle(style: PlaylistSidebarStyle) {
         playlistSidebarStyle = style
         AppearancePreferences.setPlaylistSidebarStyle(appContext, style)
+    }
+
+    fun updateRemoteLibrarySidebarEnabled(enabled: Boolean) {
+        remoteLibrarySidebarEnabled = enabled
+        LibraryBrowseSettings.setRemoteLibrarySidebarEnabled(appContext, enabled)
     }
 
     fun updateGlobalFont(selection: AppFontSelection) {

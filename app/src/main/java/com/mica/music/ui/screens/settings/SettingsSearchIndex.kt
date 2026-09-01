@@ -60,6 +60,7 @@ internal object SettingsIndexSections {
     const val LIBRARY_ARTIST = "library-artist"
     const val AUDIO = "audio"
     const val DIAGNOSTICS = "diagnostics"
+    const val TUTORIAL = "tutorial"
 }
 
 internal object SettingsSearchIndex {
@@ -129,7 +130,7 @@ internal object SettingsSearchIndex {
         setting("playback.info-time", "信息行：当前时间", "时间", "时钟", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_INFO),
         setting("playback.info-custom-text", "信息行：自定义文字", "自定义文字", "信息行", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_INFO),
         setting("playback.hires-badge", "Hi-Res 标志样式", "Hi-Res", "高解析度", "徽标", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_INFO),
-        setting("playback.hires-custom-image", "Hi-Res 自定义图片", "Hi-Res", "图片", "徽标", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_INFO, availability = "仅选择自定义图片样式时显示"),
+        setting("playback.hires-custom-image", "Hi-Res 自定义图片", "Hi-Res", "图片", "徽标", "选择图片", "清除自定义图片", category = SettingsCategory.PLAYBACK, section = SettingsIndexSections.PLAYBACK_INFO, availability = "仅选择自定义图片样式时显示"),
 
         setting("lyrics.theme", "歌词页主题", "歌词", "经典列表", "歌词云", "信笺", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_THEME),
         setting("lyrics.priority", "歌词优先级", "TTML", "LRC", "内嵌", "歌词来源", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
@@ -139,14 +140,23 @@ internal object SettingsSearchIndex {
         setting("lyrics.letter-seal-opacity", "信笺朱印浓度", "印章", "透明度", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_LETTER, availability = "仅信笺主题"),
         setting("lyrics.letter-seal-rotation", "信笺朱印旋转", "印章", "旋转", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_LETTER, availability = "仅信笺主题"),
         setting("lyrics.split-bilingual", "分割双语歌词", "双语", "拆分", "翻译", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
+        setting("lyrics.reading", "显示读音 / 罗马音", "读音", "罗马音", "音译", "x-roman", "transliteration", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
         setting("lyrics.bilingual-display", "双语歌词显示", "双语", "原文", "翻译", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL, availability = "需要启用双语拆分且当前歌词行可拆分"),
         setting("lyrics.color", "歌词颜色", "颜色", "浅色", "深色", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
         setting("lyrics.info-row", "信息行歌词", "歌词输出", "歌曲列表", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT),
         setting("lyrics.global-offset", "全局歌词偏移", "歌词同步", "提前", "延后", "微调", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
         setting("lyrics.info-row-word", "信息行逐字歌词", "逐字", "歌词输出", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT, availability = "仅信息行歌词开启且有逐字时间轴时明显生效"),
         setting("lyrics.notification", "通知栏歌词", "通知", "媒体通知", "车载蓝牙", "车机", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT, availability = "车载蓝牙输出与通知栏歌词共用开关；受系统通知和媒体会话条件影响"),
+        setting(
+            "lyrics.external",
+            "外部歌词",
+            "桌面歌词", "状态栏歌词", "悬浮窗", "overlay", "外部歌词输出",
+            category = SettingsCategory.LYRICS,
+            section = SettingsIndexSections.LYRICS_OUTPUT,
+            availability = "需要悬浮窗权限；桌面歌词与状态栏歌词互斥",
+        ),
         setting("lyrics.classic-word-animation", "经典列表：逐字动画", "逐字", "动画", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题；需要真实逐字时间轴"),
-        setting("lyrics.classic-line-fill", "经典列表：逐字歌词样式", "逐字", "填充", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题；无逐字时间轴时使用播放进度"),
+        setting("lyrics.classic-line-fill", "强制使用逐字歌词样式", "逐字", "填充", "逐字歌词样式", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题；无逐字时间轴时使用播放进度"),
         setting("lyrics.classic-alignment", "经典列表：歌词页对齐", "对齐", "左对齐", "居中", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
         setting("lyrics.classic-font-size", "经典列表：原歌词字号", "字号", "字体", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
         setting("lyrics.classic-translation-size", "经典列表：翻译歌词字号", "字号", "翻译", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
@@ -155,7 +165,15 @@ internal object SettingsSearchIndex {
         setting("lyrics.font", "歌词字体", "字体", "TTF", "OTF", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_FONT),
         setting("lyrics.font-clear", "清除导入字体", "字体", "恢复", "系统默认", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_FONT, availability = "仅导入字体后显示为可用"),
 
-        setting("library.remote", "远程曲库", "Navidrome", "OpenSubsonic", "WebDAV", "SMB", "网络音乐", "远程来源", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
+        setting("library.remote", "远程曲库", "Navidrome", "OpenSubsonic", "WebDAV", "SMB", "网络音乐", "远程来源", "自动同步", "后台同步", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
+        setting(
+            "library.remote-sidebar",
+            "在侧栏显示远程曲库",
+            "侧栏", "启用", "远程曲库",
+            category = SettingsCategory.LIBRARY,
+            section = SettingsIndexSections.LIBRARY_SOURCE,
+            availability = "默认关闭；关闭后仍可从曲库设置管理远程来源",
+        ),
         setting("library.folder", "曲库文件夹", "文件夹", "目录", "SAF", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
         setting("library.rescan", "重新扫描曲库", "扫描", "刷新", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
         setting("library.scan-all", "扫描全部音乐", "扫描", "MediaStore", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
@@ -180,6 +198,7 @@ internal object SettingsSearchIndex {
             "audio.usb-exclusive",
             "USB 独占输出",
             "USB", "DAC", "Exact PCM", "Native DSD", "DoP", "传输状态", "诊断报告",
+            "音量控制", "DSD 增益", "平滑接管", "quirk", "授权并重试",
             category = SettingsCategory.AUDIO,
             section = SettingsIndexSections.AUDIO,
             availability = "支持单一已连接 USB Audio 输出设备；进入音频与设备后打开独立子页",
@@ -187,9 +206,17 @@ internal object SettingsSearchIndex {
         ),
 
         setting("diagnostics.metadata", "元数据调试", "ID3", "Vorbis", "解析器", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
-        setting("diagnostics.audio-offload", "音频硬件卸载（Offload）", "offload", "硬件解码", "DSP", "PCM", "省电", "失速", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
+        setting("diagnostics.audio-offload", "音频硬件卸载（Offload）", "offload", "硬件解码", "DSP", "PCM", "省电", "失速", "mp3", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.spatial-audio", "系统空间音频", "Spatializer", "输出", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.app-settings", "系统权限与应用信息", "权限", "通知", "应用信息", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
+
+        setting(
+            "help.tutorial",
+            "重新查看教程",
+            "教程", "使用技巧", "新手", "示意",
+            category = null,
+            section = SettingsIndexSections.TUTORIAL,
+        ),
 
         context("song-list.sort", "歌曲列表排序", SettingsIndexSurface.SONG_LIST, "排序", "升序", "降序", "自定义"),
         context("song-list.info", "歌曲列表信息显示", SettingsIndexSurface.SONG_LIST, "格式", "时长", "文件大小", "歌曲列表"),
@@ -215,11 +242,16 @@ internal object SettingsSearchIndex {
             .toList()
     }
 
+    fun searchFromSettingsRoot(query: String): List<SettingsIndexEntry> = search(query).filter {
+        it.target.surface == SettingsIndexSurface.SETTINGS ||
+            it.target.surface == SettingsIndexSurface.EQUALIZER
+    }
+
     private fun setting(
         id: String,
         title: String,
         vararg keywords: String,
-        category: SettingsCategory = SettingsCategory.APPEARANCE,
+        category: SettingsCategory? = SettingsCategory.APPEARANCE,
         section: String? = null,
         availability: String? = null,
         isExperimental: Boolean = false,

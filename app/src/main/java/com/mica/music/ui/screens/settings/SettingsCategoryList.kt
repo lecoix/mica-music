@@ -14,6 +14,7 @@ internal fun SettingsCategoryList(
     query: String,
     onSelectCategory: (SettingsCategory) -> Unit,
     onOpenUsageTutorial: () -> Unit,
+    onOpenEqualizer: () -> Unit = {},
 ) {
     if (query.isBlank()) {
         SettingsSectionTitle("浏览设置")
@@ -40,20 +41,16 @@ internal fun SettingsCategoryList(
         SettingsTipRow("歌曲列表排序里，已选「自定义」时再次点击，可进入「自定义·锁定」状态")
         SettingsTipRow("无法播放mp3可以尝试关闭Offload")
     } else {
-        val results = SettingsSearchIndex.search(
-            query = query,
-            surface = SettingsIndexSurface.SETTINGS,
-        )
+        val results = SettingsSearchIndex.searchFromSettingsRoot(query)
         if (results.isEmpty()) {
             SettingsTipRow("未找到「$query」相关设置")
         } else {
             SettingsSectionTitle("搜索结果")
             results.forEach { entry ->
-                val category = entry.target.category ?: return@forEach
                 SettingsNavigationRow(
                     title = entry.title,
                     subtitle = entry.searchSubtitle(),
-                    onClick = { onSelectCategory(category) },
+                    onClick = { entry.navigateFromSettingsRoot(onSelectCategory, onOpenUsageTutorial, onOpenEqualizer) },
                 )
             }
         }
@@ -67,6 +64,7 @@ private fun SettingsIndexEntry.searchSubtitle(): String = buildList {
     }
     availability?.let(::add)
     if (isExperimental) add("实验功能")
+    if (target.surface == SettingsIndexSurface.EQUALIZER && isEmpty()) add("侧栏入口")
 }.joinToString(" · ")
 
 private fun String.toSearchLabel(): String = when (this) {
@@ -85,5 +83,6 @@ private fun String.toSearchLabel(): String = when (this) {
     SettingsIndexSections.LIBRARY_ARTIST -> "艺术家"
     SettingsIndexSections.AUDIO -> "音频"
     SettingsIndexSections.DIAGNOSTICS -> "诊断"
+    SettingsIndexSections.TUTORIAL -> "使用技巧"
     else -> this
 }

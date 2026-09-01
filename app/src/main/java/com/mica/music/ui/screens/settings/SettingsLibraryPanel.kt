@@ -15,6 +15,7 @@ internal fun LibraryScanSettingsPanel(
     minDurationSec: Int,
     deepProbe: Boolean,
     artistSplitConfig: ArtistSplitConfig,
+    remoteLibrarySidebarEnabled: Boolean,
     onChooseLibraryFolder: () -> Unit,
     onRescan: () -> Unit,
     onScanAllMusic: () -> Unit,
@@ -22,9 +23,17 @@ internal fun LibraryScanSettingsPanel(
     onEditExcludedDirectories: () -> Unit,
     onMinDurationSelected: (Int) -> Unit,
     onEditArtistSplit: () -> Unit,
+    onRemoteLibrarySidebarEnabledChange: (Boolean) -> Unit,
     onOpenRemoteMusic: () -> Unit,
 ) {
     SettingsSectionTitle("曲库来源")
+
+    SettingsToggleRow(
+        title = "在侧栏显示远程曲库",
+        subtitle = "默认关闭；关闭后仍可从此处管理远程来源",
+        checked = remoteLibrarySidebarEnabled,
+        onCheckedChange = onRemoteLibrarySidebarEnabledChange,
+    )
 
     SettingsActionRow(
         title = "远程曲库",
