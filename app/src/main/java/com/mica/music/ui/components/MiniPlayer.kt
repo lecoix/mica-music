@@ -592,7 +592,6 @@ private fun AudiophileMiniPlayer(
                     }
                     MiniPlayerSpectrumBars(
                         isPlaying = isPlaying,
-                        height = 38.dp,
                     )
                 }
             }

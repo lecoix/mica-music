@@ -28,7 +28,8 @@ import kotlin.math.sqrt
 private const val BarCount = 11
 private val BarWidth = 1.5.dp
 private val BarGap = 1.5.dp
-private val SpectrumHeight = 38.dp
+/** 极简 Hi‑Fi 迷你栏频谱条高度上限；相对此前 38.dp 整体降低 33%。 */
+private val SpectrumHeight = 38.dp * 0.55f
 
 private fun bimodalEnvelope(index: Int, count: Int): Float {
     if (count <= 1) return 1f
