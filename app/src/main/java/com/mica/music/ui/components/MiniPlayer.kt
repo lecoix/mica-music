@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.TextStyle
 import com.mica.music.imaging.CoverDecodeTarget
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import com.mica.music.R
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.LyricLine
@@ -322,14 +325,38 @@ private fun MiniPlayerMarqueeText(
     style: TextStyle,
     color: androidx.compose.ui.graphics.Color,
 ) {
-    Text(
-        text = text,
-        style = style,
-        color = color,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.basicMarquee(),
-    )
+    var containerWidthPx by remember { mutableIntStateOf(0) }
+    var textWidthPx by remember { mutableIntStateOf(0) }
+    // 左对齐：能放下时不要左缘渐隐，否则首字会被 28dp 遮罩吃掉。
+    val overflowing = containerWidthPx > 0 && textWidthPx > containerWidthPx
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onSizeChanged { containerWidthPx = it.width }
+            .marqueeHorizontalEdgeFade(
+                fadeLeft = overflowing,
+                fadeRight = overflowing,
+            ),
+    ) {
+        Text(
+            text = text,
+            style = style,
+            color = color,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Visible,
+            onTextLayout = { result ->
+                textWidthPx = if (result.lineCount > 0) {
+                    (result.getLineRight(0) - result.getLineLeft(0)).roundToInt()
+                } else {
+                    result.size.width
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
+        )
+    }
 }
 
 @Composable

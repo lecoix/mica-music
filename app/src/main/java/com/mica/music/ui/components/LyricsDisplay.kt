@@ -126,31 +126,39 @@ fun Modifier.marqueeHorizontalEdgeFade(
         }
 
 /** 歌词区域上下缘渐隐：对内容做 alpha 遮罩，边缘淡出为透明，不依赖背景色。 */
-fun Modifier.lyricsVerticalEdgeFade(fadeHeight: Dp = 28.dp): Modifier =
+fun Modifier.lyricsVerticalEdgeFade(
+    fadeHeight: Dp = 28.dp,
+    fadeTop: Boolean = true,
+    fadeBottom: Boolean = true,
+): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent {
             drawContent()
             val fadePx = fadeHeight.toPx().coerceAtMost(size.height / 2f)
             if (fadePx > 0f) {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(LyricFadeMaskClear, LyricFadeMaskOpaque),
-                        startY = 0f,
-                        endY = fadePx,
-                    ),
-                    size = Size(size.width, fadePx),
-                    blendMode = BlendMode.DstIn,
-                )
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(LyricFadeMaskOpaque, LyricFadeMaskClear),
-                        startY = size.height - fadePx,
-                        endY = size.height,
-                    ),
-                    topLeft = Offset(0f, size.height - fadePx),
-                    size = Size(size.width, fadePx),
-                    blendMode = BlendMode.DstIn,
-                )
+                if (fadeTop) {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(LyricFadeMaskClear, LyricFadeMaskOpaque),
+                            startY = 0f,
+                            endY = fadePx,
+                        ),
+                        size = Size(size.width, fadePx),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+                if (fadeBottom) {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(LyricFadeMaskOpaque, LyricFadeMaskClear),
+                            startY = size.height - fadePx,
+                            endY = size.height,
+                        ),
+                        topLeft = Offset(0f, size.height - fadePx),
+                        size = Size(size.width, fadePx),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
             }
         }
 

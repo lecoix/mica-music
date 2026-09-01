@@ -308,7 +308,14 @@ fun PlaybackQueueSheet(
                             state = lazyListState,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(end = HifiSpacing.lg),
+                                .padding(end = HifiSpacing.lg)
+                                .then(
+                                    if (embedded) {
+                                        Modifier.lyricsVerticalEdgeFade(fadeBottom = false)
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
                         ) {
                             items(
                                 count = queue.size,

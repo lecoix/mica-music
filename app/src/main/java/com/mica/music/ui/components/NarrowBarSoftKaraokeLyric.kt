@@ -84,10 +84,15 @@ fun NarrowBarSoftKaraokeLyric(
         viewportWidthPx = viewportWidthPx.toFloat(),
     )
 
+    val overflowing = viewportWidthPx > 0 && contentWidthPx > viewportWidthPx
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clipToBounds()
+            .marqueeHorizontalEdgeFade(
+                fadeLeft = overflowing,
+                fadeRight = overflowing,
+            )
             .onSizeChanged { viewportWidthPx = it.width },
     ) {
         // unbounded：避免父级 maxWidth 把长句量成「刚好视口宽」导致永不平移（浮岛更窄时必现）

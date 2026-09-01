@@ -248,7 +248,7 @@ _Avoid_: player screen（文档用中文）、full player
 _Avoid_: player modal、bottom sheet（指播放页整体时）
 
 **迷你播放栏（MiniPlayer）**：
-主页底部的紧凑播放控件；点击展开播放页。样式由 `MiniPlayerStyle` 决定。
+主页底部的紧凑播放控件；点击展开播放页。样式由 `MiniPlayerStyle` 决定。浮岛卡片的歌名/歌词区仅在文字超出宽度时左右缘渐隐；左对齐且能放下时不渐隐左缘，避免首字被遮罩吃掉。
 _Avoid_: mini bar、bottom player、now playing bar
 
 **下半屏（lower panel）**：
