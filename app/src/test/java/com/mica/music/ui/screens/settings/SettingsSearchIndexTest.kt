@@ -39,6 +39,7 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("音效实验室").any { it.id == "audio.sound-fx" })
         assertTrue(SettingsSearchIndex.search("混响").any { it.id == "audio.sound-fx" })
         assertTrue(SettingsSearchIndex.search("360").any { it.id == "audio.sound-fx" })
+        assertTrue(SettingsSearchIndex.search("沉浸时标题显示歌词").any { it.id == "playback.photo-stack-immersive-lyrics" })
     }
 
     @Test

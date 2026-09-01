@@ -42,6 +42,11 @@ class AppUiSettings(context: Context) {
     var playerImmersiveLower by mutableStateOf(PlaybackUiPreferences.playerImmersiveLower(appContext))
         private set
 
+    var photoStackImmersiveLyricsEnabled by mutableStateOf(
+        PlaybackUiPreferences.photoStackImmersiveLyricsEnabled(appContext),
+    )
+        private set
+
     var compactLyricsLineMode by mutableStateOf(PlaybackUiPreferences.compactLyricsLineMode(appContext))
         private set
 
@@ -383,6 +388,11 @@ class AppUiSettings(context: Context) {
     fun updatePlayerImmersiveLower(enabled: Boolean) {
         playerImmersiveLower = enabled
         PlaybackUiPreferences.setPlayerImmersiveLower(appContext, enabled)
+    }
+
+    fun updatePhotoStackImmersiveLyricsEnabled(enabled: Boolean) {
+        photoStackImmersiveLyricsEnabled = enabled
+        PlaybackUiPreferences.setPhotoStackImmersiveLyricsEnabled(appContext, enabled)
     }
 
     fun updateCompactLyricsLineMode(mode: CompactLyricsLineMode) {

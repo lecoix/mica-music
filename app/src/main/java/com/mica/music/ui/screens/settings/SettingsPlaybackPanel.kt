@@ -166,6 +166,14 @@ internal fun PlaybackSettingsPanel(
             checked = uiSettings.playerImmersiveLower,
             onCheckedChange = uiSettings::updatePlayerImmersiveLower,
         )
+        if (uiSettings.playerCoverFlowMode.usesPhotoStack) {
+            SettingsToggleRow(
+                title = "沉浸时标题显示歌词",
+                subtitle = "播放中用当前歌词替换相纸白边歌名；译文作副标题，单语言则为歌名 - 艺术家",
+                checked = uiSettings.photoStackImmersiveLyricsEnabled,
+                onCheckedChange = uiSettings::updatePhotoStackImmersiveLyricsEnabled,
+            )
+        }
     }
 
     if (uiSettings.playerCoverFlowMode.usesCompactLyricsLinePreference()) {

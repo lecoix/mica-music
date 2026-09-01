@@ -58,6 +58,7 @@ object PlaybackUiPreferences {
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
     private const val KEY_KEEP_SCREEN_ON_WHEN_PLAYING = "keep_screen_on_when_playing"
     private const val KEY_PLAYER_IMMERSIVE_LOWER = "player_immersive_lower"
+    private const val KEY_PHOTO_STACK_IMMERSIVE_LYRICS = "photo_stack_immersive_lyrics"
     private const val KEY_COMPACT_LYRICS_LINE_MODE = "compact_lyrics_line_mode"
     private const val KEY_STRIP_SONG_TITLE_PARENTHESES = "strip_song_title_parentheses"
     internal const val KEY_SPECTRUM_ENABLED = "spectrum_enabled"
@@ -423,6 +424,15 @@ object PlaybackUiPreferences {
     fun setPlayerImmersiveLower(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_PLAYER_IMMERSIVE_LOWER, enabled)
+            .apply()
+    }
+
+    fun photoStackImmersiveLyricsEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_PHOTO_STACK_IMMERSIVE_LYRICS, false)
+
+    fun setPhotoStackImmersiveLyricsEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_PHOTO_STACK_IMMERSIVE_LYRICS, enabled)
             .apply()
     }
 

@@ -7,6 +7,7 @@ import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.player.PhotoStackFrame
+import com.mica.music.ui.screens.player.PhotoStackImmersiveCaption
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.PhotoStackTransitionHost
 
@@ -19,6 +20,7 @@ internal fun PhotoStackThemeHost(
     isPlaying: Boolean,
     spectrumEnabled: Boolean,
     gesturesEnabled: Boolean,
+    immersiveCaption: PhotoStackImmersiveCaption? = null,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onCoverClick: (() -> Unit)?,
@@ -40,6 +42,7 @@ internal fun PhotoStackThemeHost(
         isPlaying = isPlaying,
         spectrumEnabled = spectrumEnabled,
         gesturesEnabled = gesturesEnabled,
+        immersiveCaption = immersiveCaption,
         onPrevious = onPrevious,
         onNext = onNext,
         onCoverClick = onCoverClick,

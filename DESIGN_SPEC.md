@@ -126,9 +126,9 @@
 | 粒子封面 | `PARTICLE_COVER` | 边缘粒子化 + 切歌分解；现网 **GLES**（`ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 回退见 `ThreeParticleCoverHost` |
 | 平行封面带 | `PAUSE_FOLD` | 七轨 View 岛封面流；横屏稳定态可长按标题进入封面流沉浸 |
 | 复古立体封面 | `RETRO_3D` | 透视封面流 + 倒影；横屏复用平行封面带的沉浸缩放契约 |
-| 拍立得回忆 | `PHOTO_STACK` | 拍立得叠放转场（**局部圆角**，见 §十五） |
+| 拍立得回忆 | `PHOTO_STACK` | 拍立得叠放转场（**局部圆角**，见 §十五）；支持下半屏沉浸，歌名收进相纸白边，可选播放中显示当前歌词 |
 
-`PARTICLE_COVER`、`PAUSE_FOLD`、`RETRO_3D`、`PHOTO_STACK` 强制裁切填充；`CUSTOM_STANDARD` 保留标准封面显示策略。`CUSTOM_STANDARD` / `PARTICLE_COVER` / `PHOTO_STACK` 不支持下半屏沉浸。自由布局编辑仅提供竖屏入口，详细交互与保存/取消契约见 `docs/PLAYER_PAGE_CONTRACT.md`。
+`PARTICLE_COVER`、`PAUSE_FOLD`、`RETRO_3D`、`PHOTO_STACK` 强制裁切填充；`CUSTOM_STANDARD` 保留标准封面显示策略。`CUSTOM_STANDARD` / `PARTICLE_COVER` 不支持下半屏沉浸。自由布局编辑仅提供竖屏入口，详细交互与保存/取消契约见 `docs/PLAYER_PAGE_CONTRACT.md`。
 
 
 ---
@@ -1023,7 +1023,7 @@ dependencies {
 | 页面 / 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 设置 · 外观 | ✅ | `SettingsCategory.APPEARANCE`：主题、强调色、云母背景（含 CUSTOM）、自定义壁纸、状态栏四档隐藏范围、迷你播放栏 |
-| 设置 · 播放页 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、信息行、频谱、能力相关的沉浸/封面底边进度；`CUSTOM_STANDARD` 详情只保留“进入播放页布局编辑”入口，点击封面暂停/播放与专辑图阴影在编辑页选中封面时设置 |
+| 设置 · 播放页 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、信息行、频谱、能力相关的沉浸/封面底边进度；拍立得可开「沉浸时标题显示歌词」；`CUSTOM_STANDARD` 详情只保留“进入播放页布局编辑”入口，点击封面暂停/播放与专辑图阴影在编辑页选中封面时设置 |
 | 设置 · 歌词 | ✅ | `LYRICS`：歌词主题、对齐/字号/双语/逐字、歌词优先级、通知/信息行等歌词输出 |
 | 列表 / 专辑 / 艺术家显示设置 | ✅ | 不再是 `SettingsCategory`；歌曲排序 Sheet、专辑/艺术家浏览 Sheet 等上下文入口各自持久化显示选项 |
 | 设置 · 曲库与扫描 | ✅ | `LIBRARY`：曲库文件夹、重扫、排除目录、最短时长、深度分析、艺术家分割 |

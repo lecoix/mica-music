@@ -98,6 +98,7 @@ import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
 import com.mica.music.ui.screens.player.customQueueCoverFrameAtRest
 import com.mica.music.ui.screens.player.customQueueCoverFrameInSlot
 import com.mica.music.ui.screens.player.lerpCoverFrame
+import com.mica.music.ui.screens.player.photoStackImmersiveCaption
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.screens.player.landscapeCoverFlowCloudExitActive
 import com.mica.music.ui.screens.player.landscapeCoverFlowImmersiveEligible
@@ -971,6 +972,33 @@ fun NowPlayingContent(
                         pendingDirection = effectiveTrackWipeDirection,
                     )
                 }
+            val lyricsSession = remember(song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
+            val lyricsRenderState = remember(
+                lyricsSession,
+                displayPositionMs,
+                progressState.positionRevision,
+                effectiveLyricsOffsetMs,
+            ) {
+                lyricsSession.snapshotAt(
+                    positionMs = displayPositionMs,
+                    effectiveOffsetMs = effectiveLyricsOffsetMs,
+                    positionRevision = progressState.positionRevision,
+                )
+            }
+            val photoStackCaption = if (
+                effectiveCoverFlowMode.usesPhotoStack &&
+                uiSettings.photoStackImmersiveLyricsEnabled
+            ) {
+                photoStackImmersiveCaption(
+                    song = song,
+                    isPlaying = pageModel.isPlaying,
+                    lyricsInTitleEnabled = true,
+                    renderState = lyricsRenderState,
+                    splitEnabled = uiSettings.lyricSplitEnabled,
+                )
+            } else {
+                null
+            }
             val coverSection: @Composable (Modifier, Dp?, Float?) -> Unit =
                 { coverModifier, coverStartPaddingOverride, coverFlowProgressOverride ->
                 NowPlayingCoverSection(
@@ -1004,6 +1032,7 @@ fun NowPlayingContent(
                     artworkJunction = appearance.artworkJunction,
                     seekState = seekState,
                     isPlaying = pageModel.isPlaying,
+                    photoStackImmersiveCaption = photoStackCaption,
                     coverFlowMode = effectiveCoverFlowMode,
                     videoAlbumCoverEnabled = uiSettings.videoAlbumCoverEnabled &&
                         (!landscapeMode || uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) &&
@@ -1082,19 +1111,6 @@ fun NowPlayingContent(
                 )
             }
 
-            val lyricsSession = remember(song.lyricsDocument) { LyricsSession(song.lyricsDocument) }
-            val lyricsRenderState = remember(
-                lyricsSession,
-                displayPositionMs,
-                progressState.positionRevision,
-                effectiveLyricsOffsetMs,
-            ) {
-                lyricsSession.snapshotAt(
-                    positionMs = displayPositionMs,
-                    effectiveOffsetMs = effectiveLyricsOffsetMs,
-                    positionRevision = progressState.positionRevision,
-                )
-            }
             val seekToLyricMs: (Int) -> Unit = remember(effectiveLyricsOffsetMs, actions) {
                 { lyricTimeMs ->
                     actions.seekToMs(LyricsTiming.seekPositionMs(lyricTimeMs, effectiveLyricsOffsetMs))

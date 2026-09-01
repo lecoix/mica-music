@@ -75,6 +75,7 @@ import com.mica.music.ui.screens.player.coverOriginPlacement
 import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
 import com.mica.music.ui.screens.player.pinnedVideoCover
 import com.mica.music.ui.screens.player.ParticleCoverThemePolicy
+import com.mica.music.ui.screens.player.PhotoStackImmersiveCaption
 import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.LyricsFocusCoverStartPadding
 import com.mica.music.ui.screens.player.LyricsFocusMiniCoverSize
@@ -117,6 +118,7 @@ internal fun NowPlayingCoverSection(
     artworkJunction: Color,
     seekState: PlaybackSeekState,
     isPlaying: Boolean,
+    photoStackImmersiveCaption: PhotoStackImmersiveCaption? = null,
     coverFlowMode: PlayerCoverFlowMode,
     videoAlbumCoverEnabled: Boolean,
     musicVideoState: PlaybackVideoState,
@@ -488,6 +490,7 @@ internal fun NowPlayingCoverSection(
                         isPlaying = isPlaying,
                         spectrumEnabled = frame.spectrumEnabled,
                         gesturesEnabled = frame.gesturesEnabled,
+                        immersiveCaption = photoStackImmersiveCaption,
                         onPrevious = onPrevious,
                         onNext = onNext,
                         onCoverClick = onCoverClick,

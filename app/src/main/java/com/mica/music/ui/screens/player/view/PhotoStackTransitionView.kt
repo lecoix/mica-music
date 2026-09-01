@@ -139,6 +139,8 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private var motionEnabled = true
     private var gesturesEnabled = true
     private var immersiveProgress = 0f
+    private var immersiveCaptionTitle: String? = null
+    private var immersiveCaptionSubtitle: String? = null
 
     private var queue: List<Song> = emptyList()
     private var logicalCenter: Int = 0
@@ -227,6 +229,13 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         val next = progress.coerceIn(0f, 1f)
         if (abs(immersiveProgress - next) < 0.0001f) return
         immersiveProgress = next
+        invalidate()
+    }
+
+    fun setImmersiveCaption(title: String?, subtitle: String?) {
+        if (immersiveCaptionTitle == title && immersiveCaptionSubtitle == subtitle) return
+        immersiveCaptionTitle = title
+        immersiveCaptionSubtitle = subtitle
         invalidate()
     }
 
@@ -755,12 +764,12 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         if (progress <= 0.01f) return
         val maxWidth = artworkRect.width().coerceAtLeast(1f)
         val title = TextUtils.ellipsize(
-            song.title,
+            immersiveCaptionTitle ?: song.title,
             titlePaint,
             maxWidth,
             TextUtils.TruncateAt.END,
         ).toString()
-        val subtitleSource = song.artist.ifBlank { song.album }
+        val subtitleSource = immersiveCaptionSubtitle ?: song.artist.ifBlank { song.album }
         val subtitle = TextUtils.ellipsize(
             subtitleSource,
             subtitlePaint,

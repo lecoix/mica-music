@@ -80,6 +80,15 @@ class PlaybackUiPreferencesRobolectricTest {
     }
 
     @Test
+    fun photoStackImmersiveLyricsDefaultsOffAndRoundTrips() {
+        assertEquals(false, PlaybackUiPreferences.photoStackImmersiveLyricsEnabled(context))
+
+        PlaybackUiPreferences.setPhotoStackImmersiveLyricsEnabled(context, true)
+
+        assertTrue(PlaybackUiPreferences.photoStackImmersiveLyricsEnabled(context))
+    }
+
+    @Test
     fun compactLyricsLineModeDefaultsAutoAndRoundTrips() {
         assertEquals(CompactLyricsLineMode.AUTO, PlaybackUiPreferences.compactLyricsLineMode(context))
 

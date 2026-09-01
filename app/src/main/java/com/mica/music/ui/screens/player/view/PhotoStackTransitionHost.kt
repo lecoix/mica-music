@@ -12,6 +12,7 @@ import com.mica.music.data.Song
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.PhotoStackFrame
+import com.mica.music.ui.screens.player.PhotoStackImmersiveCaption
 import com.mica.music.util.TrackSwitchPerformance
 
 @Composable
@@ -25,6 +26,7 @@ internal fun PhotoStackTransitionHost(
     isPlaying: Boolean,
     spectrumEnabled: Boolean,
     gesturesEnabled: Boolean,
+    immersiveCaption: PhotoStackImmersiveCaption? = null,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onCoverClick: (() -> Unit)? = null,
@@ -76,6 +78,7 @@ internal fun PhotoStackTransitionHost(
                 setMotionEnabled(motionEnabled)
                 setGesturesEnabled(gesturesEnabled)
                 setImmersiveProgress(frame.immersiveProgress)
+                setImmersiveCaption(immersiveCaption?.title, immersiveCaption?.subtitle)
                 setShadowTuning(shadowTuning)
                 setDecodeTargetOverride(decodeTargetOverride)
                 setFrame(
@@ -115,6 +118,7 @@ internal fun PhotoStackTransitionHost(
             view.setMotionEnabled(motionEnabled)
             view.setGesturesEnabled(gesturesEnabled)
             view.setImmersiveProgress(frame.immersiveProgress)
+            view.setImmersiveCaption(immersiveCaption?.title, immersiveCaption?.subtitle)
             view.setShadowTuning(shadowTuning)
             view.setDecodeTargetOverride(decodeTargetOverride)
             view.setFrame(
