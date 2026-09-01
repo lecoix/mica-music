@@ -39,4 +39,31 @@ class PlaybackMimeResolverTest {
             ),
         )
     }
+
+    @Test
+    fun rawAacExtensionUsesAacMimeInsteadOfMp4ContainerMime() {
+        assertEquals(
+            "audio/mp4a-latm",
+            PlaybackMimeResolver.resolve(
+                storeMime = "audio/aac",
+                probeMime = "audio/mp4a-latm",
+                displayName = "sample.aac",
+                mediaUri = "content://documents/tree/music",
+            ),
+        )
+    }
+
+    @Test
+    fun m4aExtensionStillUsesMp4ContainerMime() {
+        assertEquals(
+            "application/mp4",
+            PlaybackMimeResolver.resolve(
+                storeMime = "audio/mp4a-latm",
+                probeMime = "audio/mp4a-latm",
+                displayName = "sample.m4a",
+                mediaUri = "content://documents/tree/music",
+            ),
+        )
+    }
+
 }

@@ -82,7 +82,8 @@ internal object AudioTrackProbe {
 
         // m4a/mp4 容器内的 ALAC 仍按 MP4 解封装；勿用 audio/alac 作为 MediaItem MIME
         return when (ext) {
-            "m4a", "m4b", "m4p", "mp4", "aac" -> MimeTypes.APPLICATION_MP4
+            "m4a", "m4b", "m4p", "mp4" -> MimeTypes.APPLICATION_MP4
+            "aac" -> MimeTypes.AUDIO_AAC
             "mp3" -> MimeTypes.AUDIO_MPEG
             "flac" -> MimeTypes.AUDIO_FLAC
             "wav" -> MimeTypes.AUDIO_WAV

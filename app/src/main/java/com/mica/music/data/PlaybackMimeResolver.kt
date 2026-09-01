@@ -20,12 +20,14 @@ object PlaybackMimeResolver {
     ): String {
         val extMime = mimeFromFileName(displayName) ?: mimeFromFileName(mediaUri)
         if (extMime == MimeTypes.APPLICATION_MP4) return MimeTypes.APPLICATION_MP4
+        if (extMime == MimeTypes.AUDIO_AAC) return MimeTypes.AUDIO_AAC
         if (extMime == APE_CONTAINER_MIME) return APE_CONTAINER_MIME
 
         val store = storeMime.lowercase()
-        if (store.contains("m4a") || store.contains("mp4") || store.contains("aac")) {
+        if (store.contains("m4a") || store.contains("mp4")) {
             return MimeTypes.APPLICATION_MP4
         }
+        if (store.contains("aac")) return MimeTypes.AUDIO_AAC
 
         val candidates = listOfNotNull(
             probeMime?.takeIf { isUseful(it) }?.let { normalizePlaybackMime(it, displayName) },
@@ -47,7 +49,8 @@ object PlaybackMimeResolver {
         if (name.isNullOrBlank()) return null
         val ext = name.substringAfterLast('.', "").lowercase()
         return when (ext) {
-            "m4a", "m4b", "m4p", "mp4", "aac" -> MimeTypes.APPLICATION_MP4
+            "m4a", "m4b", "m4p", "mp4" -> MimeTypes.APPLICATION_MP4
+            "aac" -> MimeTypes.AUDIO_AAC
             "mp3" -> MimeTypes.AUDIO_MPEG
             "flac" -> MimeTypes.AUDIO_FLAC
             "wav" -> MimeTypes.AUDIO_WAV
@@ -67,12 +70,14 @@ object PlaybackMimeResolver {
         val m = mime.lowercase()
         val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
         return when {
-            ext in setOf("m4a", "m4b", "m4p", "mp4", "aac") -> MimeTypes.APPLICATION_MP4
+            ext in setOf("m4a", "m4b", "m4p", "mp4") -> MimeTypes.APPLICATION_MP4
+            ext == "aac" -> MimeTypes.AUDIO_AAC
             DsdSupport.isDsdExtension(ext) -> mimeFromFileName(displayName) ?: "audio/dsd"
             DsdSupport.isDsdMime(m) -> m
             ext in setOf("ape", "mac") -> APE_CONTAINER_MIME
             m.contains("m4a") || m == "audio/mp4" || m.contains("mp4a") || m.contains("alac") ->
                 MimeTypes.APPLICATION_MP4
+            m.contains("aac") -> MimeTypes.AUDIO_AAC
             else -> mime
         }
     }

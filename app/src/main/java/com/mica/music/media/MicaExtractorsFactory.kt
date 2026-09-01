@@ -34,6 +34,8 @@ class MicaExtractorsFactory private constructor(
     companion object {
         private const val DEFAULT_EXTRACTOR_COUNT = 20
 
-        fun create(): ExtractorsFactory = MicaExtractorsFactory(DefaultExtractorsFactory())
+        fun create(): ExtractorsFactory = MicaExtractorsFactory(
+            DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+        )
     }
 }

@@ -2,6 +2,7 @@ package com.mica.music.media
 
 import android.net.Uri
 import androidx.media3.extractor.Extractor
+import androidx.media3.extractor.ts.AdtsExtractor
 import com.mica.music.media.ape.ApeExtractor
 import com.mica.music.media.dsf.DsfExtractor
 import org.junit.Assert.assertEquals
@@ -29,6 +30,16 @@ class MicaExtractorsFactoryTest {
                 emptyMap(),
             ),
         )
+    }
+
+    @Test
+    fun enablesConstantBitrateSeekingForAdtsAac() {
+        val adts = MicaExtractorsFactory.create().createExtractors()
+            .first { it is AdtsExtractor } as AdtsExtractor
+        val flagsField = AdtsExtractor::class.java.getDeclaredField("flags").apply { isAccessible = true }
+        val flags = flagsField.getInt(adts)
+
+        assertTrue(flags and AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING != 0)
     }
 
     private fun assertDsfFirst(extractors: Array<Extractor>) {
