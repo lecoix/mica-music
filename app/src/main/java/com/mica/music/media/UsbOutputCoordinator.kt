@@ -48,15 +48,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-internal data class UsbPlaybackStackHandoff(
-    val items: List<MediaItem>,
-    val currentIndex: Int,
-    val positionMs: Long,
-    val playWhenReady: Boolean,
-    val repeatMode: Int,
-    val playbackParameters: PlaybackParameters,
-    val volume: Float,
-)
 
 internal sealed interface UsbOutputCommand {
     data class SelectMode(
@@ -77,17 +68,17 @@ internal interface UsbOutputCoordinator : AutoCloseable {
 
 /** Playback-only seam. USB coordination never reaches into MediaSessionService fields directly. */
 internal interface UsbOutputPlaybackPort {
-    fun captureHandoff(): UsbPlaybackStackHandoff?
+    fun captureHandoff(): PlaybackStackHandoff?
     fun hasPlaybackStack(): Boolean
     fun isSharedOutputActive(): Boolean
     fun currentPlayWhenReady(): Boolean
     fun currentAudioSessionId(): Int?
     fun retireBeforeUsbRequest()
-    fun rebuildShared(handoff: UsbPlaybackStackHandoff?, reason: String)
+    fun rebuildShared(handoff: PlaybackStackHandoff?, reason: String)
     fun rebuildExclusive(
         mode: DesiredUsbOutput,
         binding: UsbHybridPlaybackBinding,
-        handoff: UsbPlaybackStackHandoff?,
+        handoff: PlaybackStackHandoff?,
         reason: String,
     )
     fun restorePlaybackIntent(playWhenReady: Boolean)
@@ -116,7 +107,7 @@ internal class DefaultUsbOutputCoordinator(
     private var ownerFactsJob: Job? = null
     private var audioDeviceCallbackRegistered: Boolean = false
     private var state = UsbOutputState()
-    private var outputHandoff: UsbPlaybackStackHandoff? = null
+    private var outputHandoff: PlaybackStackHandoff? = null
     private var candidate: UsbDeviceCandidate? = null
     private var ownerEpoch: UsbRequestEpoch? = null
     private var switchReason: String = "service-create"

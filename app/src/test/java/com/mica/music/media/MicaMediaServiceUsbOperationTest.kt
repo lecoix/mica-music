@@ -355,17 +355,17 @@ class MicaMediaServiceUsbOperationTest {
     }
 
     private class FakePlaybackPort : UsbOutputPlaybackPort {
-        override fun captureHandoff(): UsbPlaybackStackHandoff? = null
+        override fun captureHandoff(): PlaybackStackHandoff? = null
         override fun hasPlaybackStack(): Boolean = false
         override fun isSharedOutputActive(): Boolean = true
         override fun currentPlayWhenReady(): Boolean = false
         override fun currentAudioSessionId(): Int? = null
         override fun retireBeforeUsbRequest() = Unit
-        override fun rebuildShared(handoff: UsbPlaybackStackHandoff?, reason: String) = Unit
+        override fun rebuildShared(handoff: PlaybackStackHandoff?, reason: String) = Unit
         override fun rebuildExclusive(
             mode: DesiredUsbOutput,
             binding: UsbHybridPlaybackBinding,
-            handoff: UsbPlaybackStackHandoff?,
+            handoff: PlaybackStackHandoff?,
             reason: String,
         ) = Unit
         override fun restorePlaybackIntent(playWhenReady: Boolean) = Unit

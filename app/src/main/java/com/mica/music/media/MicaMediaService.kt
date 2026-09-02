@@ -14,8 +14,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackParameters
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
@@ -68,8 +66,11 @@ import kotlinx.coroutines.launch
 class MicaMediaService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
-    private var exoPlayer: ExoPlayer? = null
-    private var compositePlayer: MicaCompositePlayer? = null
+    private val playbackStackLifecycle = PlaybackStackLifecycleOwner { player ->
+        mediaSession?.setPlayer(player)
+    }
+    private val exoPlayer: ExoPlayer? get() = playbackStackLifecycle.exoPlayer
+    private val compositePlayer: MicaCompositePlayer? get() = playbackStackLifecycle.player
     private var replayGainStateOwner: ReplayGainStateOwner? = null
     private var spectrumAnalyzerStateOwner: SpectrumAnalyzerStateOwner? = null
     private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
@@ -96,7 +97,7 @@ class MicaMediaService : MediaSessionService() {
     private var usbOutputCoordinator: UsbOutputCoordinator? = null
     private var activeUsbEpoch: Long? = null
     private var usbServiceCreateBootstrapMode: UsbHybridOutputMode? = null
-    private var usbBootstrapHandoff: UsbPlaybackStackHandoff? = null
+    private var usbBootstrapHandoff: PlaybackStackHandoff? = null
     @Volatile
     private var usbOutputDestroyed: Boolean = false
 
@@ -232,7 +233,7 @@ class MicaMediaService : MediaSessionService() {
             context = this,
             mainHandler = mainHandler,
             playback = object : UsbOutputPlaybackPort {
-                override fun captureHandoff(): UsbPlaybackStackHandoff? = captureUsbPlaybackHandoff()
+                override fun captureHandoff(): PlaybackStackHandoff? = captureUsbPlaybackHandoff()
 
                 override fun hasPlaybackStack(): Boolean = exoPlayer != null
 
@@ -247,7 +248,7 @@ class MicaMediaService : MediaSessionService() {
                     retirePlaybackStackBeforeUsbRequest()
                 }
 
-                override fun rebuildShared(handoff: UsbPlaybackStackHandoff?, reason: String) {
+                override fun rebuildShared(handoff: PlaybackStackHandoff?, reason: String) {
                     rebuildPlaybackStack(
                         AudioOutputPathConfig.PRODUCTION,
                         null,
@@ -259,7 +260,7 @@ class MicaMediaService : MediaSessionService() {
                 override fun rebuildExclusive(
                     mode: DesiredUsbOutput,
                     binding: UsbHybridPlaybackBinding,
-                    handoff: UsbPlaybackStackHandoff?,
+                    handoff: PlaybackStackHandoff?,
                     reason: String,
                 ) {
                     rebuildPlaybackStack(mode.toOutputPath(), binding, reason, handoff)
@@ -327,7 +328,7 @@ class MicaMediaService : MediaSessionService() {
                     ?: UsbHybridPreferences.outputMode(this@MicaMediaService)
                 usbServiceCreateBootstrapMode = null
                 if (selectedMode != UsbHybridOutputMode.SharedPcm && bootstrap != null) {
-                    usbBootstrapHandoff = UsbPlaybackStackHandoff(
+                    usbBootstrapHandoff = PlaybackStackHandoff(
                         items = bootstrap.songs.map { song ->
                             if (song.isRemote) {
                                 RemoteMediaItemCodec.encode(song)
@@ -370,65 +371,32 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun retirePlaybackStackBeforeUsbRequest() {
-        val oldExo = exoPlayer
-        var releaseError: PlaybackException? = null
-        val releaseObserver = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                releaseError = error
-            }
-        }
-        oldExo?.addListener(releaseObserver)
-        releasePlaybackStackOwners()
-        oldExo?.release()
-        exoPlayer = null
-        compositePlayer = null
-        releaseError?.let { error ->
-            throw IllegalStateException(
-                "Old ExoPlayer release failed: ${error.cause?.message ?: error.message}",
-                error,
-            )
-        }
+        playbackStackLifecycle.retire(
+            detachOwners = ::releasePlaybackStackOwners,
+            verifyPlayerRelease = true,
+        )
     }
-    private fun captureUsbPlaybackHandoff(): UsbPlaybackStackHandoff? {
-        capturePlaybackStackHandoff()?.let { live ->
+    private fun captureUsbPlaybackHandoff(): PlaybackStackHandoff? {
+        playbackStackLifecycle.captureHandoff()?.let { live ->
             usbBootstrapHandoff = null
             return live
         }
         return usbBootstrapHandoff.also { usbBootstrapHandoff = null }
     }
 
-    private fun capturePlaybackStackHandoff(): UsbPlaybackStackHandoff? {
-        val player = compositePlayer ?: return null
-        val queue = player.playbackQueueSnapshot()
-        if (queue.items.isEmpty()) return null
-        return UsbPlaybackStackHandoff(
-            items = queue.items,
-            currentIndex = queue.currentIndex,
-            positionMs = player.currentPosition.coerceAtLeast(0L),
-            playWhenReady = player.playWhenReady,
-            repeatMode = player.repeatMode,
-            playbackParameters = player.playbackParameters,
-            volume = player.volume,
-        )
-    }
-
     private fun rebuildPlaybackStack(
         target: AudioOutputPathConfig,
         usbBinding: UsbHybridPlaybackBinding?,
         reason: String,
-        handoffOverride: UsbPlaybackStackHandoff? = null,
+        handoffOverride: PlaybackStackHandoff? = null,
     ) {
         val requestedUsbEpoch = usbBinding?.epoch?.value
         if (exoPlayer != null && target == activeOutputPath && requestedUsbEpoch == activeUsbEpoch) return
         val micaApp = application as MicaApp
-        val handoff = handoffOverride ?: capturePlaybackStackHandoff()
+        val handoff = handoffOverride ?: playbackStackLifecycle.captureHandoff()
         usbBinding?.owner?.awaitIdle()
         if (usbBinding != null && usbBinding.owner.currentEpoch() != usbBinding.epoch) return
-        val oldExo = exoPlayer
-        releasePlaybackStackOwners()
-        oldExo?.release()
-        exoPlayer = null
-        compositePlayer = null
+        playbackStackLifecycle.retire(detachOwners = ::releasePlaybackStackOwners)
         val newStack = runCatching {
             ExoPlaybackStackFactory.build(
                 context = this,
@@ -461,10 +429,22 @@ class MicaMediaService : MediaSessionService() {
     private fun installPlaybackStackOwners(
         stack: ExoPlaybackStack,
         micaApp: MicaApp,
-        handoff: UsbPlaybackStackHandoff? = null,
+        handoff: PlaybackStackHandoff? = null,
     ) {
-        exoPlayer = stack.exoPlayer
-        compositePlayer = stack.compositePlayer
+        playbackStackLifecycle.install(
+            stack = stack,
+            attachOwners = { installedStack ->
+                attachPlaybackStackOwners(installedStack, micaApp, handoff)
+            },
+            detachOwners = ::releasePlaybackStackOwners,
+        )
+    }
+
+    private fun attachPlaybackStackOwners(
+        stack: ExoPlaybackStack,
+        micaApp: MicaApp,
+        handoff: PlaybackStackHandoff?,
+    ) {
         musicVideoPreferenceOwner.attach(stack.compositePlayer)
 
         if (handoff != null) {
@@ -481,8 +461,6 @@ class MicaMediaService : MediaSessionService() {
                 1f
             }
         }
-        mediaSession?.setPlayer(stack.compositePlayer)
-
         if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
             installAudioOffloadCircuitBreaker(stack.exoPlayer)
             installAudioPipelineCoordinator(stack.exoPlayer)
@@ -497,16 +475,20 @@ class MicaMediaService : MediaSessionService() {
         ).also { coordinator ->
             coordinator.start()
             coordinator.onPlaybackBoundary = { boundary ->
-                mediaSession?.broadcastCustomCommand(
-                    PlaybackBoundarySessionEvent.command,
-                    PlaybackBoundarySessionEvent.encode(boundary),
-                )
+                if (playbackStackLifecycle.isActive(stack)) {
+                    mediaSession?.broadcastCustomCommand(
+                        PlaybackBoundarySessionEvent.command,
+                        PlaybackBoundarySessionEvent.encode(boundary),
+                    )
+                }
             }
             coordinator.onMusicVideoFallback = { song ->
-                DiagnosticLog.event(
-                    "MusicVideo",
-                    "fallback-complete song=${song.id} revision=${song.musicVideoRevision}",
-                )
+                if (playbackStackLifecycle.isActive(stack)) {
+                    DiagnosticLog.event(
+                        "MusicVideo",
+                        "fallback-complete song=${song.id} revision=${song.musicVideoRevision}",
+                    )
+                }
             }
         }
 
@@ -528,10 +510,11 @@ class MicaMediaService : MediaSessionService() {
             coordinator.onRestoreCompleted = {
                 restoredFromStore = true
                 mainHandler.post {
+                    if (!playbackStackLifecycle.isActive(stack)) return@post
                     activeAppShuffleRequest?.let(::applyAppShuffleRequest)
-                    logRestoredSongDiagnostics()
+                    logRestoredSongDiagnostics(stack.compositePlayer)
                     if (handoff?.playWhenReady == true) {
-                        compositePlayer?.playWhenReady = true
+                        stack.compositePlayer.playWhenReady = true
                     }
                 }
             }
@@ -546,11 +529,15 @@ class MicaMediaService : MediaSessionService() {
         activeAppShuffleRequest?.let(::applyAppShuffleRequest)
 
         stack.compositePlayer.onUserPlayIntentChanged = { playWhenReady ->
-            if (Looper.myLooper() == Looper.getMainLooper()) {
-                usbOutputCoordinator?.submit(UsbOutputCommand.PlaybackIntentChanged(playWhenReady))
-            } else {
-                mainHandler.post {
+            if (playbackStackLifecycle.isActive(stack)) {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
                     usbOutputCoordinator?.submit(UsbOutputCommand.PlaybackIntentChanged(playWhenReady))
+                } else {
+                    mainHandler.post {
+                        if (playbackStackLifecycle.isActive(stack)) {
+                            usbOutputCoordinator?.submit(UsbOutputCommand.PlaybackIntentChanged(playWhenReady))
+                        }
+                    }
                 }
             }
         }
@@ -570,19 +557,20 @@ class MicaMediaService : MediaSessionService() {
             transientSongResolver = micaApp.transientPlaybackCatalog::songById,
         ).also { it.start() }
         if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
-            attachEqualizerSessionListener(stack.exoPlayer)
+            attachEqualizerSessionListener(stack)
         }
     }
 
-    private fun logRestoredSongDiagnostics() {
-        val song = compositePlayer?.currentMediaItem
+    private fun logRestoredSongDiagnostics(player: MicaCompositePlayer? = compositePlayer) {
+        val activePlayer = player ?: return
+        val song = activePlayer.currentMediaItem
             ?.let(SongMediaItemCodec::decode)
             ?: return
         SharedPcmPipelineDiagnostics.logSongFormat(song)
         PcmDeliveryProbeDiagnostics.logForSong(
             context = this,
             song = song,
-            playbackParameters = compositePlayer?.playbackParameters ?: PlaybackParameters.DEFAULT,
+            playbackParameters = activePlayer.playbackParameters,
         )
     }
 
@@ -601,13 +589,13 @@ class MicaMediaService : MediaSessionService() {
         }
     }
 
-    private fun releasePlaybackStackOwners() {
+    private fun releasePlaybackStackOwners(stack: ExoPlaybackStack) {
         if (::musicVideoPreferenceOwner.isInitialized) {
-            musicVideoPreferenceOwner.releasePlayer(compositePlayer)
+            musicVideoPreferenceOwner.releasePlayer(stack.compositePlayer)
         }
-        compositePlayer?.retireForReplacement()
-        compositePlayer?.onUserPlayIntentChanged = null
-        compositePlayer?.shouldDeferUserPlayIntent = null
+        stack.compositePlayer.retireForReplacement()
+        stack.compositePlayer.onUserPlayIntentChanged = null
+        stack.compositePlayer.shouldDeferUserPlayIntent = null
         replayGainStateOwner?.release()
         replayGainStateOwner = null
         playbackStateCoordinator?.release()
@@ -619,8 +607,8 @@ class MicaMediaService : MediaSessionService() {
         playbackEngineCoordinator?.release()
         playbackEngineCoordinator = null
         audioOffloadCircuitBreaker?.let { breaker ->
-            exoPlayer?.removeListener(breaker)
-            exoPlayer?.removeAudioOffloadListener(breaker)
+            stack.exoPlayer.removeListener(breaker)
+            stack.exoPlayer.removeAudioOffloadListener(breaker)
             breaker.release()
         }
         audioOffloadCircuitBreaker = null
@@ -651,14 +639,15 @@ class MicaMediaService : MediaSessionService() {
         trustedMediaItemResolver = null
         remoteHttpPlaybackResolver = null
         remoteSmbPlaybackResolver = null
-        releasePlaybackStackOwners()
-        spectrumAnalyzerStateOwner?.release()
-        spectrumAnalyzerStateOwner = null
-        mediaSession?.release()
-        mediaSession = null
-        exoPlayer?.release()
-        exoPlayer = null
-        compositePlayer = null
+        playbackStackLifecycle.retire(
+            detachOwners = ::releasePlaybackStackOwners,
+            beforePlayerRelease = {
+                spectrumAnalyzerStateOwner?.release()
+                spectrumAnalyzerStateOwner = null
+                mediaSession?.release()
+                mediaSession = null
+            },
+        )
         activeUsbEpoch = null
         usbOutputCoordinator = null
         clearListener()
@@ -978,14 +967,16 @@ class MicaMediaService : MediaSessionService() {
         }
     }
 
-    private fun attachEqualizerSessionListener(exo: ExoPlayer) {
-        exo.addListener(object : Player.Listener {
+    private fun attachEqualizerSessionListener(stack: ExoPlaybackStack) {
+        stack.exoPlayer.addListener(object : Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                MicaEqualizerManager.attach(this@MicaMediaService, audioSessionId)
+                if (playbackStackLifecycle.isActive(stack)) {
+                    MicaEqualizerManager.attach(this@MicaMediaService, audioSessionId)
+                }
             }
         })
-        if (exo.audioSessionId != 0) {
-            MicaEqualizerManager.attach(this, exo.audioSessionId)
+        if (playbackStackLifecycle.isActive(stack) && stack.exoPlayer.audioSessionId != 0) {
+            MicaEqualizerManager.attach(this, stack.exoPlayer.audioSessionId)
         }
     }
 
