@@ -74,7 +74,7 @@
         </service>
 
         <service
-            android:name=".media.DesktopLyricsOverlayService"
+            android:name=".ui.overlay.DesktopLyricsOverlayService"
             android:exported="false" />
 
         <provider

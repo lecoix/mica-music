@@ -35,8 +35,8 @@
 | 信息行逐字歌词 | `LyricsPreferences` / `info_row_word_lyrics_enabled` | 父开关开启、播放中且有逐字时间轴时生效 | `CONDITIONAL` | 跟随信息行歌词折叠 |
 | 通知栏歌词 | `LyricsPreferences` / `notification_lyrics_enabled` | `NotificationLyricsCoordinator`；通知/媒体会话条件 | `CONDITIONAL` | 移入“歌词输出”并注明系统通知条件 |
 | 车载蓝牙歌词输出 | `LyricsPreferences` / `notification_lyrics_enabled` | 与通知栏歌词共用 `NotificationLyricsCoordinator` 的歌词加载和边界调度；通知栏歌词开启时额外更新兼容车机的无队列媒体会话 | `CONDITIONAL` | 已合入通知栏歌词；保留 legacy session，需真车验收 |
-| 外部歌词输出 | `LyricsPreferences` / `external_lyrics_mode` 及桌面/状态栏子项（含 `status_bar_lyrics_horizontal_offset_dp`） | `DesktopLyricsOverlayService`；桌面歌词和状态栏歌词互斥，并要求悬浮窗权限；状态栏左右微调直接更新悬浮窗 `LayoutParams.x` | `CONDITIONAL` | 已独立为“歌词 → 外部歌词”子页；只显示当前输出模式对应的位置、字号和排版子项 |
-| 已填充歌词透明度/阴影/发光 | `LyricsPreferences` / `external_lyrics_opacity_percent`、`external_lyrics_shadow_strength_percent`、`external_lyrics_glow_strength_percent` | `DesktopLyricsOverlayService.ExternalLyricsLineText`；桌面与状态栏共享，0–100%；透明度只控制已填充文字且覆盖颜色内置 alpha，未填充文字固定为 42%；阴影为右下方向性窄柔影，发光为零偏移宽色晕 | `CONDITIONAL` | 放在外部歌词颜色之后；默认 100/100/0；阴影/发光不再受填充透明度联动，两种效果同时开启时相互衰减 |
+| 外部歌词输出 | `LyricsPreferences` / `external_lyrics_mode` 及桌面/状态栏子项（含 `status_bar_lyrics_horizontal_offset_dp`） | `ui/overlay/DesktopLyricsOverlayService`；桌面歌词和状态栏歌词互斥，并要求悬浮窗权限；状态栏左右微调直接更新悬浮窗 `LayoutParams.x` | `CONDITIONAL` | 已独立为“歌词 → 外部歌词”子页；只显示当前输出模式对应的位置、字号和排版子项 |
+| 已填充歌词透明度/阴影/发光 | `LyricsPreferences` / `external_lyrics_opacity_percent`、`external_lyrics_shadow_strength_percent`、`external_lyrics_glow_strength_percent` | `ui/overlay/DesktopLyricsOverlayService.ExternalLyricsLineText`；桌面与状态栏共享，0–100%；透明度只控制已填充文字且覆盖颜色内置 alpha，未填充文字固定为 42%；阴影为右下方向性窄柔影，发光为零偏移宽色晕 | `CONDITIONAL` | 放在外部歌词颜色之后；默认 100/100/0；阴影/发光不再受填充透明度联动，两种效果同时开启时相互衰减 |
 
 ### 播放与封面
 

@@ -1,7 +1,6 @@
-package com.mica.music.media
+package com.mica.music.ui.overlay
 
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
@@ -9,14 +8,12 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Build
 import android.os.IBinder
-import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -58,7 +55,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -77,6 +73,12 @@ import com.mica.music.data.ExternalLyricsVisibilityMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsSync
 import com.mica.music.data.preferences.LyricsPreferences
+import com.mica.music.externallyrics.ExternalLyricsOverlayControl
+import com.mica.music.media.DesktopLyricsOverlayStateStore
+import com.mica.music.media.ExternalLyricsLine
+import com.mica.music.media.ExternalLyricsSurfaceState
+import com.mica.music.media.ExternalLyricsText
+import com.mica.music.media.forExternalDisplay
 import com.mica.music.ui.components.marqueeHorizontalEdgeFade
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.util.DiagnosticLog
@@ -86,55 +88,6 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-
-object DesktopLyricsOverlayController {
-    fun canDrawOverlays(context: Context): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
-
-    fun start(context: Context): Boolean {
-        if (!canDrawOverlays(context)) return false
-        context.startService(Intent(context, DesktopLyricsOverlayService::class.java))
-        return true
-    }
-
-    fun sync(context: Context): Boolean {
-        val enabled = LyricsPreferences.externalLyricsMode(context) != ExternalLyricsMode.OFF
-        return if (enabled) start(context) else {
-            stop(context)
-            true
-        }
-    }
-
-    fun refreshPosition(context: Context) {
-        if (canDrawOverlays(context)) {
-            context.startService(Intent(context, DesktopLyricsOverlayService::class.java))
-        }
-    }
-
-    fun refreshSettings(context: Context) {
-        if (canDrawOverlays(context)) {
-            context.startService(
-                Intent(context, DesktopLyricsOverlayService::class.java)
-                    .setAction(DesktopLyricsOverlayService.ACTION_APPLY_SETTINGS),
-            )
-        }
-    }
-
-    fun stop(context: Context) {
-        context.stopService(Intent(context, DesktopLyricsOverlayService::class.java))
-    }
-
-    fun openPermissionSettings(context: Context) {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            "package:${context.packageName}".toUri(),
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { context.startActivity(intent) }
-            .onFailure {
-                Toast.makeText(context, "无法打开悬浮窗权限设置", Toast.LENGTH_SHORT).show()
-            }
-    }
-}
 
 class DesktopLyricsOverlayService : Service() {
     companion object {
@@ -151,6 +104,7 @@ class DesktopLyricsOverlayService : Service() {
     private lateinit var statusBarLayoutParams: WindowManager.LayoutParams
     private lateinit var lifecycleOwner: DesktopLyricsOverlayLifecycleOwner
     private lateinit var stateStore: DesktopLyricsOverlayStateStore
+    private lateinit var overlayControl: ExternalLyricsOverlayControl
     private var startupFailed = false
     private var touchDownRawX = 0f
     private var touchDownRawY = 0f
@@ -163,13 +117,14 @@ class DesktopLyricsOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        if (!DesktopLyricsOverlayController.canDrawOverlays(this)) {
+        val micaApp = application as MicaApp
+        overlayControl = micaApp.externalLyricsOverlayControl
+        if (!overlayControl.canDrawOverlays()) {
             stopSelf()
             return
         }
 
         try {
-            val micaApp = application as MicaApp
             stateStore = micaApp.desktopLyricsOverlayStateStore
             val uiSettings = AppUiSettings(this)
             windowManager = getSystemService(WindowManager::class.java)
@@ -251,7 +206,7 @@ class DesktopLyricsOverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val enabled = LyricsPreferences.externalLyricsMode(this) != ExternalLyricsMode.OFF
         if (!startupFailed &&
-            DesktopLyricsOverlayController.canDrawOverlays(this) &&
+            overlayControl.canDrawOverlays() &&
             enabled
         ) {
             updateDesktopWindowWidth()

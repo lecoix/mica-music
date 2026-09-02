@@ -1,6 +1,8 @@
 package com.mica.music.media
 
 import com.mica.music.data.LyricCue
+import com.mica.music.ui.overlay.externalLyricsFillFraction
+import com.mica.music.ui.overlay.statusBarLyricsWindowFlags
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.toLyricsDocumentCompat

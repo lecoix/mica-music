@@ -49,6 +49,7 @@ import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.data.preferences.SoundFxPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
+import com.mica.music.externallyrics.ExternalLyricsOverlayControl
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
 import com.mica.music.queue.PlaybackShuffleOrder
@@ -88,6 +89,7 @@ class MicaMediaService : MediaSessionService() {
     private lateinit var musicVideoPreferenceOwner: MusicVideoPreferenceOwner
     private val musicVideoFailureRegistry = MusicVideoFailureRegistry()
     private var playbackRouteMonitor: PlaybackRouteMonitor? = null
+    private lateinit var externalLyricsOverlayControl: ExternalLyricsOverlayControl
     private var audioOffloadCircuitBreaker: AudioOffloadCircuitBreaker? = null
     private var audioPipelineCoordinator: AudioPipelineCoordinator? = null
     private var usbOutputCoordinator: UsbOutputCoordinator? = null
@@ -101,6 +103,7 @@ class MicaMediaService : MediaSessionService() {
         super.onCreate()
         activeOutputPath = UsbHostPrototypeOutput.selectedPath(this)
         val micaApp = application as MicaApp
+        externalLyricsOverlayControl = micaApp.externalLyricsOverlayControl
         musicVideoPreferenceOwner = MusicVideoPreferenceOwner(
             initialRequested = PlaybackUiPreferences.musicVideoEnabled(this),
         )
@@ -157,16 +160,19 @@ class MicaMediaService : MediaSessionService() {
         installPlaybackRouteMonitor()
 
         if (LyricsPreferences.externalLyricsMode(this) != com.mica.music.data.ExternalLyricsMode.OFF &&
-            DesktopLyricsOverlayController.canDrawOverlays(this)
+            externalLyricsOverlayControl.canDrawOverlays()
         ) {
-            DesktopLyricsOverlayController.start(this)
+            externalLyricsOverlayControl.start()
         }
 
         mediaSession = MediaSession.Builder(this, stack.compositePlayer)
             .setCallback(createMediaSessionCallback())
             .setSessionActivity(createSessionActivityPendingIntent())
             .setMediaButtonPreferences(
-                ExternalLyricsSessionCommands.mediaButtonPreferences(this),
+                ExternalLyricsSessionCommands.mediaButtonPreferences(
+                    context = this,
+                    overlayAvailable = externalLyricsOverlayControl.canDrawOverlays(),
+                ),
             )
             .build()
         unregisterLyricsPreferenceListener =
@@ -695,7 +701,10 @@ class MicaMediaService : MediaSessionService() {
                     .setAvailablePlayerCommands(defaultResult.availablePlayerCommands)
                     .setAvailableSessionCommands(availableSessionCommands)
                     .setMediaButtonPreferences(
-                        ExternalLyricsSessionCommands.mediaButtonPreferences(this@MicaMediaService),
+                        ExternalLyricsSessionCommands.mediaButtonPreferences(
+                            context = this@MicaMediaService,
+                            overlayAvailable = externalLyricsOverlayControl.canDrawOverlays(),
+                        ),
                     )
                     .build().also {
                     grantArtworkUriPermissions(
@@ -729,7 +738,7 @@ class MicaMediaService : MediaSessionService() {
                             this@MicaMediaService,
                             ExternalLyricsSessionCommands.nextModeAfterDesktopToggle(currentMode),
                         )
-                        DesktopLyricsOverlayController.sync(this@MicaMediaService)
+                        externalLyricsOverlayControl.sync()
                         updateMediaButtonPreferences()
                     }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -746,7 +755,7 @@ class MicaMediaService : MediaSessionService() {
                                 this@MicaMediaService,
                                 !LyricsPreferences.desktopLyricsLocked(this@MicaMediaService),
                             )
-                            DesktopLyricsOverlayController.refreshSettings(this@MicaMediaService)
+                            externalLyricsOverlayControl.refreshSettings()
                             updateMediaButtonPreferences()
                         }
                     }
@@ -902,7 +911,10 @@ class MicaMediaService : MediaSessionService() {
 
     private fun updateMediaButtonPreferences() {
         mediaSession?.setMediaButtonPreferences(
-            ExternalLyricsSessionCommands.mediaButtonPreferences(this),
+            ExternalLyricsSessionCommands.mediaButtonPreferences(
+                context = this,
+                overlayAvailable = externalLyricsOverlayControl.canDrawOverlays(),
+            ),
         )
     }
 

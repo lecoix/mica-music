@@ -206,6 +206,10 @@ _Avoid_: scrubbing（文档与 issue 中用中文描述）
 独立于 Activity 的 `MediaSessionService`：持有 `ExoPlayer`、`MediaSession` 与播放协调器，对接通知栏、锁屏、蓝牙与系统媒体控制。
 _Avoid_: playback service（无专名时）、background service
 
+**External lyrics overlay（外部歌词悬浮层）**：
+`media/DesktopLyricsOverlayState` 是媒体侧唯一歌词投影 owner：`NotificationLyricsCoordinator` 解释歌词并发布受限的桌面/状态栏当前行状态。`externallyrics/ExternalLyricsOverlayControl` 是 media 可见的窄控制 seam；Android `WindowManager`、权限 Intent、`DesktopLyricsOverlayService` 与 Compose 渲染归 `ui/overlay`，由 `MicaApp` composition root 提供控制实现。media 不得 import `ui.*`，presentation 只消费 media projection，不重复解析歌词或自行维护播放 position ticker。
+_Avoid_: 在 `MicaMediaService` 直接引用 overlay Service / Compose 组件；把 `MicaTheme`、marquee 等 UI helper 复制进 media；让 overlay 窗口自行重新解释整份歌词
+
 **SpectrumAnalyzerStateOwner（频谱分析状态 owner）**：
 媒体生命周期内将 `PlaybackUiPreferences.spectrumTapEnabled` 的派生资格应用到 `MicaSpectrumAnalyzer`：启动恢复不通知管线，三个资格偏好在运行时变化时沿既有 callback 重配 offload 并按需 flush；UI 只写偏好。
 _Avoid_: 由 `AppUiSettings` 直接调用 `MicaSpectrumAnalyzer.setEnabled`

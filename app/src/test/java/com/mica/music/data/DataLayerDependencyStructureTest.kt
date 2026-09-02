@@ -25,9 +25,9 @@ class DataLayerDependencyStructureTest {
     }
 
     @Test
-    fun mediaLayerDoesNotImportPlaybackApplicationPackage() {
+    fun mediaLayerDoesNotImportPlaybackOrUiPackages() {
         val mediaRoot = File(findMainSourceRoot(), "com/mica/music/media")
-        val forbiddenImport = Regex("^import com\\.mica\\.music\\.playback\\.")
+        val forbiddenImport = Regex("^import com\\.mica\\.music\\.(playback|ui)\\.")
         val violations = mediaRoot.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .flatMap { file ->

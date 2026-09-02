@@ -5,6 +5,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.mica.music.data.LyricCue
+import com.mica.music.ui.overlay.ExternalLyricsUnfilledAlpha
+import com.mica.music.ui.overlay.externalLyricsEffectTuning
+import com.mica.music.ui.overlay.externalLyricsFilledAlpha
 
 class DesktopLyricsOverlayStateStoreTest {
     @Test

@@ -16,8 +16,10 @@ import com.mica.music.data.remote.RemoteCatalogRepository
 import com.mica.music.data.remote.RemoteLyricsRepository
 import com.mica.music.data.remote.RemoteSourceManager
 import com.mica.music.data.scanner.ScanCacheManager
+import com.mica.music.externallyrics.ExternalLyricsOverlayControl
 import com.mica.music.media.DesktopLyricsOverlayStateStore
 import com.mica.music.data.playback.ServicePlaybackStateStore
+import com.mica.music.ui.overlay.AndroidExternalLyricsOverlayControl
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.AudioEnvironmentDiagnostics
@@ -62,6 +64,11 @@ class MicaApp : Application() {
 
     /** Process-lifetime lyric snapshot shared by the media service and desktop overlay. */
     val desktopLyricsOverlayStateStore = DesktopLyricsOverlayStateStore()
+
+    /** Android presentation implementation behind the neutral external-lyrics control seam. */
+    val externalLyricsOverlayControl: ExternalLyricsOverlayControl by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        AndroidExternalLyricsOverlayControl(this)
+    }
 
     /**
      * Process-lifetime playback facade. Activity/ViewModel destruction must never tear down

@@ -23,13 +23,13 @@ import com.mica.music.data.MIN_EXTERNAL_LYRICS_WIDTH_PERCENT
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP
 import com.mica.music.data.MIN_STATUS_BAR_LYRICS_TOP_OFFSET_DP
-import com.mica.music.media.DesktopLyricsOverlayController
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsSliderRow
 import com.mica.music.ui.components.SettingsToggleRow
+import com.mica.music.ui.overlay.AndroidExternalLyricsOverlayControl
 import com.mica.music.ui.screens.settings.color.ExternalLyricsColorDialog
 
 @Composable
@@ -37,6 +37,7 @@ internal fun ExternalLyricsSettingsPanel(
     uiSettings: AppUiSettings,
 ) {
     val context = LocalContext.current
+    val overlayControl = remember(context) { AndroidExternalLyricsOverlayControl(context) }
     var showExternalLyricsColors by remember { mutableStateOf(false) }
 
     SettingsSectionTitle("输出方式")
@@ -48,12 +49,12 @@ internal fun ExternalLyricsSettingsPanel(
         selectedValue = uiSettings.externalLyricsMode.ordinal,
         onSelect = { ordinal ->
             val mode = ExternalLyricsMode.entries[ordinal]
-            if (mode != ExternalLyricsMode.OFF && !DesktopLyricsOverlayController.canDrawOverlays(context)) {
+            if (mode != ExternalLyricsMode.OFF && !overlayControl.canDrawOverlays()) {
                 Toast.makeText(context, "请先允许悬浮窗权限", Toast.LENGTH_SHORT).show()
-                DesktopLyricsOverlayController.openPermissionSettings(context)
+                overlayControl.openPermissionSettings()
             } else {
                 uiSettings.updateExternalLyricsMode(mode)
-                DesktopLyricsOverlayController.sync(context)
+                overlayControl.sync()
             }
         },
     )
@@ -102,7 +103,7 @@ internal fun ExternalLyricsSettingsPanel(
             suffix = "%",
             onValueChange = {
                 uiSettings.updateDesktopLyricsWidthPercent(it)
-                DesktopLyricsOverlayController.refreshSettings(context)
+                overlayControl.refreshSettings()
             },
         )
     }
@@ -158,7 +159,7 @@ internal fun ExternalLyricsSettingsPanel(
             suffix = " dp",
             onValueChange = {
                 uiSettings.updateStatusBarLyricsTopOffsetDp(it)
-                DesktopLyricsOverlayController.refreshPosition(context)
+                overlayControl.refreshPosition()
             },
         )
 
@@ -170,7 +171,7 @@ internal fun ExternalLyricsSettingsPanel(
             suffix = " dp",
             onValueChange = {
                 uiSettings.updateStatusBarLyricsHorizontalOffsetDp(it)
-                DesktopLyricsOverlayController.refreshPosition(context)
+                overlayControl.refreshPosition()
             },
         )
 

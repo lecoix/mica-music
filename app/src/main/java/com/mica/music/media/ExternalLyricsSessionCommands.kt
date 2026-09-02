@@ -45,8 +45,11 @@ internal object ExternalLyricsSessionCommands {
     internal fun desktopLockButtonIcon(locked: Boolean): Int =
         if (locked) R.drawable.ic_desktop_unlock else R.drawable.ic_desktop_lock
 
-    fun mediaButtonPreferences(context: Context): ImmutableList<CommandButton> {
-        if (!DesktopLyricsOverlayController.canDrawOverlays(context)) {
+    fun mediaButtonPreferences(
+        context: Context,
+        overlayAvailable: Boolean,
+    ): ImmutableList<CommandButton> {
+        if (!overlayAvailable) {
             return ImmutableList.of()
         }
         val mode = LyricsPreferences.externalLyricsMode(context)
