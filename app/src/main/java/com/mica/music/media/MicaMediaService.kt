@@ -51,7 +51,7 @@ import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
 import com.mica.music.media.usbhybrid.DesiredUsbOutput
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
-import com.mica.music.playback.PlaybackShuffleOrder
+import com.mica.music.queue.PlaybackShuffleOrder
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

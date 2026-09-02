@@ -1,5 +1,6 @@
 package com.mica.music.playback
 
+import com.mica.music.queue.PlaybackShuffleOrder
 import kotlin.random.Random
 
 internal data class PlaybackOrderState(

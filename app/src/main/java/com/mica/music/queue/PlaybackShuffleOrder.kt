@@ -1,4 +1,4 @@
-package com.mica.music.playback
+package com.mica.music.queue
 
 import kotlin.random.Random
 

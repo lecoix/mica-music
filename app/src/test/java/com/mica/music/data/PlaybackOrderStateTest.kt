@@ -3,7 +3,7 @@ package com.mica.music.data
 import androidx.media3.common.C
 import androidx.media3.exoplayer.source.ShuffleOrder
 import com.mica.music.playback.PlaybackOrderState
-import com.mica.music.playback.PlaybackShuffleOrder
+import com.mica.music.queue.PlaybackShuffleOrder
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

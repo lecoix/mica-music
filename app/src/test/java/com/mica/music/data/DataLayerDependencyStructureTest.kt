@@ -25,6 +25,25 @@ class DataLayerDependencyStructureTest {
     }
 
     @Test
+    fun mediaLayerDoesNotImportPlaybackApplicationPackage() {
+        val mediaRoot = File(findMainSourceRoot(), "com/mica/music/media")
+        val forbiddenImport = Regex("^import com\\.mica\\.music\\.playback\\.")
+        val violations = mediaRoot.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .flatMap { file ->
+                file.readLines().asSequence()
+                    .filter(forbiddenImport::containsMatchIn)
+                    .map { line -> "${file.relativeTo(mediaRoot).invariantSeparatorsPath}: $line" }
+            }
+            .toList()
+
+        assertTrue(
+            "media layer must not depend upward on playback application code:\n${violations.joinToString("\n")}",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
     fun libraryStoreWritePrimitivesStayOwnedByMusicLibraryBacking() {
         val dataRoot = File(findMainSourceRoot(), "com/mica/music/data")
         val backingPath = "library/MusicLibraryBacking.kt"
