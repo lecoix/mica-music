@@ -16,27 +16,18 @@ import java.util.Locale
 @Composable
 fun LibrarySearchPanel(
     query: String,
+    results: List<Song>,
     library: MusicLibrary,
-    remoteSongs: List<Song>,
     currentSongId: String?,
     isPlaying: Boolean,
     onQueueSongClick: (List<Song>, String) -> Unit,
     onSongOpenMenu: ((Song) -> Unit)? = null,
     listBottomPadding: Dp = 0.dp,
+    selectionMode: Boolean = false,
+    selectedSongIds: Set<String> = emptySet(),
+    onSelectionToggle: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val locale = Locale.getDefault()
-    val localeTag = locale.toLanguageTag()
-    val remoteSearchIndex = remember(remoteSongs, localeTag) {
-        RemoteSongSearchIndex(remoteSongs, locale)
-    }
-    val localResults = library.searchSongs(query)
-    val remoteResults = remember(remoteSearchIndex, query) {
-        remoteSearchIndex.search(query)
-    }
-    val results = remember(localResults, remoteResults) {
-        mergeLibrarySearchResults(localResults, remoteResults)
-    }
     val emptyMessage = if (query.isBlank()) {
         "输入关键词开始搜索"
     } else {
@@ -54,9 +45,34 @@ fun LibrarySearchPanel(
         onSongOpenMenu = onSongOpenMenu,
         emptyMessage = emptyMessage,
         listBottomPadding = listBottomPadding,
+        selectionMode = selectionMode,
+        selectedSongIds = selectedSongIds,
+        onSelectionToggle = onSelectionToggle,
         zoomPage = LibraryZoomPage.SEARCH,
         modifier = modifier.fillMaxSize(),
     )
+}
+
+@Composable
+internal fun rememberLibrarySearchResults(
+    query: String,
+    library: MusicLibrary,
+    remoteSongs: List<Song>,
+): List<Song> {
+    if (query.isBlank()) return emptyList()
+
+    val locale = Locale.getDefault()
+    val localeTag = locale.toLanguageTag()
+    val remoteSearchIndex = remember(remoteSongs, localeTag) {
+        RemoteSongSearchIndex(remoteSongs, locale)
+    }
+    val localResults = library.searchSongs(query)
+    val remoteResults = remember(remoteSearchIndex, query) {
+        remoteSearchIndex.search(query)
+    }
+    return remember(localResults, remoteResults) {
+        mergeLibrarySearchResults(localResults, remoteResults)
+    }
 }
 
 internal class RemoteSongSearchIndex(
