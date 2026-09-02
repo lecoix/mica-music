@@ -43,6 +43,30 @@ class PlayerPageArchitectureStructureTest {
     }
 
     @Test
+    fun particleTitleVisibilityDoesNotGateCoverRendererBranches() {
+        val section = File(
+            findMainSourceRoot(),
+            "com/mica/music/ui/screens/NowPlayingCoverSection.kt",
+        ).readText().replace("\r\n", "\n")
+
+        val titleGuard = section.indexOf("if (particleFrame.normalLayerVisible) {")
+        val coverFlowBranch = section.indexOf("if (frame.coverFlowStageActive) {", startIndex = titleGuard)
+        val expectedBoundary =
+            "onLongPress = onCoverLongPress,\n" +
+                "                )\n" +
+                "            }\n" +
+                "            if (frame.coverFlowStageActive) {"
+
+        assertTrue("particle title guard must exist", titleGuard >= 0)
+        assertTrue("cover-flow branch must exist after particle title guard", coverFlowBranch > titleGuard)
+        assertTrue(
+            "particle title visibility must not gate cover-flow/photo-stack/standard renderer branches",
+            section.substring(titleGuard, coverFlowBranch + "if (frame.coverFlowStageActive) {".length)
+                .contains(expectedBoundary),
+        )
+    }
+
+    @Test
     fun coverSectionDelegatesSpecializedRenderingToRendererOwners() {
         val section = File(
             findMainSourceRoot(),

@@ -338,7 +338,7 @@ internal fun NowPlayingCoverSection(
                 ),
             contentAlignment = Alignment.TopStart,
         ) {
-                    if (particleFrame.normalLayerVisible) {
+            if (particleFrame.normalLayerVisible) {
                 SongTitleSection(
                     title = displayTitle,
                     artist = song.artist,
@@ -356,6 +356,7 @@ internal fun NowPlayingCoverSection(
                         },
                     onLongPress = onCoverLongPress,
                 )
+            }
             if (frame.coverFlowStageActive) {
                 CoverFlowCoverRenderer(
                     queue = queue,
@@ -477,7 +478,6 @@ internal fun NowPlayingCoverSection(
                         )
                     }
                 }
-            }
             }
             val headerFocus = playerHeaderFocus(frame.lyricsProgress, frame.queueProgress)
             val closeFocusedHeader = {
