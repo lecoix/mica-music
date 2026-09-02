@@ -82,8 +82,16 @@ _Avoid_: 系统 `AudioEffect`；默认开启；把音效写入 `AudioQualityMode
 _Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择
 
 **MusicLibrary（曲库门面）**：
-Compose 可见曲库状态与对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。`MusicLibraryBacking` 随可见曲库快照维护 `songId → Song` 索引，`songById` 不得线性扫描曲库；大型歌单解析复用此索引。内部组合 backing 与子模块；**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。播放统计仅经 `applyPlayStats` 刷新展示，不拥有 `PlayHistoryStore` 写入。当前单实例架构允许 `ArtistNames` 持有进程级可变拆分规则；引入多个 `MusicLibrary` 实例前，必须将艺术家拆分规则及其 revision 改为同一实例所有，避免一个实例更新全局规则而其他实例继续使用旧缓存。
-_Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内恢复扫描编排或 catalog 逻辑；把播放统计持久化绑回 `MusicLibrary.ioScope`
+Compose 可见曲库状态与稳定对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。`MusicLibraryBacking` 随可见曲库快照维护 `songId → Song` 索引，`songById` 不得线性扫描曲库；大型歌单解析复用此索引。门面只组合 backing 与深模块并转发，不拥有 browse/search revision cache、歌词 hydration cache，也**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。播放统计仅经 `applyPlayStats` 刷新展示，不拥有 `PlayHistoryStore` 写入。
+_Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内恢复扫描编排、browse/search cache、歌词 hydration 或 catalog 逻辑；把播放统计持久化绑回 `MusicLibrary.ioScope`
+
+**Library browse coordinator（曲库浏览协调器）**：
+`data/library/LibraryBrowseCoordinator` 拥有当前 catalog 的 revision-scoped browse/search projection lifecycle：艺术家拆分 revision、search index + query LRU、艺术家/专辑 presentation cache、folder index、持久化 browse snapshot、冷启动 browse adoption 与 `prewarmBrowseGroupCache`。纯 grouping/sort/search/folder 算法仍在 `LibraryBrowse`；coordinator 负责 cache key、失效、Room browse-cache 写入和 `storeWriteIfCurrentCatalog` → `withCurrentCatalogPublication` 的 stale fencing。`ArtistNames` 仍是进程级拆分规则，但其配置入口与 revision 已收进 coordinator；若未来允许多个并存 `MusicLibrary` 实例，需把 `ArtistNames` 本体也实例化，不能共享全局规则。
+_Avoid_: 在 `MusicLibrary` 重新持有 `artistGroupCache` / `searchIndex` / folder index / persisted browse state；在 `LibraryBrowse` 纯算法里加入 Context、Room 或 generation；prewarm 绕过 Backing 的 current-catalog write/publication seam
+
+**Library lyrics hydrator（本地歌词 hydration）**：
+`data/library/LibraryLyricsHydrator` 拥有本地歌曲 `songWithLyrics` / prefetch 的 hydration policy：priority revision、`lyricsDataVersion`、`SharedLyricsMemoryCache` 命中/并发合并、IO store load 与诊断。`LyricsDocumentMemoryCache` / `LyricsCacheCoordinator` 继续作为进程级 bounded cache 与 invalidation owner；hydrator 只组合这些能力并返回 `Song.copy(lyricsLoaded=true)`。远端歌词仍由 `RemoteLyricsRepository` 负责。
+_Avoid_: 在 `MusicLibrary` 或 UI 重新拼 lyrics cache key、直接调 `LibraryStore.loadLyrics`；把远端歌词加载并入本地 hydrator
 
 **Library scan orchestrator（曲库扫描编排器）**：
 `data/library/LibraryScanOrchestrator`：扫描生命周期、串行执行互斥、Room incremental sync、封面修复**执行**。歌词探测返回 `NotProbed` / `Complete` / `ReadFailed`：每个有界批次只把 `Complete` 结果用短 Room 事务直接替换到正式 `song_lyrics`，`ReadFailed` 不修改该歌曲任何歌词槽并持久化全局重试标记。批次可以在扫描结束前生效；歌曲摘要、删除、扫描元数据和 Compose 曲库仍仅在完整扫描成功后统一提交和发布。parser 升级或重试标记存在时，所有扫描类型（包括封面修复）都强制重新探测歌词；完整零失败扫描后才清除重试标记并推进 parser 版本。扫描失败不改变旧 snapshot，只设置 `lastScanError`。完整替换协议见 `Library snapshot publication` 与 `docs/adr/0002-library-snapshot-publication.md`。

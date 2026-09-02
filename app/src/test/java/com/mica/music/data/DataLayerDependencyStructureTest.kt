@@ -106,6 +106,29 @@ class DataLayerDependencyStructureTest {
         )
     }
 
+    @Test
+    fun musicLibraryFacadeDoesNotOwnBrowseOrLyricsHydrationState() {
+        val dataRoot = File(findMainSourceRoot(), "com/mica/music/data")
+        val facade = File(dataRoot, "MusicLibrary.kt").readText()
+        val forbidden = listOf(
+            "artistGroupCache",
+            "albumGroupCache",
+            "persistedBrowse",
+            "searchIndex",
+            "searchResultCache",
+            "folderBrowseIndex",
+            "musicFolderGroupCache",
+            "SharedLyricsMemoryCache",
+        )
+        val violations = forbidden.filter(facade::contains)
+
+        assertTrue(
+            "MusicLibrary must remain a facade; browse/search state belongs to LibraryBrowseCoordinator and " +
+                "lyrics hydration belongs to LibraryLyricsHydrator: $violations",
+            violations.isEmpty(),
+        )
+    }
+
     private fun findMainSourceRoot(): File {
         val userDir = requireNotNull(System.getProperty("user.dir"))
         var current = File(userDir).absoluteFile

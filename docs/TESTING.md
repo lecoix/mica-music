@@ -122,7 +122,7 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 .\gradlew :app:compileDebugKotlin --no-configuration-cache
 ```
 
-`LibraryScanOrchestratorTest` 还固定曲库 store seam 的锁顺序：依赖当前 catalog 的异步写入必须等待 `scanExecutionMutex`，等待期间 generation 失效则确定 no-op。`DataLayerDependencyStructureTest.libraryStoreWritePrimitivesStayOwnedByMusicLibraryBacking` 禁止 `MusicLibrary.kt` / `data/library/**` 重新直接持有 `storeSyncMutex` 或手写 store revision recipe。
+`LibraryScanOrchestratorTest` 还固定曲库 store seam 的锁顺序：依赖当前 catalog 的异步写入必须等待 `scanExecutionMutex`，等待期间 generation 失效则确定 no-op。`DataLayerDependencyStructureTest.libraryStoreWritePrimitivesStayOwnedByMusicLibraryBacking` 禁止 `MusicLibrary.kt` / `data/library/**` 重新直接持有 `storeSyncMutex` 或手写 store revision recipe。`musicLibraryFacadeDoesNotOwnBrowseOrLyricsHydrationState` 进一步冻结 facade 边界：search index/query LRU、artist/album/folder browse cache 与 persisted browse state 只能由 `LibraryBrowseCoordinator` 持有，`SharedLyricsMemoryCache` hydration policy 只能由 `LibraryLyricsHydrator` 组合。对应行为继续由 `MusicLibraryTest`、`LibraryBrowseTest` 与 `LibraryScaleTest` 覆盖，包括冷启动 browse restore、stale prewarm fencing、artist split 失效、歌词 cache/version/retry 与 10k 曲库查询规模。
 
 ### a257a0f 架构重构：P0 JVM 单测（队列 sync 语义）
 

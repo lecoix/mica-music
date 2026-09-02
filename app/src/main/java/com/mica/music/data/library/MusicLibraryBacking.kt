@@ -74,8 +74,10 @@ internal class MusicLibraryBacking(
     var songFastScrollSectionTargets by mutableStateOf<Map<String, Int>?>(null)
 
     val catalog = LibraryCatalogPublisher(this)
+    val browse = LibraryBrowseCoordinator(this)
     val folder = LibraryFolderBinding(this)
     val cacheLoader = LibraryCacheLoader(this)
+    val lyricsHydrator = LibraryLyricsHydrator(this)
     val scanOrchestrator = LibraryScanOrchestrator(this)
 
     fun songById(id: String): Song? = songsById[id]
