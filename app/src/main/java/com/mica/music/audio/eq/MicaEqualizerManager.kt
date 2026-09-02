@@ -1,4 +1,4 @@
-package com.mica.music.media
+package com.mica.music.audio.eq
 
 import android.content.Context
 import android.media.audiofx.Equalizer
@@ -11,10 +11,13 @@ import com.mica.music.data.EqCustomProfile
 import com.mica.music.data.EqCustomProfileStore
 import com.mica.music.data.EqSelection
 import com.mica.music.audio.eq.EqBandConstants
-import com.mica.music.media.eq.EqBandMapper
-import com.mica.music.media.eq.EqPresetLabels
-import com.mica.music.media.eq.SoftwareEqualizer
-import com.mica.music.media.eq.SoftwareEqualizerAudioProcessor
+import com.mica.music.audio.eq.EqualizerBand
+import com.mica.music.audio.eq.EqualizerPresetOption
+import com.mica.music.audio.eq.EqualizerSnapshot
+import com.mica.music.audio.eq.EqBandMapper
+import com.mica.music.audio.eq.EqPresetLabels
+import com.mica.music.audio.eq.SoftwareEqualizer
+import com.mica.music.audio.eq.SoftwareEqualizerAudioProcessor
 
 /**
  * 均衡器管理：10 段软件 EQ 负责实际音频处理；系统 [Equalizer] 仅用于读取预设名称/曲线。
@@ -270,27 +273,3 @@ object MicaEqualizerManager {
         attachedSessionId = 0
     }
 }
-
-data class EqualizerSnapshot(
-    val enabled: Boolean,
-    val selection: EqSelection,
-    val presets: List<EqualizerPresetOption>,
-    val savedProfiles: List<EqCustomProfile>,
-    val bands: List<EqualizerBand>,
-    val globalGainMillibels: Short,
-    val globalGainMinMillibels: Short,
-    val globalGainMaxMillibels: Short,
-    val levelMinMillibels: Short,
-    val levelMaxMillibels: Short,
-    val sessionReady: Boolean,
-)
-
-data class EqualizerPresetOption(
-    val index: Int,
-    val name: String,
-)
-
-data class EqualizerBand(
-    val centerHz: Int,
-    val levelMillibels: Short,
-)

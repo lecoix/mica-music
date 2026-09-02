@@ -20,7 +20,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.dp
 import com.mica.music.audio.eq.EqBandConstants
-import com.mica.music.media.EqualizerBand
+import com.mica.music.audio.eq.EqualizerBand
 import com.mica.music.ui.theme.MicaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

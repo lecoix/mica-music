@@ -44,6 +44,43 @@ class DataLayerDependencyStructureTest {
     }
 
     @Test
+    fun uiLayerOnlyImportsApprovedMediaProjectionSurface() {
+        val uiRoot = File(findMainSourceRoot(), "com/mica/music/ui")
+        val mediaImport = Regex("^import com\\.mica\\.music\\.media\\.")
+        val approved = setOf(
+            "import com.mica.music.media.DesktopLyricsOverlayStateStore",
+            "import com.mica.music.media.ExternalLyricsLine",
+            "import com.mica.music.media.ExternalLyricsSurfaceState",
+            "import com.mica.music.media.ExternalLyricsText",
+            "import com.mica.music.media.forExternalDisplay",
+        )
+        val violations = uiRoot.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .flatMap { file ->
+                file.readLines().asSequence()
+                    .filter(mediaImport::containsMatchIn)
+                    .filterNot(approved::contains)
+                    .map { line -> "${file.relativeTo(uiRoot).invariantSeparatorsPath}: $line" }
+            }
+            .toList()
+        val actualApprovedImports = uiRoot.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .flatMap(File::readLines)
+            .filter(approved::contains)
+            .toSet()
+
+        assertTrue(
+            "UI may depend on media only through the approved external-lyrics projection surface:\n" +
+                violations.joinToString("\n"),
+            violations.isEmpty(),
+        )
+        assertTrue(
+            "approved UI/media projection surface changed unexpectedly: $actualApprovedImports",
+            actualApprovedImports == approved,
+        )
+    }
+
+    @Test
     fun libraryStoreWritePrimitivesStayOwnedByMusicLibraryBacking() {
         val dataRoot = File(findMainSourceRoot(), "com/mica/music/data")
         val backingPath = "library/MusicLibraryBacking.kt"

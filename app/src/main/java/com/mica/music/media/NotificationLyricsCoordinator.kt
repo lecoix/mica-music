@@ -1,5 +1,7 @@
 package com.mica.music.media
 
+import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.lyrics.LyricsDisplayProjection
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -415,7 +417,7 @@ internal class NotificationLyricsCoordinator(
         effectiveLyricsOffsetMs: Int,
     ) {
         val display = NotificationLyrics.displayOptions(appContext)
-        val displayLine = NotificationLyrics.lyricLineText(session.lyrics, index, display)
+        val displayLine = LyricsDisplayProjection.lyricLineText(session.lyrics, index, display)
         if (displayLine == null) {
             // Preserve phase-one behavior: a blank line keeps the previous notification lyric.
             desktopLyrics?.clear()
@@ -476,7 +478,7 @@ internal class NotificationLyricsCoordinator(
             NotificationLyrics.overlayToken(currentMetadata) != null &&
                 currentMetadata.title?.toString() == displayLine &&
                 currentMetadata.displayTitle?.toString() == displayLine &&
-                currentMetadata.artist?.toString() == NotificationLyrics.subtitle(song.title, song.artist)
+                currentMetadata.artist?.toString() == LyricsDisplayProjection.subtitle(song.title, song.artist)
         if (visibleMetadataAlreadyMatches) {
             // Preserve the existing repeated-text behavior: advance logically without a system write.
             lastPublishedIndex = index
@@ -536,7 +538,7 @@ internal class NotificationLyricsCoordinator(
         document: LyricsDocument,
         lyrics: List<LyricLine>,
         index: Int,
-        display: NotificationLyrics.DisplayOptions,
+        display: LyricsDisplayOptions,
     ): ExternalLyricsLine? = buildExternalLyricsLine(document, lyrics, index, display)
 
     private fun resetPendingLoad() {
@@ -651,7 +653,7 @@ internal fun buildExternalLyricsLine(
     document: LyricsDocument,
     lyrics: List<LyricLine>,
     index: Int,
-    display: NotificationLyrics.DisplayOptions,
+    display: LyricsDisplayOptions,
 ): ExternalLyricsLine? {
         val node = document.lines.getOrNull(index) ?: return null
         val legacyLine = lyrics.getOrNull(index)

@@ -1,5 +1,12 @@
 package com.mica.music.media.usbhybrid
 
+import com.mica.music.ui.screens.settings.UsbHybridSettingsPresentation
+import com.mica.music.usb.UsbFailureSnapshot
+import com.mica.music.usb.UsbPermissionStatus
+import com.mica.music.usb.UsbPlaybackMode
+import com.mica.music.usb.UsbPlaybackSnapshot
+import com.mica.music.usb.UsbTelemetrySnapshot
+
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,10 +16,10 @@ class UsbHybridSettingsPresentationTest {
     @Test
     fun requestedModeIsNotPresentedAsActiveWithoutOwnerEvidence() {
         val lines = UsbHybridSettingsPresentation.lines(
-            UsbPlaybackFacts(
+            UsbPlaybackSnapshot(
                 requestEpoch = 8,
-                requestedMode = UsbExclusiveMode.USB_EXACT_PCM,
-                permission = PermissionState.GRANTED,
+                requestedMode = UsbPlaybackMode.USB_EXACT_PCM,
+                permission = UsbPermissionStatus.GRANTED,
             ),
         )
 
@@ -23,12 +30,12 @@ class UsbHybridSettingsPresentationTest {
     @Test
     fun exactnessDimensionsRemainSeparate() {
         val lines = UsbHybridSettingsPresentation.lines(
-            UsbPlaybackFacts(
+            UsbPlaybackSnapshot(
                 requestEpoch = 9,
-                requestedMode = UsbExclusiveMode.USB_EXACT_PCM,
-                activeMode = UsbExclusiveMode.USB_EXACT_PCM,
+                requestedMode = UsbPlaybackMode.USB_EXACT_PCM,
+                activeMode = UsbPlaybackMode.USB_EXACT_PCM,
                 sessionId = 41,
-                permission = PermissionState.GRANTED,
+                permission = UsbPermissionStatus.GRANTED,
                 claimed = true,
                 exclusive = true,
                 transportExact = true,
@@ -48,7 +55,7 @@ class UsbHybridSettingsPresentationTest {
     @Test
     fun nativeModeAlwaysDisclosesExperimentalQualification() {
         val lines = UsbHybridSettingsPresentation.lines(
-            UsbPlaybackFacts(requestedMode = UsbExclusiveMode.USB_NATIVE_DSD_EXPERIMENTAL),
+            UsbPlaybackSnapshot(requestedMode = UsbPlaybackMode.USB_NATIVE_DSD_EXPERIMENTAL),
         )
 
         assertTrue(lines.any { it.contains("实验") })
@@ -58,7 +65,7 @@ class UsbHybridSettingsPresentationTest {
     @Test
     fun selectedPreferenceIsNotPresentedAsActiveWithoutOwnerFacts() {
         val summary = UsbHybridSettingsPresentation.entrySummary(
-            facts = UsbPlaybackFacts(),
+            facts = UsbPlaybackSnapshot(),
             selectedMode = UsbHybridOutputMode.ExactPcm,
         )
 
@@ -68,9 +75,9 @@ class UsbHybridSettingsPresentationTest {
 
     @Test
     fun activeSummaryUsesNegotiatedOwnerFormat() {
-        val facts = UsbPlaybackFacts(
-            requestedMode = UsbExclusiveMode.USB_DOP,
-            activeMode = UsbExclusiveMode.USB_DOP,
+        val facts = UsbPlaybackSnapshot(
+            requestedMode = UsbPlaybackMode.USB_DOP,
+            activeMode = UsbPlaybackMode.USB_DOP,
             streamFormat = "DoP DSD64",
             sampleRate = 2_822_400,
             usbBitResolution = 24,
@@ -88,7 +95,7 @@ class UsbHybridSettingsPresentationTest {
     fun transportHealthDoesNotInventTelemetry() {
         assertTrue(
             UsbHybridSettingsPresentation.transportHealthLabel(
-                UsbPlaybackFacts(activeMode = UsbExclusiveMode.USB_EXACT_PCM),
+                UsbPlaybackSnapshot(activeMode = UsbPlaybackMode.USB_EXACT_PCM),
             ) == "活动",
         )
     }

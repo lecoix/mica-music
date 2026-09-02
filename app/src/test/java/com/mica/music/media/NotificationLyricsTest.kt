@@ -1,5 +1,7 @@
 package com.mica.music.media
 
+import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.lyrics.LyricsDisplayProjection
 import androidx.media3.common.MediaMetadata
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
@@ -17,9 +19,9 @@ class NotificationLyricsTest {
 
     @Test
     fun subtitleJoinsTitleAndArtist() {
-        assertEquals("晴天 - 周杰伦", NotificationLyrics.subtitle("晴天", "周杰伦"))
-        assertEquals("晴天", NotificationLyrics.subtitle("晴天", ""))
-        assertEquals("周杰伦", NotificationLyrics.subtitle("", "周杰伦"))
+        assertEquals("晴天 - 周杰伦", LyricsDisplayProjection.subtitle("晴天", "周杰伦"))
+        assertEquals("晴天", LyricsDisplayProjection.subtitle("晴天", ""))
+        assertEquals("周杰伦", LyricsDisplayProjection.subtitle("", "周杰伦"))
     }
 
     @Test
@@ -69,20 +71,20 @@ class NotificationLyricsTest {
     @Test
     fun lyricIndexRequiresTimedLyrics() {
         val untimed = listOf(LyricLine(timeMs = 0, text = "纯文本"))
-        assertEquals(-1, NotificationLyrics.lyricIndexForPosition(untimed, positionMs = 0))
+        assertEquals(-1, LyricsDisplayProjection.lyricIndexForPosition(untimed, positionMs = 0))
 
         val timed = listOf(
             LyricLine(timeMs = 0, text = "第一句"),
             LyricLine(timeMs = 3_000, text = "第二句"),
         )
-        val index = NotificationLyrics.lyricIndexForPosition(timed, positionMs = 3_100)
+        val index = LyricsDisplayProjection.lyricIndexForPosition(timed, positionMs = 3_100)
         assertEquals(1, index)
         assertEquals(
             "第二句",
-            NotificationLyrics.lyricLineText(
+            LyricsDisplayProjection.lyricLineText(
                 timed,
                 index,
-                NotificationLyrics.DisplayOptions(
+                LyricsDisplayOptions(
                     splitEnabled = true,
                     bilingualMode = LyricsBilingualDisplayMode.ALL,
                 ),
@@ -95,27 +97,27 @@ class NotificationLyricsTest {
         val lyrics = listOf(
             LyricLine(timeMs = 0, text = "hello / world"),
         )
-        val display = NotificationLyrics.DisplayOptions(
+        val display = LyricsDisplayOptions(
             splitEnabled = true,
             bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
         )
-        assertEquals("hello", NotificationLyrics.lyricLineText(lyrics, 0, display))
+        assertEquals("hello", LyricsDisplayProjection.lyricLineText(lyrics, 0, display))
 
         val translationOnly = display.copy(bilingualMode = LyricsBilingualDisplayMode.TRANSLATION)
-        assertEquals("world", NotificationLyrics.lyricLineText(lyrics, 0, translationOnly))
+        assertEquals("world", LyricsDisplayProjection.lyricLineText(lyrics, 0, translationOnly))
 
         val all = display.copy(bilingualMode = LyricsBilingualDisplayMode.ALL)
-        assertEquals("hello world", NotificationLyrics.lyricLineText(lyrics, 0, all))
+        assertEquals("hello world", LyricsDisplayProjection.lyricLineText(lyrics, 0, all))
     }
 
     @Test
     fun lyricLineTextIgnoresBilingualModeWhenSplitDisabled() {
         val lyrics = listOf(LyricLine(timeMs = 0, text = "hello / world"))
-        val display = NotificationLyrics.DisplayOptions(
+        val display = LyricsDisplayOptions(
             splitEnabled = false,
             bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
         )
-        assertEquals("hello / world", NotificationLyrics.lyricLineText(lyrics, 0, display))
+        assertEquals("hello / world", LyricsDisplayProjection.lyricLineText(lyrics, 0, display))
     }
 
     @Test
@@ -160,7 +162,7 @@ class NotificationLyricsTest {
             LyricLine(timeMs = 1_000, text = "第一句"),
             LyricLine(timeMs = 5_000, text = "第二句"),
         )
-        val index = NotificationLyrics.lyricIndexForPosition(
+        val index = LyricsDisplayProjection.lyricIndexForPosition(
             lyrics,
             positionMs = 5_000,
         )

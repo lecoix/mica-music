@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import com.mica.music.lyrics.LyricsDisplayOptions
 import com.mica.music.data.LyricCue
 import com.mica.music.ui.overlay.externalLyricsFillFraction
 import com.mica.music.ui.overlay.statusBarLyricsWindowFlags
@@ -66,7 +67,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = false,
                 bilingualMode = LyricsBilingualDisplayMode.ALL,
             ),
@@ -86,7 +87,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = true,
                 bilingualMode = LyricsBilingualDisplayMode.ALL,
             ),
@@ -104,7 +105,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = true,
                 bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
             ),
@@ -113,7 +114,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = true,
                 bilingualMode = LyricsBilingualDisplayMode.TRANSLATION,
             ),
@@ -133,7 +134,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = false,
                 bilingualMode = mode,
             ),
@@ -147,7 +148,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = false,
                 bilingualMode = LyricsBilingualDisplayMode.TRANSLATION,
             ),
@@ -174,7 +175,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = true,
                 bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
                 wordByWordEnabled = false,
@@ -199,7 +200,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = true,
                 bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
                 wordByWordEnabled = true,
@@ -227,7 +228,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = true,
                 bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
                 wordByWordEnabled = true,
@@ -245,7 +246,7 @@ class ExternalLyricsProjectionTest {
             document = lyrics.toLyricsDocumentCompat(),
             lyrics = lyrics,
             index = 0,
-            display = NotificationLyrics.DisplayOptions(
+            display = LyricsDisplayOptions(
                 splitEnabled = true,
                 bilingualMode = LyricsBilingualDisplayMode.ALL,
                 wordByWordEnabled = true,

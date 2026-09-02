@@ -1,4 +1,4 @@
-package com.mica.music.media.eq
+package com.mica.music.audio.eq
 
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor

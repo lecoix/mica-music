@@ -40,7 +40,7 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.SongDetails
 import com.mica.music.imaging.CoverDecodeTarget
-import com.mica.music.media.loudness.LoudnessScanManager
+import com.mica.music.audio.loudness.LoudnessScanPort
 import com.mica.music.ui.components.SongCover
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -54,6 +54,7 @@ import kotlinx.coroutines.launch
 fun SongDetailScreen(
     song: Song,
     library: MusicLibrary,
+    loudnessScanPort: LoudnessScanPort,
     onBack: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
     bottomContentClearance: Dp = 0.dp,
@@ -97,7 +98,7 @@ fun SongDetailScreen(
                         if (analyzing) return@IconButton
                         analyzing = true
                         scope.launch {
-                            val result = LoudnessScanManager.analyzeSingle(context, displaySong, library)
+                            val result = loudnessScanPort.analyzeSingle(displaySong, library)
                             analyzing = false
                             result.fold(
                                 onSuccess = { analysis ->

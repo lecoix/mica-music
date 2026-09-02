@@ -35,10 +35,9 @@ import com.afalphy.sylvakru.UsbDacQuirks
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridVolumeControlMode
 import com.mica.music.data.preferences.UsbHybridPreferences
-import com.mica.music.media.usbhybrid.UsbHybridDiagnosticsReport
-import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
-import com.mica.music.media.usbhybrid.UsbHybridSettingsPresentation
-import com.mica.music.media.usbhybrid.UsbPlaybackFacts
+import com.mica.music.usb.UsbHybridDiagnosticsPort
+import com.mica.music.usb.UsbPlaybackSnapshot
+import com.mica.music.usb.UsbRuntimeUiProjection
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsSectionTitle
@@ -52,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun UsbHybridSettingsPanel() {
+internal fun UsbHybridSettingsPanel(usbDiagnosticsPort: UsbHybridDiagnosticsPort) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var outputMode by remember { mutableStateOf(UsbHybridPreferences.outputMode(context)) }
@@ -63,7 +62,7 @@ internal fun UsbHybridSettingsPanel() {
     var showQuirkImport by remember { mutableStateOf(false) }
     var quirkJson by remember { mutableStateOf("") }
     var quirkImportMessage by remember { mutableStateOf<String?>(null) }
-    val facts by UsbHybridRuntimeMonitor.facts.collectAsState()
+    val facts by UsbRuntimeUiProjection.facts.collectAsState()
 
     DisposableEffect(context) {
         val unregister = UsbHybridPreferences.registerChangeListener(context) { mode ->
@@ -182,7 +181,7 @@ internal fun UsbHybridSettingsPanel() {
         onClick = {
             scope.launch {
                 val section = withContext(Dispatchers.IO) {
-                    UsbHybridDiagnosticsReport.build(context, UsbHybridRuntimeMonitor.facts.value)
+                    usbDiagnosticsPort.buildReport()
                 }
                 DiagnosticLog.shareReport(context, section)
             }
@@ -276,7 +275,7 @@ internal fun UsbHybridSettingsPanel() {
 }
 
 @Composable
-private fun UsbHybridStatusSummary(facts: UsbPlaybackFacts) {
+private fun UsbHybridStatusSummary(facts: UsbPlaybackSnapshot) {
     val status = UsbHybridSettingsPresentation.statusLabel(facts)
     Column(
         modifier = Modifier
@@ -331,7 +330,7 @@ private fun UsbHybridStatusSummary(facts: UsbPlaybackFacts) {
 }
 
 @Composable
-private fun UsbHybridTransportSummary(facts: UsbPlaybackFacts) {
+private fun UsbHybridTransportSummary(facts: UsbPlaybackSnapshot) {
     val telemetry = facts.telemetry
     Column(
         modifier = Modifier

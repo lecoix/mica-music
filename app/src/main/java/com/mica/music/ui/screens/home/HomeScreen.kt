@@ -70,7 +70,8 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongSorter
 import com.mica.music.data.SongLyricsOffsetStore
 import com.mica.music.data.UserPlaylist
-import com.mica.music.media.NotificationLyrics
+import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.lyrics.LyricsDisplayProjection
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.ui.components.HomeDrawerPanel
 import com.mica.music.ui.components.LibrarySearchPanel
@@ -756,7 +757,7 @@ fun HomeScreen(
     }
     val activeLyricIndex = remember(infoRowLyricsSession, lyricsPositionMs) {
         infoRowLyricsSession?.let {
-            NotificationLyrics.lyricIndexForPosition(it, lyricsPositionMs)
+            LyricsDisplayProjection.lyricIndexForPosition(it, lyricsPositionMs)
         } ?: -1
     }
     val activeLyricLine = infoRowLyricsSession
@@ -774,10 +775,10 @@ fun HomeScreen(
         uiSettings.lyricsBilingualDisplayMode,
     ) {
         infoRowLyricsSession?.takeIf { activeLyricIndex >= 0 }?.let { session ->
-            NotificationLyrics.lyricLineText(
+            LyricsDisplayProjection.lyricLineText(
                 lyrics = session.lyrics,
                 index = activeLyricIndex,
-                display = NotificationLyrics.DisplayOptions(
+                display = LyricsDisplayOptions(
                     splitEnabled = uiSettings.lyricSplitEnabled,
                     bilingualMode = uiSettings.lyricsBilingualDisplayMode,
                 ),
@@ -790,10 +791,10 @@ fun HomeScreen(
         uiSettings.lyricSplitEnabled,
     ) {
         infoRowLyricsSession?.takeIf { activeLyricIndex >= 0 }?.let { session ->
-            NotificationLyrics.lyricLineText(
+            LyricsDisplayProjection.lyricLineText(
                 lyrics = session.lyrics,
                 index = activeLyricIndex,
-                display = NotificationLyrics.DisplayOptions(
+                display = LyricsDisplayOptions(
                     splitEnabled = uiSettings.lyricSplitEnabled,
                     bilingualMode = LyricsBilingualDisplayMode.ORIGINAL,
                 ),

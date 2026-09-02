@@ -45,6 +45,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.AppUiSettings
+import com.mica.music.usb.UsbHybridDiagnosticsPort
+import com.mica.music.audio.loudness.LoudnessScanPort
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.MusicLibrary
@@ -65,6 +67,8 @@ private const val BackRootDebugTag = "DEBUG-BACK-ROOT-1A2B"
 fun SettingsScreen(
     library: MusicLibrary,
     uiSettings: AppUiSettings,
+    loudnessScanPort: LoudnessScanPort,
+    usbHybridDiagnosticsPort: UsbHybridDiagnosticsPort,
     onBack: () -> Unit,
     onOpenMetadataDebug: () -> Unit,
     onOpenSpatialAudio: () -> Unit,
@@ -440,11 +444,12 @@ fun SettingsScreen(
 
                     SettingsCategory.AUDIO -> {
                         if (usbHybridSubpageOpen) {
-                            UsbHybridSettingsPanel()
+                            UsbHybridSettingsPanel(usbHybridDiagnosticsPort)
                         } else {
                             AudioSettingsPanel(
                                 uiSettings = uiSettings,
                                 library = library,
+                                loudnessScanPort = loudnessScanPort,
                                 onOpenUsbExclusive = { usbHybridSubpageOpen = true },
                                 onOpenSoundFx = onOpenSoundFx,
                             )

@@ -24,7 +24,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSession
-import com.mica.music.media.NotificationLyrics
+import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.lyrics.LyricsDisplayProjection
 import com.mica.music.ui.components.NarrowBarSoftKaraokeLyric
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSize
@@ -103,12 +104,12 @@ internal fun infoRowLyricText(
     lyricsBilingualDisplayMode: LyricsBilingualDisplayMode,
 ): String? {
     if (!enabled || !isPlaying || lyricsSession == null) return null
-    val lyricIndex = NotificationLyrics.lyricIndexForPosition(lyricsSession, positionMs)
+    val lyricIndex = LyricsDisplayProjection.lyricIndexForPosition(lyricsSession, positionMs)
     if (lyricIndex < 0) return null
-    return NotificationLyrics.lyricLineText(
+    return LyricsDisplayProjection.lyricLineText(
         lyrics = lyricsSession.lyrics,
         index = lyricIndex,
-        display = NotificationLyrics.DisplayOptions(
+        display = LyricsDisplayOptions(
             splitEnabled = lyricSplitEnabled,
             bilingualMode = lyricsBilingualDisplayMode,
         ),

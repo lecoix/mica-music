@@ -29,7 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.audio.fx.SoundFxSettings
-import com.mica.music.media.MicaEqualizerManager
+import com.mica.music.audio.eq.MicaEqualizerManager
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsSliderRow
 import com.mica.music.ui.components.TextToggle

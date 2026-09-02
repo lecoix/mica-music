@@ -37,7 +37,8 @@ import com.mica.music.BuildConfig
 import com.mica.music.data.Song
 import com.mica.music.data.local.StorageDiagnostics
 import com.mica.music.data.scanner.AlbumArtCache
-import com.mica.music.media.PlaybackCapabilityDiagnostics
+import com.mica.music.diagnostics.PlaybackCapabilityReport
+import com.mica.music.diagnostics.PlaybackCapabilityReportProvider
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
@@ -51,6 +52,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun AboutScreen(
     songs: List<Song>,
+    playbackCapabilityReportProvider: PlaybackCapabilityReportProvider,
     onBack: () -> Unit,
     onOpenVersionUpdate: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
@@ -149,11 +151,11 @@ fun AboutScreen(
             Spacer(Modifier.height(HifiSpacing.lg))
 
             var playbackReport by remember {
-                mutableStateOf<PlaybackCapabilityDiagnostics.Report?>(null)
+                mutableStateOf<PlaybackCapabilityReport?>(null)
             }
             LaunchedEffect(context) {
                 playbackReport = withContext(Dispatchers.Default) {
-                    PlaybackCapabilityDiagnostics.report(context)
+                    playbackCapabilityReportProvider.report()
                 }
             }
 

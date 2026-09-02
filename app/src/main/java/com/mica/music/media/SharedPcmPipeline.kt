@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import com.mica.music.diagnostics.AudioPipelineDebugDiagnostics
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import com.mica.music.util.DiagnosticLog

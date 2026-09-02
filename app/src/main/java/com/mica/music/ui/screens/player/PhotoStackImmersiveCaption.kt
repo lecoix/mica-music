@@ -7,7 +7,8 @@ import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.data.Song
-import com.mica.music.media.NotificationLyrics
+import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.lyrics.LyricsDisplayProjection
 
 internal const val PhotoStackCaptionMarqueeInitialDelayMs = 1_200L
 internal const val PhotoStackCaptionMarqueeVelocityDpPerSec = 30f
@@ -44,7 +45,7 @@ internal fun photoStackImmersiveCaption(
     val karaokeLine = line.takeIf { it.cues.isNotEmpty() }
     return PhotoStackImmersiveCaption(
         title = original,
-        subtitle = translation ?: NotificationLyrics.subtitle(
+        subtitle = translation ?: LyricsDisplayProjection.subtitle(
             song.title,
             ArtistNames.normalizeDisplay(song.artist),
         ),

@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import com.mica.music.audio.eq.MicaEqualizerManager
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.audio.AudioProcessor

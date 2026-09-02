@@ -57,7 +57,8 @@ import com.mica.music.data.LyricsSession
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.Song
-import com.mica.music.media.NotificationLyrics
+import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.lyrics.LyricsDisplayProjection
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalCustomMicaBackground
@@ -192,7 +193,7 @@ fun MiniPlayer(
         !miniPlayerLyricsEnabled || !miniPlayerWordLyricsEnabled || !isPlaying -> null
         karaokeLine != null -> karaokeLine.takeIf { it.cues.isNotEmpty() }
         lyricsSession != null -> {
-            val index = NotificationLyrics.lyricIndexForPosition(lyricsSession, stablePositionMs)
+            val index = LyricsDisplayProjection.lyricIndexForPosition(lyricsSession, stablePositionMs)
             lyricsSession.lyrics.getOrNull(index)?.takeIf { it.cues.isNotEmpty() }
         }
         else -> null
@@ -250,7 +251,7 @@ internal fun miniPlayerText(
     if (!enabled || !isPlaying || lyricText == null) return fallback
     return MiniPlayerText(
         primary = lyricText,
-        secondary = NotificationLyrics.subtitle(song.title, artist),
+        secondary = LyricsDisplayProjection.subtitle(song.title, artist),
     )
 }
 
@@ -265,13 +266,13 @@ private fun miniPlayerText(
 ): MiniPlayerText {
     if (!enabled || !isPlaying) return miniPlayerText(song, isPlaying, enabled, lyricText = null)
 
-    val lyricIndex = NotificationLyrics.lyricIndexForPosition(lyricsSession, positionMs)
+    val lyricIndex = LyricsDisplayProjection.lyricIndexForPosition(lyricsSession, positionMs)
     if (lyricIndex < 0) return miniPlayerText(song, isPlaying, enabled, lyricText = null)
 
-    val lyric = NotificationLyrics.lyricLineText(
+    val lyric = LyricsDisplayProjection.lyricLineText(
         lyrics = lyricsSession.lyrics,
         index = lyricIndex,
-        display = NotificationLyrics.DisplayOptions(
+        display = LyricsDisplayOptions(
             splitEnabled = lyricSplitEnabled,
             bilingualMode = lyricsBilingualDisplayMode,
         ),

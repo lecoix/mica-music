@@ -2,6 +2,12 @@ package com.mica.music
 
 import android.app.Application
 import android.net.Uri
+import com.mica.music.usb.UsbHybridDiagnosticsPort
+import com.mica.music.media.usbhybrid.MediaUsbHybridDiagnosticsPort
+import com.mica.music.media.loudness.MediaLoudnessScanPort
+import com.mica.music.media.MediaPlaybackCapabilityReportProvider
+import com.mica.music.diagnostics.PlaybackCapabilityReportProvider
+import com.mica.music.audio.loudness.LoudnessScanPort
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.data.PlaybackStatisticsRepository
 import com.mica.music.data.ProcessPlaybackSongResolver
@@ -62,6 +68,20 @@ class MicaApp : Application() {
     /** Process-lifetime playback lookup; it must not capture a ViewModel or Activity callback. */
     val playbackSongResolver = ProcessPlaybackSongResolver(transientPlaybackCatalog)
 
+    /** UI-facing loudness scan seam; decoding/persistence remains owned by media. */
+    val loudnessScanPort: LoudnessScanPort by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        MediaLoudnessScanPort(this)
+    }
+
+    /** UI-facing playback capability report seam. */
+    val playbackCapabilityReportProvider: PlaybackCapabilityReportProvider by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        MediaPlaybackCapabilityReportProvider(this)
+    }
+
+    /** UI-facing USB diagnostics command seam; runtime state is published separately. */
+    val usbHybridDiagnosticsPort: UsbHybridDiagnosticsPort by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        MediaUsbHybridDiagnosticsPort(this)
+    }
     /** Process-lifetime lyric snapshot shared by the media service and desktop overlay. */
     val desktopLyricsOverlayStateStore = DesktopLyricsOverlayStateStore()
 

@@ -536,6 +536,7 @@ class NotificationLyricsMedia3ContractTest {
             onDisconnected: () -> Unit,
             onFailure: (Throwable) -> Unit,
             onPlaybackBoundary: (ConfirmedPlaybackBoundary) -> Unit,
+            onPlaybackStackRebuilt: () -> Unit,
         ): MediaControllerConnection {
             boundaryDispatcher.add(onPlaybackBoundary)
             onConnected(controller)

@@ -1,4 +1,4 @@
-package com.mica.music.media.eq
+package com.mica.music.audio.eq
 
 /** Android 系统均衡器预设的界面显示名（标准 10 段索引 + 常见英文别名）。 */
 object EqPresetLabels {

@@ -1,5 +1,7 @@
 package com.mica.music.media
 
+import com.mica.music.audio.eq.MicaEqualizerManager
+import com.mica.music.diagnostics.AudioPipelineDebugDiagnostics
 import android.content.Context
 import android.os.Handler
 import androidx.media3.common.MimeTypes

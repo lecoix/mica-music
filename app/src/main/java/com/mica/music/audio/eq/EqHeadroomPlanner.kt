@@ -1,4 +1,4 @@
-package com.mica.music.media.eq
+package com.mica.music.audio.eq
 
 import kotlin.math.PI
 import kotlin.math.cos

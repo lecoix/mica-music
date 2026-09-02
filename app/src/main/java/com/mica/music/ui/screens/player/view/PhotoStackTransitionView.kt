@@ -26,7 +26,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.TrackSkipDirection
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.MicaImageLoaders
-import com.mica.music.media.MicaSpectrumAnalyzer
+import com.mica.music.audio.spectrum.SpectrumUiProjection
 import com.mica.music.ui.components.narrowBarCueRanges
 import com.mica.music.ui.components.narrowBarLyricPanOffsetPx
 import com.mica.music.ui.components.narrowBarSoftFillFraction
@@ -977,7 +977,7 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     }
 
     private fun drawProgressStrip(canvas: Canvas) {
-        val liveLevels = if (spectrumEnabled && isPlaying) MicaSpectrumAnalyzer.levels.value else emptyList()
+        val liveLevels = if (spectrumEnabled && isPlaying) SpectrumUiProjection.levels.value else emptyList()
         val playedFraction = ((sliderValue - seekRangeStart) / (seekRangeEnd - seekRangeStart)).coerceIn(0f, 1f)
         val count = PhotoStackWaveformBars
         val gap = dp(2f)

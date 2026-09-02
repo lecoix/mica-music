@@ -1,4 +1,4 @@
-package com.mica.music.media
+package com.mica.music.diagnostics
 
 import com.mica.music.BuildConfig
 

@@ -1,4 +1,4 @@
-﻿package com.mica.music.media.eq
+package com.mica.music.audio.eq
 
 import android.media.AudioFormat
 import com.mica.music.audio.fx.SoundFxSettings

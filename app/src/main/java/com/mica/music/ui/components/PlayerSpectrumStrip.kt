@@ -19,8 +19,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mica.music.media.AudioPipelineDebugDiagnostics
-import com.mica.music.media.MicaSpectrumAnalyzer
+import com.mica.music.diagnostics.AudioPipelineDebugDiagnostics
+import com.mica.music.audio.spectrum.SpectrumUiProjection
 import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.util.DiagnosticLog
 import kotlin.math.abs
@@ -43,7 +43,7 @@ fun LivePlayerSpectrumStrip(
     reflectionAlpha: Float = 0.24f,
 ) {
     if (!enabled || alpha <= 0.01f) return
-    val liveLevels by MicaSpectrumAnalyzer.levels.collectAsState()
+    val liveLevels by SpectrumUiProjection.levels.collectAsState()
     val silentLevels = remember { silentSpectrumLevels() }
     PlayerSpectrumStrip(
         levels = if (isPlaying) liveLevels else silentLevels,

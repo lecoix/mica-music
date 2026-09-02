@@ -15,10 +15,9 @@ import com.mica.music.data.preferences.ChannelBalancePreferences
 import com.mica.music.data.preferences.ReplayGainPreferences
 import com.mica.music.data.preferences.UsbHybridOutputMode
 import com.mica.music.data.preferences.UsbHybridPreferences
-import com.mica.music.media.usbhybrid.UsbHybridRuntimeMonitor
-import com.mica.music.media.usbhybrid.UsbHybridSettingsPresentation
-import com.mica.music.media.loudness.LoudnessScanManager
-import com.mica.music.media.MicaEqualizerManager
+import com.mica.music.usb.UsbRuntimeUiProjection
+import com.mica.music.audio.loudness.LoudnessScanPort
+import com.mica.music.audio.eq.MicaEqualizerManager
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsNavigationRow
@@ -30,6 +29,7 @@ import com.mica.music.ui.components.SettingsToggleRow
 internal fun AudioSettingsPanel(
     uiSettings: AppUiSettings,
     library: MusicLibrary,
+    loudnessScanPort: LoudnessScanPort,
     onOpenUsbExclusive: () -> Unit,
     onOpenSoundFx: () -> Unit,
 ) {
@@ -39,8 +39,8 @@ internal fun AudioSettingsPanel(
         mutableStateOf(ChannelBalancePreferences.balancePercent(context))
     }
     var usbMode by remember { mutableStateOf(UsbHybridPreferences.outputMode(context)) }
-    val usbFacts by UsbHybridRuntimeMonitor.facts.collectAsState()
-    val loudnessScan by LoudnessScanManager.state.collectAsState()
+    val usbFacts by UsbRuntimeUiProjection.facts.collectAsState()
+    val loudnessScan by loudnessScanPort.state.collectAsState()
 
     DisposableEffect(context) {
         val unregister = UsbHybridPreferences.registerChangeListener(context) { mode ->
@@ -74,7 +74,7 @@ internal fun AudioSettingsPanel(
         },
         onClick = {
             if (!loudnessScan.running) {
-                LoudnessScanManager.startLibraryScan(context, library, missingOnly = true)
+                loudnessScanPort.startLibraryScan(library, missingOnly = true)
             }
         },
     )

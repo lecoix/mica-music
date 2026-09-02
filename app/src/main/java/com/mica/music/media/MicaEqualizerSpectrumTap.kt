@@ -1,7 +1,8 @@
 package com.mica.music.media
 
+import com.mica.music.audio.eq.MicaEqualizerManager
 import androidx.media3.common.util.UnstableApi
-import com.mica.music.media.eq.SoftwareEqualizer
+import com.mica.music.audio.eq.SoftwareEqualizer
 
 /**
  * Production [MicaFloatDspAudioSink.FloatPcmDspTap] bound to the shared EQ and spectrum singletons.

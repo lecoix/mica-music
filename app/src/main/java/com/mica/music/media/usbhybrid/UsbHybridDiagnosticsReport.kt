@@ -5,6 +5,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import com.afalphy.sylvakru.UsbDacQuirks
 import com.afalphy.sylvakru.UsbExclusiveAudioTransport
+import com.mica.music.usb.UsbHybridDiagnosticsPort
 import java.io.File
 import java.security.MessageDigest
 
@@ -123,4 +124,10 @@ object UsbHybridDiagnosticsReport {
     }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
 
     private fun hex(value: Int): String = "0x%04x".format(value)
+}
+internal class MediaUsbHybridDiagnosticsPort(
+    private val context: Context,
+) : UsbHybridDiagnosticsPort {
+    override fun buildReport(): String =
+        UsbHybridDiagnosticsReport.build(context, UsbHybridRuntimeMonitor.facts.value)
 }

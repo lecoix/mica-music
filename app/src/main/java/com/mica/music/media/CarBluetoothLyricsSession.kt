@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import com.mica.music.lyrics.LyricsDisplayProjection
 import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
@@ -37,7 +38,7 @@ internal data class CarBluetoothLyricsPayload(
         private fun from(song: Song, title: String): CarBluetoothLyricsPayload =
             CarBluetoothLyricsPayload(
                 title = title,
-                artist = NotificationLyrics.subtitle(song.title, song.artist),
+                artist = LyricsDisplayProjection.subtitle(song.title, song.artist),
                 album = song.album,
                 durationMs = song.durationSec.coerceAtLeast(0) * 1_000L,
             )

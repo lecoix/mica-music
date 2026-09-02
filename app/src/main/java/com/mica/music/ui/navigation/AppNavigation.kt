@@ -24,6 +24,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mica.music.data.AppUiSettings
+import com.mica.music.usb.UsbHybridDiagnosticsPort
+import com.mica.music.diagnostics.PlaybackCapabilityReportProvider
+import com.mica.music.audio.loudness.LoudnessScanPort
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayStats
 import com.mica.music.data.PlaylistStore
@@ -86,6 +89,9 @@ fun AppNavigation(
     playerController: PlayerController,
     sleepTimer: SleepTimerController,
     uiSettings: AppUiSettings,
+    loudnessScanPort: LoudnessScanPort,
+    playbackCapabilityReportProvider: PlaybackCapabilityReportProvider,
+    usbHybridDiagnosticsPort: UsbHybridDiagnosticsPort,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     AppNavigationMain(
@@ -96,6 +102,9 @@ fun AppNavigation(
         remotePlayStats = remotePlayStats,
         playerController = playerController,
         uiSettings = uiSettings,
+        loudnessScanPort = loudnessScanPort,
+        playbackCapabilityReportProvider = playbackCapabilityReportProvider,
+        usbHybridDiagnosticsPort = usbHybridDiagnosticsPort,
     )
 }
 
@@ -108,6 +117,9 @@ fun AppNavigationMain(
     remotePlayStats: Map<String, PlayStats> = emptyMap(),
     playerController: PlayerController,
     uiSettings: AppUiSettings,
+    loudnessScanPort: LoudnessScanPort,
+    playbackCapabilityReportProvider: PlaybackCapabilityReportProvider,
+    usbHybridDiagnosticsPort: UsbHybridDiagnosticsPort,
 ) {
     val navController = rememberNavController()
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
@@ -261,6 +273,7 @@ fun AppNavigationMain(
                 SongDetailScreen(
                     song = song,
                     library = library,
+                    loudnessScanPort = loudnessScanPort,
                     onBack = {
                         logBackFlow("back-consume source=song-detail-topbar song=${song.id}")
                         navController.popBackStack()
@@ -280,6 +293,8 @@ fun AppNavigationMain(
             SettingsScreen(
                 library = library,
                 uiSettings = uiSettings,
+                loudnessScanPort = loudnessScanPort,
+                usbHybridDiagnosticsPort = usbHybridDiagnosticsPort,
                 canOpenCustomPlayerLayoutEditor = playerController.playbackSurfaceState.currentSong != null,
                 onOpenCustomPlayerLayoutEditor = {
                     logBackFlow("player-overlay open source=settings-custom-layout-editor")
@@ -421,6 +436,7 @@ fun AppNavigationMain(
             )
             AboutScreen(
                 songs = library.songs,
+                playbackCapabilityReportProvider = playbackCapabilityReportProvider,
                 onBack = {
                     logBackFlow("back-consume source=about-topbar")
                     navController.popBackStack()

@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import com.mica.music.diagnostics.AudioPipelineDebugDiagnostics
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.audio.AudioProcessor
@@ -47,7 +48,7 @@ class MicaAudioProcessorChain(
                 is PipelineFormatTraceAudioProcessor -> processor.traceName
                 is DsdDecimationAudioProcessor -> "DsdDecimation"
                 is SpectrumAudioProcessor -> "Spectrum"
-                is com.mica.music.media.eq.SoftwareEqualizerAudioProcessor -> "EQ"
+                is com.mica.music.audio.eq.SoftwareEqualizerAudioProcessor -> "EQ"
                 is MicaPlaybackTuningAudioProcessor -> "PlaybackTuning"
                 else -> processor.javaClass.simpleName
             }

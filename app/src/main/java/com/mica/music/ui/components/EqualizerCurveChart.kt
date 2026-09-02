@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
-import com.mica.music.media.EqualizerBand
+import com.mica.music.audio.eq.EqualizerBand
 import com.mica.music.ui.theme.MicaTheme
 import kotlin.math.ln
 import kotlin.math.max

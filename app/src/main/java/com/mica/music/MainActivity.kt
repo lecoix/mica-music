@@ -318,6 +318,9 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                             remotePlayStats = remotePlayStats,
                             playerController = playerController,
                             uiSettings = uiSettings,
+                            loudnessScanPort = (application as MicaApp).loudnessScanPort,
+                            playbackCapabilityReportProvider = (application as MicaApp).playbackCapabilityReportProvider,
+                            usbHybridDiagnosticsPort = (application as MicaApp).usbHybridDiagnosticsPort,
                         )
                     }
                 }

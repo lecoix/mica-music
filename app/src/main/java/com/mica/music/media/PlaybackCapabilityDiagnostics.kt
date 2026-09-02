@@ -5,6 +5,9 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import com.mica.music.media.dsf.DsfFormat
+import com.mica.music.diagnostics.PlaybackCapabilityLine
+import com.mica.music.diagnostics.PlaybackCapabilityReport
+import com.mica.music.diagnostics.PlaybackCapabilityReportProvider
 import com.mica.music.util.DiagnosticLog
 
 /**
@@ -15,17 +18,11 @@ object PlaybackCapabilityDiagnostics {
 
     private const val EXO_FFMPEG_COORDINATES = "org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1"
 
-    data class Line(val title: String, val detail: String)
-
-    data class Report(val lines: List<Line>) {
-        fun asLogText(): String = lines.joinToString(" | ") { "${it.title}=${it.detail}" }
-    }
-
-    fun report(context: Context): Report {
-        val lines = mutableListOf<Line>()
+    fun report(context: Context): PlaybackCapabilityReport {
+        val lines = mutableListOf<PlaybackCapabilityLine>()
         lines += exoFfmpegLines()
         lines += routingLines()
-        return Report(lines)
+        return PlaybackCapabilityReport(lines)
     }
 
     fun logStartup(context: Context) {
@@ -33,7 +30,7 @@ object PlaybackCapabilityDiagnostics {
         DiagnosticLog.event("PlaybackCapability", report.asLogText())
     }
 
-    private fun exoFfmpegLines(): List<Line> {
+    private fun exoFfmpegLines(): List<PlaybackCapabilityLine> {
         val available = runCatching { FfmpegLibrary.isAvailable() }.getOrDefault(false)
         val version = if (available) {
             runCatching { FfmpegLibrary.getVersion() }.getOrNull() ?: "未知"
@@ -49,14 +46,14 @@ object PlaybackCapabilityDiagnostics {
             else -> "本地模块（libffmpegJNI 未装入 APK 或未加载）"
         }
         return listOf(
-            Line("播放后端", "Media3 单链路（ExoPlayer）"),
-            Line("Exo FFmpeg 扩展", coordinates),
-            Line("libffmpegJNI", if (available) "已加载 · $version" else "未加载"),
-            Line("Exo · native dsd_lsbf_planar", dsdNative),
-            Line("Exo · DSD (audio/dsd)", dsdMime),
-            Line("Exo · ALAC", formatSupport(MimeTypes.AUDIO_ALAC)),
-            Line("Exo · FLAC", formatSupport(MimeTypes.AUDIO_FLAC)),
-            Line("Exo · DSF 容器", formatSupport(DsfFormat.MIME_CONTAINER_DSF)),
+            PlaybackCapabilityLine("播放后端", "Media3 单链路（ExoPlayer）"),
+            PlaybackCapabilityLine("Exo FFmpeg 扩展", coordinates),
+            PlaybackCapabilityLine("libffmpegJNI", if (available) "已加载 · $version" else "未加载"),
+            PlaybackCapabilityLine("Exo · native dsd_lsbf_planar", dsdNative),
+            PlaybackCapabilityLine("Exo · DSD (audio/dsd)", dsdMime),
+            PlaybackCapabilityLine("Exo · ALAC", formatSupport(MimeTypes.AUDIO_ALAC)),
+            PlaybackCapabilityLine("Exo · FLAC", formatSupport(MimeTypes.AUDIO_FLAC)),
+            PlaybackCapabilityLine("Exo · DSF 容器", formatSupport(DsfFormat.MIME_CONTAINER_DSF)),
         )
     }
 
@@ -75,11 +72,11 @@ object PlaybackCapabilityDiagnostics {
         return if (hasDecoder) "已编入 native" else "未编入 native"
     }
 
-    private fun routingLines(): List<Line> = listOf(
-        Line("DSF 路由", "Media3（DsfExtractor + Exo FFmpeg + DSD 降采样）"),
-        Line("DFF 路由", "不支持播放"),
-        Line("ALAC 路由", "Media3 FFmpeg 扩展（alac）"),
-        Line(
+    private fun routingLines(): List<PlaybackCapabilityLine> = listOf(
+        PlaybackCapabilityLine("DSF 路由", "Media3（DsfExtractor + Exo FFmpeg + DSD 降采样）"),
+        PlaybackCapabilityLine("DFF 路由", "不支持播放"),
+        PlaybackCapabilityLine("ALAC 路由", "Media3 FFmpeg 扩展（alac）"),
+        PlaybackCapabilityLine(
             "Exo DSD 说明",
             "需自编 libffmpegJNI（dsd_lsbf_planar）+ FfmpegLibrary audio/dsd 映射",
         ),
@@ -93,4 +90,9 @@ object PlaybackCapabilityDiagnostics {
         val supported = runCatching { FfmpegLibrary.supportsFormat(mimeType) }.getOrDefault(false)
         return if (supported) "支持" else "不支持"
     }
+}
+internal class MediaPlaybackCapabilityReportProvider(
+    private val context: Context,
+) : PlaybackCapabilityReportProvider {
+    override fun report(): PlaybackCapabilityReport = PlaybackCapabilityDiagnostics.report(context)
 }

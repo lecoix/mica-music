@@ -132,7 +132,9 @@ class FloatDspSpectrumTapDecouplingTest {
     fun int16Path_unaffectedByFloatSinkDecoupling() {
         MicaSpectrumAnalyzer.setEnabled(true)
         MicaSpectrumAnalyzer.setAnalysisActive(true)
-        MicaSpectrumAnalyzer.setPlaybackAdvancing(true)
+        // This assertion verifies capture, not drain. Keep the background analyzer parked so the
+        // scheduled 60 Hz tick cannot consume samples before the exact queue-size check below.
+        MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
 
         val processor = SpectrumAudioProcessor()
         processor.configure(

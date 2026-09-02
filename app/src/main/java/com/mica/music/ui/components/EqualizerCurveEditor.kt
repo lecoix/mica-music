@@ -34,7 +34,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mica.music.media.EqualizerBand
+import com.mica.music.audio.eq.EqualizerBand
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme

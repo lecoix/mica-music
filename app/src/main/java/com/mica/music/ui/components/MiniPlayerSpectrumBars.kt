@@ -18,7 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mica.music.media.MicaSpectrumAnalyzer
+import com.mica.music.audio.spectrum.SpectrumUiProjection
 import androidx.compose.runtime.withFrameNanos
 import com.mica.music.ui.MicaScreenshotGoldenMode
 import com.mica.music.ui.theme.MicaTheme
@@ -92,7 +92,7 @@ fun MiniPlayerSpectrumBars(
         return
     }
 
-    val liveLevels by MicaSpectrumAnalyzer.levels.collectAsState()
+    val liveLevels by SpectrumUiProjection.levels.collectAsState()
     val currentLevels by rememberUpdatedState(liveLevels)
 
     val envelope = remember {

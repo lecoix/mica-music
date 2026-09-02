@@ -6,6 +6,8 @@ import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.decoder.ffmpeg.OfflineFfmpegPcmDecoder
+import com.mica.music.audio.loudness.LoudnessScanPort
+import com.mica.music.audio.loudness.LoudnessScanState
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.LoudnessAnalysis
 import com.mica.music.data.MusicLibrary
@@ -32,21 +34,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-
-internal data class LoudnessScanState(
-    val running: Boolean = false,
-    val total: Int = 0,
-    val completed: Int = 0,
-    val succeeded: Int = 0,
-    val skipped: Int = 0,
-    val failed: Int = 0,
-    val currentSongId: String? = null,
-    val currentTitle: String = "",
-    val lastError: String? = null,
-) {
-    val progressLabel: String
-        get() = if (running) "$completed / $total" else if (total > 0) "$completed / $total" else ""
-}
 
 /** Process-scoped loudness analysis queue. Leaving Settings does not cancel an active library scan. */
 @UnstableApi
@@ -282,4 +269,16 @@ internal object LoudnessScanManager {
     }
 
     private const val DSD_ANALYSIS_SAMPLE_RATE_HZ = 176_400
+}
+internal class MediaLoudnessScanPort(
+    private val context: Context,
+) : LoudnessScanPort {
+    override val state: StateFlow<LoudnessScanState>
+        get() = LoudnessScanManager.state
+
+    override fun startLibraryScan(library: MusicLibrary, missingOnly: Boolean): Boolean =
+        LoudnessScanManager.startLibraryScan(context, library, missingOnly)
+
+    override suspend fun analyzeSingle(song: Song, library: MusicLibrary): Result<LoudnessAnalysis> =
+        LoudnessScanManager.analyzeSingle(context, song, library)
 }

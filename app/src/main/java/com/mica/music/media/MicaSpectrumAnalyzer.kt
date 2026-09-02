@@ -2,9 +2,9 @@ package com.mica.music.media
 
 import android.media.AudioFormat
 import android.util.Log
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import com.mica.music.audio.spectrum.SPECTRUM_BAND_COUNT
+import com.mica.music.audio.spectrum.SpectrumUiProjection
+import com.mica.music.diagnostics.AudioPipelineDebugDiagnostics
 import com.mica.music.util.DiagnosticLog
 import kotlin.math.PI
 import kotlin.math.cos
@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 object MicaSpectrumAnalyzer {
-    private const val BandCount = 96
+    private const val BandCount = SPECTRUM_BAND_COUNT
     private const val WindowSize = 2048
     private const val AnalysisFps = 60
     // The base queue covers normal decoder buffers. SpectrumQueueCapacityPolicy adds bounded
@@ -30,12 +30,6 @@ object MicaSpectrumAnalyzer {
     // 时间常数（秒）。攻/放/beat 的平滑基于两帧之间的真实 dt，
     // 而非"按帧固定系数"，因此与解码器喂 PCM 的帧率（采样率/缓冲区）无关，
     // 不同歌曲的频谱"速度"保持一致。tau 越小越快。
-    private val _levels = MutableStateFlow(List(BandCount) { 0f })
-    val levels: StateFlow<List<Float>> = _levels.asStateFlow()
-
-    private val _envelope = MutableStateFlow(0f)
-    val envelope: StateFlow<Float> = _envelope.asStateFlow()
-
     @Volatile
     private var enabled = false
 
@@ -279,8 +273,7 @@ object MicaSpectrumAnalyzer {
             queueCapacityPolicy.reset()
             hopRemainder = 0.0
             resetProbe()
-            _levels.value = List(BandCount) { 0f }
-            _envelope.value = 0f
+            SpectrumUiProjection.reset()
         }
     }
 
@@ -290,14 +283,14 @@ object MicaSpectrumAnalyzer {
     private fun runAnalysis(snapshot: RingSnapshot, sampleRateHz: Int, nowMs: Long) {
         val analyzeStart = if (ProbeEnabled) System.nanoTime() else 0L
         copyWindowedSamplesFromSnapshot(snapshot)
-        _envelope.value = analyzeEnvelope(windowed)
+        SpectrumUiProjection.publishEnvelope(analyzeEnvelope(windowed))
         val next = shapeBands(analyzeBands(windowed, sampleRateHz))
         if (ProbeEnabled) {
             probeAnalyzeNanos += System.nanoTime() - analyzeStart
             probeOutputFrames++
             reportProbeIfNeeded(nowMs, sampleRateHz)
         }
-        _levels.value = next.map { it.coerceIn(0f, 1f) }
+        SpectrumUiProjection.publishLevels(next.map { it.coerceIn(0f, 1f) })
     }
 
     private fun analyzeEnvelope(samples: FloatArray): Float {
@@ -394,7 +387,7 @@ object MicaSpectrumAnalyzer {
                 previousLevels[i] *= SilenceDecay
                 shapedLevels[i] *= SilenceDecay
             }
-            _levels.value = previousLevels.map { it.coerceIn(0f, 1f) }
+            SpectrumUiProjection.publishLevels(previousLevels.map { it.coerceIn(0f, 1f) })
         }
     }
 

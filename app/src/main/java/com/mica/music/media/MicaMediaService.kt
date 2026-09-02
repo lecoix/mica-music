@@ -1,5 +1,6 @@
 package com.mica.music.media
 
+import com.mica.music.audio.eq.MicaEqualizerManager
 import com.mica.music.data.playback.ServicePlaybackStateStore
 
 import com.mica.music.audio.AudioQualityMode

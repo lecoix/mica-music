@@ -4,57 +4,19 @@ import android.content.Context
 import android.os.Bundle
 import androidx.media3.common.MediaMetadata
 import com.mica.music.data.preferences.LyricsPreferences
-import com.mica.music.data.LyricDisplayRows
-import com.mica.music.data.LyricLine
-import com.mica.music.data.LyricsBilingualDisplayMode
-import com.mica.music.data.LyricsSession
 import com.mica.music.data.Song
-import com.mica.music.data.renderStateAt
+import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.lyrics.LyricsDisplayProjection
 
 /** 媒体通知栏歌词：主位歌词、副位「歌名 - 歌手」。 */
 object NotificationLyrics {
     private const val OVERLAY_TOKEN = "mica.notificationLyrics.overlayToken"
 
-    data class DisplayOptions(
-        val splitEnabled: Boolean,
-        val bilingualMode: LyricsBilingualDisplayMode,
-        val wordByWordEnabled: Boolean = true,
-        val hideTranslationWhenWordByWordEnabled: Boolean = false,
-    )
-
-    fun displayOptions(context: Context): DisplayOptions =
-        DisplayOptions(
+    fun displayOptions(context: Context): LyricsDisplayOptions =
+        LyricsDisplayOptions(
             splitEnabled = LyricsPreferences.lyricSplitEnabled(context),
             bilingualMode = LyricsPreferences.lyricsBilingualDisplayMode(context),
         )
-
-    fun subtitle(songTitle: String, artist: String): String =
-        when {
-            songTitle.isBlank() -> artist
-            artist.isBlank() -> songTitle
-            else -> "$songTitle - $artist"
-        }
-
-    fun lyricIndexForPosition(lyrics: List<LyricLine>, positionMs: Int): Int {
-        return lyrics.renderStateAt(positionMs).activeLineIndex
-    }
-
-    fun lyricIndexForPosition(session: LyricsSession, positionMs: Int): Int =
-        session.snapshotAt(positionMs).activeLineIndex
-
-    fun lyricLineText(
-        lyrics: List<LyricLine>,
-        index: Int,
-        display: DisplayOptions,
-    ): String? {
-        val raw = lyrics.getOrNull(index)?.text?.trim()?.takeIf { it.isNotBlank() } ?: return null
-        val rows = LyricDisplayRows.rowsForBilingualDisplayMode(
-            text = raw,
-            enabled = display.splitEnabled,
-            mode = display.bilingualMode,
-        )
-        return rows.joinToString(" ") { it.text.trim() }.takeIf { it.isNotBlank() } ?: raw
-    }
 
     fun signature(songId: String, lyricIndex: Int, displayLine: String): String =
         "$songId:$lyricIndex:$displayLine"
@@ -69,7 +31,7 @@ object NotificationLyrics {
         return base.buildUpon()
             .setTitle(displayLine)
             .setDisplayTitle(displayLine)
-            .setArtist(subtitle(song.title, song.artist))
+            .setArtist(LyricsDisplayProjection.subtitle(song.title, song.artist))
             .setExtras(ensureCanonicalTitleExtras(base.extras, song.title).apply {
                 if (overlayToken == null) remove(OVERLAY_TOKEN) else putString(OVERLAY_TOKEN, overlayToken)
             })
