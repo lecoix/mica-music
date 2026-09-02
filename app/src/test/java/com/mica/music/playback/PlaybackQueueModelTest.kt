@@ -1,7 +1,5 @@
-package com.mica.music.data
+package com.mica.music.playback
 
-import com.mica.music.playback.PlaybackOrderState
-import com.mica.music.playback.PlaybackQueueModel
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Test

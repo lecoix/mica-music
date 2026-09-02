@@ -1,6 +1,6 @@
-package com.mica.music.data
+package com.mica.music.playback
 
-import com.mica.music.playback.PlaybackTuningCoordinator
+import com.mica.music.data.PlaybackTuning
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

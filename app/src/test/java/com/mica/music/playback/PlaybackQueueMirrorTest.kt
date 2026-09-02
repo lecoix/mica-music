@@ -1,5 +1,7 @@
-package com.mica.music.data
+package com.mica.music.playback
 
+import com.mica.music.data.Song
+import com.mica.music.data.SongSource
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.mica.music.data.remote.RemoteMediaIdCodec
@@ -7,8 +9,6 @@ import com.mica.music.data.remote.RemotePlaybackUriCodec
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.media.RemoteMediaItemCodec
-import com.mica.music.playback.PlaybackQueueMirror
-import com.mica.music.playback.PlaybackQueueMirrorCoordinator
 import com.mica.music.testutil.SongFixtures
 import io.mockk.every
 import io.mockk.mockk

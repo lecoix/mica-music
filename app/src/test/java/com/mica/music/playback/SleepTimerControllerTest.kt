@@ -1,10 +1,7 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.mica.music.playback.PlaybackSurfaceState
-import com.mica.music.playback.PlayerController
-import com.mica.music.playback.SleepTimerController
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify

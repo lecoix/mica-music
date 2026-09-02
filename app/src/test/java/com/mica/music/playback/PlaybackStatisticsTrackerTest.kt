@@ -1,8 +1,5 @@
-package com.mica.music.data
+package com.mica.music.playback
 
-import com.mica.music.playback.PlaybackMediaTransition
-import com.mica.music.playback.PlaybackPositionDiscontinuity
-import com.mica.music.playback.PlaybackStatisticsTracker
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

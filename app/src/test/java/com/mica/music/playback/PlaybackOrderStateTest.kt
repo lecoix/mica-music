@@ -1,8 +1,7 @@
-package com.mica.music.data
+package com.mica.music.playback
 
 import androidx.media3.common.C
 import androidx.media3.exoplayer.source.ShuffleOrder
-import com.mica.music.playback.PlaybackOrderState
 import com.mica.music.queue.PlaybackShuffleOrder
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
