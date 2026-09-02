@@ -281,6 +281,17 @@ class LyricsPreferencesRobolectricTest {
     }
 
     @Test
+    fun lyriconLyricsDefaultsOnAndRoundTrips() {
+        assertTrue(LyricsPreferences.lyriconLyricsEnabled(context))
+
+        LyricsPreferences.setLyriconLyricsEnabled(context, false)
+        assertFalse(LyricsPreferences.lyriconLyricsEnabled(context))
+
+        LyricsPreferences.setLyriconLyricsEnabled(context, true)
+        assertTrue(LyricsPreferences.lyriconLyricsEnabled(context))
+    }
+
+    @Test
     fun lyricsSlotPriorityDefaultsRoundTripsAndRejectsDuplicates() {
         assertEquals(DEFAULT_LYRICS_SLOT_PRIORITY, LyricsPreferences.lyricsSlotPriority(context))
         val embeddedFirst = listOf(

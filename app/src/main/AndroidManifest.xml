@@ -38,6 +38,18 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Mica">
 
+        <meta-data
+            android:name="lyricon_module"
+            android:value="true" />
+        <meta-data
+            android:name="lyricon_module_author"
+            android:value="lecoix" />
+        <meta-data
+            android:name="lyricon_module_description"
+            android:value="@string/lyricon_module_description" />
+        <meta-data
+            android:name="lyricon_module_tags"
+            android:resource="@array/lyricon_module_tags" />
 
         <activity
             android:name=".MainActivity"

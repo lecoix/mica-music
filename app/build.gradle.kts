@@ -24,9 +24,6 @@ val media3FfmpegGeneratedAar =
     layout.buildDirectory.file("generated/media3-ffmpeg/media3-ffmpeg-decoder-dsd.aar").get().asFile
 val media3FfmpegLocalJni =
     rootProject.file("third_party/media3-ffmpeg-decoder/src/main/jniLibs/arm64-v8a/libffmpegJNI.so")
-val hasDsdFfmpeg = media3FfmpegLocalAar.exists() ||
-    media3FfmpegGeneratedAar.exists() ||
-    media3FfmpegLocalJni.exists()
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
@@ -51,7 +48,7 @@ val updateInternationalManifestUrl = providers.gradleProperty("mica.update.inter
 
 android {
     namespace = "com.mica.music"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // Active hardware probing is diagnostic only and must not run on ordinary song switches.
@@ -157,6 +154,7 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
     }
 
@@ -211,6 +209,7 @@ dependencies {
     implementation(libs.okhttp.digest)
     implementation(libs.smbj)
     implementation(libs.androidx.media)
+    implementation(libs.lyricon.provider)
 
     when {
         media3FfmpegLocalAar.exists() -> implementation(files(media3FfmpegLocalAar))
@@ -262,15 +261,23 @@ dependencies {
     androidTestImplementation(libs.androidx.room.testing)
 }
 
-tasks.matching { it.name == "preReleaseBuild" || it.name == "prePerfBuild" }.configureEach {
-    doFirst {
-        check(hasDsdFfmpeg) {
+val verifyDsdFfmpeg by tasks.registering {
+    group = "verification"
+    description = "Verifies that release/perf builds have the DSD-enabled Media3 FFmpeg artifact."
+    inputs.files(media3FfmpegLocalAar, media3FfmpegGeneratedAar, media3FfmpegLocalJni)
+
+    doLast {
+        check(inputs.files.files.any { it.exists() }) {
             """
             |DSD-enabled Media3 FFmpeg is required for release and perf builds.
             |Run: .\scripts\build-media3-ffmpeg-dsd.ps1
             """.trimMargin()
         }
     }
+}
+
+tasks.matching { it.name == "preReleaseBuild" || it.name == "prePerfBuild" }.configureEach {
+    dependsOn(verifyDsdFfmpeg)
 }
 
 tasks.register("micaCheck") {

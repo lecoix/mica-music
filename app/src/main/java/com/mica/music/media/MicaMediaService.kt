@@ -76,6 +76,7 @@ class MicaMediaService : MediaSessionService() {
     private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
+    private var lyriconLyricsSink: LyriconLyricsSink? = null
     private var carBluetoothLyricsSession: CarBluetoothLyricsSession? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
     private var activeAppShuffleRequest: PlaybackShuffleRequest? = null
@@ -548,12 +549,16 @@ class MicaMediaService : MediaSessionService() {
             player = stack.compositePlayer,
             sessionActivity = createSessionActivityPendingIntent(),
         )
+        lyriconLyricsSink = LyriconLyricsSink(this).also {
+            it.start(LyricsPreferences.lyriconLyricsEnabled(this))
+        }
         notificationLyricsCoordinator = NotificationLyricsCoordinator(
             context = this,
             player = stack.compositePlayer,
             handler = mainHandler,
             carBluetoothLyrics = carBluetoothLyricsSession,
             desktopLyrics = micaApp.desktopLyricsOverlayStateStore,
+            lyriconLyrics = lyriconLyricsSink,
             transientSongResolver = micaApp.transientPlaybackCatalog::songById,
         ).also { it.start() }
         if (activeOutputPath.outputMode.allowsSharedPcmDsp) {
@@ -602,6 +607,8 @@ class MicaMediaService : MediaSessionService() {
         playbackStateCoordinator = null
         notificationLyricsCoordinator?.release()
         notificationLyricsCoordinator = null
+        lyriconLyricsSink?.release()
+        lyriconLyricsSink = null
         carBluetoothLyricsSession?.release()
         carBluetoothLyricsSession = null
         playbackEngineCoordinator?.release()

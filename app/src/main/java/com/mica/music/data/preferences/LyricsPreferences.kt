@@ -51,6 +51,7 @@ object LyricsPreferences {
         ENABLED,
         DESKTOP_ENABLED,
         STATUS_BAR_ENABLED,
+        LYRICON_ENABLED,
         DISPLAY,
         SOURCE,
     }
@@ -72,6 +73,7 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_LINE_SPACING = "lyrics_page_line_spacing"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
+    private const val KEY_LYRICON_LYRICS_ENABLED = "lyricon_lyrics_enabled"
     private const val KEY_DESKTOP_LYRICS_ENABLED = "desktop_lyrics_enabled"
     private const val KEY_DESKTOP_LYRICS_X = "desktop_lyrics_x"
     private const val KEY_DESKTOP_LYRICS_Y = "desktop_lyrics_y"
@@ -352,6 +354,15 @@ object LyricsPreferences {
     fun setNotificationLyricsEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_NOTIFICATION_LYRICS_ENABLED, enabled)
+            .apply()
+    }
+
+    fun lyriconLyricsEnabled(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_LYRICON_LYRICS_ENABLED, true)
+
+    fun setLyriconLyricsEnabled(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_LYRICON_LYRICS_ENABLED, enabled)
             .apply()
     }
 
@@ -749,6 +760,7 @@ object LyricsPreferences {
                 KEY_NOTIFICATION_LYRICS_ENABLED -> NotificationLyricsChange.ENABLED
                 KEY_DESKTOP_LYRICS_ENABLED -> NotificationLyricsChange.DESKTOP_ENABLED
                 KEY_STATUS_BAR_LYRICS_ENABLED -> NotificationLyricsChange.STATUS_BAR_ENABLED
+                KEY_LYRICON_LYRICS_ENABLED -> NotificationLyricsChange.LYRICON_ENABLED
                 KEY_EXTERNAL_LYRICS_MODE -> NotificationLyricsChange.DISPLAY
                 KEY_DESKTOP_LYRICS_LOCKED -> NotificationLyricsChange.DISPLAY
                 KEY_LYRIC_SPLIT_ENABLED,

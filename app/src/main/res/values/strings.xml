@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Mica</string>
+    <string name="lyricon_module_description">咕咕咕</string>
 </resources>

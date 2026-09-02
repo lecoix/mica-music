@@ -230,6 +230,13 @@ internal fun LyricsSettingsPanel(
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )
 
+    SettingsToggleRow(
+        title = "词幕歌词",
+        subtitle = "向词幕提供当前歌词，支持逐字、翻译与罗马音；关闭后注销 Mica 歌词提供者",
+        checked = uiSettings.lyriconLyricsEnabled,
+        onCheckedChange = { uiSettings.updateLyriconLyricsEnabled(it) },
+    )
+
     SettingsActionRow(
         title = "外部歌词",
         subtitle = "当前：${uiSettings.externalLyricsMode.settingsLabel}；桌面歌词与状态栏歌词设置",

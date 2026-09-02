@@ -214,6 +214,9 @@ class AppUiSettings(context: Context) {
     var notificationLyricsEnabled by mutableStateOf(LyricsPreferences.notificationLyricsEnabled(appContext))
         private set
 
+    var lyriconLyricsEnabled by mutableStateOf(LyricsPreferences.lyriconLyricsEnabled(appContext))
+        private set
+
     var desktopLyricsEnabled by mutableStateOf(LyricsPreferences.desktopLyricsEnabled(appContext))
         private set
 
@@ -715,6 +718,11 @@ class AppUiSettings(context: Context) {
     fun updateNotificationLyricsEnabled(enabled: Boolean) {
         notificationLyricsEnabled = enabled
         LyricsPreferences.setNotificationLyricsEnabled(appContext, enabled)
+    }
+
+    fun updateLyriconLyricsEnabled(enabled: Boolean) {
+        lyriconLyricsEnabled = enabled
+        LyricsPreferences.setLyriconLyricsEnabled(appContext, enabled)
     }
 
     fun updateDesktopLyricsEnabled(enabled: Boolean) {

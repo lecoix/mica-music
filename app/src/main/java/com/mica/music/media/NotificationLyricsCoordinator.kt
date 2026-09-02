@@ -49,6 +49,7 @@ internal class NotificationLyricsCoordinator(
     handler: Handler,
     private val carBluetoothLyrics: CarBluetoothLyricsSink? = null,
     private val desktopLyrics: DesktopLyricsOverlayStateStore? = null,
+    private val lyriconLyrics: LyriconLyricsSink? = null,
     private val transientSongResolver: ((String) -> Song?)? = null,
     private val songLoader: suspend (LyricsLoadSpec) -> Song? = { spec ->
         transientSongResolver?.invoke(spec.songId) ?: run {
@@ -116,6 +117,7 @@ internal class NotificationLyricsCoordinator(
     private var offsetGeneration = 0L
     private var offsetSongKey: String? = null
     private var songLyricsOffsetMs = 0
+    private var lyriconDocumentRevision = 0L
 
     private val wakeUp = Runnable {
         if (!released) reconcile()
@@ -142,6 +144,25 @@ internal class NotificationLyricsCoordinator(
             }
             reconcile()
         }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            if (released || syncing) return
+            if (
+                reason == Player.DISCONTINUITY_REASON_SEEK ||
+                reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
+            ) {
+                lyriconLyrics?.seekTo(
+                    positionMs = newPosition.positionMs,
+                    playbackState = player.playbackState,
+                    isPlaying = player.isPlaying,
+                    playbackSpeed = player.playbackParameters.speed,
+                )
+            }
+        }
     }
 
     fun start() = onPlayerLooper {
@@ -161,6 +182,11 @@ internal class NotificationLyricsCoordinator(
                     LyricsPreferences.NotificationLyricsChange.DESKTOP_ENABLED,
                     LyricsPreferences.NotificationLyricsChange.STATUS_BAR_ENABLED,
                     -> {
+                        lastPublishedIndex = null
+                        lastSignature = null
+                    }
+                    LyricsPreferences.NotificationLyricsChange.LYRICON_ENABLED -> {
+                        lyriconLyrics?.setEnabled(LyricsPreferences.lyriconLyricsEnabled(appContext))
                         lastPublishedIndex = null
                         lastSignature = null
                     }
@@ -222,6 +248,8 @@ internal class NotificationLyricsCoordinator(
         playerHandler.removeCallbacks(wakeUp)
         val nowRealtimeMs = SystemClock.elapsedRealtime()
         val notificationEnabled = LyricsPreferences.notificationLyricsEnabled(appContext)
+        val lyriconEnabled = LyricsPreferences.lyriconLyricsEnabled(appContext)
+        lyriconLyrics?.setEnabled(lyriconEnabled)
         val externalLyricsMode = LyricsPreferences.externalLyricsMode(appContext)
         val desktopLyricsEnabled = externalLyricsMode == ExternalLyricsMode.DESKTOP
         val statusBarLyricsEnabled = externalLyricsMode == ExternalLyricsMode.STATUS_BAR
@@ -240,6 +268,7 @@ internal class NotificationLyricsCoordinator(
         if (item == null || decoded == null) {
             carBluetoothLyrics?.clear()
             desktopLyrics?.clear()
+            lyriconLyrics?.clear()
             resetForSong(null)
             return
         }
@@ -253,8 +282,11 @@ internal class NotificationLyricsCoordinator(
         if (!notificationEnabled) {
             restoreDefaultMetadataIfNeeded(decoded, item)
         }
-        if (!notificationEnabled && !externalLyricsEnabled) {
+        val localLyricsEnabled = notificationEnabled || externalLyricsEnabled
+        if (!localLyricsEnabled) {
             desktopLyrics?.clear()
+        }
+        if (!localLyricsEnabled && !lyriconEnabled) {
             return
         }
 
@@ -269,8 +301,33 @@ internal class NotificationLyricsCoordinator(
         ensureLyrics(decoded, spec, nowRealtimeMs)
 
         val document = activeDocument.takeIf { activeSpec?.songId == decoded.id }
+        if (lyriconEnabled) {
+            val lyriconSpec = activeSpec.takeIf { document != null } ?: spec
+            val lyriconSignature = listOf(
+                decoded.id,
+                decoded.title,
+                decoded.artist,
+                decoded.durationSec.toString(),
+                lyriconSpec.lyricsRevision,
+                lyriconSpec.lyricsDataVersion.toString(),
+                effectiveLyricsOffsetMs.toString(),
+                lyriconDocumentRevision.toString(),
+                if (document == null) "metadata" else "lyrics",
+            ).joinToString(separator = "|")
+            lyriconLyrics?.publishSong(
+                song = decoded,
+                document = document,
+                effectiveOffsetMs = effectiveLyricsOffsetMs,
+                signature = lyriconSignature,
+                positionMs = player.currentPosition,
+                playbackState = player.playbackState,
+                isPlaying = player.isPlaying,
+                playbackSpeed = player.playbackParameters.speed,
+            )
+        }
+
         var plannedWakeInMs: Long? = null
-        if (document != null) {
+        if (document != null && localLyricsEnabled) {
             val session = sessionFor(document)
             val plan = NotificationLyricsBoundaryPlanner.plan(
                 lineStartTimesMs = lineStartTimesMs,
@@ -307,7 +364,7 @@ internal class NotificationLyricsCoordinator(
             ?.takeIf { it != Long.MAX_VALUE }
             ?.let { (it - nowRealtimeMs).coerceAtLeast(1L) }
         val watchdogWakeInMs = WATCHDOG_MS.takeIf {
-            player.isPlaying || pendingSpec != null || retryWakeInMs != null
+            (localLyricsEnabled && player.isPlaying) || pendingSpec != null || retryWakeInMs != null
         }
         val externalLyricsWakeInMs = WORD_SYNC_TICK_MS.takeIf {
             player.isPlaying && externalLyricsEnabled && document != null
@@ -368,6 +425,7 @@ internal class NotificationLyricsCoordinator(
         if (trackedSongId != spec.songId) return
         activeSpec = spec
         activeDocument = document
+        lyriconDocumentRevision += 1
         failedSpec = null
         loadFailureCount = 0
         retryAtRealtimeMs = null
@@ -379,6 +437,7 @@ internal class NotificationLyricsCoordinator(
         if (trackedSongId != spec.songId) return
         activeSpec = spec
         activeDocument = null
+        lyriconDocumentRevision += 1
         sessionDocument = null
         lyricsSession = null
         lineStartTimesMs = IntArray(0)
@@ -596,6 +655,7 @@ internal class NotificationLyricsCoordinator(
         trackedSongId = songId
         activeSpec = null
         activeDocument = null
+        lyriconDocumentRevision += 1
         pendingSpec = null
         failedSpec = null
         loadFailureCount = 0
