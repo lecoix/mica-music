@@ -59,6 +59,33 @@ class LandscapePlayerPolicyTest {
     }
 
     @Test
+    fun stableGeometryOwnsProductionPlaybackAndLyricsCoverSizes() {
+        val plan = checkNotNull(landscapePlayerLayoutPlan(900f, 500f))
+        val geometry = plan.stableGeometry(
+            widthDp = 900f,
+            heightDp = 500f,
+            topPaddingDp = 24f,
+        )
+
+        assertEquals(32f, geometry.edgePaddingDp, 0.001f)
+        assertEquals(436f, geometry.playbackCoverSizeDp, 0.001f)
+        assertEquals(250f, geometry.lyricsCoverSizeDp, 0.001f)
+    }
+
+    @Test
+    fun stableGeometryUsesLargerStatusBarSafetyInsetWithoutRendererRecalculation() {
+        val plan = checkNotNull(landscapePlayerLayoutPlan(900f, 500f))
+        val geometry = plan.stableGeometry(
+            widthDp = 900f,
+            heightDp = 500f,
+            topPaddingDp = 48f,
+        )
+
+        assertEquals(48f, geometry.edgePaddingDp, 0.001f)
+        assertEquals(404f, geometry.playbackCoverSizeDp, 0.001f)
+    }
+
+    @Test
     fun supportedCoverFlowThemesKeepTheirModesInLandscape() {
         listOf(
             PlayerCoverFlowMode.PAUSE_FOLD,

@@ -95,7 +95,7 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.screens.player.ParticleCoverPlayerLayer
 import com.mica.music.ui.screens.player.CoverFlowMath
 import com.mica.music.ui.screens.player.ImmersiveProgressEpsilon
-import com.mica.music.ui.screens.player.customQueueCoverFrameAtRest
+import com.mica.music.ui.screens.player.customPlayerCoverFrameAtRest
 import com.mica.music.ui.screens.player.customQueueCoverFrameInSlot
 import com.mica.music.ui.screens.player.lerpCoverFrame
 import com.mica.music.ui.screens.player.photoStackImmersiveCaption
@@ -106,6 +106,7 @@ import com.mica.music.ui.screens.player.landscapeCoverFlowStageActive
 import com.mica.music.ui.screens.player.landscapeCoverModeForPage
 import com.mica.music.ui.screens.player.landscapeChromeHeight
 import com.mica.music.ui.screens.player.landscapePlayerLayoutPlan
+import com.mica.music.ui.screens.player.stableGeometry
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.system.ImmersiveSystemBarsEffect
@@ -628,17 +629,13 @@ fun NowPlayingContent(
             } else {
                 0.dp
             }
-            val landscapeEdgePadding = landscapePlan?.let { plan ->
-                maxOf(plan.horizontalPaddingDp.dp, landscapeTopPadding)
-            } ?: 0.dp
-            val landscapeCoverSize = landscapePlan?.let { plan ->
-                val heightBound = (screenHeight - landscapeEdgePadding * 2f).coerceAtLeast(0.dp)
-                val widthBound = (
-                    fullWidth - landscapeEdgePadding * 2f - plan.columnGapDp.dp - 280.dp
-                ).coerceAtLeast(0.dp)
-                minOf(heightBound, widthBound)
-            }
-            val playerLayoutWidth = landscapeCoverSize ?: screenWidth
+            val landscapeGeometry = landscapePlan?.stableGeometry(
+                widthDp = fullWidth.value,
+                heightDp = screenHeight.value,
+                topPaddingDp = landscapeTopPadding.value,
+            )
+            val landscapeEdgePadding = landscapeGeometry?.edgePaddingDp?.dp ?: 0.dp
+            val landscapeCoverSize = landscapeGeometry?.playbackCoverSizeDp?.dp
 
             val appearance = rememberPlayerScreenAppearance(song, lowerBackground)
             val playerUiColors = rememberPlaybackContentColors(
@@ -778,6 +775,8 @@ fun NowPlayingContent(
             val modelLyricsExpanded = classicLyricsExpanded &&
                 !landscapeMode &&
                 !photoStackLyricsPageEnabled
+            val spectrumAllowed = !landscapeMode ||
+                (!effectiveCoverFlowMode.usesCoverFlowStage && !classicLyricsExpanded)
             val pageModel = rememberPlayerPageUiModel(
                 surfaceState = surfaceState,
                 queueState = queueState,
@@ -785,9 +784,11 @@ fun NowPlayingContent(
                 lyricsExpanded = modelLyricsExpanded,
                 queueExpanded = queueSheetOpen && !isLandscapeWindow,
                 screenHeight = screenHeight,
-                screenWidth = playerLayoutWidth,
+                screenWidth = screenWidth,
+                coverViewportWidth = landscapeCoverSize,
                 coverAspectRatio = coverAspectRatio,
                 coverSwitching = coverMotionActive,
+                spectrumAllowed = spectrumAllowed,
                 coverFlowMode = effectiveCoverFlowMode,
                 immersiveAllowed = !landscapeMode,
             ) ?: return@BoxWithConstraints
@@ -862,15 +863,15 @@ fun NowPlayingContent(
                 customLayout.isVisible(PlayerLowerComponent.COVER)
             val customCoverAtRest = if (customCoverVisible && customMetrics.coverTopDp != null) {
                 val scale = customMetrics.coverVisualScale
-                customQueueCoverFrameAtRest(
+                customPlayerCoverFrameAtRest(
                     restCover = stablePlaybackFrame.cover,
                     visualScale = scale,
                     coverTop = customMetrics.coverTopDp.dp,
-                    extraStartPadding = fullWidth * (1f - scale) / 2f +
-                        fullWidth * effectiveCustomPlayerOffset(
-                            customLayout.offsetOf(PlayerLowerComponent.COVER),
-                        ).xPermille / 1_000f,
+                    panelWidth = fullWidth,
                     panelHeight = customPanelHeight,
+                    xOffsetPermille = effectiveCustomPlayerOffset(
+                        customLayout.offsetOf(PlayerLowerComponent.COVER),
+                    ).xPermille,
                 )
             } else {
                 null
@@ -1309,10 +1310,7 @@ fun NowPlayingContent(
                 !customHorizontalClassicRequested
             ) {
                 val coverSize = checkNotNull(landscapeCoverSize)
-                val classicCoverSize = minOf(
-                    landscapePlan.coverLaneWidthDp,
-                    screenHeight.value * 0.50f,
-                ).dp
+                val classicCoverSize = checkNotNull(landscapeGeometry).lyricsCoverSizeDp.dp
                 var landscapeCoverFlowLyricsCoverBounds by remember(classicCoverSize) {
                     mutableStateOf<Rect?>(null)
                 }
@@ -1466,7 +1464,7 @@ fun NowPlayingContent(
                                                         colors = playerUiColors,
                                                         seekState = seekState,
                                                         lower = classicLower,
-                                                        spectrumEnabled = false,
+                                                        spectrumEnabled = classicFrame.spectrumEnabled,
                                                         onCyclePlaybackQueueMode =
                                                             actions.cyclePlaybackQueueMode,
                                                         onPrevious = onPlayerPrevious,
@@ -1557,7 +1555,7 @@ fun NowPlayingContent(
                                             PlayerProgressBarSection(
                                                 seekState = seekState,
                                                 colors = playerUiColors,
-                                                spectrumEnabled = false,
+                                                spectrumEnabled = previewFrame.spectrumEnabled,
                                                 spectrumPlaying = surfaceState.isPlaying,
                                                 modifier = progressModifier,
                                                 visualScale = 0.74f,
@@ -1674,7 +1672,7 @@ fun NowPlayingContent(
                                 PlayerProgressBarSection(
                                     seekState = seekState,
                                     colors = playerUiColors,
-                                    spectrumEnabled = false,
+                                    spectrumEnabled = previewFrame.spectrumEnabled,
                                     spectrumPlaying = surfaceState.isPlaying,
                                     modifier = progressModifier.then(barScatter),
                                     visualScale = 0.74f,
@@ -1823,7 +1821,7 @@ fun NowPlayingContent(
                                                 colors = playerUiColors,
                                                 seekState = seekState,
                                                 lower = classicLower,
-                                                spectrumEnabled = false,
+                                                spectrumEnabled = classicFrame.spectrumEnabled,
                                                 onCyclePlaybackQueueMode =
                                                     actions.cyclePlaybackQueueMode,
                                                 onPrevious = onPlayerPrevious,

@@ -19,8 +19,8 @@ import com.mica.music.ui.theme.playerInfoRowHeight
  */
 object PlayerPageLayoutEngine {
     private const val PhotoStackScreenFraction = 0.80f
-    internal const val PhotoStackImmersiveScreenFraction = 0.90f
-    internal const val PhotoStackArtworkInsetHorizontalFraction = 0.038f
+    private const val PhotoStackImmersiveScreenFraction = 0.90f
+    private const val PhotoStackArtworkInsetHorizontalFraction = 0.038f
     private const val PhotoStackImmersiveCenterBias = 0.82f
     private const val PhotoStackAspectRatio = 0.78f
     private const val PhotoStackEdgeFraction = 0.10f
@@ -169,8 +169,8 @@ object PlayerPageLayoutEngine {
                 (!input.immersiveLower || input.photoStackMode) &&
                 (immersiveProgress <= ImmersiveProgressEpsilon || input.photoStackMode)
         val liveSpectrumRequested =
-            input.spectrumSettingEnabled ||
-                input.photoStackMode
+            input.spectrumAllowed &&
+                (input.spectrumSettingEnabled || input.photoStackMode)
         val spectrumEnabled =
             liveSpectrumRequested &&
                 !particleHidesProgressChrome &&
@@ -291,20 +291,25 @@ object PlayerPageLayoutEngine {
                 titleToCoverExtraGap = titleToCoverExtraGap,
             )
         }
+        val coverLayoutWidth = if (input.photoStackMode) {
+            input.screenWidth
+        } else {
+            input.coverViewportWidth ?: input.screenWidth
+        }
         val (expandedCoverWidth, expandedCoverHeight) = when {
             input.photoStackMode -> {
                 val immersiveFraction = input.immersiveProgress.coerceIn(0f, 1f)
                 val screenFraction = PhotoStackScreenFraction +
                     (PhotoStackImmersiveScreenFraction - PhotoStackScreenFraction) * immersiveFraction
-                val cardWidth = input.screenWidth * screenFraction
+                val cardWidth = coverLayoutWidth * screenFraction
                 cardWidth to cardWidth / PhotoStackAspectRatio
             }
             input.fitOriginal -> measurePlayerCoverFitOriginal(
                 input.coverAspectRatio,
-                input.screenWidth,
+                coverLayoutWidth,
                 input.screenHeight,
             )
-            else -> input.screenWidth to input.screenWidth
+            else -> coverLayoutWidth to coverLayoutWidth
         }
         val useParticleLyricsLayout =
             input.particleCoverMode &&
@@ -349,7 +354,7 @@ object PlayerPageLayoutEngine {
             else -> lerpDp(0.dp, input.statusBarTop, headerFocus)
         }
         val expandedCoverStartPadding = if (input.fitOriginal || input.photoStackMode) {
-            Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
+            Dp(((coverLayoutWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
         } else {
             0.dp
         }
@@ -438,6 +443,9 @@ object PlayerPageLayoutEngine {
             artworkInsetHorizontal = cardWidth * PhotoStackArtworkInsetHorizontalFraction,
             artworkBottomBand = cardHeight - cardWidth - cardWidth * 0.055f,
             waveformHeight = 24.dp,
+            decodeArtworkSize = input.screenWidth *
+                PhotoStackImmersiveScreenFraction *
+                (1f - PhotoStackArtworkInsetHorizontalFraction * 2f),
         )
     }
 

@@ -159,6 +159,7 @@ fun PhotoStackShadowPreviewScreen(
                         artworkInsetHorizontal = cardWidth * 0.038f,
                         artworkBottomBand = cardHeight - cardWidth - cardWidth * 0.055f,
                         waveformHeight = 24.dp,
+                        decodeArtworkSize = cardWidth * (1f - 0.038f * 2f),
                     )
                 }
 

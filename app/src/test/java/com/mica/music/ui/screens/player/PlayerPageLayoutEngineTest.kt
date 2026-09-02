@@ -155,6 +155,33 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun customPlayerCoverFrameAtRest_normalizesPanelPlacementIntoCoverFrame() {
+        val rest = CoverFrame(
+            width = 400.dp,
+            height = 400.dp,
+            startPadding = 0.dp,
+            topPadding = 0.dp,
+            blockHeight = 400.dp,
+            particleInfoTopPadding = 0.dp,
+            letterboxAlpha = 0f,
+            zoneStop = 0.5f,
+        )
+        val frame = customPlayerCoverFrameAtRest(
+            restCover = rest,
+            visualScale = 0.5f,
+            coverTop = 160.dp,
+            panelWidth = 400.dp,
+            panelHeight = 800.dp,
+            xOffsetPermille = -100,
+        )
+
+        assertEquals(60.dp, frame.startPadding)
+        assertEquals(160.dp, frame.topPadding)
+        assertEquals(200.dp, frame.width)
+        assertEquals(360.dp, frame.blockHeight)
+    }
+
+    @Test
     fun customQueueCoverFrameInSlot_keepsArtworkSizeAndDropsPanelTop() {
         val panel = customQueueCoverFrameAtRest(
             restCover = CoverFrame(
@@ -285,6 +312,21 @@ class PlayerPageLayoutEngineTest {
         coverSwitching = coverSwitching,
         compactLyricsLineMode = compactLyricsLineMode,
     )
+
+    @Test
+    fun coverViewportWidthOwnsLaneCoverWithoutPretendingPageWidthChanged() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput().copy(
+                screenWidth = 900.dp,
+                coverViewportWidth = 436.dp,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(436.dp, frame.cover.width)
+        assertEquals(436.dp, frame.cover.height)
+    }
 
     @Test
     fun normalScene_producesThreeLyricSlotsOnTallPanel() {
@@ -845,6 +887,23 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun photoStackDecodeArtworkSizeIsStableAcrossImmersiveTransition() {
+        val normal = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(photoStackMode = true, immersiveProgress = 0f),
+            density = density,
+            typography = typography,
+        )
+        val immersive = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(photoStackMode = true, immersiveProgress = 1f),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(normal.photoStack.decodeArtworkSize, immersive.photoStack.decodeArtworkSize)
+        assertEquals(332.64f, normal.photoStack.decodeArtworkSize.value, 0.01f)
+    }
+
+    @Test
     fun photoStackQueue_keepsPolaroidSlotInsteadOfMiniCover() {
         val rest = PlayerPageLayoutEngine.computeFrame(
             input = baseInput(photoStackMode = true, useCoverEdgeProgress = true),
@@ -991,6 +1050,20 @@ class PlayerPageLayoutEngineTest {
 
         assertEquals(false, switching.spectrumEnabled)
         assertEquals(false, lyrics.spectrumEnabled)
+    }
+
+    @Test
+    fun spectrumAllowedIsFinalAuthorityEvenForThemesThatNormallyRequestSpectrum() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                spectrumSettingEnabled = true,
+            ).copy(spectrumAllowed = false),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(false, frame.spectrumEnabled)
     }
 
     @Test

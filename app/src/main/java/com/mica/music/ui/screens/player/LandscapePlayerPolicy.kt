@@ -19,6 +19,30 @@ internal data class LandscapePlayerLayoutPlan(
     val coverSizeDp: Float,
 )
 
+/** Stable page geometry derived from the viewport plan; renderers must not recompute these sizes. */
+internal data class LandscapePlayerStableGeometry(
+    val edgePaddingDp: Float,
+    val playbackCoverSizeDp: Float,
+    val lyricsCoverSizeDp: Float,
+)
+
+internal fun LandscapePlayerLayoutPlan.stableGeometry(
+    widthDp: Float,
+    heightDp: Float,
+    topPaddingDp: Float,
+): LandscapePlayerStableGeometry {
+    val edgePadding = maxOf(horizontalPaddingDp, topPaddingDp.coerceAtLeast(0f))
+    val heightBound = (heightDp - edgePadding * 2f).coerceAtLeast(0f)
+    val widthBound = (
+        widthDp - edgePadding * 2f - columnGapDp - 280f
+    ).coerceAtLeast(0f)
+    return LandscapePlayerStableGeometry(
+        edgePaddingDp = edgePadding,
+        playbackCoverSizeDp = minOf(heightBound, widthBound),
+        lyricsCoverSizeDp = minOf(coverLaneWidthDp, heightDp * 0.50f).coerceAtLeast(0f),
+    )
+}
+
 /**
  * Pure, testable landscape sizing policy. Dimensions are already inset-adjusted dp values.
  * Returns null for portrait and square windows so the existing portrait page remains authoritative.

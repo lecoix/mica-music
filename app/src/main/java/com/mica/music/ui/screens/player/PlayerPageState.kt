@@ -87,8 +87,10 @@ internal fun rememberPlayerPageUiModel(
     queueExpanded: Boolean,
     screenHeight: Dp,
     screenWidth: Dp,
+    coverViewportWidth: Dp? = null,
     coverAspectRatio: Float,
     coverSwitching: Boolean,
+    spectrumAllowed: Boolean = true,
     coverFlowMode: PlayerCoverFlowMode = uiSettings.playerCoverFlowMode,
     immersiveAllowed: Boolean = true,
 ): PlayerPageUiModel? {
@@ -194,6 +196,7 @@ internal fun rememberPlayerPageUiModel(
         panelHeight = 0.dp,
         screenHeight = screenHeight,
         screenWidth = screenWidth,
+        coverViewportWidth = coverViewportWidth,
         statusBarTop = statusBarTop,
         lyricsExpanded = lyricsExpanded,
         lyricsProgress = lyricsProgress,
@@ -210,6 +213,7 @@ internal fun rememberPlayerPageUiModel(
         fitOriginal = fitOriginal,
         coverAspectRatio = coverAspectRatio,
         spectrumSettingEnabled = uiSettings.spectrumEnabled,
+        spectrumAllowed = spectrumAllowed,
         spectrumDeferred = spectrumDeferred,
         coverSwitching = coverSwitching,
         compactLyricsLineMode = if (coverFlowMode.usesCompactLyricsLinePreference()) {

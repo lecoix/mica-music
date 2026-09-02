@@ -38,14 +38,17 @@
 
 音乐 MV 是此规则的窄例外：不向 UI 暴露可提交 URI 的通用 Controller API，只在 `NowPlayingActions` 暴露 attach/detach 当前播放视频输出。`PlaybackRuntime` 的单一 Surface lease 校验 TextureView、mediaId 和 Controller identity；仅 `STANDARD`、Activity RESUMED、歌词页与竖屏队列均关闭时挂载。静态封面始终在下层，首帧后淡入；黑色 1:1 Fit，不裁剪。切歌转场用既有静态封面 wipe 承接，只允许一个真实视频 Surface。
 
-**互斥**：同一时刻仅一种封面行为层挂载（`NowPlayingCoverSection` 分支）。`CUSTOM_STANDARD` / `PARTICLE_COVER` **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。拍立得支持下半屏沉浸：前卡放大并把歌名/歌手画进白边；设置「沉浸时标题显示歌词」后，播放中该白边主位换成当前歌词（过长走马灯，有逐字时间轴时填充）。
+**互斥**：同一时刻仅一种封面行为层挂载。`NowPlayingCoverSection` 只负责公共 slot、bounds/focus overlay 与 renderer 选择；`NowPlayingCoverRenderers` 中的 Standard / Particle / CoverFlow / PhotoStack renderer 分别拥有本模式的渲染、交互与转场资源。`CUSTOM_STANDARD` / `PARTICLE_COVER` **不支持**下半屏沉浸（`supportsImmersiveLower = false`）。拍立得支持下半屏沉浸：前卡放大并把歌名/歌手画进白边；设置「沉浸时标题显示歌词」后，播放中该白边主位换成当前歌词（过长走马灯，有逐字时间轴时填充）。
 
 横屏平行 / 复古另有页面局部状态 `landscapeCoverFlowImmersive`：稳定播放态长按标题进入，仅保留背景与封面流区域并隐藏全部系统栏；以平行封面带中心封面本体高度铺满屏幕为基准计算外层缩放，复古立体复用相同缩放数字。中心封面本体上下居中，倒影不参与尺寸或居中计算。返回优先退出，旋转、切主题或进入歌词页也退出。该状态不写入 `AppUiSettings`，不新增 Controller API，也不复用竖屏 `immersiveLower`。封面底边进度/频谱属于封面流区域，继续由现有设置和 `PlayerPageFrame` 决定。
 
 ## 布局
 
 - `PlayerPageLayoutEngine.computeFrame()` — 单帧原子布局
-- `PlayerPageFrame` — 封面区 + 下半屏 chrome 的全部几何与 alpha
+- `PlayerPageFrame` — 封面区 + 下半屏 chrome 的全部稳定几何、alpha 与 capability 事实
+- `LandscapePlayerPolicy.stableGeometry()` — 把真实横屏 viewport policy 转成稳定的 edge padding / playback cover / lyrics cover 输入；页面与 renderer 禁止重复手算
+
+`PlayerPageLayoutInput.screenWidth` 始终表示真实页面宽度。横屏封面 lane 通过独立的 `coverViewportWidth` 输入表达，禁止再把 cover size 冒充 `screenWidth`。`CUSTOM_STANDARD` 的自由布局继续由 `CustomPlayerLowerPanel` 计算 placement / scale metrics，再统一通过 `customPlayerCoverFrameAtRest()` 规范化成 `CoverFrame`。拍立得最大 decode pin 尺寸由 `PhotoStackFrame.decodeArtworkSize` 输出，renderer 不读取 `PlayerPageLayoutEngine` 内部比例常量。
 
 `CUSTOM_STANDARD` 仅维护稳定播放态，不消费 `lyricsProgress` / `immersiveProgress` 做布局变形。其六组件顺序、`50%..200%` 大小、显隐、统一间距、顶部/底部留白、自由布局偏移、文字横向对齐及播放控制五键的逐个显隐只来自规范化后的 `PlayerLowerLayoutConfig`；总配置高度超过屏幕安全区域时统一收敛到屏内。
 
@@ -82,7 +85,8 @@
 | 文件 | 职责 |
 |------|------|
 | `NowPlayingScreen.kt` | 播放页壳：背景、封面区、下半屏、竖屏队列场景 / 横屏队列侧栏 |
-| `NowPlayingCoverSection.kt` | 封面尺寸、原样比例；封面流 / 拍立得 / 粒子 / 标准 分支挂载；底边进度 overlay |
+| `NowPlayingCoverSection.kt` | 公共封面 slot：decode/preload 共享准备、renderer 选择、bounds/focus header、公共底边 overlay |
+| `NowPlayingCoverRenderers.kt` | Standard / Particle / CoverFlow / PhotoStack renderer ownership；标准封面内部拥有 wipe、视频封面与 Music Video，特殊主题各自拥有本模式渲染/交互 |
 | `PhotoStackTheme.kt` | 拍立得 Compose 入口 → `PhotoStackTransitionHost` |
 | `player/ParticleCoverPlayerLayer.kt` | 粒子封面全屏 GLES 层（现网 `UseNativeParticleCoverInPlayer = true`） |
 | `player/ParticleCoverPageLayout.kt` | 粒子模式布局帧与歌词区 alpha |
@@ -96,7 +100,8 @@
 | `PlayerLowerPanelChrome.kt` | 进度条、播放控制、频谱条 |
 | `NowPlayingCompactLyrics.kt` | 三行歌词、空歌词 |
 | `NowPlayingLyricsExpanded.kt` | 全屏歌词列表、自动滚动、行内 seek |
-| `player/PlayerPageLayoutEngine.kt` | 单帧布局；`PlayerLowerPanelSpacing` |
+| `player/PlayerPageLayoutEngine.kt` | 单帧稳定几何与 `PlayerPageFrame.spectrumEnabled` 最终 authority；`PlayerLowerPanelSpacing` |
+| `player/LandscapePlayerPolicy.kt` | 横屏 viewport/lane policy 与稳定横屏 cover geometry；页面不得重复尺寸公式 |
 | `player/PlayerPageState.kt` | 沉浸/歌词聚焦等动画 progress 与冻结状态 |
 | `player/PlayerPageTypes.kt` | `PlayerPageFrame` 等布局数据类型 |
 | `data/PlayerLowerLayoutConfig.kt` | 自定义播放页顺序、大小、显隐、间距、自由布局偏移与规范化 |
@@ -181,3 +186,4 @@
 | 2026-09 | 拍立得竖屏队列：Polaroid 原位淡出，不切 `SongCover`、不飞顶栏 |
 | 2026-09 | 拍立得沉浸白边可在播放中显示当前歌词（默认关） |
 | 2026-09 | 拍立得沉浸歌词接入走马灯，有逐字时间轴时复用窄条填充 |
+| 2026-09 | 封面 renderer ownership 收口；横屏 stable geometry、custom `CoverFrame` normalization、拍立得 decode geometry 与频谱资格统一由 player geometry seam 输出 |

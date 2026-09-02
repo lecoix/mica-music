@@ -75,6 +75,8 @@ data class PhotoStackFrame(
     val artworkInsetHorizontal: Dp,
     val artworkBottomBand: Dp,
     val waveformHeight: Dp,
+    /** Stable max artwork size used to pin image decode through immersive transitions. */
+    val decodeArtworkSize: Dp,
 )
 
 @Immutable
@@ -138,6 +140,8 @@ data class PlayerPageLayoutInput(
     val panelHeight: Dp,
     val screenHeight: Dp,
     val screenWidth: Dp,
+    /** Cover-layout viewport when the cover occupies a lane instead of the full page width. */
+    val coverViewportWidth: Dp? = null,
     val statusBarTop: Dp,
     val lyricsExpanded: Boolean,
     val lyricsProgress: Float,
@@ -154,6 +158,7 @@ data class PlayerPageLayoutInput(
     val fitOriginal: Boolean,
     val coverAspectRatio: Float,
     val spectrumSettingEnabled: Boolean,
+    val spectrumAllowed: Boolean = true,
     val spectrumDeferred: Boolean,
     val coverSwitching: Boolean,
     val compactLyricsLineMode: CompactLyricsLineMode = CompactLyricsLineMode.AUTO,
@@ -217,6 +222,26 @@ internal fun customQueueCoverFrameAtRest(
         blockHeight = blockHeight,
         zoneStop = (blockHeight.value / panelHeight.value.coerceAtLeast(1f))
             .coerceIn(0.12f, PlayerCoverMaxScreenFraction),
+    )
+}
+
+/** Normalize custom-panel placement into the same [CoverFrame] consumed by every cover renderer. */
+internal fun customPlayerCoverFrameAtRest(
+    restCover: CoverFrame,
+    visualScale: Float,
+    coverTop: Dp,
+    panelWidth: Dp,
+    panelHeight: Dp,
+    xOffsetPermille: Int,
+): CoverFrame {
+    val extraStartPadding = panelWidth * (1f - visualScale) / 2f +
+        panelWidth * xOffsetPermille / 1_000f
+    return customQueueCoverFrameAtRest(
+        restCover = restCover,
+        visualScale = visualScale,
+        coverTop = coverTop,
+        extraStartPadding = extraStartPadding,
+        panelHeight = panelHeight,
     )
 }
 
