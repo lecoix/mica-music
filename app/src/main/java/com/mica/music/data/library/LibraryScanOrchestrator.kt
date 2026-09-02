@@ -400,23 +400,18 @@ internal class LibraryScanOrchestrator(
             diagnosticTag = "LibraryScan",
             diagnosticReason = "scanPublish",
         )
-        val storeRevision = backing.nextStoreRevision()
         val syncStartedMs = SystemClock.elapsedRealtime()
-        val sync = backing.storeSyncMutex.withLock {
-            if (!backing.isActiveGeneration(generation)) return null
-            if (!backing.isLatestStoreRevision(storeRevision)) return null
-            withContext(backing.ioDispatcher) {
-                backing.libraryStore.commitScan(
-                    songs = prepared.visible,
-                    lastScanAtMs = scanAtMs,
-                    lastScanSource = source,
-                    totalSizeMb = totalSizeMb,
-                    sortField = backing.sortField,
-                    sortDirection = backing.sortDirection,
-                    fastScrollSectionTargets = prepared.fastScrollIndex?.sectionTargets,
-                )
-            }
-        }
+        val sync = backing.snapshotStoreWriteIfCurrent(generation) {
+            backing.libraryStore.commitScan(
+                songs = prepared.visible,
+                lastScanAtMs = scanAtMs,
+                lastScanSource = source,
+                totalSizeMb = totalSizeMb,
+                sortField = backing.sortField,
+                sortDirection = backing.sortDirection,
+                fastScrollSectionTargets = prepared.fastScrollIndex?.sectionTargets,
+            )
+        } ?: return null
         DiagnosticLog.event(
             "LibraryScan",
             "publishSongs dbSync durMs=${SystemClock.elapsedRealtime() - syncStartedMs} " +

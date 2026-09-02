@@ -9,8 +9,6 @@ import com.mica.music.data.LibraryFolderStore
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 internal class LibraryFolderBinding(
     private val backing: MusicLibraryBacking,
@@ -81,15 +79,10 @@ internal class LibraryFolderBinding(
 
     private suspend fun publishEmptyLibrarySnapshot(generation: Int) {
         if (!backing.isActiveGeneration(generation)) return
-        val storeRevision = backing.nextStoreRevision()
         val startedMs = SystemClock.elapsedRealtime()
-        backing.storeSyncMutex.withLock {
-            if (!backing.isActiveGeneration(generation)) return
-            if (!backing.isLatestStoreRevision(storeRevision)) return
-            withContext(backing.ioDispatcher) {
-                backing.libraryStore.clear()
-            }
-        }
+        backing.snapshotStoreWriteIfCurrent(generation) {
+            backing.libraryStore.clear()
+        } ?: return
         DiagnosticLog.event(
             "LibraryResume",
             "clearLibrary storeClear end durMs=${SystemClock.elapsedRealtime() - startedMs} " +

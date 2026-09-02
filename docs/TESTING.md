@@ -118,9 +118,11 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 结构收口后的最小自动化检查：
 
 ```powershell
-.\gradlew :app:testDebugUnitTest --tests com.mica.music.LibraryQueueSyncPolicyTest --tests com.mica.music.data.LibraryPlaybackQueueCoordinatorTest --tests com.mica.music.util.SongActionsTest --tests com.mica.music.data.LibraryBrowseDetailsTest --tests com.mica.music.data.AlbumArtRepairCoordinatorTest --tests com.mica.music.data.MusicLibraryTest --tests com.mica.music.data.library.LibraryScanOrchestratorTest --tests com.mica.music.data.preferences --tests com.mica.music.data.scanner.ProbeResultTest --tests com.mica.music.ui.navigation.AppNavigationCoordinatorTest --no-configuration-cache
+.\gradlew :app:testDebugUnitTest --tests com.mica.music.LibraryQueueSyncPolicyTest --tests com.mica.music.data.LibraryPlaybackQueueCoordinatorTest --tests com.mica.music.util.SongActionsTest --tests com.mica.music.data.LibraryBrowseDetailsTest --tests com.mica.music.data.AlbumArtRepairCoordinatorTest --tests com.mica.music.data.MusicLibraryTest --tests com.mica.music.data.library.LibraryScanOrchestratorTest --tests com.mica.music.data.DataLayerDependencyStructureTest --tests com.mica.music.data.preferences --tests com.mica.music.data.scanner.ProbeResultTest --tests com.mica.music.ui.navigation.AppNavigationCoordinatorTest --no-configuration-cache
 .\gradlew :app:compileDebugKotlin --no-configuration-cache
 ```
+
+`LibraryScanOrchestratorTest` 还固定曲库 store seam 的锁顺序：依赖当前 catalog 的异步写入必须等待 `scanExecutionMutex`，等待期间 generation 失效则确定 no-op。`DataLayerDependencyStructureTest.libraryStoreWritePrimitivesStayOwnedByMusicLibraryBacking` 禁止 `MusicLibrary.kt` / `data/library/**` 重新直接持有 `storeSyncMutex` 或手写 store revision recipe。
 
 ### a257a0f 架构重构：P0 JVM 单测（队列 sync 语义）
 

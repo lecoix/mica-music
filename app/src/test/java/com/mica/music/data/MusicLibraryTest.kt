@@ -210,15 +210,13 @@ class MusicLibraryTest {
 
         val scan = async { library.scanDeviceWide() }
         runCurrent()
-        scanner.deviceRequests.single().result.complete(ScanResult(listOf(freshSong), totalSizeMb = 2))
-        runCurrent()
+        assertTrue(scanner.deviceRequests.isEmpty())
 
-        if (scan.isCompleted) {
-            assertEquals(listOf("Fresh Album"), store.persistedAlbumTitles)
-        }
         store.browseGroupUpdateGate?.complete(Unit)
-        prewarm.await()
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(freshSong), totalSizeMb = 2))
         scan.await()
+        prewarm.await()
 
         assertEquals(listOf("Fresh Album"), store.persistedAlbumTitles)
         library.release()

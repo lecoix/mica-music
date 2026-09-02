@@ -24,6 +24,32 @@ class DataLayerDependencyStructureTest {
         )
     }
 
+    @Test
+    fun libraryStoreWritePrimitivesStayOwnedByMusicLibraryBacking() {
+        val dataRoot = File(findMainSourceRoot(), "com/mica/music/data")
+        val backingPath = "library/MusicLibraryBacking.kt"
+        val libraryFiles = sequenceOf(File(dataRoot, "MusicLibrary.kt")) +
+            File(dataRoot, "library").walkTopDown().filter { it.isFile && it.extension == "kt" }
+        val forbidden = listOf(
+            "storeSyncMutex",
+            "nextStoreRevision(",
+            "isLatestStoreRevision(",
+        )
+        val violations = libraryFiles
+            .filter { it.relativeTo(dataRoot).invariantSeparatorsPath != backingPath }
+            .flatMap { file ->
+                file.readLines().asSequence()
+                    .filter { line -> forbidden.any(line::contains) }
+                    .map { line -> "${file.relativeTo(dataRoot).invariantSeparatorsPath}: $line" }
+            }
+            .toList()
+
+        assertTrue(
+            "library store write primitives must stay inside MusicLibraryBacking:\n${violations.joinToString("\n")}",
+            violations.isEmpty(),
+        )
+    }
+
     private fun findMainSourceRoot(): File {
         val userDir = requireNotNull(System.getProperty("user.dir"))
         var current = File(userDir).absoluteFile

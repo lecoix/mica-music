@@ -90,8 +90,8 @@ _Avoid_: 在 UI 直接调 `LibraryScanner` / `RoomLibraryStore`；在门面内�
 _Avoid_: 把 `ReadFailed` 当成空歌词替换正式槽；让歌词批次直接发布 Compose 曲库；把全库歌词留在内存等结束后一次写入；用覆盖整次扫描的长 Room 事务；在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策；失败路径把 `hasScanned` 置 true 或改写旧元数据
 
 **Library snapshot publication（完整曲库快照发布）**：
-能替换完整曲库真相的操作只有：cache hydrate、scan commit、clear library，以及 `release` 作废未完成发布。它们共用 `scanGeneration`（语义为 library generation）与 `storeRevision` + `storeSyncMutex`：需要写库时先 Room 成功，再同世代发布内存中的 `songs` 与 `hasScanned` / `lastScanAtMs` / `lastScanSource` / `totalSizeMb`。`applyPlayStats`、`removeSong`、排序 presentation、扫描中歌词 batch 不是完整替换。
-_Avoid_: 先改内存扫描元数据再 `commitScan`；`clear` / `commitScan` 绕过 store mutex 与 revision；cache adopt 前不做 generation 校验
+能替换完整曲库真相的操作只有：cache hydrate、scan commit、clear library，以及 `release` 作废未完成发布。它们共用 `scanGeneration`（语义为 library generation）与 `storeRevision` + `storeSyncMutex`：需要写库时先 Room 成功，再同世代发布内存中的 `songs` 与 `hasScanned` / `lastScanAtMs` / `lastScanSource` / `totalSizeMb`。`storeSyncMutex` 与 store revision recipe 只由 `MusicLibraryBacking` 持有；scan commit / clear 通过完整 snapshot seam 写库。依赖当前内存 catalog 的异步 persist（完整歌曲持久化、presentation、封面色、browse cache）必须经 Backing seam，并统一按 `scanExecutionMutex → storeSyncMutex` 顺序串行；扫描中的歌词 batch 已处于 scan lock 内，继续使用 generation + store seam，不重复获取 scan mutex。`applyPlayStats`、`removeSong`、排序 presentation、扫描中歌词 batch 不是完整替换。
+_Avoid_: 先改内存扫描元数据再 `commitScan`；`clear` / `commitScan` 绕过 Backing store seam；在 `MusicLibrary` / catalog / orchestrator / folder binding 手写 store mutex + revision；异步 catalog persist 在拿 scan lock 前捕获可过期的完整 snapshot；cache adopt 前不做 generation 校验
 
 **Library catalog publisher（曲库目录发布器）**：
 `data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / `catalogRevision` / `queueMetadataRevision` / fast scroll 发布、async persist、播放统计**展示**写回（`applyPlayStats`）、`removeSong`。外部只读曲库快照及其结构/元数据版本。播放次数权威持久化不在此，见 `PlaybackStatisticsRepository`。

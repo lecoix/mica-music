@@ -13,7 +13,6 @@ import com.mica.music.data.SortDirection
 import com.mica.music.data.scanner.canPersistCoverColor
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal class LibraryCatalogPublisher(
@@ -122,33 +121,34 @@ internal class LibraryCatalogPublisher(
 
     fun persistSongsAsync() {
         if (backing.lastScanAtMs == null) return
-        val snapshot = backing.songs
-        val scanAt = backing.lastScanAtMs!!
-        val source = backing.lastScanSource
-        val sizeMb = backing.totalSizeMb
-        val field = backing.sortField
-        val direction = backing.sortDirection
-        val sectionTargets = backing.songFastScrollSectionTargets
-        val revision = backing.nextStoreRevision()
+        val generation = backing.scanGeneration
         backing.ioScope.launch {
-            backing.storeSyncMutex.withLock {
-                if (!backing.isLatestStoreRevision(revision)) return@withLock
-                backing.libraryStore.save(snapshot, scanAt, source, sizeMb, field, direction, sectionTargets)
+            backing.storeWriteIfCurrentGeneration(generation) {
+                val scanAt = backing.lastScanAtMs ?: return@storeWriteIfCurrentGeneration
+                backing.libraryStore.save(
+                    backing.songs,
+                    scanAt,
+                    backing.lastScanSource,
+                    backing.totalSizeMb,
+                    backing.sortField,
+                    backing.sortDirection,
+                    backing.songFastScrollSectionTargets,
+                )
             }
         }
     }
 
     fun persistPresentationAsync() {
         if (scannedSongs.isEmpty() || backing.lastScanAtMs == null) return
-        val songIds = backing.songIds
-        val field = backing.sortField
-        val direction = backing.sortDirection
-        val sectionTargets = backing.songFastScrollSectionTargets
-        val revision = backing.nextStoreRevision()
+        val generation = backing.scanGeneration
         backing.ioScope.launch {
-            backing.storeSyncMutex.withLock {
-                if (!backing.isLatestStoreRevision(revision)) return@withLock
-                backing.libraryStore.updatePresentation(songIds, field, direction, sectionTargets)
+            backing.storeWriteIfCurrentGeneration(generation) {
+                backing.libraryStore.updatePresentation(
+                    backing.songIds,
+                    backing.sortField,
+                    backing.sortDirection,
+                    backing.songFastScrollSectionTargets,
+                )
             }
         }
     }

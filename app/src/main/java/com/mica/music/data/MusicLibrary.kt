@@ -12,7 +12,6 @@ import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
 import java.util.Locale
@@ -193,11 +192,14 @@ class MusicLibrary internal constructor(
     }
 
     private fun persistCoverColorAsync(songId: String, albumArtUri: String?, argb: Int) {
+        val generation = backing.scanGeneration
         backing.ioScope.launch {
-            backing.storeSyncMutex.withLock {
-                if (backing.released) return@withLock
-                val current = backing.songById(songId)
-                if (!canPersistCoverColor(current, songId, albumArtUri, argb)) return@withLock
+            backing.storeWriteIfCurrentGeneration(
+                expectedGeneration = generation,
+                isCurrent = {
+                    canPersistCoverColor(backing.songById(songId), songId, albumArtUri, argb)
+                },
+            ) {
                 backing.libraryStore.updateCoverColorArgb(songId, argb)
             }
         }

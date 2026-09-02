@@ -451,6 +451,93 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
+    fun catalogDerivedStoreWriteWaitsForScanExecutionLock() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val harness = scanHarness(scanner, store)
+        val releaseScanLock = CompletableDeferred<Unit>()
+        val heldScanLock = async {
+            harness.backing.scanExecutionMutex.withLock {
+                releaseScanLock.await()
+            }
+        }
+        runCurrent()
+
+        val sourceRevision = harness.backing.catalogRevision
+        val derived = async {
+            harness.backing.storeWriteIfCurrentCatalog(
+                expectedCatalogRevision = sourceRevision,
+                isCurrent = { true },
+            ) {
+                store.updatePresentation(emptyList(), SongSortField.TITLE, SortDirection.ASC, null)
+            }
+        }
+        runCurrent()
+        assertFalse(derived.isCompleted)
+
+        releaseScanLock.complete(Unit)
+        heldScanLock.await()
+        assertTrue(derived.await())
+        harness.backing.release()
+    }
+
+    @Test
+    fun generationDerivedStoreWriteWaitsForScanExecutionLock() = runTest {
+        val harness = scanHarness(ControlledScanner(), FakeLibraryStore())
+        val releaseScanLock = CompletableDeferred<Unit>()
+        val heldScanLock = async {
+            harness.backing.scanExecutionMutex.withLock {
+                releaseScanLock.await()
+            }
+        }
+        runCurrent()
+
+        var writeRan = false
+        val derived = async {
+            harness.backing.storeWriteIfCurrentGeneration(harness.backing.scanGeneration) {
+                writeRan = true
+            }
+        }
+        runCurrent()
+        assertFalse(derived.isCompleted)
+        assertFalse(writeRan)
+
+        releaseScanLock.complete(Unit)
+        heldScanLock.await()
+        assertTrue(derived.await())
+        assertTrue(writeRan)
+        harness.backing.release()
+    }
+
+    @Test
+    fun generationDerivedStoreWriteIsDroppedWhenGenerationChangesWhileWaiting() = runTest {
+        val harness = scanHarness(ControlledScanner(), FakeLibraryStore())
+        val releaseScanLock = CompletableDeferred<Unit>()
+        val heldScanLock = async {
+            harness.backing.scanExecutionMutex.withLock {
+                releaseScanLock.await()
+            }
+        }
+        runCurrent()
+
+        val expectedGeneration = harness.backing.scanGeneration
+        var writeRan = false
+        val derived = async {
+            harness.backing.storeWriteIfCurrentGeneration(expectedGeneration) {
+                writeRan = true
+            }
+        }
+        runCurrent()
+        harness.backing.scanGeneration++
+        releaseScanLock.complete(Unit)
+        heldScanLock.await()
+
+        assertFalse(derived.await())
+        assertFalse(writeRan)
+        harness.backing.release()
+    }
+
+    @Test
     fun staleCacheHydrateIsDiscardedAfterNewerScanPublishes() = runTest {
         val scanner = ControlledScanner()
         val deferredCache = CompletableDeferred<CachedLibrary?>()

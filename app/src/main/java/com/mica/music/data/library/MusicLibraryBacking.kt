@@ -44,7 +44,7 @@ internal class MusicLibraryBacking(
     var scanGeneration = 0
     var released = false
     val scanExecutionMutex = Mutex()
-    val storeSyncMutex = Mutex()
+    private val storeSyncMutex = Mutex()
     private val lifecycleLock = Any()
     private val latestStoreRevision = AtomicLong(0L)
 
@@ -96,10 +96,27 @@ internal class MusicLibraryBacking(
     fun isActiveGeneration(generation: Int): Boolean =
         !released && generation == scanGeneration
 
-    fun nextStoreRevision(): Long = latestStoreRevision.incrementAndGet()
+    private fun nextStoreRevision(): Long = latestStoreRevision.incrementAndGet()
 
-    fun isLatestStoreRevision(revision: Long): Boolean =
+    private fun isLatestStoreRevision(revision: Long): Boolean =
         revision == latestStoreRevision.get()
+
+    /**
+     * Serializes a complete-snapshot store mutation while the supplied library generation is
+     * still eligible. This intentionally preserves the existing scan/clear semantics: callers
+     * decide whether to publish memory after the Room transaction succeeds.
+     */
+    suspend fun <T : Any> snapshotStoreWriteIfCurrent(
+        generation: Int,
+        block: suspend () -> T,
+    ): T? {
+        val storeRevision = nextStoreRevision()
+        return storeSyncMutex.withLock {
+            if (!isActiveGeneration(generation)) return@withLock null
+            if (!isLatestStoreRevision(storeRevision)) return@withLock null
+            withContext(ioDispatcher) { block() }
+        }
+    }
 
     /** Runs maintenance after any in-flight scan has settled, using the snapshot at lock time. */
     fun launchAlbumArtCacheMaintenance() {
@@ -126,15 +143,16 @@ internal class MusicLibraryBacking(
 
     /**
      * Writes derived state for the current catalog under the store revision protocol.
-     * The caller takes [scanExecutionMutex] separately for the short in-memory publication.
+     * The store transaction itself owns [scanExecutionMutex]; callers may reacquire that seam
+     * afterward for a short in-memory publication guarded by the same catalog revision.
      */
     suspend fun storeWriteIfCurrentCatalog(
         expectedCatalogRevision: Long,
         isCurrent: () -> Boolean,
         block: suspend () -> Unit,
-    ): Boolean {
+    ): Boolean = scanExecutionMutex.withLock {
         val storeRevision = nextStoreRevision()
-        return storeSyncMutex.withLock {
+        storeSyncMutex.withLock {
             if (
                 released ||
                 catalogRevision != expectedCatalogRevision ||
@@ -152,9 +170,38 @@ internal class MusicLibraryBacking(
     }
 
     /**
+     * Serializes an asynchronous store mutation derived from the current in-memory catalog.
+     * Lock order is always scanExecutionMutex -> storeSyncMutex so a complete snapshot cannot
+     * commit Room and publish memory around a stale local write.
+     */
+    suspend fun storeWriteIfCurrentGeneration(
+        expectedGeneration: Int,
+        isCurrent: () -> Boolean = { true },
+        block: suspend () -> Unit,
+    ): Boolean = scanExecutionMutex.withLock {
+        val storeRevision = nextStoreRevision()
+        storeSyncMutex.withLock {
+            if (
+                !isActiveGeneration(expectedGeneration) ||
+                !isCurrent() ||
+                !isLatestStoreRevision(storeRevision)
+            ) {
+                return@withLock false
+            }
+            withContext(ioDispatcher) { block() }
+            isActiveGeneration(expectedGeneration) &&
+                isCurrent() &&
+                isLatestStoreRevision(storeRevision)
+        }
+    }
+
+    /**
      * Runs a store side effect only while the complete-snapshot generation and store revision
-     * remain current. The lock intentionally covers the whole IO transaction so clear/commit
-     * cannot finish before an older transaction and then be followed by that older write.
+     * remain current. This is for scan-internal work whose caller already owns
+     * [scanExecutionMutex]; asynchronous catalog mutations must use
+     * [storeWriteIfCurrentGeneration] instead. The store lock intentionally covers the whole IO
+     * transaction so clear/commit cannot finish before an older transaction and then be followed
+     * by that older write.
      */
     suspend fun storeWriteIfCurrent(
         generation: Int,
