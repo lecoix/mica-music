@@ -89,6 +89,42 @@
             android:name=".ui.overlay.DesktopLyricsOverlayService"
             android:exported="false" />
 
+        <receiver
+            android:name=".widget.MicaPlaybackWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_playback_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/mica_playback_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.MicaMinimalSquarePlaybackWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_minimal_square_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/mica_minimal_square_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.MicaArtworkPlaybackWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_artwork_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/mica_artwork_widget_info" />
+        </receiver>
+
         <provider
             android:name=".data.scanner.AlbumArtContentProvider"
             android:authorities="${applicationId}.artwork"

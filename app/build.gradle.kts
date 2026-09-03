@@ -210,6 +210,8 @@ dependencies {
     implementation(libs.smbj)
     implementation(libs.androidx.media)
     implementation(libs.lyricon.provider)
+    implementation(libs.androidx.glance)
+    implementation(libs.androidx.glance.appwidget)
 
     when {
         media3FfmpegLocalAar.exists() -> implementation(files(media3FfmpegLocalAar))

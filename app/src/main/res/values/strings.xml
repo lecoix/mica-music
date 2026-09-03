@@ -2,4 +2,8 @@
 <resources>
     <string name="app_name">Mica</string>
     <string name="lyricon_module_description">咕咕咕</string>
+    <string name="widget_playback_name">自适应</string>
+    <string name="widget_tap_to_open">轻触打开 Mica</string>
+    <string name="widget_artwork_name">大封面</string>
+    <string name="widget_minimal_square_name">四宫格</string>
 </resources>

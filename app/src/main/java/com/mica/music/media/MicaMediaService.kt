@@ -1,24 +1,31 @@
 package com.mica.music.media
 
 import com.mica.music.audio.eq.MicaEqualizerManager
+import com.mica.music.data.playback.ServicePlaybackSnapshot
 import com.mica.music.data.playback.ServicePlaybackStateStore
 
 import com.mica.music.audio.AudioQualityMode
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionError
@@ -28,6 +35,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.mica.music.MainActivity
 import com.mica.music.MicaApp
+import com.mica.music.R
 import com.mica.music.isExternalAudioUriRestorableNow
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.ReplayGainMode
@@ -53,6 +61,7 @@ import com.mica.music.media.usbhybrid.DesiredUsbOutput
 import com.mica.music.media.usbhybrid.UsbHybridPlaybackBinding
 import com.mica.music.queue.PlaybackShuffleOrder
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.widget.PlaybackWidgetCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -65,6 +74,14 @@ import kotlinx.coroutines.launch
 @UnstableApi
 class MicaMediaService : MediaSessionService() {
 
+    companion object {
+        const val ACTION_WIDGET_PREVIOUS = "com.mica.music.action.WIDGET_PREVIOUS"
+        const val ACTION_WIDGET_PLAY_PAUSE = "com.mica.music.action.WIDGET_PLAY_PAUSE"
+        const val ACTION_WIDGET_NEXT = "com.mica.music.action.WIDGET_NEXT"
+
+        private const val WIDGET_RESTORE_TIMEOUT_MS = 10_000L
+    }
+
     private var mediaSession: MediaSession? = null
     private val playbackStackLifecycle = PlaybackStackLifecycleOwner { player ->
         mediaSession?.setPlayer(player)
@@ -75,6 +92,7 @@ class MicaMediaService : MediaSessionService() {
     private var spectrumAnalyzerStateOwner: SpectrumAnalyzerStateOwner? = null
     private var activeOutputPath: AudioOutputPathConfig = AudioOutputPathConfig.PRODUCTION
     private var playbackStateCoordinator: ServicePlaybackStateCoordinator? = null
+    private var playbackWidgetCoordinator: PlaybackWidgetCoordinator? = null
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
     private var lyriconLyricsSink: LyriconLyricsSink? = null
     private var carBluetoothLyricsSession: CarBluetoothLyricsSession? = null
@@ -99,6 +117,20 @@ class MicaMediaService : MediaSessionService() {
     private var activeUsbEpoch: Long? = null
     private var usbServiceCreateBootstrapMode: UsbHybridOutputMode? = null
     private var usbBootstrapHandoff: PlaybackStackHandoff? = null
+    private var sharedServiceQueueRestoreInFlight = false
+    private var sharedServiceQueueRestoreFinished = false
+    private var pendingWidgetAction: String? = null
+    private var pendingWidgetStartId: Int = 0
+    private var temporaryWidgetForegroundActive = false
+    private val pendingWidgetActionTimeout = Runnable {
+        if (pendingWidgetAction == null) return@Runnable
+        DiagnosticLog.event(
+            "PlaybackWidget",
+            "cold-command-timeout action=$pendingWidgetAction items=${compositePlayer?.mediaItemCount ?: 0}",
+        )
+        pendingWidgetAction = null
+        finishTemporaryWidgetForegroundIfIdle(pendingWidgetStartId)
+    }
     @Volatile
     private var usbOutputDestroyed: Boolean = false
 
@@ -206,16 +238,31 @@ class MicaMediaService : MediaSessionService() {
                     musicVideoPreferenceOwner.updateRequested(enabled)
                 }
             }
+        val serviceCreateOutputMode = UsbHybridPreferences.outputMode(this)
         applyUsbOutputModeOnServiceCreate(
-            UsbHybridPreferences.outputMode(this),
+            serviceCreateOutputMode,
             libraryRepository,
             micaApp,
         )
+        if (serviceCreateOutputMode == UsbHybridOutputMode.SharedPcm) {
+            restoreSharedServiceQueueIfNeeded(
+                stack = stack,
+                libraryRepository = libraryRepository,
+                micaApp = micaApp,
+            )
+        }
 
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.action
+            ?.takeIf(::isWidgetPlaybackAction)
+            ?.let { action -> handleWidgetPlaybackAction(action, startId) }
+        return super.onStartCommand(intent, flags, startId)
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = compositePlayer ?: mediaSession?.player ?: return
@@ -228,6 +275,242 @@ class MicaMediaService : MediaSessionService() {
             stopSelf()
         }
     }
+
+    private fun isWidgetPlaybackAction(action: String): Boolean = when (action) {
+        ACTION_WIDGET_PREVIOUS,
+        ACTION_WIDGET_PLAY_PAUSE,
+        ACTION_WIDGET_NEXT -> true
+        else -> false
+    }
+
+    private fun handleWidgetPlaybackAction(action: String, startId: Int) {
+        startTemporaryWidgetForegroundIfNeeded()
+        val player = compositePlayer
+        DiagnosticLog.event(
+            "PlaybackWidget",
+            "service-action action=$action items=${player?.mediaItemCount ?: 0} " +
+                "restoreInFlight=$sharedServiceQueueRestoreInFlight",
+        )
+        if (player == null) {
+            finishTemporaryWidgetForegroundIfIdle(startId)
+            return
+        }
+        if (player.mediaItemCount == 0) {
+            pendingWidgetAction = action
+            pendingWidgetStartId = startId
+            mainHandler.removeCallbacks(pendingWidgetActionTimeout)
+            mainHandler.postDelayed(pendingWidgetActionTimeout, WIDGET_RESTORE_TIMEOUT_MS)
+            if (
+                UsbHybridPreferences.outputMode(this) == UsbHybridOutputMode.SharedPcm &&
+                sharedServiceQueueRestoreFinished &&
+                !sharedServiceQueueRestoreInFlight
+            ) {
+                failPendingWidgetAction("no-restorable-queue")
+            } else {
+                DiagnosticLog.event("PlaybackWidget", "cold-command-queued action=$action")
+            }
+            return
+        }
+        executeWidgetPlaybackAction(player, action)
+        finishTemporaryWidgetForegroundIfIdle(startId)
+    }
+
+    private fun executeWidgetPlaybackAction(player: MicaCompositePlayer, action: String) {
+        when (action) {
+            ACTION_WIDGET_PREVIOUS -> player.seekToPreviousMediaItem()
+            ACTION_WIDGET_PLAY_PAUSE -> {
+                if (player.playWhenReady) {
+                    player.pause()
+                } else {
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+                }
+            }
+            ACTION_WIDGET_NEXT -> player.seekToNextMediaItem()
+            else -> return
+        }
+        DiagnosticLog.event(
+            "PlaybackWidget",
+            "service-action-applied action=$action media=${player.currentMediaItem?.mediaId?.takeLast(12).orEmpty()} " +
+                "playing=${player.playWhenReady}",
+        )
+    }
+
+    private fun drainPendingWidgetAction() {
+        val action = pendingWidgetAction ?: return
+        val startId = pendingWidgetStartId
+        val player = compositePlayer ?: return
+        if (player.mediaItemCount == 0) return
+        pendingWidgetAction = null
+        mainHandler.removeCallbacks(pendingWidgetActionTimeout)
+        DiagnosticLog.event(
+            "PlaybackWidget",
+            "cold-command-drain action=$action items=${player.mediaItemCount}",
+        )
+        executeWidgetPlaybackAction(player, action)
+        finishTemporaryWidgetForegroundIfIdle(startId)
+    }
+
+    private fun failPendingWidgetAction(reason: String) {
+        val action = pendingWidgetAction ?: return
+        val startId = pendingWidgetStartId
+        pendingWidgetAction = null
+        mainHandler.removeCallbacks(pendingWidgetActionTimeout)
+        DiagnosticLog.event(
+            "PlaybackWidget",
+            "cold-command-dropped action=$action reason=$reason",
+        )
+        finishTemporaryWidgetForegroundIfIdle(startId)
+    }
+
+    private fun startTemporaryWidgetForegroundIfNeeded() {
+        if (temporaryWidgetForegroundActive || compositePlayer?.playWhenReady == true) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID,
+                    getString(R.string.app_name),
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    setShowBadge(false)
+                    setSound(null, null)
+                },
+            )
+        }
+        val notification = NotificationCompat.Builder(
+            this,
+            DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID,
+        )
+            .setSmallIcon(R.drawable.ic_widget_music)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentIntent(createSessionActivityPendingIntent())
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+        runCatching {
+            ServiceCompat.startForeground(
+                this,
+                DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+            )
+        }.onSuccess {
+            temporaryWidgetForegroundActive = true
+            DiagnosticLog.event("PlaybackWidget", "temporary-foreground-started")
+        }.onFailure { error ->
+            DiagnosticLog.event(
+                "PlaybackWidget",
+                "temporary-foreground-failed error=${error.javaClass.simpleName}",
+                error,
+            )
+        }
+    }
+
+    private fun finishTemporaryWidgetForegroundIfIdle(startId: Int) {
+        if (!temporaryWidgetForegroundActive) return
+        if (compositePlayer?.playWhenReady == true) {
+            DiagnosticLog.event("PlaybackWidget", "temporary-foreground-handed-to-playback")
+            return
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        temporaryWidgetForegroundActive = false
+        DiagnosticLog.event("PlaybackWidget", "temporary-foreground-stopped startId=$startId")
+    }
+
+    private fun restoreSharedServiceQueueIfNeeded(
+        stack: ExoPlaybackStack,
+        libraryRepository: LibraryRepository,
+        micaApp: MicaApp,
+    ) {
+        if (sharedServiceQueueRestoreInFlight || sharedServiceQueueRestoreFinished) return
+        if (stack.compositePlayer.mediaItemCount > 0) {
+            sharedServiceQueueRestoreFinished = true
+            return
+        }
+        val snapshot = ServicePlaybackStateStore(this).load()
+        if (snapshot == null || snapshot.queueSongIds.isEmpty()) {
+            sharedServiceQueueRestoreFinished = true
+            failPendingWidgetAction("missing-snapshot")
+            return
+        }
+        sharedServiceQueueRestoreInFlight = true
+        sessionScope?.launch {
+            val bootstrap = resolveServicePlaybackBootstrap(snapshot, libraryRepository, micaApp)
+            mainHandler.post sharedRestore@{
+                sharedServiceQueueRestoreInFlight = false
+                sharedServiceQueueRestoreFinished = true
+                if (usbOutputDestroyed || !playbackStackLifecycle.isActive(stack)) return@sharedRestore
+                if (UsbHybridPreferences.outputMode(this@MicaMediaService) != UsbHybridOutputMode.SharedPcm) {
+                    return@sharedRestore
+                }
+                if (stack.compositePlayer.mediaItemCount == 0 && bootstrap != null) {
+                    stack.compositePlayer.selectWithoutPlayback(
+                        mediaItems = bootstrap.songs.map(::serviceBootstrapMediaItem),
+                        startIndex = bootstrap.currentIndex,
+                        startPositionMs = bootstrap.positionMs,
+                    )
+                    DiagnosticLog.event(
+                        "PlaybackRestore",
+                        "shared service-create bootstrap items=${bootstrap.songs.size} " +
+                            "index=${bootstrap.currentIndex} positionMs=${bootstrap.positionMs} resumed=false",
+                    )
+                }
+                if (stack.compositePlayer.mediaItemCount == 0) {
+                    failPendingWidgetAction("bootstrap-empty")
+                }
+            }
+        } ?: run {
+            sharedServiceQueueRestoreInFlight = false
+            sharedServiceQueueRestoreFinished = true
+            failPendingWidgetAction("scope-unavailable")
+        }
+    }
+
+    private suspend fun resolveServicePlaybackBootstrap(
+        snapshot: ServicePlaybackSnapshot,
+        libraryRepository: LibraryRepository,
+        micaApp: MicaApp,
+    ): ServicePlaybackBootstrap? {
+        val libraryIds = snapshot.queueSongIds
+            .filterNot(TransientPlaybackCatalog::isTransientId)
+            .filterNot(RemoteMediaIdCodec::isRemoteId)
+            .distinct()
+        val librarySongs = runCatching {
+            libraryRepository.songSummariesByIds(libraryIds)
+        }.getOrDefault(emptyMap())
+        val persistedExternalSongs = snapshot.externalSongs
+            .mapNotNull { external ->
+                val uri = runCatching { android.net.Uri.parse(external.mediaUri) }.getOrNull()
+                if (uri != null && isExternalAudioUriRestorableNow(this, uri)) {
+                    external.id to external.toSong()
+                } else {
+                    null
+                }
+            }
+            .toMap()
+        val persistedRemoteSongs = snapshot.remoteSongs.associate { remote ->
+            remote.id to remote.toSong()
+        }
+        val songsById = buildMap {
+            putAll(librarySongs)
+            putAll(persistedExternalSongs)
+            putAll(persistedRemoteSongs)
+            snapshot.queueSongIds.forEach { id ->
+                micaApp.transientPlaybackCatalog.songById(id)?.let { put(id, it) }
+            }
+        }
+        return ServicePlaybackBootstrapResolver.resolve(snapshot, songsById)
+    }
+
+    private fun serviceBootstrapMediaItem(song: com.mica.music.data.Song): MediaItem =
+        if (song.isRemote) {
+            RemoteMediaItemCodec.encode(song)
+        } else {
+            decorateResolvedSong(song, SongMediaItemCodec.encode(song))
+        }
 
     private fun installUsbOutputCoordinator() {
         usbOutputCoordinator = DefaultUsbOutputCoordinator(
@@ -293,35 +576,7 @@ class MicaMediaService : MediaSessionService() {
 
         usbServiceCreateBootstrapMode = mode
         sessionScope?.launch {
-            val libraryIds = snapshot.queueSongIds
-                .filterNot(TransientPlaybackCatalog::isTransientId)
-                .filterNot(RemoteMediaIdCodec::isRemoteId)
-                .distinct()
-            val librarySongs = runCatching {
-                libraryRepository.songSummariesByIds(libraryIds)
-            }.getOrDefault(emptyMap())
-            val persistedExternalSongs = snapshot.externalSongs
-                .mapNotNull { external ->
-                    val uri = runCatching { android.net.Uri.parse(external.mediaUri) }.getOrNull()
-                    if (uri != null && isExternalAudioUriRestorableNow(this@MicaMediaService, uri)) {
-                        external.id to external.toSong()
-                    } else {
-                        null
-                    }
-                }
-                .toMap()
-            val persistedRemoteSongs = snapshot.remoteSongs.associate { remote ->
-                remote.id to remote.toSong()
-            }
-            val songsById = buildMap {
-                putAll(librarySongs)
-                putAll(persistedExternalSongs)
-                putAll(persistedRemoteSongs)
-                snapshot.queueSongIds.forEach { id ->
-                    micaApp.transientPlaybackCatalog.songById(id)?.let { put(id, it) }
-                }
-            }
-            val bootstrap = ServicePlaybackBootstrapResolver.resolve(snapshot, songsById)
+            val bootstrap = resolveServicePlaybackBootstrap(snapshot, libraryRepository, micaApp)
             if (usbOutputDestroyed) return@launch
             mainHandler.post usbBootstrap@{
                 if (usbOutputDestroyed) return@usbBootstrap
@@ -330,13 +585,7 @@ class MicaMediaService : MediaSessionService() {
                 usbServiceCreateBootstrapMode = null
                 if (selectedMode != UsbHybridOutputMode.SharedPcm && bootstrap != null) {
                     usbBootstrapHandoff = PlaybackStackHandoff(
-                        items = bootstrap.songs.map { song ->
-                            if (song.isRemote) {
-                                RemoteMediaItemCodec.encode(song)
-                            } else {
-                                decorateResolvedSong(song, SongMediaItemCodec.encode(song))
-                            }
-                        },
+                        items = bootstrap.songs.map(::serviceBootstrapMediaItem),
                         currentIndex = bootstrap.currentIndex,
                         positionMs = bootstrap.positionMs,
                         playWhenReady = false,
@@ -517,10 +766,15 @@ class MicaMediaService : MediaSessionService() {
                     if (handoff?.playWhenReady == true) {
                         stack.compositePlayer.playWhenReady = true
                     }
+                    drainPendingWidgetAction()
                 }
             }
             coordinator.start()
         }
+        playbackWidgetCoordinator = PlaybackWidgetCoordinator(
+            context = this,
+            player = stack.compositePlayer,
+        ).also { it.start() }
 
         if (handoff != null && !restoredFromStore) {
             stack.compositePlayer.seekTo(handoff.currentIndex, handoff.positionMs)
@@ -605,6 +859,8 @@ class MicaMediaService : MediaSessionService() {
         replayGainStateOwner = null
         playbackStateCoordinator?.release()
         playbackStateCoordinator = null
+        playbackWidgetCoordinator?.release()
+        playbackWidgetCoordinator = null
         notificationLyricsCoordinator?.release()
         notificationLyricsCoordinator = null
         lyriconLyricsSink?.release()
@@ -629,6 +885,9 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(pendingWidgetActionTimeout)
+        pendingWidgetAction = null
+        temporaryWidgetForegroundActive = false
         usbOutputDestroyed = true
         usbOutputCoordinator?.close()
         playbackRouteMonitor?.release()
