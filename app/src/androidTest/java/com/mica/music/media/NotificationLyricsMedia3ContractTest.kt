@@ -60,12 +60,13 @@ class NotificationLyricsMedia3ContractTest {
                         context = context,
                         player = contract.player,
                         handler = Handler(Looper.getMainLooper()),
+                        notificationPresentation = contract.presentation,
                         songLoader = { song },
                     ).also { it.start() }
                 }
-                await("notification lyric metadata replacement") {
+                await("notification lyric session presentation") {
                     onMain {
-                        contract.player.currentMediaItem?.mediaMetadata?.title?.toString() == "line-two"
+                        contract.mediaController.mediaMetadata.title?.toString() == "line-two"
                     }
                 }
                 val lyricSwitchPositionMs = onMain { contract.player.currentPosition }
@@ -341,8 +342,9 @@ class NotificationLyricsMedia3ContractTest {
                     addListener(rawPlayerEvents)
                 }
             }.also { playerToRelease = it }
+            val presentation = onMain { MicaSessionPresentationPlayer(player) }
             val session = onMain {
-                MediaSession.Builder(context, player).build()
+                MediaSession.Builder(context, presentation).build()
             }.also { sessionToRelease = it }
             val mediaController = MediaController.Builder(context, session.token)
                 .setListener(object : MediaController.Listener {
@@ -387,6 +389,7 @@ class NotificationLyricsMedia3ContractTest {
             block(
                 PlaybackContract(
                     player = player,
+                    presentation = presentation,
                     mediaController = mediaController,
                     playerController = playerController,
                     playSessions = playSessions,
@@ -469,6 +472,7 @@ class NotificationLyricsMedia3ContractTest {
 
     private data class PlaybackContract(
         val player: ExoPlayer,
+        val presentation: MicaSessionPresentationPlayer,
         val mediaController: MediaController,
         val playerController: PlayerController,
         val playSessions: CopyOnWriteArrayList<String>,

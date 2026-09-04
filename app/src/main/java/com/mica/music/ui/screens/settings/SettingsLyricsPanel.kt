@@ -225,7 +225,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsToggleRow(
         title = "通知栏歌词",
-        subtitle = "在系统媒体通知主位显示当前歌词，兼容车载蓝牙设备复用同一输出；副位显示歌名与歌手",
+        subtitle = "主位显示歌词，副位显示歌名与歌手；车载蓝牙兼容为实验功能",
         checked = uiSettings.notificationLyricsEnabled,
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
     )

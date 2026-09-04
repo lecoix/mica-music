@@ -83,6 +83,7 @@ class RealAudioDecodeContractTest {
         val engineCoordinator = onMain {
             ServicePlaybackEngineCoordinator(stack.compositePlayer, context).also { it.start() }
         }
+        val presentation = onMain { MicaSessionPresentationPlayer(stack.compositePlayer) }
         var lyricsCoordinator: NotificationLyricsCoordinator? = null
 
         try {
@@ -103,6 +104,7 @@ class RealAudioDecodeContractTest {
                         context = context,
                         player = stack.compositePlayer,
                         handler = Handler(Looper.getMainLooper()),
+                        notificationPresentation = presentation,
                         songLoader = { song },
                     ).also { it.start() }
                 }
@@ -112,7 +114,7 @@ class RealAudioDecodeContractTest {
                     onMain {
                         stack.exoPlayer.playerError != null ||
                             observation.positionAdvancing.get() > positionAdvancingBeforePlay &&
-                            stack.exoPlayer.currentMediaItem?.mediaMetadata?.title?.toString()
+                            presentation.mediaMetadata.title?.toString()
                                 ?.startsWith("notification-line-") == true
                     }
                 }

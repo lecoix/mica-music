@@ -83,8 +83,12 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private var mediaSession: MediaSession? = null
+    private var sessionPresentationPlayer: MicaSessionPresentationPlayer? = null
     private val playbackStackLifecycle = PlaybackStackLifecycleOwner { player ->
-        mediaSession?.setPlayer(player)
+        val publishedPlayer = sessionPresentationPlayer
+            ?.takeIf { it.wraps(player) }
+            ?: player
+        mediaSession?.setPlayer(publishedPlayer)
     }
     private val exoPlayer: ExoPlayer? get() = playbackStackLifecycle.exoPlayer
     private val compositePlayer: MicaCompositePlayer? get() = playbackStackLifecycle.player
@@ -95,7 +99,6 @@ class MicaMediaService : MediaSessionService() {
     private var playbackWidgetCoordinator: PlaybackWidgetCoordinator? = null
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
     private var lyriconLyricsSink: LyriconLyricsSink? = null
-    private var carBluetoothLyricsSession: CarBluetoothLyricsSession? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
     private var activeAppShuffleRequest: PlaybackShuffleRequest? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -200,7 +203,7 @@ class MicaMediaService : MediaSessionService() {
             externalLyricsOverlayControl.start()
         }
 
-        mediaSession = MediaSession.Builder(this, stack.compositePlayer)
+        mediaSession = MediaSession.Builder(this, checkNotNull(sessionPresentationPlayer))
             .setCallback(createMediaSessionCallback())
             .setSessionActivity(createSessionActivityPendingIntent())
             .setMediaButtonPreferences(
@@ -798,11 +801,8 @@ class MicaMediaService : MediaSessionService() {
         }
         stack.compositePlayer.shouldDeferUserPlayIntent = { false }
 
-        carBluetoothLyricsSession = CarBluetoothLyricsSession(
-            context = this,
-            player = stack.compositePlayer,
-            sessionActivity = createSessionActivityPendingIntent(),
-        )
+        // EXPERIMENTAL: keep one active MediaSession and project lyric metadata through its Player.
+        sessionPresentationPlayer = MicaSessionPresentationPlayer(stack.compositePlayer)
         lyriconLyricsSink = LyriconLyricsSink(this).also {
             it.start(LyricsPreferences.lyriconLyricsEnabled(this))
         }
@@ -810,7 +810,7 @@ class MicaMediaService : MediaSessionService() {
             context = this,
             player = stack.compositePlayer,
             handler = mainHandler,
-            carBluetoothLyrics = carBluetoothLyricsSession,
+            notificationPresentation = sessionPresentationPlayer,
             desktopLyrics = micaApp.desktopLyricsOverlayStateStore,
             lyriconLyrics = lyriconLyricsSink,
             transientSongResolver = micaApp.transientPlaybackCatalog::songById,
@@ -865,8 +865,8 @@ class MicaMediaService : MediaSessionService() {
         notificationLyricsCoordinator = null
         lyriconLyricsSink?.release()
         lyriconLyricsSink = null
-        carBluetoothLyricsSession?.release()
-        carBluetoothLyricsSession = null
+        sessionPresentationPlayer?.clear()
+        sessionPresentationPlayer = null
         playbackEngineCoordinator?.release()
         playbackEngineCoordinator = null
         audioOffloadCircuitBreaker?.let { breaker ->

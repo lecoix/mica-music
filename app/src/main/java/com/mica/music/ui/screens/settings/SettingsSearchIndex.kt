@@ -146,7 +146,7 @@ internal object SettingsSearchIndex {
         setting("lyrics.info-row", "信息行歌词", "歌词输出", "歌曲列表", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT),
         setting("lyrics.global-offset", "全局歌词偏移", "歌词同步", "提前", "延后", "微调", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
         setting("lyrics.info-row-word", "信息行逐字歌词", "逐字", "歌词输出", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT, availability = "仅信息行歌词开启且有逐字时间轴时明显生效"),
-        setting("lyrics.notification", "通知栏歌词", "通知", "媒体通知", "车载蓝牙", "车机", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT, availability = "车载蓝牙输出与通知栏歌词共用开关；受系统通知和媒体会话条件影响"),
+        setting("lyrics.notification", "通知栏歌词", "通知", "媒体通知", "车载蓝牙", "车机", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT, availability = "车载蓝牙兼容为实验功能；与通知栏歌词共用开关；受系统通知和媒体会话条件影响"),
         setting(
             "lyrics.external",
             "外部歌词",

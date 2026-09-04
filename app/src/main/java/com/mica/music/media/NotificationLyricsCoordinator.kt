@@ -47,7 +47,7 @@ internal class NotificationLyricsCoordinator(
     private val context: Context,
     private val player: Player,
     handler: Handler,
-    private val carBluetoothLyrics: CarBluetoothLyricsSink? = null,
+    private val notificationPresentation: NotificationLyricsPresentationSink? = null,
     private val desktopLyrics: DesktopLyricsOverlayStateStore? = null,
     private val lyriconLyrics: LyriconLyricsSink? = null,
     private val transientSongResolver: ((String) -> Song?)? = null,
@@ -90,7 +90,6 @@ internal class NotificationLyricsCoordinator(
     private var released = false
     private var syncing = false
     private var generation = 0L
-    private var overlaySequence = 0L
     private var trackedSongId: String? = null
 
     private var activeSpec: LyricsLoadSpec? = null
@@ -109,7 +108,6 @@ internal class NotificationLyricsCoordinator(
     private var lastExternalPublishedIndex: Int? = null
     private var lastPublishedRealtimeMs: Long? = null
     private var lastSignature: String? = null
-    private var lastOverlayToken: String? = null
 
     private var unregisterPreferenceListener: (() -> Unit)? = null
     private var invalidationJob: Job? = null
@@ -131,17 +129,8 @@ internal class NotificationLyricsCoordinator(
             if (!schedulingEvent) return
 
             if (events.contains(Player.EVENT_MEDIA_METADATA_CHANGED)) {
-                val currentToken = player.currentMediaItem?.mediaMetadata?.let(NotificationLyrics::overlayToken)
-                val selfWrite = currentToken != null && currentToken == lastOverlayToken
-                val hasOtherSchedulingEvent = RECONCILE_EVENTS
-                    .asSequence()
-                    .filter { it != Player.EVENT_MEDIA_METADATA_CHANGED }
-                    .any(events::contains)
-                if (selfWrite && !hasOtherSchedulingEvent) return
-                if (!selfWrite) {
-                    lastPublishedIndex = null
-                    lastSignature = null
-                }
+                lastPublishedIndex = null
+                lastSignature = null
             }
             reconcile()
         }
@@ -241,6 +230,7 @@ internal class NotificationLyricsCoordinator(
         lyricsScope.cancel()
         songCache.clear()
         desktopLyrics?.clear()
+        notificationPresentation?.clear()
     }
 
     private fun reconcile() {
@@ -263,16 +253,12 @@ internal class NotificationLyricsCoordinator(
             isPlaying = player.isPlaying,
             playbackSpeed = player.playbackParameters.speed,
         )
-        // The car surface shares the notification lyric load and boundary schedule. Its
-        // legacy session is enabled with the notification lyric setting so the two outputs
-        // cannot drift or perform duplicate lyric work.
-        carBluetoothLyrics?.setEnabled(notificationEnabled)
         val item = player.currentMediaItem
         val decoded = item?.let { mediaItem ->
             RemoteMediaItemCodec.decode(mediaItem) ?: SongMediaItemCodec.decode(mediaItem)
         }
         if (item == null || decoded == null) {
-            carBluetoothLyrics?.clear()
+            notificationPresentation?.clear()
             desktopLyrics?.clear()
             lyriconLyrics?.clear()
             resetForSong(null)
@@ -285,8 +271,10 @@ internal class NotificationLyricsCoordinator(
             songLyricsOffsetMs,
         )
 
+        // Clean up metadata persisted by the previous replaceMediaItem implementation once.
+        restoreLegacyNotificationOverlayIfNeeded(decoded, item)
         if (!notificationEnabled) {
-            restoreDefaultMetadataIfNeeded(decoded, item)
+            notificationPresentation?.clear()
         }
         val localLyricsEnabled = notificationEnabled || externalLyricsEnabled
         if (!localLyricsEnabled) {
@@ -389,8 +377,7 @@ internal class NotificationLyricsCoordinator(
                 notificationWakeInMs = notificationPlan.wakeInMs
             }
         } else {
-            if (notificationEnabled) restoreDefaultMetadataIfNeeded(decoded, item)
-            if (notificationEnabled) carBluetoothLyrics?.publishDefault(decoded)
+            if (notificationEnabled) notificationPresentation?.clear()
             lastExternalPublishedIndex = null
             desktopLyrics?.clear()
         }
@@ -578,44 +565,16 @@ internal class NotificationLyricsCoordinator(
             lastPublishedIndex = index
             return
         }
-        carBluetoothLyrics?.publishLyric(song, displayLine)
-        val currentMetadata = item.mediaMetadata
-        val visibleMetadataAlreadyMatches =
-            NotificationLyrics.overlayToken(currentMetadata) != null &&
-                currentMetadata.title?.toString() == displayLine &&
-                currentMetadata.displayTitle?.toString() == displayLine &&
-                currentMetadata.artist?.toString() == LyricsDisplayProjection.subtitle(song.title, song.artist)
-        if (visibleMetadataAlreadyMatches) {
-            // Preserve the existing repeated-text behavior: advance logically without a system write.
-            lastPublishedIndex = index
-            lastSignature = signature
-            return
-        }
-
-        val token = "${System.identityHashCode(this)}:${++overlaySequence}"
-        val metadata = NotificationLyrics.metadataWithLyric(
-            song = song,
-            line = displayLine,
-            base = item.mediaMetadata,
-            overlayToken = token,
-        ) ?: return
-        if (!metadataMatches(item.mediaMetadata, metadata)) {
-            replaceCurrentItem(item, metadata)
-        }
+        notificationPresentation?.publishLyric(song, displayLine)
         lastPublishedIndex = index
         lastPublishedRealtimeMs = nowRealtimeMs
         lastSignature = signature
-        lastOverlayToken = token
     }
 
-    private fun restoreDefaultMetadataIfNeeded(song: Song, item: MediaItem) {
-        if (NotificationLyrics.overlayToken(item.mediaMetadata) == null && lastSignature == null) return
+    private fun restoreLegacyNotificationOverlayIfNeeded(song: Song, item: MediaItem) {
+        if (NotificationLyrics.overlayToken(item.mediaMetadata) == null) return
         val metadata = NotificationLyrics.defaultPlaybackMetadata(song, item.mediaMetadata)
         if (!metadataMatches(item.mediaMetadata, metadata)) replaceCurrentItem(item, metadata)
-        lastPublishedIndex = null
-        lastPublishedRealtimeMs = null
-        lastSignature = null
-        lastOverlayToken = null
     }
 
     private fun replaceCurrentItem(item: MediaItem, metadata: MediaMetadata) {
@@ -717,8 +676,8 @@ internal class NotificationLyricsCoordinator(
         lastExternalPublishedIndex = null
         lastPublishedRealtimeMs = null
         lastSignature = null
-        lastOverlayToken = null
         desktopLyrics?.clear()
+        notificationPresentation?.clear()
     }
 
     private fun metadataMatches(current: MediaMetadata, target: MediaMetadata): Boolean =
